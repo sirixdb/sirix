@@ -192,9 +192,11 @@ public final class ValueDictionaryEntryNode implements DataRecord {
    * Compare this UTF-8 value with another one under Java/Brackit's UTF-16 string order without
    * materialising either string.
    *
-   * <p>The distinction matters for supplementary characters: unsigned UTF-8 order follows Unicode
-   * scalar values, while {@link String#compareTo(String)} compares UTF-16 code units. Dictionary
-   * ids are first-seen ids and therefore carry no ordering information of their own.</p>
+   * <p>
+   * The distinction matters for supplementary characters: unsigned UTF-8 order follows Unicode scalar
+   * values, while {@link String#compareTo(String)} compares UTF-16 code units. Dictionary ids are
+   * first-seen ids and therefore carry no ordering information of their own.
+   * </p>
    *
    * @param other the other immutable dictionary entry
    * @return a negative value, zero, or a positive value as this value is less than, equal to, or
@@ -211,8 +213,8 @@ public final class ValueDictionaryEntryNode implements DataRecord {
    *
    * <p>
    * This is the identical decode-and-compare the instance form used; only the bounds moved from
-   * {@code value.length} to explicit offset/limit pairs. Comparison operands are never materialised
-   * — a dictionary scan compares far more values than it ever emits, so building a String or a
+   * {@code value.length} to explicit offset/limit pairs. Comparison operands are never materialised —
+   * a dictionary scan compares far more values than it ever emits, so building a String or a
    * defensive copy per comparison is exactly the per-row garbage the packed layout exists to remove.
    *
    * @param left backing array of the left value
@@ -399,9 +401,9 @@ public final class ValueDictionaryEntryNode implements DataRecord {
    * <p>
    * The limit is not decoration. Packed dictionary values share ONE backing array, so a value whose
    * last byte is a multi-byte lead — corrupt data, or a truncated slice — would otherwise consume
-   * continuation bytes belonging to the NEXT value and compare against bytes that are not part of
-   * the operand at all. Before packing, every value owned its own array and the array bound was the
-   * value bound; now they differ and only the explicit limit is correct.
+   * continuation bytes belonging to the NEXT value and compare against bytes that are not part of the
+   * operand at all. Before packing, every value owned its own array and the array bound was the value
+   * bound; now they differ and only the explicit limit is correct.
    */
   private static int decodeCodePoint(final byte[] bytes, final int offset, final int limit) {
     final int first = Byte.toUnsignedInt(bytes[offset]);
@@ -434,8 +436,7 @@ public final class ValueDictionaryEntryNode implements DataRecord {
       if ((first == 0xF0 && second < 0x90) || (first == 0xF4 && second > 0x8F)) {
         throw new IllegalStateException("invalid UTF-8 in value dictionary entry");
       }
-      return (first & 0x07) << 18 | (second & 0x3F) << 12 | (bytes[offset + 2] & 0x3F) << 6
-          | bytes[offset + 3] & 0x3F;
+      return (first & 0x07) << 18 | (second & 0x3F) << 12 | (bytes[offset + 2] & 0x3F) << 6 | bytes[offset + 3] & 0x3F;
     }
     throw new IllegalStateException("invalid UTF-8 in value dictionary entry");
   }

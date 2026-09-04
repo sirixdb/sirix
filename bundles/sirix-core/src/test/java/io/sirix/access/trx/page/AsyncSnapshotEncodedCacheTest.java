@@ -192,8 +192,7 @@ final class AsyncSnapshotEncodedCacheTest {
       final long firstNodeKey = page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT;
       final int firstOverflowSlot = slot;
       for (int referencedSlot = firstOverflowSlot; referencedSlot < PageLayout.SLOT_COUNT; referencedSlot++) {
-        page.getReferencesMap()
-            .put(firstNodeKey + referencedSlot, new PageReference().setKey(referencedSlot + 1L));
+        page.getReferencesMap().put(firstNodeKey + referencedSlot, new PageReference().setKey(referencedSlot + 1L));
       }
 
       // A full row frame can legitimately acquire cold side images when later values have no inline
@@ -209,8 +208,8 @@ final class AsyncSnapshotEncodedCacheTest {
         final int sideImageLength = sideNode.serializeToHeap(sideScratch, 0L);
         assertTrue(sideImageLength > 0 && sideImageLength <= PageConstants.MAX_RECORD_SIZE);
         final MemorySegment sideImage = sideScratch.asSlice(0L, sideImageLength);
-        final long prepareToken = page.prepareSideSlot(NodeKind.OBJECT_NAMED_NUMBER.getId(), sideImage,
-            sideImageLength);
+        final long prepareToken =
+            page.prepareSideSlot(NodeKind.OBJECT_NAMED_NUMBER.getId(), sideImage, sideImageLength);
         page.publishSideSlot(sideSlot, prepareToken);
       }
       final byte[] framePrefix = frame.asSlice(0, PageLayout.HEADER_SIZE).toArray(ValueLayout.JAVA_BYTE);

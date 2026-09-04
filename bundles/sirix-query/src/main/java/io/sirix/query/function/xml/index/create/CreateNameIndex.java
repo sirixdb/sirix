@@ -90,9 +90,8 @@ public final class CreateNameIndex extends AbstractFunction {
 
     final var storageEngineWriter = wtx.getStorageEngineWriter();
     final int physicalIndexId = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage())
-        .nextUnallocatedSecondaryNameIndex(DatabaseType.XML);
-    final int indexDefNo =
-        IndexDefs.logicalNameIndexDefNoForPhysicalSlot(physicalIndexId, IndexDef.DbType.XML);
+                                                   .nextUnallocatedSecondaryNameIndex(DatabaseType.XML);
+    final int indexDefNo = IndexDefs.logicalNameIndexDefNoForPhysicalSlot(physicalIndexId, IndexDef.DbType.XML);
     final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(include, indexDefNo, IndexDef.DbType.XML);
     try {
       controller.createIndexes(Set.of(idxDef), wtx);

@@ -12,18 +12,22 @@ import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.HOTIndexWriter;
 
 /**
- * Constructs the {@link RelationalIntervalTree} that backs a valid-time interval index over a single
- * HOT sub-tree.
+ * Constructs the {@link RelationalIntervalTree} that backs a valid-time interval index over a
+ * single HOT sub-tree.
  *
- * <p>Both RI-tree stores (lower/upper) are realised on ONE HOT sub-tree (one {@code indexNumber} =
+ * <p>
+ * Both RI-tree stores (lower/upper) are realised on ONE HOT sub-tree (one {@code indexNumber} =
  * {@code IndexDef#getID()}); a one-byte store discriminator keeps them in disjoint contiguous key
  * ranges (see {@link ValidTimeKey}). The writer factory wires a single
  * {@link HOTIndexWriter}{@code <ValidTimeKey>} into both stores; the reader factory wires a single
- * {@link HOTIndexReader}{@code <ValidTimeKey>}.</p>
+ * {@link HOTIndexReader}{@code <ValidTimeKey>}.
+ * </p>
  *
- * <p>The persistent {@link OrderedStore} required by the RI-tree is implemented by the canonical
- * HOT trie. Valid-time entries live in their dedicated
- * {@link io.sirix.page.ValidTimeIndexPage} reference slot, separate from the other index types.</p>
+ * <p>
+ * The persistent {@link OrderedStore} required by the RI-tree is implemented by the canonical HOT
+ * trie. Valid-time entries live in their dedicated {@link io.sirix.page.ValidTimeIndexPage}
+ * reference slot, separate from the other index types.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */

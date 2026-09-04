@@ -1377,7 +1377,9 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public static final long SNAPSHOT_RETRY_NEXT_EPOCH = Long.MIN_VALUE + 1;
 
-  /** KVL pages that {@link #cleanupSnapshot()} pinned after a background-flush decline (diagnostics). */
+  /**
+   * KVL pages that {@link #cleanupSnapshot()} pinned after a background-flush decline (diagnostics).
+   */
   private static final LongAdder KVL_PAGES_PINNED_BY_PROMOTION = new LongAdder();
 
   /** KVL pages that {@link #cleanupSnapshot()} re-promoted for one more epoch (diagnostics). */
@@ -1891,8 +1893,9 @@ public final class TransactionIntentLog implements AutoCloseable {
    * The append coordinator uses this only after joining the window task. Each serializer writes a
    * distinct slot, and the join supplies the happens-before edge, so the plain array access needs no
    * per-page atomic or lock. {@link #SNAPSHOT_PROMOTE_TO_TIL} identifies a KVL page deliberately
-   * declined by the disposable-frame path, {@link #SNAPSHOT_RETRY_NEXT_EPOCH} one skipped for a single
-   * epoch while its staged carriers are published; {@link Constants#NULL_ID_LONG} still means no outcome.
+   * declined by the disposable-frame path, {@link #SNAPSHOT_RETRY_NEXT_EPOCH} one skipped for a
+   * single epoch while its staged carriers are published; {@link Constants#NULL_ID_LONG} still means
+   * no outcome.
    */
   public long getSnapshotDiskOffset(final int index) {
     return snapshotDiskOffsets[index];
@@ -2347,8 +2350,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     final Page newModified = newContainer.getModified();
 
     if (oldComplete instanceof HOTLeafPage completeLeaf && completeLeaf != newComplete && completeLeaf != newModified
-        && !isHOTLeafInOtherEntry(completeLeaf)
-        && !bufferManager.getHOTLeafPageCache().containsPage(completeLeaf)) {
+        && !isHOTLeafInOtherEntry(completeLeaf) && !bufferManager.getHOTLeafPageCache().containsPage(completeLeaf)) {
       completeLeaf.close();
     }
     if (oldModified != oldComplete && oldModified instanceof HOTLeafPage modifiedLeaf && modifiedLeaf != newComplete
@@ -2471,13 +2473,12 @@ public final class TransactionIntentLog implements AutoCloseable {
    * ClickBench load pins several hundred of them), so this is not hypothetical. Two things keep it
    * correct now: resolution branches on {@link #PINNED_GENERATION} before indexing, and the owner
    * count includes both regions and pinning transfers an owner without changing the total. Anything
-   * not positively proven unique keeps its frame; the failure direction here is a leak, never a
-   * free.
+   * not positively proven unique keeps its frame; the failure direction here is a leak, never a free.
    *
    * <p>
    * Coverage note: {@code TransactionIntentLogOrphanedHOTLeafTest} exercises unique, shared,
-   * pinned/current and stale-generation identities directly, including a fixed owner-probe bound
-   * with hundreds of unrelated HOT entries.
+   * pinned/current and stale-generation identities directly, including a fixed owner-probe bound with
+   * hundreds of unrelated HOT entries.
    *
    * <p>
    * <b>Every orphan forwards to {@code replacement}.</b> Freeing the frame is only half of a merge:

@@ -536,15 +536,13 @@ public final class AutoWiredExecutorTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String[] shapes = {
-        """
+    final String[] shapes = {"""
         for $r in jn:doc('json-path1','a.jn')[]
         let $g := 1, $a := $r.age, $b := $r.age + 7, $c := $r.age - 3, $d := $r.age + 1000
         group by $g
         return {"s": sum($a), "s7": sum($b), "mn": min($c), "mx": max($d), "avg": avg($b), "n": count($r),
                 "mn0": min($a), "mx7": max($b)}
-        """,
-        """
+        """, """
         for $r in jn:doc('json-path1','a.jn')[]
         where $r.age gt -20
         let $g := 1, $a := $r.age, $b := $r.age + 7, $c := $r.age - 3

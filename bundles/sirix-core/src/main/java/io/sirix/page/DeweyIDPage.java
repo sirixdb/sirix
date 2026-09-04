@@ -86,9 +86,9 @@ public final class DeweyIDPage extends AbstractForwardingPage {
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("currMaxLevelOfIndirectPages", currentMaxLevelOfIndirectPages)
-                      .add("maxNodeKey", maxNodeKey)
-                      .toString();
+                         .add("currMaxLevelOfIndirectPages", currentMaxLevelOfIndirectPages)
+                         .add("maxNodeKey", maxNodeKey)
+                         .toString();
   }
 
   /**

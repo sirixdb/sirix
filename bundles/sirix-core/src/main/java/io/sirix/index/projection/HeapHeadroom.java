@@ -15,19 +15,26 @@ import java.util.Map;
  * was LIVE after the last collection, not the maximum heap alone.
  *
  * <p>
- * A leg of queries retains state across queries — resident column fills, charged fingerprint chains,
- * payload windows, catalog descriptors — so a budget derived from {@code maxMemory} alone plans the
- * same group-table size for a query that runs first as for one that runs after 5.9 GB of an 8 GB heap
- * is already live; the latter dies in a worker with {@code OutOfMemoryError} instead of splitting the
- * key space into more passes (q32 at 100M/8 GB, second try inside a leg). The post-collection usage
- * of the heap pools is the JVM's own account of what is live; garbage is not counted.
+ * A leg of queries retains state across queries — resident column fills, charged fingerprint
+ * chains, payload windows, catalog descriptors — so a budget derived from {@code maxMemory} alone
+ * plans the same group-table size for a query that runs first as for one that runs after 5.9 GB of
+ * an 8 GB heap is already live; the latter dies in a worker with {@code OutOfMemoryError} instead
+ * of splitting the key space into more passes (q32 at 100M/8 GB, second try inside a leg). The
+ * post-collection usage of the heap pools is the JVM's own account of what is live; garbage is not
+ * counted.
  * </p>
  */
 public final class HeapHeadroom {
-  /** Kill switch: {@code -Dsirix.heapHeadroom.boundByUsage=false} takes the post-collection figures as they are. */
+  /**
+   * Kill switch: {@code -Dsirix.heapHeadroom.boundByUsage=false} takes the post-collection figures as
+   * they are.
+   */
   private static final boolean BOUND_BY_USAGE =
       !"false".equalsIgnoreCase(System.getProperty("sirix.heapHeadroom.boundByUsage", "true"));
-  /** Kill switch: {@code -Dsirix.heapHeadroom.lastGcInfo=false} reads the pools' own post-collection figures only. */
+  /**
+   * Kill switch: {@code -Dsirix.heapHeadroom.lastGcInfo=false} reads the pools' own post-collection
+   * figures only.
+   */
   private static final boolean LAST_GC_INFO =
       !"false".equalsIgnoreCase(System.getProperty("sirix.heapHeadroom.lastGcInfo", "true"));
   private static volatile long headroomForTesting = -1L;
@@ -35,17 +42,17 @@ public final class HeapHeadroom {
   private HeapHeadroom() {}
 
   /**
-   * Bytes in the heap pools that survived the last collection, {@code 0} before any collection —
-   * each pool bounded by its CURRENT usage, see {@link #liveBound(long, long)}.
+   * Bytes in the heap pools that survived the last collection, {@code 0} before any collection — each
+   * pool bounded by its CURRENT usage, see {@link #liveBound(long, long)}.
    *
    * <p>
    * Two records of the heap exist and the figure is the SMALLER: the after-collection usage the most
    * recent pause of ANY collector recorded ({@link #liveAfterLastCollection()}) and the pools' own
    * post-collection figures ({@link #liveAfterLastPoolCollection()}). Each is the live set plus a
-   * different kind of not-yet-collected garbage. A young pause's record carries everything the running
-   * query had PROMOTED — its group tables and decoded windows, dead a pass later but in the old
-   * generation until a mixed pause — so read alone it held the per-pass group budget at a third of
-   * its size for the whole query after a large aggregate (q31 at 100M: two hash-range passes where
+   * different kind of not-yet-collected garbage. A young pause's record carries everything the
+   * running query had PROMOTED — its group tables and decoded windows, dead a pass later but in the
+   * old generation until a mixed pause — so read alone it held the per-pass group budget at a third
+   * of its size for the whole query after a large aggregate (q31 at 100M: two hash-range passes where
    * one held). The old generation's own figure dates from the last mixed pause and carries the
    * humongous arrays that died at the next young one. Neither record is ever below the live set of
    * its instant, so the smaller is the tighter account of what a budget must leave alone; the current
@@ -72,8 +79,8 @@ public final class HeapHeadroom {
    * no collection records.
    *
    * <p>
-   * A collector's record of a collection carries the usage of EVERY pool it manages as the pause
-   * left it, so under G1 a young pause reports the old generation with the humongous arrays it eagerly
+   * A collector's record of a collection carries the usage of EVERY pool it manages as the pause left
+   * it, so under G1 a young pause reports the old generation with the humongous arrays it eagerly
    * reclaimed already gone. The pools' own post-collection figures do not: see
    * {@link #liveAfterLastPoolCollection()}. Between collections the figure ages, and what was
    * allocated since is not in it — the budgets derived from it are planned against a heap that the
@@ -174,8 +181,8 @@ public final class HeapHeadroom {
   /**
    * One line naming every figure a budget derives from, in MB: the two collector records, their
    * minimum, the current usage, the maximum heap and the planned share. Diagnostics only — a budget
-   * that shrinks between two queries of one leg is explained by which record moved, and a bare
-   * budget cannot say that.
+   * that shrinks between two queries of one leg is explained by which record moved, and a bare budget
+   * cannot say that.
    */
   public static String describe() {
     final Runtime runtime = Runtime.getRuntime();

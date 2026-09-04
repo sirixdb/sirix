@@ -73,9 +73,9 @@ final class ProjectionIndexParentKeyNotificationTest {
     final IllegalStateException sentinel = new IllegalStateException("injected record read failure");
     doThrow(sentinel).when(fixture.storageEngineWriter).getRecord(RECORD_KEY, IndexType.DOCUMENT, -1);
 
-    final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> fixture.listener.listen(IndexController.ChangeType.INSERT, RECORD_KEY, NodeKind.OBJECT, ROOT_PCR, null,
-            null));
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> fixture.listener.listen(IndexController.ChangeType.INSERT,
+            RECORD_KEY, NodeKind.OBJECT, ROOT_PCR, null, null));
 
     assertSame(sentinel, failure, "storage failure must reach the transaction's fail-closed boundary");
     // The listener must probe whether its constructor-bound bulk load has finished before routing

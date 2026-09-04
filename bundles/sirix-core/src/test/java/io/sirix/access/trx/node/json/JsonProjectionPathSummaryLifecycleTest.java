@@ -52,8 +52,7 @@ final class JsonProjectionPathSummaryLifecycleTest {
 
   @ParameterizedTest(name = "{0} rejects a persisted projection on a summary-less resource")
   @EnumSource(VersioningType.class)
-  void coldReopenFailsBeforeMutationWhenPersistedProjectionHasNoPathSummary(
-      final VersioningType versioningType) {
+  void coldReopenFailsBeforeMutationWhenPersistedProjectionHasNoPathSummary(final VersioningType versioningType) {
     final Path databasePath = temporaryDirectory.resolve(versioningType.name().toLowerCase());
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
     final IndexDef definition = projectionDefinition();
@@ -124,8 +123,8 @@ final class JsonProjectionPathSummaryLifecycleTest {
     when(wtx.getResourceSession()).thenReturn(session);
     when(session.getResourceConfig()).thenReturn(config);
 
-    final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> controller.createIndexListeners(Set.of(definition), wtx));
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> controller.createIndexListeners(Set.of(definition), wtx));
 
     assertTrue(failure.getMessage().contains("path summary is unavailable"));
     assertNotNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));

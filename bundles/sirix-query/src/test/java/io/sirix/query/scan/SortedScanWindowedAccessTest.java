@@ -49,8 +49,7 @@ final class SortedScanWindowedAccessTest {
 
   private static final List<String> QUERIES = List.of(
       // string sort key (ISO timestamps, non-monotonic in document order), string predicate
-      "subsequence(for $h in " + DOC + " where contains($h.url, 'google') order by $h.t "
-          + "return $h, 1, 10)",
+      "subsequence(for $h in " + DOC + " where contains($h.url, 'google') order by $h.t " + "return $h, 1, 10)",
       // descending, with a numeric predicate beside the string one
       "subsequence(for $h in " + DOC + " where contains($h.url, 'google') and $h.v ge 1000 "
           + "order by $h.t descending return $h, 1, 10)",
@@ -77,13 +76,25 @@ final class SortedScanWindowedAccessTest {
       final int day = minute / 1440;
       final int hh = (minute % 1440) / 60;
       final int mm = minute % 60;
-      sb.append("{\"t\":\"2024-").append(String.format("%02d", 1 + day / 28)).append('-')
-        .append(String.format("%02d", 1 + day % 28)).append('T').append(String.format("%02d", hh)).append(':')
-        .append(String.format("%02d", mm)).append(":00\",\"url\":\"http://").append(i % 23 == 0
+      sb.append("{\"t\":\"2024-")
+        .append(String.format("%02d", 1 + day / 28))
+        .append('-')
+        .append(String.format("%02d", 1 + day % 28))
+        .append('T')
+        .append(String.format("%02d", hh))
+        .append(':')
+        .append(String.format("%02d", mm))
+        .append(":00\",\"url\":\"http://")
+        .append(i % 23 == 0
             ? "www.google.com/q"
             : i % 31 == 0
                 ? "www.bing.com/s"
-                : "site").append(i % 977).append(".example/p").append(i).append("\",\"v\":").append((i * 31) % 20_011)
+                : "site")
+        .append(i % 977)
+        .append(".example/p")
+        .append(i)
+        .append("\",\"v\":")
+        .append((i * 31) % 20_011)
         .append('}');
     }
     sb.append(']');
@@ -137,9 +148,9 @@ final class SortedScanWindowedAccessTest {
     previousBudget = -1L;
     try (var db = Databases.openJsonDatabase(dbDir.resolve(DB)); var session = db.beginResourceSession(RES)) {
       final int revision = session.getMostRecentRevisionNumber();
-      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
-          session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
-          new String[] {"t", "url", "v"});
+      final ProjectionIndexRegistry.Handle handle =
+          ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(), revision,
+              new String[] {"[]"}, new String[] {"t", "url", "v"});
       assertNotNull(handle, "the projection must be loadable");
       final ProjectionColumnStore store = handle.columnStoreOrNull();
       assertNotNull(store, "the catalog must build a column store");
@@ -157,8 +168,8 @@ final class SortedScanWindowedAccessTest {
     for (int i = 0; i < QUERIES.size(); i++) {
       final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
       assertEquals(generic[i], run(QUERIES.get(i), true), "resident sorted scan diverges for: " + QUERIES.get(i));
-      assertTrue(SirixVectorizedExecutor.sortedScanServedCount() > servedBefore, "not served by the sorted scan: "
-          + QUERIES.get(i));
+      assertTrue(SirixVectorizedExecutor.sortedScanServedCount() > servedBefore,
+          "not served by the sorted scan: " + QUERIES.get(i));
     }
     assertEquals(windowedAfter, ProjectionColumnStore.windowedLeafAccessCount(),
         "the resident arm must serve from the retained slices, not decode leaves for itself");
@@ -170,8 +181,7 @@ final class SortedScanWindowedAccessTest {
   @DisplayName("predicate value emission serves through the windowed access as well")
   void valueEmissionServesWindowed() throws Exception {
     // Point lookups emitting another field, and the same field (Q20's shape).
-    final List<String> queries = List.of(
-        "for $h in " + DOC + " where $h.v eq 12345 return $h.t",
+    final List<String> queries = List.of("for $h in " + DOC + " where $h.v eq 12345 return $h.t",
         "for $h in " + DOC + " where $h.v eq 12345 return $h.v",
         "for $h in " + DOC + " where $h.t eq '2024-03-05T10:13:00' return $h.url");
     final String[] generic = new String[queries.size()];
@@ -206,9 +216,9 @@ final class SortedScanWindowedAccessTest {
     final ProjectionColumnStore store;
     final int v;
     try (var db = Databases.openJsonDatabase(dbDir.resolve(DB)); var session = db.beginResourceSession(RES)) {
-      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
-          session.getResourceConfig().getResource().toString(), session.getMostRecentRevisionNumber(),
-          new String[] {"[]"}, new String[] {"v", "t"});
+      final ProjectionIndexRegistry.Handle handle =
+          ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(),
+              session.getMostRecentRevisionNumber(), new String[] {"[]"}, new String[] {"v", "t"});
       assertNotNull(handle, "the projection must be loadable");
       store = handle.columnStoreOrNull();
       assertNotNull(store, "the catalog must build a column store");

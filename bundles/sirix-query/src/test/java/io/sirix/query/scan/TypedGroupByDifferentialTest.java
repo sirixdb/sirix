@@ -1358,9 +1358,8 @@ public final class TypedGroupByDifferentialTest {
       SirixVectorizedExecutor exec = null;
       try {
         final int revision = session.getMostRecentRevisionNumber();
-        assertTrue(ProjectionIndexCatalog.hasProjections(session,
-            session.getResourceConfig().getResource().toString(), revision),
-            "fresh serving session must observe the committed sparse projection catalog");
+        assertTrue(ProjectionIndexCatalog.hasProjections(session, session.getResourceConfig().getResource().toString(),
+            revision), "fresh serving session must observe the committed sparse projection catalog");
         exec = new SirixVectorizedExecutor(session, revision);
         SequentialPipelineStrategy.setVectorizedExecutor(exec);
         final Sequence result = new Query(chain, query).execute(ctx);

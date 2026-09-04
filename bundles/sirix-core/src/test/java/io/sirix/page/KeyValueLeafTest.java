@@ -405,17 +405,15 @@ class KeyValueLeafPageTest {
 
     final ResourceConfiguration config =
         new ResourceConfiguration.Builder("preserved-side-add-references").useDeweyIDs(true).build();
-    final KeyValueLeafPage completePage =
-        new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, null, null, false);
-    final KeyValueLeafPage modifiedPage =
-        new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 2, null, null, false);
+    final KeyValueLeafPage completePage = new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final KeyValueLeafPage modifiedPage = new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 2, null, null, false);
     try {
       completePage.setSlot(olderInlineValue, slot);
       modifiedPage.markSlotForPreservation(slot);
       modifiedPage.setCompletePageRef(completePage);
 
-      final PageReference newerReference = installSideCarrier(modifiedPage, recordKey, slot,
-          newerSideImage, newerOverflowValue);
+      final PageReference newerReference =
+          installSideCarrier(modifiedPage, recordKey, slot, newerSideImage, newerOverflowValue);
 
       modifiedPage.addReferences(config);
 
@@ -435,13 +433,11 @@ class KeyValueLeafPageTest {
 
     final ResourceConfiguration config =
         new ResourceConfiguration.Builder("preserved-side-bare-reference").useDeweyIDs(true).build();
-    final KeyValueLeafPage completePage =
-        new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, null, null, false);
-    final KeyValueLeafPage modifiedPage =
-        new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 2, null, null, false);
+    final KeyValueLeafPage completePage = new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final KeyValueLeafPage modifiedPage = new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 2, null, null, false);
     try {
-      final PageReference currentReference = installSideCarrier(completePage, recordKey, slot,
-          currentSideImage, new byte[] {4, 5, 6});
+      final PageReference currentReference =
+          installSideCarrier(completePage, recordKey, slot, currentSideImage, new byte[] {4, 5, 6});
       modifiedPage.markSlotForPreservation(slot);
       modifiedPage.setCompletePageRef(completePage);
 
@@ -470,25 +466,22 @@ class KeyValueLeafPageTest {
 
     final ResourceConfiguration config =
         new ResourceConfiguration.Builder("preserved-side-deep-copy").useDeweyIDs(true).build();
-    final KeyValueLeafPage completePage =
-        new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, null, null, false);
-    final KeyValueLeafPage modifiedPage =
-        new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 2, null, null, false);
+    final KeyValueLeafPage completePage = new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final KeyValueLeafPage modifiedPage = new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 2, null, null, false);
     KeyValueLeafPage copy = null;
     try {
       completePage.setSlot(olderInlineValue, slot);
       modifiedPage.markSlotForPreservation(slot);
       modifiedPage.setCompletePageRef(completePage);
 
-      final PageReference newerReference = installSideCarrier(modifiedPage, recordKey, slot,
-          newerSideImage, newerOverflowValue);
+      final PageReference newerReference =
+          installSideCarrier(modifiedPage, recordKey, slot, newerSideImage, newerOverflowValue);
 
       copy = modifiedPage.deepCopy();
 
       final PageReference copiedReference = copy.getPageReference(recordKey);
       assertCurrentSideCarrier(copy, recordKey, slot, newerSideImage, copiedReference);
-      assertNotSame(newerReference, copiedReference,
-          "deep copy must retain an independently mutable PageReference");
+      assertNotSame(newerReference, copiedReference, "deep copy must retain an independently mutable PageReference");
       assertSame(newerReference.getPage(), copiedReference.getPage(),
           "a fresh unresolved reference retains the one immutable OverflowPage payload");
     } finally {
@@ -515,8 +508,8 @@ class KeyValueLeafPageTest {
 
     // A pending record may temporarily coexist with an older inline carrier for the same slot.
     // The logical bitmap must expose that key only once while still including pending-only keys.
-    keyValueLeafPage.setRecord(new BooleanNode(pageKeyBase + inlineSlot, 5L, 1, 2, 7L, 6L, 11L, true,
-        LongHashFunction.xx3(), (byte[]) null));
+    keyValueLeafPage.setRecord(
+        new BooleanNode(pageKeyBase + inlineSlot, 5L, 1, 2, 7L, 6L, 11L, true, LongHashFunction.xx3(), (byte[]) null));
     keyValueLeafPage.setRecord(new BooleanNode(pageKeyBase + pendingSlot, 5L, 1, 2, 7L, 6L, 11L, false,
         LongHashFunction.xx3(), (byte[]) null));
 
@@ -543,8 +536,8 @@ class KeyValueLeafPageTest {
     final long sideToken = keyValueLeafPage.prepareSideSlot(0, MemorySegment.ofArray(new byte[] {2}), 1);
     keyValueLeafPage.publishSideSlot(sideSlot, sideToken);
     keyValueLeafPage.setPageReference(pageKeyBase + referenceSlot, new PageReference());
-    keyValueLeafPage.setRecord(new BooleanNode(pageKeyBase + inlineSlot, 5L, 1, 2, 7L, 6L, 11L, true,
-        LongHashFunction.xx3(), (byte[]) null));
+    keyValueLeafPage.setRecord(
+        new BooleanNode(pageKeyBase + inlineSlot, 5L, 1, 2, 7L, 6L, 11L, true, LongHashFunction.xx3(), (byte[]) null));
     keyValueLeafPage.setRecord(new BooleanNode(pageKeyBase + pendingSlot, 5L, 1, 2, 7L, 6L, 11L, false,
         LongHashFunction.xx3(), (byte[]) null));
     final long foreignPageKey = (keyValueLeafPage.getPageKey() + 1) << Constants.NDP_NODE_COUNT_EXPONENT;
@@ -570,8 +563,8 @@ class KeyValueLeafPageTest {
     assertThrows(NullPointerException.class, () -> keyValueLeafPage.forEachPopulatedSlot(null));
   }
 
-  private static PageReference installSideCarrier(final KeyValueLeafPage page, final long recordKey,
-      final int slot, final byte[] sideImage, final byte[] overflowValue) {
+  private static PageReference installSideCarrier(final KeyValueLeafPage page, final long recordKey, final int slot,
+      final byte[] sideImage, final byte[] overflowValue) {
     final long token = page.prepareSideSlot(0, MemorySegment.ofArray(sideImage), sideImage.length);
     page.publishSideSlot(slot, token);
     final PageReference reference = new PageReference();
@@ -580,8 +573,8 @@ class KeyValueLeafPageTest {
     return reference;
   }
 
-  private static void assertCurrentSideCarrier(final KeyValueLeafPage page, final long recordKey,
-      final int slot, final byte[] expectedImage, final PageReference expectedReference) {
+  private static void assertCurrentSideCarrier(final KeyValueLeafPage page, final long recordKey, final int slot,
+      final byte[] expectedImage, final PageReference expectedReference) {
     assertTrue(page.hasSideSlot(slot), "newer side image must remain authoritative");
     assertFalse(PageLayout.isSlotPopulated(page.getSlottedPage(), slot),
         "preserved inline bytes must not overlap a newer side image");

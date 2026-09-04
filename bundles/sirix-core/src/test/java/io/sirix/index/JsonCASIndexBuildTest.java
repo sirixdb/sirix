@@ -168,8 +168,7 @@ public final class JsonCASIndexBuildTest {
       final JsonIndexController indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
       final long validationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get();
-      final long propagationFailuresBefore =
-          AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
+      final long propagationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
 
       indexController.createIndexes(Set.of(categoryIndexDef(0)), trx);
 

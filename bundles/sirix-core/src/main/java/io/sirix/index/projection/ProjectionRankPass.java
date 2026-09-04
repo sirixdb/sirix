@@ -26,10 +26,10 @@ import java.util.PriorityQueue;
  *
  * <p>
  * <b>Why this is a post-pass and not part of the load.</b> Rank order is a property of the whole
- * value set. A streaming mint assigns id {@code k+1} to the {@code k+1}-th distinct value it happens
- * to SEE, and no amount of bookkeeping turns that into a rank without knowing every value that
- * follows. So the pass runs over an index that is already built, which is also the cheapest place
- * for it: the load path is left byte-identical, and a pass that fails leaves a perfectly good
+ * value set. A streaming mint assigns id {@code k+1} to the {@code k+1}-th distinct value it
+ * happens to SEE, and no amount of bookkeeping turns that into a rank without knowing every value
+ * that follows. So the pass runs over an index that is already built, which is also the cheapest
+ * place for it: the load path is left byte-identical, and a pass that fails leaves a perfectly good
  * per-leaf projection behind.
  * </p>
  *
@@ -43,7 +43,8 @@ import java.util.PriorityQueue;
  * between byte order and the engine's collation holds only for well-formed UTF-8, so a CESU-8
  * surrogate would be ranked into a position {@code compareUtf16Range} disagrees with.</li>
  * <li><b>S2 merge</b> — k-way merge the runs, mint one rank per distinct value into a front-less
- * appender, and emit {@code (leafId, localId, rank)} triples. The appender commits per generation.</li>
+ * appender, and emit {@code (leafId, localId, rank)} triples. The appender commits per
+ * generation.</li>
  * <li><b>S3 group</b> — bucket the triples by leaf. Counting sort rather than a comparison sort:
  * leaf ids are dense and bounded, so this is one counting pass and one scatter.</li>
  * <li><b>S4 remap</b> — rewrite each leaf's column through the ranks and drop its DICT, BLOOM and
@@ -83,8 +84,7 @@ public final class ProjectionRankPass {
 
   /** What one pass did, so a caller can report bytes and time without instrumenting the stages. */
   public record Result(int column, int distinctValues, int leavesRewritten, long dictionaryHeaderKey, int generations,
-                       long extractedEntries, long spilledBytes, long extractNanos, long mergeNanos, long groupNanos,
-                       long remapNanos) {
+      long extractedEntries, long spilledBytes, long extractNanos, long mergeNanos, long groupNanos, long remapNanos) {
   }
 
   private ProjectionRankPass() {
@@ -138,9 +138,8 @@ public final class ProjectionRankPass {
       throw new IllegalArgumentException("column " + column + " is outside the index's " + kinds.length + " columns");
     }
     if (kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-      throw new IllegalStateException(
-          "column " + column + " is kind " + kinds[column] + ", not STRING_DICT; only a per-leaf dictionary can be "
-              + "ranked");
+      throw new IllegalStateException("column " + column + " is kind " + kinds[column]
+          + ", not STRING_DICT; only a per-leaf dictionary can be " + "ranked");
     }
     final int rowGroupCount = metadata.rowGroupCount();
 
@@ -168,8 +167,8 @@ public final class ProjectionRankPass {
     Files.deleteIfExists(triples);
     Files.deleteIfExists(grouped);
 
-    return new Result(column, merged.distinctValues, rewritten, merged.headerKey, merged.generations,
-        extracted.entries, extracted.spilledBytes, t1 - t0, t2 - t1, t3 - t2, t4 - t3);
+    return new Result(column, merged.distinctValues, rewritten, merged.headerKey, merged.generations, extracted.entries,
+        extracted.spilledBytes, t1 - t0, t2 - t1, t3 - t2, t4 - t3);
   }
 
   // -----------------------------------------------------------------------------------------------
@@ -267,8 +266,8 @@ public final class ProjectionRankPass {
     final List<RunCursor> open = new ArrayList<>(runs.size());
     long tripleCount = 0;
     int distinct = 0;
-    try (DataOutputStream out = new DataOutputStream(
-        new BufferedOutputStream(Files.newOutputStream(triples), 1 << 20))) {
+    try (DataOutputStream out =
+        new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(triples), 1 << 20))) {
       for (final Path run : runs) {
         final RunCursor cursor = new RunCursor(run);
         open.add(cursor);
@@ -281,8 +280,8 @@ public final class ProjectionRankPass {
       int rank = 0;
       while (!queue.isEmpty()) {
         final RunCursor head = queue.poll();
-        if (current == null || ValueDictionaryEntryNode.compareUtf16Range(current, 0, currentLength, head.value, 0,
-            head.length) != 0) {
+        if (current == null
+            || ValueDictionaryEntryNode.compareUtf16Range(current, 0, currentLength, head.value, 0, head.length) != 0) {
           rank = appender.accept(head.value, 0, head.length);
           distinct++;
           if (current == null || current.length < head.length) {
@@ -324,9 +323,9 @@ public final class ProjectionRankPass {
    * Counting sort of the triples by leaf id.
    *
    * <p>
-   * A comparison sort would be the general answer and the wrong one here: leaf ids are dense,
-   * bounded by the index's own row-group count, and already known, so one counting pass and one
-   * scatter is {@code O(n)} with a single {@code int[]} of leaf offsets.
+   * A comparison sort would be the general answer and the wrong one here: leaf ids are dense, bounded
+   * by the index's own row-group count, and already known, so one counting pass and one scatter is
+   * {@code O(n)} with a single {@code int[]} of leaf offsets.
    * </p>
    *
    * @return the start offset, in triples, of each leaf's run, with a trailing total
@@ -403,8 +402,7 @@ public final class ProjectionRankPass {
           localToGlobal[readInt(record, 4)] = readInt(record, 8);
         }
         page.remapStringDictColumnToGlobal(column, localToGlobal);
-        storage.putRowGroupAsColumnSegmentSlots(rowGroupId,
-            ProjectionIndexColumnSegmentCodec.encode(page, workspace));
+        storage.putRowGroupAsColumnSegmentSlots(rowGroupId, ProjectionIndexColumnSegmentCodec.encode(page, workspace));
         rewritten++;
       }
     }
@@ -424,9 +422,9 @@ public final class ProjectionRankPass {
     // predicate pushdown that would show up only as latency, which is exactly the failure this
     // pass is measured against.
     anchors[column] = headerKey;
-    final ProjectionIndexMetadata next = new ProjectionIndexMetadata(metadata.rootPath(), metadata.fieldPaths(),
-        metadata.fieldNames(), kinds, metadata.rowGroupCount(), wtx.getRevisionNumber(), metadata.setValueRowCounts(),
-        anchors);
+    final ProjectionIndexMetadata next =
+        new ProjectionIndexMetadata(metadata.rootPath(), metadata.fieldPaths(), metadata.fieldNames(), kinds,
+            metadata.rowGroupCount(), wtx.getRevisionNumber(), metadata.setValueRowCounts(), anchors);
     // Slot 0 LAST and in the SAME commit as every descriptor: the kind lives in both, and a store
     // whose leaves and metadata disagree refuses to build at all.
     storage.putBlob(0L, next.serialize());
@@ -472,8 +470,7 @@ public final class ProjectionRankPass {
 
     @Override
     public int compareTo(final RunCursor other) {
-      final int byValue =
-          ValueDictionaryEntryNode.compareUtf16Range(value, 0, length, other.value, 0, other.length);
+      final int byValue = ValueDictionaryEntryNode.compareUtf16Range(value, 0, length, other.value, 0, other.length);
       if (byValue != 0) {
         return byValue;
       }

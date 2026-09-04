@@ -57,8 +57,7 @@ final class XmlProjectionPathSummaryLifecycleTest {
 
   @ParameterizedTest(name = "{0} rejects a persisted XML projection on a summary-less resource")
   @EnumSource(VersioningType.class)
-  void coldReopenFailsBeforeMutationWhenPersistedProjectionHasNoPathSummary(
-      final VersioningType versioningType) {
+  void coldReopenFailsBeforeMutationWhenPersistedProjectionHasNoPathSummary(final VersioningType versioningType) {
     final Path databasePath = temporaryDirectory.resolve(versioningType.name().toLowerCase());
     assertTrue(Databases.createXmlDatabase(new DatabaseConfiguration(databasePath)));
     final IndexDef definition = projectionDefinition(0, "/records/record");
@@ -85,8 +84,7 @@ final class XmlProjectionPathSummaryLifecycleTest {
     try (Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath);
         XmlResourceSession session = database.beginResourceSession(RESOURCE);
         XmlNodeTrx wtx = session.beginNodeTrx()) {
-      final XmlIndexController controller =
-          (XmlIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
+      final XmlIndexController controller = (XmlIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
       final IllegalStateException failure =
           assertThrows(IllegalStateException.class, () -> controller.createIndexes(Set.of(definition), wtx));
       assertTrue(failure.getMessage().contains("buildPathSummary=true"));
@@ -123,8 +121,8 @@ final class XmlProjectionPathSummaryLifecycleTest {
     when(wtx.getResourceSession()).thenReturn(session);
     when(session.getResourceConfig()).thenReturn(config);
 
-    final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> controller.createIndexListeners(Set.of(definition), wtx));
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> controller.createIndexListeners(Set.of(definition), wtx));
 
     assertTrue(failure.getMessage().contains("path summary is unavailable"));
     assertNotNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));

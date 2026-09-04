@@ -492,9 +492,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         case LONG_NUMBER -> primitiveValue;
         default -> throw new IllegalArgumentException("Unknown primitive number type: " + primitiveType);
       };
-      final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey, parentKey, rightSibKey, leftSibKey,
-          localNameKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, materializedValue, hashFunction,
-          id);
+      final ObjectNamedNumberNode node =
+          new ObjectNamedNumberNode(nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey, pathNodeKey,
+              Constants.NULL_REVISION_NUMBER, revisionNumber, 0, materializedValue, hashFunction, id);
       kvl.setRecord(node);
       return node;
     }
@@ -633,9 +633,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final long absOffset =
         kvl.prepareHeapForDirectWriteOrOverflow(reusableObjectNamedObjectNode.estimateSerializedSize(), deweyIdLen);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
-      final ObjectNamedObjectNode node = new ObjectNamedObjectNode(nodeKey, parentKey, rightSibKey, leftSibKey,
-          NULL_KEY, NULL_KEY, localNameKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0,
-          hashFunction, id);
+      final ObjectNamedObjectNode node =
+          new ObjectNamedObjectNode(nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY, localNameKey,
+              pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, hashFunction, id);
       node.setName(new QNm(name));
       kvl.setRecord(node);
       return node;
@@ -668,9 +668,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final long absOffset =
         kvl.prepareHeapForDirectWriteOrOverflow(reusableObjectNamedArrayNode.estimateSerializedSize(), deweyIdLen);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
-      final ObjectNamedArrayNode node = new ObjectNamedArrayNode(nodeKey, parentKey, rightSibKey, leftSibKey,
-          NULL_KEY, NULL_KEY, localNameKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0,
-          hashFunction, id);
+      final ObjectNamedArrayNode node =
+          new ObjectNamedArrayNode(nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY, localNameKey,
+              pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, hashFunction, id);
       node.setName(new QNm(name));
       kvl.setRecord(node);
       return node;

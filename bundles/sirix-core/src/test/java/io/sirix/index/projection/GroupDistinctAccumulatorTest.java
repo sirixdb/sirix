@@ -25,8 +25,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class GroupDistinctAccumulatorTest {
 
   /** Group ids that stress the hashing: zero, negatives, the extremes, and a few dense small ones. */
-  private static final long[] GROUPS = {0L, 1L, 2L, 3L, -1L, Long.MIN_VALUE, Long.MAX_VALUE, 0x5DEECE66DL, 1L << 40,
-      -(1L << 33), 42L, 43L, 1_000_003L};
+  private static final long[] GROUPS =
+      {0L, 1L, 2L, 3L, -1L, Long.MIN_VALUE, Long.MAX_VALUE, 0x5DEECE66DL, 1L << 40, -(1L << 33), 42L, 43L, 1_000_003L};
 
   @Test
   @DisplayName("exact under duplication across workers, including the missing-key rows")

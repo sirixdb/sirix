@@ -27,11 +27,12 @@ import org.junit.jupiter.api.Test;
 /**
  * The composite string-identity registry must charge its canonical-byte budget for the answer's
  * vocabulary only — the distinct strings that predicate-surviving rows turn into group keys — never
- * for every string the visited leaves' dictionaries store. Proving whole dictionaries let ClickBench
- * q39 decline on a 1M-row corpus with per-leaf dictionaries (the state every fat column is in at
- * 100M, where AUTO declines resource-wide dictionaries) although its answer names a few thousand
- * strings. Two arms: a budget that holds the answer but not the dictionaries SERVES exactly; a budget
- * that cannot even hold the answer still DECLINES — the bound is scoped, not bypassed.
+ * for every string the visited leaves' dictionaries store. Proving whole dictionaries let
+ * ClickBench q39 decline on a 1M-row corpus with per-leaf dictionaries (the state every fat column
+ * is in at 100M, where AUTO declines resource-wide dictionaries) although its answer names a few
+ * thousand strings. Two arms: a budget that holds the answer but not the dictionaries SERVES
+ * exactly; a budget that cannot even hold the answer still DECLINES — the bound is scoped, not
+ * bypassed.
  */
 final class CompositeIdentityProofScopeTest {
 
@@ -73,8 +74,15 @@ final class CompositeIdentityProofScopeTest {
         dst = highEntropy(rng, VALUE_BYTES);
         dictionaryBytesBeyondTheAnswer += src.length() + dst.length();
       }
-      sb.append("{\"id\":").append(i).append(",\"src\":\"").append(src).append("\",\"dst\":\"").append(dst)
-        .append("\",\"cat\":").append(i % 3).append('}');
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"src\":\"")
+        .append(src)
+        .append("\",\"dst\":\"")
+        .append(dst)
+        .append("\",\"cat\":")
+        .append(i % 3)
+        .append('}');
     }
     sb.append(']');
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
@@ -151,8 +159,8 @@ final class CompositeIdentityProofScopeTest {
 
   /**
    * Uniform over the printable characters that survive both a JSON string and an XQuery string
-   * literal unescaped ({@code "} {@code \\} {@code '} and {@code &} are excluded): FSST declines
-   * such values, so every byte counts toward the dictionaries.
+   * literal unescaped ({@code "} {@code \\} {@code '} and {@code &} are excluded): FSST declines such
+   * values, so every byte counts toward the dictionaries.
    */
   private static String highEntropy(final Random rng, final int len) {
     final StringBuilder sb = new StringBuilder(len);

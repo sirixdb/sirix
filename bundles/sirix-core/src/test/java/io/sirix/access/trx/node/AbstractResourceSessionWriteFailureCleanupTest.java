@@ -42,8 +42,8 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
     final StorageEngineWriter succeedingWriter = writerWithDocumentNode();
     final JsonNodeTrx succeedingTrx = mock(JsonNodeTrx.class);
 
-    final FailingResourceSession session = new FailingResourceSession(bindingFailure, succeedingTrx,
-        failedWriter, succeedingWriter);
+    final FailingResourceSession session =
+        new FailingResourceSession(bindingFailure, succeedingTrx, failedWriter, succeedingWriter);
     try {
       final RuntimeException thrown = assertThrows(RuntimeException.class, session::beginNodeTrx);
 
@@ -70,14 +70,13 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
 
   private static StorageEngineWriter writerWithDocumentNode() {
     final StorageEngineWriter writer = mock(StorageEngineWriter.class);
-    when(writer.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), io.sirix.index.IndexType.DOCUMENT, -1))
-        .thenReturn(mock(Node.class));
+    when(writer.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), io.sirix.index.IndexType.DOCUMENT,
+        -1)).thenReturn(mock(Node.class));
     return writer;
   }
 
   /** Deterministic seam: the first node-transaction construction models listener binding failure. */
-  private static final class FailingResourceSession
-      extends AbstractResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> {
+  private static final class FailingResourceSession extends AbstractResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
     private final ArrayDeque<StorageEngineWriter> writers = new ArrayDeque<>();
     private final RuntimeException firstConstructionFailure;
@@ -85,8 +84,8 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
     private int constructionAttempts;
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private FailingResourceSession(final RuntimeException firstConstructionFailure,
-        final JsonNodeTrx succeedingTrx, final StorageEngineWriter... writers) {
+    private FailingResourceSession(final RuntimeException firstConstructionFailure, final JsonNodeTrx succeedingTrx,
+        final StorageEngineWriter... writers) {
       super((ResourceStore) mock(ResourceStore.class), ResourceConfiguration.newBuilder("resource").build(),
           mock(BufferManager.class), mock(IOStorage.class), uberPageAtRevisionZero(), new Semaphore(1), null,
           mock(StorageEngineWriterFactory.class));
@@ -104,15 +103,15 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
     }
 
     @Override
-    public JsonNodeReadOnlyTrx createNodeReadOnlyTrx(final int nodeTrxId,
-        final StorageEngineReader storageEngineReader, final Node documentNode) {
+    public JsonNodeReadOnlyTrx createNodeReadOnlyTrx(final int nodeTrxId, final StorageEngineReader storageEngineReader,
+        final Node documentNode) {
       throw new UnsupportedOperationException("not used by this test");
     }
 
     @Override
-    public JsonNodeTrx createNodeReadWriteTrx(final int nodeTrxId,
-        final StorageEngineWriter storageEngineWriter, final int maxNodeCount, final Duration autoCommitDelay,
-        final Node documentNode, final AfterCommitState afterCommitState) {
+    public JsonNodeTrx createNodeReadWriteTrx(final int nodeTrxId, final StorageEngineWriter storageEngineWriter,
+        final int maxNodeCount, final Duration autoCommitDelay, final Node documentNode,
+        final AfterCommitState afterCommitState) {
       if (constructionAttempts++ == 0) {
         throw firstConstructionFailure;
       }

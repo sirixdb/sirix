@@ -5,24 +5,26 @@ import org.jspecify.annotations.Nullable;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * One distinct set of 128-bit keys that several workers fill together: the keys are split by the top
- * bits of their high half into partition sets, each guarded by its own monitor, and every worker
- * appends through a {@link #worker() buffered handle} that flushes a partition's buffer into the
- * partition set in one locked run.
+ * One distinct set of 128-bit keys that several workers fill together: the keys are split by the
+ * top bits of their high half into partition sets, each guarded by its own monitor, and every
+ * worker appends through a {@link #worker() buffered handle} that flushes a partition's buffer into
+ * the partition set in one locked run.
  *
  * <p>
- * The alternative — one set per worker, merged at the end — holds every key once per worker that saw
- * it: a 100M-row dictionary column with 6M distinct values spread over 32 workers would carry up to
- * 24M keys in flight against 6M in the answer. Here the footprint is the answer's, plus one buffer
- * page per (worker, partition); the buffers amortise a monitor acquisition over hundreds of keys, so
- * the partition monitors see a few thousand acquisitions per worker instead of one per key.
+ * The alternative — one set per worker, merged at the end — holds every key once per worker that
+ * saw it: a 100M-row dictionary column with 6M distinct values spread over 32 workers would carry
+ * up to 24M keys in flight against 6M in the answer. Here the footprint is the answer's, plus one
+ * buffer page per (worker, partition); the buffers amortise a monitor acquisition over hundreds of
+ * keys, so the partition monitors see a few thousand acquisitions per worker instead of one per
+ * key.
  * </p>
  *
  * <p>
- * Every array is charged to the shared byte {@code budget}: partition sets as they grow, buffers as a
- * worker handle is created. A refusal throws {@link DistinctHash128Set.ByteBudgetExceededException}
- * from the worker that hit it, and the operation declines as a whole. The count is read after every
- * worker has {@link Worker#flush() flushed} and the workers were joined.
+ * Every array is charged to the shared byte {@code budget}: partition sets as they grow, buffers as
+ * a worker handle is created. A refusal throws
+ * {@link DistinctHash128Set.ByteBudgetExceededException} from the worker that hit it, and the
+ * operation declines as a whole. The count is read after every worker has {@link Worker#flush()
+ * flushed} and the workers were joined.
  * </p>
  */
 public final class SharedDistinctHash128Set {
@@ -35,8 +37,8 @@ public final class SharedDistinctHash128Set {
   private final @Nullable AtomicLong budget;
 
   /**
-   * A shared set of {@code partitions} partition sets, each sized for {@code expectedKeysPerPartition}
-   * keys before growing.
+   * A shared set of {@code partitions} partition sets, each sized for
+   * {@code expectedKeysPerPartition} keys before growing.
    *
    * @param partitions the partition count, a positive power of two
    * @param expectedKeysPerPartition keys each partition set holds before its first growth
@@ -86,7 +88,10 @@ public final class SharedDistinctHash128Set {
     return partitions.length;
   }
 
-  /** One worker's buffers: {@code bufferKeys} key pairs per partition, flushed into the partition set when full. */
+  /**
+   * One worker's buffers: {@code bufferKeys} key pairs per partition, flushed into the partition set
+   * when full.
+   */
   public final class Worker implements DistinctHash128Sink {
     private final long[][] buffers;
     private final int[] fill;
@@ -118,7 +123,9 @@ public final class SharedDistinctHash128Set {
       fill[p] = at;
     }
 
-    /** Push every buffered key into its partition set; the worker's contribution is complete after this. */
+    /**
+     * Push every buffered key into its partition set; the worker's contribution is complete after this.
+     */
     public void flush() {
       for (int p = 0; p < buffers.length; p++) {
         final int at = fill[p];

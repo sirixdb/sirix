@@ -12,7 +12,8 @@ import java.util.Arrays;
 /**
  * Shared primitive encoders and decoders for the canonical segmented projection format.
  *
- * <p>This class is deliberately package-private and is <b>not</b> a persisted row-group codec.
+ * <p>
+ * This class is deliberately package-private and is <b>not</b> a persisted row-group codec.
  * {@link ProjectionIndexColumnSegmentCodec} owns the only supported row-group persistence format;
  * this helper merely centralizes its little-endian access, frame-of-reference bit packing,
  * dictionaries, presence bitmaps, record keys, and order-label primitives so writers and readers
@@ -358,9 +359,9 @@ final class ProjectionIndexRowGroupCodec {
    * <p>
    * A width {@code k} admits exactly the rows whose differing suffix is at most {@code k} bytes, so
    * the admitted set — and with it the encoded size, since a wider tail spans only bytes that are
-   * equal and therefore leaves every delta unchanged — only moves at a width some row actually
-   * needs. Costing those widths alone is exact, and on real label runs it is one or two probes
-   * instead of seven.
+   * equal and therefore leaves every delta unchanged — only moves at a width some row actually needs.
+   * Costing those widths alone is exact, and on real label runs it is one or two probes instead of
+   * seven.
    */
   private static int synthesizedTailCandidates(final byte[] bytes, final int[] offsets, final int rowCount) {
     int candidates = 0;
@@ -420,8 +421,7 @@ final class ProjectionIndexRowGroupCodec {
       final int start = offsets[row];
       final int end = offsets[row + 1];
       if (isSynthesizedRunRow(bytes, offsets, row, tailLen)) {
-        final long delta =
-            tailValue(bytes, end - tailLen, tailLen) - tailValue(bytes, start - tailLen, tailLen);
+        final long delta = tailValue(bytes, end - tailLen, tailLen) - tailValue(bytes, start - tailLen, tailLen);
         if (delta < minDelta) {
           minDelta = delta;
         }
@@ -446,9 +446,8 @@ final class ProjectionIndexRowGroupCodec {
         ? 0
         : widthOf(maxAnchorRow);
     final int anchorLenWidth = widthOf(maxAnchorLength);
-    return Integer.BYTES + 1 + 1 + Long.BYTES + Integer.BYTES + 1
-        + (((anchorCount - 1) * anchorRowWidth + 7) >>> 3) + 1 + ((anchorCount * anchorLenWidth + 7) >>> 3)
-        + anchorByteTotal + ((deltaCount * deltaWidth + 7) >>> 3);
+    return Integer.BYTES + 1 + 1 + Long.BYTES + Integer.BYTES + 1 + (((anchorCount - 1) * anchorRowWidth + 7) >>> 3) + 1
+        + ((anchorCount * anchorLenWidth + 7) >>> 3) + anchorByteTotal + ((deltaCount * deltaWidth + 7) >>> 3);
   }
 
   /**
@@ -472,8 +471,7 @@ final class ProjectionIndexRowGroupCodec {
       final int end = offsets[row + 1];
       if (isSynthesizedRunRow(bytes, offsets, row, tailLen)) {
         runBits[row >>> 6] |= 1L << (row & 63);
-        final long delta =
-            tailValue(bytes, end - tailLen, tailLen) - tailValue(bytes, start - tailLen, tailLen);
+        final long delta = tailValue(bytes, end - tailLen, tailLen) - tailValue(bytes, start - tailLen, tailLen);
         if (delta < minDelta) {
           minDelta = delta;
         }
@@ -536,8 +534,8 @@ final class ProjectionIndexRowGroupCodec {
     final BitWriter deltaWriter = new BitWriter(out);
     for (int row = 1; row < rowCount; row++) {
       if (isRunRow(runBits, row)) {
-        final long delta = tailValue(bytes, offsets[row + 1] - tailLen, tailLen)
-            - tailValue(bytes, offsets[row] - tailLen, tailLen);
+        final long delta =
+            tailValue(bytes, offsets[row + 1] - tailLen, tailLen) - tailValue(bytes, offsets[row] - tailLen, tailLen);
         deltaWriter.write(delta - deltaBase, deltaWidth);
       }
     }
@@ -588,7 +586,9 @@ final class ProjectionIndexRowGroupCodec {
         + ((rowCount * suffixWidth + 7) >>> 3) + suffixTotal;
   }
 
-  /** Writer for {@link #ORDER_LABEL_MARKER_FRONT_CODED}; mirrors {@link #frontCodedOrderLabelBytes}. */
+  /**
+   * Writer for {@link #ORDER_LABEL_MARKER_FRONT_CODED}; mirrors {@link #frontCodedOrderLabelBytes}.
+   */
   private static void encodeFrontCodedOrderLabels(final ByteArrayOutputStream out, final byte[] bytes,
       final int[] offsets, final int rowCount, final int length) {
     int maxPrefix = 0;
@@ -817,8 +817,8 @@ final class ProjectionIndexRowGroupCodec {
     // widthOf(MAX_ORDER_LABEL_BYTES). Bounding the widths HERE is what keeps every length below
     // arithmetic that could overflow the cursor checks in the rebuild loop.
     final int maxLengthWidth = widthOf(ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES);
-    if (byteLength < 0 || byteLength > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES
-        || prefixWidth > maxLengthWidth || suffixWidth > maxLengthWidth || suffixMin < 0
+    if (byteLength < 0 || byteLength > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES || prefixWidth > maxLengthWidth
+        || suffixWidth > maxLengthWidth || suffixMin < 0
         || suffixMin > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
       throw new IllegalStateException("invalid front-coded projection order-label header");
     }
@@ -892,8 +892,8 @@ final class ProjectionIndexRowGroupCodec {
   }
 
   /** Labels stored one after another with an explicit offset per row (LEGACY and FRONT_CODED). */
-  record FlatOrderLabels(int marker, byte[] source, int bytesOffset, int[] offsets, int totalBytes)
-      implements OrderLabelLane {
+  record FlatOrderLabels(int marker, byte[] source, int bytesOffset, int[] offsets,
+      int totalBytes) implements OrderLabelLane {
 
     @Override
     public int compareAt(final int row, final byte[] other) {
@@ -962,8 +962,8 @@ final class ProjectionIndexRowGroupCodec {
     }
 
     /**
-     * Index of the anchor governing {@code row} — the greatest anchor row {@code <= row}. Anchor
-     * counts are single digits on a run-shaped leaf, so the binary search settles in 1-2 probes.
+     * Index of the anchor governing {@code row} — the greatest anchor row {@code <= row}. Anchor counts
+     * are single digits on a run-shaped leaf, so the binary search settles in 1-2 probes.
      */
     private int anchorOf(final int row) {
       int low = 0;
@@ -1090,9 +1090,9 @@ final class ProjectionIndexRowGroupCodec {
     }
 
     /**
-     * Every guard the flat lane gets, answered from the run description: a derived row must have a
-     * tail that fits its field, and every row must be strictly greater than its predecessor. Uniform
-     * strides make this O(anchors) — one bound check per run instead of one per row.
+     * Every guard the flat lane gets, answered from the run description: a derived row must have a tail
+     * that fits its field, and every row must be strictly greater than its predecessor. Uniform strides
+     * make this O(anchors) — one bound check per run instead of one per row.
      */
     void validate() {
       final long tailLimit = 1L << (tailLen << 3);
@@ -1316,10 +1316,10 @@ final class ProjectionIndexRowGroupCodec {
   }
 
   /**
-   * A byte-at-a-time accumulator holds at most 63 usable bits (a byte shifted by
-   * {@code avail > 56} loses its top bits past bit 63), so packed runs are capped at 56 bits;
-   * anything wider uses the aligned raw 64-bit path. Wider-than-56-bit ranges are pathological for
-   * FOR packing anyway — the raw path costs at most 1 byte/value more.
+   * A byte-at-a-time accumulator holds at most 63 usable bits (a byte shifted by {@code avail > 56}
+   * loses its top bits past bit 63), so packed runs are capped at 56 bits; anything wider uses the
+   * aligned raw 64-bit path. Wider-than-56-bit ranges are pathological for FOR packing anyway — the
+   * raw path costs at most 1 byte/value more.
    */
   static int clampPackWidth(final int width) {
     return width > 56
@@ -1462,10 +1462,9 @@ final class ProjectionIndexRowGroupCodec {
 
   /**
    * Bulk bit-unpacker — the decode hot path (hydrate assembles ~10k packed runs per projection load;
-   * the former per-byte accumulator with its per-byte {@link Cursor} call was the dominant
-   * cost). Reads {@code count} {@code width}-bit little-endian values (exactly
-   * {@code ceil(count·width / 8)} bytes, adds
-   * {@code base}, writes {@code out[0..count)}.
+   * the former per-byte accumulator with its per-byte {@link Cursor} call was the dominant cost).
+   * Reads {@code count} {@code width}-bit little-endian values (exactly {@code ceil(count·width / 8)}
+   * bytes, adds {@code base}, writes {@code out[0..count)}.
    *
    * <p>
    * Main loop: one unaligned 8-byte window load per value ({@code width + 7 ≤ 64} holds for widths ≤
@@ -1550,10 +1549,10 @@ final class ProjectionIndexRowGroupCodec {
    * Fused unpack-and-sum: the wrapped {@code long} total of {@code count} {@code width}-bit RAW
    * packed values (the FOR base NOT added) starting at byte-aligned {@code pos}. The fold kernel's
    * dense-block path — a block whose every row survives the mask and the presence bits, which is
-   * every block of an unpredicated aggregate over a NOT NULL column — never materializes the
-   * values: {@code Σ(base + p_i) = count·base + Σp_i}, and the caller's zone-map pre-flight has
-   * already proven the true total fits a long, so wrap-around in either term is harmless (two's
-   * complement addition is associative).
+   * every block of an unpredicated aggregate over a NOT NULL column — never materializes the values:
+   * {@code Σ(base + p_i) = count·base + Σp_i}, and the caller's zone-map pre-flight has already
+   * proven the true total fits a long, so wrap-around in either term is harmless (two's complement
+   * addition is associative).
    *
    * <p>
    * Widths up to 32 stream through a 64-bit rolling buffer refilled one little-endian {@code int} at

@@ -94,8 +94,7 @@ final class ValidTimeIndexPageTest {
     final ValidTimeIndexPage page = new ValidTimeIndexPage();
 
     assertThrows(IndexOutOfBoundsException.class, () -> page.isIndexInitialized(-1));
-    assertThrows(IndexOutOfBoundsException.class,
-        () -> page.nextUnallocatedIndex(Constants.INP_REFERENCE_COUNT));
+    assertThrows(IndexOutOfBoundsException.class, () -> page.nextUnallocatedIndex(Constants.INP_REFERENCE_COUNT));
   }
 
   @Test
@@ -124,17 +123,17 @@ final class ValidTimeIndexPageTest {
   }
 
   /**
-   * Backward-compatibility: the {@link RevisionRootPage} delegate is a
-   * {@link BitmapReferencesPage} whose on-disk form stores a presence BITMAP, and whose
-   * deserializer ({@link io.sirix.page.SerializationType#deserializeBitmapReferencesPage}) reads
-   * EXACTLY {@code bitmap.cardinality()} references — it IGNORES the {@code referenceCount}
-   * argument. Therefore:
+   * Backward-compatibility: the {@link RevisionRootPage} delegate is a {@link BitmapReferencesPage}
+   * whose on-disk form stores a presence BITMAP, and whose deserializer
+   * ({@link io.sirix.page.SerializationType#deserializeBitmapReferencesPage}) reads EXACTLY
+   * {@code bitmap.cardinality()} references — it IGNORES the {@code referenceCount} argument.
+   * Therefore:
    *
    * <ul>
-   *   <li>a NEW revision root (11 set bits) round-trips to 11 references, and</li>
-   *   <li>an OLD revision root written before the VALIDTIME slot existed (only offsets 0..9 set, 10
-   *       references) round-trips to 10 references WITHOUT error, even though the deserialize ctor is
-   *       now called with {@code referenceCount = 11}.</li>
+   * <li>a NEW revision root (11 set bits) round-trips to 11 references, and</li>
+   * <li>an OLD revision root written before the VALIDTIME slot existed (only offsets 0..9 set, 10
+   * references) round-trips to 10 references WITHOUT error, even though the deserialize ctor is now
+   * called with {@code referenceCount = 11}.</li>
    * </ul>
    *
    * After deserializing the old form, the missing VALIDTIME slot (offset 10) is materialized lazily

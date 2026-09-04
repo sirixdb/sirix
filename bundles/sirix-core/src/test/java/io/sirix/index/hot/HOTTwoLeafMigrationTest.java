@@ -113,16 +113,14 @@ final class HOTTwoLeafMigrationTest {
     final WriterFixture fixture = writerFixture(shape.rootReference, IndexType.PROJECTION);
     final long migrationBefore = AbstractHOTIndexWriter.STRAND_TWO_LEAF_MIGRATE.get();
     final long validationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get();
-    final long propagationFailuresBefore =
-        AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
+    final long propagationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
 
     try {
       fixture.writer.insert(projectionKey(0xC0), value(5));
 
       assertEquals(migrationBefore + 1, AbstractHOTIndexWriter.STRAND_TWO_LEAF_MIGRATE.get());
       assertEquals(validationFailuresBefore, AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get());
-      assertEquals(propagationFailuresBefore,
-          AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get(),
+      assertEquals(propagationFailuresBefore, AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get(),
           "projection side references must stay on the bounded two-leaf primitive");
       assertArrayEquals(new byte[0], storedValue(shape.rootReference, projectionKey(0xA0), fixture),
           "the zero-length slot retained in the rebuilt source leaf must remain a real tombstone");
@@ -143,8 +141,7 @@ final class HOTTwoLeafMigrationTest {
       assertTrue(HOTMalformedSubtreeDetector.detect(shape.rootReference, fixture::resolve).isEmpty());
       verify(fixture.storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
-      closeReachableLeaves(shape.rootReference, fixture,
-          java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
+      closeReachableLeaves(shape.rootReference, fixture, java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
       if (!shape.source.isClosed()) {
         shape.source.close();
       }
@@ -161,8 +158,7 @@ final class HOTTwoLeafMigrationTest {
     final AtomicReference<Page> migratedChild = new AtomicReference<>();
     final long migrationBefore = AbstractHOTIndexWriter.STRAND_TWO_LEAF_MIGRATE.get();
     final long validationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get();
-    final long propagationFailuresBefore =
-        AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
+    final long propagationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
     AbstractHOTIndexWriter.setTwoLeafMigrationAfterReattachTestHook(freshCandidate -> {
       candidate.set(freshCandidate);
       rebuiltSource.set(freshCandidate.getChildReference(3).getPage());
@@ -172,8 +168,8 @@ final class HOTTwoLeafMigrationTest {
     });
 
     try {
-      final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> fixture.writer.insert(projectionKey(0xC0), value(5)));
+      final IllegalStateException failure =
+          assertThrows(IllegalStateException.class, () -> fixture.writer.insert(projectionKey(0xC0), value(5)));
 
       assertSame(sentinel, failure);
       final HOTIndirectPage unpublished = candidate.get();
@@ -185,14 +181,12 @@ final class HOTTwoLeafMigrationTest {
       assertSame(shape.migratedReference, shape.source.getPageReference(shape.migratedRefKey));
       assertEquals(migrationBefore, AbstractHOTIndexWriter.STRAND_TWO_LEAF_MIGRATE.get());
       assertEquals(validationFailuresBefore, AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get());
-      assertEquals(propagationFailuresBefore,
-          AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get());
+      assertEquals(propagationFailuresBefore, AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get());
       verify(fixture.log, never()).releaseOrphanedHOTLeaves(anyLong(), any(PageReference.class),
           org.mockito.ArgumentMatchers.<List<PageReference>>any(), anyInt());
     } finally {
       AbstractHOTIndexWriter.setTwoLeafMigrationAfterReattachTestHook(null);
-      closeReachableLeaves(shape.rootReference, fixture,
-          java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
+      closeReachableLeaves(shape.rootReference, fixture, java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
       if (!shape.source.isClosed()) {
         shape.source.close();
       }
@@ -204,8 +198,8 @@ final class HOTTwoLeafMigrationTest {
     final ProjectionMigrationShape shape = projectionMigrationShapeWithTombstones();
     final AtomicBoolean publicationReached = new AtomicBoolean();
     final IllegalStateException sentinel = new IllegalStateException("injected second registration failure");
-    final WriterFixture fixture = writerFixture(shape.rootReference, IndexType.PROJECTION,
-        publicationReached, sentinel, 2);
+    final WriterFixture fixture =
+        writerFixture(shape.rootReference, IndexType.PROJECTION, publicationReached, sentinel, 2);
     final AtomicReference<HOTIndirectPage> candidate = new AtomicReference<>();
     final AtomicReference<HOTLeafPage> registeredSourceLeaf = new AtomicReference<>();
     final AtomicReference<HOTLeafPage> failedMigratedLeaf = new AtomicReference<>();
@@ -219,8 +213,8 @@ final class HOTTwoLeafMigrationTest {
     });
 
     try {
-      final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> fixture.writer.insert(projectionKey(0xC0), value(5)));
+      final IllegalStateException failure =
+          assertThrows(IllegalStateException.class, () -> fixture.writer.insert(projectionKey(0xC0), value(5)));
 
       assertSame(sentinel, failure);
       verify(fixture.storageEngineWriter, atLeastOnce()).markTransactionRollbackOnly(same(sentinel));
@@ -231,8 +225,7 @@ final class HOTTwoLeafMigrationTest {
       final HOTLeafPage failedMigratedChild = failedMigratedLeaf.get();
       assertTrue(registeredSourceRef.getLogKey() >= 0,
           "the first replacement leaf must have transferred to the TIL before the injected fault");
-      assertFalse(registeredSource.isClosed(),
-          "post-failure cleanup must stop at the exact TIL-owned child reference");
+      assertFalse(registeredSource.isClosed(), "post-failure cleanup must stop at the exact TIL-owned child reference");
       assertSame(shape.remainingReference, registeredSource.getPageReference(shape.remainingRefKey));
       assertTrue(failedMigratedChild.isClosed(),
           "the leaf whose registration failed remains locally owned and must be closed");
@@ -243,8 +236,7 @@ final class HOTTwoLeafMigrationTest {
           org.mockito.ArgumentMatchers.<List<PageReference>>any(), anyInt());
     } finally {
       AbstractHOTIndexWriter.setTwoLeafMigrationAfterPublicationTestHook(null);
-      closeReachableLeaves(shape.rootReference, fixture,
-          java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
+      closeReachableLeaves(shape.rootReference, fixture, java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
       final HOTLeafPage transferred = registeredSourceLeaf.get();
       if (transferred != null && !transferred.isClosed()) {
         transferred.close();
@@ -268,9 +260,8 @@ final class HOTTwoLeafMigrationTest {
     assertTrue(source.put(key(0x40), largeValue(4)));
     final PageReference sourceReference = reference(source);
     final HOTLeafPage sibling = leaf(31, key(0x80), 9);
-    final PageReference rootReference = reference(HOTIndirectPage.createSpanNode(32, 1, 0,
-        0x8000_0000_0000_0000L, new int[] {0, 1},
-        new PageReference[] {sourceReference, reference(sibling)}, 1));
+    final PageReference rootReference = reference(HOTIndirectPage.createSpanNode(32, 1, 0, 0x8000_0000_0000_0000L,
+        new int[] {0, 1}, new PageReference[] {sourceReference, reference(sibling)}, 1));
     final WriterFixture fixture = writerFixture(rootReference);
 
     try {
@@ -298,9 +289,8 @@ final class HOTTwoLeafMigrationTest {
     final PageReference sourceReference = reference(source);
     final HOTLeafPage highZero = leaf(41, key(0x80), 8);
     final HOTLeafPage highOne = leaf(42, key(0xC0), 9);
-    final PageReference rootReference = reference(HOTIndirectPage.createSpanNode(43, 1, 0,
-        0xC000_0000_0000_0000L, new int[] {0, 2, 3},
-        new PageReference[] {sourceReference, reference(highZero), reference(highOne)}, 1));
+    final PageReference rootReference = reference(HOTIndirectPage.createSpanNode(43, 1, 0, 0xC000_0000_0000_0000L,
+        new int[] {0, 2, 3}, new PageReference[] {sourceReference, reference(highZero), reference(highOne)}, 1));
     final WriterFixture fixture = writerFixture(rootReference);
     final long handledBefore = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK.get();
 
@@ -340,8 +330,8 @@ final class HOTTwoLeafMigrationTest {
       partials[slot] = partial;
       children[slot] = reference(leaf(50L + slot, key(partial << 2), partial));
     }
-    final PageReference rootReference = reference(HOTIndirectPage.createMultiNode(100, 1, 0,
-        0xFC00_0000_0000_0000L, partials, children, 1));
+    final PageReference rootReference =
+        reference(HOTIndirectPage.createMultiNode(100, 1, 0, 0xFC00_0000_0000_0000L, partials, children, 1));
     final WriterFixture fixture = writerFixture(rootReference);
     final long handledBefore = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK.get();
 
@@ -401,15 +391,12 @@ final class HOTTwoLeafMigrationTest {
 
       final HOTIndirectPage candidate = published.get();
       assertTrue(candidate != null, "the fault must fire after the sole publication boundary");
-      assertTrue(rebuiltSource.get().isClosed(),
-          "the rebuilt source leaf must be retired when publication fails");
-      assertTrue(migratedChild.get().isClosed(),
-          "the migrated child leaf must be retired when publication fails");
+      assertTrue(rebuiltSource.get().isClosed(), "the rebuilt source leaf must be retired when publication fails");
+      assertTrue(migratedChild.get().isClosed(), "the migrated child leaf must be retired when publication fails");
       assertFalse(shape.source.isClosed(), "the original source is still owned by the pre-transaction graph");
     } finally {
       AbstractHOTIndexWriter.setTwoLeafMigrationAfterPublicationTestHook(null);
-      closeReachableLeaves(shape.rootReference, fixture,
-          java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
+      closeReachableLeaves(shape.rootReference, fixture, java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
       if (!shape.source.isClosed()) {
         shape.source.close();
       }
@@ -450,8 +437,7 @@ final class HOTTwoLeafMigrationTest {
           org.mockito.ArgumentMatchers.<List<PageReference>>any(), anyInt());
     } finally {
       AbstractHOTIndexWriter.setTwoLeafMigrationAfterPublicationTestHook(null);
-      closeReachableLeaves(shape.rootReference, fixture,
-          java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
+      closeReachableLeaves(shape.rootReference, fixture, java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
       if (!shape.source.isClosed()) {
         shape.source.close();
       }
@@ -465,9 +451,9 @@ final class HOTTwoLeafMigrationTest {
     final HOTLeafPage source = new HOTLeafPage(13, 1, IndexType.PATH);
     assertTrue(source.put(key(0xA0), value(4)));
     assertTrue(source.put(key(0xE0), value(6)));
-    final PageReference rootReference = reference(HOTIndirectPage.createSpanNode(14, 1, 0,
-        0xA000_0000_0000_0000L, new int[] {0, 1, 2, 3},
-        new PageReference[] {reference(slotZero), reference(slotOne), reference(descended), reference(source)}, 1));
+    final PageReference rootReference =
+        reference(HOTIndirectPage.createSpanNode(14, 1, 0, 0xA000_0000_0000_0000L, new int[] {0, 1, 2, 3},
+            new PageReference[] {reference(slotZero), reference(slotOne), reference(descended), reference(source)}, 1));
     return new MigrationShape(rootReference, source);
   }
 
@@ -488,11 +474,11 @@ final class HOTTwoLeafMigrationTest {
     final long migratedRefKey = HOTLeafPage.overflowPageRefKey(migratedOwner, 2);
     source.setPageReference(remainingRefKey, remainingReference);
     source.setPageReference(migratedRefKey, migratedReference);
-    final PageReference rootReference = reference(HOTIndirectPage.createSpanNode(114, 1, 7,
-        0xA000_0000_0000_0000L, new int[] {0, 1, 2, 3},
-        new PageReference[] {reference(slotZero), reference(slotOne), reference(descended), reference(source)}, 1));
-    return new ProjectionMigrationShape(rootReference, source, remainingRefKey, remainingReference,
-        migratedRefKey, migratedReference);
+    final PageReference rootReference =
+        reference(HOTIndirectPage.createSpanNode(114, 1, 7, 0xA000_0000_0000_0000L, new int[] {0, 1, 2, 3},
+            new PageReference[] {reference(slotZero), reference(slotOne), reference(descended), reference(source)}, 1));
+    return new ProjectionMigrationShape(rootReference, source, remainingRefKey, remainingReference, migratedRefKey,
+        migratedReference);
   }
 
   private static WriterFixture writerFixture(final PageReference rootReference) {
@@ -503,8 +489,8 @@ final class HOTTwoLeafMigrationTest {
     return writerFixture(rootReference, indexType, null, null);
   }
 
-  private static WriterFixture writerFixture(final PageReference rootReference,
-      final AtomicBoolean failRegistration, final RuntimeException registrationFailure) {
+  private static WriterFixture writerFixture(final PageReference rootReference, final AtomicBoolean failRegistration,
+      final RuntimeException registrationFailure) {
     return writerFixture(rootReference, IndexType.PATH, failRegistration, registrationFailure);
   }
 
@@ -535,8 +521,8 @@ final class HOTTwoLeafMigrationTest {
     when(storageEngineWriter.getPathPage(revisionRootPage)).thenReturn(pathPage);
     when(storageEngineWriter.getProjectionIndexPage(revisionRootPage)).thenReturn(projectionIndexPage);
     when(storageEngineWriter.<PathPage>prepareSecondaryIndexPage(IndexType.PATH)).thenReturn(pathPage);
-    when(storageEngineWriter.<ProjectionIndexPage>prepareSecondaryIndexPage(IndexType.PROJECTION))
-        .thenReturn(projectionIndexPage);
+    when(storageEngineWriter.<ProjectionIndexPage>prepareSecondaryIndexPage(IndexType.PROJECTION)).thenReturn(
+        projectionIndexPage);
     when(pathPage.incrementAndGetMaxHotPageKey(0)).thenAnswer(invocation -> pageKeys.getAndIncrement());
     when(projectionIndexPage.incrementAndGetMaxHotPageKey(0)).thenAnswer(invocation -> pageKeys.getAndIncrement());
     when(log.get(any(PageReference.class))).thenAnswer(invocation -> {
@@ -588,8 +574,7 @@ final class HOTTwoLeafMigrationTest {
     }
   }
 
-  private static byte[] storedValue(final PageReference rootReference, final byte[] key,
-      final WriterFixture fixture) {
+  private static byte[] storedValue(final PageReference rootReference, final byte[] key, final WriterFixture fixture) {
     final HOTLeafPage leaf = routedLeaf(rootReference, key, fixture);
     final int index = leaf.findEntry(key);
     assertTrue(index >= 0, "the migrated leaf must contain the requested key");
@@ -630,9 +615,9 @@ final class HOTTwoLeafMigrationTest {
   }
 
   /**
-   * The focused fixture keeps the original graph resident without a real TIL/durable reader. Mark
-   * the three retained children with the durable identities they have in production so failure
-   * cleanup can distinguish them from the two locally owned replacement roots at slots 3 and 4.
+   * The focused fixture keeps the original graph resident without a real TIL/durable reader. Mark the
+   * three retained children with the durable identities they have in production so failure cleanup
+   * can distinguish them from the two locally owned replacement roots at slots 3 and 4.
    */
   private static void markRetainedMigrationChildrenDurable(final HOTIndirectPage candidate) {
     for (int slot = 0; slot < 3; slot++) {
@@ -672,8 +657,7 @@ final class HOTTwoLeafMigrationTest {
     return leaf(pageKey, key, value, IndexType.PATH);
   }
 
-  private static HOTLeafPage leaf(final long pageKey, final byte[] key, final int value,
-      final IndexType indexType) {
+  private static HOTLeafPage leaf(final long pageKey, final byte[] key, final int value, final IndexType indexType) {
     final HOTLeafPage leaf = new HOTLeafPage(pageKey, 1, indexType);
     assertTrue(leaf.put(key, value(value)));
     return leaf;
@@ -720,7 +704,7 @@ final class HOTTwoLeafMigrationTest {
   }
 
   private record WriterFixture(StorageEngineWriter storageEngineWriter, TransactionIntentLog log,
-                               TestIndexWriter writer, Map<PageReference, PageContainer> logged) {
+      TestIndexWriter writer, Map<PageReference, PageContainer> logged) {
     private Page resolve(final PageReference reference) {
       final PageContainer registered = logged.get(reference);
       if (registered != null) {
@@ -737,9 +721,8 @@ final class HOTTwoLeafMigrationTest {
   private record MigrationShape(PageReference rootReference, HOTLeafPage source) {
   }
 
-  private record ProjectionMigrationShape(PageReference rootReference, HOTLeafPage source,
-                                          long remainingRefKey, PageReference remainingReference,
-                                          long migratedRefKey, PageReference migratedReference) {
+  private record ProjectionMigrationShape(PageReference rootReference, HOTLeafPage source, long remainingRefKey,
+      PageReference remainingReference, long migratedRefKey, PageReference migratedReference) {
   }
 
   private static final class TestIndexWriter extends AbstractHOTIndexWriter<byte[]> {

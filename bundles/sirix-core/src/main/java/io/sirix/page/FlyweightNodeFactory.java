@@ -28,9 +28,11 @@ import java.lang.foreign.MemorySegment;
 /**
  * Factory for creating flyweight node shells and binding them to a slotted page MemorySegment.
  *
- * <p>This factory creates minimal node instances (binding shells) that are immediately
- * bound to a record in the page heap. After binding, all getters/setters operate
- * directly on page memory via the per-record offset table.</p>
+ * <p>
+ * This factory creates minimal node instances (binding shells) that are immediately bound to a
+ * record in the page heap. After binding, all getters/setters operate directly on page memory via
+ * the per-record offset table.
+ * </p>
  */
 public final class FlyweightNodeFactory {
 
@@ -41,9 +43,11 @@ public final class FlyweightNodeFactory {
   /**
    * Whether {@code nodeKindId} has a flyweight slotted-record layout understood by this factory.
    *
-   * <p>The field-layout table and this factory intentionally cover the same set of IDs. Keeping the
+   * <p>
+   * The field-layout table and this factory intentionally cover the same set of IDs. Keeping the
    * persisted-directory fence in terms of this predicate prevents an arbitrary in-range byte (or a
-   * retired {@link io.sirix.node.NodeKind} ID) from being published as a bindable slot.</p>
+   * retired {@link io.sirix.node.NodeKind} ID) from being published as a bindable slot.
+   * </p>
    */
   static boolean supportsNodeKindId(final int nodeKindId) {
     return switch (nodeKindId) {
@@ -55,15 +59,15 @@ public final class FlyweightNodeFactory {
   /**
    * Create a flyweight node shell and bind it to a record in the slotted page.
    *
-   * @param page         the slotted page MemorySegment
-   * @param slotIndex    the slot index (0 to 1023)
-   * @param nodeKey      the node key for this record
+   * @param page the slotted page MemorySegment
+   * @param slotIndex the slot index (0 to 1023)
+   * @param nodeKey the node key for this record
    * @param hashFunction the hash function from resource config
    * @return the bound flyweight node
    * @throws IllegalArgumentException if the nodeKindId is not a known flyweight type
    */
-  public static FlyweightNode createAndBind(final MemorySegment page, final int slotIndex,
-      final long nodeKey, final LongHashFunction hashFunction) {
+  public static FlyweightNode createAndBind(final MemorySegment page, final int slotIndex, final long nodeKey,
+      final LongHashFunction hashFunction) {
     final int heapOffset = PageLayout.getDirHeapOffset(page, slotIndex);
     final int nodeKindId = PageLayout.getDirNodeKindId(page, slotIndex);
     final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
@@ -74,35 +78,33 @@ public final class FlyweightNodeFactory {
   }
 
   /**
-   * Create a minimal flyweight node shell for binding.
-   * The shell has only nodeKey and hashFunction initialized.
-   * All other fields will be read from page memory after bind().
+   * Create a minimal flyweight node shell for binding. The shell has only nodeKey and hashFunction
+   * initialized. All other fields will be read from page memory after bind().
    */
   private static FlyweightNode createShell(final int nodeKindId, final long nodeKey,
       final LongHashFunction hashFunction) {
     return switch (nodeKindId) {
-      case 1  -> new ElementNode(nodeKey, hashFunction);          // ELEMENT
-      case 2  -> new AttributeNode(nodeKey, hashFunction);        // ATTRIBUTE
-      case 3  -> new TextNode(nodeKey, hashFunction);             // TEXT
-      case 7  -> new PINode(nodeKey, hashFunction);               // PROCESSING_INSTRUCTION
-      case 8  -> new CommentNode(nodeKey, hashFunction);          // COMMENT
-      case 9  -> new XmlDocumentRootNode(nodeKey, hashFunction);  // XML_DOCUMENT
-      case 13 -> new NamespaceNode(nodeKey, hashFunction);        // NAMESPACE
-      case 24 -> new ObjectNode(nodeKey, hashFunction);           // OBJECT
-      case 25 -> new ArrayNode(nodeKey, hashFunction);            // ARRAY
-      case 27 -> new BooleanNode(nodeKey, hashFunction);          // BOOLEAN_VALUE
-      case 28 -> new NumberNode(nodeKey, hashFunction);           // NUMBER_VALUE
-      case 29 -> new NullNode(nodeKey, hashFunction);             // NULL_VALUE
-      case 30 -> new StringNode(nodeKey, hashFunction);           // STRING_VALUE
+      case 1 -> new ElementNode(nodeKey, hashFunction); // ELEMENT
+      case 2 -> new AttributeNode(nodeKey, hashFunction); // ATTRIBUTE
+      case 3 -> new TextNode(nodeKey, hashFunction); // TEXT
+      case 7 -> new PINode(nodeKey, hashFunction); // PROCESSING_INSTRUCTION
+      case 8 -> new CommentNode(nodeKey, hashFunction); // COMMENT
+      case 9 -> new XmlDocumentRootNode(nodeKey, hashFunction); // XML_DOCUMENT
+      case 13 -> new NamespaceNode(nodeKey, hashFunction); // NAMESPACE
+      case 24 -> new ObjectNode(nodeKey, hashFunction); // OBJECT
+      case 25 -> new ArrayNode(nodeKey, hashFunction); // ARRAY
+      case 27 -> new BooleanNode(nodeKey, hashFunction); // BOOLEAN_VALUE
+      case 28 -> new NumberNode(nodeKey, hashFunction); // NUMBER_VALUE
+      case 29 -> new NullNode(nodeKey, hashFunction); // NULL_VALUE
+      case 30 -> new StringNode(nodeKey, hashFunction); // STRING_VALUE
       case 31 -> new JsonDocumentRootNode(nodeKey, hashFunction); // JSON_DOCUMENT
       case 48 -> new ObjectNamedBooleanNode(nodeKey, hashFunction); // OBJECT_NAMED_BOOLEAN
-      case 49 -> new ObjectNamedNumberNode(nodeKey, hashFunction);  // OBJECT_NAMED_NUMBER
-      case 50 -> new ObjectNamedStringNode(nodeKey, hashFunction);  // OBJECT_NAMED_STRING
-      case 51 -> new ObjectNamedNullNode(nodeKey, hashFunction);    // OBJECT_NAMED_NULL
-      case 52 -> new ObjectNamedObjectNode(nodeKey, hashFunction);  // OBJECT_NAMED_OBJECT
-      case 53 -> new ObjectNamedArrayNode(nodeKey, hashFunction);   // OBJECT_NAMED_ARRAY
-      default -> throw new IllegalArgumentException(
-          "Unknown flyweight node kind ID: " + nodeKindId);
+      case 49 -> new ObjectNamedNumberNode(nodeKey, hashFunction); // OBJECT_NAMED_NUMBER
+      case 50 -> new ObjectNamedStringNode(nodeKey, hashFunction); // OBJECT_NAMED_STRING
+      case 51 -> new ObjectNamedNullNode(nodeKey, hashFunction); // OBJECT_NAMED_NULL
+      case 52 -> new ObjectNamedObjectNode(nodeKey, hashFunction); // OBJECT_NAMED_OBJECT
+      case 53 -> new ObjectNamedArrayNode(nodeKey, hashFunction); // OBJECT_NAMED_ARRAY
+      default -> throw new IllegalArgumentException("Unknown flyweight node kind ID: " + nodeKindId);
     };
   }
 }

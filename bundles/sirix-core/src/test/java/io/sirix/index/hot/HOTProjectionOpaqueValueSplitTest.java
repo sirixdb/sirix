@@ -45,8 +45,8 @@ final class HOTProjectionOpaqueValueSplitTest {
 
     HOTIncrementalInsert.BiNode split = null;
     try {
-      split = HOTIncrementalInsert.splitLeafPage(source, replacedKey, replacement, 2,
-          IndexType.PROJECTION, new AtomicLong(10)::getAndIncrement);
+      split = HOTIncrementalInsert.splitLeafPage(source, replacedKey, replacement, 2, IndexType.PROJECTION,
+          new AtomicLong(10)::getAndIncrement);
       assertEquals(3, countEntries(split.left()) + countEntries(split.right()));
       assertArrayEquals(new byte[0], valueFor(split, tombstoneKey));
       assertArrayEquals(replacement, valueFor(split, replacedKey));
@@ -72,8 +72,8 @@ final class HOTProjectionOpaqueValueSplitTest {
 
     HOTIncrementalInsert.BiNode split = null;
     try {
-      split = HOTIncrementalInsert.splitLeafPage(source, replacedKey, replacement, 2,
-          IndexType.PROJECTION, new AtomicLong(10)::getAndIncrement);
+      split = HOTIncrementalInsert.splitLeafPage(source, replacedKey, replacement, 2, IndexType.PROJECTION,
+          new AtomicLong(10)::getAndIncrement);
       assertEquals(2, countEntries(split.left()) + countEntries(split.right()));
       assertArrayEquals(replacement, valueFor(split, replacedKey));
       assertArrayEquals(otherOpaqueValue, valueFor(split, otherKey));

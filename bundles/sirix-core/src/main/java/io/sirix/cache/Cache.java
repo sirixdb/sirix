@@ -60,8 +60,8 @@ public interface Cache<K, V> {
    * lock, so concurrent misses on one key load once. This default cannot: it deliberately does NOT go
    * through {@link #asMap()}, whose own default throws, which used to make this method unusable on
    * every implementation that keeps its entries somewhere other than a concurrent map
-   * ({@code LRUCache}, {@code EmptyCache}). Two threads racing a miss
-   * here may both load; for a cache that is waste, not incorrectness.
+   * ({@code LRUCache}, {@code EmptyCache}). Two threads racing a miss here may both load; for a cache
+   * that is waste, not incorrectness.
    */
   default V get(K key, BiFunction<? super K, ? super V, ? extends V> mappingFunction) {
     final V hit = get(key);

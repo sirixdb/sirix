@@ -123,8 +123,8 @@ final class NumericGroupAggTableTest {
   void probesCrossPhysicalBoundaries() {
     final NumericGroupAggTable chunkCrossing = new NumericGroupAggTable(1, 20_000, true);
     assertTrue(chunkCrossing.storageChunkCount() > 1);
-    final int bucketsInFirstChunk = Integer.highestOneBit(
-        NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES / chunkCrossing.stride());
+    final int bucketsInFirstChunk =
+        Integer.highestOneBit(NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES / chunkCrossing.stride());
     final int boundaryBucket = bucketsInFirstChunk - 1;
     final long[] colliding = keysForBucket(chunkCrossing.capacity(), boundaryBucket, 3);
     final int first = chunkCrossing.acquire(colliding[0], 0L);

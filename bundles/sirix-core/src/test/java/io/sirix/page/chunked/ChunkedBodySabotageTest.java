@@ -76,8 +76,7 @@ final class ChunkedBodySabotageTest {
     for (int chunk = 0; chunk < layout.chunkCount; chunk++) {
       final int victim = (int) layout.chunkPayloadOffset[chunk];
       final int index = chunk;
-      assertRefused(wire, "chunk " + chunk + " payload", bytes -> bytes[victim] ^= 0x01, "chunk " + index,
-          "checksum");
+      assertRefused(wire, "chunk " + chunk + " payload", bytes -> bytes[victim] ^= 0x01, "chunk " + index, "checksum");
     }
   }
 
@@ -110,8 +109,8 @@ final class ChunkedBodySabotageTest {
     final ChunkedLayout layout = ChunkedPageHarness.parseChunkedLayout(wire);
     final int entryCountAt = (int) layout.chunkRowOffset[layout.chunkCount - 1] + 2;
     final int declared = layout.chunkEntryCount[layout.chunkCount - 1];
-    assertRefused(wire, "last chunk covering one entry too few",
-        bytes -> writeShort(bytes, entryCountAt, declared - 1), "chunk table covers", "entries");
+    assertRefused(wire, "last chunk covering one entry too few", bytes -> writeShort(bytes, entryCountAt, declared - 1),
+        "chunk table covers", "entries");
   }
 
   @Test
@@ -121,8 +120,8 @@ final class ChunkedBodySabotageTest {
     final ChunkedLayout layout = ChunkedPageHarness.parseChunkedLayout(wire);
     final int firstEntryAt = (int) layout.chunkRowOffset[1];
     final int declared = layout.chunkFirstEntry[1];
-    assertRefused(wire, "chunk 1 starting one entry early",
-        bytes -> writeShort(bytes, firstEntryAt, declared - 1), "chunk 1", "expected");
+    assertRefused(wire, "chunk 1 starting one entry early", bytes -> writeShort(bytes, firstEntryAt, declared - 1),
+        "chunk 1", "expected");
   }
 
   @Test
@@ -132,8 +131,8 @@ final class ChunkedBodySabotageTest {
     final ChunkedLayout layout = ChunkedPageHarness.parseChunkedLayout(wire);
     final int rawLenAt = (int) layout.chunkRowOffset[0] + 2 + 2;
     final int declared = layout.chunkRawLen[0];
-    assertRefused(wire, "chunk 0 claiming one heap byte too many",
-        bytes -> writeInt(bytes, rawLenAt, declared + 1), "heap bytes", "the header says");
+    assertRefused(wire, "chunk 0 claiming one heap byte too many", bytes -> writeInt(bytes, rawLenAt, declared + 1),
+        "heap bytes", "the header says");
   }
 
   @Test

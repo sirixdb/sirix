@@ -79,8 +79,7 @@ final class OverflowSlotSidecarWireTest {
       fixture.page().close();
     }
 
-    assertTrue((wire[2] & OVERFLOW_SIDECAR_ENVELOPE_FLAG) != 0,
-        "the envelope did not announce the sidecar tail");
+    assertTrue((wire[2] & OVERFLOW_SIDECAR_ENVELOPE_FLAG) != 0, "the envelope did not announce the sidecar tail");
     assertEquals(chunked, (wire[2] & ChunkedBodyConfig.FLAG_CHUNKED_BODY) != 0,
         "the body-shape flag disagrees with the requested writer");
 
@@ -144,8 +143,7 @@ final class OverflowSlotSidecarWireTest {
     final SidecarOffsets offsets = locateSidecar(wire);
     corruption.apply(wire, offsets);
 
-    final SirixIOException exception =
-        assertThrows(SirixIOException.class, () -> deserialize(config, wire));
+    final SirixIOException exception = assertThrows(SirixIOException.class, () -> deserialize(config, wire));
     assertTrue(exception.getMessage().contains(corruption.expectedMessage),
         () -> "unexpected diagnostic: " + exception.getMessage());
   }
@@ -172,23 +170,20 @@ final class OverflowSlotSidecarWireTest {
   private static SidecarFixture fixture(final ResourceConfiguration config) {
     final KeyValueLeafPage page = new KeyValueLeafPage(PAGE_KEY, IndexType.DOCUMENT, config, 3, null, null, false);
 
-    final ObjectNamedBooleanNode booleanNode =
-        new ObjectNamedBooleanNode(nodeKey(COMPLETE_BOOLEAN_SLOT), BOOLEAN_PARENT_KEY,
-            Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), BOOLEAN_NAME_KEY,
-            BOOLEAN_PATH_KEY, 1, 3, 17L, true, HASH_FUNCTION, (byte[]) null);
+    final ObjectNamedBooleanNode booleanNode = new ObjectNamedBooleanNode(nodeKey(COMPLETE_BOOLEAN_SLOT),
+        BOOLEAN_PARENT_KEY, Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+        BOOLEAN_NAME_KEY, BOOLEAN_PATH_KEY, 1, 3, 17L, true, HASH_FUNCTION, (byte[]) null);
     final byte[] booleanImage = completeImage(booleanNode);
 
-    final ObjectNamedStringNode stringNode =
-        new ObjectNamedStringNode(nodeKey(STRING_DESCRIPTOR_SLOT), STRING_PARENT_KEY,
-            Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), STRING_NAME_KEY,
-            STRING_PATH_KEY, 1, 3, 19L, "overflow".getBytes(StandardCharsets.UTF_8), HASH_FUNCTION, (byte[]) null,
-            false, null);
+    final ObjectNamedStringNode stringNode = new ObjectNamedStringNode(nodeKey(STRING_DESCRIPTOR_SLOT),
+        STRING_PARENT_KEY, Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+        STRING_NAME_KEY, STRING_PATH_KEY, 1, 3, 19L, "overflow".getBytes(StandardCharsets.UTF_8), HASH_FUNCTION,
+        (byte[]) null, false, null);
     final byte[] stringDescriptor = stringDescriptor(stringNode);
 
-    final ObjectNamedNumberNode numberNode =
-        new ObjectNamedNumberNode(nodeKey(NUMBER_DESCRIPTOR_SLOT), NUMBER_PARENT_KEY,
-            Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), NUMBER_NAME_KEY,
-            NUMBER_PATH_KEY, 1, 3, 23L, BigInteger.ONE.shiftLeft(4096), HASH_FUNCTION, (byte[]) null);
+    final ObjectNamedNumberNode numberNode = new ObjectNamedNumberNode(nodeKey(NUMBER_DESCRIPTOR_SLOT),
+        NUMBER_PARENT_KEY, Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+        NUMBER_NAME_KEY, NUMBER_PATH_KEY, 1, 3, 23L, BigInteger.ONE.shiftLeft(4096), HASH_FUNCTION, (byte[]) null);
     final byte[] numberDescriptor = numberDescriptor(numberNode);
 
     installSideImage(page, COMPLETE_BOOLEAN_SLOT, NodeKind.OBJECT_NAMED_BOOLEAN.getId(), booleanImage);
@@ -285,9 +280,11 @@ final class OverflowSlotSidecarWireTest {
   }
 
   private record SidecarFixture(KeyValueLeafPage page, byte[] booleanImage, byte[] stringDescriptor,
-                                byte[] numberDescriptor) {}
+      byte[] numberDescriptor) {
+  }
 
-  private record SidecarOffsets(int count, int payloadLength, int firstKind) {}
+  private record SidecarOffsets(int count, int payloadLength, int firstKind) {
+  }
 
   private enum Corruption {
     COUNT("bitmap/count mismatch") {

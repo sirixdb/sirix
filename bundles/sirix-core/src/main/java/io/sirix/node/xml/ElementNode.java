@@ -68,13 +68,14 @@ import java.util.List;
  * Node representing an XML element.
  *
  * <p>
- * Uses primitive fields for efficient storage with delta+varint encoding.
- * Implements FlyweightNode for LeanStore-style zero-copy page-direct access.
+ * Uses primitive fields for efficient storage with delta+varint encoding. Implements FlyweightNode
+ * for LeanStore-style zero-copy page-direct access.
  * </p>
  *
  * @author Johannes Lichtenberger
  */
-public final class ElementNode extends AbstractFlyweightNode implements StructNode, NameNode, ImmutableXmlNode, FlyweightNode {
+public final class ElementNode extends AbstractFlyweightNode
+    implements StructNode, NameNode, ImmutableXmlNode, FlyweightNode {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -138,8 +139,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   private static final int FIELD_COUNT = NodeFieldLayout.ELEMENT_FIELD_COUNT;
 
   /**
-   * Constructor for flyweight binding.
-   * All fields except nodeKey and hashFunction will be read from page memory after bind().
+   * Constructor for flyweight binding. All fields except nodeKey and hashFunction will be read from
+   * page memory after bind().
    *
    * @param nodeKey the node key
    * @param hashFunction the hash function from resource config
@@ -223,19 +224,17 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   // ==================== FLYWEIGHT BIND/UNBIND ====================
 
   /**
-   * Bind this node as a flyweight to a page MemorySegment.
-   * When bound, getters/setters read/write directly to page memory via the offset table.
-   * Attribute and namespace keys are parsed lazily from the payload region on first access —
-   * plain structural navigation never needs them.
+   * Bind this node as a flyweight to a page MemorySegment. When bound, getters/setters read/write
+   * directly to page memory via the offset table. Attribute and namespace keys are parsed lazily from
+   * the payload region on first access — plain structural navigation never needs them.
    *
-   * @param page       the page MemorySegment
+   * @param page the page MemorySegment
    * @param recordBase absolute byte offset of this record in the page
-   * @param nodeKey    the node key (for delta decoding)
-   * @param slotIndex  the slot index in the page directory
+   * @param nodeKey the node key (for delta decoding)
+   * @param slotIndex the slot index in the page directory
    */
   @Override
-  public void bind(final MemorySegment page, final long recordBase, final long nodeKey,
-      final int slotIndex) {
+  public void bind(final MemorySegment page, final long recordBase, final long nodeKey, final int slotIndex) {
     this.page = page;
     this.recordBase = recordBase;
     this.nodeKey = nodeKey;
@@ -247,8 +246,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   /**
-   * Unbind from page memory and materialize all fields into Java primitives.
-   * After unbind, the node operates in primitive mode.
+   * Unbind from page memory and materialize all fields into Java primitives. After unbind, the node
+   * operates in primitive mode.
    */
   @Override
   public void unbind() {
@@ -344,8 +343,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   // ==================== PAYLOAD PARSING ====================
 
   /**
-   * Parse the attribute and namespace key lists from the page payload region if not yet parsed.
-   * When bound, reads from page memory; when unbound, does nothing (already materialized).
+   * Parse the attribute and namespace key lists from the page payload region if not yet parsed. When
+   * bound, reads from page memory; when unbound, does nothing (already materialized).
    */
   private void ensurePayloadParsed() {
     if (payloadParsed || page == null) {
@@ -353,8 +352,7 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
     }
     payloadParsed = true;
 
-    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
-        recordBase + 1 + NodeFieldLayout.ELEM_PAYLOAD) & 0xFF;
+    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ELEM_PAYLOAD) & 0xFF;
     long pos = dataRegionStart + payloadFieldOff;
 
     // Read attribute count and keys
@@ -391,37 +389,34 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   // ==================== DIRECT WRITE ====================
 
   /**
-   * Encode an ElementNode record directly to a MemorySegment from parameter values.
-   * Static -- reads nothing from any instance. Zero field intermediation.
-   * At creation time, attribute and namespace lists are always empty.
+   * Encode an ElementNode record directly to a MemorySegment from parameter values. Static -- reads
+   * nothing from any instance. Zero field intermediation. At creation time, attribute and namespace
+   * lists are always empty.
    *
-   * @param target          the target MemorySegment (reinterpreted slotted page)
-   * @param offset          absolute byte offset to write at
-   * @param heapOffsets     pre-allocated offset array (reused, FIELD_COUNT elements)
-   * @param nodeKey         the node key (delta base for structural keys)
-   * @param parentKey       the parent node key
-   * @param rightSibKey     the right sibling key
-   * @param leftSibKey      the left sibling key
-   * @param firstChildKey   the first child key
-   * @param lastChildKey    the last child key
-   * @param pathNodeKey     the path node key
-   * @param prefixKey       the prefix key
-   * @param localNameKey    the local name key
-   * @param uriKey          the URI key
-   * @param prevRev         the previous revision number
-   * @param lastModRev      the last modified revision number
-   * @param hash            the hash value
-   * @param childCount      the child count
+   * @param target the target MemorySegment (reinterpreted slotted page)
+   * @param offset absolute byte offset to write at
+   * @param heapOffsets pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey the node key (delta base for structural keys)
+   * @param parentKey the parent node key
+   * @param rightSibKey the right sibling key
+   * @param leftSibKey the left sibling key
+   * @param firstChildKey the first child key
+   * @param lastChildKey the last child key
+   * @param pathNodeKey the path node key
+   * @param prefixKey the prefix key
+   * @param localNameKey the local name key
+   * @param uriKey the URI key
+   * @param prevRev the previous revision number
+   * @param lastModRev the last modified revision number
+   * @param hash the hash value
+   * @param childCount the child count
    * @param descendantCount the descendant count
    * @return the total number of bytes written
    */
-  public static int writeNewRecord(final MemorySegment target, final long offset,
-      final int[] heapOffsets, final long nodeKey,
-      final long parentKey, final long rightSibKey, final long leftSibKey,
-      final long firstChildKey, final long lastChildKey,
-      final long pathNodeKey, final int prefixKey, final int localNameKey, final int uriKey,
-      final int prevRev, final int lastModRev, final long hash,
-      final long childCount, final long descendantCount) {
+  public static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final long firstChildKey,
+      final long lastChildKey, final long pathNodeKey, final int prefixKey, final int localNameKey, final int uriKey,
+      final int prevRev, final int lastModRev, final long hash, final long childCount, final long descendantCount) {
     long pos = offset;
 
     // Write nodeKind byte
@@ -592,14 +587,19 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
     offsets[NodeFieldLayout.ELEM_DESCENDANT_COUNT] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, descendantCount);
 
-    // Field 14: PAYLOAD [attrCount:signed varint][attrKeys:delta...][nsCount:signed varint][nsKeys:delta...]
+    // Field 14: PAYLOAD [attrCount:signed varint][attrKeys:delta...][nsCount:signed
+    // varint][nsKeys:delta...]
     offsets[NodeFieldLayout.ELEM_PAYLOAD] = (int) (pos - dataStart);
-    final int attrCount = attributeKeys != null ? attributeKeys.size() : 0;
+    final int attrCount = attributeKeys != null
+        ? attributeKeys.size()
+        : 0;
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, attrCount);
     for (int i = 0; i < attrCount; i++) {
       pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, attributeKeys.getLong(i), nodeKey);
     }
-    final int nsCount = namespaceKeys != null ? namespaceKeys.size() : 0;
+    final int nsCount = namespaceKeys != null
+        ? namespaceKeys.size()
+        : 0;
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, nsCount);
     for (int i = 0; i < nsCount; i++) {
       pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, namespaceKeys.getLong(i), nodeKey);
@@ -619,8 +619,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   /**
-   * Set DeweyID fields directly after creation, bypassing write-through.
-   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   * Set DeweyID fields directly after creation, bypassing write-through. The DeweyID is already in
+   * the page trailer -- this just sets the Java cache fields.
    */
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
     this.sirixDeweyID = id;
@@ -629,8 +629,12 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
 
   @Override
   public int estimateSerializedSize() {
-    final int attributeCount = attributeKeys != null ? attributeKeys.size() : 0;
-    final int namespaceCount = namespaceKeys != null ? namespaceKeys.size() : 0;
+    final int attributeCount = attributeKeys != null
+        ? attributeKeys.size()
+        : 0;
+    final int namespaceCount = namespaceKeys != null
+        ? namespaceKeys.size()
+        : 0;
     return estimateSerializedSize(attributeCount, namespaceCount);
   }
 
@@ -681,8 +685,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizeParentKey(final long parentKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_PARENT_KEY, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_PARENT_KEY,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
   }
 
@@ -716,8 +720,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizeRightSiblingKey(final long rightSibling) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_RIGHT_SIB_KEY, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_RIGHT_SIB_KEY,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, rightSibling, nodeKey));
   }
 
@@ -751,8 +755,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizeLeftSiblingKey(final long leftSibling) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_LEFT_SIB_KEY, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_LEFT_SIB_KEY,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, leftSibling, nodeKey));
   }
 
@@ -771,7 +775,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
 
   public void setFirstChildKey(final long firstChild) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ELEM_FIRST_CHILD_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ELEM_FIRST_CHILD_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(firstChild, nodeKey);
@@ -786,8 +791,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizeFirstChildKey(final long firstChild) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_FIRST_CHILD_KEY, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_FIRST_CHILD_KEY,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, firstChild, nodeKey));
   }
 
@@ -821,8 +826,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizeLastChildKey(final long lastChild) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_LAST_CHILD_KEY, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_LAST_CHILD_KEY,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, lastChild, nodeKey));
   }
 
@@ -859,8 +864,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizePathNodeKey(final long pathNodeKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_PATH_NODE_KEY, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_PATH_NODE_KEY,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, pathNodeKey, nodeKey));
   }
 
@@ -890,8 +895,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizePrefixKey(final int prefixKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_PREFIX_KEY, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_PREFIX_KEY,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, prefixKey));
   }
 
@@ -921,8 +926,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizeLocalNameKey(final int localNameKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_LOCAL_NAME_KEY, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_LOCAL_NAME_KEY,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, localNameKey));
   }
 
@@ -952,8 +957,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizeURIKey(final int uriKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_URI_KEY, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_URI_KEY,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, uriKey));
   }
 
@@ -986,8 +991,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizePreviousRevision(final int revision) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_PREV_REVISION, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_PREV_REVISION,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
@@ -1005,7 +1010,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   @Override
   public void setLastModifiedRevision(int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ELEM_LAST_MOD_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ELEM_LAST_MOD_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -1020,8 +1026,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizeLastModifiedRevision(final int revision) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_LAST_MOD_REVISION, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_LAST_MOD_REVISION,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
@@ -1053,8 +1059,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizeChildCount(final long childCount) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_CHILD_COUNT, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_CHILD_COUNT,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, childCount));
   }
 
@@ -1072,7 +1078,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   @Override
   public void setDescendantCount(long descendantCount) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ELEM_DESCENDANT_COUNT) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ELEM_DESCENDANT_COUNT) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedLongEncodedWidth(descendantCount);
@@ -1087,8 +1094,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   private void resizeDescendantCount(final long descendantCount) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.ELEM_DESCENDANT_COUNT, NodeFieldLayout.ELEMENT_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.ELEM_DESCENDANT_COUNT,
+        NodeFieldLayout.ELEMENT_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, descendantCount));
   }
 
@@ -1096,7 +1103,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   public long getHash() {
     if (page != null) {
       final long h = readLongField(NodeFieldLayout.ELEM_HASH);
-      if (h != 0L) return h;
+      if (h != 0L)
+        return h;
       if (hashFunction != null) {
         final long computed = computeHash(Bytes.threadLocalHashBuffer());
         setHash(computed);
@@ -1117,8 +1125,7 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   public void setHash(final long hash) {
     if (page != null) {
       // Hash is ALWAYS in-place (fixed 8 bytes)
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.ELEM_HASH) & 0xFF;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ELEM_HASH) & 0xFF;
       DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
       return;
     }
@@ -1215,9 +1222,9 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   // === ATTRIBUTE METHODS (dual-mode) ===
 
   /**
-   * Materialize the attribute/namespace key lists in whichever mode the node is in: bound
-   * (parse the payload region from page memory) or unbound-lazy after {@link #readFrom}
-   * (parse the remaining lazy fields, which include the key lists).
+   * Materialize the attribute/namespace key lists in whichever mode the node is in: bound (parse the
+   * payload region from page memory) or unbound-lazy after {@link #readFrom} (parse the remaining
+   * lazy fields, which include the key lists).
    */
   private void ensureKeysMaterialized() {
     if (page != null) {
@@ -1369,8 +1376,8 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   }
 
   /**
-   * Populate this node from a BytesIn source for singleton reuse.
-   * LAZY OPTIMIZATION: Only parses structural fields immediately (NEW ORDER).
+   * Populate this node from a BytesIn source for singleton reuse. LAZY OPTIMIZATION: Only parses
+   * structural fields immediately (NEW ORDER).
    */
   public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId, LongHashFunction hashFunction,
       ResourceConfiguration config) {
@@ -1470,27 +1477,19 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
     if (page != null) {
       final long nk = this.nodeKey;
       ensurePayloadParsed();
-      final ElementNode snapshot = new ElementNode(
-          nk,
-          readDeltaField(NodeFieldLayout.ELEM_PARENT_KEY, nk),
-          readSignedField(NodeFieldLayout.ELEM_PREV_REVISION),
-          readSignedField(NodeFieldLayout.ELEM_LAST_MOD_REVISION),
-          readDeltaField(NodeFieldLayout.ELEM_RIGHT_SIB_KEY, nk),
-          readDeltaField(NodeFieldLayout.ELEM_LEFT_SIB_KEY, nk),
+      final ElementNode snapshot = new ElementNode(nk, readDeltaField(NodeFieldLayout.ELEM_PARENT_KEY, nk),
+          readSignedField(NodeFieldLayout.ELEM_PREV_REVISION), readSignedField(NodeFieldLayout.ELEM_LAST_MOD_REVISION),
+          readDeltaField(NodeFieldLayout.ELEM_RIGHT_SIB_KEY, nk), readDeltaField(NodeFieldLayout.ELEM_LEFT_SIB_KEY, nk),
           readDeltaField(NodeFieldLayout.ELEM_FIRST_CHILD_KEY, nk),
           readDeltaField(NodeFieldLayout.ELEM_LAST_CHILD_KEY, nk),
           readSignedLongField(NodeFieldLayout.ELEM_CHILD_COUNT),
-          readSignedLongField(NodeFieldLayout.ELEM_DESCENDANT_COUNT),
-          readLongField(NodeFieldLayout.ELEM_HASH),
-          readDeltaField(NodeFieldLayout.ELEM_PATH_NODE_KEY, nk),
-          readSignedField(NodeFieldLayout.ELEM_PREFIX_KEY),
-          readSignedField(NodeFieldLayout.ELEM_LOCAL_NAME_KEY),
-          readSignedField(NodeFieldLayout.ELEM_URI_KEY),
-          hashFunction,
-          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
-          new LongArrayList(attributeKeys),
-          new LongArrayList(namespaceKeys),
-          qNm);
+          readSignedLongField(NodeFieldLayout.ELEM_DESCENDANT_COUNT), readLongField(NodeFieldLayout.ELEM_HASH),
+          readDeltaField(NodeFieldLayout.ELEM_PATH_NODE_KEY, nk), readSignedField(NodeFieldLayout.ELEM_PREFIX_KEY),
+          readSignedField(NodeFieldLayout.ELEM_LOCAL_NAME_KEY), readSignedField(NodeFieldLayout.ELEM_URI_KEY),
+          hashFunction, getDeweyIDAsBytes() != null
+              ? getDeweyIDAsBytes().clone()
+              : null,
+          new LongArrayList(attributeKeys), new LongArrayList(namespaceKeys), qNm);
       if (sirixDeweyID != null) {
         snapshot.sirixDeweyID = sirixDeweyID;
       }
@@ -1499,15 +1498,12 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    final ElementNode snapshot = new ElementNode(
-        nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
-        childCount, descendantCount, hash, pathNodeKey,
-        prefixKey, localNameKey, uriKey, hashFunction,
-        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
-        new LongArrayList(attributeKeys),
-        new LongArrayList(namespaceKeys),
-        qNm);
+    final ElementNode snapshot = new ElementNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
+        rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey, childCount, descendantCount, hash, pathNodeKey,
+        prefixKey, localNameKey, uriKey, hashFunction, getDeweyIDAsBytes() != null
+            ? getDeweyIDAsBytes().clone()
+            : null,
+        new LongArrayList(attributeKeys), new LongArrayList(namespaceKeys), qNm);
     if (sirixDeweyID != null) {
       snapshot.sirixDeweyID = sirixDeweyID;
     }
@@ -1522,18 +1518,18 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("nodeKey", nodeKey)
-                      .add("qName", qNm)
-                      .add("parentKey", parentKey)
-                      .add("rightSibling", rightSiblingKey)
-                      .add("leftSibling", leftSiblingKey)
-                      .add("firstChild", firstChildKey)
-                      .add("lastChild", lastChildKey)
-                      // Accessors, not raw fields: a bound node's lists may be unparsed or stale
-                      // from a previous binding.
-                      .add("attributeKeys", getAttributeKeys())
-                      .add("namespaceKeys", getNamespaceKeys())
-                      .toString();
+                         .add("nodeKey", nodeKey)
+                         .add("qName", qNm)
+                         .add("parentKey", parentKey)
+                         .add("rightSibling", rightSiblingKey)
+                         .add("leftSibling", leftSiblingKey)
+                         .add("firstChild", firstChildKey)
+                         .add("lastChild", lastChildKey)
+                         // Accessors, not raw fields: a bound node's lists may be unparsed or stale
+                         // from a previous binding.
+                         .add("attributeKeys", getAttributeKeys())
+                         .add("namespaceKeys", getNamespaceKeys())
+                         .toString();
   }
 
   @Override

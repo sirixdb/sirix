@@ -19,13 +19,15 @@ import java.util.Objects;
 /**
  * Fail-closed persisted-state acceptance check for the ClickBench load-time projection.
  *
- * <p>The load path deliberately does not trust the in-memory builder or its completion banner. A
+ * <p>
+ * The load path deliberately does not trust the in-memory builder or its completion banner. A
  * global-dictionary budget breach can abandon the projection while allowing the base-resource load
  * to finish correctly. This verifier therefore opens the committed resource after the writer has
  * closed, validates the catalogue and slot-0 metadata, walks only the tiny row-group descriptors,
  * and asks the normal serving catalogue for a covering handle. It never builds or repairs an index.
  *
- * <p>Both rounds are persistence-only. Static registry/catalogue state is cleared before the first
+ * <p>
+ * Both rounds are persistence-only. Static registry/catalogue state is cleared before the first
  * cold reopen and again between rounds, so a builder-installed handle or a decoded catalogue entry
  * cannot make an incomplete store pass.
  */
@@ -67,8 +69,8 @@ final class ClickBenchProjectionAcceptance {
       clearCaches();
       final Verification second = verifyOnce(dbDir, expectedRows, expectedDefinition, "cold reopen 2");
       if (!first.equals(second)) {
-        throw new IllegalStateException("ClickBench projection verification changed across cold reopens: first="
-            + first + ", second=" + second);
+        throw new IllegalStateException(
+            "ClickBench projection verification changed across cold reopens: first=" + first + ", second=" + second);
       }
       return second;
     } finally {
@@ -78,8 +80,8 @@ final class ClickBenchProjectionAcceptance {
     }
   }
 
-  private static Verification verifyOnce(final Path dbDir, final long expectedRows,
-      final IndexDef expectedDefinition, final String round) {
+  private static Verification verifyOnce(final Path dbDir, final long expectedRows, final IndexDef expectedDefinition,
+      final String round) {
     final Path databasePath = dbDir.resolve(ClickBenchSchema.DATABASE);
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
         JsonResourceSession session = database.beginResourceSession(ClickBenchSchema.RESOURCE)) {
@@ -98,26 +100,24 @@ final class ClickBenchProjectionAcceptance {
       verifyDefinition(round, expectedDefinition, actualDefinition);
 
       final String expectedRoot = expectedDefinition.getProjectionRootPath().toString();
-      final String[] expectedPaths = expectedDefinition.getProjectionFields()
-                                                         .stream()
-                                                         .map(Object::toString)
-                                                         .toArray(String[]::new);
+      final String[] expectedPaths =
+          expectedDefinition.getProjectionFields().stream().map(Object::toString).toArray(String[]::new);
       final String[] expectedNames = ClickBenchProjection.PROJECTED_COLUMNS.toArray(String[]::new);
       final byte[] expectedKinds = expectedColumnKinds(expectedDefinition);
 
       final ProjectionIndexMetadata metadata;
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
-        final byte[] raw = ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), actualDefinition.getID(),
-            0L);
+        final byte[] raw =
+            ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), actualDefinition.getID(), 0L);
         if (raw == null) {
-          throw failure(round, "projection definition #" + actualDefinition.getID()
-              + " has no persisted slot-0 metadata");
+          throw failure(round,
+              "projection definition #" + actualDefinition.getID() + " has no persisted slot-0 metadata");
         }
         try {
           metadata = ProjectionIndexMetadata.parse(raw);
         } catch (final IllegalStateException corrupt) {
-          throw failure(round, "projection definition #" + actualDefinition.getID()
-              + " has corrupt slot-0 metadata", corrupt);
+          throw failure(round, "projection definition #" + actualDefinition.getID() + " has corrupt slot-0 metadata",
+              corrupt);
         }
       }
 
@@ -126,8 +126,8 @@ final class ClickBenchProjectionAcceptance {
             + " has an unsupported or incomplete slot-0 metadata payload");
       }
       if (metadata.isStale()) {
-        throw failure(round, "projection definition #" + actualDefinition.getID() + " is stale ("
-            + metadata.staleReason() + ")");
+        throw failure(round,
+            "projection definition #" + actualDefinition.getID() + " is stale (" + metadata.staleReason() + ")");
       }
       if (!metadata.matches(expectedRoot, expectedPaths, expectedKinds)) {
         throw failure(round, "persisted metadata root/paths/kinds do not match ClickBenchProjection.spec()");
@@ -140,13 +140,13 @@ final class ClickBenchProjectionAcceptance {
         throw failure(round, "persisted projection has no row groups");
       }
       if (metadata.buildRevision() < 0 || metadata.buildRevision() > revision) {
-        throw failure(round, "invalid projection build revision " + metadata.buildRevision()
-            + " for resource revision " + revision);
+        throw failure(round,
+            "invalid projection build revision " + metadata.buildRevision() + " for resource revision " + revision);
       }
 
       final String resourceKey = session.getResourceConfig().getResource().toString();
-      final long descriptorRows = ProjectionIndexCatalog.countRowsFromDescriptors(session, resourceKey, revision,
-          SOURCE_PATH);
+      final long descriptorRows =
+          ProjectionIndexCatalog.countRowsFromDescriptors(session, resourceKey, revision, SOURCE_PATH);
       if (descriptorRows <= 0L) {
         throw failure(round, "projection descriptor walk is unusable or empty (rows=" + descriptorRows + ')');
       }
@@ -155,15 +155,15 @@ final class ClickBenchProjectionAcceptance {
             + " does not match expected source row count " + expectedRows);
       }
 
-      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session, resourceKey,
-          revision, SOURCE_PATH, expectedNames);
+      final ProjectionIndexRegistry.Handle handle =
+          ProjectionIndexCatalog.lookupCovering(session, resourceKey, revision, SOURCE_PATH, expectedNames);
       if (handle == null) {
-        throw failure(round, "normal catalogue lookup cannot serve all " + EXPECTED_COLUMN_COUNT
-            + " ClickBench fields");
+        throw failure(round,
+            "normal catalogue lookup cannot serve all " + EXPECTED_COLUMN_COUNT + " ClickBench fields");
       }
       if (handle.defId() != actualDefinition.getID()) {
-        throw failure(round, "covering lookup returned definition #" + handle.defId() + " instead of #"
-            + actualDefinition.getID());
+        throw failure(round,
+            "covering lookup returned definition #" + handle.defId() + " instead of #" + actualDefinition.getID());
       }
       if (!expectedRoot.equals(handle.rootPath())) {
         throw failure(round, "covering handle root is " + handle.rootPath() + ", expected " + expectedRoot);
@@ -190,14 +190,14 @@ final class ClickBenchProjectionAcceptance {
       throw failure(round, "projection definition ID is #" + actual.getID() + ", expected #" + expected.getID());
     }
     if (!actual.getProjectionRootPath().toString().equals(expected.getProjectionRootPath().toString())) {
-      throw failure(round, "projection root is " + actual.getProjectionRootPath() + ", expected "
-          + expected.getProjectionRootPath());
+      throw failure(round,
+          "projection root is " + actual.getProjectionRootPath() + ", expected " + expected.getProjectionRootPath());
     }
     final List<String> actualPaths = actual.getProjectionFields().stream().map(Object::toString).toList();
     final List<String> expectedPaths = expected.getProjectionFields().stream().map(Object::toString).toList();
     if (!actualPaths.equals(expectedPaths)) {
-      throw failure(round, "projection field paths/order differ: expected " + expectedPaths + ", actual "
-          + actualPaths);
+      throw failure(round,
+          "projection field paths/order differ: expected " + expectedPaths + ", actual " + actualPaths);
     }
     if (!actual.getProjectionFieldTypes().equals(expected.getProjectionFieldTypes())) {
       throw failure(round, "projection field kinds/order differ: expected " + expected.getProjectionFieldTypes()
@@ -219,8 +219,7 @@ final class ClickBenchProjectionAcceptance {
   }
 
   private static IllegalStateException failure(final String round, final String detail, final Throwable cause) {
-    return new IllegalStateException("ClickBench projection acceptance failed during " + round + ": " + detail,
-        cause);
+    return new IllegalStateException("ClickBench projection acceptance failed during " + round + ": " + detail, cause);
   }
 
   private static void clearCaches() {

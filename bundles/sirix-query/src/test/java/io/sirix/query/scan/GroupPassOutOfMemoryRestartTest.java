@@ -25,15 +25,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * A worker that runs out of memory inside a hash-range pass aborts the pass like an over-budget table
- * does: the arm restarts with more passes, each keeping fewer groups, and still serves exactly.
+ * A worker that runs out of memory inside a hash-range pass aborts the pass like an over-budget
+ * table does: the arm restarts with more passes, each keeping fewer groups, and still serves
+ * exactly.
  *
  * <p>
  * q32 at 100M/8 GB: served in 46 s on its first try, then died on the second with
- * {@code Parallel scan failed — OutOfMemoryError: Java heap space} once earlier queries' retained state
- * left too little heap for a pass planned against the maximum heap. Here the spill's first flush throws
- * a synthetic {@link OutOfMemoryError} (a seam — no heap is exhausted); strict serving is on, so an arm
- * that let the failure stand would fail the test instead of falling back to the interpreter.
+ * {@code Parallel scan failed — OutOfMemoryError: Java heap space} once earlier queries' retained
+ * state left too little heap for a pass planned against the maximum heap. Here the spill's first
+ * flush throws a synthetic {@link OutOfMemoryError} (a seam — no heap is exhausted); strict serving
+ * is on, so an arm that let the failure stand would fail the test instead of falling back to the
+ * interpreter.
  * </p>
  */
 final class GroupPassOutOfMemoryRestartTest {
@@ -73,10 +75,23 @@ final class GroupPassOutOfMemoryRestartTest {
         sb.append(',');
       }
       final int minute = (i * 7919) % 240;
-      sb.append("{\"id\":").append(i).append(",\"k7\":").append(i % 7).append(",\"k40\":").append(i % 40)
-        .append(",\"s\":\"s").append(i % 50).append("\",\"u\":").append(i % 97).append(",\"amount\":").append(i)
-        .append(",\"t\":\"2024-01-01T").append(String.format("%02d", minute / 60)).append(':')
-        .append(String.format("%02d", minute % 60)).append(":00\"}");
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"k7\":")
+        .append(i % 7)
+        .append(",\"k40\":")
+        .append(i % 40)
+        .append(",\"s\":\"s")
+        .append(i % 50)
+        .append("\",\"u\":")
+        .append(i % 97)
+        .append(",\"amount\":")
+        .append(i)
+        .append(",\"t\":\"2024-01-01T")
+        .append(String.format("%02d", minute / 60))
+        .append(':')
+        .append(String.format("%02d", minute % 60))
+        .append(":00\"}");
     }
     sb.append(']');
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();

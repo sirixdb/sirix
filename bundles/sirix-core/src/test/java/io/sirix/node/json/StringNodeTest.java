@@ -73,8 +73,8 @@ public class StringNodeTest {
   @Test
   public void rawValueUpdateClearsFsstState() {
     final byte[] replacement = new byte[] {1, 'r', 'a', 'w'};
-    final StringNode node = new StringNode(13L, 14L, Constants.NULL_REVISION_NUMBER, 0, 16L, 15L, 0L,
-        new byte[] {1, 0}, LongHashFunction.xx3(), (byte[]) null, true, new byte[] {1});
+    final StringNode node = new StringNode(13L, 14L, Constants.NULL_REVISION_NUMBER, 0, 16L, 15L, 0L, new byte[] {1, 0},
+        LongHashFunction.xx3(), (byte[]) null, true, new byte[] {1});
 
     node.setRawValue(replacement);
 

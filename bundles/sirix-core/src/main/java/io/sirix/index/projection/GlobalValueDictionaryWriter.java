@@ -148,8 +148,8 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   private final AdmissionPolicy admissionPolicy;
 
   /**
-   * No byte budget, for standalone callers and tests. The structural entry, value and array
-   * ceilings remain mandatory; "unbounded" never means "may allocate a humongous array".
+   * No byte budget, for standalone callers and tests. The structural entry, value and array ceilings
+   * remain mandatory; "unbounded" never means "may allocate a humongous array".
    *
    * <p>
    * PUBLIC deliberately: before the budget existed this class had only the implicit public no-arg
@@ -724,8 +724,9 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
       final GlobalValueDictionaryRadix.Roots roots = GlobalValueDictionaryRadix.append(0L, 0L, 0, this, namePage,
           databaseType, storageEngineWriter, log, !rankOrdered);
       final ValueDictionaryHeaderNode header = new ValueDictionaryHeaderNode(headerKey,
-          ValueDictionaryHeaderNode.VERSION, entryCount, roots.forward(), roots.reverse(), 0,
-          rankOrdered ? entryCount : 0);
+          ValueDictionaryHeaderNode.VERSION, entryCount, roots.forward(), roots.reverse(), 0, rankOrdered
+              ? entryCount
+              : 0);
       namePage.putProjectionValueDictionaryRecord(header, databaseType, storageEngineWriter, log);
       return headerKey;
     } catch (final RuntimeException | Error failure) {
@@ -758,8 +759,9 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
               baseHeader.getEntryCount(), this, namePage, databaseType, storageEngineWriter, log, !ordered);
       namePage.putProjectionValueDictionaryRecord(
           new ValueDictionaryHeaderNode(baseHeader.getNodeKey(), ValueDictionaryHeaderNode.VERSION, totalEntries,
-              roots.forward(), roots.reverse(), Math.addExact(baseHeader.getGeneration(), 1),
-              ordered ? totalEntries : baseHeader.getOrderedPrefixCount()),
+              roots.forward(), roots.reverse(), Math.addExact(baseHeader.getGeneration(), 1), ordered
+                  ? totalEntries
+                  : baseHeader.getOrderedPrefixCount()),
           databaseType, storageEngineWriter, log);
       return baseHeader.getNodeKey();
     } catch (final RuntimeException | Error failure) {

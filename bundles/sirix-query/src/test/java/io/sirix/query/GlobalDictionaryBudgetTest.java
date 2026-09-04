@@ -64,8 +64,8 @@ final class GlobalDictionaryBudgetTest {
   private static final String ROOT_PATH = "/[]";
   private static final List<String> FIELD_PATHS = List.of("/[]/id", "/[]/url");
   private static final List<String> FIELD_TYPES = List.of("long", "string");
-  private static final List<String> AGGREGATE_FIELD_PATHS = List.of("/[]/url", "/[]/low0", "/[]/low1",
-      "/[]/low2", "/[]/low3", "/[]/low4", "/[]/low5");
+  private static final List<String> AGGREGATE_FIELD_PATHS =
+      List.of("/[]/url", "/[]/low0", "/[]/low1", "/[]/low2", "/[]/low3", "/[]/low4", "/[]/low5");
   private static final List<String> AGGREGATE_FIELD_TYPES =
       List.of("string", "string", "string", "string", "string", "string", "string");
 
@@ -185,8 +185,7 @@ final class GlobalDictionaryBudgetTest {
       }
       sb.append("{\"url\":\"http://example.com/a/rather/long/path/segment?id=")
         .append(i)
-        .append("\",\"low0\":\"a\",\"low1\":\"b\",\"low2\":\"c\",\"low3\":\"d\","
-            + "\"low4\":\"e\",\"low5\":\"f\"}");
+        .append("\",\"low0\":\"a\",\"low1\":\"b\",\"low2\":\"c\",\"low3\":\"d\"," + "\"low4\":\"e\",\"low5\":\"f\"}");
     }
     return sb.append(']').toString();
   }
@@ -259,9 +258,8 @@ final class GlobalDictionaryBudgetTest {
     // decide the useful column's fate.
     System.setProperty(BUDGET_PROPERTY, String.valueOf(128L << 20));
 
-    assertEquals(1,
-        loadAndCountGlobalColumns("aggregate-candidate", 120_000L, aggregateBudgetDataset(), AGGREGATE_FIELD_PATHS,
-            AGGREGATE_FIELD_TYPES),
+    assertEquals(1, loadAndCountGlobalColumns("aggregate-candidate", 120_000L, aggregateBudgetDataset(),
+        AGGREGATE_FIELD_PATHS, AGGREGATE_FIELD_TYPES),
         "the one worthwhile column fits both disjoint component caps and must be elected");
     final ProjectionIndexMetadata metadata = projectionMetadata("aggregate-candidate");
     assertNotNull(metadata);

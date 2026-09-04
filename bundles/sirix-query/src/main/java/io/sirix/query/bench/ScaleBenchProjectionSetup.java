@@ -28,10 +28,10 @@ import java.util.Set;
 final class ScaleBenchProjectionSetup {
 
   private static final Path<QNm> ROOT_PATH = Path.parse("/[]", PathParser.Type.JSON);
-  private static final List<Path<QNm>> FIELD_PATHS = List.of(Path.parse("/[]/age", PathParser.Type.JSON),
-      Path.parse("/[]/active", PathParser.Type.JSON), Path.parse("/[]/dept", PathParser.Type.JSON),
-      Path.parse("/[]/city", PathParser.Type.JSON), Path.parse("/[]/amount", PathParser.Type.JSON),
-      Path.parse("/[]/score", PathParser.Type.JSON));
+  private static final List<Path<QNm>> FIELD_PATHS =
+      List.of(Path.parse("/[]/age", PathParser.Type.JSON), Path.parse("/[]/active", PathParser.Type.JSON),
+          Path.parse("/[]/dept", PathParser.Type.JSON), Path.parse("/[]/city", PathParser.Type.JSON),
+          Path.parse("/[]/amount", PathParser.Type.JSON), Path.parse("/[]/score", PathParser.Type.JSON));
   private static final List<Type> FIELD_TYPES = List.of(Type.LON, Type.BOOL, Type.STR, Type.STR, Type.LON, Type.LON);
 
   private ScaleBenchProjectionSetup() {}
@@ -39,9 +39,9 @@ final class ScaleBenchProjectionSetup {
   static int ensureProjection(final JsonResourceSession session) {
     final int revision = session.getMostRecentRevisionNumber();
     final IndexDef existing = session.getRtxIndexController(revision)
-        .getIndexes()
-        .findProjectionIndex(ROOT_PATH, FIELD_PATHS, FIELD_TYPES)
-        .orElse(null);
+                                     .getIndexes()
+                                     .findProjectionIndex(ROOT_PATH, FIELD_PATHS, FIELD_TYPES)
+                                     .orElse(null);
     if (existing != null) {
       return requireUsable(session, revision, existing).rowGroupCount();
     }
@@ -59,8 +59,7 @@ final class ScaleBenchProjectionSetup {
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
       final JsonIndexController controller = session.getWtxIndexController(wtx.getRevisionNumber());
       final var writer = wtx.getStorageEngineWriter();
-      final int indexNumber = writer.getProjectionIndexPage(writer.getActualRevisionRootPage())
-          .nextUnallocatedIndex();
+      final int indexNumber = writer.getProjectionIndexPage(writer.getActualRevisionRootPage()).nextUnallocatedIndex();
       if (controller.getIndexes().getIndexDef(indexNumber, IndexType.PROJECTION) != null) {
         throw new IllegalStateException("Projection catalogue contains definition " + indexNumber
             + " without an initialized physical tree; refusing to reuse its id");

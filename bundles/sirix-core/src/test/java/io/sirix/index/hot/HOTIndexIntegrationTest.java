@@ -440,23 +440,27 @@ class HOTIndexIntegrationTest {
         trx.commit();
 
         // Query for "Alice" - should exist
-        var aliceIndex = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/[]/name"), new Str("Alice"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var aliceIndex =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/[]/name"), new Str("Alice"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(aliceIndex.hasNext(), "Should find 'Alice'");
 
         // Query for "Bob" - should exist
-        var bobIndex = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/[]/name"), new Str("Bob"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var bobIndex =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/[]/name"), new Str("Bob"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(bobIndex.hasNext(), "Should find 'Bob'");
 
         // Query for "Charlie" - should exist
-        var charlieIndex = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/[]/name"), new Str("Charlie"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var charlieIndex =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/[]/name"), new Str("Charlie"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(charlieIndex.hasNext(), "Should find 'Charlie'");
 
         // Query for non-existent value - should NOT exist
-        var daveIndex = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/[]/name"), new Str("Dave"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var daveIndex =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/[]/name"), new Str("Dave"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertFalse(daveIndex.hasNext(), "Should NOT find 'Dave'");
       }
     }
@@ -578,8 +582,9 @@ class HOTIndexIntegrationTest {
         revision1 = 1;
 
         // Query for "Feature" - should find 53 nodes
-        var idx = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var idx =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(idx.hasNext(), "Rev1: Should find 'Feature' values");
         assertEquals(53, idx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 53 'Feature' nodes");
       }
@@ -608,8 +613,9 @@ class HOTIndexIntegrationTest {
 
         assertTrue(rtx.getRevisionNumber() >= 6, "Should have at least 6 revisions");
 
-        var idx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedCasIndexDef, indexController.createCASFilter(
-            Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var idx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedCasIndexDef,
+            indexController.createCASFilter(Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
         assertTrue(idx.hasNext(), "Latest: Should find 'Feature'");
         assertEquals(48, idx.next().getNodeKeys().getLongCardinality(),
             "Latest: Should have 48 'Feature' nodes (53 - 5 deleted)");
@@ -619,8 +625,9 @@ class HOTIndexIntegrationTest {
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
           final var rtx = manager.beginNodeReadOnlyTrx(revision1)) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
-        var idx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedCasIndexDef, indexController.createCASFilter(
-            Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var idx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedCasIndexDef,
+            indexController.createCASFilter(Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
         assertTrue(idx.hasNext(), "Rev1: Should find 'Feature'");
         assertEquals(53, idx.next().getNodeKeys().getLongCardinality(), "Rev1: Should still have 53 'Feature' nodes");
       }
@@ -1102,8 +1109,9 @@ class HOTIndexIntegrationTest {
         trx.commit();
 
         // Verify status counts
-        var pendingIdx = indexController.openCASIndex(trx.getStorageEngineReader(), statusIndexDef, indexController.createCASFilter(
-            Set.of("/tasks/[]/status"), new Str("pending"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var pendingIdx =
+            indexController.openCASIndex(trx.getStorageEngineReader(), statusIndexDef, indexController.createCASFilter(
+                Set.of("/tasks/[]/status"), new Str("pending"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(pendingIdx.hasNext(), "Rev1: Should find 'pending' status");
         assertEquals(3, pendingIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 3 pending tasks");
 
@@ -1114,8 +1122,9 @@ class HOTIndexIntegrationTest {
         assertEquals(1, completedIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 1 completed task");
 
         // Verify priority counts
-        var highIdx = indexController.openCASIndex(trx.getStorageEngineReader(), priorityIndexDef, indexController.createCASFilter(
-            Set.of("/tasks/[]/priority"), new Str("high"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var highIdx = indexController.openCASIndex(trx.getStorageEngineReader(), priorityIndexDef,
+            indexController.createCASFilter(Set.of("/tasks/[]/priority"), new Str("high"), SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
         assertTrue(highIdx.hasNext(), "Rev1: Should find 'high' priority");
         assertEquals(2, highIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 2 high priority tasks");
       }
@@ -1171,17 +1180,17 @@ class HOTIndexIntegrationTest {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
         // pending: 3 initially - 1 deleted + 1 added = 3; but second deletion removed another pending = 2
-        var pendingIdx =
-            indexController.openCASIndex(rtx.getStorageEngineReader(), savedStatusIndexDef, indexController.createCASFilter(
-                Set.of("/tasks/[]/status"), new Str("pending"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var pendingIdx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedStatusIndexDef,
+            indexController.createCASFilter(Set.of("/tasks/[]/status"), new Str("pending"), SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
         assertTrue(pendingIdx.hasNext(), "Latest: Should find 'pending' status");
         long pendingCount = pendingIdx.next().getNodeKeys().getLongCardinality();
         assertTrue(pendingCount >= 2, "Latest: Should have at least 2 pending tasks");
 
         // in_progress: 2 added
-        var inProgressIdx =
-            indexController.openCASIndex(rtx.getStorageEngineReader(), savedStatusIndexDef, indexController.createCASFilter(
-                Set.of("/tasks/[]/status"), new Str("in_progress"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var inProgressIdx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedStatusIndexDef,
+            indexController.createCASFilter(Set.of("/tasks/[]/status"), new Str("in_progress"), SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
         assertTrue(inProgressIdx.hasNext(), "Latest: Should find 'in_progress' status");
         assertEquals(2, inProgressIdx.next().getNodeKeys().getLongCardinality(),
             "Latest: Should have 2 in_progress tasks");
@@ -1189,9 +1198,9 @@ class HOTIndexIntegrationTest {
         // high priority: Initial 2 + 1 added = 3
         // Note: CAS index deletions in nested objects may not propagate completely
         // since we're deleting parent objects, not the value nodes directly
-        var highIdx =
-            indexController.openCASIndex(rtx.getStorageEngineReader(), savedPriorityIndexDef, indexController.createCASFilter(
-                Set.of("/tasks/[]/priority"), new Str("high"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var highIdx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedPriorityIndexDef,
+            indexController.createCASFilter(Set.of("/tasks/[]/priority"), new Str("high"), SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
         assertTrue(highIdx.hasNext(), "Latest: Should find 'high' priority");
         long highCount = highIdx.next().getNodeKeys().getLongCardinality();
         assertTrue(highCount >= 2 && highCount <= 3,
@@ -1249,8 +1258,9 @@ class HOTIndexIntegrationTest {
         assertTrue(nameIdx.hasNext(), "Rev1: NAME index should find 'status'");
         assertEquals(3, nameIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 3 'status' keys");
 
-        var casIdx = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/orders/[]/status"), new Str("new"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var casIdx =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/orders/[]/status"), new Str("new"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(casIdx.hasNext(), "Rev1: CAS index should find 'new' status");
         assertEquals(2, casIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 2 'new' status values");
       }
@@ -1305,15 +1315,17 @@ class HOTIndexIntegrationTest {
         assertEquals(5, nameIdx.next().getNodeKeys().getLongCardinality(), "Latest: Should have 5 'status' keys");
 
         // CAS: 'processing' should have 2 occurrences
-        var processingIdx = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/orders/[]/status"), new Str("processing"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var processingIdx =
+            indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/orders/[]/status"), new Str("processing"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertTrue(processingIdx.hasNext(), "Latest: CAS index should find 'processing'");
         assertEquals(2, processingIdx.next().getNodeKeys().getLongCardinality(),
             "Latest: Should have 2 'processing' status");
 
         // CAS: 'new' entries should be completely removed (both were deleted)
-        var newIdx = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/orders/[]/status"), new Str("new"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var newIdx =
+            indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/orders/[]/status"), new Str("new"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertFalse(newIdx.hasNext(), "Latest: 'new' should be completely removed after deletions");
       }
     }
@@ -1365,8 +1377,9 @@ class HOTIndexIntegrationTest {
         // Verify all values are indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'banana' should be indexed");
           assertEquals(1, idx.next().getNodeKeys().getLongCardinality());
         }
@@ -1388,17 +1401,20 @@ class HOTIndexIntegrationTest {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
           // "banana" should be gone
-          var bananaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var bananaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(bananaIdx.hasNext(), "After deletion: 'banana' should be removed from index");
 
           // "apple" and "cherry" should still be there
-          var appleIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var appleIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(appleIdx.hasNext(), "'apple' should still be indexed");
 
-          var cherryIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("cherry"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var cherryIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("cherry"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(cherryIdx.hasNext(), "'cherry' should still be indexed");
         }
       }
@@ -1433,8 +1449,9 @@ class HOTIndexIntegrationTest {
         // Verify "active" is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
           assertEquals(1, idx.next().getNodeKeys().getLongCardinality());
         }
@@ -1454,8 +1471,9 @@ class HOTIndexIntegrationTest {
         // Verify "active" is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'active' should be removed from index");
         }
       }
@@ -1490,8 +1508,9 @@ class HOTIndexIntegrationTest {
         // Verify "active" is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
         }
 
@@ -1507,8 +1526,9 @@ class HOTIndexIntegrationTest {
         // Verify "active" is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'active' should be removed from index");
         }
       }
@@ -1544,8 +1564,9 @@ class HOTIndexIntegrationTest {
         // Verify 99.99 is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/product/price"), new Str("99.99"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/product/price"), new Str("99.99"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 99.99 should be indexed");
         }
 
@@ -1564,8 +1585,9 @@ class HOTIndexIntegrationTest {
         // Verify 99.99 is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/product/price"), new Str("99.99"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/product/price"), new Str("99.99"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 99.99 should be removed from index");
         }
       }
@@ -1600,8 +1622,9 @@ class HOTIndexIntegrationTest {
         // Verify true is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/user/active"), new Str("true"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/user/active"), new Str("true"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'true' should be indexed");
         }
 
@@ -1620,8 +1643,9 @@ class HOTIndexIntegrationTest {
         // Verify true is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/user/active"), new Str("true"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/user/active"), new Str("true"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'true' should be removed from index");
         }
       }
@@ -1657,8 +1681,9 @@ class HOTIndexIntegrationTest {
         // Verify 3 "active" values are indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/users/[]/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/users/[]/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
           assertEquals(3, idx.next().getNodeKeys().getLongCardinality(), "Should have 3 'active' values");
         }
@@ -1677,8 +1702,9 @@ class HOTIndexIntegrationTest {
         // Verify now only 2 "active" values are indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/users/[]/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/users/[]/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "After deletion: 'active' should still be indexed");
           assertEquals(2, idx.next().getNodeKeys().getLongCardinality(),
               "Should have 2 'active' values after deleting Bob");
@@ -1714,8 +1740,9 @@ class HOTIndexIntegrationTest {
         // Verify "deep" is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/a/b/c/d/e/value"), new Str("deep"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/a/b/c/d/e/value"), new Str("deep"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'deep' should be indexed");
         }
 
@@ -1735,8 +1762,9 @@ class HOTIndexIntegrationTest {
         // Verify "deep" is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/a/b/c/d/e/value"), new Str("deep"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/a/b/c/d/e/value"), new Str("deep"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'deep' should be removed from index");
         }
       }
@@ -1775,8 +1803,9 @@ class HOTIndexIntegrationTest {
         // Verify it exists before deletion
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/value"), new Str("persistent"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/value"), new Str("persistent"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Transaction 2: Value should exist before deletion");
         }
 
@@ -1831,12 +1860,14 @@ class HOTIndexIntegrationTest {
         // Verify initial state
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var appleIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var appleIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(appleIdx.hasNext(), "Step 1: 'apple' should be indexed");
 
-          var bananaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var bananaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(bananaIdx.hasNext(), "Step 1: 'banana' should be indexed");
         }
 
@@ -1864,16 +1895,19 @@ class HOTIndexIntegrationTest {
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
-          var appleIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var appleIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(appleIdx.hasNext(), "Final: 'apple' should be indexed");
 
-          var bananaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var bananaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(bananaIdx.hasNext(), "Final: 'banana' should be removed");
 
-          var cherryIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("cherry"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var cherryIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("cherry"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(cherryIdx.hasNext(), "Final: 'cherry' should be indexed");
         }
       }
@@ -1906,8 +1940,9 @@ class HOTIndexIntegrationTest {
         // Verify Rev 1: 2 distinct values
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var alphaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var alphaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(alphaIdx.hasNext());
           assertEquals(1, alphaIdx.next().getNodeKeys().getLongCardinality(), "Rev1: 1 'alpha'");
         }
@@ -1926,17 +1961,20 @@ class HOTIndexIntegrationTest {
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
-          var gammaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/[]/value"), new Str("gamma"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var gammaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/[]/value"), new Str("gamma"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(gammaIdx.hasNext(), "Rev2: 'gamma' should be indexed");
 
-          var deltaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/[]/value"), new Str("delta"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var deltaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/[]/value"), new Str("delta"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(deltaIdx.hasNext(), "Rev2: 'delta' should be indexed");
 
           // Original values still present
-          var alphaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var alphaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(alphaIdx.hasNext(), "Rev2: 'alpha' still indexed");
         }
 
@@ -1951,8 +1989,9 @@ class HOTIndexIntegrationTest {
         // Verify Rev 3: 2 'alpha' entries
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var alphaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var alphaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(alphaIdx.hasNext());
           assertEquals(2, alphaIdx.next().getNodeKeys().getLongCardinality(), "Rev3: 2 'alpha' entries");
         }

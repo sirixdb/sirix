@@ -71,8 +71,7 @@ final class StringBloomPruneTest {
         idArr[i] = ids.get(i);
         offArr[i] = offsets.get(i);
       }
-      directories.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), idArr, offArr,
-          new byte[idArr.length][]));
+      directories.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), idArr, offArr, new byte[idArr.length][]));
     }
     final AtomicInteger fetched = new AtomicInteger();
     final ColumnSegmentFetcher fetcher = wanted -> {

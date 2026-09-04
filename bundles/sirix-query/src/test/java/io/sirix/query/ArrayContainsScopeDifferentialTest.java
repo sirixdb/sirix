@@ -30,12 +30,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * Anchors are selected by NAME KEY only, element strings are tagged with their array LAYER's path
  * node key, and an array spilled onto the next page leaves orphan elements with no identity at all.
- * A same-name array nested elsewhere in the record is therefore indistinguishable from the top-level
- * one at the anchor, and the route has to prove scope three ways: the layer key on the values it
- * counts, the ordinal certificate on the gap it claims, and the record path — WITH the source
- * matcher — on every seam with no element to prove it. Each fixture here breaks exactly one of those
- * proofs, and the mutation seams show that the guard closing it is load-bearing rather than
- * decorative: an arm with the guard bypassed must answer WRONG.
+ * A same-name array nested elsewhere in the record is therefore indistinguishable from the
+ * top-level one at the anchor, and the route has to prove scope three ways: the layer key on the
+ * values it counts, the ordinal certificate on the gap it claims, and the record path — WITH the
+ * source matcher — on every seam with no element to prove it. Each fixture here breaks exactly one
+ * of those proofs, and the mutation seams show that the guard closing it is load-bearing rather
+ * than decorative: an arm with the guard bypassed must answer WRONG.
  * </p>
  *
  * <p>
@@ -115,7 +115,8 @@ final class ArrayContainsScopeDifferentialTest {
     final String nested = "some $g in $m.genres[] satisfies $g eq 'Nested0'";
     final String top = "some $g in $m.genres[] satisfies $g eq 'Top1'";
     final String shared = "some $g in $m.genres[] satisfies $g eq 'Both'";
-    assertEquals(0L, generic(res, nested), "the generic pipeline: a nested-only literal is no member of the top-level array");
+    assertEquals(0L, generic(res, nested),
+        "the generic pipeline: a nested-only literal is no member of the top-level array");
     assertEquals(topOne, generic(res, top));
     assertEquals(both, generic(res, shared));
     long served = 0;
@@ -142,7 +143,12 @@ final class ArrayContainsScopeDifferentialTest {
       if (i > 0) {
         sb.append(',');
       }
-      sb.append("{\"id\":").append(i).append(",\"meta\":{\"genres\":[\"N").append(i % 3).append("\"]},\"z\":").append(i)
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"meta\":{\"genres\":[\"N")
+        .append(i % 3)
+        .append("\"]},\"z\":")
+        .append(i)
         .append('}');
     }
     sb.append(']');
@@ -157,9 +163,9 @@ final class ArrayContainsScopeDifferentialTest {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * Seven-node records: record J's object is at key 2 + 7J, so the nested array of the one record with
-   * a nested same-name array sits at key 7J + 6; J = 1023 puts it at slot 1023 of page 6, and its
-   * element at slot 0 of page 7. The filler records are FLAT (every field a child of the record
+   * Seven-node records: record J's object is at key 2 + 7J, so the nested array of the one record
+   * with a nested same-name array sits at key 7J + 6; J = 1023 puts it at slot 1023 of page 6, and
+   * its element at slot 0 of page 7. The filler records are FLAT (every field a child of the record
    * object): a record spanning a page boundary then has one off-page parent, which is the only shape
    * the record-ordinal linkage admits — a nested object at the seam would decline the page and the
    * mutation arms could not bite.
@@ -213,7 +219,8 @@ final class ArrayContainsScopeDifferentialTest {
     assertEquals(0L, generic(res, nested));
     assertEquals(n, generic(res, top));
     SirixVectorizedExecutor.resetRegionOnlyCounters();
-    assertEquals(0L, columns(res, nested), "the column route credited the nested array's orphan to the top-level anchor");
+    assertEquals(0L, columns(res, nested),
+        "the column route credited the nested array's orphan to the top-level anchor");
     assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0, "the column route served no page: vacuous");
     assertEquals(n, columns(res, top));
     // Mutation: settle the empty-gap trailing anchor from page 7's orphan tag, as HEAD did. The
@@ -238,7 +245,8 @@ final class ArrayContainsScopeDifferentialTest {
     // record path either way. Only the matcher rejects it there — the nested array DOES contain the
     // literal.
     SirixVectorizedExecutor.SEAM_UNSCOPED_SEAM_RECORDS = true;
-    assertEquals(1L, columns(res, nested), "the seam matcher is not load-bearing: bypassing it did not change the answer");
+    assertEquals(1L, columns(res, nested),
+        "the seam matcher is not load-bearing: bypassing it did not change the answer");
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -270,7 +278,8 @@ final class ArrayContainsScopeDifferentialTest {
     // Mutation: without the promise check, the unstaged pages carry no tags at all, the certificate
     // balances at zero for every anchor, and the route SERVES zero for records that match.
     SirixVectorizedExecutor.SEAM_SKIP_ELEMENT_PROMISE = true;
-    assertNotEquals(n, columns(res, predicate), "the promise check is not load-bearing: bypassing it kept the answer exact");
+    assertNotEquals(n, columns(res, predicate),
+        "the promise check is not load-bearing: bypassing it kept the answer exact");
   }
 
   @Test
@@ -312,7 +321,8 @@ final class ArrayContainsScopeDifferentialTest {
     final String predicate = "some $g in $m.genres[] satisfies $g eq 'Zzz'";
     SirixVectorizedExecutor.resetRegionOnlyCounters();
     assertEquals(1L, columns(res, predicate), "the spilled array's last string was lost behind its numeric orphans");
-    assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0, "page 0 was not served: the seam was never reached");
+    assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
+        "page 0 was not served: the seam was never reached");
   }
 
   /**

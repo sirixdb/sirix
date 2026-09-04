@@ -80,8 +80,8 @@ final class HeightOptimalSplitter {
    * @param rightChild reference to right child
    * @param discriminativeBitIndex the bit index that discriminates left from right
    */
-  record SplitResult(HOTIndirectPage newRoot, PageReference leftChild,
-      PageReference rightChild, int discriminativeBitIndex) {
+  record SplitResult(HOTIndirectPage newRoot, PageReference leftChild, PageReference rightChild,
+      int discriminativeBitIndex) {
   }
 
   /**
@@ -105,8 +105,8 @@ final class HeightOptimalSplitter {
    * @return the split result containing the new root and child references, or {@code null} if the
    *         page cannot be split (e.g., only 1 entry)
    */
-  static @Nullable SplitResult splitLeafPage(HOTLeafPage fullPage, HOTLeafPage rightPage,
-      long newRootPageKey, int revision) {
+  static @Nullable SplitResult splitLeafPage(HOTLeafPage fullPage, HOTLeafPage rightPage, long newRootPageKey,
+      int revision) {
 
     // 1. Split entries at midpoint (splitTo returns the split key, but we compute
     // the discriminative bit from actual boundary keys for correctness)
@@ -137,8 +137,8 @@ final class HeightOptimalSplitter {
     if (discriminativeBit < 0) {
       // Keys are identical — this indicates a bug in the split algorithm since properly
       // sorted unique keys should never produce identical leftMax/rightMin after split.
-      throw new IllegalStateException("Cannot split: leftMax and rightMin are identical: "
-          + java.util.Arrays.toString(leftMax));
+      throw new IllegalStateException(
+          "Cannot split: leftMax and rightMin are identical: " + java.util.Arrays.toString(leftMax));
     }
 
     // 4. Determine which side new keys go based on discriminative bit value
@@ -198,8 +198,8 @@ final class HeightOptimalSplitter {
    * @param revision current revision
    * @return the split result, or null if split not possible
    */
-  static @Nullable SplitResult splitLeafPageOptimal(HOTLeafPage fullPage,
-      HOTLeafPage rightPage, long newRootPageKey, int revision) {
+  static @Nullable SplitResult splitLeafPageOptimal(HOTLeafPage fullPage, HOTLeafPage rightPage, long newRootPageKey,
+      int revision) {
 
     // Get all keys to analyze discriminative bits
     byte[][] allKeys = fullPage.getAllKeys();
@@ -256,9 +256,8 @@ final class HeightOptimalSplitter {
    * @param numDiscriminativeBits number of discriminative bits
    * @return the split result with SpanNode root, or null if not possible
    */
-  private static @Nullable SplitResult createSpanNodeSplit(HOTLeafPage fullPage,
-      HOTLeafPage rightPage, long newRootPageKey, int revision, byte[][] allKeys, long discriminativeMask,
-      int numDiscriminativeBits) {
+  private static @Nullable SplitResult createSpanNodeSplit(HOTLeafPage fullPage, HOTLeafPage rightPage,
+      long newRootPageKey, int revision, byte[][] allKeys, long discriminativeMask, int numDiscriminativeBits) {
 
     // For SpanNode, we need to:
     // 1. Determine the byte range containing all discriminative bits
@@ -356,8 +355,8 @@ final class HeightOptimalSplitter {
    * @param rightRef reference to right child
    * @return the new BiNode
    */
-  static HOTIndirectPage createBiNode(long pageKey, int revision, int discriminativeBit,
-      PageReference leftRef, PageReference rightRef) {
+  static HOTIndirectPage createBiNode(long pageKey, int revision, int discriminativeBit, PageReference leftRef,
+      PageReference rightRef) {
     return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, leftRef, rightRef);
   }
 
@@ -378,8 +377,8 @@ final class HeightOptimalSplitter {
    * @param childIndex index of the split child in the parent (unused in simple case)
    * @return the new root reference
    */
-  static PageReference integrateBiNodeIntoTree(SplitResult splitResult,
-      @Nullable PageReference parentRef, int childIndex) {
+  static PageReference integrateBiNodeIntoTree(SplitResult splitResult, @Nullable PageReference parentRef,
+      int childIndex) {
 
     // Create reference to the new root
     // Full integration with the parent is handled by the canonical index writer.

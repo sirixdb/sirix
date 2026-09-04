@@ -40,9 +40,9 @@ public final class ValidTimeIndexes {
   /**
    * Derive the default indexed paths {@code /[]/<validFrom>} and {@code /[]/<validTo>} from the
    * resource's valid-time field configuration. Dotted (nested) configured paths such as
-   * {@code $.meta.validFrom} are split into individual steps so the derived path always parses.
-   * The builder/listener match valid-time fields by NAME from the resource's
-   * {@link ValidTimeConfig}, so the exact path only serves index identification/serialization.
+   * {@code $.meta.validFrom} are split into individual steps so the derived path always parses. The
+   * builder/listener match valid-time fields by NAME from the resource's {@link ValidTimeConfig}, so
+   * the exact path only serves index identification/serialization.
    *
    * @param validTimeConfig the resource's valid-time configuration
    * @return the two default paths, in validFrom/validTo order
@@ -61,10 +61,10 @@ public final class ValidTimeIndexes {
 
   /**
    * Create a valid-time interval index over the given paths within the given write transaction:
-   * registers the index definition, builds the index from the transaction's current data and
-   * attaches a change listener for subsequent modifications. Also invalidates cached query plans
-   * and (best-effort) stale histogram statistics. Does NOT commit — the caller owns the
-   * transaction lifecycle.
+   * registers the index definition, builds the index from the transaction's current data and attaches
+   * a change listener for subsequent modifications. Also invalidates cached query plans and
+   * (best-effort) stale histogram statistics. Does NOT commit — the caller owns the transaction
+   * lifecycle.
    *
    * @param controller the write-transaction index controller
    * @param wtx the open write transaction
@@ -81,9 +81,8 @@ public final class ValidTimeIndexes {
 
     final var storageEngineWriter = wtx.getStorageEngineWriter();
     final int indexDefNo = storageEngineWriter.getValidTimeIndexPage(storageEngineWriter.getActualRevisionRootPage())
-        .nextUnallocatedIndex();
-    final IndexDef validTimeIdxDef =
-        IndexDefs.createValidTimeIdxDef(paths, indexDefNo, IndexDef.DbType.JSON);
+                                              .nextUnallocatedIndex();
+    final IndexDef validTimeIdxDef = IndexDefs.createValidTimeIdxDef(paths, indexDefNo, IndexDef.DbType.JSON);
     controller.createIndexes(Set.of(validTimeIdxDef), wtx);
 
     // Invalidate cached query plans so the optimizer considers the new index.
@@ -109,14 +108,14 @@ public final class ValidTimeIndexes {
   }
 
   /**
-   * Create the valid-time indexes within the given write transaction when the resource is
-   * configured with valid-time paths (idempotent per index kind). Creates the persistent interval
-   * index plus one {@code xs:dateTime} CAS index per valid-time field — the semantically correct
-   * content type for timestamps, which the CAS-narrowing fallback of {@code jn:valid-at} scans with
-   * exact temporal ranges (values that fail the xs:dateTime cast are skipped by the CAS builder,
-   * never aborting the insert). All definitions are created in ONE {@code createIndexes} call, so
-   * the document is traversed once for every builder. Does not commit — the caller owns the
-   * transaction lifecycle, so data shred and index creation can land in one revision.
+   * Create the valid-time indexes within the given write transaction when the resource is configured
+   * with valid-time paths (idempotent per index kind). Creates the persistent interval index plus one
+   * {@code xs:dateTime} CAS index per valid-time field — the semantically correct content type for
+   * timestamps, which the CAS-narrowing fallback of {@code jn:valid-at} scans with exact temporal
+   * ranges (values that fail the xs:dateTime cast are skipped by the CAS builder, never aborting the
+   * insert). All definitions are created in ONE {@code createIndexes} call, so the document is
+   * traversed once for every builder. Does not commit — the caller owns the transaction lifecycle, so
+   * data shred and index creation can land in one revision.
    *
    * @param resourceSession the resource session the write transaction belongs to
    * @param wtx the open write transaction (data may already be inserted but not yet committed)
@@ -141,8 +140,8 @@ public final class ValidTimeIndexes {
     if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME) == 0) {
       final int validTimeIndexDefNo =
           storageEngineWriter.getValidTimeIndexPage(revisionRootPage).nextUnallocatedIndex();
-      indexDefsToCreate.add(IndexDefs.createValidTimeIdxDef(defaultPaths(validTimeConfig), validTimeIndexDefNo,
-          IndexDef.DbType.JSON));
+      indexDefsToCreate.add(
+          IndexDefs.createValidTimeIdxDef(defaultPaths(validTimeConfig), validTimeIndexDefNo, IndexDef.DbType.JSON));
     }
     if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS) == 0) {
       final var casPage = storageEngineWriter.getCASPage(revisionRootPage);

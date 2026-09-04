@@ -53,11 +53,13 @@ import static org.mockito.Mockito.mock;
 /**
  * Direct wire-level oracles for the PEXT-routed {@link HOTTrieReader} seek primitives.
  *
- * <p>The physical seek cases compare exact {@code logicalKey || chunkIdx_be4} keys with an
- * independent unsigned-lexicographic oracle after a cold database reopen. A dedicated logical-read
- * regression then proves that the generic reader enters that same lower-bound route when chunk zero
- * is absent. Together they catch both a route that is internally self-consistent but lands in the
- * wrong leaf and a logical wrapper that makes an independent positioning decision.</p>
+ * <p>
+ * The physical seek cases compare exact {@code logicalKey || chunkIdx_be4} keys with an independent
+ * unsigned-lexicographic oracle after a cold database reopen. A dedicated logical-read regression
+ * then proves that the generic reader enters that same lower-bound route when chunk zero is absent.
+ * Together they catch both a route that is internally self-consistent but lands in the wrong leaf
+ * and a logical wrapper that makes an independent positioning decision.
+ * </p>
  */
 final class HOTTrieReaderPextSeekTest {
 
@@ -161,8 +163,8 @@ final class HOTTrieReaderPextSeekTest {
           assertTrue(leaves.size() > 1, "the corpus must create durable leaf boundaries");
           assertKeysEqual(oracle, flatten(leaves), "non-zero-chunk durable contents");
 
-          final HOTIndexReader<ByteKey> logicalReader = HOTIndexReader.create(reader,
-              ByteKeySerializer.INSTANCE, IndexType.CAS, INDEX_NUMBER);
+          final HOTIndexReader<ByteKey> logicalReader =
+              HOTIndexReader.create(reader, ByteKeySerializer.INSTANCE, IndexType.CAS, INDEX_NUMBER);
 
           int qualifyingBoundaries = 0;
           byte[] boundaryLogicalKey = null;
@@ -226,9 +228,8 @@ final class HOTTrieReaderPextSeekTest {
           assertNull(logicalReader.get(new ByteKey(truncated), SearchMode.EQUAL));
           assertNull(logicalReader.get(new ByteKey(extended), SearchMode.EQUAL));
 
-          final List<Posting> strictPrefixFamily = postings.stream()
-              .filter(posting -> posting.logicalKey()[0] == 0x21)
-              .toList();
+          final List<Posting> strictPrefixFamily =
+              postings.stream().filter(posting -> posting.logicalKey()[0] == 0x21).toList();
           assertTrue(strictPrefixFamily.size() >= 3);
           for (final Posting posting : strictPrefixFamily) {
             assertPostings(logicalReader.get(new ByteKey(posting.logicalKey()), SearchMode.EQUAL),
@@ -240,8 +241,8 @@ final class HOTTrieReaderPextSeekTest {
   @ParameterizedTest(name = "{0}")
   @EnumSource(VersioningType.class)
   @Timeout(value = 300, unit = TimeUnit.SECONDS)
-  void incrementalHistoricalSeeksStayOnThePextRouteAcrossVersioningTypes(
-      final VersioningType versioningType) throws IOException {
+  void incrementalHistoricalSeeksStayOnThePextRouteAcrossVersioningTypes(final VersioningType versioningType)
+      throws IOException {
     final Path databasePath = temporaryDirectory.resolve("incremental-" + versioningType.name().toLowerCase());
     final List<Posting> corpus = indirectTreePostings();
     final List<Posting> initial = new ArrayList<>(corpus.subList(0, 560));
@@ -271,8 +272,8 @@ final class HOTTrieReaderPextSeekTest {
         writer.indexNodeKey(new ByteKey(updated.logicalKey()), addedChunkNodeKey);
         assertTrue(writer.remove(new ByteKey(deleted.logicalKey()), deleted.nodeKey()));
       });
-      final int thirdRevision = commitIncremental(databasePath, writer ->
-          assertTrue(writer.remove(new ByteKey(updated.logicalKey()), updated.nodeKey())));
+      final int thirdRevision = commitIncremental(databasePath,
+          writer -> assertTrue(writer.remove(new ByteKey(updated.logicalKey()), updated.nodeKey())));
 
       final List<Posting> secondPhysicalState = new ArrayList<>(initial);
       secondPhysicalState.addAll(additions);
@@ -296,8 +297,8 @@ final class HOTTrieReaderPextSeekTest {
     root.setPage(HOTIndirectPage.createBiNode(1L, 1, 0, null, new PageReference()));
 
     try (HOTTrieReader trie = new HOTTrieReader(mock(StorageEngineReader.class))) {
-      final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> trie.containsKey(root, new byte[] {0x00}));
+      final IllegalStateException failure =
+          assertThrows(IllegalStateException.class, () -> trie.containsKey(root, new byte[] {0x00}));
       assertTrue(failure.getMessage().contains("HOT structural corruption"));
       assertTrue(failure.getMessage().contains("has no reference"));
     }
@@ -313,9 +314,8 @@ final class HOTTrieReaderPextSeekTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try {
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-                                                     .versioningApproach(VersioningType.FULL)
-                                                     .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE).versioningApproach(VersioningType.FULL).build());
       }
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
@@ -351,13 +351,12 @@ final class HOTTrieReaderPextSeekTest {
     }
   }
 
-  private static int commitIncremental(final Path databasePath, final IncrementalMutation mutation)
-      throws IOException {
+  private static int commitIncremental(final Path databasePath, final IncrementalMutation mutation) throws IOException {
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
         JsonResourceSession session = database.beginResourceSession(RESOURCE);
         JsonNodeTrx wtx = session.beginNodeTrx()) {
-      final HOTIndexWriter<ByteKey> writer = HOTIndexWriter.create(wtx.getStorageEngineWriter(),
-          ByteKeySerializer.INSTANCE, IndexType.CAS, INDEX_NUMBER);
+      final HOTIndexWriter<ByteKey> writer =
+          HOTIndexWriter.create(wtx.getStorageEngineWriter(), ByteKeySerializer.INSTANCE, IndexType.CAS, INDEX_NUMBER);
       mutation.apply(writer);
       wtx.commit();
       return session.getMostRecentRevisionNumber();
@@ -365,8 +364,8 @@ final class HOTTrieReaderPextSeekTest {
   }
 
   private static void assertColdIncrementalRevision(final Path databasePath, final int revision,
-      final List<byte[]> oracle, final Posting updated, final long[] expectedUpdatedPostings,
-      final Posting deleted, final long[] expectedDeletedPostings) throws IOException {
+      final List<byte[]> oracle, final Posting updated, final long[] expectedUpdatedPostings, final Posting deleted,
+      final long[] expectedDeletedPostings) throws IOException {
     Databases.getGlobalBufferManager().clearAllCaches();
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
         JsonResourceSession session = database.beginResourceSession(RESOURCE);
@@ -387,17 +386,14 @@ final class HOTTrieReaderPextSeekTest {
       assertAllSeeksMatchOracle(trie, root, oracle, absentProbes);
       assertAllRangesMatchOracle(trie, root, oracle, leaves, absentProbes);
 
-      final HOTIndexReader<ByteKey> logicalReader = HOTIndexReader.create(reader, ByteKeySerializer.INSTANCE,
-          IndexType.CAS, INDEX_NUMBER);
-      assertPostings(logicalReader.get(new ByteKey(updated.logicalKey()), SearchMode.EQUAL),
-          expectedUpdatedPostings);
-      assertPostings(logicalReader.get(new ByteKey(deleted.logicalKey()), SearchMode.EQUAL),
-          expectedDeletedPostings);
+      final HOTIndexReader<ByteKey> logicalReader =
+          HOTIndexReader.create(reader, ByteKeySerializer.INSTANCE, IndexType.CAS, INDEX_NUMBER);
+      assertPostings(logicalReader.get(new ByteKey(updated.logicalKey()), SearchMode.EQUAL), expectedUpdatedPostings);
+      assertPostings(logicalReader.get(new ByteKey(deleted.logicalKey()), SearchMode.EQUAL), expectedDeletedPostings);
     }
   }
 
-  private static List<byte[]> boundaryAbsentProbes(final List<byte[]> oracle,
-      final List<LeafSnapshot> leaves) {
+  private static List<byte[]> boundaryAbsentProbes(final List<byte[]> oracle, final List<LeafSnapshot> leaves) {
     final List<byte[]> probes = new ArrayList<>(leaves.size() + 2);
     probes.add(new byte[0]);
     probes.add(appendZero(oracle.getLast()));
@@ -479,8 +475,9 @@ final class HOTTrieReaderPextSeekTest {
         return key;
       }
     }
-    throw new AssertionError((upper ? "upperBound" : "lowerBound")
-        + " could not produce a stamp-stable key for " + hex(Arrays.copyOf(probe, probeLength)));
+    throw new AssertionError((upper
+        ? "upperBound"
+        : "lowerBound") + " could not produce a stamp-stable key for " + hex(Arrays.copyOf(probe, probeLength)));
   }
 
   private static void assertAllRangesMatchOracle(final HOTTrieReader trie, final PageReference root,
@@ -489,14 +486,13 @@ final class HOTTrieReaderPextSeekTest {
 
     final byte[] from = oracle.get(oracle.size() / 7);
     final byte[] to = oracle.get(oracle.size() - oracle.size() / 9 - 1);
-    assertKeysEqual(expectedRange(oracle, from, to), collectRange(trie, root, from, to),
-        "broad bounded range");
+    assertKeysEqual(expectedRange(oracle, from, to), collectRange(trie, root, from, to), "broad bounded range");
 
     for (int i = 0; i + 1 < leaves.size(); i++) {
       final byte[] leftLast = leaves.get(i).lastKey();
       final byte[] rightFirst = leaves.get(i + 1).firstKey();
-      assertKeysEqual(expectedRange(oracle, leftLast, rightFirst),
-          collectRange(trie, root, leftLast, rightFirst), "range across leaf boundary " + i);
+      assertKeysEqual(expectedRange(oracle, leftLast, rightFirst), collectRange(trie, root, leftLast, rightFirst),
+          "range across leaf boundary " + i);
     }
 
     for (final byte[] absent : absentProbes) {
@@ -512,8 +508,8 @@ final class HOTTrieReaderPextSeekTest {
     }
   }
 
-  private static List<byte[]> collectRange(final HOTTrieReader trie, final PageReference root,
-      final byte[] from, final byte[] to) {
+  private static List<byte[]> collectRange(final HOTTrieReader trie, final PageReference root, final byte[] from,
+      final byte[] to) {
     final List<byte[]> actual = new ArrayList<>();
     try (HOTRangeCursor cursor = trie.range(root, from, to)) {
       while (cursor.hasNext()) {
@@ -529,8 +525,12 @@ final class HOTTrieReaderPextSeekTest {
   }
 
   private static List<byte[]> expectedRange(final List<byte[]> oracle, final byte[] from, final byte[] to) {
-    final int first = from == null ? 0 : lowerIndex(oracle, from, false);
-    final int afterLast = to == null ? oracle.size() : lowerIndex(oracle, to, true);
+    final int first = from == null
+        ? 0
+        : lowerIndex(oracle, from, false);
+    final int afterLast = to == null
+        ? oracle.size()
+        : lowerIndex(oracle, to, true);
     return new ArrayList<>(oracle.subList(first, Math.max(first, afterLast)));
   }
 
@@ -628,7 +628,9 @@ final class HOTTrieReaderPextSeekTest {
       for (int j = 11; j < logicalKey.length - 1; j++) {
         logicalKey[j] = (byte) (i * 31 + j);
       }
-      logicalKey[logicalKey.length - 1] = (byte) ((i & 1) == 0 ? 0x00 : 0xFF);
+      logicalKey[logicalKey.length - 1] = (byte) ((i & 1) == 0
+          ? 0x00
+          : 0xFF);
       postings.add(new Posting(logicalKey, nodeKey++));
     }
 
@@ -654,7 +656,9 @@ final class HOTTrieReaderPextSeekTest {
       logicalKey[16] = (byte) (i >>> 1);
       logicalKey[17] = (byte) (i * 19);
       logicalKey[18] = (byte) (i >>> 3);
-      logicalKey[19] = (byte) ((i & 1) == 0 ? 0x00 : 0xFF);
+      logicalKey[19] = (byte) ((i & 1) == 0
+          ? 0x00
+          : 0xFF);
       postings.add(new Posting(logicalKey, i + 1L));
     }
     return postings;
@@ -675,7 +679,9 @@ final class HOTTrieReaderPextSeekTest {
       logicalKey[16] = (byte) (i >>> 1);
       logicalKey[17] = (byte) (i * 19);
       logicalKey[18] = (byte) (i >>> 3);
-      logicalKey[19] = (byte) ((i & 1) == 0 ? 0x00 : 0xFF);
+      logicalKey[19] = (byte) ((i & 1) == 0
+          ? 0x00
+          : 0xFF);
       final long nodeKey = ((long) (1 + i % 251) << 16) | (i + 1L);
       postings.add(new Posting(logicalKey, nodeKey));
     }
@@ -684,8 +690,7 @@ final class HOTTrieReaderPextSeekTest {
     postings.add(new Posting(strictPrefix, (300L << 16) | 1));
     postings.add(new Posting(concat(strictPrefix, new byte[] {0x00}), (301L << 16) | 2));
     postings.add(new Posting(concat(strictPrefix, new byte[] {0x00, (byte) 0xFF}), (302L << 16) | 3));
-    postings.add(new Posting(concat(strictPrefix, new byte[] {(byte) 0xFF, 0x00, 0x00}),
-        (303L << 16) | 4));
+    postings.add(new Posting(concat(strictPrefix, new byte[] {(byte) 0xFF, 0x00, 0x00}), (303L << 16) | 4));
     return postings;
   }
 
@@ -695,8 +700,7 @@ final class HOTTrieReaderPextSeekTest {
         "the corpus must branch on a zero at byte 10");
     assertTrue(logicalKeys.stream().anyMatch(key -> key.length > 9 && key[9] == (byte) 0xFF),
         "the corpus must branch on 0xFF at byte 10");
-    assertTrue(logicalKeys.stream().anyMatch(key -> key[key.length - 1] == 0x00),
-        "the corpus must contain zero tails");
+    assertTrue(logicalKeys.stream().anyMatch(key -> key[key.length - 1] == 0x00), "the corpus must contain zero tails");
     assertTrue(logicalKeys.stream().anyMatch(key -> key[key.length - 1] == (byte) 0xFF),
         "the corpus must contain 0xFF tails");
   }
@@ -724,13 +728,12 @@ final class HOTTrieReaderPextSeekTest {
   }
 
   private static byte[] compositeLogicalKey() {
-    return new byte[] {(byte) 0x91, 0x23, 0x45, 0x67, (byte) 0x89, (byte) 0xAB, (byte) 0xCD,
-        (byte) 0xEF, 0x12, 0x34, 0x00, (byte) 0xFF};
+    return new byte[] {(byte) 0x91, 0x23, 0x45, 0x67, (byte) 0x89, (byte) 0xAB, (byte) 0xCD, (byte) 0xEF, 0x12, 0x34,
+        0x00, (byte) 0xFF};
   }
 
   private static byte[] byteTenProbeLogicalKey() {
-    return new byte[] {0x4B, 0x4B, 0x4B, 0x4B, 0x4B, 0x4B, 0x4B, 0x4B, 0x4B, 0x7E, 0x55,
-        (byte) 0xFF};
+    return new byte[] {0x4B, 0x4B, 0x4B, 0x4B, 0x4B, 0x4B, 0x4B, 0x4B, 0x4B, 0x7E, 0x55, (byte) 0xFF};
   }
 
   private static byte[] appendZero(final byte[] bytes) {
@@ -745,9 +748,7 @@ final class HOTTrieReaderPextSeekTest {
 
   private static int readIntBE(final byte[] bytes, final int offset) {
     Objects.checkFromIndexSize(offset, Integer.BYTES, bytes.length);
-    return (bytes[offset] & 0xFF) << 24
-        | (bytes[offset + 1] & 0xFF) << 16
-        | (bytes[offset + 2] & 0xFF) << 8
+    return (bytes[offset] & 0xFF) << 24 | (bytes[offset + 1] & 0xFF) << 16 | (bytes[offset + 2] & 0xFF) << 8
         | bytes[offset + 3] & 0xFF;
   }
 
@@ -780,7 +781,9 @@ final class HOTTrieReaderPextSeekTest {
   }
 
   private static byte[] keyAt(final List<byte[]> keys, final int index) {
-    return index == keys.size() ? null : keys.get(index);
+    return index == keys.size()
+        ? null
+        : keys.get(index);
   }
 
   private static void assertOptionalKeyEquals(final byte[] expected, final byte[] actual, final String description) {
@@ -802,14 +805,15 @@ final class HOTTrieReaderPextSeekTest {
 
   private static void assertStrictlyAscending(final List<byte[]> keys, final String description) {
     for (int i = 1; i < keys.size(); i++) {
-      assertTrue(UNSIGNED_LEX.compare(keys.get(i - 1), keys.get(i)) < 0,
-          description + " is not strictly ordered at " + (i - 1) + ": " + hex(keys.get(i - 1)) + " then "
-              + hex(keys.get(i)));
+      assertTrue(UNSIGNED_LEX.compare(keys.get(i - 1), keys.get(i)) < 0, description + " is not strictly ordered at "
+          + (i - 1) + ": " + hex(keys.get(i - 1)) + " then " + hex(keys.get(i)));
     }
   }
 
   private static String hex(final byte[] bytes) {
-    return bytes == null ? "<exhausted>" : HEX.formatHex(bytes);
+    return bytes == null
+        ? "<exhausted>"
+        : HEX.formatHex(bytes);
   }
 
   private record Posting(byte[] logicalKey, long nodeKey) {

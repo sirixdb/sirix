@@ -50,12 +50,12 @@ import java.util.Arrays;
  *
  * <p>
  * <b>Compare arms are Vector API, the folds are scalar.</b> {@code ProjectionFoldKernelBenchmark}
- * (512-bit species) put the scalar compare-to-bitmask loop at ~4.1&nbsp;ns/row on dense words against
- * ~0.21 for the lane-compare kernel, and dispatch keeps that crossover
+ * (512-bit species) put the scalar compare-to-bitmask loop at ~4.1&nbsp;ns/row on dense words
+ * against ~0.21 for the lane-compare kernel, and dispatch keeps that crossover
  * ({@link ProjectionVectorKernels#COMPARE_WALK_MAX_BITS}). The FOLD arms were Vector API too until
  * a 100M allocation profile showed their masked lanewise call running the Java fallback inside this
- * kernel's compile (see {@link #foldMaskedBlock}); they now sum dense blocks straight off the packed
- * bits and fold the rest with plain scalar accumulators.
+ * kernel's compile (see {@link #foldMaskedBlock}); they now sum dense blocks straight off the
+ * packed bits and fold the rest with plain scalar accumulators.
  */
 public final class ProjectionColumnSegmentFoldScan {
 
@@ -134,9 +134,9 @@ public final class ProjectionColumnSegmentFoldScan {
     }
 
     /**
-     * Wrapped sum of {@code count} values from value {@code valueStart} straight off the packed
-     * bits — {@code count · base + Σ packed}; exact whenever the true total fits a long, which the
-     * caller's zone-map pre-flight guarantees.
+     * Wrapped sum of {@code count} values from value {@code valueStart} straight off the packed bits —
+     * {@code count · base + Σ packed}; exact whenever the true total fits a long, which the caller's
+     * zone-map pre-flight guarantees.
      */
     long sumBlock(final int valueStart, final int count) {
       final int byteOff = valuesBase + (width == 64
@@ -324,8 +324,7 @@ public final class ProjectionColumnSegmentFoldScan {
     // the text, while a SUM over one is not an answer any caller asks for (and requireSumFitsLong
     // below still refuses one it cannot compute).
     if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(numericColumn))) {
-      throw new IllegalStateException(
-          "aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
+      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
     }
     final byte[][][] predBytes = resolvePredicateBytes(store, predicates, fetcher);
     final boolean[] predNumeric = predicateNumeric(store, predicates);
@@ -451,14 +450,14 @@ public final class ProjectionColumnSegmentFoldScan {
    * The previous arms folded through the Vector API: {@code vsum.add(fromArray(..))} on dense words
    * and {@code add(v, m)} / {@code lanewise(MIN, v, m)} on partial ones. Inside this kernel's C2
    * compile the MASKED lanewise call was a virtual call that never intrinsified — every call
-   * allocated a {@code long[]} and a {@code Long256Vector} through the Java fallback, and its presence
-   * in the compilation unit dragged the DENSE add down the same path: the async-profiler allocation
-   * profile of a hot try was 100&nbsp;% {@code LongVector.add → lanewiseTemplate}, the fold ran at
-   * 10-15&nbsp;ns/value per thread, and each try paid 1-3 young GCs for a kernel that "allocates
-   * nothing". Dropping the masked arm alone halved the query with byte-identical answers. What
-   * stays is code C2 compiles the same way every time: the dense block (every row survives — every
-   * block of an unpredicated aggregate over a NOT NULL column) sums STRAIGHT from the packed bits
-   * ({@link ProjectionIndexRowGroupCodec#sumPacked}) without writing the scratch at all, dense
+   * allocated a {@code long[]} and a {@code Long256Vector} through the Java fallback, and its
+   * presence in the compilation unit dragged the DENSE add down the same path: the async-profiler
+   * allocation profile of a hot try was 100&nbsp;% {@code LongVector.add → lanewiseTemplate}, the
+   * fold ran at 10-15&nbsp;ns/value per thread, and each try paid 1-3 young GCs for a kernel that
+   * "allocates nothing". Dropping the masked arm alone halved the query with byte-identical answers.
+   * What stays is code C2 compiles the same way every time: the dense block (every row survives —
+   * every block of an unpredicated aggregate over a NOT NULL column) sums STRAIGHT from the packed
+   * bits ({@link ProjectionIndexRowGroupCodec#sumPacked}) without writing the scratch at all, dense
    * words fold with independent scalar accumulators, and partial words walk their set bits.
    * {@link ProjectionVectorKernels} keeps the compare kernels, whose lane compares have no masked
    * virtual call in them.
@@ -667,10 +666,10 @@ public final class ProjectionColumnSegmentFoldScan {
   }
 
   /**
-   * Wrapped sum of {@code n} unpacked values with four independent accumulators — one add per
-   * value with no cross-iteration chain, which C2 keeps in registers (and may superword) without
-   * any intrinsic it can silently decline. {@code n} is a multiple of 4 for every caller except a
-   * leaf's tail block, which the scalar remainder covers.
+   * Wrapped sum of {@code n} unpacked values with four independent accumulators — one add per value
+   * with no cross-iteration chain, which C2 keeps in registers (and may superword) without any
+   * intrinsic it can silently decline. {@code n} is a multiple of 4 for every caller except a leaf's
+   * tail block, which the scalar remainder covers.
    */
   private static long sumDense(final long[] vals, final int from, final int n) {
     long s0 = 0L;
@@ -803,8 +802,7 @@ public final class ProjectionColumnSegmentFoldScan {
     // the text, while a SUM over one is not an answer any caller asks for (and requireSumFitsLong
     // below still refuses one it cannot compute).
     if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(numericColumn))) {
-      throw new IllegalStateException(
-          "aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
+      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
     }
     final ColumnPredicate[] leaves = tree.leaves;
     final byte[][][] leafBytes = resolvePredicateBytes(store, leaves, fetcher);

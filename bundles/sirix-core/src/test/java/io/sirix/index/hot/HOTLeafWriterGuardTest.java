@@ -178,8 +178,8 @@ class HOTLeafWriterGuardTest {
     try {
       final Future<?> eviction = executor.submit(cache::evictUnderPressure);
       assertTrue(evictionObservedZero.await(5, TimeUnit.SECONDS));
-      final Future<HOTLeafPage> copy = executor.submit(
-          () -> invokeCow(new TestIndexWriter(storageEngineWriter), reference, retired.page()));
+      final Future<HOTLeafPage> copy =
+          executor.submit(() -> invokeCow(new TestIndexWriter(storageEngineWriter), reference, retired.page()));
       assertTrue(writerAcquiredGuard.await(5, TimeUnit.SECONDS));
       allowEviction.countDown();
 

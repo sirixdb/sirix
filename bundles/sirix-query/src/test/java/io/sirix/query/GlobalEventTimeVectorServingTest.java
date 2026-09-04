@@ -29,13 +29,15 @@ import java.nio.file.Path;
  * Serving gate for ClickBench's high-cardinality {@code EventTime} column when AUTO selects the
  * resource-wide dictionary encoding.
  *
- * <p>The generic pipeline is the differential oracle for every shape. A serving-counter delta is
+ * <p>
+ * The generic pipeline is the differential oracle for every shape. A serving-counter delta is
  * asserted beside equality so a silent fallback cannot pass. The corpus deliberately mints
  * dictionary ids in an order unrelated to lexical timestamp order; comparing ids instead of their
  * values therefore fails the sorted queries. The q18/q42 shapes additionally require substring
  * transforms to read the dictionary entry directly, rather than treating the id as a timestamp.
  *
- * <p>The final phase updates {@code EventTime} to a newly interned value, deletes a record in a
+ * <p>
+ * The final phase updates {@code EventTime} to a newly interned value, deletes a record in a
  * successor revision, and then reopens the baseline revision. This pins both incremental index
  * maintenance and revision-bound dictionary reads: a read view accidentally retained across
  * revisions cannot answer all three snapshots correctly.
@@ -47,9 +49,8 @@ public final class GlobalEventTimeVectorServingTest extends AbstractJsonTest {
   private static final String RESOURCE = "global-event-time.jn";
   private static final int ROWS = 12_000;
 
-  private static final String[] PROJECTED_FIELDS = {
-      "EventTime", "URL", "SearchPhrase", "UserID", "CounterID", "EventDate", "IsRefresh", "DontCountHits"
-  };
+  private static final String[] PROJECTED_FIELDS =
+      {"EventTime", "URL", "SearchPhrase", "UserID", "CounterID", "EventDate", "IsRefresh", "DontCountHits"};
 
   private String previousGlobalDictionaryMode;
 
@@ -132,7 +133,9 @@ public final class GlobalEventTimeVectorServingTest extends AbstractJsonTest {
       // 7,919 is coprime to 12,000: first-seen id order is a permutation of timestamp order.
       // Rows 0 and 1 intentionally share the full timestamp, so q26 must consult its local-string
       // secondary key while EventTime still has 11,999 distinct values and wins AUTO admission.
-      final int logicalMinute = row == 1 ? 0 : row;
+      final int logicalMinute = row == 1
+          ? 0
+          : row;
       final int permutedMinute = logicalMinute * 7_919 % ROWS;
       final int day = 14 + permutedMinute / (24 * 60);
       final int minuteOfDay = permutedMinute % (24 * 60);
@@ -149,7 +152,11 @@ public final class GlobalEventTimeVectorServingTest extends AbstractJsonTest {
       json.append(':');
       appendTwoDigits(json, second);
       json.append("\",\"URL\":\"")
-          .append(row % 4 == 0 ? "https://google.example/a" : row % 4 == 1 ? "https://example.test/b" : "")
+          .append(row % 4 == 0
+              ? "https://google.example/a"
+              : row % 4 == 1
+                  ? "https://example.test/b"
+                  : "")
           .append("\",\"SearchPhrase\":\"")
           .append(switch (row % 5) {
             case 0 -> "alpha";
@@ -190,8 +197,7 @@ public final class GlobalEventTimeVectorServingTest extends AbstractJsonTest {
 
   private static String q26(final int revision) {
     return "subsequence(for $h in " + source(revision)
-        + " where $h.SearchPhrase != \"\" order by $h.EventTime, $h.SearchPhrase "
-        + "return $h.SearchPhrase, 1, 10)";
+        + " where $h.SearchPhrase != \"\" order by $h.EventTime, $h.SearchPhrase " + "return $h.SearchPhrase, 1, 10)";
   }
 
   private static String q18(final int revision) {
@@ -202,8 +208,7 @@ public final class GlobalEventTimeVectorServingTest extends AbstractJsonTest {
   }
 
   private static String q42(final int revision) {
-    return "subsequence(for $h in " + source(revision)
-        + " where $h.CounterID = 62 and $h.EventDate >= \"2013-07-14\" "
+    return "subsequence(for $h in " + source(revision) + " where $h.CounterID = 62 and $h.EventDate >= \"2013-07-14\" "
         + "and $h.EventDate <= \"2013-07-15\" and $h.IsRefresh = 0 and $h.DontCountHits = 0 "
         + "let $m := substring($h.EventTime, 1, 16) group by $m let $c := count($h) order by $m "
         + "return {\"M\": concat($m, \":00\"), \"PageViews\": $c}, 1001, 10)";
@@ -239,7 +244,8 @@ public final class GlobalEventTimeVectorServingTest extends AbstractJsonTest {
   }
 
   private static String evaluateGeneric(final String query) throws IOException {
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
@@ -248,7 +254,8 @@ public final class GlobalEventTimeVectorServingTest extends AbstractJsonTest {
   }
 
   private static String evaluateVectorized(final String query, final int revision) throws IOException {
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -316,12 +323,14 @@ public final class GlobalEventTimeVectorServingTest extends AbstractJsonTest {
 
   private static void assertEventTimeIsTheOnlyGlobalStringColumn(final int revision) {
     try (final BasicJsonDBStore store =
-            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build()) {
+        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build()) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup(DATABASE);
       try (final JsonResourceSession session = collection.getDatabase().beginResourceSession(RESOURCE);
           final var readTransaction = session.beginNodeReadOnlyTrx(revision)) {
-        final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(revision)
-            .openProjectionIndex(readTransaction.getStorageEngineReader(), new String[] {"[]"}, PROJECTED_FIELDS);
+        final ProjectionIndexRegistry.Handle handle =
+            session.getRtxIndexController(revision)
+                   .openProjectionIndex(readTransaction.getStorageEngineReader(), new String[] {"[]"},
+                       PROJECTED_FIELDS);
         Assertions.assertNotNull(handle, "the maintained projection must be visible at revision " + revision);
         final int eventTimeColumn = handle.columnOf("EventTime");
         Assertions.assertTrue(eventTimeColumn >= 0);

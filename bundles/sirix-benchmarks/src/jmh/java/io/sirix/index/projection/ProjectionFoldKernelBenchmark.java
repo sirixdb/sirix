@@ -53,33 +53,34 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 /**
- * <p><b>Package note:</b> lives in {@code io.sirix.index.projection} (split across the
- * sirix-core and sirix-benchmarks artifacts, classpath-legal) so the vector arms and the
- * unpack arms invoke the SHIPPED package-private kernels — {@code ProjectionVectorKernels}
- * and {@code ProjectionIndexRowGroupCodec.unpackInto} — instead of copies that could drift
- * from the code whose dispatch thresholds this benchmark calibrates.
+ * <p>
+ * <b>Package note:</b> lives in {@code io.sirix.index.projection} (split across the sirix-core and
+ * sirix-benchmarks artifacts, classpath-legal) so the vector arms and the unpack arms invoke the
+ * SHIPPED package-private kernels — {@code ProjectionVectorKernels} and
+ * {@code ProjectionIndexRowGroupCodec.unpackInto} — instead of copies that could drift from the
+ * code whose dispatch thresholds this benchmark calibrates.
  *
- * A/B profile behind the projection scan stages' vector-vs-scalar dispatch: the shipped
- * scalar word-mask loops (bit-for-bit copies) against Vector-API variants, isolated and
- * in situ behind the block unpacker, plus the end-to-end fold kernels for the Amdahl
- * context. The crossovers this measures are the ones {@code ProjectionVectorKernels}
- * encodes ({@code COMPARE_WALK_MAX_BITS}, {@code FOLD_WALK_MAX_BITS}) — re-run here to
- * recalibrate them on new hardware, especially sub-4-lane machines, which were
- * unmeasurable on the original AVX-512 profiling host (its 128-bit mask conversions hit
- * a JVM slow path; see the 128-bit arms below before trusting them on x86).
+ * A/B profile behind the projection scan stages' vector-vs-scalar dispatch: the shipped scalar
+ * word-mask loops (bit-for-bit copies) against Vector-API variants, isolated and in situ behind the
+ * block unpacker, plus the end-to-end fold kernels for the Amdahl context. The crossovers this
+ * measures are the ones {@code ProjectionVectorKernels} encodes ({@code COMPARE_WALK_MAX_BITS},
+ * {@code FOLD_WALK_MAX_BITS}) — re-run here to recalibrate them on new hardware, especially
+ * sub-4-lane machines, which were unmeasurable on the original AVX-512 profiling host (its 128-bit
+ * mask conversions hit a JVM slow path; see the 128-bit arms below before trusting them on x86).
  *
- * <p>Scores are per row ({@code @OperationsPerInvocation}); every invocation streams the
- * whole 2&nbsp;MiB pool so repeated passes cannot train the branch predictor on a
- * memorized block. Run for example with:
+ * <p>
+ * Scores are per row ({@code @OperationsPerInvocation}); every invocation streams the whole
+ * 2&nbsp;MiB pool so repeated passes cannot train the branch predictor on a memorized block. Run
+ * for example with:
  * {@code ./gradlew :sirix-benchmarks:jmh -Pjmh.includes="ProjectionFoldKernelBenchmark"
  * -Pjmh.warmupIterations=5 -Pjmh.iterations=5 -Pjmh.fork=1}
  *
- * <p>Verdicts this benchmark has already produced (512-bit species, 8 long lanes):
- * dense compare 4.1 → 0.21&nbsp;ns/row, walk ahead only ≤ ~2 candidate bits; masked fold
- * walk ahead ≤ ~8 surviving bits; dict-id EQ 1.54 → 0.19 dense; and the scalar windowed
- * unpacker BEAT the {@link BitUnpackSimd} group unpack 1.7 vs 4.5&nbsp;ns/row when the
- * destination is a materialized scratch block, which is why
- * {@code ProjectionIndexRowGroupCodec.unpackInto} stays scalar.
+ * <p>
+ * Verdicts this benchmark has already produced (512-bit species, 8 long lanes): dense compare 4.1 →
+ * 0.21&nbsp;ns/row, walk ahead only ≤ ~2 candidate bits; masked fold walk ahead ≤ ~8 surviving
+ * bits; dict-id EQ 1.54 → 0.19 dense; and the scalar windowed unpacker BEAT the
+ * {@link BitUnpackSimd} group unpack 1.7 vs 4.5&nbsp;ns/row when the destination is a materialized
+ * scratch block, which is why {@code ProjectionIndexRowGroupCodec.unpackInto} stays scalar.
  */
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
@@ -93,13 +94,16 @@ public class ProjectionFoldKernelBenchmark {
   private static final VectorSpecies<Long> S256 = LongVector.SPECIES_256;
   private static final VectorSpecies<Long> S128 = LongVector.SPECIES_128;
 
-  /** 256 blocks x 1024 values = 2 MiB — larger than L1 so the branch predictor cannot memorize a block. */
+  /**
+   * 256 blocks x 1024 values = 2 MiB — larger than L1 so the branch predictor cannot memorize a
+   * block.
+   */
   private static final int POOL_BLOCKS = 256;
   private static final int BLOCK_VALUES = 1024;
   private static final int POOL_VALUES = POOL_BLOCKS * BLOCK_VALUES;
   private static final int WORDS_PER_BLOCK = BLOCK_VALUES >>> 6;
 
-  private static final long LIT = 511L;   // ~50% selectivity over [0, 1024) — the branchy scalar's worst case
+  private static final long LIT = 511L; // ~50% selectivity over [0, 1024) — the branchy scalar's worst case
 
   /** Every lane mask, indexed by its own bit pattern; {@code 1 << LANES} entries is 16 at 256-bit. */
   private static final VectorMask<Long>[] LANE_MASKS = buildLaneMasks();
@@ -113,6 +117,7 @@ public class ProjectionFoldKernelBenchmark {
     }
     return masks;
   }
+
   private static final long LO = 256L;
   private static final long HI = 768L;
   private static final int TARGET_ID = 3; // ~5% hit rate over a 20-entry dictionary
@@ -147,8 +152,8 @@ public class ProjectionFoldKernelBenchmark {
           throw new AssertionError("scalar/vector compare divergence at base " + base);
         }
       }
-      final long[] a = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-      final long[] b = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+      final long[] a = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
+      final long[] b = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
       scalarFoldDenseBlock(vals, 0, a);
       vectorFoldDenseBlock(vals, 0, b);
       if (!Arrays.equals(a, b)) {
@@ -160,7 +165,7 @@ public class ProjectionFoldKernelBenchmark {
   /** One candidate word per pool 64-row word with exactly {@code density} set bits. */
   @State(Scope.Benchmark)
   public static class Masks {
-    @Param({ "1", "2", "4", "8", "16", "32", "48" })
+    @Param({"1", "2", "4", "8", "16", "32", "48"})
     int density;
 
     final long[] candidates = new long[POOL_VALUES >>> 6];
@@ -216,12 +221,12 @@ public class ProjectionFoldKernelBenchmark {
   /**
    * Bit-packed pool for the unpack A/B. The scalar arm is a verified copy of
    * {@code ProjectionIndexRowGroupCodec.unpackInto}'s positional core (package-private in
-   * sirix-core), checked lane-for-lane against {@link BitUnpackSimd#decodeAt} in setup so
-   * the copy cannot drift from wire truth.
+   * sirix-core), checked lane-for-lane against {@link BitUnpackSimd#decodeAt} in setup so the copy
+   * cannot drift from wire truth.
    */
   @State(Scope.Benchmark)
   public static class Packed {
-    @Param({ "8", "16", "32" })
+    @Param({"8", "16", "32"})
     int width;
 
     final byte[][] packed = new byte[POOL_BLOCKS][];
@@ -233,7 +238,7 @@ public class ProjectionFoldKernelBenchmark {
     @Setup
     public void setUp() {
       BitUnpackSimd.setWarmupRemainingForTesting(0);
-      wlit = (1L << (width - 1)) - 1L;   // mid-range literal: ~50% selectivity at every width
+      wlit = (1L << (width - 1)) - 1L; // mid-range literal: ~50% selectivity at every width
       final Random rnd = new Random(width * 0xBEEFL);
       final long mask = BitUnpackSimd.maskFor(width);
       plan = BitUnpackSimd.planFor(width);
@@ -264,8 +269,7 @@ public class ProjectionFoldKernelBenchmark {
         }
         packed[b] = block;
         segs[b] = MemorySegment.ofArray(block);
-        lastStarts[b] = Math.min(BLOCK_VALUES - lanes,
-            BitUnpackSimd.lastVectorGroupStart(block.length, 0, width));
+        lastStarts[b] = Math.min(BLOCK_VALUES - lanes, BitUnpackSimd.lastVectorGroupStart(block.length, 0, width));
         // Parity: local scalar copy vs the independent BitUnpackSimd decoder, per value.
         ProjectionIndexRowGroupCodec.unpackInto(block, 0, BLOCK_VALUES, width, 0L, refVals, 0);
         for (int i = 0; i < BLOCK_VALUES; i++) {
@@ -280,7 +284,7 @@ public class ProjectionFoldKernelBenchmark {
   /** Store-backed end-to-end context for the shipped fold kernels. */
   @State(Scope.Benchmark)
   public static class Store {
-    @Param({ "true", "false" })
+    @Param({"true", "false"})
     boolean allPresent;
 
     ProjectionColumnStore store;
@@ -291,11 +295,11 @@ public class ProjectionFoldKernelBenchmark {
 
     @Setup
     public void setUp() {
-      final byte[] kinds = {
-          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-          ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN
-      };
-      final Random rnd = new Random(allPresent ? 42 : 43);
+      final byte[] kinds =
+          {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN};
+      final Random rnd = new Random(allPresent
+          ? 42
+          : 43);
       final Map<Long, byte[]> segmentsByOffset = new HashMap<>();
       final List<ProjectionIndexHOTStorage.RowGroupDirectory> directories = new ArrayList<>();
       // Derived, not hardcoded: the store must hold exactly POOL_VALUES rows so the end-to-end
@@ -320,8 +324,7 @@ public class ProjectionFoldKernelBenchmark {
           bools[1] = rnd.nextBoolean();
           present[0] = allPresent || rnd.nextInt(10) != 0;
           present[1] = allPresent || rnd.nextInt(10) != 0;
-          page.appendRow(recordKey++, longs, bools, strings, present, unrep, nonIntegral,
-              nonDoubleSource);
+          page.appendRow(recordKey++, longs, bools, strings, present, unrep, nonIntegral, nonDoubleSource);
         }
         totalRows += rows;
         final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
@@ -335,8 +338,8 @@ public class ProjectionFoldKernelBenchmark {
           segmentsByOffset.put(nextOffset, encoded.segments()[i]);
           nextOffset += 1 + encoded.segments()[i].length;
         }
-        directories.add(new ProjectionIndexHOTStorage.RowGroupDirectory(leaf + 1,
-            encoded.descriptor(), ids, offsets, new byte[ids.length][]));
+        directories.add(new ProjectionIndexHOTStorage.RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets,
+            new byte[ids.length][]));
       }
       fetcher = wanted -> {
         final byte[][] out = new byte[wanted.length][];
@@ -347,10 +350,10 @@ public class ProjectionFoldKernelBenchmark {
       };
       store = new ProjectionColumnStore(directories);
       gt = new ProjectionIndexScan.ColumnPredicate[] {
-          ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 511L) };
+          ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 511L)};
       gtBool = new ProjectionIndexScan.ColumnPredicate[] {
           ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 511L),
-          ProjectionIndexScan.ColumnPredicate.booleanEq(1, true) };
+          ProjectionIndexScan.ColumnPredicate.booleanEq(1, true)};
       if (totalRows != POOL_VALUES) {
         throw new AssertionError("store rows " + totalRows + " != " + POOL_VALUES);
       }
@@ -501,8 +504,8 @@ public class ProjectionFoldKernelBenchmark {
         vmax = vmax.lanewise(VectorOperators.MAX, v, vm);
       }
     }
-    return count ^ vsum.reduceLanes(VectorOperators.ADD)
-        ^ vmin.reduceLanes(VectorOperators.MIN) ^ vmax.reduceLanes(VectorOperators.MAX);
+    return count ^ vsum.reduceLanes(VectorOperators.ADD) ^ vmin.reduceLanes(VectorOperators.MIN)
+        ^ vmax.reduceLanes(VectorOperators.MAX);
   }
 
   @Benchmark
@@ -528,8 +531,8 @@ public class ProjectionFoldKernelBenchmark {
         vmax = vmax.max(v.blend(Long.MIN_VALUE, nm));
       }
     }
-    return count ^ vsum.reduceLanes(VectorOperators.ADD)
-        ^ vmin.reduceLanes(VectorOperators.MIN) ^ vmax.reduceLanes(VectorOperators.MAX);
+    return count ^ vsum.reduceLanes(VectorOperators.ADD) ^ vmin.reduceLanes(VectorOperators.MIN)
+        ^ vmax.reduceLanes(VectorOperators.MAX);
   }
 
   @Benchmark
@@ -604,8 +607,8 @@ public class ProjectionFoldKernelBenchmark {
         vmax = vmax.lanewise(VectorOperators.MAX, v, vm);
       }
     }
-    return count ^ vsum.reduceLanes(VectorOperators.ADD)
-        ^ vmin.reduceLanes(VectorOperators.MIN) ^ vmax.reduceLanes(VectorOperators.MAX);
+    return count ^ vsum.reduceLanes(VectorOperators.ADD) ^ vmin.reduceLanes(VectorOperators.MIN)
+        ^ vmax.reduceLanes(VectorOperators.MAX);
   }
 
   // ==================== species scaling (crossover recalibration) ====================
@@ -660,8 +663,8 @@ public class ProjectionFoldKernelBenchmark {
         vmax = vmax.lanewise(VectorOperators.MAX, v, vm);
       }
     }
-    return count ^ vsum.reduceLanes(VectorOperators.ADD)
-        ^ vmin.reduceLanes(VectorOperators.MIN) ^ vmax.reduceLanes(VectorOperators.MAX);
+    return count ^ vsum.reduceLanes(VectorOperators.ADD) ^ vmin.reduceLanes(VectorOperators.MIN)
+        ^ vmax.reduceLanes(VectorOperators.MAX);
   }
 
   // ==================== string-eq dict-id compare ====================
@@ -810,8 +813,8 @@ public class ProjectionFoldKernelBenchmark {
 
   /**
    * The same aggregate as {@link #endToEndAggregateGt}, asking only for the slots a
-   * {@code count}/{@code sum}/{@code avg} query reads. The delta is the emulated 64-bit min/max
-   * this ISA has no instruction for.
+   * {@code count}/{@code sum}/{@code avg} query reads. The delta is the emulated 64-bit min/max this
+   * ISA has no instruction for.
    */
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
@@ -844,8 +847,7 @@ public class ProjectionFoldKernelBenchmark {
     return out;
   }
 
-  private static long scalarBetweenWord(final long[] vals, final int rowBase, final long lo,
-      final long hi) {
+  private static long scalarBetweenWord(final long[] vals, final int rowBase, final long lo, final long hi) {
     long out = 0L;
     for (int k = 0; k < 64; k++) {
       final long v = vals[rowBase + k];
@@ -856,9 +858,11 @@ public class ProjectionFoldKernelBenchmark {
     return out;
   }
 
-  /** Copy of the shipped sparse ntz walk, GT-specialised (the loop-invariant op switch predicts perfectly). */
-  private static long scalarSparseGtWord(final long[] vals, final int rowBase, final long candidates,
-      final long lit) {
+  /**
+   * Copy of the shipped sparse ntz walk, GT-specialised (the loop-invariant op switch predicts
+   * perfectly).
+   */
+  private static long scalarSparseGtWord(final long[] vals, final int rowBase, final long candidates, final long lit) {
     long out = 0L;
     long c = candidates;
     while (c != 0L) {
@@ -933,17 +937,14 @@ public class ProjectionFoldKernelBenchmark {
   }
 
   /** The SHIPPED between-compare kernel (see the package note). */
-  private static long vectorBetweenWord(final long[] vals, final int rowBase, final long lo,
-      final long hi) {
-    return ProjectionVectorKernels.compareWord(vals, rowBase, ProjectionIndexScan.Op.BETWEEN_GE_LT,
-        lo, hi);
+  private static long vectorBetweenWord(final long[] vals, final int rowBase, final long lo, final long hi) {
+    return ProjectionVectorKernels.compareWord(vals, rowBase, ProjectionIndexScan.Op.BETWEEN_GE_LT, lo, hi);
   }
 
   private static long gtWord256(final long[] vals, final int rowBase, final long lit) {
     long out = 0L;
     for (int k = 0; k < 64; k += 4) {
-      out |= LongVector.fromArray(S256, vals, rowBase + k)
-          .compare(VectorOperators.GT, lit).toLong() << k;
+      out |= LongVector.fromArray(S256, vals, rowBase + k).compare(VectorOperators.GT, lit).toLong() << k;
     }
     return out;
   }
@@ -951,8 +952,7 @@ public class ProjectionFoldKernelBenchmark {
   private static long gtWord128(final long[] vals, final int rowBase, final long lit) {
     long out = 0L;
     for (int k = 0; k < 64; k += 2) {
-      out |= LongVector.fromArray(S128, vals, rowBase + k)
-          .compare(VectorOperators.GT, lit).toLong() << k;
+      out |= LongVector.fromArray(S128, vals, rowBase + k).compare(VectorOperators.GT, lit).toLong() << k;
     }
     return out;
   }

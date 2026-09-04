@@ -885,17 +885,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             + "serializeJoinWaitTotalNs=%d kvlAppendTotalNs=%d sideTotalNs=%d finalFlushTotalNs=%d%n",
         hftCombinedEpochs, hftSideOnlyEpochs, hftSnapshotKvlPages, hftSnapshotKvlAttemptedPages,
         hftSnapshotKvlPromotedPages, hftSnapshotKvlDeferredPages, hftMaxSnapshotKvlAttemptedPages, hftStagedSidePages,
-        hftStagedSideBytes,
-        hftPeakActiveSideBytes, hftPermitAcquires, hftPermitWaitNanos, hftMaxPermitWaitNanos, hftRotationPermitAcquires,
-        hftRotationPermitWaitNanos, hftMaxRotationPermitWaitNanos, hftDrainPermitAcquires, hftDrainPermitWaitNanos,
-        hftMaxDrainPermitWaitNanos, hftWorkerRuns, hftWorkerNanos, hftMaxWorkerNanos, hftSubmitWaitCount,
-        hftSubmitWaitNanos, hftMaxSubmitWaitNanos, hftCallerThreadAppendRuns, hftStartFlushCount, hftStartFlushNanos,
-        hftMaxStartFlushNanos, hftForegroundFlushCount, hftForegroundFlushNanos, hftMaxForegroundFlushNanos,
-        hftFinalDrainCount, hftFinalDrainNanos, hftMaxFinalDrainNanos, hftNativeReservoirCount, hftNativeReservoirBytes,
-        hftKvlFrameCachePages, hftKvlFrameCacheBytes, hftKvlCacheFallbackPages, hftKvlCacheFallbackBytes,
-        hftPinnedTrieSpillEpochs, hftPinnedTrieSpillPages, hftPinnedTrieSpillBatchMax, hftPinnedTrieLiveMax,
-        hftPinnedTrieHighWater, hftSerializeJoinWaitNanosTotal, hftKvlAppendNanosTotal, hftSideNanosTotal,
-        hftFinalFlushNanosTotal);
+        hftStagedSideBytes, hftPeakActiveSideBytes, hftPermitAcquires, hftPermitWaitNanos, hftMaxPermitWaitNanos,
+        hftRotationPermitAcquires, hftRotationPermitWaitNanos, hftMaxRotationPermitWaitNanos, hftDrainPermitAcquires,
+        hftDrainPermitWaitNanos, hftMaxDrainPermitWaitNanos, hftWorkerRuns, hftWorkerNanos, hftMaxWorkerNanos,
+        hftSubmitWaitCount, hftSubmitWaitNanos, hftMaxSubmitWaitNanos, hftCallerThreadAppendRuns, hftStartFlushCount,
+        hftStartFlushNanos, hftMaxStartFlushNanos, hftForegroundFlushCount, hftForegroundFlushNanos,
+        hftMaxForegroundFlushNanos, hftFinalDrainCount, hftFinalDrainNanos, hftMaxFinalDrainNanos,
+        hftNativeReservoirCount, hftNativeReservoirBytes, hftKvlFrameCachePages, hftKvlFrameCacheBytes,
+        hftKvlCacheFallbackPages, hftKvlCacheFallbackBytes, hftPinnedTrieSpillEpochs, hftPinnedTrieSpillPages,
+        hftPinnedTrieSpillBatchMax, hftPinnedTrieLiveMax, hftPinnedTrieHighWater, hftSerializeJoinWaitNanosTotal,
+        hftKvlAppendNanosTotal, hftSideNanosTotal, hftFinalFlushNanosTotal);
     if (hftMaxWorkerEpochId != 0L) {
       System.out.printf(
           "# HFT_ASYNC_MAX_WORKER epoch=%d queueWaitNs=%d workerNs=%d sideNs=%d "
@@ -1038,8 +1037,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     requireSecondaryIndexPageType(indexType, historicalPage, "persisted page");
     final Page privateCopy = copySecondaryIndexPage(indexType, historicalPage);
     if (privateCopy == historicalPage) {
-      final IllegalStateException failure = new IllegalStateException(
-          "Secondary-index CoW returned the historical " + indexType + " page instance");
+      final IllegalStateException failure =
+          new IllegalStateException("Secondary-index CoW returned the historical " + indexType + " page instance");
       markTransactionRollbackOnly(failure);
       throw failure;
     }
@@ -1098,8 +1097,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     };
   }
 
-  private void requireSecondaryIndexPageType(final IndexType indexType, final Page page,
-      final String source) {
+  private void requireSecondaryIndexPageType(final IndexType indexType, final Page page, final String source) {
     final boolean matches = switch (indexType) {
       case PATH -> page instanceof PathPage;
       case CAS -> page instanceof CASPage;
@@ -1110,7 +1108,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     };
     if (!matches) {
       final IllegalStateException failure = new IllegalStateException(source + " for " + indexType
-          + " has unexpected type " + (page == null ? "null" : page.getClass().getName()));
+          + " has unexpected type " + (page == null
+              ? "null"
+              : page.getClass().getName()));
       markTransactionRollbackOnly(failure);
       throw failure;
     }
@@ -3305,8 +3305,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         if (PageSectionDiag.ENABLED) {
           // The encode above ran in full and is about to be dropped: the leaf goes back to the live
           // TIL and the write path encodes it again. Count the work, not the (absent) bytes.
-          PageSectionDiag.recordDiscardedEncode(PageSectionDiag.DISCARD_UNRESOLVED_OVERFLOW,
-              pooledSegment.position());
+          PageSectionDiag.recordDiscardedEncode(PageSectionDiag.DISCARD_UNRESOLVED_OVERFLOW, pooledSegment.position());
         }
         return false;
       }
@@ -3399,8 +3398,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           // An adopted leaf materialized its records at adoption, so in-place serialization adds no
           // carrier: the state classified above is final and the serializer's own reference pass
           // can be skipped for it. Every other page may gain carriers WHILE serializing.
-          final boolean carriersKnownResolved =
-              inPlace && carriers == KeyValueLeafPage.OverflowReferenceState.RESOLVED;
+          final boolean carriersKnownResolved = inPlace && carriers == KeyValueLeafPage.OverflowReferenceState.RESOLVED;
           // NO trie-lane resolution here, deliberately. This runs inside serializeSnapshotWindowAsync's
           // runAsync + parallel forEach, so many ForkJoinPool threads would enter a reader that is
           // declared single-threaded, concurrently mutating currentPageGuard, a parse scratch buffer
@@ -3417,8 +3415,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
               // cleanupSnapshot() promotes the ORIGINAL page into the live TIL, where recursive
               // final commit either resolves the overflow or serializes with an ordinary owned
               // cache. No borrowed pooled alias is ever published on this path.
-              final KeyValueLeafPage.OverflowReferenceState refusedState =
-                  serializationCopy.overflowReferenceState();
+              final KeyValueLeafPage.OverflowReferenceState refusedState = serializationCopy.overflowReferenceState();
               if (PageSectionDiag.ENABLED) {
                 PageSectionDiag.recordRefusalCarrierState(switch (refusedState) {
                   case RESOLVED -> PageSectionDiag.REFUSAL_CARRIERS_RESOLVED;
@@ -5091,23 +5088,33 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final PageReference rootRef = switch (indexType) {
       case PATH -> {
         final PathPage pathPage = getPathPage(actualRootPage);
-        yield pathPage == null ? null : pathPage.getIndexReference(indexNumber);
+        yield pathPage == null
+            ? null
+            : pathPage.getIndexReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = getCASPage(actualRootPage);
-        yield casPage == null ? null : casPage.getIndexReference(indexNumber);
+        yield casPage == null
+            ? null
+            : casPage.getIndexReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = getNamePage(actualRootPage);
-        yield namePage == null ? null : namePage.getIndexReference(databaseTypeOfSession(), indexNumber);
+        yield namePage == null
+            ? null
+            : namePage.getIndexReference(databaseTypeOfSession(), indexNumber);
       }
       case PROJECTION -> {
         final var projPage = getProjectionIndexPage(actualRootPage);
-        yield projPage == null ? null : projPage.getIndexReference(indexNumber);
+        yield projPage == null
+            ? null
+            : projPage.getIndexReference(indexNumber);
       }
       case VALIDTIME -> {
         final var vtPage = getValidTimeIndexPage(actualRootPage);
-        yield vtPage == null ? null : vtPage.getIndexReference(indexNumber);
+        yield vtPage == null
+            ? null
+            : vtPage.getIndexReference(indexNumber);
       }
       default -> null;
     };
@@ -5290,8 +5297,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public void installDocumentStringDictionaryFactory(
-      final @Nullable LongFunction<GlobalStringDictionaries> factory) {
+  public void installDocumentStringDictionaryFactory(final @Nullable LongFunction<GlobalStringDictionaries> factory) {
     this.documentStringDictionaryFactory = factory;
   }
 
@@ -5301,9 +5307,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Tell the listener a document leaf has been encoded. Called from the sequential pass that follows a
-   * flush window's join, which is the first moment the page's values are certainly minted — and only
-   * for a page that carried a resolver, because a page the lane never served belongs to no segment.
+   * Tell the listener a document leaf has been encoded. Called from the sequential pass that follows
+   * a flush window's join, which is the first moment the page's values are certainly minted — and
+   * only for a page that carried a resolver, because a page the lane never served belongs to no
+   * segment.
    */
   private void noteDocumentPageEncoded(final KeyValueLeafPage page) {
     final LongConsumer listener = documentPageEncodedListener;
@@ -5395,8 +5402,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private byte carrierStagingSupport;
 
   /**
-   * Whether this writer's backend can stage an immutable page before the root is published — the
-   * same two gates {@link #stageUncommittedOverflowPage} applies, evaluated once per writer so an
+   * Whether this writer's backend can stage an immutable page before the root is published — the same
+   * two gates {@link #stageUncommittedOverflowPage} applies, evaluated once per writer so an
    * unsupported configuration is announced instead of silently restoring the leaf-pinning route.
    */
   private boolean carrierStagingSupported() {
@@ -5432,9 +5439,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Stage every fresh, unresolved {@link OverflowPage} carrier of a leaf into the immutable
-   * side-page append batch. A carrier the backend declines (counted, announced once) or one larger
-   * than a whole batch stays resident, and the page takes the ordinary promote-and-pin route.
+   * Stage every fresh, unresolved {@link OverflowPage} carrier of a leaf into the immutable side-page
+   * append batch. A carrier the backend declines (counted, announced once) or one larger than a whole
+   * batch stays resident, and the page takes the ordinary promote-and-pin route.
    */
   private void stageLeafOverflowCarriers(final KeyValueLeafPage page) {
     final Map<Long, PageReference> references = page.getReferencesMap();
@@ -5466,11 +5473,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /**
    * Epochs a leaf may be skipped for pending carriers before the flush lane stops waiting and lets
-   * the ordinary promote-and-pin path take it. A carrier staged before an epoch's snapshot is in
-   * that epoch's side batch and is published by the cleanup that re-promotes the leaf, so exactly
-   * ONE deferral is reachable; the second is slack against a future ordering regression, after which
-   * the cap turns the regression into a pin (counted by {@link #kvlPagesPinnedAfterDeferralCap()})
-   * rather than an unbounded retry. Package-private and non-final for the test's cap-zero arm.
+   * the ordinary promote-and-pin path take it. A carrier staged before an epoch's snapshot is in that
+   * epoch's side batch and is published by the cleanup that re-promotes the leaf, so exactly ONE
+   * deferral is reachable; the second is slack against a future ordering regression, after which the
+   * cap turns the regression into a pin (counted by {@link #kvlPagesPinnedAfterDeferralCap()}) rather
+   * than an unbounded retry. Package-private and non-final for the test's cap-zero arm.
    */
   static int MAX_KVL_FLUSH_DEFERRALS = 2;
 
@@ -5482,11 +5489,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Such an encode is unpublishable by construction: {@code addReferences} discovers the overlong
    * records DURING the encode, so the carrier keys are assigned only by the recursive final commit,
    * and the copy is dropped the moment the encode finishes. The leaf is then promoted into the live
-   * intent log — where the next epoch finds it and encodes it again. The refusal is a property of
-   * the page's records, and records are only added to a leaf inside a flush window, never removed,
-   * so the second encode is guaranteed to end the same way as the first. Declining it reaches the
-   * identical outcome (promote to the intent log, write at the final commit) without the body
-   * staging, region build and codec pass — and without the deep copy that feeds them.
+   * intent log — where the next epoch finds it and encodes it again. The refusal is a property of the
+   * page's records, and records are only added to a leaf inside a flush window, never removed, so the
+   * second encode is guaranteed to end the same way as the first. Declining it reaches the identical
+   * outcome (promote to the intent log, write at the final commit) without the body staging, region
+   * build and codec pass — and without the deep copy that feeds them.
    * </p>
    *
    * <p>
@@ -5582,8 +5589,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * @return {@code true} when the encode is known to end in a discard
    */
   private boolean wasRefusedForUnresolvedCarriers(final KeyValueLeafPage page) {
-    return skipRefusedOverflowLeaves && refusedOverflowLeaves.shouldSkip(page.getPageKey(),
-        page.getIndexType().getID(), flushEpoch, MAX_SKIPPED_FLUSH_EPOCHS);
+    return skipRefusedOverflowLeaves && refusedOverflowLeaves.shouldSkip(page.getPageKey(), page.getIndexType().getID(),
+        flushEpoch, MAX_SKIPPED_FLUSH_EPOCHS);
   }
 
   @Override

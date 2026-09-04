@@ -626,9 +626,9 @@ public final class ResourceConfiguration {
   private static final String[] JSONNAMES = {"binaryEncoding", "revisioning", "revisioningClass",
       "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind", "hashFunction", "compression",
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
-      "storeNodeHistory", "storeChildCount", "stringCompressionType", "deweyIdSiblingDistance",
-      "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath", "pathStatistics",
-      "repairBulkInsertHashes", "resourceUuid", "regionCompression"};
+      "storeNodeHistory", "storeChildCount", "stringCompressionType", "deweyIdSiblingDistance", "verifyChecksumsOnRead",
+      "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath", "pathStatistics", "repairBulkInsertHashes",
+      "resourceUuid", "regionCompression"};
 
   /**
    * Serialize the configuration.

@@ -41,8 +41,8 @@ final class ValueDictionaryValueBlockNodeTest {
   private static ValueDictionaryValueBlockNode roundTrip(final ValueDictionaryValueBlockNode block) {
     final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     NodeKind.VALUE_DICTIONARY_VALUE_BLOCK.serialize(sink, block, null);
-    return (ValueDictionaryValueBlockNode) NodeKind.VALUE_DICTIONARY_VALUE_BLOCK
-        .deserialize(new ByteArrayBytesIn(sink.toByteArray()), block.getNodeKey(), null, null);
+    return (ValueDictionaryValueBlockNode) NodeKind.VALUE_DICTIONARY_VALUE_BLOCK.deserialize(
+        new ByteArrayBytesIn(sink.toByteArray()), block.getNodeKey(), null, null);
   }
 
   private static String valueAt(final ValueDictionaryValueBlockNode block, final int id) {
@@ -90,8 +90,8 @@ final class ValueDictionaryValueBlockNodeTest {
   @DisplayName("a firstId near the id ceiling is refused by the codec before allocating")
   void idSpaceOverrunIsRefused() {
     final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
-    sink.writeInt(Integer.MAX_VALUE);  // firstId
-    sink.writeInt(4);                  // count -> last id wraps
+    sink.writeInt(Integer.MAX_VALUE); // firstId
+    sink.writeInt(4); // count -> last id wraps
     sink.writeInt(0);
     final ByteArrayBytesIn source = new ByteArrayBytesIn(sink.toByteArray());
     assertThrows(IllegalStateException.class,
@@ -128,9 +128,10 @@ final class ValueDictionaryValueBlockNodeTest {
         () -> new ValueDictionaryValueBlockNode(1L, 1, new int[] {0, 3, 2}, new byte[2]), "offsets must ascend");
     assertThrows(IllegalArgumentException.class,
         () -> new ValueDictionaryValueBlockNode(1L, 1, new int[] {0}, new byte[0]), "a block holds at least one value");
-    assertThrows(IllegalArgumentException.class, () -> new ValueDictionaryValueBlockNode(1L, 1,
-        new int[] {0, ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES + 1},
-        new byte[ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES + 1]), "a block is byte-bounded");
+    assertThrows(IllegalArgumentException.class,
+        () -> new ValueDictionaryValueBlockNode(1L, 1, new int[] {0, ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES + 1},
+            new byte[ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES + 1]),
+        "a block is byte-bounded");
   }
 
   @Test
@@ -205,9 +206,9 @@ final class ValueDictionaryValueBlockNodeTest {
   @DisplayName("a truncated record is refused before it can size an allocation")
   void truncatedRecordIsRefused() {
     final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
-    sink.writeInt(1);           // firstId
-    sink.writeInt(4);           // count
-    sink.writeInt(1 << 20);     // byteLength far beyond what follows
+    sink.writeInt(1); // firstId
+    sink.writeInt(4); // count
+    sink.writeInt(1 << 20); // byteLength far beyond what follows
     final ByteArrayBytesIn source = new ByteArrayBytesIn(sink.toByteArray());
     assertThrows(IllegalStateException.class,
         () -> NodeKind.VALUE_DICTIONARY_VALUE_BLOCK.deserialize(source, 1L, null, null));

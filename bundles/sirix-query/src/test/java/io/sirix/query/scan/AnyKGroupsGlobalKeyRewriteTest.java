@@ -34,15 +34,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The any-k group selection and leaf pruning over a
  * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} key. When SearchPhrase became a
  * global-dictionary column at 100M, the any-k planner declined it ("has no leaf evidence") and the
- * predicate scan gave the column no leaf pruning at all: both priced only STRING_DICT (fingerprints)
- * and NUMERIC_LONG (zones), although a global column's zones ARE id bounds and an id equality is
- * containment — no value order needed. The fixture is {@link AnyKGroupsRewriteTest}'s shape built
- * with {@code -Dsirix.projection.globalDict=always} so every string column is global: 64 regions ×
- * 2,048 rows — exactly TWO 1,024-row leaves per region — four tags round-robin (512 rows per
- * (region, tag) group), plus a {@code label} column that names its region ("L7"). Every leaf's
- * label zone therefore COLLAPSES onto one id, which is what gives the {@code !=} rule a positive
- * witness, and a label's rows live on exactly two adjacent leaves — the shape a global key must be
- * priced on.
+ * predicate scan gave the column no leaf pruning at all: both priced only STRING_DICT
+ * (fingerprints) and NUMERIC_LONG (zones), although a global column's zones ARE id bounds and an id
+ * equality is containment — no value order needed. The fixture is {@link AnyKGroupsRewriteTest}'s
+ * shape built with {@code -Dsirix.projection.globalDict=always} so every string column is global:
+ * 64 regions × 2,048 rows — exactly TWO 1,024-row leaves per region — four tags round-robin (512
+ * rows per (region, tag) group), plus a {@code label} column that names its region ("L7"). Every
+ * leaf's label zone therefore COLLAPSES onto one id, which is what gives the {@code !=} rule a
+ * positive witness, and a label's rows live on exactly two adjacent leaves — the shape a global key
+ * must be priced on.
  *
  * <p>
  * Each witness first asserts the PRECONDITION (the columns really are global — the build reports
@@ -81,10 +81,15 @@ public final class AnyKGroupsGlobalKeyRewriteTest {
         sb.append(',');
       }
       final int region = i / ROWS_PER_REGION;
-      sb.append("{\"region\":").append(region)
-          .append(",\"tag\":\"").append(TAGS[i % TAGS.length])
-          .append("\",\"label\":\"L").append(region)
-          .append("\",\"amount\":").append(i % 13).append('}');
+      sb.append("{\"region\":")
+        .append(region)
+        .append(",\"tag\":\"")
+        .append(TAGS[i % TAGS.length])
+        .append("\",\"label\":\"L")
+        .append(region)
+        .append("\",\"amount\":")
+        .append(i % 13)
+        .append('}');
     }
     sb.append(']');
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
@@ -131,7 +136,8 @@ public final class AnyKGroupsGlobalKeyRewriteTest {
     assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedBefore, "the rewritten request was served");
     // Ten groups over four tags touch three regions = six leaves of 128; the pass must skip the rest.
     final long pruned = ProjectionColumnScan.treeLeavesPrunedCount() - prunedBefore;
-    assertTrue(pruned >= LEAVES - 6, "the rewritten pass must prune the leaves the chosen groups cannot touch: pruned=" + pruned);
+    assertTrue(pruned >= LEAVES - 6,
+        "the rewritten pass must prune the leaves the chosen groups cannot touch: pruned=" + pruned);
     final Matcher m = GROUP_LINE.matcher(out);
     final Set<String> groups = new HashSet<>();
     final Set<String> tags = Set.of(TAGS);

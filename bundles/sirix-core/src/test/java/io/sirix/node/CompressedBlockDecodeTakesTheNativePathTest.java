@@ -20,8 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * {@link SirixLZ77Codec#decode} chooses between a C decoder and a Java one by inspecting its
- * arguments, and when the preconditions fail it silently runs the Java decoder — measured at
- * <b>3.0 GB/s against 16.9</b>. Nothing fails, nothing warns, and the answer is identical, so a
+ * arguments, and when the preconditions fail it silently runs the Java decoder — measured at <b>3.0
+ * GB/s against 16.9</b>. Nothing fails, nothing warns, and the answer is identical, so a
  * correctness test cannot see the difference: only a counter can.
  * </p>
  *
@@ -34,9 +34,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </p>
  *
  * <p>
- * It is the general form of the rule the campaign keeps rediscovering: <b>a witness must assert that
- * the mechanism under test is engaged</b>, because a correct-but-slower fallback is exactly what a
- * fixture will take without telling you.
+ * It is the general form of the rule the campaign keeps rediscovering: <b>a witness must assert
+ * that the mechanism under test is engaged</b>, because a correct-but-slower fallback is exactly
+ * what a fixture will take without telling you.
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>

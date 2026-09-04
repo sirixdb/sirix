@@ -24,10 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Unit tests for {@link FsstAwareSlotCopier}. Builds slot byte layouts that
- * mirror the production flyweight wire format produced by
- * {@code StringNode.writeNewRecord} so the copier is exercised against
- * real-world inputs — not mocks.
+ * Unit tests for {@link FsstAwareSlotCopier}. Builds slot byte layouts that mirror the production
+ * flyweight wire format produced by {@code StringNode.writeNewRecord} so the copier is exercised
+ * against real-world inputs — not mocks.
  */
 class FsstAwareSlotCopierTest {
 
@@ -38,8 +37,7 @@ class FsstAwareSlotCopierTest {
   void inactiveWhenSymbolTableIsNull() {
     final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(null);
     assertFalse(copier.active());
-    assertNull(copier.decompressSlot(MemorySegment.ofArray(new byte[] { 1, 2, 3 }),
-        NodeKind.STRING_VALUE.getId()));
+    assertNull(copier.decompressSlot(MemorySegment.ofArray(new byte[] {1, 2, 3}), NodeKind.STRING_VALUE.getId()));
   }
 
   @Test
@@ -56,7 +54,7 @@ class FsstAwareSlotCopierTest {
     assertTrue(compressed.length < original.length, "Compression should reduce size for this fixture");
 
     try (final Arena arena = Arena.ofConfined()) {
-      final MemorySegment slot = buildStringValueFlyweightSlot(arena, compressed, /*isCompressed=*/true);
+      final MemorySegment slot = buildStringValueFlyweightSlot(arena, compressed, /* isCompressed= */true);
       final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(symbolTable);
 
       final byte[] rewritten = copier.decompressSlot(slot, NodeKind.STRING_VALUE.getId());
@@ -74,7 +72,7 @@ class FsstAwareSlotCopierTest {
     final byte[] raw = "some uncompressed value".getBytes(StandardCharsets.UTF_8);
 
     try (final Arena arena = Arena.ofConfined()) {
-      final MemorySegment slot = buildStringValueFlyweightSlot(arena, raw, /*isCompressed=*/false);
+      final MemorySegment slot = buildStringValueFlyweightSlot(arena, raw, /* isCompressed= */false);
       final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(symbolTable);
 
       final byte[] rewritten = copier.decompressSlot(slot, NodeKind.STRING_VALUE.getId());
@@ -87,7 +85,7 @@ class FsstAwareSlotCopierTest {
     final byte[] symbolTable = buildSymbolTableFromSimilarStrings();
     final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(symbolTable);
 
-    final MemorySegment slot = MemorySegment.ofArray(new byte[] { 1, 2, 3, 4 });
+    final MemorySegment slot = MemorySegment.ofArray(new byte[] {1, 2, 3, 4});
     assertNull(copier.decompressSlot(slot, NodeKind.BOOLEAN_VALUE.getId()));
     assertNull(copier.decompressSlot(slot, NodeKind.NUMBER_VALUE.getId()));
     assertNull(copier.decompressSlot(slot, NodeKind.OBJECT_NAMED_OBJECT.getId()));
@@ -120,12 +118,11 @@ class FsstAwareSlotCopierTest {
   void malformedCompressedLegacySlotFailsClosed() {
     final byte[] symbolTable = buildSymbolTableFromSimilarStrings();
     // kind + five zero-valued structural/revision varints + compressed flag + length(100), no data.
-    final byte[] malformed = new byte[] {(byte) NodeKind.STRING_VALUE.getId(), 0, 0, 0, 0, 0, 1,
-        (byte) 0xC8, 0x01};
+    final byte[] malformed = new byte[] {(byte) NodeKind.STRING_VALUE.getId(), 0, 0, 0, 0, 0, 1, (byte) 0xC8, 0x01};
 
     final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(symbolTable);
-    final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> copier.decompressSlot(MemorySegment.ofArray(malformed), 0));
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> copier.decompressSlot(MemorySegment.ofArray(malformed), 0));
     assertTrue(failure.getMessage().contains("compressed payload exceeds slot length"));
   }
 
@@ -139,7 +136,7 @@ class FsstAwareSlotCopierTest {
     final byte[] compressed = FSSTCompressor.encode(original, symbolTable);
 
     try (final Arena arena = Arena.ofConfined()) {
-      final MemorySegment slot = buildStringValueFlyweightSlot(arena, compressed, /*isCompressed=*/true);
+      final MemorySegment slot = buildStringValueFlyweightSlot(arena, compressed, /* isCompressed= */true);
       final byte[] originalSlotBytes = slot.toArray(ValueLayout.JAVA_BYTE);
 
       final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(symbolTable);
@@ -152,8 +149,7 @@ class FsstAwareSlotCopierTest {
       final int flagPos = dataStart + payloadOffset;
       // All bytes strictly before the flag must match byte-for-byte.
       for (int i = 0; i < flagPos; i++) {
-        assertEquals(originalSlotBytes[i], rewritten[i],
-            "Byte " + i + " (pre-payload) must be preserved");
+        assertEquals(originalSlotBytes[i], rewritten[i], "Byte " + i + " (pre-payload) must be preserved");
       }
       // Flag byte must be zero after rewrite.
       assertEquals((byte) 0, rewritten[flagPos], "isCompressed flag must be 0 after rewrite");
@@ -165,17 +161,15 @@ class FsstAwareSlotCopierTest {
   // ==========================================================================
 
   /**
-   * Build an FSST symbol table from a corpus large enough to yield a
-   * non-trivial table (>= MIN_SAMPLES_FOR_TABLE). The corpus contains
-   * repeated common substrings so the table includes multi-byte symbols.
+   * Build an FSST symbol table from a corpus large enough to yield a non-trivial table (>=
+   * MIN_SAMPLES_FOR_TABLE). The corpus contains repeated common substrings so the table includes
+   * multi-byte symbols.
    */
   private static byte[] buildSymbolTableFromSimilarStrings() {
     final List<byte[]> samples = new ArrayList<>();
     for (int i = 0; i < 200; i++) {
-      samples.add((
-          "The quick brown fox jumps over the lazy dog — sample " + i
-              + " with additional uniform text to bulk up the corpus.")
-              .getBytes(StandardCharsets.UTF_8));
+      samples.add(("The quick brown fox jumps over the lazy dog — sample " + i
+          + " with additional uniform text to bulk up the corpus.").getBytes(StandardCharsets.UTF_8));
     }
     final byte[] table = FSSTCompressor.buildSymbolTable(samples);
     assertNotNull(table);
@@ -184,26 +178,24 @@ class FsstAwareSlotCopierTest {
   }
 
   /**
-   * Assemble a STRING_VALUE flyweight slot. Structural keys are dummy values
-   * (no fragment semantics are exercised here — just wire format).
+   * Assemble a STRING_VALUE flyweight slot. Structural keys are dummy values (no fragment semantics
+   * are exercised here — just wire format).
    */
   private static MemorySegment buildStringValueFlyweightSlot(final Arena arena, final byte[] rawValue,
       final boolean isCompressed) {
     final MemorySegment scratch = arena.allocate(4096);
     final int[] heapOffsets = new int[STRING_VALUE_FIELDS];
-    final int written = StringNode.writeNewRecord(scratch, 0, heapOffsets, /*nodeKey=*/1000,
-        /*parentKey=*/500, /*rightSibKey=*/0, /*leftSibKey=*/0,
-        /*prevRev=*/-1, /*lastModRev=*/0,
-        rawValue, 0, rawValue.length, isCompressed);
+    final int written =
+        StringNode.writeNewRecord(scratch, 0, heapOffsets, /* nodeKey= */1000, /* parentKey= */500, /* rightSibKey= */0,
+            /* leftSibKey= */0, /* prevRev= */-1, /* lastModRev= */0, rawValue, 0, rawValue.length, isCompressed);
     return scratch.asSlice(0, written);
   }
 
 
   /**
-   * Decode the payload of a rewritten flyweight slot and compare against the
-   * expected (uncompressed) value. Verifies that (1) the rewrite's compressed
-   * flag is 0; (2) the length varint holds the decompressed length; (3) the
-   * value bytes match exactly.
+   * Decode the payload of a rewritten flyweight slot and compare against the expected (uncompressed)
+   * value. Verifies that (1) the rewrite's compressed flag is 0; (2) the length varint holds the
+   * decompressed length; (3) the value bytes match exactly.
    */
   private static void assertExtractedPayloadEquals(final byte[] rewritten, final int fieldCount,
       final int payloadFieldIdx, final byte[] expected) {
@@ -221,7 +213,8 @@ class FsstAwareSlotCopierTest {
     while (true) {
       final int b = rewritten[pos++] & 0xFF;
       raw |= ((long) (b & 0x7F)) << shift;
-      if ((b & 0x80) == 0) break;
+      if ((b & 0x80) == 0)
+        break;
       shift += 7;
     }
     final int length = (int) ((raw >>> 1) ^ -(raw & 1)); // zigzag decode
@@ -234,7 +227,6 @@ class FsstAwareSlotCopierTest {
   }
 
   private static void assertKindByteUnchanged(final byte[] rewritten, final int expectedKindId) {
-    assertEquals((byte) expectedKindId, rewritten[0],
-        "Kind byte must be preserved byte-for-byte across the rewrite");
+    assertEquals((byte) expectedKindId, rewritten[0], "Kind byte must be preserved byte-for-byte across the rewrite");
   }
 }

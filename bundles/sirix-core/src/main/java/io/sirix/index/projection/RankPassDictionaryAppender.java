@@ -8,17 +8,18 @@ import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.page.NamePage;
 
 /**
- * Appends a rank-ordered value stream into one resource-wide dictionary, one bounded generation at a
- * time, holding NO probe front.
+ * Appends a rank-ordered value stream into one resource-wide dictionary, one bounded generation at
+ * a time, holding NO probe front.
  *
  * <p>
  * This exists because the obvious reuse is wrong. The streaming path's
  * {@code flushStreamingDictionaryGeneration} promotes its writer into a {@code
  * StreamingGlobalDictionary} on first use, and that constructor builds a resident probe front and
- * seeds it with every entry — which would reintroduce, entry by entry, the {@code D × (22 + avgLen)}
- * structure the rank pass exists to remove (5.86 GB for the four ClickBench string columns). A
- * merged sorted stream emits each distinct value exactly ONCE by construction, so there is nothing
- * to probe against: the pass does not merely bound that structure, it has no use for it.
+ * seeds it with every entry — which would reintroduce, entry by entry, the
+ * {@code D × (22 + avgLen)} structure the rank pass exists to remove (5.86 GB for the four
+ * ClickBench string columns). A merged sorted stream emits each distinct value exactly ONCE by
+ * construction, so there is nothing to probe against: the pass does not merely bound that
+ * structure, it has no use for it.
  * </p>
  *
  * <p>

@@ -81,7 +81,9 @@ final class JsonValidTimeIncrementalMaintenanceTest {
       }
       """;
 
-  /** The builder's contract is first parseable duplicate in document order, independently per bound. */
+  /**
+   * The builder's contract is first parseable duplicate in document order, independently per bound.
+   */
   private static final String DUPLICATE_BOUNDS_JSON = """
       {
         "left": [
@@ -251,8 +253,8 @@ final class JsonValidTimeIncrementalMaintenanceTest {
 
   @ParameterizedTest(name = "{0} preserves first-parseable duplicate-bound semantics")
   @EnumSource(VersioningType.class)
-  void duplicateBoundsRemainBuilderEquivalentAcrossEveryIncrementalMutation(
-      final VersioningType versioningType) throws Exception {
+  void duplicateBoundsRemainBuilderEquivalentAcrossEveryIncrementalMutation(final VersioningType versioningType)
+      throws Exception {
     final Path databasePath = temporaryDirectory.resolve("duplicates-" + versioningType.name().toLowerCase());
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
 
@@ -350,11 +352,11 @@ final class JsonValidTimeIncrementalMaintenanceTest {
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(objectKey));
-        insertedFromKey = wtx.insertObjectRecordAsFirstChild(VALID_FROM,
-            new StringValue("2024-01-01T00:00:00Z")).getNodeKey();
+        insertedFromKey =
+            wtx.insertObjectRecordAsFirstChild(VALID_FROM, new StringValue("2024-01-01T00:00:00Z")).getNodeKey();
         assertTrue(wtx.moveTo(objectKey));
-        insertedToKey = wtx.insertObjectRecordAsFirstChild(VALID_TO,
-            new StringValue("2024-12-31T23:59:59Z")).getNodeKey();
+        insertedToKey =
+            wtx.insertObjectRecordAsFirstChild(VALID_TO, new StringValue("2024-12-31T23:59:59Z")).getNodeKey();
         wtx.commit();
       }
       insertRevision = mostRecentRevision(database);
@@ -423,8 +425,8 @@ final class JsonValidTimeIncrementalMaintenanceTest {
     }
   }
 
-  private static void assertIndex(final Database<JsonResourceSession> database, final int revision,
-      final Instant point, final long... expectedNodeKeys) {
+  private static void assertIndex(final Database<JsonResourceSession> database, final int revision, final Instant point,
+      final long... expectedNodeKeys) {
     try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
         JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       final IntervalDomain domain = new IntervalDomain();

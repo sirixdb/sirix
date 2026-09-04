@@ -62,8 +62,8 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
    * never decreased by an append — an append raises {@link #entryCount} only — and is set to
    * {@code entryCount} exactly once, by the rank pass, in the transaction that wrote the ranked run.
    * Every reader that needs ORDER must test {@code orderedPrefixCount == entryCount}, never
-   * {@code > 0}: a single maintenance append leaves a sorted prefix with an unsorted tail, and an
-   * arm that only checked for non-zero would emit that tail in the wrong place.
+   * {@code > 0}: a single maintenance append leaves a sorted prefix with an unsorted tail, and an arm
+   * that only checked for non-zero would emit that tail in the wrong place.
    * </p>
    */
   private final int orderedPrefixCount;
@@ -126,9 +126,8 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     // already sorted by value. A zero forward root is therefore legal exactly when the whole
     // dictionary is ordered; anywhere else it means a directory that cannot be probed at all.
     if (forwardRootKey == 0 && entryCount != 0 && orderedPrefixCount != entryCount) {
-      throw new IllegalArgumentException(
-          "value dictionary header has no forward index but only " + orderedPrefixCount + " of " + entryCount
-              + " ids are ordered");
+      throw new IllegalArgumentException("value dictionary header has no forward index but only " + orderedPrefixCount
+          + " of " + entryCount + " ids are ordered");
     }
     this.nodeKey = nodeKey;
     this.version = version;

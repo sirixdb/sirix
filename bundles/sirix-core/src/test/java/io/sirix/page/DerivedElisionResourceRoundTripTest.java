@@ -45,10 +45,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * {@link DerivedElisionSectionTest} proves the derivation at the page frame. This proves it where a
  * user can see it — every shape whose structure the derivation could plausibly be wrong about is
- * loaded twice, once with the per-slot tuples and once derived, and the two revisions must serialize
- * to the same JSON. The shapes are the ones the brief for this lever names: a deleted middle field, a
- * moved subtree, a nested object crossing a page boundary, an empty object, an array of scalars, and
- * a {@code SLIDING_SNAPSHOT} fragment with three modified slots.
+ * loaded twice, once with the per-slot tuples and once derived, and the two revisions must
+ * serialize to the same JSON. The shapes are the ones the brief for this lever names: a deleted
+ * middle field, a moved subtree, a nested object crossing a page boundary, an empty object, an
+ * array of scalars, and a {@code SLIDING_SNAPSHOT} fragment with three modified slots.
  *
  * <p>
  * Each case also asserts that the two forms really are different on the wire (via
@@ -85,8 +85,8 @@ final class DerivedElisionResourceRoundTripTest {
   @DisplayName("a deleted middle field")
   void deletedMiddleField() {
     assertSameRevision(wtx -> {
-      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"a\":1,\"b\":\"two\",\"c\":true,\"d\":4,\"e\":\"five\"}"));
+      wtx.insertSubtreeAsFirstChild(
+          JsonShredder.createStringReader("{\"a\":1,\"b\":\"two\",\"c\":true,\"d\":4,\"e\":\"five\"}"));
       wtx.commit();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
@@ -152,14 +152,21 @@ final class DerivedElisionResourceRoundTripTest {
       if (i > 0) {
         json.append(',');
       }
-      json.append("{\"id\":").append(i)
-          .append(",\"ts\":\"2013-07-15 12:00:").append(i % 60 < 10
+      json.append("{\"id\":")
+          .append(i)
+          .append(",\"ts\":\"2013-07-15 12:00:")
+          .append(i % 60 < 10
               ? "0"
-              : "").append(i % 60)
-          .append("\",\"day\":\"2013-07-").append(i % 28 + 1 < 10
+              : "")
+          .append(i % 60)
+          .append("\",\"day\":\"2013-07-")
+          .append(i % 28 + 1 < 10
               ? "0"
-              : "").append(i % 28 + 1)
-          .append("\",\"note\":\"row-").append(i).append("\"}");
+              : "")
+          .append(i % 28 + 1)
+          .append("\",\"note\":\"row-")
+          .append(i)
+          .append("\"}");
     }
     json.append(']');
     StringRegion.setTemporalLaneEnabled(true);
@@ -185,8 +192,8 @@ final class DerivedElisionResourceRoundTripTest {
    *
    * <p>
    * Deliberately {@link KeyValueLeafPage#getStringRegionPayload()} and not
-   * {@code getStringRegionHeader()}: the latter falls back to re-deriving the region from the
-   * slotted page when none was persisted, and a derive is an ENCODE, so it consults
+   * {@code getStringRegionHeader()}: the latter falls back to re-deriving the region from the slotted
+   * page when none was persisted, and a derive is an ENCODE, so it consults
    * {@code temporalLaneEnabled()} at read time. Asking for the payload does not trigger that
    * fallback.
    * </p>
@@ -242,7 +249,8 @@ final class DerivedElisionResourceRoundTripTest {
   @DisplayName("a SLIDING_SNAPSHOT fragment with three modified slots")
   void slidingSnapshotFragmentWithThreeModifiedSlots() {
     final ResourceConfiguration config = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-        .versioningApproach(VersioningType.SLIDING_SNAPSHOT).build();
+                                                              .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                              .build();
     assertSameRevision(config, wtx -> {
       final StringBuilder json = new StringBuilder("{");
       for (int i = 0; i < 60; i++) {
@@ -278,8 +286,8 @@ final class DerivedElisionResourceRoundTripTest {
     // states neither form completely alone.
     XmlTestHelper.deleteEverything();
     try {
-      final String xml = "<root a=\"1\" b=\"two\"><child c=\"3\">text</child>"
-          + "<child c=\"4\" d=\"four\">more text</child></root>";
+      final String xml =
+          "<root a=\"1\" b=\"two\"><child c=\"3\">text</child>" + "<child c=\"4\" d=\"four\">more text</child></root>";
       PageKind.DERIVED_ELISION_SECTIONS = false;
       final String tupleXml = buildAndSerializeXml(xml);
       XmlTestHelper.deleteEverything();
@@ -374,8 +382,9 @@ final class DerivedElisionResourceRoundTripTest {
   }
 
   private String buildAndSerialize(final ResourceConfiguration config, final Consumer<JsonNodeTrx> build) {
-    try (final Database<JsonResourceSession> database =
-        JsonTestHelper.getDatabaseWithResourceConfig(PATHS.PATH1.getFile(), config);
+    try (
+        final Database<JsonResourceSession> database =
+            JsonTestHelper.getDatabaseWithResourceConfig(PATHS.PATH1.getFile(), config);
         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         build.accept(wtx);

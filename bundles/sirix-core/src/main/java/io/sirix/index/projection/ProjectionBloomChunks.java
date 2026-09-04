@@ -25,10 +25,10 @@ import java.util.Arrays;
  * </p>
  *
  * <p>
- * A column's small, versioned manifest occupies slot {@code 16 + column} and is published only after
- * every chunk is durable in the transaction. The manifest-plus-chunks representation is the sole
- * persisted block format. A missing or malformed manifest disables block pruning for that column;
- * a missing or malformed chunk keeps every leaf in that span, preserving the Bloom filter's
+ * A column's small, versioned manifest occupies slot {@code 16 + column} and is published only
+ * after every chunk is durable in the transaction. The manifest-plus-chunks representation is the
+ * sole persisted block format. A missing or malformed manifest disables block pruning for that
+ * column; a missing or malformed chunk keeps every leaf in that span, preserving the Bloom filter's
  * no-false-negative contract.
  * </p>
  */
@@ -69,15 +69,14 @@ public final class ProjectionBloomChunks {
    * Needed because {@link #rewriteTouchedChunks} SKIPS any column whose kind is not a string kind —
    * so once a column has been flipped to {@code COLUMN_KIND_STRING_GLOBAL} the ordinary maintenance
    * path will never look at its chunks again, and they become bytes that are stored, paid for, and
-   * unreachable. **[M]** at 1M that is 1.82 MB across the four ClickBench fat columns, silently.
-   * A storage lever that leaks bytes is not a storage lever, so the flip drops them explicitly.
+   * unreachable. **[M]** at 1M that is 1.82 MB across the four ClickBench fat columns, silently. A
+   * storage lever that leaks bytes is not a storage lever, so the flip drops them explicitly.
    * </p>
    *
    * @param physicalRowGroupCount how many row groups the index holds, which bounds the chunk ids
    * @return the number of blobs tombstoned
    */
-  static int dropColumn(final ProjectionIndexHOTStorage storage, final int column,
-      final int physicalRowGroupCount) {
+  static int dropColumn(final ProjectionIndexHOTStorage storage, final int column, final int physicalRowGroupCount) {
     int dropped = 0;
     final long manifestSlot = ProjectionIndexHOTStorage.bloomBlockSlotKey(column);
     if (storage.getBlob(manifestSlot) != null) {
@@ -244,12 +243,12 @@ public final class ProjectionBloomChunks {
     /**
      * {@link #prune} for MANY literals in ONE walk over the evidence: {@code keeps[j]} is narrowed by
      * {@code hashes[j]}, every chunk fetched and validated once and every leaf's fingerprint located
-     * once for all literals. A disjunction of equalities or a planner pricing candidate values pays
-     * the chunk walk once instead of once per literal (measured: one walk ≈ one {@link #prune}).
+     * once for all literals. A disjunction of equalities or a planner pricing candidate values pays the
+     * chunk walk once instead of once per literal (measured: one walk ≈ one {@link #prune}).
      *
-     * @param chunkFrom first chunk (inclusive), {@code chunkTo} exclusive — callers that split the
-     *        walk over threads hand each a disjoint chunk range; chunks own disjoint 256-leaf ranges,
-     *        so two ranges never touch the same keep word
+     * @param chunkFrom first chunk (inclusive), {@code chunkTo} exclusive — callers that split the walk
+     *        over threads hand each a disjoint chunk range; chunks own disjoint 256-leaf ranges, so two
+     *        ranges never touch the same keep word
      * @return newly cleared bits summed over every mask
      */
     int pruneMany(final long[] hashes, final long[][] keeps, final int leafCount,
@@ -267,7 +266,8 @@ public final class ProjectionBloomChunks {
         }
       }
       if (chunkFrom < 0 || chunkTo > chunks.size() || chunkFrom > chunkTo) {
-        throw new IllegalArgumentException("chunk range [" + chunkFrom + ", " + chunkTo + ") outside 0.." + chunks.size());
+        throw new IllegalArgumentException(
+            "chunk range [" + chunkFrom + ", " + chunkTo + ") outside 0.." + chunks.size());
       }
       if (hashes.length == 0) {
         return 0;
@@ -375,9 +375,8 @@ public final class ProjectionBloomChunks {
       if (literals == 1) {
         // The single-literal path keeps the allocation-free probe it always had.
         final long[] keep = keeps[0];
-        if ((keep[word] & mask) != 0
-            && !ProjectionIndexColumnSegmentCodec.bloomBlockMayContainHashValidated(block, localLeaf, leafCount,
-                hashes[0])) {
+        if ((keep[word] & mask) != 0 && !ProjectionIndexColumnSegmentCodec.bloomBlockMayContainHashValidated(block,
+            localLeaf, leafCount, hashes[0])) {
           keep[word] &= ~mask;
           dropped++;
         }

@@ -220,12 +220,12 @@ public final class ProjectionIndexBuilder {
    * <p>
    * Default {@code min(heap/8, 2 GiB)}. The heap fraction is what keeps it sane on a small JVM; the
    * absolute cap is what keeps several elected columns from summing to the whole heap. AUTO ranks
-   * only worthwhile candidates after its bounded leading sample, reserves at least twice each
-   * hinted projection per simultaneously resident dictionary structure (four times for the
-   * generation-writer plus probe-front pair used by streaming builds), and admits a deterministic
-   * subset whose combined budgets sum to no more than this aggregate. Forced mode shares it evenly
-   * across every requested string column; maintenance shares it across the persisted global columns.
-   * {@link Long#MAX_VALUE} explicitly disables the aggregate check for every writer.
+   * only worthwhile candidates after its bounded leading sample, reserves at least twice each hinted
+   * projection per simultaneously resident dictionary structure (four times for the generation-writer
+   * plus probe-front pair used by streaming builds), and admits a deterministic subset whose combined
+   * budgets sum to no more than this aggregate. Forced mode shares it evenly across every requested
+   * string column; maintenance shares it across the persisted global columns. {@link Long#MAX_VALUE}
+   * explicitly disables the aggregate check for every writer.
    * </p>
    */
   static long globalDictionaryBudgetBytes() {
@@ -414,17 +414,16 @@ public final class ProjectionIndexBuilder {
    * Plan AUTO's per-writer byte ceilings against one aggregate budget.
    *
    * <p>
-   * {@code projectedBytes} and {@code benefitScores} are indexed by projection column;
-   * {@code -1} marks a non-candidate. A non-streaming build reserves the current two-times
-   * uncertainty margin for its one writer. A streaming build retains both a generation writer and a
-   * whole-load probe front, so it reserves four times the projection and later splits that combined
-   * envelope evenly: each resident structure keeps the same two-times margin independently. An
-   * unhinted candidate passes {@code 0} and therefore reserves the corresponding mandatory minimum;
-   * its runtime guard remains the authoritative bound. Candidates are ranked by descending sampled
-   * local-dictionary pressure, then ascending mandatory reservation, then column number. The final
-   * spare bytes are divided in that same order, so the result is deterministic and the sum of all
-   * finite combined ceilings is exactly the configured aggregate whenever at least one candidate
-   * fits.
+   * {@code projectedBytes} and {@code benefitScores} are indexed by projection column; {@code -1}
+   * marks a non-candidate. A non-streaming build reserves the current two-times uncertainty margin
+   * for its one writer. A streaming build retains both a generation writer and a whole-load probe
+   * front, so it reserves four times the projection and later splits that combined envelope evenly:
+   * each resident structure keeps the same two-times margin independently. An unhinted candidate
+   * passes {@code 0} and therefore reserves the corresponding mandatory minimum; its runtime guard
+   * remains the authoritative bound. Candidates are ranked by descending sampled local-dictionary
+   * pressure, then ascending mandatory reservation, then column number. The final spare bytes are
+   * divided in that same order, so the result is deterministic and the sum of all finite combined
+   * ceilings is exactly the configured aggregate whenever at least one candidate fits.
    *
    * <p>
    * This is a once-per-build, column-sized plan. It adds no work or allocation to row ingestion.
@@ -521,8 +520,8 @@ public final class ProjectionIndexBuilder {
     int child = (root << 1) + 1;
     while (child < length) {
       final int right = child + 1;
-      if (right < length && compareAutoDictionaryCandidates(order[child], order[right], projectedBytes,
-          benefitScores, streaming) < 0) {
+      if (right < length && compareAutoDictionaryCandidates(order[child], order[right], projectedBytes, benefitScores,
+          streaming) < 0) {
         child = right;
       }
       if (compareAutoDictionaryCandidates(candidate, order[child], projectedBytes, benefitScores, streaming) >= 0) {
@@ -557,7 +556,9 @@ public final class ProjectionIndexBuilder {
     if (projectedBytes < 0L) {
       throw new IllegalArgumentException("projectedBytes must not be negative");
     }
-    final int residentStructures = streaming ? 2 : 1;
+    final int residentStructures = streaming
+        ? 2
+        : 1;
     final long minimum = saturatedMultiply(GlobalValueDictionaryWriter.MINIMUM_BUDGET_BYTES, residentStructures);
     final long conservativeProjection = saturatedMultiply(projectedBytes, 2 * residentStructures);
     return Math.max(minimum, conservativeProjection);
@@ -846,8 +847,8 @@ public final class ProjectionIndexBuilder {
    * One-shot fault seam after the document walk, before any derived chunks or metadata publish.
    *
    * <p>
-   * At this point the walk's row groups have been ACCUMULATED and encoded — readable through the
-   * live bulk accumulator / read-through — but nothing has been finalized: the HOT tree has not been
+   * At this point the walk's row groups have been ACCUMULATED and encoded — readable through the live
+   * bulk accumulator / read-through — but nothing has been finalized: the HOT tree has not been
    * spliced, no bloom chunks are finished, no fence is written and no metadata is published.
    *
    * <p>
@@ -861,8 +862,8 @@ public final class ProjectionIndexBuilder {
    * @param postWalkHook receives the build's storage; called exactly once at the seam
    */
   static void buildAndPersistWithPostWalkHook(final IndexDef indexDef, final PathSummaryReader pathSummary,
-      final JsonNodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter,
-      final boolean emptyRecordSetAllowed, final Consumer<ProjectionIndexHOTStorage> postWalkHook) {
+      final JsonNodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter, final boolean emptyRecordSetAllowed,
+      final Consumer<ProjectionIndexHOTStorage> postWalkHook) {
     buildAndPersist(indexDef, pathSummary, (NodeReadOnlyTrx) rtx, storageEngineWriter, emptyRecordSetAllowed,
         Objects.requireNonNull(postWalkHook));
   }
@@ -1212,13 +1213,13 @@ public final class ProjectionIndexBuilder {
   /**
    * Finish a virgin-tree initialization: persist summaries, optional Bloom manifests and per-leaf
    * record-key fences ({@link ProjectionIndexFences}), and only then publish the authoritative live
-   * metadata at slot 0. A failure before that final slot-0 write therefore leaves either no metadata or
-   * the load-time tombstone in force; it never exposes a partially described set of persistent units.
+   * metadata at slot 0. A failure before that final slot-0 write therefore leaves either no metadata
+   * or the load-time tombstone in force; it never exposes a partially described set of persistent
+   * units.
    */
   static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
       final LongArrayList firstKeys, final LongArrayList lastKeys, final int buildRevision, final byte[] columnKinds,
-      final ProjectionSetSummaryChunks.BuildAccumulator setSummaries,
-      final long @Nullable [] valueDictionaryHeaderKeys,
+      final ProjectionSetSummaryChunks.BuildAccumulator setSummaries, final long @Nullable [] valueDictionaryHeaderKeys,
       final ProjectionBloomChunks.@Nullable Writer streamingBloomChunks) {
     finishPersist(indexDef, storage, firstKeys.size(), firstKeys, lastKeys, buildRevision, columnKinds, setSummaries,
         valueDictionaryHeaderKeys, streamingBloomChunks);
@@ -1662,11 +1663,11 @@ public final class ProjectionIndexBuilder {
    *
    * <p>
    * This is the fresh-build half of the rank pass. A streaming build must answer "have I seen this
-   * value" as it reads, so it holds a probe front and persists a forward radix that measured
-   * <b>1,650 B per entry</b>; a build handed a finished rank-ordered dictionary needs neither, and
-   * the same column costs <b>61 B per entry</b>. The pre-pass that produced these dictionaries also
-   * knows the true distinct count, which is the number the promotion gate currently guesses at by
-   * using {@code rows}.
+   * value" as it reads, so it holds a probe front and persists a forward radix that measured <b>1,650
+   * B per entry</b>; a build handed a finished rank-ordered dictionary needs neither, and the same
+   * column costs <b>61 B per entry</b>. The pre-pass that produced these dictionaries also knows the
+   * true distinct count, which is the number the promotion gate currently guesses at by using
+   * {@code rows}.
    * </p>
    *
    * <p>
@@ -1783,8 +1784,8 @@ public final class ProjectionIndexBuilder {
       }
       final int colon = trimmed.indexOf(':');
       if (colon <= 0 || colon == trimmed.length() - 1) {
-        throw new IllegalArgumentException("sirix.projection.globalDict.prebuilt wants column:headerKey pairs, got '"
-            + trimmed + "'");
+        throw new IllegalArgumentException(
+            "sirix.projection.globalDict.prebuilt wants column:headerKey pairs, got '" + trimmed + "'");
       }
       final int column = Integer.parseInt(trimmed.substring(0, colon).trim());
       if (column < 0 || column >= columnCount) {
@@ -2379,10 +2380,10 @@ public final class ProjectionIndexBuilder {
         ? totalBudgetBytes
         : totalBudgetBytes / possibleGlobalColumns;
     final long minimumColumnBudget = conservativeAutoDictionaryBudget(0L, streaming);
-    if (mode == GlobalDictionaryMode.ALWAYS && possibleGlobalColumns > 0
-        && forcedColumnBudget < minimumColumnBudget) {
-      throw new IllegalStateException("forced " + (streaming ? "streaming " : "")
-          + "global dictionaries require at least " + minimumColumnBudget + " B per string column, got "
+    if (mode == GlobalDictionaryMode.ALWAYS && possibleGlobalColumns > 0 && forcedColumnBudget < minimumColumnBudget) {
+      throw new IllegalStateException("forced " + (streaming
+          ? "streaming "
+          : "") + "global dictionaries require at least " + minimumColumnBudget + " B per string column, got "
           + forcedColumnBudget + " B");
     }
 

@@ -20,17 +20,17 @@ import java.util.concurrent.atomic.LongAdder;
 /**
  * Returns an array's stored cardinality and records successful O(1) Sirix-array answers.
  *
- * <p>The O(1) arm is deliberately restricted to a direct Sirix-backed array. Every other operand is
- * evaluated by Brackit's own {@link ArrayAccessExpr} and counted through its {@link Sequence#size()}
- * contract. That preserves ArrayAccessExpr's exact runtime dispatch, type errors, lazy sequence
- * behavior, and empty-member behavior instead of maintaining a subtly different local unbox
- * implementation. Literal and other in-memory arrays therefore receive the ordinary Brackit answer
- * and never move the serving counter.
+ * <p>
+ * The O(1) arm is deliberately restricted to a direct Sirix-backed array. Every other operand is
+ * evaluated by Brackit's own {@link ArrayAccessExpr} and counted through its
+ * {@link Sequence#size()} contract. That preserves ArrayAccessExpr's exact runtime dispatch, type
+ * errors, lazy sequence behavior, and empty-member behavior instead of maintaining a subtly
+ * different local unbox implementation. Literal and other in-memory arrays therefore receive the
+ * ordinary Brackit answer and never move the serving counter.
  */
 public final class SirixArraySize extends AbstractFunction {
 
-  public static final QNm SIRIX_ARRAY_SIZE =
-      new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "sirix-array-size");
+  public static final QNm SIRIX_ARRAY_SIZE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "sirix-array-size");
 
   private static final LongAdder STORED_ARRAY_SIZES_SERVED = new LongAdder();
   private static final Sequence EMPTY_ARRAY_INDEX = new ItemSequence();
@@ -40,8 +40,7 @@ public final class SirixArraySize extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext,
-      final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     final Sequence value = args[0];
     if (value == null) {
       return Int32.ZERO;

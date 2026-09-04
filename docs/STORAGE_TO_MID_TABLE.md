@@ -54,7 +54,7 @@ columns of 100M values in 15.3 GB — 153 B/row — with no per-value metadata w
 |---|---|---|---|
 | P2 projection half (global dictionary) | −5.6 GB measured | 64 GB | gate failed as specified; acceptance must be restated ~27 B/row |
 | P2 trie lane (string region names ids) | −15 GB derived | ~49 GB | needs a per-transaction resolver; never built |
-| overflow payload compression | −4.7 GB measured | −4.7 anywhere | built, ships OPT-IN: costs two queries 85 % hot |
+| overflow payload compression | −4.7 GB measured | −4.7 anywhere | built; **now ships ON by default** — the opt-in verdict recorded here was a small-scale one, see `PageKind.OVERFLOW_PAYLOAD_COMPRESSION_ENABLED` |
 | L1 bigger leaves (2^17 slots) | −4.7 to −8.1 GB measured | | screened and ruled out as a duplication fix; still valid for framing/leaf count |
 | **all of the above together** | | **~40–45 GB** | still 3× mid-table |
 
@@ -84,8 +84,12 @@ A realistic sequence is 3 → 2 → 1, with (3) alone taking the database to rou
 
 ## Constraints any attempt inherits
 
-- **Query latency may not regress per query.** Tonight's overflow-compression lever saved 4.7 GB, made
-  cold scans 1.24× faster, and still shipped disabled because two queries lost 85 % of their hot time.
+- **Query latency may not regress per query — and it must be measured at the target scale.** Tonight's
+  overflow-compression lever saved 4.7 GB, made cold scans 1.24× faster, and shipped disabled because two
+  queries lost 85 % of their hot time. That verdict was later overturned by the same measurement at 100M,
+  where the lever is faster, not slower: a compression lever's query cost can change SIGN with scale, so a
+  small-scale regression neither condemns nor a small-scale win acquits one
+  (`PageKind.OVERFLOW_PAYLOAD_COMPRESSION_ENABLED` owns both numbers).
 - **Versioning is the product.** Every byte here is versioned and reconstructible; a column store's
   numbers are not a like-for-like target, and a change that improves storage by weakening
   point-read, history or reconstruction cost is not a win.

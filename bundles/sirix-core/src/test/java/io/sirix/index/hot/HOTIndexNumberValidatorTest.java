@@ -23,17 +23,15 @@ final class HOTIndexNumberValidatorTest {
     final StorageEngineReader jsonReader = mock(StorageEngineReader.class);
     doReturn(mock(JsonResourceSession.class)).when(jsonReader).getResourceSession();
     assertThrows(IllegalArgumentException.class,
-        () -> HOTIndexNumberValidator.validate(jsonReader, IndexType.NAME,
-            PageConstants.JSON_NAME_INDEX_OFFSET - 1));
-    assertDoesNotThrow(() -> HOTIndexNumberValidator.validate(jsonReader, IndexType.NAME,
-        PageConstants.JSON_NAME_INDEX_OFFSET));
+        () -> HOTIndexNumberValidator.validate(jsonReader, IndexType.NAME, PageConstants.JSON_NAME_INDEX_OFFSET - 1));
+    assertDoesNotThrow(
+        () -> HOTIndexNumberValidator.validate(jsonReader, IndexType.NAME, PageConstants.JSON_NAME_INDEX_OFFSET));
 
     final StorageEngineReader xmlReader = mock(StorageEngineReader.class);
     doReturn(mock(XmlResourceSession.class)).when(xmlReader).getResourceSession();
     assertThrows(IllegalArgumentException.class,
-        () -> HOTIndexNumberValidator.validate(xmlReader, IndexType.NAME,
-            PageConstants.XML_NAME_INDEX_OFFSET - 1));
-    assertDoesNotThrow(() -> HOTIndexNumberValidator.validate(xmlReader, IndexType.NAME,
-        PageConstants.XML_NAME_INDEX_OFFSET));
+        () -> HOTIndexNumberValidator.validate(xmlReader, IndexType.NAME, PageConstants.XML_NAME_INDEX_OFFSET - 1));
+    assertDoesNotThrow(
+        () -> HOTIndexNumberValidator.validate(xmlReader, IndexType.NAME, PageConstants.XML_NAME_INDEX_OFFSET));
   }
 }

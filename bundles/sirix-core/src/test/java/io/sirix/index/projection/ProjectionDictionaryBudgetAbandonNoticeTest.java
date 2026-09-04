@@ -66,13 +66,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * control arm asserts exactly that by checking the published column kind. The load is armed with no
  * row-count hint ({@code -1}), the documented state in which the election-time decline cannot run
  * and "the writer's runtime cap is the only protection"; see the {@code expectedRows} contract on
- * {@link ProjectionIndexBuilder#setExpectedRows(long)}. The writer/front component cap is CALIBRATED
- * from the real writer rather than hard-coded: it sits above what the sample's distinct values cost
- * to flush and below what the whole corpus costs. The configured combined envelope is exactly twice
- * that cap, so the election succeeds and a later value breaches without either resident structure
- * double-spending it. Both ends of that window are asserted before the load runs, so drift in the
- * writer's arithmetic fails as a calibration error instead of quietly turning this into a test of
- * nothing.
+ * {@link ProjectionIndexBuilder#setExpectedRows(long)}. The writer/front component cap is
+ * CALIBRATED from the real writer rather than hard-coded: it sits above what the sample's distinct
+ * values cost to flush and below what the whole corpus costs. The configured combined envelope is
+ * exactly twice that cap, so the election succeeds and a later value breaches without either
+ * resident structure double-spending it. Both ends of that window are asserted before the load
+ * runs, so drift in the writer's arithmetic fails as a calibration error instead of quietly turning
+ * this into a test of nothing.
  */
 @ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ_WRITE)
 @ResourceLock(value = Resources.SYSTEM_ERR, mode = ResourceAccessMode.READ_WRITE)
@@ -178,8 +178,9 @@ final class ProjectionDictionaryBudgetAbandonNoticeTest {
     assertEquals(componentBudget, Long.parseLong(parsed.group(6)),
         "the notice must quote the disjoint component cap that was breached");
     final String remedy = parsed.group(8);
-    assertTrue(remedy.contains("STALE") && remedy.contains("drop and commit this stale definition")
-        && remedy.contains("replacement in a new projection tree"),
+    assertTrue(
+        remedy.contains("STALE") && remedy.contains("drop and commit this stale definition")
+            && remedy.contains("replacement in a new projection tree"),
         "the notice must say the projection is stale and require drop+commit before a fresh-tree replacement: "
             + notice);
 

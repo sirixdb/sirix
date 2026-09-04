@@ -16,8 +16,7 @@ public final class JsonFlyweightSerializedSizeEstimateTest {
   @Test
   public void saturatingNarrowingNeverWraps() {
     assertEquals(0, FlyweightNode.saturatingSerializedSize(0L));
-    assertEquals(Integer.MAX_VALUE - 1,
-        FlyweightNode.saturatingSerializedSize((long) Integer.MAX_VALUE - 1L));
+    assertEquals(Integer.MAX_VALUE - 1, FlyweightNode.saturatingSerializedSize((long) Integer.MAX_VALUE - 1L));
     assertEquals(Integer.MAX_VALUE, FlyweightNode.saturatingSerializedSize(Integer.MAX_VALUE));
     assertEquals(Integer.MAX_VALUE, FlyweightNode.saturatingSerializedSize(Long.MAX_VALUE));
   }
@@ -40,8 +39,7 @@ public final class JsonFlyweightSerializedSizeEstimateTest {
 
     final ObjectNamedStringNode namedStringNode = new ObjectNamedStringNode(1L, hashFunction);
     namedStringNode.setRawValue(value);
-    assertEquals(ObjectNamedStringNode.estimateSerializedSize(value.length),
-        namedStringNode.estimateSerializedSize());
+    assertEquals(ObjectNamedStringNode.estimateSerializedSize(value.length), namedStringNode.estimateSerializedSize());
     assertEstimateCoversSerializedBytes(namedStringNode);
   }
 
@@ -79,8 +77,7 @@ public final class JsonFlyweightSerializedSizeEstimateTest {
     final int estimate = node.estimateSerializedSize();
     try (Arena arena = Arena.ofConfined()) {
       final int actual = node.serializeToHeap(arena.allocate(estimate), 0L);
-      assertTrue(node.getKind() + " wrote " + actual + " bytes with estimate " + estimate,
-          actual <= estimate);
+      assertTrue(node.getKind() + " wrote " + actual + " bytes with estimate " + estimate, actual <= estimate);
     }
   }
 }

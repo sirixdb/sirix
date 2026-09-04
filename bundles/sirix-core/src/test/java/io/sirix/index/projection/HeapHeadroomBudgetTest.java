@@ -102,8 +102,7 @@ final class HeapHeadroomBudgetTest {
         GroupTableSpill.groupBudgetFor(16L * GIB, 4L * GIB),
         "the per-pass group budget is a function of the share alone");
     assertEquals(GroupDistinctAccumulator.defaultMaxValuesFor(8L * GIB, 8L * GIB),
-        GroupDistinctAccumulator.defaultMaxValuesFor(16L * GIB, 4L * GIB),
-        "so is the grouped COUNT(DISTINCT) ceiling");
+        GroupDistinctAccumulator.defaultMaxValuesFor(16L * GIB, 4L * GIB), "so is the grouped COUNT(DISTINCT) ceiling");
     assertEquals(0L, HeapHeadroom.plannedShareBytes(8L * GIB, 0L), "no headroom, no share");
     // Monotone in the headroom — the link R1 shortens: a query-scope exit that releases retained
     // fills raises the headroom, which raises the share, which raises the per-pass group budget and

@@ -30,8 +30,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The maintenance contract is incremental — inserts, updates and deletes patch row groups in place
  * — and the counter is the witness: after a reset, a maintenance window that stayed incremental
  * reports zero, and one that quietly fell back to a complete {@code buildAndPersist} reports how
- * often. Both directions are pinned here, because a counter that can never move would make the
- * zero assertion vacuous — exactly the defect the hard-coded literal had.
+ * often. Both directions are pinned here, because a counter that can never move would make the zero
+ * assertion vacuous — exactly the defect the hard-coded literal had.
  */
 final class MaintenanceTelemetryFullRebuildTest {
 
@@ -59,8 +59,7 @@ final class MaintenanceTelemetryFullRebuildTest {
     // Shred a corpus and build the projection COMPLETELY once.
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
-      new JsonShredder.Builder(wtx,
-          JsonShredder.createStringReader("[{\"value\":1},{\"value\":2},{\"value\":3}]"),
+      new JsonShredder.Builder(wtx, JsonShredder.createStringReader("[{\"value\":1},{\"value\":2},{\"value\":3}]"),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
     }
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -80,8 +79,7 @@ final class MaintenanceTelemetryFullRebuildTest {
         final var wtx = session.beginNodeTrx()) {
       wtx.moveTo(1);
       wtx.moveToFirstChild(); // first record object
-      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"value\":4}"),
-          JsonNodeTrx.Commit.NO);
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"value\":4}"), JsonNodeTrx.Commit.NO);
       wtx.commit();
     }
     assertEquals(0L, ProjectionIndexChangeListener.maintenanceTelemetry().fullRebuilds(),
@@ -93,8 +91,7 @@ final class MaintenanceTelemetryFullRebuildTest {
     // A fresh index NUMBER: rebuilding a populated projection in place is itself forbidden by the
     // engine ("not virgin"), so liveness is probed with a new physical index.
     final IndexDef fresh = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
-        List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER + 1,
-        IndexDef.DbType.JSON);
+        List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER + 1, IndexDef.DbType.JSON);
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       ProjectionIndexBuilder.buildAndPersist(fresh, wtx.getPathSummary(), wtx, wtx.getStorageEngineWriter(), false);

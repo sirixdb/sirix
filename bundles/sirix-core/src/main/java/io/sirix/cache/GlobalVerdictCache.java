@@ -12,8 +12,9 @@ import java.util.function.BiFunction;
  * <p>
  * Bounded by WEIGHT, not by count, because a verdict's size follows the dictionary's cardinality:
  * one bit per id, so 34 KB for a 275k-entry dictionary and ~2.3 MB for an 18M-entry one. A count
- * bound that is comfortable at the first scale silently becomes hundreds of megabytes at the second,
- * which is the failure this project has hit before by sizing a cache from a small measurement.
+ * bound that is comfortable at the first scale silently becomes hundreds of megabytes at the
+ * second, which is the failure this project has hit before by sizing a cache from a small
+ * measurement.
  * </p>
  *
  * <p>
@@ -32,14 +33,10 @@ public final class GlobalVerdictCache implements Cache<GlobalVerdictCacheKey, lo
     if (maxWeightBytes <= 0L) {
       throw new IllegalArgumentException("verdict cache budget must be positive, got " + maxWeightBytes);
     }
-    cache = Caffeine.newBuilder()
-                    .maximumWeight(maxWeightBytes)
-                    .weigher((GlobalVerdictCacheKey key, long[] verdict) -> {
-                      final long bytes = (long) verdict.length * Long.BYTES;
-                      return (int) Math.min(bytes, Integer.MAX_VALUE);
-                    })
-                    .scheduler(scheduler)
-                    .build();
+    cache = Caffeine.newBuilder().maximumWeight(maxWeightBytes).weigher((GlobalVerdictCacheKey key, long[] verdict) -> {
+      final long bytes = (long) verdict.length * Long.BYTES;
+      return (int) Math.min(bytes, Integer.MAX_VALUE);
+    }).scheduler(scheduler).build();
   }
 
   @Override
@@ -55,15 +52,17 @@ public final class GlobalVerdictCache implements Cache<GlobalVerdictCacheKey, lo
    * itself has to stay a plain {@code long[]} — an immutable wrapper with a {@code test(id)} call
    * would put a method call inside a per-row loop, which is what the bitset shape exists to avoid.
    * Copying once per predicate protects the cached array from any future consumer instead: at a
-   * million distinct values that is 34 KB against the ~58 ms sweep it replaces, and even at a
-   * hundred million it is ~2.3 MB against the same sweep — roughly 250x cheaper than recomputing,
-   * so correctness here costs a rounding error.
+   * million distinct values that is 34 KB against the ~58 ms sweep it replaces, and even at a hundred
+   * million it is ~2.3 MB against the same sweep — roughly 250x cheaper than recomputing, so
+   * correctness here costs a rounding error.
    * </p>
    */
   @Override
   public long[] get(final GlobalVerdictCacheKey key) {
     final long[] cached = cache.getIfPresent(key);
-    return cached == null ? null : cached.clone();
+    return cached == null
+        ? null
+        : cached.clone();
   }
 
   /**

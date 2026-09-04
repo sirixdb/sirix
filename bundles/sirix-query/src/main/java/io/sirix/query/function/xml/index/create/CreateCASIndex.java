@@ -98,8 +98,8 @@ public final class CreateCASIndex extends AbstractFunction {
     }
 
     final var storageEngineWriter = wtx.getStorageEngineWriter();
-    final int indexDefNo = storageEngineWriter.getCASPage(storageEngineWriter.getActualRevisionRootPage())
-        .nextUnallocatedIndex();
+    final int indexDefNo =
+        storageEngineWriter.getCASPage(storageEngineWriter.getActualRevisionRootPage()).nextUnallocatedIndex();
     final IndexDef idxDef = IndexDefs.createCASIdxDef(false, type, paths, indexDefNo, IndexDef.DbType.XML);
     try {
       controller.createIndexes(Set.of(idxDef), wtx);

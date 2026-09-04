@@ -106,8 +106,8 @@ final class BulkJsonScanner {
 
   /**
    * Legacy lane, allocated only when {@code -Dsirix.ingest.internTable=false} selects it: a map keyed
-   * by String, which must BUILD one to look one up. Kept so the lever has an off position that is
-   * the previous behaviour exactly, not an approximation of it.
+   * by String, which must BUILD one to look one up. Kept so the lever has an off position that is the
+   * previous behaviour exactly, not an approximation of it.
    */
   private final Map<String, String> nameInterns;
 
@@ -480,9 +480,9 @@ final class BulkJsonScanner {
    * the same object for every occurrence of a name and their first equality test is a pointer
    * comparison. They differ in what that costs. The char-slice table hashes and compares the decode
    * buffer in place, so a repeat occurrence allocates nothing; the legacy map is keyed by
-   * {@code String} and so must BUILD one — a String plus its Latin-1 value array — merely to look
-   * one up, then drop it. That was 105,000,000 transient Strings and 5.39 GB on a 1M-row load, 35 %
-   * of everything the load allocated.
+   * {@code String} and so must BUILD one — a String plus its Latin-1 value array — merely to look one
+   * up, then drop it. That was 105,000,000 transient Strings and 5.39 GB on a 1M-row load, 35 % of
+   * everything the load allocated.
    * </p>
    */
   private String intern(final char[] chars, final int length) {

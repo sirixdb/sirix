@@ -41,19 +41,24 @@ import io.sirix.settings.Constants;
 /**
  * VectorStore implementation backed by SirixDB's storage engine for persistent HNSW graph storage.
  *
- * <p>This store uses the page layer ({@link StorageEngineWriter}) to create, read, and modify
- * {@link VectorNode} and {@link VectorIndexMetadataNode} records within a vector index tree.
- * All writes go through the transaction intent log (TIL) and are persisted on commit.</p>
+ * <p>
+ * This store uses the page layer ({@link StorageEngineWriter}) to create, read, and modify
+ * {@link VectorNode} and {@link VectorIndexMetadataNode} records within a vector index tree. All
+ * writes go through the transaction intent log (TIL) and are persisted on commit.
+ * </p>
  *
- * <p>Layout within the index tree:
+ * <p>
+ * Layout within the index tree:
  * <ul>
- *   <li>Key 0: Document root (created by {@code PageUtils.createKeyedTrie})</li>
- *   <li>Key 1: {@link VectorIndexMetadataNode} — graph-level metadata (entry point, max level)</li>
- *   <li>Key 2+: {@link VectorNode} instances — embedding vectors with neighbor lists</li>
+ * <li>Key 0: Document root (created by {@code PageUtils.createKeyedTrie})</li>
+ * <li>Key 1: {@link VectorIndexMetadataNode} — graph-level metadata (entry point, max level)</li>
+ * <li>Key 2+: {@link VectorNode} instances — embedding vectors with neighbor lists</li>
  * </ul>
  *
- * <p>Metadata (entry point key, max level) is cached in-memory after initialization to avoid
- * repeated page lookups on every HNSW traversal step.</p>
+ * <p>
+ * Metadata (entry point key, max level) is cached in-memory after initialization to avoid repeated
+ * page lookups on every HNSW traversal step.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -87,13 +92,13 @@ public final class PageBackedVectorStore implements VectorStore {
    * Construct a new PageBackedVectorStore.
    *
    * @param storageEngineWriter the storage engine writer (must not be null)
-   * @param indexNumber         the index number within the VectorPage
-   * @param dimension           the vector dimensionality (must be > 0)
-   * @param distanceType        the distance metric type (must not be null)
+   * @param indexNumber the index number within the VectorPage
+   * @param dimension the vector dimensionality (must be > 0)
+   * @param distanceType the distance metric type (must not be null)
    * @throws IllegalArgumentException if dimension <= 0 or distanceType is null
    */
-  public PageBackedVectorStore(final StorageEngineWriter storageEngineWriter,
-      final int indexNumber, final int dimension, final String distanceType) {
+  public PageBackedVectorStore(final StorageEngineWriter storageEngineWriter, final int indexNumber,
+      final int dimension, final String distanceType) {
     if (storageEngineWriter == null) {
       throw new IllegalArgumentException("storageEngineWriter must not be null");
     }
@@ -113,11 +118,13 @@ public final class PageBackedVectorStore implements VectorStore {
   /**
    * Initialize the vector index tree and create the metadata node.
    *
-   * <p>This must be called once before any vector operations. It creates the index tree
-   * in the VectorPage and inserts the metadata node at the first allocated key.</p>
+   * <p>
+   * This must be called once before any vector operations. It creates the index tree in the
+   * VectorPage and inserts the metadata node at the first allocated key.
+   * </p>
    *
    * @param databaseType the database type (JSON or XML)
-   * @param revision     the current revision number
+   * @param revision the current revision number
    */
   public void initializeIndex(final DatabaseType databaseType, final int revision) {
     if (metadataInitialized) {
@@ -133,8 +140,7 @@ public final class PageBackedVectorStore implements VectorStore {
     VectorPage vectorPage;
     if (vectorPageRef.getPage() != null) {
       vectorPage = (VectorPage) vectorPageRef.getPage();
-    } else if (vectorPageRef.getKey() != Constants.NULL_ID_LONG
-        || vectorPageRef.getLogKey() != Constants.NULL_ID_INT) {
+    } else if (vectorPageRef.getKey() != Constants.NULL_ID_LONG || vectorPageRef.getLogKey() != Constants.NULL_ID_INT) {
       // Page has been written to disk or is in TIL — load it.
       vectorPage = storageEngineWriter.getVectorPage(revisionRootPage);
     } else {
@@ -144,19 +150,17 @@ public final class PageBackedVectorStore implements VectorStore {
     }
 
     // Add the VectorPage to the TIL so it gets committed.
-    storageEngineWriter.appendLogRecord(vectorPageRef,
-        PageContainer.getInstance(vectorPage, vectorPage));
+    storageEngineWriter.appendLogRecord(vectorPageRef, PageContainer.getInstance(vectorPage, vectorPage));
 
     // Create the index tree (document root at key 0).
-    vectorPage.createVectorIndexTree(databaseType, storageEngineWriter, indexNumber,
-        storageEngineWriter.getLog());
+    vectorPage.createVectorIndexTree(databaseType, storageEngineWriter, indexNumber, storageEngineWriter.getLog());
 
     // Predict the next node key: maxNodeKey + 1.
     final long nextKey = vectorPage.getMaxNodeKey(indexNumber) + 1;
 
     // Create the metadata node at the next available key.
-    final VectorIndexMetadataNode metadataNode = new VectorIndexMetadataNode(
-        nextKey, dimension, distanceType, revision);
+    final VectorIndexMetadataNode metadataNode =
+        new VectorIndexMetadataNode(nextKey, dimension, distanceType, revision);
     storageEngineWriter.createRecord(metadataNode, IndexType.VECTOR, indexNumber);
 
     this.metadataNodeKey = nextKey;
@@ -172,8 +176,7 @@ public final class PageBackedVectorStore implements VectorStore {
    */
   public void loadMetadata(final long metadataKey) {
     this.metadataNodeKey = metadataKey;
-    final VectorIndexMetadataNode metadata = storageEngineWriter.getRecord(
-        metadataKey, IndexType.VECTOR, indexNumber);
+    final VectorIndexMetadataNode metadata = storageEngineWriter.getRecord(metadataKey, IndexType.VECTOR, indexNumber);
     this.cachedEntryPointKey = metadata.getEntryPointKey();
     this.cachedMaxLevel = metadata.getMaxLevel();
     this.metadataInitialized = true;
@@ -190,8 +193,7 @@ public final class PageBackedVectorStore implements VectorStore {
 
   @Override
   public float[] getVector(final long nodeKey) {
-    final VectorNode node = storageEngineWriter.getRecord(
-        nodeKey, IndexType.VECTOR, indexNumber);
+    final VectorNode node = storageEngineWriter.getRecord(nodeKey, IndexType.VECTOR, indexNumber);
     if (node == null) {
       throw new IllegalArgumentException("No vector node at key: " + nodeKey);
     }
@@ -200,8 +202,7 @@ public final class PageBackedVectorStore implements VectorStore {
 
   @Override
   public long[] getNeighbors(final long nodeKey, final int layer) {
-    final VectorNode node = storageEngineWriter.getRecord(
-        nodeKey, IndexType.VECTOR, indexNumber);
+    final VectorNode node = storageEngineWriter.getRecord(nodeKey, IndexType.VECTOR, indexNumber);
     if (node == null) {
       throw new IllegalArgumentException("No vector node at key: " + nodeKey);
     }
@@ -210,8 +211,7 @@ public final class PageBackedVectorStore implements VectorStore {
 
   @Override
   public int getNeighborCount(final long nodeKey, final int layer) {
-    final VectorNode node = storageEngineWriter.getRecord(
-        nodeKey, IndexType.VECTOR, indexNumber);
+    final VectorNode node = storageEngineWriter.getRecord(nodeKey, IndexType.VECTOR, indexNumber);
     if (node == null) {
       throw new IllegalArgumentException("No vector node at key: " + nodeKey);
     }
@@ -220,8 +220,7 @@ public final class PageBackedVectorStore implements VectorStore {
 
   @Override
   public int getMaxLayer(final long nodeKey) {
-    final VectorNode node = storageEngineWriter.getRecord(
-        nodeKey, IndexType.VECTOR, indexNumber);
+    final VectorNode node = storageEngineWriter.getRecord(nodeKey, IndexType.VECTOR, indexNumber);
     if (node == null) {
       throw new IllegalArgumentException("No vector node at key: " + nodeKey);
     }
@@ -229,10 +228,8 @@ public final class PageBackedVectorStore implements VectorStore {
   }
 
   @Override
-  public void setNeighbors(final long nodeKey, final int layer,
-      final long[] neighbors, final int count) {
-    final VectorNode node = storageEngineWriter.prepareRecordForModification(
-        nodeKey, IndexType.VECTOR, indexNumber);
+  public void setNeighbors(final long nodeKey, final int layer, final long[] neighbors, final int count) {
+    final VectorNode node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.VECTOR, indexNumber);
     node.setNeighbors(layer, neighbors, count);
   }
 
@@ -247,16 +244,15 @@ public final class PageBackedVectorStore implements VectorStore {
 
     // Create the VectorNode with the predicted key.
     final int revision = storageEngineWriter.getRevisionToRepresent();
-    final VectorNode vectorNode = new VectorNode(
-        nextKey, documentNodeKey, vector, maxLayer, revision);
+    final VectorNode vectorNode = new VectorNode(nextKey, documentNodeKey, vector, maxLayer, revision);
 
     // createRecord increments maxNodeKey and stores the record.
     storageEngineWriter.createRecord(vectorNode, IndexType.VECTOR, indexNumber);
 
     // Update node count in metadata.
     if (metadataInitialized && metadataNodeKey >= 0) {
-      final VectorIndexMetadataNode metadata = storageEngineWriter.prepareRecordForModification(
-          metadataNodeKey, IndexType.VECTOR, indexNumber);
+      final VectorIndexMetadataNode metadata =
+          storageEngineWriter.prepareRecordForModification(metadataNodeKey, IndexType.VECTOR, indexNumber);
       metadata.incrementNodeCount();
     }
 
@@ -266,8 +262,8 @@ public final class PageBackedVectorStore implements VectorStore {
   @Override
   public void updateEntryPoint(final long entryPointKey, final int maxLevel) {
     if (metadataInitialized && metadataNodeKey >= 0) {
-      final VectorIndexMetadataNode metadata = storageEngineWriter.prepareRecordForModification(
-          metadataNodeKey, IndexType.VECTOR, indexNumber);
+      final VectorIndexMetadataNode metadata =
+          storageEngineWriter.prepareRecordForModification(metadataNodeKey, IndexType.VECTOR, indexNumber);
       metadata.setEntryPointKey(entryPointKey);
       metadata.setMaxLevel(maxLevel);
     }
@@ -295,8 +291,7 @@ public final class PageBackedVectorStore implements VectorStore {
   public void markDeleted(final long nodeKey) {
     // Prepare the record for modification — this copies the record from the complete page
     // to the modified page and returns a mutable reference.
-    final VectorNode node = storageEngineWriter.prepareRecordForModification(
-        nodeKey, IndexType.VECTOR, indexNumber);
+    final VectorNode node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.VECTOR, indexNumber);
     if (node == null) {
       throw new IllegalArgumentException("No vector node at key: " + nodeKey);
     }
@@ -304,8 +299,8 @@ public final class PageBackedVectorStore implements VectorStore {
 
     // Decrement node count in metadata.
     if (metadataInitialized && metadataNodeKey >= 0) {
-      final VectorIndexMetadataNode metadata = storageEngineWriter.prepareRecordForModification(
-          metadataNodeKey, IndexType.VECTOR, indexNumber);
+      final VectorIndexMetadataNode metadata =
+          storageEngineWriter.prepareRecordForModification(metadataNodeKey, IndexType.VECTOR, indexNumber);
       final long currentCount = metadata.getNodeCount();
       if (currentCount > 0) {
         metadata.setNodeCount(currentCount - 1);
@@ -315,8 +310,7 @@ public final class PageBackedVectorStore implements VectorStore {
 
   @Override
   public boolean isDeleted(final long nodeKey) {
-    final VectorNode node = storageEngineWriter.getRecord(
-        nodeKey, IndexType.VECTOR, indexNumber);
+    final VectorNode node = storageEngineWriter.getRecord(nodeKey, IndexType.VECTOR, indexNumber);
     if (node == null) {
       throw new IllegalArgumentException("No vector node at key: " + nodeKey);
     }
@@ -324,10 +318,10 @@ public final class PageBackedVectorStore implements VectorStore {
   }
 
   /**
-   * Validates that a vector is non-null, has the expected dimension, and contains no NaN or
-   * Infinity values.
+   * Validates that a vector is non-null, has the expected dimension, and contains no NaN or Infinity
+   * values.
    *
-   * @param vector            the vector to validate
+   * @param vector the vector to validate
    * @param expectedDimension the expected dimensionality
    * @throws IllegalArgumentException if validation fails
    */
@@ -336,18 +330,15 @@ public final class PageBackedVectorStore implements VectorStore {
       throw new IllegalArgumentException("Vector must not be null");
     }
     if (vector.length != expectedDimension) {
-      throw new IllegalArgumentException(
-          "Expected dimension " + expectedDimension + " but got " + vector.length);
+      throw new IllegalArgumentException("Expected dimension " + expectedDimension + " but got " + vector.length);
     }
     if (vector.length > VectorNode.MAX_SUPPORTED_DIMENSION) {
       throw new IllegalArgumentException(
-          "Vector dimension " + vector.length + " exceeds maximum "
-              + VectorNode.MAX_SUPPORTED_DIMENSION);
+          "Vector dimension " + vector.length + " exceeds maximum " + VectorNode.MAX_SUPPORTED_DIMENSION);
     }
     for (int i = 0; i < vector.length; i++) {
       if (Float.isNaN(vector[i]) || Float.isInfinite(vector[i])) {
-        throw new IllegalArgumentException(
-            "Vector contains NaN or Infinity at index " + i);
+        throw new IllegalArgumentException("Vector contains NaN or Infinity at index " + i);
       }
     }
   }

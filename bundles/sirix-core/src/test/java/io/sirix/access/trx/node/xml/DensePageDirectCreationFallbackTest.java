@@ -45,9 +45,8 @@ final class DensePageDirectCreationFallbackTest {
 
   @Test
   void saturatedPageMaterializesFixedXmlKindsWithCompleteMetadata() {
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder("dense-xml-factory-fallback")
-                                                              .useDeweyIDs(true)
-                                                              .build();
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder("dense-xml-factory-fallback").useDeweyIDs(true).build();
     final KeyValueLeafPage page = new KeyValueLeafPage(0, IndexType.DOCUMENT, config, REVISION, null, null);
     try {
       saturatePageHeap(page);
@@ -78,9 +77,8 @@ final class DensePageDirectCreationFallbackTest {
 
   @Test
   void oversizedXmlValuesDivertBeforeWritingAndOwnTheirPayloads() {
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder("large-xml-factory-fallback")
-                                                              .useDeweyIDs(true)
-                                                              .build();
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder("large-xml-factory-fallback").useDeweyIDs(true).build();
     final KeyValueLeafPage page = new KeyValueLeafPage(0, IndexType.DOCUMENT, config, REVISION, null, null);
     try {
       final XmlNodeFactoryImpl factory = newFactory(page, 1);
@@ -101,8 +99,7 @@ final class DensePageDirectCreationFallbackTest {
       final byte[] expectedAttribute = attributeInput.clone();
       final QNm attributeName = new QNm("urn:attribute", "a", "attribute");
       final SirixDeweyID attributeId = new SirixDeweyID("1.2");
-      final AttributeNode attribute =
-          factory.createAttributeNode(41, attributeName, attributeInput, 42, attributeId);
+      final AttributeNode attribute = factory.createAttributeNode(41, attributeName, attributeInput, 42, attributeId);
       attributeInput[0] ^= 0x7f;
       assertPending(page, attribute);
       assertEquals(41, attribute.getParentKey());
@@ -146,16 +143,16 @@ final class DensePageDirectCreationFallbackTest {
     final long[] nextNodeKey = {firstNodeKey};
     final long[] allocatedNodeKey = {Constants.NULL_ID_LONG};
     when(writer.getRevisionNumber()).thenReturn(REVISION);
-    when(writer.createNameKey(anyString(), any(NodeKind.class))).thenAnswer(invocation ->
-        invocation.getArgument(0, String.class).hashCode());
+    when(writer.createNameKey(anyString(), any(NodeKind.class))).thenAnswer(
+        invocation -> invocation.getArgument(0, String.class).hashCode());
     doAnswer(invocation -> {
       allocatedNodeKey[0] = nextNodeKey[0]++;
       return null;
     }).when(writer).allocateForDocumentCreation();
     when(writer.getAllocKvl()).thenReturn(page);
     when(writer.getAllocNodeKey()).thenAnswer(invocation -> allocatedNodeKey[0]);
-    when(writer.getAllocSlotOffset()).thenAnswer(invocation ->
-        (int) (allocatedNodeKey[0] & (Constants.NDP_NODE_COUNT - 1)));
+    when(writer.getAllocSlotOffset()).thenAnswer(
+        invocation -> (int) (allocatedNodeKey[0] & (Constants.NDP_NODE_COUNT - 1)));
     return new XmlNodeFactoryImpl(LongHashFunction.xx3(), writer);
   }
 
@@ -202,15 +199,14 @@ final class DensePageDirectCreationFallbackTest {
       page.completeDirectWrite(NodeKind.TEXT.getId(), slot, slot, 500, null);
       slot++;
     }
-    final int remaining = (int) (page.getSlottedPage().byteSize() - PageLayout.HEAP_START
-        - PageLayout.getHeapEnd(page.getSlottedPage()));
+    final int remaining =
+        (int) (page.getSlottedPage().byteSize() - PageLayout.HEAP_START - PageLayout.getHeapEnd(page.getSlottedPage()));
     final int finalRecordBytes = remaining - PageLayout.DEWEY_ID_TRAILER_SIZE;
     if (finalRecordBytes >= 0) {
       final long offset = page.prepareHeapForDirectWriteOrOverflow(finalRecordBytes, 0);
       assertFalse(offset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW);
       page.completeDirectWrite(NodeKind.TEXT.getId(), slot, slot, finalRecordBytes, null);
     }
-    assertEquals(KeyValueLeafPage.DIRECT_WRITE_OVERFLOW,
-        page.prepareHeapForDirectWriteOrOverflow(1, 0));
+    assertEquals(KeyValueLeafPage.DIRECT_WRITE_OVERFLOW, page.prepareHeapForDirectWriteOrOverflow(1, 0));
   }
 }

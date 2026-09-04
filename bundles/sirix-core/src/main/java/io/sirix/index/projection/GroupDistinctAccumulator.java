@@ -17,21 +17,23 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * The per-worker design it replaces kept one {@code group → set} map per worker, so a value seen by
  * all workers was stored once per worker and unioned again at the end: memory was
- * {@code workers × distinct pairs} at its peak, the ceiling was split per worker and only FLAGGED an
- * overrun while inserts carried on to the end of the scan, and a state above the ceiling was declined
- * only after it had been fully built. At 100M rows that was a heap exhaustion before it was a decline.
+ * {@code workers × distinct pairs} at its peak, the ceiling was split per worker and only FLAGGED
+ * an overrun while inserts carried on to the end of the scan, and a state above the ceiling was
+ * declined only after it had been fully built. At 100M rows that was a heap exhaustion before it
+ * was a decline.
  *
  * <p>
- * Here a {@code (group, value)} pair is routed to ONE of 64 stripes by the group's hash (16 ways) and
- * the value's hash (4 ways). Every worker sends the same pair to the same stripe, so the stripe's
- * per-group set holds it once regardless of how many workers saw it: memory is the number of distinct
- * pairs, and a group's exact count is the sum of its (value-disjoint) sets over the four value
- * stripes — no union ever runs. Rows whose group key is missing go to a per-stripe missing set by the
- * value's hash alone, under the same disjointness. Workers batch their inserts per stripe (256 pairs)
- * and flush under the stripe's monitor, so the lock traffic is one acquisition per 256 rows. The entry
- * count is checked at every flush against a heap-derived ceiling: past it, every sink drops its input
- * and {@link #exceeded()} makes the caller DECLINE (never sketch) — the state cannot grow past the
- * ceiling by more than the workers' unflushed batches.
+ * Here a {@code (group, value)} pair is routed to ONE of 64 stripes by the group's hash (16 ways)
+ * and the value's hash (4 ways). Every worker sends the same pair to the same stripe, so the
+ * stripe's per-group set holds it once regardless of how many workers saw it: memory is the number
+ * of distinct pairs, and a group's exact count is the sum of its (value-disjoint) sets over the
+ * four value stripes — no union ever runs. Rows whose group key is missing go to a per-stripe
+ * missing set by the value's hash alone, under the same disjointness. Workers batch their inserts
+ * per stripe (256 pairs) and flush under the stripe's monitor, so the lock traffic is one
+ * acquisition per 256 rows. The entry count is checked at every flush against a heap-derived
+ * ceiling: past it, every sink drops its input and {@link #exceeded()} makes the caller DECLINE
+ * (never sketch) — the state cannot grow past the ceiling by more than the workers' unflushed
+ * batches.
  *
  * <p>
  * Thread contract: {@link #worker(int)} hands each parallel slot its own single-threaded
@@ -110,7 +112,9 @@ public final class GroupDistinctAccumulator {
     LongOpenHashSet missing;
   }
 
-  /** A worker's handle on one group (or on the missing-key rows): {@link #add(long)} is all it does. */
+  /**
+   * A worker's handle on one group (or on the missing-key rows): {@link #add(long)} is all it does.
+   */
   public static final class Sink {
     private final Worker worker;
     private final long group;
@@ -145,8 +149,7 @@ public final class GroupDistinctAccumulator {
     private final Long2ObjectOpenHashMap<Sink> sinks = new Long2ObjectOpenHashMap<>();
     private final Sink missingSink = new Sink(this, 0L, true);
 
-    private Worker() {
-    }
+    private Worker() {}
 
     /** The sink for {@code group}; one object per group per worker, cached. */
     public Sink sinkFor(final long group) {
@@ -291,7 +294,9 @@ public final class GroupDistinctAccumulator {
     this(workerCount, defaultMaxValues());
   }
 
-  /** An accumulator for {@code workerCount} parallel slots keeping at most {@code maxValues} pairs. */
+  /**
+   * An accumulator for {@code workerCount} parallel slots keeping at most {@code maxValues} pairs.
+   */
   public GroupDistinctAccumulator(final int workerCount, final long maxValues) {
     if (workerCount <= 0) {
       throw new IllegalArgumentException("workerCount must be positive: " + workerCount);
@@ -334,8 +339,8 @@ public final class GroupDistinctAccumulator {
   }
 
   /**
-   * Drop every pair and every cached sink so the accumulator can serve the next hash-range pass —
-   * the pass filter changes, so a sink cached for a group in the previous pass must not survive.
+   * Drop every pair and every cached sink so the accumulator can serve the next hash-range pass — the
+   * pass filter changes, so a sink cached for a group in the previous pass must not survive.
    * Coordinating thread only, after {@link #finish()} has been consumed.
    */
   public void reset() {

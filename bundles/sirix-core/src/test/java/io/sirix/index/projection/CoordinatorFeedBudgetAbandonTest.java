@@ -62,8 +62,8 @@ final class CoordinatorFeedBudgetAbandonTest {
    * The coordinator lane rotates the streaming dictionary GENERATION at every flush epoch, so the
    * writer never accumulates; what grows with the corpus is the resident PROBE FRONT (the
    * resource-wide id table), which is also what the 100M load breached. Its budget-derived table
-   * would need ~1M distinct values to overflow, so the breach is driven deterministically through
-   * the front's entry-cap seam: above the election sample, below the corpus.
+   * would need ~1M distinct values to overflow, so the breach is driven deterministically through the
+   * front's entry-cap seam: above the election sample, below the corpus.
    */
   private static final int FRONT_ENTRY_CAP = 12_000;
   /** Either breach form the feed lane announces: a quantified term or a structural decline. */
@@ -111,7 +111,8 @@ final class CoordinatorFeedBudgetAbandonTest {
     final Capture capture = loadParallel();
 
     final List<String> notices = capture.linesContaining("PROJECTION ABANDONED during the load");
-    assertEquals(1, notices.size(), "the abandon must be announced exactly once; captured stderr was:\n" + capture.text());
+    assertEquals(1, notices.size(),
+        "the abandon must be announced exactly once; captured stderr was:\n" + capture.text());
     final Matcher parsed = NOTICE.matcher(notices.getFirst());
     assertTrue(parsed.matches(), "the notice must state index, column and the breach: " + notices.getFirst());
     assertEquals(INDEX_NUMBER, Integer.parseInt(parsed.group(1)), "the notice must name the abandoned index");
@@ -168,7 +169,8 @@ final class CoordinatorFeedBudgetAbandonTest {
     try {
       // The parallel importer accepts hashType=NONE only; the helper's default resource is ROLLING.
       Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
-      try (final Database<JsonResourceSession> creator = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+      try (final Database<JsonResourceSession> creator =
+          Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
         creator.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                     .hashKind(HashType.NONE)
                                                     .useDeweyIDs(false)

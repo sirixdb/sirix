@@ -25,11 +25,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * End-to-end witness for the windowed access's slice recycling: a store of 200 leaves (past the
- * two-window cache, so eviction — and therefore reuse — actually happens), a composite group-by driven
- * windowed by a one-byte fill budget and into several hash-range passes by a tight group budget, so the
- * same leaves are decoded into recycled arrays pass after pass. The answers must equal the resident arm's
- * and the interpreter's, and the recycling counter must have moved — a pool that is wired to nothing
- * passes every correctness check and this test alone would notice.
+ * two-window cache, so eviction — and therefore reuse — actually happens), a composite group-by
+ * driven windowed by a one-byte fill budget and into several hash-range passes by a tight group
+ * budget, so the same leaves are decoded into recycled arrays pass after pass. The answers must
+ * equal the resident arm's and the interpreter's, and the recycling counter must have moved — a
+ * pool that is wired to nothing passes every correctness check and this test alone would notice.
  */
 final class WindowedSliceRecyclingQueryTest {
   private static final String DB = "slice-recycling-db";
@@ -50,7 +50,8 @@ final class WindowedSliceRecyclingQueryTest {
   void setUp() throws Exception {
     previousGlobalDictMode = System.getProperty("sirix.projection.globalDict");
     System.setProperty("sirix.projection.globalDict", "never");
-    // One worker owns every morsel: 201 leaves against a 128-leaf per-column cache is four windows, and only
+    // One worker owns every morsel: 201 leaves against a 128-leaf per-column cache is four windows, and
+    // only
     // a worker that outgrows its cache ever evicts — twenty workers with ten leaves each never would.
     previousThreads = System.getProperty("sirix.vec.threads");
     System.setProperty("sirix.vec.threads", "1");
@@ -65,8 +66,14 @@ final class WindowedSliceRecyclingQueryTest {
           sb.append(',');
         }
         // key (k, a) = (g mod 100, g div 100); `m` is absent on every other row so presence words are mixed
-        sb.append("{\"id\":").append(i).append(",\"k\":").append(g % 100).append(",\"a\":").append(g / 100)
-          .append(",\"amount\":").append(i % 10_007);
+        sb.append("{\"id\":")
+          .append(i)
+          .append(",\"k\":")
+          .append(g % 100)
+          .append(",\"a\":")
+          .append(g / 100)
+          .append(",\"amount\":")
+          .append(i % 10_007);
         if ((i & 1) == 0) {
           sb.append(",\"m\":").append(i % 13);
         }
@@ -117,8 +124,7 @@ final class WindowedSliceRecyclingQueryTest {
   @Test
   void aMultiPassWindowedCompositeGroupByRecyclesItsSliceArraysAndAnswersExactly() throws Exception {
     final String query = "subsequence(for $h in " + DOC + " where $h.amount ge 100 "
-        + "let $k := $h.k, $a := $h.a group by $k, $a let $c := count($h) "
-        + "order by $c descending "
+        + "let $k := $h.k, $a := $h.a group by $k, $a let $c := count($h) " + "order by $c descending "
         + "return {\"k\": $k, \"a\": $a, \"c\": $c, \"sum\": sum($h.amount), \"m\": sum($h.m)}, 1, 25)";
     final String generic = run(query, false);
     final String resident = run(query, true);
@@ -133,8 +139,10 @@ final class WindowedSliceRecyclingQueryTest {
     assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedBefore, "not served by the group arm");
     assertTrue(SirixVectorizedExecutor.groupWindowedSlicesCount() > windowedBefore, "the windowed route never engaged");
     final long recycled = ProjectionColumnStore.recycledSliceArraysCount() - recycledBefore;
-    // Five columns × 201 leaves per pass in 64-leaf windows against a two-window cache: the third and fourth
-    // window of every pass decode into the arrays the first two gave up — 73 leaves × 5 columns × 2 arrays
+    // Five columns × 201 leaves per pass in 64-leaf windows against a two-window cache: the third and
+    // fourth
+    // window of every pass decode into the arrays the first two gave up — 73 leaves × 5 columns × 2
+    // arrays
     // per pass, three passes.
     assertTrue(recycled > 1_000L, "slice arrays recycled: " + recycled);
     assertEquals(generic, windowed, "the recycling windowed arm diverges from the interpreter");

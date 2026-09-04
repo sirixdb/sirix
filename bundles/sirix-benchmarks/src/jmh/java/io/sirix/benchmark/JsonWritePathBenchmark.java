@@ -37,7 +37,9 @@ import java.util.concurrent.TimeUnit;
 /**
  * Focused write-path benchmarks for current JSON hot spots.
  *
- * <p>Run with:
+ * <p>
+ * Run with:
+ * 
  * <pre>
  * ./gradlew :sirix-benchmarks:jmh -Pjmh.includes='.*JsonWritePathBenchmark.*'
  * </pre>
@@ -59,8 +61,7 @@ public class JsonWritePathBenchmark {
   private static final int MOVE_KEYS = 2048;
 
   public enum CompressionPipeline {
-    NONE,
-    FFI_LZ4
+    NONE, FFI_LZ4
   }
 
   private static void clampLoggingForBenchmarks() {
@@ -229,7 +230,9 @@ public class JsonWritePathBenchmark {
 
       final boolean highEntropy = "HIGH_ENTROPY".equals(payloadKind);
       for (int i = 0; i < cachedValues.length; i++) {
-        cachedValues[i] = highEntropy ? highEntropyValue(i) : lowEntropyValue(i);
+        cachedValues[i] = highEntropy
+            ? highEntropyValue(i)
+            : lowEntropyValue(i);
       }
 
       databasePath = Files.createTempDirectory("sirix-jmh-json-write-string");
@@ -336,7 +339,9 @@ public class JsonWritePathBenchmark {
 
       final boolean highEntropy = "HIGH_ENTROPY".equals(payloadKind);
       for (int i = 0; i < cachedValues.length; i++) {
-        final String value = highEntropy ? StringInsertState.highEntropyValue(i) : StringInsertState.lowEntropyValue(i);
+        final String value = highEntropy
+            ? StringInsertState.highEntropyValue(i)
+            : StringInsertState.lowEntropyValue(i);
         cachedValues[i] = value;
         cachedObjectValues[i] = new StringValue(value);
       }
@@ -433,7 +438,8 @@ public class JsonWritePathBenchmark {
       database = Databases.openJsonDatabase(databasePath);
       database.createResource(newResourceConfig(RESOURCE).build());
 
-      try (var seedSession = database.beginResourceSession(RESOURCE); JsonNodeTrx seedWtx = seedSession.beginNodeTrx()) {
+      try (var seedSession = database.beginResourceSession(RESOURCE);
+          JsonNodeTrx seedWtx = seedSession.beginNodeTrx()) {
         seedWtx.insertArrayAsFirstChild();
         for (int i = 0; i < MOVE_KEYS; i++) {
           seedWtx.insertNumberValueAsFirstChild(Integer.valueOf(i & (VALUE_VARIANTS - 1)));
@@ -452,7 +458,9 @@ public class JsonWritePathBenchmark {
           } while (count < MOVE_KEYS && rtx.moveToRightSibling());
         }
       }
-      nodeKeys = count == tmpKeys.length ? tmpKeys : Arrays.copyOf(tmpKeys, count);
+      nodeKeys = count == tmpKeys.length
+          ? tmpKeys
+          : Arrays.copyOf(tmpKeys, count);
     }
 
     @Setup(Level.Iteration)

@@ -15,8 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * Packing changed a latent assumption: values used to own their arrays, so an array bound WAS a
- * value bound. Now many values share one backing array, and every range operation has to respect the
- * slice rather than the array. These tests pin the two ways that went wrong.
+ * value bound. Now many values share one backing array, and every range operation has to respect
+ * the slice rather than the array. These tests pin the two ways that went wrong.
  */
 final class DictionaryRangeOperationBoundsTest {
 
@@ -83,8 +83,7 @@ final class DictionaryRangeOperationBoundsTest {
   @DisplayName("range comparison validates its window against the backing array")
   void rangeComparisonValidatesItsWindow() {
     final byte[] value = utf8("abc");
-    assertThrows(NullPointerException.class,
-        () -> ValueDictionaryEntryNode.compareUtf16Range(null, 0, 0, value, 0, 3));
+    assertThrows(NullPointerException.class, () -> ValueDictionaryEntryNode.compareUtf16Range(null, 0, 0, value, 0, 3));
     assertThrows(IndexOutOfBoundsException.class,
         () -> ValueDictionaryEntryNode.compareUtf16Range(value, 0, 4, value, 0, 3));
     assertThrows(IndexOutOfBoundsException.class,
@@ -113,7 +112,7 @@ final class DictionaryRangeOperationBoundsTest {
     final int off = utf8("prefix").length;
     final int len = utf8("𐐀").length;
     final byte[] standalone = utf8("！");
-    assertEquals(Integer.signum("𐐀".compareTo("！")), Integer.signum(
-        ValueDictionaryEntryNode.compareUtf16Range(packed, off, len, standalone, 0, standalone.length)));
+    assertEquals(Integer.signum("𐐀".compareTo("！")),
+        Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(packed, off, len, standalone, 0, standalone.length)));
   }
 }

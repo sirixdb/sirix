@@ -27,8 +27,7 @@ final class NamePageSecondaryIndexAllocationTest {
       assertTrue(NamePage.isNameDictionarySlot(DatabaseType.XML, dictionaryIndex));
     }
 
-    assertThrows(IllegalArgumentException.class,
-        () -> NamePage.isNameDictionarySlot(DatabaseType.JSON, -1));
+    assertThrows(IllegalArgumentException.class, () -> NamePage.isNameDictionarySlot(DatabaseType.JSON, -1));
     assertFalse(NamePage.isNameDictionarySlot(DatabaseType.JSON, PageConstants.JSON_NAME_INDEX_OFFSET));
     assertFalse(NamePage.isNameDictionarySlot(DatabaseType.XML, PageConstants.XML_NAME_INDEX_OFFSET));
     assertThrows(IllegalArgumentException.class,
@@ -41,15 +40,13 @@ final class NamePageSecondaryIndexAllocationTest {
     for (int offset = 0; offset < PageConstants.JSON_NAME_INDEX_OFFSET; offset++) {
       json.setOrCreateReference(offset, durableReference(1_000L + offset));
     }
-    assertEquals(PageConstants.JSON_NAME_INDEX_OFFSET,
-        json.nextUnallocatedSecondaryNameIndex(DatabaseType.JSON));
+    assertEquals(PageConstants.JSON_NAME_INDEX_OFFSET, json.nextUnallocatedSecondaryNameIndex(DatabaseType.JSON));
 
     final NamePage xml = new NamePage();
     for (int offset = 0; offset < PageConstants.XML_NAME_INDEX_OFFSET; offset++) {
       xml.setOrCreateReference(offset, durableReference(2_000L + offset));
     }
-    assertEquals(PageConstants.XML_NAME_INDEX_OFFSET,
-        xml.nextUnallocatedSecondaryNameIndex(DatabaseType.XML));
+    assertEquals(PageConstants.XML_NAME_INDEX_OFFSET, xml.nextUnallocatedSecondaryNameIndex(DatabaseType.XML));
   }
 
   @Test
@@ -118,8 +115,8 @@ final class NamePageSecondaryIndexAllocationTest {
     final int referencesBefore = page.getReferencesCount();
 
     assertFalse(page.hasProjectionValueDictionary(DatabaseType.JSON));
-    assertNull(page.getNameDictionaryReference(DatabaseType.JSON,
-        NamePage.JSON_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET));
+    assertNull(
+        page.getNameDictionaryReference(DatabaseType.JSON, NamePage.JSON_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET));
     assertNull(page.getIndexReference(DatabaseType.JSON, PageConstants.JSON_NAME_INDEX_OFFSET));
     assertThrows(IllegalArgumentException.class,
         () -> page.getNameDictionaryReference(DatabaseType.JSON, PageConstants.JSON_NAME_INDEX_OFFSET));

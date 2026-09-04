@@ -21,14 +21,17 @@ import static java.util.Objects.requireNonNull;
 /**
  * Container page for valid-time interval indexes, keyed by {@code IndexDef#getID()}.
  *
- * <p>The delegate holds one {@link PageReference} per registered valid-time index, each rooting a
+ * <p>
+ * The delegate holds one {@link PageReference} per registered valid-time index, each rooting a
  * versioned HOT tree whose leaves are the Relational-Interval-Tree's two ordered stores
  * (lower/upper), keyed by {@code [store-discriminator:1][forkNode:8][endpoint:8]}. The sparse
  * {@code maxHotPageKeys} map is the only per-index metadata and persists each tree's HOT page-key
- * allocator. There is no alternate keyed-trie or red-black-tree representation.</p>
+ * allocator. There is no alternate keyed-trie or red-black-tree representation.
+ * </p>
  *
- * <p>Placement in {@link RevisionRootPage} matches the CAS/PATH/NAME pattern:
- * one sibling reference offset, populated on fresh revisions via
+ * <p>
+ * Placement in {@link RevisionRootPage} matches the CAS/PATH/NAME pattern: one sibling reference
+ * offset, populated on fresh revisions via
  * {@link RevisionRootPage#getValidTimeIndexPageReference()}.
  *
  * @author Johannes Lichtenberger
@@ -50,11 +53,12 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
   }
 
   /**
-   * Copy constructor for write-side CoW. Mirrors {@link ProjectionIndexPage#ProjectionIndexPage(ProjectionIndexPage)}:
-   * the underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so
-   * mutations to a child reference (key, pageFragments, swizzled page) cannot bleed back into the
-   * historical revision's view through cache aliasing. The allocator map is duplicated to
-   * decouple writer-side mutations from the prior-revision's instance.
+   * Copy constructor for write-side CoW. Mirrors
+   * {@link ProjectionIndexPage#ProjectionIndexPage(ProjectionIndexPage)}: the underlying delegate is
+   * rebuilt with a fresh {@link PageReference} per occupied slot, so mutations to a child reference
+   * (key, pageFragments, swizzled page) cannot bleed back into the historical revision's view through
+   * cache aliasing. The allocator map is duplicated to decouple writer-side mutations from the
+   * prior-revision's instance.
    */
   public ValidTimeIndexPage(final ValidTimeIndexPage other) {
     final Page otherDelegate = other.delegate;
@@ -79,8 +83,8 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
   }
 
   /**
-   * Get the HOT-tree root reference for the valid-time index with the given
-   * {@code IndexDef} id. Creates an empty reference slot if none exists yet.
+   * Get the HOT-tree root reference for the valid-time index with the given {@code IndexDef} id.
+   * Creates an empty reference slot if none exists yet.
    */
   public PageReference getIndirectPageReference(final int index) {
     return getOrCreateIndexReference(index);
@@ -94,8 +98,8 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
   /**
    * Initialize the valid-time index's HOT tree.
    */
-  public void createValidTimeIndexTree(final StorageEngineReader storageEngineReader,
-      final int index, final TransactionIntentLog log) {
+  public void createValidTimeIndexTree(final StorageEngineReader storageEngineReader, final int index,
+      final TransactionIntentLog log) {
     final PageReference reference = getOrCreateIndexReference(index);
     if (reference.isVirginStructuralPlaceholder()) {
       refuseAllocatorOnlyState(index);
@@ -123,7 +127,9 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
   /**
    * Return the first uninitialized physical valid-time tree id at or after {@code fromInclusive}.
    *
-   * <p>The scan is read-only: neither sparse nor full delegates gain placeholder references.</p>
+   * <p>
+   * The scan is read-only: neither sparse nor full delegates gain placeholder references.
+   * </p>
    *
    * @param fromInclusive first physical id to inspect
    * @return the first uninitialized id
@@ -136,9 +142,8 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
         return index;
       }
     }
-    throw new IllegalStateException(
-        "Valid-time index reference space exhausted at or after " + fromInclusive + ": "
-            + Constants.INP_REFERENCE_COUNT + " physical ids available");
+    throw new IllegalStateException("Valid-time index reference space exhausted at or after " + fromInclusive + ": "
+        + Constants.INP_REFERENCE_COUNT + " physical ids available");
   }
 
   public long getMaxHotPageKey(final int indexNo) {
@@ -176,8 +181,8 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
       case ReferencesPage4 references -> references.referenceAtOffset(index);
       case BitmapReferencesPage references -> references.referenceAtOffset(index);
       case FullReferencesPage references -> references.referenceAt(index);
-      default -> throw new IllegalStateException(
-          "Unknown ValidTimeIndexPage delegate type: " + delegate.getClass().getName());
+      default ->
+        throw new IllegalStateException("Unknown ValidTimeIndexPage delegate type: " + delegate.getClass().getName());
     };
   }
 
@@ -213,8 +218,7 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
     for (final Int2LongMap.Entry entry : allocatorMap.int2LongEntrySet()) {
       checkIndex(entry.getIntKey());
       if (entry.getLongValue() < 0L) {
-        throw new IllegalArgumentException(
-            "Negative valid-time HOT page-key high-water mark: " + entry.getLongValue());
+        throw new IllegalArgumentException("Negative valid-time HOT page-key high-water mark: " + entry.getLongValue());
       }
     }
     return allocatorMap;

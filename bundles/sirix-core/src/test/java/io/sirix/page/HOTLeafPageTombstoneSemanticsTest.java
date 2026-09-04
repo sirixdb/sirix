@@ -83,8 +83,8 @@ final class HOTLeafPageTombstoneSemanticsTest {
       final MemorySegment corruptSlot = arena.allocate(8);
       corruptSlot.set(ValueLayout.JAVA_SHORT_UNALIGNED, 0, (short) 0);
       corruptSlot.set(ValueLayout.JAVA_SHORT_UNALIGNED, 2, (short) 100);
-      final HOTLeafPage corruptOlder = new HOTLeafPage(4, 1, IndexType.PROJECTION, corruptSlot, null,
-          new int[] {0}, 1, 4, new byte[0], 0);
+      final HOTLeafPage corruptOlder =
+          new HOTLeafPage(4, 1, IndexType.PROJECTION, corruptSlot, null, new int[] {0}, 1, 4, new byte[0], 0);
       try {
         final IllegalStateException failure = assertThrows(IllegalStateException.class,
             () -> VersioningType.SLIDING_SNAPSHOT.combineHOTLeafPages(List.of(newest, corruptOlder), 3,

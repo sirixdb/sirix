@@ -14,18 +14,18 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>
  * This is the dictionary half of the load-time pre-pass: the corpus half — reading the input once
- * and producing that ascending stream under a memory budget — is {@link ExternalDistinctValues}, and
- * the two together are what let a loader build these dictionaries for itself instead of being handed
- * a value file. The stream form is the load-bearing one: a fat column's distinct set is gigabytes at
- * scale ({@link ExternalDistinctValues}), so the {@link List} overload is for tests and small
- * columns only.
+ * and producing that ascending stream under a memory budget — is {@link ExternalDistinctValues},
+ * and the two together are what let a loader build these dictionaries for itself instead of being
+ * handed a value file. The stream form is the load-bearing one: a fat column's distinct set is
+ * gigabytes at scale ({@link ExternalDistinctValues}), so the {@link List} overload is for tests
+ * and small columns only.
  * </p>
  *
  * <p>
  * Values must ascend STRICTLY under {@link ValueDictionaryEntryNode#compareUtf16Range} — the
- * dictionary's own ordering invariant. The check is per adjacent pair and runs in both overloads, so
- * a producer that emits a duplicate or an inversion fails here rather than writing a dictionary whose
- * rank order silently disagrees with the comparator every reader uses.
+ * dictionary's own ordering invariant. The check is per adjacent pair and runs in both overloads,
+ * so a producer that emits a duplicate or an inversion fails here rather than writing a dictionary
+ * whose rank order silently disagrees with the comparator every reader uses.
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -72,8 +72,8 @@ public final class PrePassDictionaryBuilder {
     }
     appender.finish();
     final var writer = wtx.getStorageEngineWriter();
-    GlobalValueDictionary.buildBlockIndex(appender.headerKey(),
-        writer.getNamePage(writer.getActualRevisionRootPage()), databaseType, writer, writer.getLog());
+    GlobalValueDictionary.buildBlockIndex(appender.headerKey(), writer.getNamePage(writer.getActualRevisionRootPage()),
+        databaseType, writer, writer.getLog());
     wtx.commit();
     return appender.headerKey();
   }

@@ -1240,11 +1240,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   /**
    * Resolve a cold page's dictionary reference before a singleton reads FSST payload bytes.
-   * Already-resolved pages take one field read and one predictable branch; dictionary access is
-   * paid only once, when a positive table id has not yet been resolved to bytes.
+   * Already-resolved pages take one field read and one predictable branch; dictionary access is paid
+   * only once, when a positive table id has not yet been resolved to bytes.
    */
-  private static byte[] resolvedFsstSymbolTable(final KeyValueLeafPage page,
-      final StorageEngineReader reader) {
+  private static byte[] resolvedFsstSymbolTable(final KeyValueLeafPage page, final StorageEngineReader reader) {
     byte[] fsstTable = page.getFsstSymbolTable();
     if (fsstTable != null || page.getFsstSymbolTableId() == KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID) {
       return fsstTable;

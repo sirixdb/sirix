@@ -3,8 +3,8 @@ package io.sirix.index.projection;
 import java.nio.charset.StandardCharsets;
 
 /**
- * The canonical text ⇆ epoch codec behind the declared {@code TIMESTAMP} and {@code DATE} projection
- * column kinds.
+ * The canonical text ⇆ epoch codec behind the declared {@code TIMESTAMP} and {@code DATE}
+ * projection column kinds.
  *
  * <h2>Why a codec rather than a parser</h2> A projection column declared {@code xs:dateTime} or
  * {@code xs:date} stores ONE signed long per row — epoch seconds UTC for
@@ -21,9 +21,9 @@ import java.nio.charset.StandardCharsets;
  * timestamp and {@code dddd-dd-dd} (10 chars) for a date, with a calendar-valid date and
  * {@code 00:00:00..23:59:59}. There is no sniffing and no partial acceptance: a value of any other
  * shape in a declared temporal column is a BUILD error, because storing it would either lose the
- * original bytes (no formatter can reproduce {@code "2013-7-15"} from a number) or silently make the
- * column answer a different question than the document says. Absent and non-string cells keep the
- * ordinary present/unrepresentable discipline — this is a shape rule, not a type rule.
+ * original bytes (no formatter can reproduce {@code "2013-7-15"} from a number) or silently make
+ * the column answer a different question than the document says. Absent and non-string cells keep
+ * the ordinary present/unrepresentable discipline — this is a shape rule, not a type rule.
  *
  * <h2>Formatting is allocation-free</h2> Every {@code format*} method writes ASCII into a
  * caller-owned {@code byte[]}; {@link #scratch()} hands out a per-thread buffer big enough for the
@@ -32,9 +32,9 @@ import java.nio.charset.StandardCharsets;
  *
  * <h2>Proleptic Gregorian, no leap seconds</h2> The civil ⇆ days conversion is Howard Hinnant's
  * branch-free {@code days_from_civil} / {@code civil_from_days}, which agrees with
- * {@code java.time.LocalDate.toEpochDay()} over the whole four-digit year range and needs no object.
- * Second 60 is not accepted: it is not a value any JSON corpus produced by a UTC formatter holds,
- * and accepting it would break the round trip (60 normalises to the next minute's 00).
+ * {@code java.time.LocalDate.toEpochDay()} over the whole four-digit year range and needs no
+ * object. Second 60 is not accepted: it is not a value any JSON corpus produced by a UTC formatter
+ * holds, and accepting it would break the round trip (60 normalises to the next minute's 00).
  */
 public final class ProjectionTemporalCodec {
 
@@ -64,10 +64,15 @@ public final class ProjectionTemporalCodec {
   /** {@link #boundsForLiteral} verdict: the literal is not a canonical value or unit prefix. */
   public static final int BOUND_DECLINE = 0;
 
-  /** {@link #boundsForLiteral} verdict: {@code out[0]} is the one stored value the literal denotes. */
+  /**
+   * {@link #boundsForLiteral} verdict: {@code out[0]} is the one stored value the literal denotes.
+   */
   public static final int BOUND_EXACT = 1;
 
-  /** {@link #boundsForLiteral} verdict: the literal denotes the half-open range {@code [out[0], out[1])}. */
+  /**
+   * {@link #boundsForLiteral} verdict: the literal denotes the half-open range
+   * {@code [out[0], out[1])}.
+   */
   public static final int BOUND_RANGE = 2;
 
   /** No display transform — the caller emits the raw long. */
@@ -233,11 +238,9 @@ public final class ProjectionTemporalCodec {
   /** {@link #notCanonical(byte, int, byte[], int, int)} for an already-decoded value. */
   public static IllegalArgumentException notCanonical(final byte kind, final int column, final String text) {
     final boolean timestamp = kind == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP;
-    return new IllegalArgumentException("projection column " + column + " is declared "
-        + (timestamp
-            ? "xs:dateTime and accepts exactly 'YYYY-MM-DDTHH:MM:SS' (UTC, no zone, no fraction)"
-            : "xs:date and accepts exactly 'YYYY-MM-DD'")
-        + ", but the record holds '" + text
+    return new IllegalArgumentException("projection column " + column + " is declared " + (timestamp
+        ? "xs:dateTime and accepts exactly 'YYYY-MM-DDTHH:MM:SS' (UTC, no zone, no fraction)"
+        : "xs:date and accepts exactly 'YYYY-MM-DD'") + ", but the record holds '" + text
         + "'. Fix the value, or declare the column 'string' to keep it as text.");
   }
 
@@ -414,7 +417,8 @@ public final class ProjectionTemporalCodec {
               ? 1
               : 0), month == 12
                   ? 1
-                  : month + 1, 1)
+                  : month + 1,
+              1)
           : daysFromCivil(year + 1, 1, 1);
       return BOUND_RANGE;
     }
@@ -432,7 +436,8 @@ public final class ProjectionTemporalCodec {
           ? 1
           : 0), month == 12
               ? 1
-              : month + 1, 1) * SECONDS_PER_DAY;
+              : month + 1,
+          1) * SECONDS_PER_DAY;
       default -> daysFromCivil(year + 1, 1, 1) * SECONDS_PER_DAY;
     };
     return BOUND_RANGE;
@@ -450,10 +455,10 @@ public final class ProjectionTemporalCodec {
    * long plus a display kind.
    *
    * <p>
-   * {@code out3} receives {@code [divisor, modulus, display]} in the shape the group kernels' existing
-   * {@code (v idiv D) mod M} transform takes ({@code 0} = the operation is absent). Only the windows
-   * that fall on a field boundary of the canonical text are expressible: a leading window is a
-   * truncation (an integer divide), and a two-digit field window is a truncation followed by a
+   * {@code out3} receives {@code [divisor, modulus, display]} in the shape the group kernels'
+   * existing {@code (v idiv D) mod M} transform takes ({@code 0} = the operation is absent). Only the
+   * windows that fall on a field boundary of the canonical text are expressible: a leading window is
+   * a truncation (an integer divide), and a two-digit field window is a truncation followed by a
    * modulus. Every other window — {@code substring(t,1,7)}, which asks for a calendar month and is
    * not a division of the epoch, or a window straddling a separator — returns {@code false}, and the
    * caller keeps whatever it did before.
@@ -523,10 +528,10 @@ public final class ProjectionTemporalCodec {
     final long era = (y >= 0
         ? y
         : y - 399) / 400;
-    final long yearOfEra = y - era * 400;                                              // [0, 399]
+    final long yearOfEra = y - era * 400; // [0, 399]
     final long dayOfYear = (153 * (month + (month > 2
         ? -3
-        : 9)) + 2) / 5 + day - 1;                                                      // [0, 365]
+        : 9)) + 2) / 5 + day - 1; // [0, 365]
     final long dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
     return era * 146_097 + dayOfEra - DAYS_TO_EPOCH_ERA_SHIFT;
   }
@@ -537,11 +542,10 @@ public final class ProjectionTemporalCodec {
     final long era = (z >= 0
         ? z
         : z - 146_096) / 146_097;
-    final long dayOfEra = z - era * 146_097;                                           // [0, 146096]
-    final long yearOfEra =
-        (dayOfEra - dayOfEra / 1460 + dayOfEra / 36_524 - dayOfEra / 146_096) / 365;   // [0, 399]
+    final long dayOfEra = z - era * 146_097; // [0, 146096]
+    final long yearOfEra = (dayOfEra - dayOfEra / 1460 + dayOfEra / 36_524 - dayOfEra / 146_096) / 365; // [0, 399]
     final long dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100);
-    final long monthPrime = (5 * dayOfYear + 2) / 153;                                 // [0, 11]
+    final long monthPrime = (5 * dayOfYear + 2) / 153; // [0, 11]
     final int day = (int) (dayOfYear - (153 * monthPrime + 2) / 5) + 1;
     final int month = (int) (monthPrime + (monthPrime < 10
         ? 3

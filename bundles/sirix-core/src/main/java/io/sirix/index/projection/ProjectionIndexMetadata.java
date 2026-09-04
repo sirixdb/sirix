@@ -39,15 +39,15 @@ import java.util.Objects;
  *
  * <p>
  * The <b>stale</b> flag is the fail-closed marker used when the virgin-tree initializer cannot
- * finish. Ordinary update-time maintenance never installs it: live trees are maintained only by
- * the incremental change listener. The live leaf count is cross-checked with the fence/order
- * header, whose explicit physical order prevents recycled holes or unrelated higher physical ids
- * from being interpreted as live.
+ * finish. Ordinary update-time maintenance never installs it: live trees are maintained only by the
+ * incremental change listener. The live leaf count is cross-checked with the fence/order header,
+ * whose explicit physical order prevents recycled holes or unrelated higher physical ids from being
+ * interpreted as live.
  *
  * <p>
- * {@link #parse} returns {@code null} for payloads without the magic or with an unsupported version.
- * Production hydrate paths treat that result as unusable; there is no metadata-less persisted
- * projection format.
+ * {@link #parse} returns {@code null} for payloads without the magic or with an unsupported
+ * version. Production hydrate paths treat that result as unusable; there is no metadata-less
+ * persisted projection format.
  */
 public final class ProjectionIndexMetadata {
 
@@ -89,8 +89,8 @@ public final class ProjectionIndexMetadata {
      * The indexed record set changed and the projection has resource-wide value dictionaries, which
      * commit-time maintenance cannot extend: it holds no dictionary writer, so it can neither mint an
      * id for a new value nor rewrite every leaf to a per-leaf encoding without paying O(corpus) on a
-     * single commit. This is a reserved historical wire reason; current dictionary maintenance
-     * extends the persistent keyed trie incrementally and never emits it.
+     * single commit. This is a reserved historical wire reason; current dictionary maintenance extends
+     * the persistent keyed trie incrementally and never emits it.
      */
     GLOBAL_DICTIONARY_NOT_MAINTAINABLE,
     /** Reserved wire value from the retired rebuild fallback; current maintenance never emits it. */
@@ -195,7 +195,8 @@ public final class ProjectionIndexMetadata {
   private final long[] valueDictionaryHeaderKeys;
 
   /**
-   * Where a SEGMENT-scoped dictionary lives: the sealed anchor for one {@code (segment, column)} pair.
+   * Where a SEGMENT-scoped dictionary lives: the sealed anchor for one {@code (segment, column)}
+   * pair.
    *
    * <p>
    * A page written under a segment-scoped dictionary records its SEGMENT as its anchor, because at
@@ -221,8 +222,8 @@ public final class ProjectionIndexMetadata {
    * <p>
    * Written as a SECOND trailing section, after the per-column dictionary anchors. {@link #parse}
    * treats it as absent when the payload ends at the first section, so a database written before this
-   * section existed still reads; a payload that carries it cannot be read by a build that predates it,
-   * because the parse deliberately refuses trailing bytes it does not understand rather than
+   * section existed still reads; a payload that carries it cannot be read by a build that predates
+   * it, because the parse deliberately refuses trailing bytes it does not understand rather than
    * interpreting shifted fields.
    * </p>
    */
@@ -237,8 +238,8 @@ public final class ProjectionIndexMetadata {
   public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision,
       final Map<Integer, Map<String, Long>> setValueRowCounts) {
-    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts,
-        null, null);
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts, null,
+        null);
   }
 
   /** As above, carrying the per-column value dictionary header keys. */
@@ -334,8 +335,7 @@ public final class ProjectionIndexMetadata {
   public static ProjectionIndexMetadata staleTombstone(final StaleReason reason) {
     Objects.requireNonNull(reason, "reason");
     final byte flags = (byte) (FLAG_STALE | (reason.ordinal() << STALE_REASON_SHIFT));
-    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, flags, null, null,
-        null);
+    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, flags, null, null, null);
   }
 
   /**
@@ -488,9 +488,8 @@ public final class ProjectionIndexMetadata {
 
   /** Whether two column kinds describe the same declared column, ignoring the dictionary choice. */
   private static boolean sameDeclaredShape(final byte persisted, final byte derived) {
-    if (persisted == derived
-        || (persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
-            && derived == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT)) {
+    if (persisted == derived || (persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+        && derived == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT)) {
       return true;
     }
     // The temporal kinds' kill switch is a DEPLOYMENT choice, not a shape change: a store built with
@@ -505,8 +504,8 @@ public final class ProjectionIndexMetadata {
 
   /**
    * A segment anchor must name a real column, a positive header key and a non-negative count, and no
-   * {@code (segment, column)} pair may appear twice: two anchors for one pair would let a page resolve
-   * against whichever the reader happened to index last.
+   * {@code (segment, column)} pair may appear twice: two anchors for one pair would let a page
+   * resolve against whichever the reader happened to index last.
    */
   private static void validateSegmentAnchors(final SegmentAnchor @org.jspecify.annotations.Nullable [] anchors,
       final int columns) {

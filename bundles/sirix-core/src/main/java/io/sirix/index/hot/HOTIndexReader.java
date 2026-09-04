@@ -43,8 +43,9 @@ import static java.util.Objects.requireNonNull;
 /**
  * Generic HOT index reader for object keys (CASValue, QNm).
  *
- * <p>Provides the canonical secondary-index read path with optimistic concurrency for lock-free
- * reads.</p>
+ * <p>
+ * Provides the canonical secondary-index read path with optimistic concurrency for lock-free reads.
+ * </p>
  *
  * <h2>Zero Allocation Design</h2>
  * <ul>

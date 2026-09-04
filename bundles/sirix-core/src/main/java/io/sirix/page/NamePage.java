@@ -120,12 +120,12 @@ public final class NamePage extends AbstractForwardingPage {
    * because a resource is either JSON or XML and never both. That is not merely tidy here, it is
    * required: this page's keyed-trie dictionary counters are serialized <em>positionally</em> (a
    * count, followed by one value per offset from 0 upwards), so the dictionary offsets in use must
-   * form a gapless run. Secondary HOT allocator metadata is a separate sparse map. A JSON
-   * resource occupies only offset 0, so its symbol tables go at 1; an XML resource occupies 0-3, so
-   * its symbol tables go at 4. Picking one constant for both would leave a JSON resource holding {0,
-   * 4} and the serializer would write offsets 0 and 1 — losing the symbol tables' bookkeeping and
-   * making every stored table unreachable after a reload. {@code PageKind.NAMEPAGE} now rejects a
-   * gapped map outright rather than writing it.
+   * form a gapless run. Secondary HOT allocator metadata is a separate sparse map. A JSON resource
+   * occupies only offset 0, so its symbol tables go at 1; an XML resource occupies 0-3, so its symbol
+   * tables go at 4. Picking one constant for both would leave a JSON resource holding {0, 4} and the
+   * serializer would write offsets 0 and 1 — losing the symbol tables' bookkeeping and making every
+   * stored table unreachable after a reload. {@code PageKind.NAMEPAGE} now rejects a gapped map
+   * outright rather than writing it.
    */
   public static final int JSON_FSST_SYMBOL_TABLE_REFERENCE_OFFSET = 1;
 
@@ -200,10 +200,11 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Determine whether a physical slot belongs to the keyed-trie dictionary prefix of this page.
    *
-   * <p>The prefix is {@code [0, 3)} for JSON and {@code [0, 6)} for XML. Every slot at or above
-   * that boundary is a secondary NAME index and is therefore addressed exclusively through HOT.
-   * Keeping this check here makes the page that owns the slot layout the sole authority for the
-   * boundary.</p>
+   * <p>
+   * The prefix is {@code [0, 3)} for JSON and {@code [0, 6)} for XML. Every slot at or above that
+   * boundary is a secondary NAME index and is therefore addressed exclusively through HOT. Keeping
+   * this check here makes the page that owns the slot layout the sole authority for the boundary.
+   * </p>
    *
    * @param databaseType database type defining the reserved prefix
    * @param index physical NamePage slot
@@ -314,8 +315,8 @@ public final class NamePage extends AbstractForwardingPage {
   private final Int2LongMap maxNodeKeys;
 
   /**
-   * Maximum HOT page keys per index number. Used by the canonical HOT index writer for persistent page key allocation
-   * across transactions.
+   * Maximum HOT page keys per index number. Used by the canonical HOT index writer for persistent
+   * page key allocation across transactions.
    */
   private final Int2LongMap maxHotPageKeys;
 
@@ -387,22 +388,28 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Make a private write-side copy of an immutable, persisted historical page.
    *
-   * <p>The copy is complete before this method returns: every structural reference, allocator map
-   * and live-entry bitmap is detached from {@code historicalPage}. A caller can therefore publish
-   * the result to its transaction-intent log only after this method succeeds, without any mutation
-   * having leaked into the historical page while the copy was being built.</p>
+   * <p>
+   * The copy is complete before this method returns: every structural reference, allocator map and
+   * live-entry bitmap is detached from {@code historicalPage}. A caller can therefore publish the
+   * result to its transaction-intent log only after this method succeeds, without any mutation having
+   * leaked into the historical page while the copy was being built.
+   * </p>
    *
-   * <p>{@link Names} dictionaries are deliberately <em>not</em> copied or loaded here. They are
-   * mutable, potentially large derived views of the records below this page. Sharing a loaded
-   * instance would let a writer change a historical revision; eagerly cloning every loaded
-   * dictionary would make an unrelated secondary-index mutation pay for all name maps. Instead the
-   * returned page starts with no materialized dictionaries. Its existing read and write methods
-   * reconstruct only the first dictionary they actually touch, using the reader/writer supplied to
-   * that operation. The reconstructed {@code Names} belongs solely to the returned page.</p>
+   * <p>
+   * {@link Names} dictionaries are deliberately <em>not</em> copied or loaded here. They are mutable,
+   * potentially large derived views of the records below this page. Sharing a loaded instance would
+   * let a writer change a historical revision; eagerly cloning every loaded dictionary would make an
+   * unrelated secondary-index mutation pay for all name maps. Instead the returned page starts with
+   * no materialized dictionaries. Its existing read and write methods reconstruct only the first
+   * dictionary they actually touch, using the reader/writer supplied to that operation. The
+   * reconstructed {@code Names} belongs solely to the returned page.
+   * </p>
    *
-   * <p>The source must be a persisted historical page, not a page with unpublished dictionary
-   * mutations in the current transaction. Persisted records and the copied high-water/live-key
-   * metadata are the authoritative state from which a dictionary is reconstructed.</p>
+   * <p>
+   * The source must be a persisted historical page, not a page with unpublished dictionary mutations
+   * in the current transaction. Persisted records and the copied high-water/live-key metadata are the
+   * authoritative state from which a dictionary is reconstructed.
+   * </p>
    *
    * @param historicalPage immutable persisted page to detach
    * @return a fully detached page suitable for mutation and subsequent intent-log publication
@@ -413,12 +420,11 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
-   * Compatibility constructor with the detached/lazy semantics of
-   * {@link #copyForWrite(NamePage)}.
+   * Compatibility constructor with the detached/lazy semantics of {@link #copyForWrite(NamePage)}.
    *
    * @param other immutable persisted page to detach
-   * @deprecated use {@link #copyForWrite(NamePage)} to make the historical-page precondition
-   *             explicit at the call site
+   * @deprecated use {@link #copyForWrite(NamePage)} to make the historical-page precondition explicit
+   *             at the call site
    */
   @Deprecated
   public NamePage(final NamePage other) {
@@ -455,9 +461,11 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Compatibility constructor for callers migrating to {@link #copyForWrite(NamePage)}.
    *
-   * <p>The reader is intentionally unused: copying must never perform IO or populate the source's
-   * lazy dictionaries. The resulting page has exactly the same detached/lazy semantics as
-   * {@code copyForWrite(other)}.</p>
+   * <p>
+   * The reader is intentionally unused: copying must never perform IO or populate the source's lazy
+   * dictionaries. The resulting page has exactly the same detached/lazy semantics as
+   * {@code copyForWrite(other)}.
+   * </p>
    *
    * @param other immutable persisted page to detach
    * @param storageEngineReader ignored; retained temporarily for source compatibility
@@ -1044,11 +1052,11 @@ public final class NamePage extends AbstractForwardingPage {
    * <p>
    * The keyed-trie node counters, level counters and live-key bitmaps are written positionally — a
    * count, then one entry per offset from 0 upwards — so the dictionary offsets in use must be
-   * exactly {@code 0..n-1}. The secondary HOT page-key map is deliberately excluded and serialized
-   * as explicit sparse pairs. Dictionary offsets have always been allocated as a contiguous block
-   * per database type, but nothing enforced it, and a gap does not fail: the positional writer emits
-   * the wrong count, fabricates a zero for the missing offset, and drops the highest one. The result
-   * is a resource that reloads with a dictionary silently truncated to nothing.
+   * exactly {@code 0..n-1}. The secondary HOT page-key map is deliberately excluded and serialized as
+   * explicit sparse pairs. Dictionary offsets have always been allocated as a contiguous block per
+   * database type, but nothing enforced it, and a gap does not fail: the positional writer emits the
+   * wrong count, fabricates a zero for the missing offset, and drops the highest one. The result is a
+   * resource that reloads with a dictionary silently truncated to nothing.
    *
    * @return the number of offsets, i.e. one past the highest offset in use
    * @throws IllegalStateException if the offsets in use have a gap
@@ -1221,11 +1229,13 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Return the first secondary NAME index slot whose physical HOT tree has never been initialized.
    *
-   * <p>Dropping an index removes its current catalog definition, but its copy-on-write tree remains
-   * reachable for historical revisions and therefore must never be assigned to a different index.
-   * A persisted HOT page-key high-water mark or a non-virgin root reference reserves the slot. A
+   * <p>
+   * Dropping an index removes its current catalog definition, but its copy-on-write tree remains
+   * reachable for historical revisions and therefore must never be assigned to a different index. A
+   * persisted HOT page-key high-water mark or a non-virgin root reference reserves the slot. A
    * read-side placeholder does not. The scan starts after the database type's dictionary, FSST and
-   * projection-value slots, and never creates a reference while probing.</p>
+   * projection-value slots, and never creates a reference while probing.
+   * </p>
    *
    * @param databaseType database type defining the reserved NamePage prefix
    * @return the first physical slot that has never held a secondary NAME index
@@ -1238,17 +1248,19 @@ public final class NamePage extends AbstractForwardingPage {
         return index;
       }
     }
-    throw new IllegalStateException("Secondary NAME index reference space exhausted for " + databaseType
-        + ": all slots from " + firstSecondaryIndex + " through " + (Constants.INP_REFERENCE_COUNT - 1)
-        + " have been initialized");
+    throw new IllegalStateException(
+        "Secondary NAME index reference space exhausted for " + databaseType + ": all slots from " + firstSecondaryIndex
+            + " through " + (Constants.INP_REFERENCE_COUNT - 1) + " have been initialized");
   }
 
   /**
    * Determine whether a physical secondary NAME slot has ever owned a HOT tree.
    *
-   * <p>This is a non-mutating probe: it neither grows the reference delegate nor materializes a
-   * placeholder. A persisted HOT page-key high-water mark and a non-virgin root reference are the
-   * two durable witnesses, matching {@link #nextUnallocatedSecondaryNameIndex(DatabaseType)}.</p>
+   * <p>
+   * This is a non-mutating probe: it neither grows the reference delegate nor materializes a
+   * placeholder. A persisted HOT page-key high-water mark and a non-virgin root reference are the two
+   * durable witnesses, matching {@link #nextUnallocatedSecondaryNameIndex(DatabaseType)}.
+   * </p>
    *
    * @param databaseType database type defining the first secondary slot
    * @param index physical secondary NAME slot
@@ -1295,8 +1307,7 @@ public final class NamePage extends AbstractForwardingPage {
       case ReferencesPage4 references -> references.referenceAtOffset(index);
       case BitmapReferencesPage references -> references.referenceAtOffset(index);
       case FullReferencesPage references -> references.referenceAt(index);
-      default -> throw new IllegalStateException(
-          "Unknown NamePage delegate type: " + delegate.getClass().getName());
+      default -> throw new IllegalStateException("Unknown NamePage delegate type: " + delegate.getClass().getName());
     };
   }
 

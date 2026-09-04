@@ -34,8 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * The property that carries the design is not the minting — it is that a page's segment is bound to
- * the PAGE and not to a moment, because record pages are encoded on a pool and a page of segment N can
- * be encoded after the writer has moved to N + 1.
+ * the PAGE and not to a moment, because record pages are encoded on a pool and a page of segment N
+ * can be encoded after the writer has moved to N + 1.
  * </p>
  */
 final class SegmentScopedDictionariesTest {

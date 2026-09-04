@@ -51,9 +51,8 @@ final class HOTRebuildFootprintTest {
   void measuresSmallSourceExactly() {
     final HOTBulkBuilder.BuildResult built = build(1_000);
     try {
-      final AbstractHOTIndexWriter.RebuildFootprint footprint =
-          AbstractHOTIndexWriter.measureBoundedRebuildFootprint(built.rootPage(), PageReference::getPage,
-              new AbstractHOTIndexWriter.RebuildFootprint());
+      final AbstractHOTIndexWriter.RebuildFootprint footprint = AbstractHOTIndexWriter.measureBoundedRebuildFootprint(
+          built.rootPage(), PageReference::getPage, new AbstractHOTIndexWriter.RebuildFootprint());
 
       assertTrue(footprint.withinBudget());
       assertEquals(AbstractHOTIndexWriter.RebuildFootprintStatus.WITHIN_BUDGET, footprint.status());
@@ -96,9 +95,8 @@ final class HOTRebuildFootprintTest {
       final HOTIndirectPage root = HOTIndirectPage.createSpanNode(2, 1, 0, 1L << 56, new int[] {0, 1},
           new PageReference[] {reference(sharedLeaf), reference(sharedLeaf)}, 1);
 
-      final AbstractHOTIndexWriter.RebuildFootprint footprint =
-          AbstractHOTIndexWriter.measureBoundedRebuildFootprint(root, PageReference::getPage,
-              new AbstractHOTIndexWriter.RebuildFootprint());
+      final AbstractHOTIndexWriter.RebuildFootprint footprint = AbstractHOTIndexWriter.measureBoundedRebuildFootprint(
+          root, PageReference::getPage, new AbstractHOTIndexWriter.RebuildFootprint());
 
       assertFalse(footprint.withinBudget());
       assertEquals(AbstractHOTIndexWriter.RebuildFootprintStatus.REPEATED_PAGE, footprint.status());
@@ -153,8 +151,7 @@ final class HOTRebuildFootprintTest {
       // Every stored key starts on bit-zero's 0 side; the excluded/new key is on its 1 side.
       // The source exceeds the exact-scan frontier, so success is evidence that the two bounded
       // extreme paths proved the answer without increasing any traversal/materialization limit.
-      assertFalse(writer.subtreeHasKeyWithBit(reference(built.rootPage()), 0, 1,
-          longKey(0xE000_0000_0000_0000L)));
+      assertFalse(writer.subtreeHasKeyWithBit(reference(built.rootPage()), 0, 1, longKey(0xE000_0000_0000_0000L)));
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
       closeLeaves(built.rootPage());
@@ -177,16 +174,14 @@ final class HOTRebuildFootprintTest {
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
     try {
-      final AbstractHOTIndexWriter.RebuildFootprint candidate =
-          AbstractHOTIndexWriter.measureBoundedRebuildFootprint(candidateBlock, PageReference::getPage,
-              new AbstractHOTIndexWriter.RebuildFootprint());
+      final AbstractHOTIndexWriter.RebuildFootprint candidate = AbstractHOTIndexWriter.measureBoundedRebuildFootprint(
+          candidateBlock, PageReference::getPage, new AbstractHOTIndexWriter.RebuildFootprint());
       assertTrue(candidate.withinBudget());
       assertEquals(63, candidate.pages());
       assertEquals(32, candidate.leaves());
 
-      final AbstractHOTIndexWriter.RebuildFootprint wholeNode =
-          AbstractHOTIndexWriter.measureBoundedRebuildFootprint(oldNode, PageReference::getPage,
-              new AbstractHOTIndexWriter.RebuildFootprint());
+      final AbstractHOTIndexWriter.RebuildFootprint wholeNode = AbstractHOTIndexWriter.measureBoundedRebuildFootprint(
+          oldNode, PageReference::getPage, new AbstractHOTIndexWriter.RebuildFootprint());
       assertEquals(AbstractHOTIndexWriter.RebuildFootprintStatus.PAGE_LIMIT, wholeNode.status(),
           "the unscanned parent is the 64th page and must not consume candidate budget");
 
@@ -267,10 +262,10 @@ final class HOTRebuildFootprintTest {
     // Partial 2 sets a bit outside this one-bit node's packed mask. Before the width check, the
     // same-mask classifier treated the shape as proven and could prune old slot 0 even though its
     // physical key has dense value 1 and is captured by the fresh partial-1 slot.
-    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(76_003, 1, 0, oneBitMask,
-        new int[] {0, 2}, new PageReference[] {capturedReference, retainedReference}, 1);
-    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(76_004, 1, 0, oneBitMask,
-        new int[] {0, 1, 2}, new PageReference[] {capturedReference, reference(newLeaf), retainedReference}, 1);
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(76_003, 1, 0, oneBitMask, new int[] {0, 2},
+        new PageReference[] {capturedReference, retainedReference}, 1);
+    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(76_004, 1, 0, oneBitMask, new int[] {0, 1, 2},
+        new PageReference[] {capturedReference, reference(newLeaf), retainedReference}, 1);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
@@ -356,12 +351,13 @@ final class HOTRebuildFootprintTest {
     final PageReference slotThreeReference = reference(oldSlotThree);
     final long oldMask = (1L << (63 - 13)) | (1L << (63 - 43));
     final long newMask = oldMask | (1L << (63 - 42));
-    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(100_400, 1, 0, oldMask,
-        new int[] {0, 1, 2, 3},
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(100_400, 1, 0, oldMask, new int[] {0, 1, 2, 3},
         new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference, slotThreeReference}, 2);
-    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(100_401, 1, 0, newMask,
-        new int[] {0, 1, 4, 5, 6}, new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference,
-            slotThreeReference, reference(newLeaf)}, 2);
+    final HOTIndirectPage newNode = HOTIndirectPage
+                                                   .createSpanNode(100_401, 1, 0, newMask, new int[] {0, 1, 4, 5, 6},
+                                                       new PageReference[] {slotZeroReference, slotOneReference,
+                                                           slotTwoReference, slotThreeReference, reference(newLeaf)},
+                                                       2);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
@@ -410,12 +406,14 @@ final class HOTRebuildFootprintTest {
     final PageReference slotFourReference = reference(oldSlotFour);
     final PageReference slotFiveReference = reference(oldSlotFive);
     final long mask = (1L << (63 - 13)) | (1L << (63 - 42)) | (1L << (63 - 43));
-    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(104_400, 1, 0, mask,
-        new int[] {0, 1, 2, 3, 4, 5}, new PageReference[] {slotZeroReference, slotOneReference,
-            slotTwoReference, slotThreeReference, slotFourReference, slotFiveReference}, 2);
-    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(104_401, 1, 0, mask,
-        new int[] {0, 1, 2, 3, 4, 5, 6}, new PageReference[] {slotZeroReference, slotOneReference,
-            slotTwoReference, slotThreeReference, slotFourReference, slotFiveReference, reference(newLeaf)}, 2);
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(104_400, 1, 0, mask, new int[] {0, 1, 2, 3, 4, 5},
+        new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference, slotThreeReference,
+            slotFourReference, slotFiveReference},
+        2);
+    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(104_401, 1, 0, mask, new int[] {0, 1, 2, 3, 4, 5, 6},
+        new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference, slotThreeReference,
+            slotFourReference, slotFiveReference, reference(newLeaf)},
+        2);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
@@ -458,12 +456,14 @@ final class HOTRebuildFootprintTest {
     final PageReference slotFourReference = reference(oldSlotFour);
     final PageReference slotFiveReference = reference(oldSlotFive);
     final long mask = (1L << (63 - 13)) | (1L << (63 - 42)) | (1L << (63 - 43));
-    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(105_400, 1, 0, mask,
-        new int[] {0, 1, 2, 3, 4, 5}, new PageReference[] {slotZeroReference, slotOneReference,
-            slotTwoReference, slotThreeReference, slotFourReference, slotFiveReference}, 2);
-    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(105_401, 1, 0, mask,
-        new int[] {0, 1, 2, 3, 4, 5, 6}, new PageReference[] {slotZeroReference, slotOneReference,
-            slotTwoReference, slotThreeReference, slotFourReference, slotFiveReference, reference(newLeaf)}, 2);
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(105_400, 1, 0, mask, new int[] {0, 1, 2, 3, 4, 5},
+        new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference, slotThreeReference,
+            slotFourReference, slotFiveReference},
+        2);
+    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(105_401, 1, 0, mask, new int[] {0, 1, 2, 3, 4, 5, 6},
+        new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference, slotThreeReference,
+            slotFourReference, slotFiveReference, reference(newLeaf)},
+        2);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
@@ -500,12 +500,14 @@ final class HOTRebuildFootprintTest {
     final PageReference slotFourReference = reference(oldSlotFour);
     final PageReference slotFiveReference = reference(oldSlotFive);
     final long mask = (1L << (63 - 13)) | (1L << (63 - 42)) | (1L << (63 - 43));
-    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(106_400, 1, 0, mask,
-        new int[] {0, 1, 2, 3, 4, 5}, new PageReference[] {slotZeroReference, slotOneReference,
-            slotTwoReference, slotThreeReference, slotFourReference, slotFiveReference}, 3);
-    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(106_401, 1, 0, mask,
-        new int[] {0, 1, 2, 3, 4, 5, 6}, new PageReference[] {slotZeroReference, slotOneReference,
-            slotTwoReference, slotThreeReference, slotFourReference, slotFiveReference, reference(newLeaf)}, 3);
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(106_400, 1, 0, mask, new int[] {0, 1, 2, 3, 4, 5},
+        new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference, slotThreeReference,
+            slotFourReference, slotFiveReference},
+        3);
+    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(106_401, 1, 0, mask, new int[] {0, 1, 2, 3, 4, 5, 6},
+        new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference, slotThreeReference,
+            slotFourReference, slotFiveReference, reference(newLeaf)},
+        3);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
@@ -543,12 +545,14 @@ final class HOTRebuildFootprintTest {
     final PageReference slotFourReference = reference(oldSlotFour);
     final PageReference slotFiveReference = reference(oldSlotFive);
     final long mask = (1L << (63 - 13)) | (1L << (63 - 42)) | (1L << (63 - 43));
-    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(107_400, 1, 0, mask,
-        new int[] {0, 1, 2, 3, 4, 5}, new PageReference[] {slotZeroReference, slotOneReference,
-            slotTwoReference, slotThreeReference, slotFourReference, slotFiveReference}, 3);
-    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(107_401, 1, 0, mask,
-        new int[] {0, 1, 2, 3, 4, 5, 6}, new PageReference[] {slotZeroReference, slotOneReference,
-            slotTwoReference, slotThreeReference, slotFourReference, slotFiveReference, reference(newLeaf)}, 3);
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(107_400, 1, 0, mask, new int[] {0, 1, 2, 3, 4, 5},
+        new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference, slotThreeReference,
+            slotFourReference, slotFiveReference},
+        3);
+    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(107_401, 1, 0, mask, new int[] {0, 1, 2, 3, 4, 5, 6},
+        new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference, slotThreeReference,
+            slotFourReference, slotFiveReference, reference(newLeaf)},
+        3);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
@@ -583,12 +587,13 @@ final class HOTRebuildFootprintTest {
     final PageReference slotThreeReference = reference(oldSlotThree);
     final long oldMask = (1L << (63 - 13)) | (1L << (63 - 43));
     final long newMask = oldMask | (1L << (63 - 42));
-    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(101_400, 1, 0, oldMask,
-        new int[] {0, 1, 2, 3},
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(101_400, 1, 0, oldMask, new int[] {0, 1, 2, 3},
         new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference, slotThreeReference}, 2);
-    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(101_401, 1, 0, newMask,
-        new int[] {0, 1, 4, 6, 7}, new PageReference[] {slotZeroReference, slotOneReference, reference(newLeaf),
-            slotTwoReference, slotThreeReference}, 2);
+    final HOTIndirectPage newNode = HOTIndirectPage
+                                                   .createSpanNode(101_401, 1, 0, newMask, new int[] {0, 1, 4, 6, 7},
+                                                       new PageReference[] {slotZeroReference, slotOneReference,
+                                                           reference(newLeaf), slotTwoReference, slotThreeReference},
+                                                       2);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
@@ -598,9 +603,8 @@ final class HOTRebuildFootprintTest {
       assertEquals(2, oldNode.findChildIndex(newKey));
       assertEquals(2, newNode.findChildIndex(newKey));
 
-      final AbstractHOTIndexWriter.RebuildFootprint source =
-          AbstractHOTIndexWriter.measureBoundedRebuildFootprint(oldSlotTwo, PageReference::getPage,
-              new AbstractHOTIndexWriter.RebuildFootprint());
+      final AbstractHOTIndexWriter.RebuildFootprint source = AbstractHOTIndexWriter.measureBoundedRebuildFootprint(
+          oldSlotTwo, PageReference::getPage, new AbstractHOTIndexWriter.RebuildFootprint());
       assertEquals(33, source.pages());
       assertEquals(32, source.leaves());
 
@@ -627,10 +631,9 @@ final class HOTRebuildFootprintTest {
     final PageReference slotOneReference = reference(oldSlotOne);
     final long oldMask = (1L << (63 - 13)) | (1L << (63 - 43));
     final long newMask = oldMask | (1L << (63 - 42));
-    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(103_400, 1, 0, oldMask,
-        new int[] {0, 2}, new PageReference[] {slotZeroReference, slotOneReference}, 3);
-    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(103_401, 1, 0, newMask,
-        new int[] {0, 5, 6},
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(103_400, 1, 0, oldMask, new int[] {0, 2},
+        new PageReference[] {slotZeroReference, slotOneReference}, 3);
+    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(103_401, 1, 0, newMask, new int[] {0, 5, 6},
         new PageReference[] {slotZeroReference, reference(newLeaf), slotOneReference}, 3);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
@@ -640,10 +643,9 @@ final class HOTRebuildFootprintTest {
       assertEquals(1, newNode.findChildIndex(newKey));
       assertEquals(2, newNode.findChildIndex(structuralOrderKey(1, 1, 0, 0, 0)));
 
-      final IllegalStateException refusal = assertThrows(IllegalStateException.class,
-          () -> writer.branchAddStrandsExisting(oldNode, newNode, newKey));
-      assertTrue(refusal.getMessage()
-                        .contains("status=LEAF_LIMIT pages=35/63 leaves=32/32 entries=32/16384"));
+      final IllegalStateException refusal =
+          assertThrows(IllegalStateException.class, () -> writer.branchAddStrandsExisting(oldNode, newNode, newKey));
+      assertTrue(refusal.getMessage().contains("status=LEAF_LIMIT pages=35/63 leaves=32/32 entries=32/16384"));
       verify(storageEngineWriter).markTransactionRollbackOnly(refusal);
     } finally {
       oldSlotZero.close();
@@ -667,20 +669,20 @@ final class HOTRebuildFootprintTest {
     final PageReference slotThreeReference = reference(oldSlotThree);
     final long oldMask = (1L << (63 - 13)) | (1L << (63 - 43));
     final long newMask = oldMask | (1L << (63 - 42));
-    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(102_400, 1, 0, oldMask,
-        new int[] {0, 1, 2, 3},
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(102_400, 1, 0, oldMask, new int[] {0, 1, 2, 3},
         new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference, slotThreeReference}, 2);
-    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(102_401, 1, 0, newMask,
-        new int[] {0, 1, 4, 5, 6}, new PageReference[] {slotZeroReference, slotOneReference, slotTwoReference,
-            slotThreeReference, reference(newLeaf)}, 2);
+    final HOTIndirectPage newNode = HOTIndirectPage
+                                                   .createSpanNode(102_401, 1, 0, newMask, new int[] {0, 1, 4, 5, 6},
+                                                       new PageReference[] {slotZeroReference, slotOneReference,
+                                                           slotTwoReference, slotThreeReference, reference(newLeaf)},
+                                                       2);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
     try {
-      final IllegalStateException refusal = assertThrows(IllegalStateException.class,
-          () -> writer.branchAddStrandsExisting(oldNode, newNode, newKey));
-      assertTrue(refusal.getMessage()
-                        .contains("status=LEAF_LIMIT pages=35/63 leaves=32/32 entries=32/16384"));
+      final IllegalStateException refusal =
+          assertThrows(IllegalStateException.class, () -> writer.branchAddStrandsExisting(oldNode, newNode, newKey));
+      assertTrue(refusal.getMessage().contains("status=LEAF_LIMIT pages=35/63 leaves=32/32 entries=32/16384"));
       verify(storageEngineWriter).markTransactionRollbackOnly(refusal);
     } finally {
       oldSlotZero.close();
@@ -843,16 +845,15 @@ final class HOTRebuildFootprintTest {
   }
 
   /** Keys matching the preserved [13, 42, 43] structural-order branch-add diagnostic. */
-  private static byte[] structuralOrderKey(final int bit13, final int bit42, final int bit43,
-      final int leafOrdinal, final int entryOrdinal) {
-    return structuralOrderKeyWithSuffix(bit13, bit42, bit43,
-        (leafOrdinal << 3) | (entryOrdinal >>> 8), entryOrdinal);
+  private static byte[] structuralOrderKey(final int bit13, final int bit42, final int bit43, final int leafOrdinal,
+      final int entryOrdinal) {
+    return structuralOrderKeyWithSuffix(bit13, bit42, bit43, (leafOrdinal << 3) | (entryOrdinal >>> 8), entryOrdinal);
   }
 
   private static byte[] structuralOrderKeyWithSuffix(final int bit13, final int bit42, final int bit43,
       final int penultimateByte, final int lastByte) {
-    return new byte[] {0, (byte) (bit13 << 2), 0, 0, 0, (byte) ((bit42 << 5) | (bit43 << 4)),
-        (byte) penultimateByte, (byte) lastByte};
+    return new byte[] {0, (byte) (bit13 << 2), 0, 0, 0, (byte) ((bit42 << 5) | (bit43 << 4)), (byte) penultimateByte,
+        (byte) lastByte};
   }
 
   /** A flat 33-page/32-leaf source; the corpus fixture supplies its reported 9,895 entries. */
@@ -865,7 +866,9 @@ final class HOTRebuildFootprintTest {
     final int[] partials = new int[leafCount];
     for (int leafOrdinal = 0; leafOrdinal < leafCount; leafOrdinal++) {
       final HOTLeafPage leaf = new HOTLeafPage(firstPageKey + leafOrdinal, 1, IndexType.CAS);
-      final int entriesInLeaf = baseEntriesPerLeaf + (leafOrdinal < remainder ? 1 : 0);
+      final int entriesInLeaf = baseEntriesPerLeaf + (leafOrdinal < remainder
+          ? 1
+          : 0);
       final int bit42 = leafOrdinal == leafCount - 1
           ? lastLeafBit42
           : firstLeavesBit42;
@@ -875,13 +878,12 @@ final class HOTRebuildFootprintTest {
       leaves[leafOrdinal] = reference(leaf);
       partials[leafOrdinal] = leafOrdinal;
     }
-    return HOTIndirectPage.createMultiNode(firstPageKey + leafCount, 1, 6, 0xF800_0000_0000_0000L,
-        partials, leaves, 1);
+    return HOTIndirectPage.createMultiNode(firstPageKey + leafCount, 1, 6, 0xF800_0000_0000_0000L, partials, leaves, 1);
   }
 
   /** A valid two-level source that crosses the fixed 32-leaf traversal ceiling by one leaf. */
-  private static HOTIndirectPage thirtyThreeLeafStructuralOrderSource(final long firstPageKey,
-      final int bit42, final int bit43) {
+  private static HOTIndirectPage thirtyThreeLeafStructuralOrderSource(final long firstPageKey, final int bit42,
+      final int bit43) {
     return thirtyThreeLeafStructuralOrderSource(firstPageKey, bit42, bit42, bit43);
   }
 
@@ -897,10 +899,9 @@ final class HOTRebuildFootprintTest {
     }
     final HOTIndirectPage left = HOTIndirectPage.createMultiNode(firstPageKey + leftLeafCount, 1, 6,
         0x7C00_0000_0000_0000L, partials, leftLeaves, 1);
-    final HOTLeafPage right = leaf(firstPageKey + leftLeafCount + 1,
-        structuralOrderKeyWithSuffix(1, lastLeafBit42, bit43, 0x80, 0));
-    return HOTIndirectPage.createBiNode(firstPageKey + leftLeafCount + 2, 1, 48, reference(left), reference(right),
-        2);
+    final HOTLeafPage right =
+        leaf(firstPageKey + leftLeafCount + 1, structuralOrderKeyWithSuffix(1, lastLeafBit42, bit43, 0x80, 0));
+    return HOTIndirectPage.createBiNode(firstPageKey + leftLeafCount + 2, 1, 48, reference(left), reference(right), 2);
   }
 
   /** The second feasible child has an indirect root, reproducing the preserved page=35 refusal. */
@@ -916,17 +917,15 @@ final class HOTRebuildFootprintTest {
     return leaf;
   }
 
-  private static void assertMalformedEndpointSourceRefused(final Page malformedFirstChild,
-      final long firstPageKey) {
+  private static void assertMalformedEndpointSourceRefused(final Page malformedFirstChild, final long firstPageKey) {
     final HOTLeafPage lastLeaf = leaf(firstPageKey, twoByteKey(0x40, 0));
     final HOTLeafPage newLeaf = leaf(firstPageKey + 1, twoByteKey(0x80, 0));
     final PageReference malformedReference = reference(malformedFirstChild);
     final PageReference lastReference = reference(lastLeaf);
-    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(firstPageKey + 2, 1, 0,
-        0x4000_0000_0000_0000L, new int[] {0, 1}, new PageReference[] {malformedReference, lastReference}, 66);
-    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(firstPageKey + 3, 1, 0,
-        0xC000_0000_0000_0000L, new int[] {0, 1, 2},
-        new PageReference[] {malformedReference, lastReference, reference(newLeaf)}, 66);
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(firstPageKey + 2, 1, 0, 0x4000_0000_0000_0000L,
+        new int[] {0, 1}, new PageReference[] {malformedReference, lastReference}, 66);
+    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(firstPageKey + 3, 1, 0, 0xC000_0000_0000_0000L,
+        new int[] {0, 1, 2}, new PageReference[] {malformedReference, lastReference, reference(newLeaf)}, 66);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
@@ -960,8 +959,8 @@ final class HOTRebuildFootprintTest {
     final PageReference left = reference(fullBinaryLeafTree(depth + 1, prefix, baseFirstByte, pageKeys));
     final PageReference right = reference(fullBinaryLeafTree(depth + 1, prefix | keyBit, baseFirstByte, pageKeys));
     final int absoluteBit = 3 + depth;
-    return HOTIndirectPage.createSpanNode(pageKeys.getAndIncrement(), 1, 0, 1L << (63 - absoluteBit),
-        new int[] {0, 1}, new PageReference[] {left, right}, 5 - depth);
+    return HOTIndirectPage.createSpanNode(pageKeys.getAndIncrement(), 1, 0, 1L << (63 - absoluteBit), new int[] {0, 1},
+        new PageReference[] {left, right}, 5 - depth);
   }
 
   /** A corrupt/unary shape proving the independent physical cap, even when the leaf bound is idle. */
@@ -980,8 +979,8 @@ final class HOTRebuildFootprintTest {
 
   private static HOTIndirectPage cyclicPage(final long pageKey) {
     final PageReference self = new PageReference();
-    final HOTIndirectPage cycle = HOTIndirectPage.createMultiNode(pageKey, 1, 0, 1L << 56, new int[] {0},
-        new PageReference[] {self}, 1);
+    final HOTIndirectPage cycle =
+        HOTIndirectPage.createMultiNode(pageKey, 1, 0, 1L << 56, new int[] {0}, new PageReference[] {self}, 1);
     self.setPage(cycle);
     return cycle;
   }

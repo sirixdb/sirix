@@ -32,7 +32,8 @@ final class HashAlgorithmBufferAccessTest {
       random.nextBytes(bytes);
       final long expected = HashAlgorithm.XXH3.computeHashLong(bytes);
 
-      assertEquals(expected, HashAlgorithm.XXH3.computeHashLong(ByteBuffer.wrap(bytes)), "heap buffer, length " + length);
+      assertEquals(expected, HashAlgorithm.XXH3.computeHashLong(ByteBuffer.wrap(bytes)),
+          "heap buffer, length " + length);
 
       // A heap buffer whose array does not start at the payload: position and arrayOffset both apply.
       final byte[] padded = new byte[length + 37];

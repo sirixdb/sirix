@@ -14,11 +14,11 @@ import java.util.Objects;
  * The composite kernels fold one 64-bit hash per key component into a single 64-bit group key
  * through {@code h = h * FNV_PRIME ^ componentHash}. That fold is not merely lossy in the usual
  * "birthday bound" sense — it is <em>solvable</em>. Component hashes of a numeric key are
- * {@code HashCommon.mix}, a bijection fastutil ships an explicit inverse for, so for a two-component
- * key one picks the first component freely and computes the second in closed form:
+ * {@code HashCommon.mix}, a bijection fastutil ships an explicit inverse for, so for a
+ * two-component key one picks the first component freely and computes the second in closed form:
  *
  * <pre>
- *   c1 = invMix(((FNV_SEED * FNV_PRIME ^ mix(b0)) * FNV_PRIME) ^ hTarget)
+ * c1 = invMix(((FNV_SEED * FNV_PRIME ^ mix(b0)) * FNV_PRIME) ^ hTarget)
  * </pre>
  *
  * which makes {@code (b0, b1)} collide with any chosen group. Two unrelated groups then fold into
@@ -106,8 +106,8 @@ public final class CompositeGroupIdentity {
   public static int[] laneOffsets(final byte[] keyKinds, final int[] keySubstr) {
     Objects.requireNonNull(keyKinds, "keyKinds must not be null");
     if (keyKinds.length > MAX_KEY_COMPONENTS) {
-      throw new IllegalArgumentException(
-          "composite key of " + keyKinds.length + " components exceeds the " + MAX_KEY_COMPONENTS + "-bit presence mask");
+      throw new IllegalArgumentException("composite key of " + keyKinds.length + " components exceeds the "
+          + MAX_KEY_COMPONENTS + "-bit presence mask");
     }
     final int[] offsets = new int[keyKinds.length + 1];
     int lane = 1; // lane 0 is the presence mask
@@ -137,8 +137,8 @@ public final class CompositeGroupIdentity {
   }
 
   /**
-   * Total identity width for a composite key — what a {@link NumericGroupAggTable} must be built
-   * with so its stripes can carry the identity.
+   * Total identity width for a composite key — what a {@link NumericGroupAggTable} must be built with
+   * so its stripes can carry the identity.
    *
    * @param keyKinds per-component column kinds
    * @param keySubstr per-component {@code [start, length]} pairs, or {@code null}

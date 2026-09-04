@@ -148,8 +148,8 @@ public class HOTIndexStressTest {
         IndexDef indexDef = nameIndexOpt.get();
 
         // Use proper indexController API (empty filter = get all)
-        Iterator<NodeReferences> iter =
-            indexController.openNameIndex(rtx.getStorageEngineReader(), indexDef, indexController.createNameFilter(Set.of()));
+        Iterator<NodeReferences> iter = indexController.openNameIndex(rtx.getStorageEngineReader(), indexDef,
+            indexController.createNameFilter(Set.of()));
 
         final Roaring64Bitmap foundNodeKeys = new Roaring64Bitmap();
         int iterCount = 0;
@@ -313,8 +313,8 @@ public class HOTIndexStressTest {
         IndexDef indexDef = nameIndexOpt.get();
 
         // Full iteration (empty filter = get all)
-        Iterator<NodeReferences> iter =
-            indexController.openNameIndex(rtx.getStorageEngineReader(), indexDef, indexController.createNameFilter(Set.of()));
+        Iterator<NodeReferences> iter = indexController.openNameIndex(rtx.getStorageEngineReader(), indexDef,
+            indexController.createNameFilter(Set.of()));
 
         int iterCount = 0;
         final Roaring64Bitmap allNodeKeys = new Roaring64Bitmap();

@@ -34,15 +34,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The rank pass publishes a column's DICTIONARY ANCHOR, and an ordinary maintenance commit keeps it.
+ * The rank pass publishes a column's DICTIONARY ANCHOR, and an ordinary maintenance commit keeps
+ * it.
  *
  * <p>
- * This exists because of the shape of the regression the storage acceptance is most vulnerable to: a
- * column that answers every query CORRECTLY while silently losing predicate pushdown. Every result
- * differential passes such a column — the answers are right — and it shows up only as latency, which
- * is the one thing a byte-focused campaign is least likely to attribute correctly. The mechanism is
- * `ProjectionIndexCatalog`'s note that without the anchor "a global string column can only be
- * scanned, never probed": resolving a predicate literal to an id needs it.
+ * This exists because of the shape of the regression the storage acceptance is most vulnerable to:
+ * a column that answers every query CORRECTLY while silently losing predicate pushdown. Every
+ * result differential passes such a column — the answers are right — and it shows up only as
+ * latency, which is the one thing a byte-focused campaign is least likely to attribute correctly.
+ * The mechanism is `ProjectionIndexCatalog`'s note that without the anchor "a global string column
+ * can only be scanned, never probed": resolving a predicate literal to an id needs it.
  * </p>
  *
  * <p>
@@ -57,13 +58,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </p>
  * <ol>
  * <li>{@code ProjectionIndexMetadata}'s constructor REFUSES a {@code STRING_GLOBAL} column with a
- * zero or absent anchor, and every writer of slot 0 passes through it. This one IS mutation-killable
- * and is asserted directly by {@code metadataRefusesAGlobalColumnWithoutAnAnchor}.</li>
- * <li>{@code flushMaintenanceGlobalDictionaries} carries the prior anchors forward with a clone.</li>
- * <li>Every commit builds a {@code MaintenanceGlobalDictionary} for EVERY global column, not only for
- * the columns it touched — verified by instrumenting the listener on this fixture, which reports
- * {@code dicts=0:live 1:live} when only column 0 was written — so {@code dictionary.flush()}
- * re-supplies each anchor independently of (2).</li>
+ * zero or absent anchor, and every writer of slot 0 passes through it. This one IS
+ * mutation-killable and is asserted directly by
+ * {@code metadataRefusesAGlobalColumnWithoutAnAnchor}.</li>
+ * <li>{@code flushMaintenanceGlobalDictionaries} carries the prior anchors forward with a
+ * clone.</li>
+ * <li>Every commit builds a {@code MaintenanceGlobalDictionary} for EVERY global column, not only
+ * for the columns it touched — verified by instrumenting the listener on this fixture, which
+ * reports {@code dicts=0:live 1:live} when only column 0 was written — so
+ * {@code dictionary.flush()} re-supplies each anchor independently of (2).</li>
  * </ol>
  * <p>
  * Both branches of (2) were inverted, in a one-column and then a two-column fixture where only one
@@ -200,8 +203,8 @@ final class RankPassAnchorSurvivesMaintenanceTest {
         final int id = GlobalValueDictionary.probe(anchor, literal.getBytes(StandardCharsets.UTF_8), reader);
         assertTrue(id > 0, "the literal " + literal + " must resolve to an id through the anchor, not " + id);
       }
-      final int absent = GlobalValueDictionary.probe(anchor, "nothing-like-this".getBytes(StandardCharsets.UTF_8),
-          reader);
+      final int absent =
+          GlobalValueDictionary.probe(anchor, "nothing-like-this".getBytes(StandardCharsets.UTF_8), reader);
       assertEquals(GlobalValueDictionary.ID_ABSENT, absent,
           "an absent literal must answer ABSENT, never UNKNOWN — UNKNOWN would make the predicate decline");
     }

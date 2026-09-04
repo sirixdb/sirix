@@ -128,8 +128,8 @@ class NodeUpgradeManagerTest {
         partialKeys[i] = i;
       }
 
-      HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(1L, 1, 0, 0xF800_0000_0000_0000L,
-          partialKeys, children, 0);
+      HOTIndirectPage multiNode =
+          HOTIndirectPage.createMultiNode(1L, 1, 0, 0xF800_0000_0000_0000L, partialKeys, children, 0);
 
       assertFalse(NodeUpgradeManager.shouldDowngrade(multiNode, 17));
       assertTrue(NodeUpgradeManager.shouldDowngrade(multiNode, 16));
@@ -164,8 +164,8 @@ class NodeUpgradeManagerTest {
         partialKeys[i] = i;
       }
 
-      HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(1L, 1, 0, 0xF800_0000_0000_0000L,
-          partialKeys, children, 0);
+      HOTIndirectPage multiNode =
+          HOTIndirectPage.createMultiNode(1L, 1, 0, 0xF800_0000_0000_0000L, partialKeys, children, 0);
 
       assertTrue(NodeUpgradeManager.isFull(multiNode));
     }

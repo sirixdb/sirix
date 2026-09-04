@@ -91,8 +91,8 @@ public final class CreatePathIndex extends AbstractFunction {
     }
 
     final var storageEngineWriter = wtx.getStorageEngineWriter();
-    final int indexDefNo = storageEngineWriter.getPathPage(storageEngineWriter.getActualRevisionRootPage())
-        .nextUnallocatedIndex();
+    final int indexDefNo =
+        storageEngineWriter.getPathPage(storageEngineWriter.getActualRevisionRootPage()).nextUnallocatedIndex();
     final IndexDef pathIdxDef = IndexDefs.createPathIdxDef(paths, indexDefNo, IndexDef.DbType.JSON);
     try {
       controller.createIndexes(Set.of(pathIdxDef), wtx);

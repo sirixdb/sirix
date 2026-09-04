@@ -243,8 +243,8 @@ public final class ProjectionIndexRowExtractor {
         // the document's canonical text into an epoch when the worker fed the cell, so nothing is
         // re-parsed per row and nothing string-shaped reaches the leaf.
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           rowLongs[column] = batch.longValue(column, row);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> rowBools[column] = batch.booleanValue(column, row);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,

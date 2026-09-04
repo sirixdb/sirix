@@ -23,7 +23,8 @@ public interface PathIndex<B, L extends ChangeListener> {
 
   default Iterator<NodeReferences> openIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
       final PathFilter filter) {
-    final HOTLongIndexReader reader = HOTLongIndexReader.create(storageEngineReader, indexDef.getType(), indexDef.getID());
+    final HOTLongIndexReader reader =
+        HOTLongIndexReader.create(storageEngineReader, indexDef.getType(), indexDef.getID());
 
     if (filter != null && filter.getPCRs().size() == 1) {
       // Single PCR lookup
@@ -35,7 +36,9 @@ public interface PathIndex<B, L extends ChangeListener> {
       return Collections.emptyIterator();
     } else {
       // Iterate over all entries and apply filter
-      final Set<Long> pcrsRequested = filter != null ? filter.getPCRs() : Set.of();
+      final Set<Long> pcrsRequested = filter != null
+          ? filter.getPCRs()
+          : Set.of();
       final Iterator<Map.Entry<Long, NodeReferences>> entryIterator = reader.iterator();
 
       return new Iterator<>() {

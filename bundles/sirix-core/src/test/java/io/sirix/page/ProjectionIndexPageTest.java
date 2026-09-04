@@ -109,8 +109,7 @@ final class ProjectionIndexPageTest {
     final ProjectionIndexPage page = new ProjectionIndexPage();
 
     assertThrows(IndexOutOfBoundsException.class, () -> page.isIndexInitialized(-1));
-    assertThrows(IndexOutOfBoundsException.class,
-        () -> page.nextUnallocatedIndex(Constants.INP_REFERENCE_COUNT));
+    assertThrows(IndexOutOfBoundsException.class, () -> page.nextUnallocatedIndex(Constants.INP_REFERENCE_COUNT));
     assertThrows(IndexOutOfBoundsException.class,
         () -> page.incrementAndGetMaxHotPageKey(Constants.INP_REFERENCE_COUNT));
   }
@@ -194,8 +193,7 @@ final class ProjectionIndexPageTest {
       markInitialized(page, index);
     }
 
-    final IllegalStateException exception =
-        assertThrows(IllegalStateException.class, page::nextUnallocatedIndex);
+    final IllegalStateException exception = assertThrows(IllegalStateException.class, page::nextUnallocatedIndex);
     assertTrue(exception.getMessage().contains(Integer.toString(Constants.INP_REFERENCE_COUNT)));
   }
 

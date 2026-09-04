@@ -13,10 +13,10 @@ import java.util.Objects;
  * This is what lets a build write a rank-ordered column without ever constructing a forward hash
  * index. The streaming path has to answer "have I seen this value" while it reads, so it must hold
  * every distinct value plus a probe index, and it persists a forward radix whose measured cost is
- * <b>1,650 B per entry</b> — 0.81 radix nodes per entry, each carrying a 256-slot child array — where
- * the same column written from a finished rank-ordered dictionary costs <b>61 B per entry</b>. A
- * pre-pass that sorts and ranks the whole value set before the build starts makes that index
- * unnecessary rather than merely smaller.
+ * <b>1,650 B per entry</b> — 0.81 radix nodes per entry, each carrying a 256-slot child array —
+ * where the same column written from a finished rank-ordered dictionary costs <b>61 B per
+ * entry</b>. A pre-pass that sorts and ranks the whole value set before the build starts makes that
+ * index unnecessary rather than merely smaller.
  * </p>
  *
  * <p>
@@ -33,8 +33,8 @@ import java.util.Objects;
  * ENTRY and memoised across leaves, not once per row: measured at 1M that is ~600k probes for URL
  * and Title together against 2M row-level calls. At 100M the same route would be ~95M probes, which
  * is minutes, and the build should take its ids positionally from the pre-pass instead — the
- * pre-pass already visits the values in row order. This class is the right answer at the scale where
- * probing is cheaper than the coupling, and the wrong one above it.
+ * pre-pass already visits the values in row order. This class is the right answer at the scale
+ * where probing is cheaper than the coupling, and the wrong one above it.
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -81,7 +81,9 @@ final class PrebuiltGlobalDictionary implements GlobalValueDictionaryEncoder {
 
   @Override
   public int intern(final String value) {
-    final byte[] utf8 = (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+    final byte[] utf8 = (value == null
+        ? ""
+        : value).getBytes(StandardCharsets.UTF_8);
     return intern(utf8, 0, utf8.length);
   }
 
@@ -111,9 +113,10 @@ final class PrebuiltGlobalDictionary implements GlobalValueDictionaryEncoder {
     throw new IllegalStateException("global projection column " + column + " met a value its prebuilt dictionary of "
         + entryCount + " entries does not hold (" + (id == GlobalValueDictionary.ID_ABSENT
             ? "absent"
-            : "unreadable") + "). The pre-pass and this build disagree about the value set; appending it here would "
-        + "put an id in the lane that no reader can resolve in collation order."
-        + " length=" + length + " value=[" + shown + "] firstBytes=[" + hex.toString().trim() + ']');
+            : "unreadable")
+        + "). The pre-pass and this build disagree about the value set; appending it here would "
+        + "put an id in the lane that no reader can resolve in collation order." + " length=" + length + " value=["
+        + shown + "] firstBytes=[" + hex.toString().trim() + ']');
   }
 
   /** The dictionary this column resolves against, for the metadata anchor. */

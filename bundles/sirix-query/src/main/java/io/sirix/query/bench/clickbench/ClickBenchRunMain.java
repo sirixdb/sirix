@@ -91,38 +91,44 @@ public final class ClickBenchRunMain {
 
   /** Fail-closed route proof requested by a correctness campaign. */
   enum ServingProof {
-    NONE,
-    REQUIRE_VECTORIZED,
-    REQUIRE_GENERIC
+    NONE, REQUIRE_VECTORIZED, REQUIRE_GENERIC
   }
 
   /**
    * Outcome counters that prove a query returned work from an analytical executor route.
    *
-   * <p>Attempt, lookup, page-read, and decline counters are deliberately absent: any of those can
-   * move before the executor returns {@code null} and the generic pipeline produces the answer.
+   * <p>
+   * Attempt, lookup, page-read, and decline counters are deliberately absent: any of those can move
+   * before the executor returns {@code null} and the generic pipeline produces the answer.
    */
   enum ServingRoute {
-    STRUCTURAL_ARRAY_SIZE("structural-array-size", SirixArraySize::storedArraySizesServedCount, false),
-    PREDICATE_COUNT("predicate-count", SirixVectorizedExecutor::projectionCountsServed),
-    PROJECTION_AGGREGATE("projection-aggregate", SirixVectorizedExecutor::projectionAggregatesServed),
-    PROJECTION_COUNT_DISTINCT("projection-count-distinct",
-        SirixVectorizedExecutor::projectionCountDistinctServedCount),
-    STRING_MIN_MAX("string-min-max", SirixVectorizedExecutor::stringMinMaxServedCount),
-    DOUBLE_VALUE_AGGREGATE("double-value-aggregate", SirixVectorizedExecutor::doubleValueAggregatesServed),
-    BINARY_AGGREGATE("binary-aggregate", SirixVectorizedExecutor::binaryAggregatesServed),
-    COMPUTED_AGGREGATE("computed-aggregate", SirixVectorizedExecutor::computedAggServedCount),
-    PATH_SUMMARY_STAT("path-summary-stat", SirixVectorizedExecutor::pathSummaryStatsServed),
-    GROUP_AGGREGATE("group-aggregate", SirixVectorizedExecutor::groupAggServedCount),
-    CONST_GROUP_AGGREGATE("const-group-aggregate", SirixVectorizedExecutor::constGroupAggServedCount),
-    NUMERIC_GROUP_BY("numeric-group-by", SirixVectorizedExecutor::numericGroupByServedCount),
-    GROUP_DISTINCT("group-distinct", SirixVectorizedExecutor::groupDistinctServedCount),
-    GROUP_DENSE("global-dictionary-group", SirixVectorizedExecutor::groupDenseServedCount),
-    SORTED_SCAN("sorted-scan", SirixVectorizedExecutor::sortedScanServedCount),
-    PREDICATE_SCAN("predicate-scan", SirixVectorizedExecutor::predicateScanServedCount),
-    PREDICATE_VALUE_EMISSION("predicate-value-emission",
-        SirixVectorizedExecutor::predicateValueEmissionsServedCount),
-    ROW_MATERIALIZATION("row-materialization", SirixVectorizedExecutor::rowMaterializeServedCount);
+    STRUCTURAL_ARRAY_SIZE("structural-array-size", SirixArraySize::storedArraySizesServedCount, false), PREDICATE_COUNT(
+        "predicate-count",
+        SirixVectorizedExecutor::projectionCountsServed), PROJECTION_AGGREGATE("projection-aggregate",
+            SirixVectorizedExecutor::projectionAggregatesServed), PROJECTION_COUNT_DISTINCT("projection-count-distinct",
+                SirixVectorizedExecutor::projectionCountDistinctServedCount), STRING_MIN_MAX("string-min-max",
+                    SirixVectorizedExecutor::stringMinMaxServedCount), DOUBLE_VALUE_AGGREGATE("double-value-aggregate",
+                        SirixVectorizedExecutor::doubleValueAggregatesServed), BINARY_AGGREGATE("binary-aggregate",
+                            SirixVectorizedExecutor::binaryAggregatesServed), COMPUTED_AGGREGATE("computed-aggregate",
+                                SirixVectorizedExecutor::computedAggServedCount), PATH_SUMMARY_STAT("path-summary-stat",
+                                    SirixVectorizedExecutor::pathSummaryStatsServed), GROUP_AGGREGATE("group-aggregate",
+                                        SirixVectorizedExecutor::groupAggServedCount), CONST_GROUP_AGGREGATE(
+                                            "const-group-aggregate",
+                                            SirixVectorizedExecutor::constGroupAggServedCount), NUMERIC_GROUP_BY(
+                                                "numeric-group-by",
+                                                SirixVectorizedExecutor::numericGroupByServedCount), GROUP_DISTINCT(
+                                                    "group-distinct",
+                                                    SirixVectorizedExecutor::groupDistinctServedCount), GROUP_DENSE(
+                                                        "global-dictionary-group",
+                                                        SirixVectorizedExecutor::groupDenseServedCount), SORTED_SCAN(
+                                                            "sorted-scan",
+                                                            SirixVectorizedExecutor::sortedScanServedCount), PREDICATE_SCAN(
+                                                                "predicate-scan",
+                                                                SirixVectorizedExecutor::predicateScanServedCount), PREDICATE_VALUE_EMISSION(
+                                                                    "predicate-value-emission",
+                                                                    SirixVectorizedExecutor::predicateValueEmissionsServedCount), ROW_MATERIALIZATION(
+                                                                        "row-materialization",
+                                                                        SirixVectorizedExecutor::rowMaterializeServedCount);
 
     private final String label;
     private final LongSupplier counter;
@@ -162,8 +168,7 @@ public final class ClickBenchRunMain {
       System.err.println("Usage: ClickBenchRunMain <dbDir> [--tries N] [--queries 0,3,7-12] "
           + "[--variant N] [--dump DIR] [--json FILE] [--threads N] [--query-file F] "
           + "[--load-time SECONDS] [--reuse-executor] [--build-projection] "
-          + "[--require-vectorized-serving|--require-generic-serving] [--comment TEXT] "
-          + "[--histogram-after 31,35]");
+          + "[--require-vectorized-serving|--require-generic-serving] [--comment TEXT] " + "[--histogram-after 31,35]");
       System.exit(2);
       return;
     }
@@ -197,7 +202,8 @@ public final class ClickBenchRunMain {
     // 100M rows is an hour that looks like a hang.
     final boolean strictServing = options.servingProof() == ServingProof.REQUIRE_VECTORIZED;
     SirixVectorizedExecutor.STRICT_SERVING = strictServing;
-    System.out.printf("# ClickBench run: db=%s tries=%d variant=%d threads=%d freshExecutor=%s fastPaths=%s strictServing=%s%n",
+    System.out.printf(
+        "# ClickBench run: db=%s tries=%d variant=%d threads=%d freshExecutor=%s fastPaths=%s strictServing=%s%n",
         options.dbDir(), options.tries(), options.variant(), options.threads(), !options.reuseExecutor(), fastPaths,
         strictServing);
 
@@ -326,11 +332,11 @@ public final class ClickBenchRunMain {
       final boolean adHoc) {
     Objects.requireNonNull(proof, "proof");
     if (adHoc && proof != ServingProof.NONE) {
-      throw new IllegalArgumentException("serving proof flags apply to the numbered ClickBench suite, not --query-file");
+      throw new IllegalArgumentException(
+          "serving proof flags apply to the numbered ClickBench suite, not --query-file");
     }
     if (proof == ServingProof.REQUIRE_VECTORIZED && !fastPaths) {
-      throw new IllegalArgumentException(
-          "--require-vectorized-serving requires -Dsirix.query.autoVectorize=true");
+      throw new IllegalArgumentException("--require-vectorized-serving requires -Dsirix.query.autoVectorize=true");
     }
     if (proof == ServingProof.REQUIRE_GENERIC && fastPaths) {
       throw new IllegalArgumentException("--require-generic-serving requires -Dsirix.query.autoVectorize=false");
@@ -340,10 +346,11 @@ public final class ClickBenchRunMain {
   /**
    * Establish the lossless result encoding before publishing any query file.
    *
-   * <p>An unmarked non-empty directory may contain the former six-significant-digit dumps. Marking
-   * that directory in place would make irreversibly rounded files look current, so it is rejected
-   * rather than upgraded. A current directory may be reused for a partial diagnostic rerun because
-   * every file ever published under its marker has the same lossless binary64 contract.
+   * <p>
+   * An unmarked non-empty directory may contain the former six-significant-digit dumps. Marking that
+   * directory in place would make irreversibly rounded files look current, so it is rejected rather
+   * than upgraded. A current directory may be reused for a partial diagnostic rerun because every
+   * file ever published under its marker has the same lossless binary64 contract.
    */
   static void prepareDumpDirectory(final Path dumpDir) throws IOException {
     Files.createDirectories(dumpDir);
@@ -367,7 +374,8 @@ public final class ClickBenchRunMain {
   /**
    * Removes every selected final/partial result before any database or query work begins.
    *
-   * <p>A failed rerun must be represented by a missing result, never by the successful output of a
+   * <p>
+   * A failed rerun must be represented by a missing result, never by the successful output of a
    * previous run. Unselected files are retained for the explicit {@code --queries} diagnostic
    * workflow.
    */
@@ -444,8 +452,7 @@ public final class ClickBenchRunMain {
               gcMillis() - gcMillis0);
           final EnumSet<ServingRoute> tryRoutes = servingDelta(servingBefore, captureServingCounters());
           queryRoutes.addAll(tryRoutes);
-          final String tryProofFailure = servingProofFailureForTry(options.servingProof(), query.index(), t,
-              tryRoutes);
+          final String tryProofFailure = servingProofFailureForTry(options.servingProof(), query.index(), t, tryRoutes);
           if (tryProofFailure != null) {
             proofFailures.add(tryProofFailure);
           }
@@ -496,13 +503,12 @@ public final class ClickBenchRunMain {
             + " rowMaterializations=%d%n",
         SirixArraySize.storedArraySizesServedCount(), SirixVectorizedExecutor.projectionCountsServed(),
         SirixVectorizedExecutor.projectionAggregatesServed(),
-        SirixVectorizedExecutor.projectionCountDistinctServedCount(),
-        SirixVectorizedExecutor.stringMinMaxServedCount(), SirixVectorizedExecutor.doubleValueAggregatesServed(),
-        SirixVectorizedExecutor.binaryAggregatesServed(), SirixVectorizedExecutor.computedAggServedCount(),
-        SirixVectorizedExecutor.pathSummaryStatsServed(), SirixVectorizedExecutor.groupAggServedCount(),
-        SirixVectorizedExecutor.constGroupAggServedCount(), SirixVectorizedExecutor.numericGroupByServedCount(),
-        SirixVectorizedExecutor.groupDistinctServedCount(), SirixVectorizedExecutor.groupDenseServedCount(),
-        SirixVectorizedExecutor.groupAggSlicedServedCount(),
+        SirixVectorizedExecutor.projectionCountDistinctServedCount(), SirixVectorizedExecutor.stringMinMaxServedCount(),
+        SirixVectorizedExecutor.doubleValueAggregatesServed(), SirixVectorizedExecutor.binaryAggregatesServed(),
+        SirixVectorizedExecutor.computedAggServedCount(), SirixVectorizedExecutor.pathSummaryStatsServed(),
+        SirixVectorizedExecutor.groupAggServedCount(), SirixVectorizedExecutor.constGroupAggServedCount(),
+        SirixVectorizedExecutor.numericGroupByServedCount(), SirixVectorizedExecutor.groupDistinctServedCount(),
+        SirixVectorizedExecutor.groupDenseServedCount(), SirixVectorizedExecutor.groupAggSlicedServedCount(),
         SirixVectorizedExecutor.groupWindowedSlicesCount(), SirixVectorizedExecutor.sortedScanServedCount(),
         SirixVectorizedExecutor.predicateScanServedCount(),
         SirixVectorizedExecutor.predicateValueEmissionsServedCount(),
@@ -534,8 +540,8 @@ public final class ClickBenchRunMain {
     final EnumSet<ServingRoute> served = EnumSet.noneOf(ServingRoute.class);
     for (int i = 0; i < routes.length; i++) {
       if (after[i] < before[i]) {
-        throw new IllegalStateException("serving counter " + routes[i].label() + " moved backwards from "
-            + before[i] + " to " + after[i]);
+        throw new IllegalStateException(
+            "serving counter " + routes[i].label() + " moved backwards from " + before[i] + " to " + after[i]);
       }
       if (after[i] > before[i]) {
         served.add(routes[i]);
@@ -685,11 +691,11 @@ public final class ClickBenchRunMain {
       if (serialized.isBlank()) {
         // The empty sequence: a query whose HAVING or OFFSET selected nothing. An empty file is the
         // right dump — DuckDB writes zero rows for the same query.
-        Files.writeString(partial, "", StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW,
-            StandardOpenOption.WRITE);
+        Files.writeString(partial, "", StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
       } else {
-        try (BufferedWriter writer = Files.newBufferedWriter(partial, StandardCharsets.UTF_8,
-            StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        try (
+            BufferedWriter writer = Files.newBufferedWriter(partial, StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
             JsonReader reader = new JsonReader(new StringReader(serialized))) {
           // brackit serializes a sequence as whitespace-separated values, which is exactly what a
           // lenient reader consumes one value at a time.
@@ -772,9 +778,9 @@ public final class ClickBenchRunMain {
   /**
    * The JVM's own {@code GC.class_histogram} over LIVE objects, taken in-process through the
    * diagnostic-command MBean (the sandbox this runs under hides the JVM from {@code jcmd}). Forces a
-   * full collection, so the {@code Total} line is the heap the previous queries really left behind
-   * — the figure every heap-derived budget (group passes, distinct ceiling, residency) should see —
-   * and the top classes say who owns it. Diagnostics only; never inside a timed try.
+   * full collection, so the {@code Total} line is the heap the previous queries really left behind —
+   * the figure every heap-derived budget (group passes, distinct ceiling, residency) should see — and
+   * the top classes say who owns it. Diagnostics only; never inside a timed try.
    */
   private static void printLiveClassHistogram(final int queryIndex) {
     try {
@@ -798,7 +804,9 @@ public final class ClickBenchRunMain {
     }
   }
 
-  /** Header, two title lines and the largest classes; the {@code Total} line is appended separately. */
+  /**
+   * Header, two title lines and the largest classes; the {@code Total} line is appended separately.
+   */
   private static final int HISTOGRAM_LINES = 45;
 
   private static final OperatingSystemMXBean OS_BEAN =
@@ -806,7 +814,9 @@ public final class ClickBenchRunMain {
   private static final List<GarbageCollectorMXBean> GC_BEANS = ManagementFactory.getGarbageCollectorMXBeans();
   private static final int CORES = Runtime.getRuntime().availableProcessors();
 
-  /** Process CPU time in nanoseconds (all threads, collector threads included); -1 when unsupported. */
+  /**
+   * Process CPU time in nanoseconds (all threads, collector threads included); -1 when unsupported.
+   */
   private static long processCpuNanos() {
     return OS_BEAN.getProcessCpuTime();
   }
@@ -828,17 +838,20 @@ public final class ClickBenchRunMain {
   }
 
   /**
-   * One stderr line per try beside the wall time: process CPU seconds, utilisation as "busy cores" out of the
-   * machine's cores, and the collector's pause count/seconds. A query whose utilisation is far below the core
-   * count is WAITING (I/O, parking, a serial phase), and a pause that overlaps a wait costs no wall time — so
-   * the CPU share of a profile must never be read as a wall share without this line.
+   * One stderr line per try beside the wall time: process CPU seconds, utilisation as "busy cores"
+   * out of the machine's cores, and the collector's pause count/seconds. A query whose utilisation is
+   * far below the core count is WAITING (I/O, parking, a serial phase), and a pause that overlaps a
+   * wait costs no wall time — so the CPU share of a profile must never be read as a wall share
+   * without this line.
    */
   private static void printTryResources(final int queryIndex, final int tryIndex, final double wallSeconds,
       final long cpuNanos, final long gcPauses, final long gcPauseMillis) {
-    final double cpuSeconds = cpuNanos < 0 ? Double.NaN : cpuNanos / 1e9;
+    final double cpuSeconds = cpuNanos < 0
+        ? Double.NaN
+        : cpuNanos / 1e9;
     System.err.printf(Locale.ROOT, "# q%d try %d: wall=%.3f s cpu=%.1f s util=%.1f/%d gc=%d pauses %.2f s%n",
-        queryIndex, tryIndex + 1, wallSeconds, cpuSeconds, cpuSeconds / Math.max(wallSeconds, 1e-9), CORES,
-        gcPauses, gcPauseMillis / 1e3);
+        queryIndex, tryIndex + 1, wallSeconds, cpuSeconds, cpuSeconds / Math.max(wallSeconds, 1e-9), CORES, gcPauses,
+        gcPauseMillis / 1e3);
   }
 
   /** ClickBench's hot runtime: the smaller of tries 2 and 3, or NaN if either failed. */

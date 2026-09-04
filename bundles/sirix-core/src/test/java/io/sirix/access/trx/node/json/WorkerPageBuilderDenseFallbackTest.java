@@ -41,12 +41,11 @@ final class WorkerPageBuilderDenseFallbackTest {
 
   @Test
   void latePrimitivesAndContainersRemainCompleteAndBecomeOverflowCarriers() {
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder("worker-dense-fallback")
-                                                              .buildPathSummary(false)
-                                                              .build();
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder("worker-dense-fallback").buildPathSummary(false).build();
     final Object2IntOpenHashMap<String> nameKeys = nameKeys();
-    final WorkerPageBuilder builder = new WorkerPageBuilder(config, REVISION, LongHashFunction.xx3(), true, nameKeys,
-        1, Constants.NDP_NODE_COUNT - 1L);
+    final WorkerPageBuilder builder = new WorkerPageBuilder(config, REVISION, LongHashFunction.xx3(), true, nameKeys, 1,
+        Constants.NDP_NODE_COUNT - 1L);
     final long rootKey = builder.createObjectNode(NULL_KEY, NULL_KEY, 0);
     final byte[] filler = "界".repeat(110).getBytes(StandardCharsets.UTF_8);
     for (int index = 0; index < FILLER_COUNT; index++) {
@@ -65,10 +64,8 @@ final class WorkerPageBuilderDenseFallbackTest {
 
     final long intKey = builder.createNumberNode(rootKey, 111, 112, Integer.MIN_VALUE, 20);
     final long longKey = builder.createNumberNode(rootKey, 121, 122, Long.MAX_VALUE, 20);
-    final long namedIntKey =
-        builder.createObjectNamedNumberNode(rootKey, 131, 132, 21, "int", Integer.MAX_VALUE);
-    final long namedLongKey =
-        builder.createObjectNamedNumberNode(rootKey, 141, 142, 22, "long", Long.MIN_VALUE);
+    final long namedIntKey = builder.createObjectNamedNumberNode(rootKey, 131, 132, 21, "int", Integer.MAX_VALUE);
+    final long namedLongKey = builder.createObjectNamedNumberNode(rootKey, 141, 142, 22, "long", Long.MIN_VALUE);
     final long objectKey = builder.createObjectNamedObjectNode(rootKey, 151, 23, "object");
     final long arrayKey = builder.createObjectNamedArrayNode(rootKey, 161, 24, "array");
     builder.fixupContainer(objectKey, 701, 702, 2, 703);
@@ -140,8 +137,7 @@ final class WorkerPageBuilderDenseFallbackTest {
   private static void assertMaterializedNamedNumber(final KeyValueLeafPage page, final long nodeKey,
       final Class<? extends Number> valueType, final Number value, final long parentKey, final long leftSiblingKey,
       final long rightSiblingKey, final long pathNodeKey, final int nameKey) {
-    final ObjectNamedNumberNode node =
-        assertInstanceOf(ObjectNamedNumberNode.class, page.getRecord(slotOf(nodeKey)));
+    final ObjectNamedNumberNode node = assertInstanceOf(ObjectNamedNumberNode.class, page.getRecord(slotOf(nodeKey)));
     assertInstanceOf(valueType, node.getValue());
     assertEquals(value, node.getValue());
     assertEquals(pathNodeKey, node.getPathNodeKey());
@@ -193,8 +189,7 @@ final class WorkerPageBuilderDenseFallbackTest {
 
   private static DataRecord decodeOverflow(final ResourceConfiguration config, final KeyValueLeafPage page,
       final long nodeKey) {
-    final OverflowPage overflowPage =
-        assertInstanceOf(OverflowPage.class, page.getPageReference(nodeKey).getPage());
+    final OverflowPage overflowPage = assertInstanceOf(OverflowPage.class, page.getPageReference(nodeKey).getPage());
     return config.recordPersister.deserialize(new ByteArrayBytesIn(overflowPage.getDataBytes()), nodeKey,
         page.getDeweyIdAsByteArray(slotOf(nodeKey)), config);
   }

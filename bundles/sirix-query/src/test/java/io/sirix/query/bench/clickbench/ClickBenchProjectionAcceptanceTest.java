@@ -34,12 +34,11 @@ final class ClickBenchProjectionAcceptanceTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void acceptsOnlyAColdReopenableOnePassProjection(final VersioningType versioningType,
-      @TempDir final Path directory) throws Exception {
+  void acceptsOnlyAColdReopenableOnePassProjection(final VersioningType versioningType, @TempDir final Path directory)
+      throws Exception {
     load(directory, ClickBenchProjection.spec(ROWS), versioningType);
 
-    final ClickBenchProjectionAcceptance.Verification verified =
-        ClickBenchProjectionAcceptance.verify(directory, ROWS);
+    final ClickBenchProjectionAcceptance.Verification verified = ClickBenchProjectionAcceptance.verify(directory, ROWS);
 
     assertEquals(0, verified.definitionId());
     assertEquals(25, verified.columns());
@@ -53,8 +52,8 @@ final class ClickBenchProjectionAcceptanceTest {
   void rejectsAResourceWithNoProjection(@TempDir final Path directory) throws Exception {
     load(directory, null);
 
-    final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> ClickBenchProjectionAcceptance.verify(directory, ROWS));
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> ClickBenchProjectionAcceptance.verify(directory, ROWS));
 
     assertTrue(failure.getMessage().contains("expected exactly one persisted projection definition"),
         failure::getMessage);
@@ -62,22 +61,20 @@ final class ClickBenchProjectionAcceptanceTest {
 
   @Test
   void rejectsAProjectionWithTheWrongPersistedShape(@TempDir final Path directory) throws Exception {
-    load(directory, new ProjectionSpec(ClickBenchProjection.ROOT_PATH, List.of("/[]/WatchID"), List.of("long"),
-        ROWS));
+    load(directory, new ProjectionSpec(ClickBenchProjection.ROOT_PATH, List.of("/[]/WatchID"), List.of("long"), ROWS));
 
-    final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> ClickBenchProjectionAcceptance.verify(directory, ROWS));
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> ClickBenchProjectionAcceptance.verify(directory, ROWS));
 
     assertTrue(failure.getMessage().contains("projection field paths/order differ"), failure::getMessage);
   }
 
   @Test
-  void rejectsAProjectionWhoseDescriptorsDoNotContainTheExpectedRows(@TempDir final Path directory)
-      throws Exception {
+  void rejectsAProjectionWhoseDescriptorsDoNotContainTheExpectedRows(@TempDir final Path directory) throws Exception {
     load(directory, ClickBenchProjection.spec(ROWS));
 
-    final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> ClickBenchProjectionAcceptance.verify(directory, ROWS + 1L));
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> ClickBenchProjectionAcceptance.verify(directory, ROWS + 1L));
 
     assertTrue(failure.getMessage().contains("does not match expected source row count"), failure::getMessage);
   }
@@ -88,12 +85,13 @@ final class ClickBenchProjectionAcceptanceTest {
 
   private static void load(final Path directory, final ProjectionSpec projection, final VersioningType versioningType)
       throws Exception {
-    try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                   .location(directory)
-                                                   .buildPathSummary(true)
-                                                   .buildPathStatistics(false)
-                                                   .versioningType(versioningType)
-                                                   .build();
+    try (
+        BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                 .location(directory)
+                                                 .buildPathSummary(true)
+                                                 .buildPathStatistics(false)
+                                                 .versioningType(versioningType)
+                                                 .build();
         Reader source = ClickBenchSource.open("generate:" + ROWS + ":17");
         JsonReader reader = new JsonReader(source)) {
       if (projection == null) {

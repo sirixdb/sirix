@@ -13,11 +13,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Pre-import runner for {@code -Dsirix.import.prepassRunner}: commits the resource-wide rank-ordered
- * dictionaries named by {@code -Dsirix.projection.globalDict.prepassValues} (format
- * {@code Column=valuesFile,...}) into the freshly created EMPTY resource, then publishes the anchors
- * via {@code sirix.projection.globalDict.prebuilt} so the load-time projection build binds them at
- * its first streaming epoch instead of running the election.
+ * Pre-import runner for {@code -Dsirix.import.prepassRunner}: commits the resource-wide
+ * rank-ordered dictionaries named by {@code -Dsirix.projection.globalDict.prepassValues} (format
+ * {@code Column=valuesFile,...}) into the freshly created EMPTY resource, then publishes the
+ * anchors via {@code sirix.projection.globalDict.prebuilt} so the load-time projection build binds
+ * them at its first streaming epoch instead of running the election.
  *
  * <p>
  * This is the incremental fresh-build route: dictionaries first, then ONE load that shreds the
@@ -73,7 +73,9 @@ public final class ClickBenchLoadPrepassHook {
         (System.nanoTime() - started) / 1e9);
   }
 
-  /** Distinct values plus the empty string the per-leaf dictionaries carry, in UTF-16 collation order. */
+  /**
+   * Distinct values plus the empty string the per-leaf dictionaries carry, in UTF-16 collation order.
+   */
   private static List<byte[]> loadAscending(final String file) throws Exception {
     final List<byte[]> values = new ArrayList<>();
     values.add(new byte[0]);

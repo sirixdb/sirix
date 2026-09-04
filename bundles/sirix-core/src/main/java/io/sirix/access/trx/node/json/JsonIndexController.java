@@ -234,8 +234,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     final PathSummaryReader pathSummary = requireProjectionPathSummary(nodeWriteTrx, indexDef);
     nodeWriteTrx.awaitPendingAsyncCommit();
     // Creation fails loudly on a root path with no instances (caller error).
-    ProjectionIndexBuilder.buildAndPersist(indexDef, pathSummary, nodeWriteTrx,
-        nodeWriteTrx.getStorageEngineWriter(), false);
+    ProjectionIndexBuilder.buildAndPersist(indexDef, pathSummary, nodeWriteTrx, nodeWriteTrx.getStorageEngineWriter(),
+        false);
   }
 
   @Override
@@ -249,18 +249,19 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   }
 
   @Override
-  protected void validateSupportedIndexLifecycles(final Set<IndexDef> indexDefs,
-      final JsonNodeTrx nodeWriteTrx) {
+  protected void validateSupportedIndexLifecycles(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
     for (final IndexDef indexDef : indexDefs) {
       if (indexDef.isValidTimeIndex()
           && nodeWriteTrx.getResourceSession().getResourceConfig().getValidTimeConfig() == null) {
-        throw new IllegalStateException("Cannot create VALIDTIME index " + indexDef.getID()
-            + ": the JSON resource has no ValidTimeConfig");
+        throw new IllegalStateException(
+            "Cannot create VALIDTIME index " + indexDef.getID() + ": the JSON resource has no ValidTimeConfig");
       }
     }
   }
 
-  /** Validate projection prerequisites before createIndexBuilders can publish a definition or page. */
+  /**
+   * Validate projection prerequisites before createIndexBuilders can publish a definition or page.
+   */
   private static void validateProjectionDefinitions(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
     for (final IndexDef indexDef : indexDefs) {
       if (indexDef.isProjectionIndex()) {

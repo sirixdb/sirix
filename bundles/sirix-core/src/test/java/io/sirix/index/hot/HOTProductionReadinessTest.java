@@ -32,10 +32,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Regression tests for HOT production-readiness fixes.
  *
- * <p>Each nested class targets a specific bug fix from the production audit:
- * endianness consistency, splitToWithInsert rollback, ensureMutableSlotMemory,
- * acquireGuard on closed pages, initialBytePos widening, NodeReferencesSerializer
- * size pre-check, and getRootReference fail-fast.</p>
+ * <p>
+ * Each nested class targets a specific bug fix from the production audit: endianness consistency,
+ * splitToWithInsert rollback, ensureMutableSlotMemory, acquireGuard on closed pages, initialBytePos
+ * widening, NodeReferencesSerializer size pre-check, and getRootReference fail-fast.
+ * </p>
  */
 @DisplayName("HOT Production Readiness Regression Tests")
 class HOTProductionReadinessTest {
@@ -88,8 +89,8 @@ class HOTProductionReadinessTest {
       // {@code 63 - B}.
       //
       // Two discriminative bits at absolute positions:
-      //   bit 1 in byte 0 (MSB-offset 1) → in-window abs bit 1 → long bit 62
-      //   bit 0 in byte 1 (MSB-offset 0) → in-window abs bit 8 → long bit 55
+      // bit 1 in byte 0 (MSB-offset 1) → in-window abs bit 1 → long bit 62
+      // bit 0 in byte 1 (MSB-offset 0) → in-window abs bit 8 → long bit 55
       // PEXT result has bits in order of mask's set bits from LOW to HIGH long bit position;
       // so bit 55 (later byte) becomes partial-key bit 0 and bit 62 (earlier byte) becomes
       // partial-key bit 1. partial key = (byte0_bit1 << 1) | (byte1_bit0 << 0).
@@ -97,7 +98,7 @@ class HOTProductionReadinessTest {
 
       // Lex order on the 2-bit pattern (byte0_bit1, byte1_bit0): (0,0), (0,1), (1,0), (1,1).
       // BE partial key for each lex-sorted child = (byte0_bit1 << 1) | byte1_bit0:
-      //   (0,0) → 0b00, (0,1) → 0b01, (1,0) → 0b10, (1,1) → 0b11.
+      // (0,0) → 0b00, (0,1) → 0b01, (1,0) → 0b10, (1,1) → 0b11.
       final int[] partialKeys = new int[] {0b00, 0b01, 0b10, 0b11};
 
       final PageReference[] children = new PageReference[4];
@@ -106,8 +107,7 @@ class HOTProductionReadinessTest {
         children[i].setKey(100L + i);
       }
 
-      final HOTIndirectPage spanNode =
-          HOTIndirectPage.createSpanNode(1L, 1, 0, bitMask, partialKeys, children);
+      final HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, 0, bitMask, partialKeys, children);
 
       // byte0=0x00, byte1=0x00 → byte0_bit1=0, byte1_bit0=0 → pkey=0b00 → child 0
       assertEquals(0, spanNode.findChildIndex(new byte[] {0x00, 0x00}));
@@ -179,8 +179,7 @@ class HOTProductionReadinessTest {
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
       }
-      HOTIndirectPage span =
-          HOTIndirectPage.createSpanNode(1L, 1, 0, beMask_1_and_9, partialKeys, children);
+      HOTIndirectPage span = HOTIndirectPage.createSpanNode(1L, 1, 0, beMask_1_and_9, partialKeys, children);
       assertEquals(1, span.getMostSignificantBitIndex(), "MSB should be position 1, not 9");
 
       // Case 4: disc bit at high byte position (initialBytePos=10, disc bit at byte 10, bit 3)
@@ -334,8 +333,7 @@ class HOTProductionReadinessTest {
       assertTrue(ok, "2-entry split should succeed");
       int total = page.getEntryCount() + right.getEntryCount();
       assertEquals(2, total, "Both entries should be present");
-      assertTrue(page.getEntryCount() >= 1 && right.getEntryCount() >= 1,
-          "Both pages must have at least 1 entry");
+      assertTrue(page.getEntryCount() >= 1 && right.getEntryCount() >= 1, "Both pages must have at least 1 entry");
     }
   }
 
@@ -411,8 +409,7 @@ class HOTProductionReadinessTest {
       int discBitPos = 256 * 8; // = 2048
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, discBitPos, leftRef, rightRef);
 
-      assertEquals(256, biNode.getInitialBytePos(),
-          "initialBytePos should be 256 (beyond byte range)");
+      assertEquals(256, biNode.getInitialBytePos(), "initialBytePos should be 256 (beyond byte range)");
 
       // 260-byte key with byte[256] = 0x00 → disc bit 0 → left
       byte[] leftKey = new byte[260];
@@ -429,8 +426,8 @@ class HOTProductionReadinessTest {
     void testSpanNodeInitialBytePosOver255() {
       // BE layout: byte 300 (window-pos 0) → long bits 56-63; byte 301 (window-pos 1) → 48-55.
       // Two disc bits both at byte LSB (bit 7 MSB-first = bit-in-slot 0):
-      //   byte 300 bit 7 → in-window abs 7 → long bit 56
-      //   byte 301 bit 7 → in-window abs 15 → long bit 48
+      // byte 300 bit 7 → in-window abs 7 → long bit 56
+      // byte 301 bit 7 → in-window abs 15 → long bit 48
       final long bitMask = (1L << 56) | (1L << 48);
 
       // PEXT extracts low-to-high mask bits: bit 48 (byte 301 LSB) → result bit 0,
@@ -443,8 +440,7 @@ class HOTProductionReadinessTest {
         children[i] = new PageReference();
       }
 
-      final HOTIndirectPage spanNode =
-          HOTIndirectPage.createSpanNode(1L, 1, 300, bitMask, partialKeys, children);
+      final HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, 300, bitMask, partialKeys, children);
       assertEquals(300, spanNode.getInitialBytePos());
 
       // byte[300]=0x00, byte[301]=0x00 → byte300_LSB=0, byte301_LSB=0 → pkey=0 → child 0
@@ -478,8 +474,7 @@ class HOTProductionReadinessTest {
 
       // 10-byte key — shorter than initialBytePos=256 → should default to child 0
       byte[] shortKey = new byte[10];
-      assertEquals(0, biNode.findChildIndex(shortKey),
-          "Key shorter than initialBytePos should default to left child");
+      assertEquals(0, biNode.findChildIndex(shortKey), "Key shorter than initialBytePos should default to left child");
     }
   }
 
@@ -502,8 +497,7 @@ class HOTProductionReadinessTest {
       int predicted = NodeReferencesSerializer.computeSerializedSize(refs);
       byte[] actual = NodeReferencesSerializer.serialize(refs);
 
-      assertEquals(actual.length, predicted,
-          "Predicted size must match actual for small (packed) bitmap");
+      assertEquals(actual.length, predicted, "Predicted size must match actual for small (packed) bitmap");
     }
 
     @Test
@@ -518,8 +512,7 @@ class HOTProductionReadinessTest {
       int predicted = NodeReferencesSerializer.computeSerializedSize(refs);
       byte[] actual = NodeReferencesSerializer.serialize(refs);
 
-      assertEquals(actual.length, predicted,
-          "Predicted size must match actual for large (Roaring) bitmap");
+      assertEquals(actual.length, predicted, "Predicted size must match actual for large (Roaring) bitmap");
     }
 
     @Test
@@ -597,8 +590,7 @@ class HOTProductionReadinessTest {
       }
 
       if (page.getEntryCount() == HOTLeafPage.MAX_ENTRIES) {
-        assertFalse(page.canFit("newkey".getBytes(), "newval".getBytes()),
-            "canFit should return false at MAX_ENTRIES");
+        assertFalse(page.canFit("newkey".getBytes(), "newval".getBytes()), "canFit should return false at MAX_ENTRIES");
       }
     }
 
@@ -607,8 +599,7 @@ class HOTProductionReadinessTest {
     void testCanFitOversizedEntry() {
       HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.PATH);
       byte[] hugeValue = new byte[HOTLeafPage.DEFAULT_SIZE + 1];
-      assertFalse(page.canFit("key".getBytes(), hugeValue),
-          "canFit should return false for entry larger than page");
+      assertFalse(page.canFit("key".getBytes(), hugeValue), "canFit should return false for entry larger than page");
     }
   }
 
@@ -658,8 +649,7 @@ class HOTProductionReadinessTest {
       HOTIndirectPage copy = original.copyWithNewPageKey(2L, 1);
       int copyResult = copy.findChildIndex(testKey);
 
-      assertEquals(origResult, copyResult,
-          "Copy must route identically to original");
+      assertEquals(origResult, copyResult, "Copy must route identically to original");
     }
 
     @Test
@@ -768,8 +758,7 @@ class HOTProductionReadinessTest {
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, discBitPos, leftRef, rightRef, 3);
 
       // Verify internal state: initialBytePos must be 257, not 1 (which would be 257 & 0xFF)
-      assertEquals(257, biNode.getInitialBytePos(),
-          "initialBytePos must be 257, not truncated to 1 by & 0xFF");
+      assertEquals(257, biNode.getInitialBytePos(), "initialBytePos must be 257, not truncated to 1 by & 0xFF");
 
       // Simulate what PageKind.deserializePage does after reading initialBytePos and bitMask
       // from wire. BE encoding: in-window abs bit B = 63 - longBitPos. byte_in_window = B / 8.
@@ -780,8 +769,7 @@ class HOTProductionReadinessTest {
       final int byteInWindow = inWindowAbsBit / 8;
       final int bitWithinByte = inWindowAbsBit % 8;
       final int reconstructed = (biNode.getInitialBytePos() + byteInWindow) * 8 + bitWithinByte;
-      assertEquals(discBitPos, reconstructed,
-          "Reconstructed disc bit position must match original");
+      assertEquals(discBitPos, reconstructed, "Reconstructed disc bit position must match original");
     }
 
     @Test
@@ -795,8 +783,7 @@ class HOTProductionReadinessTest {
       }
 
       HOTIndirectPage span = HOTIndirectPage.createSpanNode(1L, 1, 300, bitMask, partialKeys, children, 2);
-      assertEquals(300, span.getInitialBytePos(),
-          "SpanNode initialBytePos must be 300, not 44 (300 & 0xFF)");
+      assertEquals(300, span.getInitialBytePos(), "SpanNode initialBytePos must be 300, not 44 (300 & 0xFF)");
     }
 
     @Test
@@ -810,8 +797,7 @@ class HOTProductionReadinessTest {
       }
 
       HOTIndirectPage multi = HOTIndirectPage.createMultiNode(1L, 1, 500, bitMask, partialKeys, children, 1);
-      assertEquals(500, multi.getInitialBytePos(),
-          "MultiNode initialBytePos must be 500, not 244 (500 & 0xFF)");
+      assertEquals(500, multi.getInitialBytePos(), "MultiNode initialBytePos must be 500, not 244 (500 & 0xFF)");
     }
   }
 
@@ -883,10 +869,9 @@ class HOTProductionReadinessTest {
       PageReference[] children = new PageReference[] {new PageReference(), new PageReference()};
 
       // Value 200 would sign-extend to -56 if passed as byte
-      HOTIndirectPage multi = HOTIndirectPage.createMultiNode(1L, 1, 200, Long.MIN_VALUE,
-          new int[] {0, 1}, children, 0);
-      assertEquals(200, multi.getInitialBytePos(),
-          "initialBytePos must be 200, not -56 (sign-extended byte)");
+      HOTIndirectPage multi =
+          HOTIndirectPage.createMultiNode(1L, 1, 200, Long.MIN_VALUE, new int[] {0, 1}, children, 0);
+      assertEquals(200, multi.getInitialBytePos(), "initialBytePos must be 200, not -56 (sign-extended byte)");
     }
 
     @Test
@@ -894,10 +879,9 @@ class HOTProductionReadinessTest {
     void testMultiNodeMaxByte() {
       PageReference[] children = new PageReference[] {new PageReference(), new PageReference()};
 
-      HOTIndirectPage multi = HOTIndirectPage.createMultiNode(1L, 1, 255, Long.MIN_VALUE,
-          new int[] {0, 1}, children, 0);
-      assertEquals(255, multi.getInitialBytePos(),
-          "initialBytePos must be 255, not -1 (sign-extended byte)");
+      HOTIndirectPage multi =
+          HOTIndirectPage.createMultiNode(1L, 1, 255, Long.MIN_VALUE, new int[] {0, 1}, children, 0);
+      assertEquals(255, multi.getInitialBytePos(), "initialBytePos must be 255, not -1 (sign-extended byte)");
     }
   }
 
@@ -919,8 +903,7 @@ class HOTProductionReadinessTest {
       for (int i = 0; i < count; i++) {
         byte[] key = String.format("key%05d", i).getBytes();
         byte[] value = String.format("val%05d", i).getBytes();
-        assertTrue(page.mergeWithNodeRefs(key, key.length, value, value.length),
-            "Should insert key " + i);
+        assertTrue(page.mergeWithNodeRefs(key, key.length, value, value.length), "Should insert key " + i);
       }
 
       assertEquals(count, page.getEntryCount());
@@ -931,8 +914,7 @@ class HOTProductionReadinessTest {
       assertNotNull(splitKey);
 
       // Verify total count preserved
-      assertEquals(count, page.getEntryCount() + right.getEntryCount(),
-          "Split must preserve total entry count");
+      assertEquals(count, page.getEntryCount() + right.getEntryCount(), "Split must preserve total entry count");
 
       // Verify every key is findable in exactly one page
       for (int i = 0; i < count; i++) {

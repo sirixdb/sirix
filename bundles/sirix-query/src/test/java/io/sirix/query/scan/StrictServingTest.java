@@ -28,10 +28,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * An exception inside a serving arm (not a gate decline) is counted and answered by the generic
- * pipeline — the production contract, exercised through a deterministic fault at the group-aggregate
- * arm's entry. Under {@link SirixVectorizedExecutor#STRICT_SERVING}, which a serving-proof run switches
- * on, the same fault must SURFACE: at 100M rows a silent fallback is an hour of interpreter time that
- * looks like a hang, and the proof flag exists to make exactly that visible.
+ * pipeline — the production contract, exercised through a deterministic fault at the
+ * group-aggregate arm's entry. Under {@link SirixVectorizedExecutor#STRICT_SERVING}, which a
+ * serving-proof run switches on, the same fault must SURFACE: at 100M rows a silent fallback is an
+ * hour of interpreter time that looks like a hang, and the proof flag exists to make exactly that
+ * visible.
  * </p>
  */
 final class StrictServingTest {

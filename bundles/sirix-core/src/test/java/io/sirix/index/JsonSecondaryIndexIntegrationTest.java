@@ -37,13 +37,12 @@ public final class JsonSecondaryIndexIntegrationTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
   /**
-   * Reflects the {@code sirix.json.fuseNamedPrimitives} system property at class-load time.
-   * When fusion is on, the shredder collapses each primitive-valued object field into a single
+   * Reflects the {@code sirix.json.fuseNamedPrimitives} system property at class-load time. When
+   * fusion is on, the shredder collapses each primitive-valued object field into a single
    * OBJECT_NAMED_* record, halving the node count for those fields and shifting the nodekey of
    * records that follow fused fields in document order.
    */
-  private static final boolean FUSE_NAMED_PRIMITIVES =
-      true;
+  private static final boolean FUSE_NAMED_PRIMITIVES = true;
 
   @Before
   public void setUp() {
@@ -92,7 +91,9 @@ public final class JsonSecondaryIndexIntegrationTest {
       // AND structural-valued field upstream of "summary" (swagger, info+title+description+version,
       // host, schemes+[0], basePath, produces+[0], paths→search→get) each collapse to a single
       // OBJECT_NAMED_* record — pulling the target nodekey down to 16.
-      final long expectedNodeKey = FUSE_NAMED_PRIMITIVES ? 16L : 29L;
+      final long expectedNodeKey = FUSE_NAMED_PRIMITIVES
+          ? 16L
+          : 29L;
       assertEquals("nodeKey should match", expectedNodeKey, (long) nodeReferences.getNodeKeys().iterator().next());
       assertFalse(casIndexForGetSummary.hasNext());
     }
@@ -147,8 +148,8 @@ public final class JsonSecondaryIndexIntegrationTest {
 
       indexController.createIndexes(Set.of(allStreetAddresses), trx);
 
-      final var allStreetAddressesIndex = indexController.openNameIndex(trx.getStorageEngineReader(), allStreetAddresses,
-          indexController.createNameFilter(Set.of("streetaddress")));
+      final var allStreetAddressesIndex = indexController.openNameIndex(trx.getStorageEngineReader(),
+          allStreetAddresses, indexController.createNameFilter(Set.of("streetaddress")));
 
       assertTrue(allStreetAddressesIndex.hasNext());
       final var allStreetAddressesIndexNodeReferences = allStreetAddressesIndex.next();
@@ -156,9 +157,8 @@ public final class JsonSecondaryIndexIntegrationTest {
 
       assertFalse(allStreetAddressesIndex.hasNext());
 
-      final HOTIndexReader<QNm> allObjectKeyNamesIndexReader = HOTIndexReader.create(
-          trx.getStorageEngineReader(), NameKeySerializer.INSTANCE, allObjectKeyNames.getType(),
-          allObjectKeyNames.getID());
+      final HOTIndexReader<QNm> allObjectKeyNamesIndexReader = HOTIndexReader.create(trx.getStorageEngineReader(),
+          NameKeySerializer.INSTANCE, allObjectKeyNames.getType(), allObjectKeyNames.getID());
       final var name = new QNm("streetaddress");
       final NodeReferences exactStreetAddress = allObjectKeyNamesIndexReader.get(name, SearchMode.EQUAL);
       assertNotNull(exactStreetAddress);
@@ -271,9 +271,10 @@ public final class JsonSecondaryIndexIntegrationTest {
 
       final var casIndexDefForCoordinates = indexController.getIndexes().findCASIndex(pathToCoordinates, Type.DEC);
 
-      final var casIndexForCoordinates = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDefForCoordinates.get(),
-          indexController.createCASFilterRange(Set.of("/features/[]/geometry/coordinates/[]"), new Dbl(0), new Dbl(160),
-              true, true, new JsonPCRCollector(trx)));
+      final var casIndexForCoordinates =
+          indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDefForCoordinates.get(),
+              indexController.createCASFilterRange(Set.of("/features/[]/geometry/coordinates/[]"), new Dbl(0),
+                  new Dbl(160), true, true, new JsonPCRCollector(trx)));
 
       assertTrue(casIndexForCoordinates.hasNext());
 
@@ -297,15 +298,15 @@ public final class JsonSecondaryIndexIntegrationTest {
 
       assertTrue(casIndexDefOfGeometryPath.isPresent());
 
-      final var casIndexForGeometry = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDefOfGeometryPath.get(),
-          indexController.createCASFilter(Set.of("/features/[]/geometry"), new Str("bla"), SearchMode.EQUAL,
-              new JsonPCRCollector(trx)));
+      final var casIndexForGeometry = indexController.openCASIndex(trx.getStorageEngineReader(),
+          casIndexDefOfGeometryPath.get(), indexController.createCASFilter(Set.of("/features/[]/geometry"),
+              new Str("bla"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
       assertFalse(casIndexForGeometry.hasNext());
 
-      final var casIndexForGeometryCoordinates = indexController.openCASIndex(trx.getStorageEngineReader(), idxDefOfThreePaths,
-          indexController.createCASFilter(Set.of("/features/[]/geometry/coordinates/[]"), new Str("0"),
-              SearchMode.GREATER, new JsonPCRCollector(trx)));
+      final var casIndexForGeometryCoordinates = indexController.openCASIndex(trx.getStorageEngineReader(),
+          idxDefOfThreePaths, indexController.createCASFilter(Set.of("/features/[]/geometry/coordinates/[]"),
+              new Str("0"), SearchMode.GREATER, new JsonPCRCollector(trx)));
 
       assertTrue(casIndexForGeometryCoordinates.hasNext());
 
@@ -337,8 +338,8 @@ public final class JsonSecondaryIndexIntegrationTest {
 
       final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
 
-      final HOTLongIndexReader reader = HOTLongIndexReader.create(
-          trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
+      final HOTLongIndexReader reader =
+          HOTLongIndexReader.create(trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
 
       final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType);
 
@@ -405,8 +406,8 @@ public final class JsonSecondaryIndexIntegrationTest {
       assertTrue("Name index should exist", allObjectKeyNamesOpt.isPresent());
       final var allObjectKeyNames = allObjectKeyNamesOpt.get();
 
-      final HOTIndexReader<QNm> reader = HOTIndexReader.create(rtx.getStorageEngineReader(),
-          NameKeySerializer.INSTANCE, allObjectKeyNames.getType(), allObjectKeyNames.getID());
+      final HOTIndexReader<QNm> reader = HOTIndexReader.create(rtx.getStorageEngineReader(), NameKeySerializer.INSTANCE,
+          allObjectKeyNames.getType(), allObjectKeyNames.getID());
 
       // Query multiple times to exercise cache hit path
       final var name = new QNm("streetaddress");

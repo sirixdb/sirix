@@ -69,8 +69,7 @@ final class HOTBulkBuilderTest {
     final FrameSlotAllocator frameAllocator = FrameSlotAllocator.getInstance();
     final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
     final int liveBefore = frameAllocator.liveSlotCount(frameClass);
-    final List<HOTBulkBuilder.Entry> entries = List.of(
-        new HOTBulkBuilder.Entry(beKey(0), new byte[] {1}),
+    final List<HOTBulkBuilder.Entry> entries = List.of(new HOTBulkBuilder.Entry(beKey(0), new byte[] {1}),
         new HOTBulkBuilder.Entry(beKey(1), new byte[HOTLeafPage.DEFAULT_SIZE]));
     final AtomicLong allocator = new AtomicLong(1);
 

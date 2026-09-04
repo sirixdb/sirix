@@ -111,8 +111,8 @@ public final class ClickBenchLoadMain {
       List.of("EventDate", "EventTime", "ClientEventTime", "LocalEventTime");
 
   /**
-   * Process-wide HOT counters at one instant. A ClickBench load subtracts two snapshots so an
-   * earlier operation in the same JVM cannot contaminate its evidence.
+   * Process-wide HOT counters at one instant. A ClickBench load subtracts two snapshots so an earlier
+   * operation in the same JVM cannot contaminate its evidence.
    */
   record HotMutationCounters(long completeStructuralFrontierSplice, long structuralValidationFailure,
       long structuralPropagationPreflightFailure, long mutationTraversalRefused,
@@ -137,22 +137,23 @@ public final class ClickBenchLoadMain {
               current.structuralValidationFailure),
           nonNegativeDelta("STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE", structuralPropagationPreflightFailure,
               current.structuralPropagationPreflightFailure),
-          nonNegativeDelta("MUTATION_TRAVERSAL_REFUSED", mutationTraversalRefused,
-              current.mutationTraversalRefused),
+          nonNegativeDelta("MUTATION_TRAVERSAL_REFUSED", mutationTraversalRefused, current.mutationTraversalRefused),
           nonNegativeDelta("STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED", structuralValidationOversizeSkipped,
               current.structuralValidationOversizeSkipped));
     }
 
     private static long nonNegativeDelta(final String name, final long baseline, final long current) {
       if (current < baseline) {
-        throw new IllegalStateException(name + " decreased during ClickBench ingestion: before=" + baseline
-            + " after=" + current);
+        throw new IllegalStateException(
+            name + " decreased during ClickBench ingestion: before=" + baseline + " after=" + current);
       }
       return current - baseline;
     }
   }
 
-  /** Per-load incremental-mutation evidence derived after the persisted projection acceptance check. */
+  /**
+   * Per-load incremental-mutation evidence derived after the persisted projection acceptance check.
+   */
   record HotMutationDeltas(long completeStructuralFrontierSplice, long structuralValidationFailure,
       long structuralPropagationPreflightFailure, long mutationTraversalRefused,
       long structuralValidationOversizeSkipped) {
@@ -161,18 +162,18 @@ public final class ClickBenchLoadMain {
       return "# HOT_INCREMENTAL_DELTAS COMPLETE_STRUCTURAL_FRONTIER_SPLICE=" + completeStructuralFrontierSplice
           + " STRUCTURAL_VALIDATION_FAILURE=" + structuralValidationFailure
           + " STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE=" + structuralPropagationPreflightFailure
-          + " MUTATION_TRAVERSAL_REFUSED=" + mutationTraversalRefused
-          + " STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED=" + structuralValidationOversizeSkipped;
+          + " MUTATION_TRAVERSAL_REFUSED=" + mutationTraversalRefused + " STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED="
+          + structuralValidationOversizeSkipped;
     }
 
     void requireHealthyIncrementalMutations() {
       if (structuralValidationFailure != 0L || structuralPropagationPreflightFailure != 0L
           || mutationTraversalRefused != 0L) {
-        throw new IllegalStateException("ClickBench incremental HOT contract violated: "
-            + "STRUCTURAL_VALIDATION_FAILURE=" + structuralValidationFailure
-            + " STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE=" + structuralPropagationPreflightFailure
-            + " MUTATION_TRAVERSAL_REFUSED=" + mutationTraversalRefused
-            + "; every secondary-index mutation must complete through the canonical incremental route");
+        throw new IllegalStateException(
+            "ClickBench incremental HOT contract violated: " + "STRUCTURAL_VALIDATION_FAILURE="
+                + structuralValidationFailure + " STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE="
+                + structuralPropagationPreflightFailure + " MUTATION_TRAVERSAL_REFUSED=" + mutationTraversalRefused
+                + "; every secondary-index mutation must complete through the canonical incremental route");
       }
     }
   }
@@ -237,8 +238,8 @@ public final class ClickBenchLoadMain {
    * One line of the storage engine's adoption/flush diagnostics — general counters, not benchmark
    * mechanisms. {@code unstaged>0} means this configuration cannot stage overflow carriers and every
    * leaf holding one stays pinned until commit; {@code kvlPinnedByPromotion>0} or
-   * {@code kvlPinnedAfterCap>0} means the flush lane fell back to pinning; {@code kvlRetriedNextEpoch}
-   * shows the deferral mechanism engaged at all.
+   * {@code kvlPinnedAfterCap>0} means the flush lane fell back to pinning;
+   * {@code kvlRetriedNextEpoch} shows the deferral mechanism engaged at all.
    */
   private static void printStorageCounters() {
     if (!STORAGE_COUNTERS_PRINTED.compareAndSet(false, true)) {
@@ -280,7 +281,8 @@ public final class ClickBenchLoadMain {
     // A killed or crashed load still reports the storage counters (SIGTERM and System.exit run the
     // hook; SIGKILL and -XX:+ExitOnOutOfMemoryError do not). Idempotent: the normal path prints the
     // same line at HFT_MEASURE_END.
-    Runtime.getRuntime().addShutdownHook(new Thread(ClickBenchLoadMain::printStorageCounters, "clickbench-storage-counters"));
+    Runtime.getRuntime()
+           .addShutdownHook(new Thread(ClickBenchLoadMain::printStorageCounters, "clickbench-storage-counters"));
     final long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
     final int autoCommit = Integer.parseInt(System.getProperty("sirix.autoCommit.nodes", "1048576"));
     final StorageType storageType =
@@ -408,8 +410,7 @@ public final class ClickBenchLoadMain {
           // Machine-readable measurement boundary for the fixed-heap HFT gate. Store/source opening
           // intentionally happens first so JVM/library startup and gzip setup cannot masquerade as
           // ingestion old-gen pressure. The end marker is emitted only after close + explicit sync.
-          loadMeasurement = loadJackson(store, jsonSource, projection, sourceExpectedRows, hftConfiguration,
-              hftBuild);
+          loadMeasurement = loadJackson(store, jsonSource, projection, sourceExpectedRows, hftConfiguration, hftBuild);
         }
       }
     }
@@ -462,8 +463,8 @@ public final class ClickBenchLoadMain {
     // The projection acceptance above proves the result is persisted and servable. These deltas
     // prove how it got there. A complete-frontier splice is a legitimate bounded incremental
     // operation. Any failed validation, failed propagation preflight, or refused mutation is not.
-    final HotMutationDeltas hotMutationDeltas = loadMeasurement.hotMutationCountersBefore()
-                                                                 .deltasTo(HotMutationCounters.capture());
+    final HotMutationDeltas hotMutationDeltas =
+        loadMeasurement.hotMutationCountersBefore().deltasTo(HotMutationCounters.capture());
     System.out.println(hotMutationDeltas.logLine());
     System.out.flush();
     hotMutationDeltas.requireHealthyIncrementalMutations();
@@ -480,8 +481,8 @@ public final class ClickBenchLoadMain {
   }
 
   private static LoadMeasurement loadParallel(final BasicJsonDBStore store, final InputStream input,
-      final boolean projection,
-      final long expectedRows, final String hftConfiguration, final HftRuntimeEvidence.Build hftBuild) {
+      final boolean projection, final long expectedRows, final String hftConfiguration,
+      final HftRuntimeEvidence.Build hftBuild) {
     final HotMutationCounters hotMutationCountersBefore = HotMutationCounters.capture();
     final long start = startMeasurement(hftConfiguration, hftBuild);
     if (projection) {
@@ -494,8 +495,8 @@ public final class ClickBenchLoadMain {
   }
 
   private static LoadMeasurement loadParallel(final BasicJsonDBStore store, final Reader input,
-      final boolean projection,
-      final long expectedRows, final String hftConfiguration, final HftRuntimeEvidence.Build hftBuild) {
+      final boolean projection, final long expectedRows, final String hftConfiguration,
+      final HftRuntimeEvidence.Build hftBuild) {
     final HotMutationCounters hotMutationCountersBefore = HotMutationCounters.capture();
     final long start = startMeasurement(hftConfiguration, hftBuild);
     if (projection) {
@@ -507,9 +508,9 @@ public final class ClickBenchLoadMain {
     return new LoadMeasurement(start, hotMutationCountersBefore);
   }
 
-  private static LoadMeasurement loadJackson(final BasicJsonDBStore store,
-      final ClickBenchSource.JacksonSource source, final boolean projection, final long expectedRows,
-      final String hftConfiguration, final HftRuntimeEvidence.Build hftBuild) {
+  private static LoadMeasurement loadJackson(final BasicJsonDBStore store, final ClickBenchSource.JacksonSource source,
+      final boolean projection, final long expectedRows, final String hftConfiguration,
+      final HftRuntimeEvidence.Build hftBuild) {
     final HotMutationCounters hotMutationCountersBefore = HotMutationCounters.capture();
     final long start = startMeasurement(hftConfiguration, hftBuild);
     if (projection) {

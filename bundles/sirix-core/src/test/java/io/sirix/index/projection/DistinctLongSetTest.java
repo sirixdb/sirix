@@ -74,7 +74,8 @@ final class DistinctLongSetTest {
       }
     });
     assertEquals(64L, budget.get(), "the refused growth is not charged");
-    assertThrows(DistinctHash128Set.ByteBudgetExceededException.class, () -> new DistinctLongSet(1 << 20, new AtomicLong(1L)));
+    assertThrows(DistinctHash128Set.ByteBudgetExceededException.class,
+        () -> new DistinctLongSet(1 << 20, new AtomicLong(1L)));
   }
 
   @Test
@@ -108,7 +109,8 @@ final class DistinctLongSetTest {
       }
     }
     final AtomicLong budget = new AtomicLong(1L << 30);
-    final SharedDistinctLongSet shared = new SharedDistinctLongSet(64, 1 << 10, SharedDistinctLongSet.DEFAULT_BUFFER_KEYS, budget);
+    final SharedDistinctLongSet shared =
+        new SharedDistinctLongSet(64, 1 << 10, SharedDistinctLongSet.DEFAULT_BUFFER_KEYS, budget);
     final Thread[] threads = new Thread[workers];
     for (int w = 0; w < workers; w++) {
       final long[] mine = values[w];
@@ -127,7 +129,8 @@ final class DistinctLongSetTest {
     assertEquals(truth.size(), shared.size());
     assertEquals(64, shared.partitions());
     assertTrue(shared.chargedBytes() >= (long) truth.size() * Long.BYTES, "the sets hold at least the answer");
-    assertEquals((1L << 30) - budget.get() - shared.chargedBytes(), (long) workers * 64 * SharedDistinctLongSet.DEFAULT_BUFFER_KEYS * Long.BYTES,
+    assertEquals((1L << 30) - budget.get() - shared.chargedBytes(),
+        (long) workers * 64 * SharedDistinctLongSet.DEFAULT_BUFFER_KEYS * Long.BYTES,
         "buffers are the only other charge");
   }
 
@@ -142,7 +145,9 @@ final class DistinctLongSetTest {
     assertThrows(IllegalArgumentException.class, () -> new SharedDistinctLongSet(64, 0, 0, null));
   }
 
-  /** Slices of {@code rows} values from {@code values[offset..]}, every {@code gap}-th row missing. */
+  /**
+   * Slices of {@code rows} values from {@code values[offset..]}, every {@code gap}-th row missing.
+   */
   private static ColumnSlice[] slices(final long[] values, final int rowsPerSlice, final int gap) {
     final int count = (values.length + rowsPerSlice - 1) / rowsPerSlice;
     final ColumnSlice[] slices = new ColumnSlice[count + 1];

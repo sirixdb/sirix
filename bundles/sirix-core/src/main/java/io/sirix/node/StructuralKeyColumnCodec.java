@@ -12,77 +12,77 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 /**
- * Page-level column codec for a single structural-key column
- * (parentKey, firstChildKey, leftSiblingKey, rightSiblingKey) across all slots in a
- * {@link io.sirix.page.KeyValueLeafPage}.
+ * Page-level column codec for a single structural-key column (parentKey, firstChildKey,
+ * leftSiblingKey, rightSiblingKey) across all slots in a {@link io.sirix.page.KeyValueLeafPage}.
  *
- * <p>Replaces per-slot {@code delta(value, nodeKey)} varint encoding with a
- * column-wide scheme that exploits DFS-order locality: sibling groups share the
- * same {@code parentKey}, so most column values repeat the previous slot.
+ * <p>
+ * Replaces per-slot {@code delta(value, nodeKey)} varint encoding with a column-wide scheme that
+ * exploits DFS-order locality: sibling groups share the same {@code parentKey}, so most column
+ * values repeat the previous slot.
  *
  * <h2>Encoding</h2>
  * <ul>
- *   <li>{@code FLAG_ALL_NULL}: column is entirely {@link Fixed#NULL_NODE_KEY}. Fixed 3 bytes.</li>
- *   <li>{@code FLAG_CONSTANT}: all slots hold the same value. 11 bytes regardless of N.</li>
- *   <li>{@code FLAG_SEQUENTIAL_PLUS1}: slot i equals {@code base + i}. 11 bytes regardless of N.</li>
- *   <li>{@code FLAG_HAS_BITMAP} (general): 1 bit per slot indicates "equal to predictor"; for
- *       slots where the bit is zero, a zig-zag varint of {@code delta = value - predictor}
- *       follows in an override stream. The predictor is the previous slot's decoded value
- *       (or {@code NULL} for slot 0). In DFS insert order this pattern is dense: sibling
- *       chains, null-child columns, and repeated sentinel values all collapse to 1 bit.</li>
- *   <li>{@code FLAG_NODEKEY_PREDICTED} (general): 2 bits per slot selecting one of four
- *       predictors — see below. Requires the caller to supply each slot's node key.</li>
+ * <li>{@code FLAG_ALL_NULL}: column is entirely {@link Fixed#NULL_NODE_KEY}. Fixed 3 bytes.</li>
+ * <li>{@code FLAG_CONSTANT}: all slots hold the same value. 11 bytes regardless of N.</li>
+ * <li>{@code FLAG_SEQUENTIAL_PLUS1}: slot i equals {@code base + i}. 11 bytes regardless of N.</li>
+ * <li>{@code FLAG_HAS_BITMAP} (general): 1 bit per slot indicates "equal to predictor"; for slots
+ * where the bit is zero, a zig-zag varint of {@code delta = value - predictor} follows in an
+ * override stream. The predictor is the previous slot's decoded value (or {@code NULL} for slot 0).
+ * In DFS insert order this pattern is dense: sibling chains, null-child columns, and repeated
+ * sentinel values all collapse to 1 bit.</li>
+ * <li>{@code FLAG_NODEKEY_PREDICTED} (general): 2 bits per slot selecting one of four predictors —
+ * see below. Requires the caller to supply each slot's node key.</li>
  * </ul>
  *
- * <h2>Why two general formats</h2>
- * The single-bit format's only predictor is "the previous slot's value". That is exactly right
- * for {@code parentKey}, where a sibling group repeats one value for its whole run. It is the
- * wrong shape for the sibling and child columns, whose dominant case is {@code value ==
- * nodeKey + 1} — a value that changes at every slot, so every slot spends an override varint,
- * and interleaved {@code NULL}s (the last child of each group) cost two large overrides each on
- * the way in and out. Measured against the per-slot {@code delta(value, nodeKey)} varints it
- * replaces, that lands at 0.86× on a synthetic right-sibling column: a net loss.
+ * <h2>Why two general formats</h2> The single-bit format's only predictor is "the previous slot's
+ * value". That is exactly right for {@code parentKey}, where a sibling group repeats one value for
+ * its whole run. It is the wrong shape for the sibling and child columns, whose dominant case is
+ * {@code value ==
+ * nodeKey + 1} — a value that changes at every slot, so every slot spends an override varint, and
+ * interleaved {@code NULL}s (the last child of each group) cost two large overrides each on the way
+ * in and out. Measured against the per-slot {@code delta(value, nodeKey)} varints it replaces, that
+ * lands at 0.86× on a synthetic right-sibling column: a net loss.
  *
- * <p>{@code FLAG_NODEKEY_PREDICTED} spends 2 bits per slot instead of 1 and buys three
- * predictors with them, so the DFS shapes that defeat the single-bit format cost no override at
- * all:
+ * <p>
+ * {@code FLAG_NODEKEY_PREDICTED} spends 2 bits per slot instead of 1 and buys three predictors with
+ * them, so the DFS shapes that defeat the single-bit format cost no override at all:
  * <ul>
- *   <li>{@code 0} — the slot is {@link Fixed#NULL_NODE_KEY}. Last child of a sibling group,
- *       or the whole column for a page of leaves.</li>
- *   <li>{@code 1} — the slot is {@code nodeKey + stride}, with one signed {@code stride} in the
- *       column header. {@code +1} covers right siblings and first children in DFS order;
- *       {@code -1} covers left siblings.</li>
- *   <li>{@code 2} — the slot repeats the previous slot's decoded value (what the single-bit
- *       format encodes, kept so a mixed column doesn't have to choose).</li>
- *   <li>{@code 3} — an explicit zig-zag varint of {@code value - nodeKey} follows in the
- *       override stream. Deltas stay small for forward subtree jumps, so this is normally one
- *       byte — and unlike code {@code 2} it leaves the stride alone, so an isolated jump
- *       doesn't knock the following run out of code {@code 1}.</li>
+ * <li>{@code 0} — the slot is {@link Fixed#NULL_NODE_KEY}. Last child of a sibling group, or the
+ * whole column for a page of leaves.</li>
+ * <li>{@code 1} — the slot is {@code nodeKey + stride}, with one signed {@code stride} in the
+ * column header. {@code +1} covers right siblings and first children in DFS order; {@code -1}
+ * covers left siblings.</li>
+ * <li>{@code 2} — the slot repeats the previous slot's decoded value (what the single-bit format
+ * encodes, kept so a mixed column doesn't have to choose).</li>
+ * <li>{@code 3} — an explicit zig-zag varint of {@code value - nodeKey} follows in the override
+ * stream. Deltas stay small for forward subtree jumps, so this is normally one byte — and unlike
+ * code {@code 2} it leaves the stride alone, so an isolated jump doesn't knock the following run
+ * out of code {@code 1}.</li>
  * </ul>
- * The encoder sizes both general formats and emits the smaller, so a column only pays the extra
- * bit per slot when the predictors earn it back.
+ * The encoder sizes both general formats and emits the smaller, so a column only pays the extra bit
+ * per slot when the predictors earn it back.
  *
- * <h2>Random access</h2>
- * Both general formats decode {@code O(slotIndex)} bytes from the override stream, so whole-page
- * reads should use {@link #decodeAll}, which is a single linear pass. For random-access OLTP a
- * per-column index (one entry every 16 slots) can be bolted on top without changing the wire
- * format.
+ * <h2>Random access</h2> Both general formats decode {@code O(slotIndex)} bytes from the override
+ * stream, so whole-page reads should use {@link #decodeAll}, which is a single linear pass. For
+ * random-access OLTP a per-column index (one entry every 16 slots) can be bolted on top without
+ * changing the wire format.
  *
- * <h2>Lane encoding</h2>
- * The two general formats spend their per-slot bits in a fixed-width lane — one bit per slot for
- * {@code FLAG_HAS_BITMAP}, two for {@code FLAG_NODEKEY_PREDICTED}. On a page of records that lane is a
- * handful of long runs: one code repeated for a whole record's fields, then a different one at the
- * boundary. {@code FLAG_LANE_RUN_LENGTH} says the lane is stored as those runs instead —
- * {@code varint runCount}, then {@code (code, varint runLength)} per run — and the encoder emits it
- * only when it comes out smaller.
+ * <h2>Lane encoding</h2> The two general formats spend their per-slot bits in a fixed-width lane —
+ * one bit per slot for {@code FLAG_HAS_BITMAP}, two for {@code FLAG_NODEKEY_PREDICTED}. On a page
+ * of records that lane is a handful of long runs: one code repeated for a whole record's fields,
+ * then a different one at the boundary. {@code FLAG_LANE_RUN_LENGTH} says the lane is stored as
+ * those runs instead — {@code varint runCount}, then {@code (code, varint runLength)} per run — and
+ * the encoder emits it only when it comes out smaller.
  *
- * <p>Worth doing even though the body codec already compresses the lane: measured on a 1,024-slot
- * page of 106-field records, the parentKey column's 128-byte bitmap is 27 bytes after LZ77 and 12
- * bytes as runs then LZ77; the sibling columns' 256-byte code lanes go 23 and 20 down to 12. What
- * LZ77 cannot do is turn a 105-bit run into a length, because it matches bytes and the run's byte
+ * <p>
+ * Worth doing even though the body codec already compresses the lane: measured on a 1,024-slot page
+ * of 106-field records, the parentKey column's 128-byte bitmap is 27 bytes after LZ77 and 12 bytes
+ * as runs then LZ77; the sibling columns' 256-byte code lanes go 23 and 20 down to 12. What LZ77
+ * cannot do is turn a 105-bit run into a length, because it matches bytes and the run's byte
  * boundary shifts.
  *
- * <p>The low bits of the format byte are exactly one of the format flags, never a combination; bit 5
+ * <p>
+ * The low bits of the format byte are exactly one of the format flags, never a combination; bit 5
  * is the lane's encoding, which is orthogonal to which predictors the format uses.
  */
 public final class StructuralKeyColumnCodec {
@@ -106,8 +106,8 @@ public final class StructuralKeyColumnCodec {
    * Whether a column may store its lane as runs.
    *
    * <p>
-   * Kill switch: {@code -Dsirix.structuralColumn.runLengthLane=false} keeps every lane fixed-width, so
-   * a column encodes exactly as it did before this form existed. Readers accept both regardless —
+   * Kill switch: {@code -Dsirix.structuralColumn.runLengthLane=false} keeps every lane fixed-width,
+   * so a column encodes exactly as it did before this form existed. Readers accept both regardless —
    * the tag says which — so a resource can hold columns of each. Not final, so a byte-identity test
    * can flip it after class load.
    */
@@ -136,10 +136,10 @@ public final class StructuralKeyColumnCodec {
   /**
    * Upper bound on the encoded size of an {@code n}-slot column in any format.
    *
-   * <p>Lets a caller encode straight into a pre-sized buffer and decide from the returned length
-   * whether the column was worth keeping, instead of sizing with {@link #encodedSize} and then
-   * encoding — which walks the values twice over and asks both calls to independently pick the
-   * same format.
+   * <p>
+   * Lets a caller encode straight into a pre-sized buffer and decide from the returned length whether
+   * the column was worth keeping, instead of sizing with {@link #encodedSize} and then encoding —
+   * which walks the values twice over and asks both calls to independently pick the same format.
    */
   public static int maxEncodedSize(final int n) {
     // Widest format is the node-key-predicted one: tag + slotCount + a 10-byte stride varint +
@@ -158,8 +158,8 @@ public final class StructuralKeyColumnCodec {
   }
 
   /**
-   * Compute the encoded size over {@code values[0..n)} without materializing
-   * the output. Allows pre-sized scratch arrays with {@code length > n}.
+   * Compute the encoded size over {@code values[0..n)} without materializing the output. Allows
+   * pre-sized scratch arrays with {@code length > n}.
    */
   public static int encodedSize(final long[] values, final int n) {
     return encodeByteArray(null, 0, values, n, null);
@@ -172,15 +172,15 @@ public final class StructuralKeyColumnCodec {
    * @param values one value per slot
    * @param n number of slots to encode
    * @param nodeKeys node key of each slot, parallel to {@code values}; {@code null} to skip the
-   *     node-key-predicted format
+   *        node-key-predicted format
    */
   public static int encodedSize(final long[] values, final int n, final long[] nodeKeys) {
     return encodeByteArray(null, 0, values, n, nodeKeys);
   }
 
   /**
-   * Encode the column into a {@code byte[]} at {@code offset}. Pass {@code target == null}
-   * to dry-run and only compute the size.
+   * Encode the column into a {@code byte[]} at {@code offset}. Pass {@code target == null} to dry-run
+   * and only compute the size.
    *
    * @return bytes written
    */
@@ -189,33 +189,31 @@ public final class StructuralKeyColumnCodec {
   }
 
   /**
-   * Encode the first {@code n} values of {@code values} into {@code target} at
-   * {@code offset}. Pass {@code target == null} to dry-run.
+   * Encode the first {@code n} values of {@code values} into {@code target} at {@code offset}. Pass
+   * {@code target == null} to dry-run.
    */
-  public static int encodeByteArray(final byte[] target, final int offset, final long[] values,
-      final int n) {
+  public static int encodeByteArray(final byte[] target, final int offset, final long[] values, final int n) {
     return encodeByteArray(target, offset, values, n, null);
   }
 
   /**
-   * Encode the first {@code n} values of {@code values} into {@code target} at {@code offset},
-   * with the node key of each slot available as predictor context. Pass {@code target == null}
-   * to dry-run.
+   * Encode the first {@code n} values of {@code values} into {@code target} at {@code offset}, with
+   * the node key of each slot available as predictor context. Pass {@code target == null} to dry-run.
    *
-   * <p>Passing {@code nodeKeys} lets the encoder consider {@code FLAG_NODEKEY_PREDICTED}; it is
-   * emitted only when it is strictly smaller than {@code FLAG_HAS_BITMAP} would be. The decoder
-   * needs the same {@code nodeKeys} to read such a column back, so callers that cannot supply
-   * them at read time must pass {@code null} here.
+   * <p>
+   * Passing {@code nodeKeys} lets the encoder consider {@code FLAG_NODEKEY_PREDICTED}; it is emitted
+   * only when it is strictly smaller than {@code FLAG_HAS_BITMAP} would be. The decoder needs the
+   * same {@code nodeKeys} to read such a column back, so callers that cannot supply them at read time
+   * must pass {@code null} here.
    *
    * @param nodeKeys node key of each slot, parallel to {@code values}; {@code null} to skip the
-   *     node-key-predicted format
+   *        node-key-predicted format
    * @return bytes written
    */
-  public static int encodeByteArray(final byte[] target, final int offset, final long[] values,
-      final int n, final long[] nodeKeys) {
+  public static int encodeByteArray(final byte[] target, final int offset, final long[] values, final int n,
+      final long[] nodeKeys) {
     if (nodeKeys != null && nodeKeys.length < n) {
-      throw new IllegalArgumentException(
-          "nodeKeys too short: " + nodeKeys.length + " < " + n);
+      throw new IllegalArgumentException("nodeKeys too short: " + nodeKeys.length + " < " + n);
     }
     if (n > MAX_SLOTS) {
       throw new IllegalArgumentException("Column too large: " + n + " > " + MAX_SLOTS);
@@ -240,9 +238,12 @@ public final class StructuralKeyColumnCodec {
     final long v0 = values[0];
     for (int i = 0; i < n; i++) {
       final long v = values[i];
-      if (v != NULL) allNull = false;
-      if (v != v0) constant = false;
-      if (v != v0 + i) monotonic = false;
+      if (v != NULL)
+        allNull = false;
+      if (v != v0)
+        constant = false;
+      if (v != v0 + i)
+        monotonic = false;
     }
 
     if (allNull) {
@@ -383,11 +384,12 @@ public final class StructuralKeyColumnCodec {
    * Choose the column's {@code stride}, the delta from a slot's node key that code
    * {@link #CODE_STRIDE} stands for.
    *
-   * <p>Three candidates are counted in one pass: {@code +1} (right siblings and first children
-   * in DFS order), {@code -1} (left siblings), and the first non-NULL slot's own delta, which
-   * catches a column with some other uniform shape. A wrong guess is not a correctness problem
-   * and barely a size one — those slots fall back to {@link #CODE_EXPLICIT}, and the caller
-   * still only emits this format when it beats the alternative.
+   * <p>
+   * Three candidates are counted in one pass: {@code +1} (right siblings and first children in DFS
+   * order), {@code -1} (left siblings), and the first non-NULL slot's own delta, which catches a
+   * column with some other uniform shape. A wrong guess is not a correctness problem and barely a
+   * size one — those slots fall back to {@link #CODE_EXPLICIT}, and the caller still only emits this
+   * format when it beats the alternative.
    */
   private static long pickStride(final long[] values, final int n, final long[] nodeKeys) {
     long firstDelta = 1;
@@ -405,9 +407,12 @@ public final class StructuralKeyColumnCodec {
         firstDelta = d;
         firstSeen = true;
       }
-      if (d == 1L) countPlus1++;
-      if (d == -1L) countMinus1++;
-      if (d == firstDelta) countFirst++;
+      if (d == 1L)
+        countPlus1++;
+      if (d == -1L)
+        countMinus1++;
+      if (d == firstDelta)
+        countFirst++;
     }
     long stride = 1L;
     int best = countPlus1;
@@ -425,8 +430,7 @@ public final class StructuralKeyColumnCodec {
    * Encoded size of the node-key-predicted format for the given stride, with the lane in whichever
    * encoding comes out smaller.
    */
-  private static int sizeNodeKeyPredicted(final long[] values, final int n, final long[] nodeKeys,
-      final long stride) {
+  private static int sizeNodeKeyPredicted(final long[] values, final int n, final long[] nodeKeys, final long stride) {
     int overrideBytes = 0;
     long previous = NULL;
     for (int i = 0; i < n; i++) {
@@ -444,8 +448,7 @@ public final class StructuralKeyColumnCodec {
    * records repeats one code for a whole record's fields, so the run form is usually a fraction of
    * the two bits per slot the fixed one spends.
    */
-  private static int predictedLaneBytes(final long[] values, final int n, final long[] nodeKeys,
-      final long stride) {
+  private static int predictedLaneBytes(final long[] values, final int n, final long[] nodeKeys, final long stride) {
     if (!RUN_LENGTH_LANE_ENABLED) {
       return codeBytes(n);
     }
@@ -476,8 +479,8 @@ public final class StructuralKeyColumnCodec {
   }
 
   /** The predictor code slot {@code i} takes, given the previous slot's decoded value. */
-  private static int predictedCodeAt(final long[] values, final long[] nodeKeys, final long stride,
-      final int i, final long previous) {
+  private static int predictedCodeAt(final long[] values, final long[] nodeKeys, final long stride, final int i,
+      final long previous) {
     final long v = values[i];
     if (v == NULL) {
       return CODE_NULL;
@@ -491,13 +494,12 @@ public final class StructuralKeyColumnCodec {
   }
 
   /**
-   * Emit the node-key-predicted format. {@code totalBytes} is the size
-   * {@link #sizeNodeKeyPredicted} already computed for this {@code stride}; a dry-run
-   * ({@code target == null}) returns it without writing.
+   * Emit the node-key-predicted format. {@code totalBytes} is the size {@link #sizeNodeKeyPredicted}
+   * already computed for this {@code stride}; a dry-run ({@code target == null}) returns it without
+   * writing.
    */
-  private static int encodeNodeKeyPredicted(final byte[] target, final int offset,
-      final long[] values, final int n, final long[] nodeKeys, final long stride,
-      final int totalBytes) {
+  private static int encodeNodeKeyPredicted(final byte[] target, final int offset, final long[] values, final int n,
+      final long[] nodeKeys, final long stride, final int totalBytes) {
     if (target == null) {
       return totalBytes;
     }
@@ -611,8 +613,8 @@ public final class StructuralKeyColumnCodec {
    * Offset one past a run-length lane, i.e. where its override stream begins.
    *
    * <p>
-   * A fixed-width lane's length is a function of the slot count, a run lane's is not — so it is walked
-   * once, over at most a few dozen runs, rather than spending bytes on a length prefix.
+   * A fixed-width lane's length is a function of the slot count, a run lane's is not — so it is
+   * walked once, over at most a few dozen runs, rather than spending bytes on a length prefix.
    */
   private static int runLaneEnd(final byte[] src, final int laneStart) {
     int pos = laneStart;
@@ -626,25 +628,24 @@ public final class StructuralKeyColumnCodec {
   }
 
   /**
-   * Random access decode of a single slot from a byte-array-encoded column.
-   * Worst case {@code O(slotIndex)}; amortized O(1) for scan-then-decode.
+   * Random access decode of a single slot from a byte-array-encoded column. Worst case
+   * {@code O(slotIndex)}; amortized O(1) for scan-then-decode.
    *
-   * @throws IllegalStateException if the column is {@code FLAG_NODEKEY_PREDICTED}, which needs
-   *     the node keys — use {@link #decodeSlot(byte[], int, int, long[])} for those
+   * @throws IllegalStateException if the column is {@code FLAG_NODEKEY_PREDICTED}, which needs the
+   *         node keys — use {@link #decodeSlot(byte[], int, int, long[])} for those
    */
   public static long decodeSlot(final byte[] src, final int columnOffset, final int slotIndex) {
     return decodeSlot(src, columnOffset, slotIndex, null);
   }
 
   /**
-   * Random access decode of a single slot, with the node keys the
-   * {@code FLAG_NODEKEY_PREDICTED} format needs as predictor context.
+   * Random access decode of a single slot, with the node keys the {@code FLAG_NODEKEY_PREDICTED}
+   * format needs as predictor context.
    *
-   * @param nodeKeys node key of each slot, parallel to the encoded column; may be {@code null}
-   *     for columns in any of the other formats
+   * @param nodeKeys node key of each slot, parallel to the encoded column; may be {@code null} for
+   *        columns in any of the other formats
    */
-  public static long decodeSlot(final byte[] src, final int columnOffset, final int slotIndex,
-      final long[] nodeKeys) {
+  public static long decodeSlot(final byte[] src, final int columnOffset, final int slotIndex, final long[] nodeKeys) {
     final int tag = src[columnOffset] & 0xFF;
     final int n = readUnsignedShort(src, columnOffset + 1);
     if (slotIndex < 0 || slotIndex >= n) {
@@ -760,32 +761,32 @@ public final class StructuralKeyColumnCodec {
   /**
    * Decode every slot of a byte-array-encoded column in a single linear pass.
    *
-   * <p>{@link #decodeSlot} restarts the override-stream walk from slot 0 on every call, so
-   * decoding a whole column slot by slot costs {@code O(N^2)} varint reads. A page holds up to
-   * 1024 slots and a deserialize touches every one of them, which is the only way this codec is
-   * consumed on the read path — so the bulk form is what callers should reach for. Random access
-   * stays available for the (currently hypothetical) point-lookup caller.
+   * <p>
+   * {@link #decodeSlot} restarts the override-stream walk from slot 0 on every call, so decoding a
+   * whole column slot by slot costs {@code O(N^2)} varint reads. A page holds up to 1024 slots and a
+   * deserialize touches every one of them, which is the only way this codec is consumed on the read
+   * path — so the bulk form is what callers should reach for. Random access stays available for the
+   * (currently hypothetical) point-lookup caller.
    *
    * @param src encoded column bytes
    * @param columnOffset offset of the column's tag byte within {@code src}
    * @param out destination for the decoded values; must hold at least the column's slot count
    * @return the number of slots decoded, i.e. the slot count in the column header
-   * @throws IllegalStateException if the column is {@code FLAG_NODEKEY_PREDICTED}, which needs
-   *     the node keys — use {@link #decodeAll(byte[], int, long[], long[])} for those
+   * @throws IllegalStateException if the column is {@code FLAG_NODEKEY_PREDICTED}, which needs the
+   *         node keys — use {@link #decodeAll(byte[], int, long[], long[])} for those
    */
   public static int decodeAll(final byte[] src, final int columnOffset, final long[] out) {
     return decodeAll(src, columnOffset, out, null);
   }
 
   /**
-   * Decode every slot in a single linear pass, with the node keys the
-   * {@code FLAG_NODEKEY_PREDICTED} format needs as predictor context.
+   * Decode every slot in a single linear pass, with the node keys the {@code FLAG_NODEKEY_PREDICTED}
+   * format needs as predictor context.
    *
-   * @param nodeKeys node key of each slot, parallel to {@code out}; may be {@code null} for
-   *     columns in any of the other formats
+   * @param nodeKeys node key of each slot, parallel to {@code out}; may be {@code null} for columns
+   *        in any of the other formats
    */
-  public static int decodeAll(final byte[] src, final int columnOffset, final long[] out,
-      final long[] nodeKeys) {
+  public static int decodeAll(final byte[] src, final int columnOffset, final long[] out, final long[] nodeKeys) {
     final int tag = src[columnOffset] & 0xFF;
     final int n = readUnsignedShort(src, columnOffset + 1);
     if (out.length < n) {
@@ -913,20 +914,17 @@ public final class StructuralKeyColumnCodec {
           out[i] = previous;
         }
       }
-      default -> throw new IllegalStateException(
-          "Unknown column format tag: 0x" + Integer.toHexString(tag));
+      default -> throw new IllegalStateException("Unknown column format tag: 0x" + Integer.toHexString(tag));
     }
     return n;
   }
 
   private static void requireNodeKeys(final long[] nodeKeys, final int n) {
     if (nodeKeys == null) {
-      throw new IllegalStateException(
-          "FLAG_NODEKEY_PREDICTED column needs node keys, none were supplied");
+      throw new IllegalStateException("FLAG_NODEKEY_PREDICTED column needs node keys, none were supplied");
     }
     if (nodeKeys.length < n) {
-      throw new IllegalStateException(
-          "nodeKeys too short for column: " + nodeKeys.length + " < " + n);
+      throw new IllegalStateException("nodeKeys too short for column: " + nodeKeys.length + " < " + n);
     }
   }
 
@@ -955,9 +953,12 @@ public final class StructuralKeyColumnCodec {
     final long v0 = values[0];
     for (int i = 0; i < n; i++) {
       final long v = values[i];
-      if (v != NULL) allNull = false;
-      if (v != v0) constant = false;
-      if (v != v0 + i) monotonic = false;
+      if (v != NULL)
+        allNull = false;
+      if (v != v0)
+        constant = false;
+      if (v != v0 + i)
+        monotonic = false;
     }
 
     if (allNull) {
@@ -1028,16 +1029,18 @@ public final class StructuralKeyColumnCodec {
     if (slotIndex < 0 || slotIndex >= n) {
       throw new IndexOutOfBoundsException("slotIndex " + slotIndex + " out of [0," + n + ")");
     }
-    if (tag == FLAG_ALL_NULL) return NULL;
-    if (tag == FLAG_CONSTANT) return getLong(src, columnOffset + 3);
-    if (tag == FLAG_SEQUENTIAL_PLUS1) return getLong(src, columnOffset + 3) + slotIndex;
+    if (tag == FLAG_ALL_NULL)
+      return NULL;
+    if (tag == FLAG_CONSTANT)
+      return getLong(src, columnOffset + 3);
+    if (tag == FLAG_SEQUENTIAL_PLUS1)
+      return getLong(src, columnOffset + 3) + slotIndex;
     if (tag == FLAG_HAS_BITMAP) {
       final int bitmapBytes = (n + 7) >>> 3;
       long readPos = columnOffset + 3 + bitmapBytes;
       long predictor = NULL;
       for (int i = 0; i <= slotIndex; i++) {
-        final int bit =
-            (src.get(ValueLayout.JAVA_BYTE, columnOffset + 3 + (i >>> 3)) >>> (i & 7)) & 1;
+        final int bit = (src.get(ValueLayout.JAVA_BYTE, columnOffset + 3 + (i >>> 3)) >>> (i & 7)) & 1;
         final long value;
         if (bit == 1) {
           value = predictor;
@@ -1046,7 +1049,8 @@ public final class StructuralKeyColumnCodec {
           readPos += zigzagVarintSize(delta);
           value = predictor + delta;
         }
-        if (i == slotIndex) return value;
+        if (i == slotIndex)
+          return value;
         predictor = value;
       }
     }
@@ -1057,7 +1061,8 @@ public final class StructuralKeyColumnCodec {
 
   private static int zigzagVarintSize(final long v) {
     final long zz = (v << 1) ^ (v >> 63);
-    if (zz == 0) return 1;
+    if (zz == 0)
+      return 1;
     // Number of 7-bit groups needed.
     final int bits = 64 - Long.numberOfLeadingZeros(zz);
     return (bits + 6) / 7;
@@ -1081,7 +1086,8 @@ public final class StructuralKeyColumnCodec {
     while (true) {
       final byte b = src[pos++];
       zz |= ((long) (b & 0x7F)) << shift;
-      if ((b & 0x80) == 0) break;
+      if ((b & 0x80) == 0)
+        break;
       shift += 7;
     }
     return (zz >>> 1) ^ -(zz & 1);
@@ -1105,7 +1111,8 @@ public final class StructuralKeyColumnCodec {
     while (true) {
       final byte b = src.get(ValueLayout.JAVA_BYTE, pos++);
       zz |= ((long) (b & 0x7F)) << shift;
-      if ((b & 0x80) == 0) break;
+      if ((b & 0x80) == 0)
+        break;
       shift += 7;
     }
     return (zz >>> 1) ^ -(zz & 1);
@@ -1140,8 +1147,7 @@ public final class StructuralKeyColumnCodec {
   }
 
   private static int getUnsignedShort(final MemorySegment src, final long offset) {
-    return ((src.get(ValueLayout.JAVA_BYTE, offset) & 0xFF) << 8)
-        | (src.get(ValueLayout.JAVA_BYTE, offset + 1) & 0xFF);
+    return ((src.get(ValueLayout.JAVA_BYTE, offset) & 0xFF) << 8) | (src.get(ValueLayout.JAVA_BYTE, offset + 1) & 0xFF);
   }
 
   private static void putLong(final MemorySegment target, final long offset, final long v) {

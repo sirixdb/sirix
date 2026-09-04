@@ -280,9 +280,9 @@ public final class StringNode extends AbstractFlyweightNode
   }
 
   /**
-   * Everything except the payload, at its MINIMUM: kind byte + {@link #FIELD_COUNT}-byte offset
-   * table + five varints of one byte each + compressed flag + one-byte payload-length varint. The
-   * floor of the wire {@code writeNewRecord} emits; see
+   * Everything except the payload, at its MINIMUM: kind byte + {@link #FIELD_COUNT}-byte offset table
+   * + five varints of one byte each + compressed flag + one-byte payload-length varint. The floor of
+   * the wire {@code writeNewRecord} emits; see
    * {@link io.sirix.node.interfaces.FlyweightNode#estimateSerializedSizeLowerBound()} for why the
    * refusal in {@code KeyValueLeafPage#serializeToHeap} must key on a floor, not the padded ceiling.
    */

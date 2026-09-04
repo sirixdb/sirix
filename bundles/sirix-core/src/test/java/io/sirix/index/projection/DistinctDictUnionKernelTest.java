@@ -36,9 +36,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * The truth every count is held against is a {@code HashSet<String>} of the PRESENT rows' values,
- * built while the leaves are — and every fixture carries more distinct values than the content-based
- * kernel's cardinality limit admits, so the tests exercise the regime the hashed union exists for,
- * with the bounded kernel's refusal witnessed beside it.
+ * built while the leaves are — and every fixture carries more distinct values than the
+ * content-based kernel's cardinality limit admits, so the tests exercise the regime the hashed
+ * union exists for, with the bounded kernel's refusal witnessed beside it.
  * </p>
  */
 final class DistinctDictUnionKernelTest {
@@ -168,9 +168,9 @@ final class DistinctDictUnionKernelTest {
       added++;
     }
     final int before = added;
-    final DistinctHash128Set.ByteBudgetExceededException refused = assertThrows(
-        DistinctHash128Set.ByteBudgetExceededException.class, () -> set.add(before + 1, 1L),
-        "the second doubling needs 4 * initial bytes with 1 * initial left");
+    final DistinctHash128Set.ByteBudgetExceededException refused =
+        assertThrows(DistinctHash128Set.ByteBudgetExceededException.class, () -> set.add(before + 1, 1L),
+            "the second doubling needs 4 * initial bytes with 1 * initial left");
     assertTrue(refused.getMessage().contains("refused"), refused.getMessage());
     assertTrue(refused instanceof IllegalStateException, "the executor rethrows IllegalStateException as-is");
     assertEquals(initialBytes, budget.get(), "a refused charge is refunded in full");
@@ -187,7 +187,8 @@ final class DistinctDictUnionKernelTest {
   @DisplayName("the union over resident slices counts exactly the present distinct values, above the card limit")
   void theUnionCountsThePresentDistinctValues() {
     final Fixture f = build(12, 512, 0.15, false, 20260901L);
-    assertTrue(f.truth().size() > 1024, "the fixture must exceed the content-based kernel's limit: " + f.truth().size());
+    assertTrue(f.truth().size() > 1024,
+        "the fixture must exceed the content-based kernel's limit: " + f.truth().size());
     assertFalse(f.truth().contains(""), "no present row carries \"\" in this fixture");
 
     final ColumnSlice[] slices = f.store().column(0, f.fetcher());
@@ -307,7 +308,8 @@ final class DistinctDictUnionKernelTest {
   void aStarvedSharedSetRefusesFromInsideAWorker() {
     final Fixture f = build(6, 512, 0.0, false, 3L);
     final int leaves = f.store().rowGroupCount();
-    // Enough for the 4 initial partitions and one worker's buffers, not for the growths ~3000 keys need.
+    // Enough for the 4 initial partitions and one worker's buffers, not for the growths ~3000 keys
+    // need.
     final long partitionBytes = 4L * 256 * DistinctHash128Set.BYTES_PER_SLOT;
     final long bufferBytes = 4L * 8 * DistinctHash128Set.BYTES_PER_SLOT;
     final AtomicLong budget = new AtomicLong(partitionBytes + bufferBytes + 1024L);
@@ -346,8 +348,8 @@ final class DistinctDictUnionKernelTest {
   /**
    * A store of {@code leaves} leaves × {@code rowsPerLeaf} rows whose dict column draws from a
    * vocabulary of {@link #VOCABULARY} phrases; a {@code missingRate} share of the rows is MISSING the
-   * field (interning the "" default, a phantom) and, when {@code realEmpty}, one extra present row per
-   * leaf carries "" for real. The truth is the present rows' distinct values.
+   * field (interning the "" default, a phantom) and, when {@code realEmpty}, one extra present row
+   * per leaf carries "" for real. The truth is the present rows' distinct values.
    */
   private static Fixture build(final int leaves, final int rowsPerLeaf, final double missingRate,
       final boolean realEmpty, final long seed) {

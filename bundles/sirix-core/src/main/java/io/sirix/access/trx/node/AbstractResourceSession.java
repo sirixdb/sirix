@@ -966,7 +966,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
-  /** Close a writer whose node transaction constructor failed, without masking that primary failure. */
+  /**
+   * Close a writer whose node transaction constructor failed, without masking that primary failure.
+   */
   private static void closeUnregisteredWriter(final StorageEngineWriter storageEngineWriter,
       final Throwable primaryFailure) {
     try {

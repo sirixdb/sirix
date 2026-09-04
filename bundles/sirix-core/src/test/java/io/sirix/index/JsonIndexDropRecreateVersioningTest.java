@@ -48,10 +48,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * End-to-end coverage for secondary-index generation changes.
  *
- * <p>Dropping a definition removes only the revisioned catalogue entry. Its physical HOT root must
+ * <p>
+ * Dropping a definition removes only the revisioned catalogue entry. Its physical HOT root must
  * remain reserved because older revisions still address it; recreating the same logical index must
  * allocate another physical root. This test crosses a real database close/cache clear/reopen and
- * checks that contract for PATH, CAS, and NAME under every page-versioning algorithm.</p>
+ * checks that contract for PATH, CAS, and NAME under every page-versioning algorithm.
+ * </p>
  */
 final class JsonIndexDropRecreateVersioningTest {
 
@@ -94,16 +96,16 @@ final class JsonIndexDropRecreateVersioningTest {
         oldGeneration = buildGeneration(database, OLD_DOCUMENT, OLD_PATH);
 
         final StructuralCounters beforeOldMutations = StructuralCounters.capture();
-        historicalRevision = mutateGeneration(database, OLD_FIELD, "old-update", "old-updated", "old-delete",
-            "old-inserted");
+        historicalRevision =
+            mutateGeneration(database, OLD_FIELD, "old-update", "old-updated", "old-delete", "old-inserted");
         beforeOldMutations.assertUnchanged("old index generation");
 
         freshGeneration = dropReplaceAndBuildFreshGeneration(database, oldGeneration);
         assertFreshPhysicalIds(oldGeneration, freshGeneration);
 
         final StructuralCounters beforeFreshMutations = StructuralCounters.capture();
-        latestRevision = mutateGeneration(database, FRESH_FIELD, "new-update", "latest-updated", "new-delete",
-            "new-inserted");
+        latestRevision =
+            mutateGeneration(database, FRESH_FIELD, "new-update", "latest-updated", "new-delete", "new-inserted");
         beforeFreshMutations.assertUnchanged("fresh index generation");
       }
 
@@ -176,10 +178,8 @@ final class JsonIndexDropRecreateVersioningTest {
     final RevisionRootPage revisionRoot = writer.getActualRevisionRootPage();
     final int pathId = writer.getPathPage(revisionRoot).nextUnallocatedIndex();
     final int casId = writer.getCASPage(revisionRoot).nextUnallocatedIndex();
-    final int namePhysicalId = writer.getNamePage(revisionRoot)
-                                     .nextUnallocatedSecondaryNameIndex(DatabaseType.JSON);
-    final int nameLogicalId =
-        IndexDefs.logicalNameIndexDefNoForPhysicalSlot(namePhysicalId, IndexDef.DbType.JSON);
+    final int namePhysicalId = writer.getNamePage(revisionRoot).nextUnallocatedSecondaryNameIndex(DatabaseType.JSON);
+    final int nameLogicalId = IndexDefs.logicalNameIndexDefNoForPhysicalSlot(namePhysicalId, IndexDef.DbType.JSON);
     final Set<Path<QNm>> paths = Set.of(Path.parse(indexedPath, PathParser.Type.JSON));
     final IndexDef name = IndexDefs.createNameIdxDef(nameLogicalId, IndexDef.DbType.JSON);
     assertEquals(namePhysicalId, name.getID(), "the NAME factory must preserve the allocated physical slot");
@@ -218,8 +218,7 @@ final class JsonIndexDropRecreateVersioningTest {
     }
   }
 
-  private static Generation requireCatalogGeneration(final JsonIndexController controller,
-      final Generation expected) {
+  private static Generation requireCatalogGeneration(final JsonIndexController controller, final Generation expected) {
     final IndexDef path = controller.getIndexes().getIndexDef(expected.path().getID(), IndexType.PATH);
     final IndexDef cas = controller.getIndexes().getIndexDef(expected.cas().getID(), IndexType.CAS);
     final IndexDef name = controller.getIndexes().getIndexDef(expected.name().getID(), IndexType.NAME);
@@ -247,13 +246,11 @@ final class JsonIndexDropRecreateVersioningTest {
     assertTrue(reader.getCASPage(revisionRoot).isIndexInitialized(oldGeneration.cas().getID()));
     assertTrue(reader.getNamePage(revisionRoot)
                      .isSecondaryNameIndexInitialized(DatabaseType.JSON, oldGeneration.name().getID()));
+    assertEquals(freshMustExist, reader.getPathPage(revisionRoot).isIndexInitialized(freshGeneration.path().getID()));
+    assertEquals(freshMustExist, reader.getCASPage(revisionRoot).isIndexInitialized(freshGeneration.cas().getID()));
     assertEquals(freshMustExist,
-        reader.getPathPage(revisionRoot).isIndexInitialized(freshGeneration.path().getID()));
-    assertEquals(freshMustExist,
-        reader.getCASPage(revisionRoot).isIndexInitialized(freshGeneration.cas().getID()));
-    assertEquals(freshMustExist, reader.getNamePage(revisionRoot)
-                                               .isSecondaryNameIndexInitialized(DatabaseType.JSON,
-                                                   freshGeneration.name().getID()));
+        reader.getNamePage(revisionRoot)
+              .isSecondaryNameIndexInitialized(DatabaseType.JSON, freshGeneration.name().getID()));
   }
 
   private static void assertGenerationScans(final JsonIndexController controller, final JsonNodeReadOnlyTrx rtx,
@@ -263,21 +260,16 @@ final class JsonIndexDropRecreateVersioningTest {
         postingValues(rtx, controller.openPathIndex(rtx.getStorageEngineReader(), generation.path(), null)),
         "PATH scan must expose only this revision's generation");
     assertEquals(expectedValues,
-        postingValues(rtx,
-            controller.openCASIndex(rtx.getStorageEngineReader(), generation.cas(), (CASFilter) null)),
+        postingValues(rtx, controller.openCASIndex(rtx.getStorageEngineReader(), generation.cas(), (CASFilter) null)),
         "CAS scan must expose only this revision's generation");
-    assertEquals(expectedValues.size(),
-        postingCount(controller.openNameIndex(rtx.getStorageEngineReader(), generation.name(),
-            controller.createNameFilter(Set.of(indexedName)))),
+    assertEquals(expectedValues.size(), postingCount(controller.openNameIndex(rtx.getStorageEngineReader(),
+        generation.name(), controller.createNameFilter(Set.of(indexedName)))),
         "NAME scan must expose every current field");
-    assertEquals(0L,
-        postingCount(controller.openNameIndex(rtx.getStorageEngineReader(), generation.name(),
-            controller.createNameFilter(Set.of(absentName)))),
-        "NAME scan must not leak the other generation");
+    assertEquals(0L, postingCount(controller.openNameIndex(rtx.getStorageEngineReader(), generation.name(),
+        controller.createNameFilter(Set.of(absentName)))), "NAME scan must not leak the other generation");
   }
 
-  private static List<String> postingValues(final JsonNodeReadOnlyTrx rtx,
-      final Iterator<NodeReferences> postings) {
+  private static List<String> postingValues(final JsonNodeReadOnlyTrx rtx, final Iterator<NodeReferences> postings) {
     final long restoreNodeKey = rtx.getNodeKey();
     final List<String> values = new ArrayList<>();
     try {
@@ -285,8 +277,8 @@ final class JsonIndexDropRecreateVersioningTest {
         final LongIterator nodeKeys = postings.next().nodeKeyIterator();
         while (nodeKeys.hasNext()) {
           final long nodeKey = nodeKeys.next();
-          assertTrue(rtx.moveTo(nodeKey), "posting " + nodeKey + " must resolve in revision "
-              + rtx.getRevisionNumber());
+          assertTrue(rtx.moveTo(nodeKey),
+              "posting " + nodeKey + " must resolve in revision " + rtx.getRevisionNumber());
           values.add(rtx.getValue());
         }
       }
@@ -305,8 +297,7 @@ final class JsonIndexDropRecreateVersioningTest {
     return count;
   }
 
-  private static long namedStringNodeKey(final JsonNodeReadOnlyTrx rtx, final String fieldName,
-      final String value) {
+  private static long namedStringNodeKey(final JsonNodeReadOnlyTrx rtx, final String fieldName, final String value) {
     final long restoreNodeKey = rtx.getNodeKey();
     try {
       rtx.moveToDocumentRoot();
@@ -358,8 +349,7 @@ final class JsonIndexDropRecreateVersioningTest {
   }
 
   private static void shred(final JsonNodeTrx wtx, final String json) {
-    new JsonShredder.Builder(wtx, JsonShredder.createStringReader(json), InsertPosition.AS_FIRST_CHILD).build()
-                                                                                                      .call();
+    new JsonShredder.Builder(wtx, JsonShredder.createStringReader(json), InsertPosition.AS_FIRST_CHILD).build().call();
   }
 
   private record Generation(IndexDef path, IndexDef cas, IndexDef name) {

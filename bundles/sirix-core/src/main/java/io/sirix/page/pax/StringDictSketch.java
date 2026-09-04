@@ -192,8 +192,8 @@ public final class StringDictSketch {
       for (int i = 0; i < n; i++) {
         // The sign carries the FSST flag; the magnitude is the STORED length either way, and the
         // stored bytes are exactly what a probe reproduces (see the class contract).
-        final int lengthField = StringRegion.readLengthFieldFromArray(stringPayload, dictStart + i * lengthWidth,
-            lengthWidth);
+        final int lengthField =
+            StringRegion.readLengthFieldFromArray(stringPayload, dictStart + i * lengthWidth, lengthWidth);
         if (lengthField == Integer.MIN_VALUE) {
           return null;
         }

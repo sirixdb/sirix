@@ -41,16 +41,16 @@ import org.junit.jupiter.params.provider.EnumSource;
  * A bulk-adopted leaf whose refused records became overflow carriers must NOT be pinned in the
  * intent log until final commit: its carriers are staged as immutable side pages at adoption, the
  * background flush defers the leaf exactly one epoch, and the next epoch writes it with durable
- * carrier keys. The 100M ClickBench load exhausted an 8 GiB arena at 3.6 GB on disk because ~40 % of
- * its leaves were pinned this way.
+ * carrier keys. The 100M ClickBench load exhausted an 8 GiB arena at 3.6 GB on disk because ~40 %
+ * of its leaves were pinned this way.
  *
  * <p>
  * Witnesses: the diagnostic counters (staged &gt; 0 as the precondition; pinned-by-promotion == 0
- * and retried &gt; 0 as the mechanism), the pinned-region size sampled at every flush, and exactness
- * of every value after a COLD reopen plus a second revision — the q20 class of defect must not come
- * back through the carrier route. Two mutation arms prove the guards are load-bearing: with staging
- * off every carrier-bearing leaf pins; with the deferral cap at zero the flush lane pins past the
- * cap and says so.
+ * and retried &gt; 0 as the mechanism), the pinned-region size sampled at every flush, and
+ * exactness of every value after a COLD reopen plus a second revision — the q20 class of defect
+ * must not come back through the carrier route. Two mutation arms prove the guards are
+ * load-bearing: with staging off every carrier-bearing leaf pins; with the deferral cap at zero the
+ * flush lane pins past the cap and says so.
  */
 final class AdoptedOverflowCarrierStagingTest {
 
@@ -252,7 +252,8 @@ final class AdoptedOverflowCarrierStagingTest {
           continue;
         }
         final int[] slots = kv.getObjectKeySlotsForNameKey(urlNameKey);
-        assertEquals(truthPerPage[pk], slots.length, where + ": page " + pk + " slot index disagrees with the document");
+        assertEquals(truthPerPage[pk], slots.length,
+            where + ": page " + pk + " slot index disagrees with the document");
         indexed += slots.length;
         for (final int slot : slots) {
           if (kv.isFusedOverflowDescriptor(slot)) {
@@ -283,8 +284,8 @@ final class AdoptedOverflowCarrierStagingTest {
    * both sides of the fused inline cap, so inline and carrier records share leaves. Sized from the
    * constant, not a literal, so a cap change moves the sweep with it and the positive-witness guard
    * ("the corpus produced no overflow carriers") keeps meaning what it says. Uniform over 92
-   * printable characters so FSST declines them and the bands hold (a hex alphabet would be halved
-   * and every value would silently fit inline).
+   * printable characters so FSST declines them and the bands hold (a hex alphabet would be halved and
+   * every value would silently fit inline).
    */
   private static byte[] corpus(final List<String> urls) {
     final Random rng = new Random(0x5711D5EEDL);
@@ -296,7 +297,13 @@ final class AdoptedOverflowCarrierStagingTest {
       }
       final String url = payload(rng, Constants.MAX_RECORD_SIZE - 82 + i % 271);
       urls.add(url);
-      sb.append("{\"id\":").append(i).append(",\"note\":").append(i % 41).append(",\"URL\":\"").append(url).append("\"}");
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"note\":")
+        .append(i % 41)
+        .append(",\"URL\":\"")
+        .append(url)
+        .append("\"}");
     }
     sb.append(']');
     return sb.toString().getBytes(StandardCharsets.UTF_8);

@@ -40,8 +40,8 @@ final class HOTIndexNumberValidator {
     }
 
     if (NamePage.isNameDictionarySlot(databaseType, indexNumber)) {
-      throw new IllegalArgumentException("NAME HOT index " + indexNumber + " collides with reserved "
-          + databaseType + " NamePage dictionary slots");
+      throw new IllegalArgumentException(
+          "NAME HOT index " + indexNumber + " collides with reserved " + databaseType + " NamePage dictionary slots");
     }
   }
 }

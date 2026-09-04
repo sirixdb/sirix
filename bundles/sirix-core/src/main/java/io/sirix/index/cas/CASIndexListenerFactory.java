@@ -13,8 +13,8 @@ import io.sirix.index.path.summary.PathSummaryReader;
  * Factory for creating CAS index listeners.
  */
 public final class CASIndexListenerFactory {
-  public CASIndexListener create(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummaryReader,
-      final IndexDef indexDef) {
+  public CASIndexListener create(final StorageEngineWriter storageEngineWriter,
+      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     requireNonNull(storageEngineWriter);
     requireNonNull(indexDef);
     if (indexDef.getType() != IndexType.CAS) {

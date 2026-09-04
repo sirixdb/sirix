@@ -153,8 +153,7 @@ final class FreshRecordPageAllocationTest {
         if (storeDeweyIds) {
           modified.setDeweyId(deweyId, 37);
         }
-        assertEquals(PageConstants.MAX_RECORD_SIZE,
-            PageLayout.getDirDataLength(modified.getSlottedPage(), 37),
+        assertEquals(PageConstants.MAX_RECORD_SIZE, PageLayout.getDirDataLength(modified.getSlottedPage(), 37),
             "the record body and optional Dewey metadata must exercise the exact inline boundary");
 
         final PageReference writtenReference = new PageReference();

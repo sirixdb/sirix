@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * colliding second tuple is not searched for — it is SOLVED for:
  *
  * <pre>
- *   c1 = invMix(((FNV_SEED * FNV_PRIME ^ mix(b0)) * FNV_PRIME) ^ hTarget)
+ * c1 = invMix(((FNV_SEED * FNV_PRIME ^ mix(b0)) * FNV_PRIME) ^ hTarget)
  * </pre>
  *
  * Every test here first ASSERTS that its two tuples really do collide under the kernel's own
@@ -106,10 +106,10 @@ final class CompositeGroupIdentityCollisionTest {
 
     final long[] idA = {0L, A0, A1};
     final long[] idB = {0L, B0, b1};
-    table.storageAtAccBase(table.acquireExact(key, 1L, idA, 0))[table
-        .offsetAtAccBase(table.acquireExact(key, 1L, idA, 0))] += 7;
-    table.storageAtAccBase(table.acquireExact(key, 2L, idB, 0))[table
-        .offsetAtAccBase(table.acquireExact(key, 2L, idB, 0))] += 11;
+    table.storageAtAccBase(table.acquireExact(key, 1L, idA, 0))[table.offsetAtAccBase(
+        table.acquireExact(key, 1L, idA, 0))] += 7;
+    table.storageAtAccBase(table.acquireExact(key, 2L, idB, 0))[table.offsetAtAccBase(
+        table.acquireExact(key, 2L, idB, 0))] += 11;
 
     // Force several growths around the pair.
     final long[] filler = new long[width];
@@ -203,8 +203,8 @@ final class CompositeGroupIdentityCollisionTest {
     final int width = CompositeGroupIdentity.width(kinds, null);
     final NumericGroupAggTable table = new NumericGroupAggTable(0, 16, true, -1L, width);
 
-    final long[] realZero = {0L, 0L, 7L};                // component 0 present, value 0
-    final long[] missing = {1L, 0L, 7L};                 // component 0 absent (mask bit 0 set)
+    final long[] realZero = {0L, 0L, 7L}; // component 0 present, value 0
+    final long[] missing = {1L, 0L, 7L}; // component 0 absent (mask bit 0 set)
     final int a = table.acquireExact(123L, 1L, realZero, 0);
     final int b = table.acquireExact(123L, 2L, missing, 0);
     assertNotEquals(a, b, "an absent component must not merge with a stored zero");

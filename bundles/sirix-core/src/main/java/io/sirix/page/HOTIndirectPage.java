@@ -494,9 +494,11 @@ public final class HOTIndirectPage implements Page {
    * {@link #findChildIndex(byte[])} over the first {@code keyLen} bytes of an oversized reusable
    * serialization buffer.
    *
-   * <p>The mutation path serializes keys into writer-confined buffers with spare capacity. Routing
+   * <p>
+   * The mutation path serializes keys into writer-confined buffers with spare capacity. Routing
    * directly from that valid prefix avoids allocating an exact-size array for every descent while
-   * preserving the original zero-padding semantics beyond the logical end of the key.</p>
+   * preserving the original zero-padding semantics beyond the logical end of the key.
+   * </p>
    *
    * @param key buffer containing the search key
    * @param keyLen number of valid key bytes
@@ -852,20 +854,21 @@ public final class HOTIndirectPage implements Page {
     // cacheChildFirstKey can observe null, this writer can then observe null and skip the clear,
     // and the reader's subsequent store installs a memo holding the PRE-rewrite first key that
     // nothing will ever invalidate — after which a lower-bound sibling probe can use stale range
-    // metadata and skip a subtree that holds in-range keys. The store also supplies the release edge that publishes
+    // metadata and skip a subtree that holds in-range keys. The store also supplies the release edge
+    // that publishes
     // the plain childReferences[] write above.
     childFirstKeyCache = null;
   }
 
   /**
-   * Lazily memoized subtree first-key per child, for lower-bound sibling probes in read-only sessions.
-   * PURELY an in-memory memo of derivable data — never serialized, never consulted by writers (a
-   * write transaction can re-point a child {@link PageReference}'s page without touching this node,
-   * which no parent-local invalidation can observe; the trie reader therefore only reads/fills this
-   * when its storage engine is a read-only snapshot, where everything below a committed reference is
-   * immutable — swizzling and eviction reload the same revision's content). {@code volatile} +
-   * {@link AtomicReferenceArray} so concurrent readers sharing this committed page object publish
-   * cached keys safely; racing initializers are idempotent. The in-place mutators
+   * Lazily memoized subtree first-key per child, for lower-bound sibling probes in read-only
+   * sessions. PURELY an in-memory memo of derivable data — never serialized, never consulted by
+   * writers (a write transaction can re-point a child {@link PageReference}'s page without touching
+   * this node, which no parent-local invalidation can observe; the trie reader therefore only
+   * reads/fills this when its storage engine is a read-only snapshot, where everything below a
+   * committed reference is immutable — swizzling and eviction reload the same revision's content).
+   * {@code volatile} + {@link AtomicReferenceArray} so concurrent readers sharing this committed page
+   * object publish cached keys safely; racing initializers are idempotent. The in-place mutators
    * ({@link #setChildReference}, {@link #sortChildrenByFirstKey}) clear it defensively.
    */
   private volatile @Nullable AtomicReferenceArray<byte[]> childFirstKeyCache;
@@ -1500,7 +1503,8 @@ public final class HOTIndirectPage implements Page {
     // cacheChildFirstKey can observe null, this writer can then observe null and skip the clear,
     // and the reader's subsequent store installs a memo holding the PRE-rewrite first key that
     // nothing will ever invalidate — after which a lower-bound sibling probe can use stale range
-    // metadata and skip a subtree that holds in-range keys. The store also supplies the release edge that publishes
+    // metadata and skip a subtree that holds in-range keys. The store also supplies the release edge
+    // that publishes
     // the plain childReferences[] write above.
     childFirstKeyCache = null;
     return false;

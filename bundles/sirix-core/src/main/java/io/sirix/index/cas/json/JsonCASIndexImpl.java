@@ -26,8 +26,8 @@ public final class JsonCASIndexImpl implements JsonCASIndex {
   }
 
   @Override
-  public JsonCASIndexListener createListener(StorageEngineWriter storageEngineWriter, PathSummaryReader pathSummaryReader,
-      IndexDef indexDef) {
+  public JsonCASIndexListener createListener(StorageEngineWriter storageEngineWriter,
+      PathSummaryReader pathSummaryReader, IndexDef indexDef) {
     final var indexListenerDelegate = casIndexListenerFactory.create(storageEngineWriter, pathSummaryReader, indexDef);
     return new JsonCASIndexListener(indexListenerDelegate);
   }

@@ -86,21 +86,18 @@ public final class IndexDef implements Materializable {
   private int hnswEfSearch = 50;
 
   /**
-   * Projection-index state. {@link #paths} holds exactly one entry — the
-   * projection's root path (e.g. {@code $doc[]}) — while
-   * {@link #projectionFields} is an ordered list of the declared sub-field
-   * paths, each paired with its declared value type. The ordering matters:
-   * column layout in every leaf page mirrors this list, so look-ups at
-   * scan time are {@code fields.get(i) → leafPage.longCol[i]} and friends
-   * without a hash probe.
+   * Projection-index state. {@link #paths} holds exactly one entry — the projection's root path (e.g.
+   * {@code $doc[]}) — while {@link #projectionFields} is an ordered list of the declared sub-field
+   * paths, each paired with its declared value type. The ordering matters: column layout in every
+   * leaf page mirrors this list, so look-ups at scan time are
+   * {@code fields.get(i) → leafPage.longCol[i]} and friends without a hash probe.
    */
   private final ArrayList<Path<QNm>> projectionFields = new ArrayList<>();
 
   /**
-   * Per-field declared value type, index-aligned with
-   * {@link #projectionFields}. Determines the leaf-page column kind:
-   * numeric → packed {@code long[]}, boolean → bit array,
-   * string → dict-id {@code int[]} with a per-leaf local dictionary.
+   * Per-field declared value type, index-aligned with {@link #projectionFields}. Determines the
+   * leaf-page column kind: numeric → packed {@code long[]}, boolean → bit array, string → dict-id
+   * {@code int[]} with a per-leaf local dictionary.
    */
   private final ArrayList<Type> projectionFieldTypes = new ArrayList<>();
 
@@ -159,11 +156,11 @@ public final class IndexDef implements Materializable {
   }
 
   /**
-   * Valid-time (bitemporal) interval index. Indexes the two valid-time paths
-   * ({@code validFrom} / {@code validTo}) as a persistent Relational-Interval-Tree for stabbing
-   * queries. The valid-time field local names are taken from the resource's
-   * {@link io.sirix.access.ValidTimeConfig} at build/maintain time; {@code paths} carries the two
-   * indexed paths (for parity with the CAS index and for index identification).
+   * Valid-time (bitemporal) interval index. Indexes the two valid-time paths ({@code validFrom} /
+   * {@code validTo}) as a persistent Relational-Interval-Tree for stabbing queries. The valid-time
+   * field local names are taken from the resource's {@link io.sirix.access.ValidTimeConfig} at
+   * build/maintain time; {@code paths} carries the two indexed paths (for parity with the CAS index
+   * and for index identification).
    */
   IndexDef(final Set<Path<QNm>> paths, final int indexDefNo, final DbType dbType, final boolean validTimeMarker) {
     type = IndexType.VALIDTIME;
@@ -176,8 +173,8 @@ public final class IndexDef implements Materializable {
   /**
    * Vector index.
    */
-  IndexDef(final int dimension, final String distanceType, final Set<Path<QNm>> paths,
-      final int hnswM, final int hnswEfConstruction, final int indexDefNo, final DbType dbType) {
+  IndexDef(final int dimension, final String distanceType, final Set<Path<QNm>> paths, final int hnswM,
+      final int hnswEfConstruction, final int indexDefNo, final DbType dbType) {
     type = IndexType.VECTOR;
     this.dimension = dimension;
     this.distanceType = requireNonNull(distanceType);
@@ -192,9 +189,8 @@ public final class IndexDef implements Materializable {
   /**
    * Vector index with custom efSearch.
    */
-  IndexDef(final int dimension, final String distanceType, final Set<Path<QNm>> paths,
-      final int hnswM, final int hnswEfConstruction, final int hnswEfSearch,
-      final int indexDefNo, final DbType dbType) {
+  IndexDef(final int dimension, final String distanceType, final Set<Path<QNm>> paths, final int hnswM,
+      final int hnswEfConstruction, final int hnswEfSearch, final int indexDefNo, final DbType dbType) {
     type = IndexType.VECTOR;
     this.dimension = dimension;
     this.distanceType = requireNonNull(distanceType);
@@ -207,31 +203,24 @@ public final class IndexDef implements Materializable {
   }
 
   /**
-   * Projection index. Stores a covering index over {@code rootPath} with
-   * one column per declared field in {@code fieldPaths}, in order.
-   * {@code fieldTypes} is index-aligned to {@code fieldPaths} and declares
-   * each column's value type (numeric/boolean/string) so the HOT leaf
-   * layout can pick the right primitive column shape.
+   * Projection index. Stores a covering index over {@code rootPath} with one column per declared
+   * field in {@code fieldPaths}, in order. {@code fieldTypes} is index-aligned to {@code fieldPaths}
+   * and declares each column's value type (numeric/boolean/string) so the HOT leaf layout can pick
+   * the right primitive column shape.
    *
-   * @param rootPath      projection root (e.g. {@code $doc[]}) — every
-   *                      descendant that matches this path contributes
-   *                      one row to the index.
-   * @param fieldPaths    ordered field sub-paths relative to
-   *                      {@code rootPath}; duplicates rejected by
-   *                      caller. Order matters — it's the leaf-page
-   *                      column order at scan time.
-   * @param fieldTypes    one type per {@code fieldPaths} entry.
-   * @param indexDefNo    stable id slot for this index in the resource's
-   *                      index catalogue.
-   * @param dbType        XML / JSON — the projection is shaped by the
-   *                      shredder, same as other indexes.
+   * @param rootPath projection root (e.g. {@code $doc[]}) — every descendant that matches this path
+   *        contributes one row to the index.
+   * @param fieldPaths ordered field sub-paths relative to {@code rootPath}; duplicates rejected by
+   *        caller. Order matters — it's the leaf-page column order at scan time.
+   * @param fieldTypes one type per {@code fieldPaths} entry.
+   * @param indexDefNo stable id slot for this index in the resource's index catalogue.
+   * @param dbType XML / JSON — the projection is shaped by the shredder, same as other indexes.
    */
-  IndexDef(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
-      final List<Type> fieldTypes, final int indexDefNo, final DbType dbType) {
+  IndexDef(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes,
+      final int indexDefNo, final DbType dbType) {
     if (fieldPaths.size() != fieldTypes.size()) {
-      throw new IllegalArgumentException(
-          "projection field-path count (" + fieldPaths.size()
-              + ") must match field-type count (" + fieldTypes.size() + ")");
+      throw new IllegalArgumentException("projection field-path count (" + fieldPaths.size()
+          + ") must match field-type count (" + fieldTypes.size() + ")");
     }
     type = IndexType.PROJECTION;
     this.paths.add(requireNonNull(rootPath));
@@ -278,8 +267,7 @@ public final class IndexDef implements Materializable {
       tmp.openElement(PROJECTION_FIELDS_TAG);
       for (int i = 0, n = projectionFields.size(); i < n; i++) {
         tmp.openElement(PROJECTION_FIELD_TAG);
-        tmp.attribute(PROJECTION_FIELD_TYPE_ATTRIBUTE,
-            new Una(projectionFieldTypes.get(i).toString()));
+        tmp.attribute(PROJECTION_FIELD_TYPE_ATTRIBUTE, new Una(projectionFieldTypes.get(i).toString()));
         tmp.content(projectionFields.get(i).toString());
         tmp.closeElement();
       }
@@ -414,13 +402,15 @@ public final class IndexDef implements Materializable {
           try (Stream<? extends Node<?>> fieldNodes = child.getChildren()) {
             Node<?> fieldNode;
             while ((fieldNode = fieldNodes.next()) != null) {
-              if (!fieldNode.getName().equals(PROJECTION_FIELD_TAG)) continue;
+              if (!fieldNode.getName().equals(PROJECTION_FIELD_TAG))
+                continue;
               final Node<?> typeAttr = fieldNode.getAttribute(PROJECTION_FIELD_TYPE_ATTRIBUTE);
               final Type fieldType = typeAttr != null
                   ? resolveType(typeAttr.getValue().stringValue())
                   : Type.STR;
-              projectionFields.add(Path.parse(fieldNode.getValue().stringValue(),
-                  dbType == DbType.JSON ? PathParser.Type.JSON : PathParser.Type.XML));
+              projectionFields.add(Path.parse(fieldNode.getValue().stringValue(), dbType == DbType.JSON
+                  ? PathParser.Type.JSON
+                  : PathParser.Type.XML));
               projectionFieldTypes.add(fieldType);
             }
           }
@@ -465,32 +455,31 @@ public final class IndexDef implements Materializable {
   }
 
   /**
-   * Ordered list of projection-index sub-field paths. Index {@code i} in the
-   * returned list matches column {@code i} in every leaf page of the
-   * projection's HOT sub-tree. Only meaningful for {@link IndexType#PROJECTION}.
+   * Ordered list of projection-index sub-field paths. Index {@code i} in the returned list matches
+   * column {@code i} in every leaf page of the projection's HOT sub-tree. Only meaningful for
+   * {@link IndexType#PROJECTION}.
    */
   public List<Path<QNm>> getProjectionFields() {
     return Collections.unmodifiableList(projectionFields);
   }
 
   /**
-   * Value types for the projection's columns, index-aligned with
-   * {@link #getProjectionFields()}. Drives the leaf-page column layout:
-   * {@code INR}/{@code LON} → packed {@code long[]}, {@code BOOL} → bit
-   * array, {@code STR} → dict-id {@code int[]} plus per-leaf local dict.
+   * Value types for the projection's columns, index-aligned with {@link #getProjectionFields()}.
+   * Drives the leaf-page column layout: {@code INR}/{@code LON} → packed {@code long[]}, {@code BOOL}
+   * → bit array, {@code STR} → dict-id {@code int[]} plus per-leaf local dict.
    */
   public List<Type> getProjectionFieldTypes() {
     return Collections.unmodifiableList(projectionFieldTypes);
   }
 
   /**
-   * For a projection index, the declared root path (e.g. {@code $doc[]});
-   * every descendant matching this path contributes a row. Returns
-   * {@code null} when the index isn't a projection or its root hasn't
-   * been declared.
+   * For a projection index, the declared root path (e.g. {@code $doc[]}); every descendant matching
+   * this path contributes a row. Returns {@code null} when the index isn't a projection or its root
+   * hasn't been declared.
    */
   public Path<QNm> getProjectionRootPath() {
-    if (type != IndexType.PROJECTION || paths.isEmpty()) return null;
+    if (type != IndexType.PROJECTION || paths.isEmpty())
+      return null;
     return paths.iterator().next();
   }
 
@@ -556,39 +545,35 @@ public final class IndexDef implements Materializable {
   /**
    * Compare the complete persisted meaning of two index definitions.
    *
-   * <p>{@link #equals(Object)} deliberately identifies the catalogue slot by {@code (id,type)}.
-   * Creation and listener binding need a stronger check: silently accepting the same physical slot
-   * with different paths, filters, value types, projection columns, or vector parameters would make
-   * the catalogue describe one index while the writer maintained another.</p>
+   * <p>
+   * {@link #equals(Object)} deliberately identifies the catalogue slot by {@code (id,type)}. Creation
+   * and listener binding need a stronger check: silently accepting the same physical slot with
+   * different paths, filters, value types, projection columns, or vector parameters would make the
+   * catalogue describe one index while the writer maintained another.
+   * </p>
    *
-   * <p>Paths are compared in their PERSISTED form. {@link #materialize()} stores every path as
+   * <p>
+   * Paths are compared in their PERSISTED form. {@link #materialize()} stores every path as
    * {@link Path#toString()} and {@link #init(Node)} parses that text back, and the parser does not
    * reproduce the internal step representation for every spelling it accepts: a relative JSON name
    * such as {@code foo} parses with a CHILD step, prints as {@code ./foo}, and re-parses as
    * CHILD_OBJECT_FIELD, so {@link Path#equals(Object)} reports a definition as different from its own
    * persisted copy. The catalogue re-binds listeners from that copy on every commit; comparing the
-   * printed form is what makes a definition equal to what the catalogue will hand back.</p>
+   * printed form is what makes a definition equal to what the catalogue will hand back.
+   * </p>
    *
    * @param other definition to compare
    * @return {@code true} only when every persisted semantic field is equal
    */
   public boolean hasSameDefinition(final IndexDef other) {
     requireNonNull(other);
-    return id == other.id
-        && type == other.type
-        && dbType == other.dbType
-        && unique == other.unique
-        && Objects.equals(contentType, other.contentType)
-        && samePersistedPaths(paths, other.paths)
-        && included.equals(other.included)
-        && excluded.equals(other.excluded)
+    return id == other.id && type == other.type && dbType == other.dbType && unique == other.unique
+        && Objects.equals(contentType, other.contentType) && samePersistedPaths(paths, other.paths)
+        && included.equals(other.included) && excluded.equals(other.excluded)
         && samePersistedPaths(projectionFields, other.projectionFields)
-        && projectionFieldTypes.equals(other.projectionFieldTypes)
-        && dimension == other.dimension
-        && Objects.equals(distanceType, other.distanceType)
-        && hnswM == other.hnswM
-        && hnswEfConstruction == other.hnswEfConstruction
-        && hnswEfSearch == other.hnswEfSearch;
+        && projectionFieldTypes.equals(other.projectionFieldTypes) && dimension == other.dimension
+        && Objects.equals(distanceType, other.distanceType) && hnswM == other.hnswM
+        && hnswEfConstruction == other.hnswEfConstruction && hnswEfSearch == other.hnswEfSearch;
   }
 
   /**

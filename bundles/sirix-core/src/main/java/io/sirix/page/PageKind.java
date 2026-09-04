@@ -150,8 +150,8 @@ public enum PageKind {
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final byte flags = readVersionAndFlagsAllowing(source, ALLOWED_FLAGS);
       final boolean chunkedBody = (flags & ChunkedBodyConfig.FLAG_CHUNKED_BODY) != 0;
-      return deserializeSlottedPage(resourceConfig, source, chunkedBody,
-          (flags & FLAG_OVERFLOW_SLOT_SIDECAR) != 0, chunkedBody);
+      return deserializeSlottedPage(resourceConfig, source, chunkedBody, (flags & FLAG_OVERFLOW_SLOT_SIDECAR) != 0,
+          chunkedBody);
     }
 
     @Override
@@ -333,18 +333,17 @@ public enum PageKind {
         bitmapCount += Long.bitCount(PageLayout.getBitmapWord(headerBitmap, word));
       }
       if (bitmapCount != populatedCount) {
-        throw new SirixIOException("page " + pageKey + " populated-count/bitmap mismatch: header="
-            + populatedCount + " bitmap=" + bitmapCount);
+        throw new SirixIOException("page " + pageKey + " populated-count/bitmap mismatch: header=" + populatedCount
+            + " bitmap=" + bitmapCount);
       }
     }
 
     /** Bound a wire heap by the per-entry inline ceiling before sizing retained native scratch. */
-    private static void validateOnDiskHeapSize(final long pageKey, final int populatedCount,
-        final int onDiskHeapSize) {
+    private static void validateOnDiskHeapSize(final long pageKey, final int populatedCount, final int onDiskHeapSize) {
       final long maximum = (long) populatedCount * PageConstants.MAX_RECORD_SIZE;
       if (onDiskHeapSize < 0 || onDiskHeapSize > maximum) {
-        throw new SirixIOException("page " + pageKey + " has invalid on-disk heap size " + onDiskHeapSize
-            + " for " + populatedCount + " entries (maximum " + maximum + ")");
+        throw new SirixIOException("page " + pageKey + " has invalid on-disk heap size " + onDiskHeapSize + " for "
+            + populatedCount + " entries (maximum " + maximum + ")");
       }
     }
 
@@ -360,24 +359,23 @@ public enum PageKind {
     private static void validateEncodedLength(final long pageKey, final String section, final int encodedLength,
         final BytesIn<?> source) {
       if (encodedLength < 0 || encodedLength > source.remaining()) {
-        throw new SirixIOException("page " + pageKey + " has invalid " + section + " length " + encodedLength
-            + "; " + source.remaining() + " source bytes remain");
+        throw new SirixIOException("page " + pageKey + " has invalid " + section + " length " + encodedLength + "; "
+            + source.remaining() + " source bytes remain");
       }
     }
 
     /**
-     * Prove that compact lengths describe exactly the heap and, for chunked pages, exactly each
-     * chunk. This runs before the full page allocation and before any directory offset is installed.
+     * Prove that compact lengths describe exactly the heap and, for chunked pages, exactly each chunk.
+     * This runs before the full page allocation and before any directory offset is installed.
      */
-    private static void validateCompactDirectory(final long pageKey, final int[] compactDir,
-        final int populatedCount, final int onDiskHeapSize, final boolean deduplicated,
-        final boolean chunkedBody) {
+    private static void validateCompactDirectory(final long pageKey, final int[] compactDir, final int populatedCount,
+        final int onDiskHeapSize, final boolean deduplicated, final boolean chunkedBody) {
       long heapBytes = 0;
       for (int entry = 0; entry < populatedCount; entry++) {
         final int length = PageLayout.unpackDataLength(compactDir[entry]);
         if (deduplicated && length < 2) {
-          throw new SirixIOException("page " + pageKey + " deduplicated entry " + entry
-              + " is shorter than kindId+templateId: " + length);
+          throw new SirixIOException(
+              "page " + pageKey + " deduplicated entry " + entry + " is shorter than kindId+templateId: " + length);
         }
         heapBytes += length;
       }
@@ -395,8 +393,8 @@ public enum PageKind {
         final int first = table.firstEntry[chunk];
         final int count = table.entryCount[chunk];
         if (first != coveredEntries || count <= 0 || first > populatedCount - count) {
-          throw new SirixIOException("page " + pageKey + " has invalid compact-directory range for chunk "
-              + chunk + ": first=" + first + " count=" + count);
+          throw new SirixIOException("page " + pageKey + " has invalid compact-directory range for chunk " + chunk
+              + ": first=" + first + " count=" + count);
         }
         long chunkBytes = 0;
         final int end = first + count;
@@ -404,8 +402,8 @@ public enum PageKind {
           chunkBytes += PageLayout.unpackDataLength(compactDir[entry]);
         }
         if (chunkBytes != table.rawLen[chunk]) {
-          throw new SirixIOException("page " + pageKey + " compact directory covers " + chunkBytes
-              + " bytes in chunk " + chunk + ", table declares " + table.rawLen[chunk]);
+          throw new SirixIOException("page " + pageKey + " compact directory covers " + chunkBytes + " bytes in chunk "
+              + chunk + ", table declares " + table.rawLen[chunk]);
         }
         coveredEntries = end;
       }
@@ -517,8 +515,8 @@ public enum PageKind {
           // materialized into the slotted-page allocation further below.
           templatePoolBytes = source.readInt();
           if (templatePoolBytes != 0) {
-            throw new SirixIOException("page " + recordPageKey + " has no templates but declares a "
-                + templatePoolBytes + "-byte template pool");
+            throw new SirixIOException("page " + recordPageKey + " has no templates but declares a " + templatePoolBytes
+                + "-byte template pool");
           }
           templatePool = null;
           templateOffsets = null;
@@ -554,8 +552,8 @@ public enum PageKind {
           inMemHeapSize = onDiskHeapSize;
 
           final int compactDirBytes = PageLayout.COMPACT_DIR_ENTRY_SIZE * populatedCount;
-          final int totalBlobBytes = checkedPageBodySize(recordPageKey, "inline decoded body",
-              (long) compactDirBytes + onDiskHeapSize);
+          final int totalBlobBytes =
+              checkedPageBodySize(recordPageKey, "inline decoded body", (long) compactDirBytes + onDiskHeapSize);
           final MemorySegment blobStaging;
           final int decodedBlobBytes;
           if (chunkedBody) {
@@ -621,8 +619,7 @@ public enum PageKind {
 
           // Parse compactDir from the first section of the blob.
           for (int i = 0; i < populatedCount; i++) {
-            compactDir[i] =
-                PageLayout.readCompactDirEntry(blobStaging, (long) i * PageLayout.COMPACT_DIR_ENTRY_SIZE);
+            compactDir[i] = PageLayout.readCompactDirEntry(blobStaging, (long) i * PageLayout.COMPACT_DIR_ENTRY_SIZE);
           }
           validateCompactDirectory(recordPageKey, compactDir, populatedCount, onDiskHeapSize, false, chunkedBody);
           // Stash the staging blob and the heap offset (compactDirBytes) so
@@ -650,8 +647,8 @@ public enum PageKind {
                 + Integer.toHexString(extendedFlags));
           }
           if ((structuralFlags & STRUCT_FLAG_EXTENDED) != 0 && extendedFlags == 0) {
-            throw new SirixIOException("page " + recordPageKey
-                + " announces an extended structural-flags byte that turns nothing on");
+            throw new SirixIOException(
+                "page " + recordPageKey + " announces an extended structural-flags byte that turns nothing on");
           }
           rightSibColumnActive = (extendedFlags & EXT_FLAG_RIGHT_SIB_COLUMN) != 0;
           leftSibColumnActive = (extendedFlags & EXT_FLAG_LEFT_SIB_COLUMN) != 0;
@@ -665,20 +662,20 @@ public enum PageKind {
           // stays readable beside one written after.
           derivedElisionSections = (structuralFlags & STRUCT_FLAG_DERIVED_ELISION) != 0;
           if (derivedElisionSections && !valueElisionActive && !nameKeyElisionActive) {
-            throw new SirixIOException("page " + recordPageKey
-                + " declares derived elision sections but carries neither elision section");
+            throw new SirixIOException(
+                "page " + recordPageKey + " declares derived elision sections but carries neither elision section");
           }
           if (derivedElisionSections) {
             elisionDeriver = READER_ELISION_DERIVER.get();
           }
           templatePoolBytes = source.readInt();
           if (templateCount > populatedCount) {
-            throw new SirixIOException("page " + recordPageKey + " declares " + templateCount
-                + " templates for " + populatedCount + " entries");
+            throw new SirixIOException("page " + recordPageKey + " declares " + templateCount + " templates for "
+                + populatedCount + " entries");
           }
           if (templatePoolBytes < 0 || templatePoolBytes > MAX_TEMPLATE_POOL_BYTES) {
-            throw new SirixIOException("page " + recordPageKey + " has invalid template-pool size "
-                + templatePoolBytes + " (maximum " + MAX_TEMPLATE_POOL_BYTES + ")");
+            throw new SirixIOException("page " + recordPageKey + " has invalid template-pool size " + templatePoolBytes
+                + " (maximum " + MAX_TEMPLATE_POOL_BYTES + ")");
           }
 
           final int compactDirBytes = PageLayout.COMPACT_DIR_ENTRY_SIZE * populatedCount;
@@ -716,13 +713,28 @@ public enum PageKind {
                   ? ElisionDeriver.maxNameKeySectionBytes(populatedCount)
                   : 4 + populatedCount);
           final int minimumMetadataBytes = checkedPageBodySize(recordPageKey, "minimum deduplicated META",
-              (long) compactDirBytes + templatePoolBytes + populatedCount + hashBitmapBytes
-                  + (parentKeyColumnActive ? Integer.BYTES : 0)
-                  + (rightSibColumnActive ? Integer.BYTES : 0)
-                  + (leftSibColumnActive ? Integer.BYTES : 0)
-                  + (pathNodeKeyColumnActive ? Integer.BYTES : 0)
-                  + (valueElisionActive ? (derivedElisionSections ? 1 : Integer.BYTES) : 0)
-                  + (nameKeyElisionActive ? (derivedElisionSections ? 1 : Integer.BYTES) : 0));
+              (long) compactDirBytes + templatePoolBytes + populatedCount + hashBitmapBytes + (parentKeyColumnActive
+                  ? Integer.BYTES
+                  : 0)
+                  + (rightSibColumnActive
+                      ? Integer.BYTES
+                      : 0)
+                  + (leftSibColumnActive
+                      ? Integer.BYTES
+                      : 0)
+                  + (pathNodeKeyColumnActive
+                      ? Integer.BYTES
+                      : 0)
+                  + (valueElisionActive
+                      ? (derivedElisionSections
+                          ? 1
+                          : Integer.BYTES)
+                      : 0)
+                  + (nameKeyElisionActive
+                      ? (derivedElisionSections
+                          ? 1
+                          : Integer.BYTES)
+                      : 0));
           final int maximumMetadataBytes = checkedPageBodySize(recordPageKey, "maximum deduplicated META",
               (long) compactDirBytes + templatePoolBytes + populatedCount + hashBitmapBytes + maxParentKeyColBytes
                   + maxRightSibColBytes + maxLeftSibColBytes + maxPathNodeKeyColBytes + maxValueElisionBytes
@@ -835,9 +847,9 @@ public enum PageKind {
             }
             metadataLength = actualBlobBytes - onDiskHeapSize;
             if (metadataLength < minimumMetadataBytes || metadataLength > maximumMetadataBytes) {
-              throw new SirixIOException("page " + recordPageKey + " has a " + metadataLength
-                  + "-byte deduplicated META section, expected [" + minimumMetadataBytes + ','
-                  + maximumMetadataBytes + "]");
+              throw new SirixIOException(
+                  "page " + recordPageKey + " has a " + metadataLength + "-byte deduplicated META section, expected ["
+                      + minimumMetadataBytes + ',' + maximumMetadataBytes + "]");
             }
           }
 
@@ -1011,38 +1023,38 @@ public enum PageKind {
               blobPos = elisionDeriver.parseValueSection(metadataStaging, blobPos, populatedCount, metadataLength);
               valueElidedCount = 0;
             } else {
-            final int vb0 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos) & 0xFF;
-            final int vb1 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 1) & 0xFF;
-            final int vb2 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 2) & 0xFF;
-            final int vb3 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 3) & 0xFF;
-            valueElidedCount = (vb0 << 24) | (vb1 << 16) | (vb2 << 8) | vb3;
-            blobPos += 4;
-            if (valueElidedCount < 0 || valueElidedCount > populatedCount) {
-              throw new SirixIOException("invalid value-elision count: " + valueElidedCount);
-            }
-            int prevSlot = -1;
-            for (int e = 0; e < valueElidedCount; e++) {
-              final int gap = DeltaVarIntCodec.decodeSignedFromSegment(metadataStaging, blobPos);
-              blobPos += DeltaVarIntCodec.computeSignedEncodedWidth(gap);
-              final int slot = prevSlot + gap;
-              if (gap <= 0 || slot >= PageLayout.SLOT_COUNT) {
-                throw new SirixIOException(
-                    "value-elision entry " + e + " has slot " + slot + " (gap " + gap + "), outside the page");
+              final int vb0 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos) & 0xFF;
+              final int vb1 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 1) & 0xFF;
+              final int vb2 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 2) & 0xFF;
+              final int vb3 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 3) & 0xFF;
+              valueElidedCount = (vb0 << 24) | (vb1 << 16) | (vb2 << 8) | vb3;
+              blobPos += 4;
+              if (valueElidedCount < 0 || valueElidedCount > populatedCount) {
+                throw new SirixIOException("invalid value-elision count: " + valueElidedCount);
               }
-              prevSlot = slot;
-              valueElidedSlots[e] = (short) slot;
-              valueElidedTypes[e] = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos);
-              blobPos += 1;
-              final int width = DeltaVarIntCodec.decodeSignedFromSegment(metadataStaging, blobPos);
-              blobPos += DeltaVarIntCodec.computeSignedEncodedWidth(width);
-              valueElidedWidths[e] = width;
-              final int absIdx = DeltaVarIntCodec.decodeSignedFromSegment(metadataStaging, blobPos);
-              blobPos += DeltaVarIntCodec.computeSignedEncodedWidth(absIdx);
-              if (absIdx < 0) {
-                throw new SirixIOException("value-elision entry " + e + " has negative region index " + absIdx);
+              int prevSlot = -1;
+              for (int e = 0; e < valueElidedCount; e++) {
+                final int gap = DeltaVarIntCodec.decodeSignedFromSegment(metadataStaging, blobPos);
+                blobPos += DeltaVarIntCodec.computeSignedEncodedWidth(gap);
+                final int slot = prevSlot + gap;
+                if (gap <= 0 || slot >= PageLayout.SLOT_COUNT) {
+                  throw new SirixIOException(
+                      "value-elision entry " + e + " has slot " + slot + " (gap " + gap + "), outside the page");
+                }
+                prevSlot = slot;
+                valueElidedSlots[e] = (short) slot;
+                valueElidedTypes[e] = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos);
+                blobPos += 1;
+                final int width = DeltaVarIntCodec.decodeSignedFromSegment(metadataStaging, blobPos);
+                blobPos += DeltaVarIntCodec.computeSignedEncodedWidth(width);
+                valueElidedWidths[e] = width;
+                final int absIdx = DeltaVarIntCodec.decodeSignedFromSegment(metadataStaging, blobPos);
+                blobPos += DeltaVarIntCodec.computeSignedEncodedWidth(absIdx);
+                if (absIdx < 0) {
+                  throw new SirixIOException("value-elision entry " + e + " has negative region index " + absIdx);
+                }
+                valueElidedAbsIdx[e] = absIdx;
               }
-              valueElidedAbsIdx[e] = absIdx;
-            }
             }
             valueOffs = SLOT_VALUE_OFF_SCRATCH.get();
             valueWidths = SLOT_VALUE_WIDTH_SCRATCH.get();
@@ -1075,21 +1087,21 @@ public enum PageKind {
                 SLOT_NAME_KEY_WIDTH_PACKED_SCRATCH.set(widthScratch);
               }
             } else {
-            final int nb0 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos) & 0xFF;
-            final int nb1 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 1) & 0xFF;
-            final int nb2 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 2) & 0xFF;
-            final int nb3 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 3) & 0xFF;
-            final int elidedCount = (nb0 << 24) | (nb1 << 16) | (nb2 << 8) | nb3;
-            blobPos += 4;
-            if (elidedCount < 0 || elidedCount > populatedCount) {
-              throw new SirixIOException("invalid name-key elision count: " + elidedCount);
-            }
-            if (widthScratch.length < elidedCount) {
-              widthScratch = new byte[Math.max(elidedCount, widthScratch.length * 2)];
-              SLOT_NAME_KEY_WIDTH_PACKED_SCRATCH.set(widthScratch);
-            }
-            MemorySegment.copy(metadataStaging, ValueLayout.JAVA_BYTE, blobPos, widthScratch, 0, elidedCount);
-            blobPos += elidedCount;
+              final int nb0 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos) & 0xFF;
+              final int nb1 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 1) & 0xFF;
+              final int nb2 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 2) & 0xFF;
+              final int nb3 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 3) & 0xFF;
+              final int elidedCount = (nb0 << 24) | (nb1 << 16) | (nb2 << 8) | nb3;
+              blobPos += 4;
+              if (elidedCount < 0 || elidedCount > populatedCount) {
+                throw new SirixIOException("invalid name-key elision count: " + elidedCount);
+              }
+              if (widthScratch.length < elidedCount) {
+                widthScratch = new byte[Math.max(elidedCount, widthScratch.length * 2)];
+                SLOT_NAME_KEY_WIDTH_PACKED_SCRATCH.set(widthScratch);
+              }
+              MemorySegment.copy(metadataStaging, ValueLayout.JAVA_BYTE, blobPos, widthScratch, 0, elidedCount);
+              blobPos += elidedCount;
             }
             nameKeyElidedWidthsPacked = widthScratch;
             nameKeyOffs = SLOT_NAME_KEY_OFF_SCRATCH.get();
@@ -1224,8 +1236,8 @@ public enum PageKind {
         // the initial class. At 100M records the working set shrinks from ~68 GB
         // to ~35-40 GB at 64 KiB → 32 KiB splits, dramatically reducing LZ4
         // decompress calls on cache-miss paths (was 21% CPU in the v3 profile).
-        final int allocSize = checkedPageBodySize(recordPageKey, "in-memory slotted page",
-            (long) PageLayout.HEAP_START + inMemHeapSize);
+        final int allocSize =
+            checkedPageBodySize(recordPageKey, "in-memory slotted page", (long) PageLayout.HEAP_START + inMemHeapSize);
         slottedPage = memorySegmentAllocator.allocate(allocSize);
 
         // 5. Copy header + bitmap into page (first 160 bytes)
@@ -1540,10 +1552,9 @@ public enum PageKind {
               zeroHashBitmap, parentKeyColumnActive, parentKeyValues, parentKeyWidths, rightSibColumnActive,
               rightSibKeyValues, rightSibKeyWidths, leftSibColumnActive, leftSibKeyValues, leftSibKeyWidths,
               pathNodeKeyColumnActive, pathNodeKeyColumnBytes, pathNodeKeyColumnLen, pathNodeKeyWidths,
-              valueElisionActive, valueElidedCount,
-              valueElidedSlots, valueElidedTypes, valueElidedWidths, valueElidedAbsIdx, valueOffs, valueWidths,
-              nameKeyElisionActive, nameKeyOffs, nameKeyWidths, slotOfEntry, chunkFirstSlot, chunkLastSlot,
-              chunkHeapFrom, chunkHeapTo);
+              valueElisionActive, valueElidedCount, valueElidedSlots, valueElidedTypes, valueElidedWidths,
+              valueElidedAbsIdx, valueOffs, valueWidths, nameKeyElisionActive, nameKeyOffs, nameKeyWidths, slotOfEntry,
+              chunkFirstSlot, chunkLastSlot, chunkHeapFrom, chunkHeapTo);
         }
 
         return page;
@@ -1792,7 +1803,9 @@ public enum PageKind {
         // either already 22 here (staging) or still its true length (encode/write).
         final byte[] slot0 = keyValueLeafPage.getSlotAsByteArray(0);
         System.err.println("[trie-lane-diag] serialize page=" + keyValueLeafPage.getPageKey() + " thread="
-            + Thread.currentThread().getName() + " slot0staged=" + (slot0 == null ? -1 : slot0.length));
+            + Thread.currentThread().getName() + " slot0staged=" + (slot0 == null
+                ? -1
+                : slot0.length));
       }
 
       byte envelopeFlags = chunkedBody
@@ -2015,8 +2028,8 @@ public enum PageKind {
     }
 
     /**
-     * Persist the rare projection-visible companions which could not fit in the main slotted frame.
-     * The side bitmap supplies slot ids, so entries stay compact and deterministic in slot order.
+     * Persist the rare projection-visible companions which could not fit in the main slotted frame. The
+     * side bitmap supplies slot ids, so entries stay compact and deterministic in slot order.
      */
     private static void writeOverflowSlotSidecar(final BytesOut<?> sink, final KeyValueLeafPage page) {
       final int declaredCount = page.getSideSlotCount();
@@ -2032,13 +2045,13 @@ public enum PageKind {
           continue;
         }
         if (page.getSlot(slot) != null) {
-          throw new IllegalStateException("slot " + slot + " has both inline and sidecar carriers on page "
-              + page.getPageKey());
+          throw new IllegalStateException(
+              "slot " + slot + " has both inline and sidecar carriers on page " + page.getPageKey());
         }
         final long recordKey = (page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT) + slot;
         if (page.getPageReference(recordKey) == null) {
-          throw new IllegalStateException("sidecar slot " + slot + " has no overflow reference on page "
-              + page.getPageKey());
+          throw new IllegalStateException(
+              "sidecar slot " + slot + " has no overflow reference on page " + page.getPageKey());
         }
         final MemorySegment image = page.getSideSlotImage(slot);
         if (image == null) {
@@ -2053,8 +2066,7 @@ public enum PageKind {
           throw new IllegalStateException("sidecar slot " + slot + " has invalid node kind " + kindId);
         }
         if (kindId != 0 && (image.get(ValueLayout.JAVA_BYTE, 0L) & 0xFF) != kindId) {
-          throw new IllegalStateException("sidecar slot " + slot + " kind/image mismatch on page "
-              + page.getPageKey());
+          throw new IllegalStateException("sidecar slot " + slot + " kind/image mismatch on page " + page.getPageKey());
         }
         bitmap.set(slot);
         payloadLength = Math.addExact(payloadLength, 1L + Integer.BYTES + imageLength);
@@ -2086,15 +2098,15 @@ public enum PageKind {
       final BitSet sideSlots = SerializationType.deserializeBitSet(source);
       final int sideSlotCount = source.readInt();
       final int payloadLength = source.readInt();
-      validateOverflowSlotSidecarHeader(page.getPageKey(), sideSlots, sideSlotCount, payloadLength,
-          overlongEntries, source.remaining());
+      validateOverflowSlotSidecarHeader(page.getPageKey(), sideSlots, sideSlotCount, payloadLength, overlongEntries,
+          source.remaining());
 
       final long payloadStart = source.position();
       final byte[] scratch = overflowSlotScratch.get();
       for (int slot = sideSlots.nextSetBit(0); slot >= 0; slot = sideSlots.nextSetBit(slot + 1)) {
         if (PageLayout.isSlotPopulated(page.getSlottedPage(), slot)) {
-          throw new SirixIOException("page " + page.getPageKey() + " slot " + slot
-              + " has both inline and overflow-sidecar carriers");
+          throw new SirixIOException(
+              "page " + page.getPageKey() + " slot " + slot + " has both inline and overflow-sidecar carriers");
         }
         final int kindId = source.readByte() & 0xFF;
         final int imageLength = source.readInt();
@@ -2117,8 +2129,8 @@ public enum PageKind {
     }
 
     /**
-     * Validate and skip a sidecar during a column-only read, while folding its logical definitions
-     * into the fragment bitmap so version reconstruction cannot resurrect an older inline value.
+     * Validate and skip a sidecar during a column-only read, while folding its logical definitions into
+     * the fragment bitmap so version reconstruction cannot resurrect an older inline value.
      */
     private int skipOverflowSlotSidecar(final BytesIn<?> source, final long pageKey, final BitSet overlongEntries,
         final long[] logicalSlotBitmap) {
@@ -2133,8 +2145,8 @@ public enum PageKind {
         final long mask = 1L << (slot & 63);
         final int word = slot >>> 6;
         if ((logicalSlotBitmap[word] & mask) != 0L) {
-          throw new SirixIOException("page " + pageKey + " slot " + slot
-              + " has both inline and overflow-sidecar carriers");
+          throw new SirixIOException(
+              "page " + pageKey + " slot " + slot + " has both inline and overflow-sidecar carriers");
         }
         final int kindId = source.readByte() & 0xFF;
         final int imageLength = source.readInt();
@@ -2145,8 +2157,8 @@ public enum PageKind {
         } else {
           final int imageKind = source.readByte() & 0xFF;
           if (imageKind != kindId) {
-            throw new SirixIOException("page " + pageKey + " sidecar slot " + slot
-                + " kind/image mismatch: declared=" + kindId + ", image=" + imageKind);
+            throw new SirixIOException("page " + pageKey + " sidecar slot " + slot + " kind/image mismatch: declared="
+                + kindId + ", image=" + imageKind);
           }
           source.skip(imageLength - 1L);
         }
@@ -2154,8 +2166,8 @@ public enum PageKind {
       }
       final long consumed = source.position() - payloadStart;
       if (consumed != payloadLength) {
-        throw new SirixIOException("page " + pageKey + " sidecar payload length mismatch: declared="
-            + payloadLength + ", consumed=" + consumed);
+        throw new SirixIOException("page " + pageKey + " sidecar payload length mismatch: declared=" + payloadLength
+            + ", consumed=" + consumed);
       }
       return sideSlotCount;
     }
@@ -2169,25 +2181,24 @@ public enum PageKind {
       final BitSet missingReferences = (BitSet) sideSlots.clone();
       missingReferences.andNot(overlongEntries);
       if (!missingReferences.isEmpty()) {
-        throw new SirixIOException("page " + pageKey + " sidecar slots have no overflow references: "
-            + missingReferences);
+        throw new SirixIOException(
+            "page " + pageKey + " sidecar slots have no overflow references: " + missingReferences);
       }
       if (payloadLength < sideSlotCount * (1 + Integer.BYTES) || payloadLength > remainingBytes) {
-        throw new SirixIOException("page " + pageKey + " has invalid overflow-sidecar payload length "
-            + payloadLength + " (remaining=" + remainingBytes + ')');
+        throw new SirixIOException("page " + pageKey + " has invalid overflow-sidecar payload length " + payloadLength
+            + " (remaining=" + remainingBytes + ')');
       }
     }
 
     private static void validateOverflowSlotImageHeader(final long pageKey, final int slot, final int kindId,
         final int imageLength, final long payloadBytesRemaining) {
       if (kindId != 0 && !KeyValueLeafPage.isFusedAnyObjectNamedKindId(kindId)) {
-        throw new SirixIOException("page " + pageKey + " sidecar slot " + slot
-            + " has unsupported node kind " + kindId);
+        throw new SirixIOException(
+            "page " + pageKey + " sidecar slot " + slot + " has unsupported node kind " + kindId);
       }
-      if (imageLength <= 0 || imageLength > PageConstants.MAX_RECORD_SIZE
-          || imageLength > payloadBytesRemaining) {
-        throw new SirixIOException("page " + pageKey + " sidecar slot " + slot
-            + " has invalid image length " + imageLength + " (payload remaining=" + payloadBytesRemaining + ')');
+      if (imageLength <= 0 || imageLength > PageConstants.MAX_RECORD_SIZE || imageLength > payloadBytesRemaining) {
+        throw new SirixIOException("page " + pageKey + " sidecar slot " + slot + " has invalid image length "
+            + imageLength + " (payload remaining=" + payloadBytesRemaining + ')');
       }
     }
 
@@ -2311,8 +2322,8 @@ public enum PageKind {
      *        name-key elision may only strip what that region can put back
      * @param indexTypeId {@link io.sirix.index.IndexType#getID()} of the page's index type. Read only
      *        by the section diagnostic, which splits the value-elision activation rate by index type —
-     *        the activation rate alone cannot tell "this page holds nothing elidable" from "elision
-     *        did not pay here", and the two lead to different levers.
+     *        the activation rate alone cannot tell "this page holds nothing elidable" from "elision did
+     *        not pay here", and the two lead to different levers.
      * @param regionTable the page's PAX regions, already built; the derived elision sections re-derive
      *        their per-slot metadata out of it, so the writer needs it to verify that derivation
      *        against what it actually holds. {@code null} when the page has no regions, which is also
@@ -2478,9 +2489,9 @@ public enum PageKind {
             // and a left sibling the previous one, so both compress to a couple of bits per slot under
             // the same codec the parentKey column already uses.
             if (PARENT_KEY_COLUMN_ENABLED) {
-              final int pkWidth = collectStructuralKey(slottedPage, recordBase, fc,
-                  NodeFieldLayout.parentKeyFieldIndexForKind(kindId), slotNodeKey, i, slotParentKeys,
-                  slotParentKeyWidths, slotParentKeyOffs);
+              final int pkWidth =
+                  collectStructuralKey(slottedPage, recordBase, fc, NodeFieldLayout.parentKeyFieldIndexForKind(kindId),
+                      slotNodeKey, i, slotParentKeys, slotParentKeyWidths, slotParentKeyOffs);
               if (pkWidth > 0) {
                 parentKeySlotsWithField++;
                 parentKeyTotalStrippedBytes += pkWidth;
@@ -2734,9 +2745,8 @@ public enum PageKind {
           int rightSibColumnLen = 0;
           if (SIBLING_KEY_COLUMNS_ENABLED && rightSibSlotsWithField > 0) {
             final byte[] rightScratch = structuralColumnScratch(RIGHT_SIB_COLUMN_SCRATCH, populatedCount);
-            final int encodedLen =
-                StructuralKeyColumnCodec.encodeByteArray(rightScratch, 0, slotRightSibKeys, populatedCount,
-                    slotNodeKeys);
+            final int encodedLen = StructuralKeyColumnCodec.encodeByteArray(rightScratch, 0, slotRightSibKeys,
+                populatedCount, slotNodeKeys);
             if (finerDiag) {
               PageSectionDiag.recordRightSibKeyColumnCandidate(rightSibTotalStrippedBytes, encodedLen);
             }
@@ -2755,8 +2765,7 @@ public enum PageKind {
           if (SIBLING_KEY_COLUMNS_ENABLED && leftSibSlotsWithField > 0) {
             final byte[] leftScratch = structuralColumnScratch(LEFT_SIB_COLUMN_SCRATCH, populatedCount);
             final int encodedLen =
-                StructuralKeyColumnCodec.encodeByteArray(leftScratch, 0, slotLeftSibKeys, populatedCount,
-                    slotNodeKeys);
+                StructuralKeyColumnCodec.encodeByteArray(leftScratch, 0, slotLeftSibKeys, populatedCount, slotNodeKeys);
             if (finerDiag) {
               PageSectionDiag.recordLeftSibKeyColumnCandidate(leftSibTotalStrippedBytes, encodedLen);
             }
@@ -2837,15 +2846,15 @@ public enum PageKind {
                 ? pathNodeKeyLookupBytes
                 : null);
           }
-          final boolean derivedValueSection = elisionDeriver != null && VALUE_ELISION_ENABLED
-              && valueElidableSlotCount > 0;
+          final boolean derivedValueSection =
+              elisionDeriver != null && VALUE_ELISION_ENABLED && valueElidableSlotCount > 0;
           final int valueElisionSectionBytes = derivedValueSection
               ? elisionDeriver.planValueSection(populatedCount, slotKindIds, slotBits, slotValueElided,
                   slotValueDiskTypes, slotValueWidths, slotRegionAbsIdx, valueElidableSlotCount,
                   fusedNumberSlotCount + fusedStringSlotCount + fusedBooleanSlotCount)
               : 4 + valueElisionWireBytes;
-          final boolean valueElisionActive = VALUE_ELISION_ENABLED && valueElidableSlotCount > 0
-              && valueElidableTotalBytes > valueElisionSectionBytes;
+          final boolean valueElisionActive =
+              VALUE_ELISION_ENABLED && valueElidableSlotCount > 0 && valueElidableTotalBytes > valueElisionSectionBytes;
 
           // Lever 4: name-key elision is active iff EVERY fused OBJECT_NAMED_*
           // (kindIds 48-51) slot on the page was marked elidable AND the page-wide
@@ -3026,8 +3035,8 @@ public enum PageKind {
             // The staged sizes are exactly what the writer is about to emit, so the diagnostic reports
             // the metadata each lever COSTS beside the bytes it saves. The heap fold runs over the
             // same per-slot arrays the sizing loop just filled, so it needs no second walk of the page.
-            recordHeapCompositionDiag(populatedCount, slotKindIds, slotOnDiskLens, slotDiagValueWidths,
-                slotValueElided, valueElisionActive);
+            recordHeapCompositionDiag(populatedCount, slotKindIds, slotOnDiskLens, slotDiagValueWidths, slotValueElided,
+                valueElisionActive);
             PageSectionDiag.recordStagedElisionMetadata(stagedValueElisionBytes, stagedNameKeyElisionBytes,
                 stagedHashBitmapBytes, stagedParentKeyColBytes, stagedPathNodeKeyColBytes);
             PageSectionDiag.recordEncodedBodyOutcome(indexTypeId, valueElisionActive,
@@ -3126,8 +3135,8 @@ public enum PageKind {
             sink.writeByte((byte) 1); // codec: 1 = LZ4, 0 = ZeroRunByteCodec, 2 = ByteRunCodec
             sink.writeSegment(lz4Out, 0, compressedLen);
             if (finerDiag) {
-              recordPostCodecAttribution(staging, sections, compressedLen, populatedCount, slotKindIds,
-                  slotOnDiskLens, slotTemplateIds, 1);
+              recordPostCodecAttribution(staging, sections, compressedLen, populatedCount, slotKindIds, slotOnDiskLens,
+                  slotTemplateIds, 1);
             }
           } else {
             // Smallest-of-codecs bake-off with sticky-winner election —
@@ -3172,13 +3181,13 @@ public enum PageKind {
      * <p>
      * The plan's first trie lever needs to know which record kinds spend the body's bytes and how many
      * payload bytes stay inline because value elision did not reach the slot — a page that lost its
-     * string region to an overflow descriptor keeps every fused string's bytes in the heap, and that
-     * is invisible in a per-page total. Folding per kind first keeps a 1,024-slot page at one
+     * string region to an overflow descriptor keeps every fused string's bytes in the heap, and that is
+     * invisible in a per-page total. Folding per kind first keeps a 1,024-slot page at one
      * {@link java.util.concurrent.atomic.LongAdder} touch per kind rather than one per slot.
      *
      * <p>
-     * Zero allocation: the fold rides a thread-local {@code long[]} and is cleared as it is emitted,
-     * so it is left zeroed for the next page without a full-array wipe.
+     * Zero allocation: the fold rides a thread-local {@code long[]} and is cleared as it is emitted, so
+     * it is left zeroed for the next page without a full-array wipe.
      */
     /**
      * Attribute the body's post-codec bytes to the sections that produced them.
@@ -3193,8 +3202,8 @@ public enum PageKind {
      *
      * <p>
      * Why it matters: a lever judged on staged bytes can move a kilobyte per page and nothing on disk,
-     * because the bytes it removed were the ones the codec was already collapsing. Only an
-     * attribution like this can tell the two apart.
+     * because the bytes it removed were the ones the codec was already collapsing. Only an attribution
+     * like this can tell the two apart.
      *
      * <p>
      * Diagnostic only, behind {@code -Dsirix.pageSectionDiag=true}, and it re-compresses the body's
@@ -3227,12 +3236,12 @@ public enum PageKind {
       // The heap again, split three ways by record kind. The three lanes are PARTS of the heap lane
       // above and are deliberately left out of the sum: a record's bytes must be counted once.
       final long heapStart = sections.heapStart();
-      gatherAndRecordHeapClass(staging, heapStart, populatedCount, slotKindIds, slotOnDiskLens, codec,
-          HEAP_CLASS_FUSED, PageSectionDiag.SECTION_HEAP_FUSED);
+      gatherAndRecordHeapClass(staging, heapStart, populatedCount, slotKindIds, slotOnDiskLens, codec, HEAP_CLASS_FUSED,
+          PageSectionDiag.SECTION_HEAP_FUSED);
       gatherAndRecordHeapClass(staging, heapStart, populatedCount, slotKindIds, slotOnDiskLens, codec,
           HEAP_CLASS_STRUCTURAL, PageSectionDiag.SECTION_HEAP_STRUCTURAL);
-      gatherAndRecordHeapClass(staging, heapStart, populatedCount, slotKindIds, slotOnDiskLens, codec,
-          HEAP_CLASS_OTHER, PageSectionDiag.SECTION_HEAP_OTHER);
+      gatherAndRecordHeapClass(staging, heapStart, populatedCount, slotKindIds, slotOnDiskLens, codec, HEAP_CLASS_OTHER,
+          PageSectionDiag.SECTION_HEAP_OTHER);
 
       // How much of the compact directory a template-implied one could drop (T1-b): an entry is
       // predictable when its kind AND its on-disk length repeat the previous entry of the same
@@ -3254,8 +3263,8 @@ public enum PageKind {
     }
 
     /**
-     * Gather one class of records out of the staged heap and record what the page's codec makes of
-     * them alone.
+     * Gather one class of records out of the staged heap and record what the page's codec makes of them
+     * alone.
      *
      * <p>
      * A class's records are not contiguous, so they are copied into a scratch first. That is the price
@@ -3450,8 +3459,7 @@ public enum PageKind {
           rCount = insertStripRange(rangeFrom, rangeTo, rCount, slotPnkOffs[i] & 0xFFFF, stripPnkWidth);
         }
         if (stripHash) {
-          rCount = insertStripRange(rangeFrom, rangeTo, rCount, slotHashOffs[i] & 0xFFFF,
-              NodeFieldLayout.HASH_WIDTH);
+          rCount = insertStripRange(rangeFrom, rangeTo, rCount, slotHashOffs[i] & 0xFFFF, NodeFieldLayout.HASH_WIDTH);
         }
         if (stripValue) {
           rCount = insertStripRange(rangeFrom, rangeTo, rCount, slotValueOffs[i] & 0xFFFF, stripValueWidth);
@@ -3958,8 +3966,9 @@ public enum PageKind {
             + " a body of " + bodyTotalLen);
       }
 
-      final int decodedBodySize = checkedPageBodySize(recordPageKey, "chunked decoded body",
-          (long) metaRawLen + (lazy ? 0L : onDiskHeapSize));
+      final int decodedBodySize = checkedPageBodySize(recordPageKey, "chunked decoded body", (long) metaRawLen + (lazy
+          ? 0L
+          : onDiskHeapSize));
       final MemorySegment staging = v1StagingScratch(decodedBodySize);
       readChunkedFrame(source, metaEncLen, metaCodec, metaRawLen, metaHash, staging, 0L, recordPageKey, -1);
       if (lazy) {
@@ -4547,8 +4556,8 @@ public enum PageKind {
         }
         // Publish the staged array elements, all or nothing (see the staging declaration).
         if (Boolean.getBoolean("sirix.diag.elemStage")) {
-          System.err.println("[elem-stage] complete=" + stringRegionComplete + " usable=" + elemUsable
-              + " count=" + elemCount);
+          System.err.println(
+              "[elem-stage] complete=" + stringRegionComplete + " usable=" + elemUsable + " count=" + elemCount);
         }
         if (stringRegionComplete && elemUsable && elemCount > 0) {
           if (stringEncName == null) {
@@ -4796,22 +4805,22 @@ public enum PageKind {
      * Re-inject a value whose tag stores GLOBAL IDS, by resolving the id through the dictionary.
      *
      * <p>
-     * The tag handed to the resolver is the tag's VALUE — the path node key from {@code parentDict}
-     * — not its local index on this page. The projection's anchors are keyed by path node key, and a
+     * The tag handed to the resolver is the tag's VALUE — the path node key from {@code parentDict} —
+     * not its local index on this page. The projection's anchors are keyed by path node key, and a
      * local index means nothing outside the page it was parsed from.
      * </p>
      *
      * <p>
-     * A null answer is a hard failure and not an empty value. The resolver returns null when the
-     * page's anchor is refused — a dictionary that shrank under a reused key, or one this tag does
-     * not resolve against — and substituting anything there converts an unreadable page into a
-     * wrong one, which is the failure this whole format is arranged to prevent.
+     * A null answer is a hard failure and not an empty value. The resolver returns null when the page's
+     * anchor is refused — a dictionary that shrank under a reused key, or one this tag does not resolve
+     * against — and substituting anything there converts an unreadable page into a wrong one, which is
+     * the failure this whole format is arranged to prevent.
      * </p>
      *
      * <p>
-     * The width check below is a free round-trip witness: the elided slot recorded the ORIGINAL
-     * value's width, so a resolver that returns a different value fails here rather than reaching
-     * the user. It is not complete — a same-length wrong value passes — but it costs nothing.
+     * The width check below is a free round-trip witness: the elided slot recorded the ORIGINAL value's
+     * width, so a resolver that returns a different value fails here rather than reaching the user. It
+     * is not complete — a same-length wrong value passes — but it costs nothing.
      * </p>
      */
     private static void injectGlobalString(final MemorySegment slottedPage, final MemorySegment stringPayload,
@@ -4875,17 +4884,17 @@ public enum PageKind {
      *
      * <p>
      * A temporal entry is never FSST-encoded ({@code resolveTemporal} refuses such a tag), so the
-     * stored flag must be raw. A page claiming otherwise is refused rather than written, for the
-     * reason the raw/FSST check below it exists: the wrong flag reads back as a different value.
+     * stored flag must be raw. A page claiming otherwise is refused rather than written, for the reason
+     * the raw/FSST check below it exists: the wrong flag reads back as a different value.
      * </p>
      */
     private static void injectTemporalString(final MemorySegment slottedPage, final MemorySegment stringPayload,
         final StringRegion.Header stringHeader, final int tagId, final int dictId, final int slot,
         final long valueAbsOff, final int valueWidth, final byte storedFlag) {
       if (storedFlag != 0) {
-        throw new SirixIOException("value-elision: temporal STRING slot " + slot + " under tag "
-            + stringHeader.parentDict[tagId] + " carries flag byte " + storedFlag
-            + ", but a temporal tag holds no FSST-encoded entry");
+        throw new SirixIOException(
+            "value-elision: temporal STRING slot " + slot + " under tag " + stringHeader.parentDict[tagId]
+                + " carries flag byte " + storedFlag + ", but a temporal tag holds no FSST-encoded entry");
       }
       final int length = StringRegion.temporalValueLength(stringHeader, tagId);
       final byte[] rendered = TEMPORAL_RENDER_SCRATCH.get();
@@ -4898,9 +4907,9 @@ public enum PageKind {
         // The same round trip the global path makes against its dictionary: the page recorded how
         // wide the value it elided was, and the render just said how wide it is. A disagreement means
         // the slot and the lane describe different values.
-        throw new SirixIOException("value-elision: temporal STRING width mismatch at slot " + slot + ": expected="
-            + valueWidth + " actual=" + actualWidth + " for tag " + stringHeader.parentDict[tagId]
-            + " entry " + dictId);
+        throw new SirixIOException(
+            "value-elision: temporal STRING width mismatch at slot " + slot + ": expected=" + valueWidth + " actual="
+                + actualWidth + " for tag " + stringHeader.parentDict[tagId] + " entry " + dictId);
       }
     }
 
@@ -4909,15 +4918,15 @@ public enum PageKind {
      *
      * <p>
      * The trie lane requires lazy chunks. That is not a policy choice: a global tag's value lives
-     * behind the NamePage sub-trie and is reachable only through a reader, deserialization has none
-     * and cannot be given one without recursing into page decodes, and the page object that would
-     * carry a resolver does not exist yet. So the value cannot be produced here by any means.
+     * behind the NamePage sub-trie and is reachable only through a reader, deserialization has none and
+     * cannot be given one without recursing into page decodes, and the page object that would carry a
+     * resolver does not exist yet. So the value cannot be produced here by any means.
      * </p>
      *
      * <p>
      * Refusing beats the alternative, which is leaving those slots elided and handing back records
-     * whose values are absent -- a record with no value is not a record with an empty value, and
-     * that substitution is the failure the whole anchor design exists to prevent.
+     * whose values are absent -- a record with no value is not a record with an empty value, and that
+     * substitution is the failure the whole anchor design exists to prevent.
      * </p>
      */
     private static void refuseGlobalTagsOnEagerPath(final RegionTable regionTable, final long recordPageKey) {
@@ -4967,12 +4976,12 @@ public enum PageKind {
      *
      * <p>
      * A pre-pass rather than a check at the slot that meets the problem, and the difference is not
-     * tidiness. Expansion writes values into the heap as it goes, so a throw partway through leaves
-     * the page half-injected: some slots hold their values, the rest hold the placeholder zeros the
+     * tidiness. Expansion writes values into the heap as it goes, so a throw partway through leaves the
+     * page half-injected: some slots hold their values, the rest hold the placeholder zeros the
      * expansion started from, and nothing on the page says which is which. A caller that catches the
      * exception and retries -- or one that reads a slot the loop had already passed -- then reads a
-     * page that looks whole and is not. Refusing before the first write means the page is exactly as
-     * it was.
+     * page that looks whole and is not. Refusing before the first write means the page is exactly as it
+     * was.
      * </p>
      *
      * <p>
@@ -5107,13 +5116,13 @@ public enum PageKind {
           }
           final int dictId = StringRegion.decodeDictIdAt(stringPayload, stringHeader, absIdx);
           if (stringHeader.tagGlobal[tagId]) {
-            injectGlobalString(slottedPage, stringPayload, stringHeader, tagId, dictId, slot, valueAbsOff,
-                valueWidth, valueElidedTypes[e], resolved);
+            injectGlobalString(slottedPage, stringPayload, stringHeader, tagId, dictId, slot, valueAbsOff, valueWidth,
+                valueElidedTypes[e], resolved);
             continue;
           }
           if (stringHeader.tagTemporal[tagId]) {
-            injectTemporalString(slottedPage, stringPayload, stringHeader, tagId, dictId, slot, valueAbsOff,
-                valueWidth, valueElidedTypes[e]);
+            injectTemporalString(slottedPage, stringPayload, stringHeader, tagId, dictId, slot, valueAbsOff, valueWidth,
+                valueElidedTypes[e]);
             continue;
           }
           final int strOff = StringRegion.decodeStringOffset(stringPayload, stringHeader, tagId, dictId);
@@ -5860,8 +5869,7 @@ public enum PageKind {
           } else {
             final byte[] slotData = new byte[usedSlotMemorySize];
             source.read(slotData);
-            MemorySegment.copy(slotData, 0, slotMemory, java.lang.foreign.ValueLayout.JAVA_BYTE, 0,
-                usedSlotMemorySize);
+            MemorySegment.copy(slotData, 0, slotMemory, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, usedSlotMemorySize);
           }
         }
 
@@ -6082,8 +6090,8 @@ public enum PageKind {
         created = switch (nodeType) {
           case SPAN_NODE ->
             HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children, height);
-          case MULTI_NODE -> HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask, partialKeys,
-              children, height);
+          case MULTI_NODE ->
+            HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children, height);
         };
       }
 
@@ -6306,11 +6314,13 @@ public enum PageKind {
   /**
    * Deserialize the sparse per-index HOT page-key high-water marks.
    *
-   * <p>Unlike keyed-trie node counters, secondary-index identifiers are physical reference offsets
-   * and need not start at zero (NAME indexes deliberately start after NamePage's dictionary slots).
-   * The wire therefore carries each index number explicitly. Strictly increasing identifiers keep
-   * the representation canonical and turn duplicates or reordered/corrupt metadata into a hard
-   * failure instead of silently reusing a page key.</p>
+   * <p>
+   * Unlike keyed-trie node counters, secondary-index identifiers are physical reference offsets and
+   * need not start at zero (NAME indexes deliberately start after NamePage's dictionary slots). The
+   * wire therefore carries each index number explicitly. Strictly increasing identifiers keep the
+   * representation canonical and turn duplicates or reordered/corrupt metadata into a hard failure
+   * instead of silently reusing a page key.
+   * </p>
    */
   private static Int2LongMap deserializeMaxHotPageKeys(final BytesIn<?> source) {
     final int size = source.readInt();
@@ -6324,12 +6334,12 @@ public enum PageKind {
       final int index = source.readInt();
       final long maxPageKey = source.readLong();
       if (index <= previousIndex || index >= Constants.INP_REFERENCE_COUNT) {
-        throw new IllegalStateException("Corrupt HOT page-key index " + index
-            + " at entry " + entry + " (previous index " + previousIndex + ')');
+        throw new IllegalStateException(
+            "Corrupt HOT page-key index " + index + " at entry " + entry + " (previous index " + previousIndex + ')');
       }
       if (maxPageKey < 0) {
-        throw new IllegalStateException("Corrupt negative HOT page-key high-water mark " + maxPageKey
-            + " for index " + index);
+        throw new IllegalStateException(
+            "Corrupt negative HOT page-key high-water mark " + maxPageKey + " for index " + index);
       }
       maxHotPageKeys.put(index, maxPageKey);
       previousIndex = index;
@@ -6357,8 +6367,8 @@ public enum PageKind {
       indexes[entry++] = index;
     }
     if (entry != size) {
-      throw new IllegalStateException("HOT page-key metadata changed during serialization: expected "
-          + size + " entries but observed " + entry);
+      throw new IllegalStateException(
+          "HOT page-key metadata changed during serialization: expected " + size + " entries but observed " + entry);
     }
     Arrays.sort(indexes, 0, size);
     sink.writeInt(size);
@@ -6369,8 +6379,7 @@ public enum PageKind {
         throw new IllegalStateException("HOT page-key index outside reference space: " + index);
       }
       if (maxPageKey < 0) {
-        throw new IllegalStateException("Negative HOT page-key high-water mark " + maxPageKey
-            + " for index " + index);
+        throw new IllegalStateException("Negative HOT page-key high-water mark " + maxPageKey + " for index " + index);
       }
       sink.writeInt(index);
       sink.writeLong(maxPageKey);
@@ -6456,9 +6465,11 @@ public enum PageKind {
   /**
    * Exactly-once owner for the copying HOT-leaf deserialization path.
    *
-   * <p>The object is allocated before the native frame. Binding and release then allocate no Java
-   * heap state, so an allocation failure between frame acquisition and page construction cannot
-   * strand the frame. {@link HOTLeafPage} retains this same owner after successful construction.</p>
+   * <p>
+   * The object is allocated before the native frame. Binding and release then allocate no Java heap
+   * state, so an allocation failure between frame acquisition and page construction cannot strand the
+   * frame. {@link HOTLeafPage} retains this same owner after successful construction.
+   * </p>
    */
   private static final class HOTLeafAllocatedFrameOwner implements Runnable {
     private final MemorySegmentAllocator allocator;
@@ -7115,8 +7126,8 @@ public enum PageKind {
    * Per-thread in-memory data-length scratch for the DECODE path. This is deliberately not
    * {@link #SLOT_DATALEN_SCRATCH}: the serializer holds that array across its region encode, and a
    * trie-lane dictionary probe issued from inside that encode can deserialize a dictionary page on
-   * the same thread. Sharing one array let the decoder stamp the dictionary page's entry lengths
-   * over the page under serialization (slot 0 written as the dictionary's 22-byte first entry).
+   * the same thread. Sharing one array let the decoder stamp the dictionary page's entry lengths over
+   * the page under serialization (slot 0 written as the dictionary's 22-byte first entry).
    */
   private static final ThreadLocal<int[]> SLOT_DATALEN_READ_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
@@ -7232,8 +7243,7 @@ public enum PageKind {
    * {@link PageSectionDiag} call per kind present instead of one per slot. Four lanes per kind —
    * slots, staged bytes, inline payload bytes, inline payload slots.
    */
-  private static final ThreadLocal<long[]> DIAG_HEAP_BY_KIND_SCRATCH =
-      ThreadLocal.withInitial(() -> new long[4 * 256]);
+  private static final ThreadLocal<long[]> DIAG_HEAP_BY_KIND_SCRATCH = ThreadLocal.withInitial(() -> new long[4 * 256]);
 
   /**
    * Per-thread per-elided-slot type byte ({@code NUMBER_TYPE_INTEGER == 2} or
@@ -7510,8 +7520,8 @@ public enum PageKind {
 
   /**
    * Flag bit: the page's value- and name-key-elision sections carry {@link ElisionDeriver}'s derived
-   * form — an elided-slot bitmap (or the "every candidate" flag) plus sparse exception lists — instead
-   * of the per-slot tuples that spelled out slot gap, type, width and region index.
+   * form — an elided-slot bitmap (or the "every candidate" flag) plus sparse exception lists —
+   * instead of the per-slot tuples that spelled out slot gap, type, width and region index.
    *
    * <p>
    * Set per page by the writer, so a resource can hold both forms and a reader dispatches on the bit
@@ -7525,7 +7535,8 @@ public enum PageKind {
    *
    * <p>
    * Set only when one of those levers is actually on, so a page that uses none of them writes the one
-   * byte it always wrote. That is what lets the kill switches restore the pre-change encoding exactly.
+   * byte it always wrote. That is what lets the kill switches restore the pre-change encoding
+   * exactly.
    */
   private static final int STRUCT_FLAG_EXTENDED = 0x80;
 
@@ -7573,7 +7584,9 @@ public enum PageKind {
   public static boolean PATH_NODE_KEY_COLUMN_COMPACT =
       !"false".equals(System.getProperty("sirix.page.pathNodeKeyColumn.compact"));
 
-  /** Writer-side destination for the compact pathNodeKey column; grown on demand, reused per thread. */
+  /**
+   * Writer-side destination for the compact pathNodeKey column; grown on demand, reused per thread.
+   */
   private static final ThreadLocal<byte[]> PATH_NODE_KEY_COMPACT_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT + 1_160]);
 
@@ -7583,8 +7596,8 @@ public enum PageKind {
 
   /**
    * How many stripped ranges one record can carry: parentKey, pathNodeKey, hash, value, name key —
-   * with room for the structural columns that follow. Sized as a constant so the writer's and reader's
-   * range arrays cannot disagree about it.
+   * with room for the structural columns that follow. Sized as a constant so the writer's and
+   * reader's range arrays cannot disagree about it.
    */
   private static final int STRIP_RANGE_CAPACITY = 8;
 
@@ -7609,9 +7622,9 @@ public enum PageKind {
    * <p>
    * <b>And almost none of that reaches the wire.</b> Those varints are the same two bytes in every
    * record, so the body codec was already collapsing them for nothing, while the bit-packed column is
-   * close to incompressible. Over 92 pages of that load the encoded body goes 34,348 → 36,115 B
-   * (+4.3 % of the body, ~+14 B per page once the column codec's run-length lane is in play; +19 B
-   * before it) — and the same figure appears on a high-entropy variant of the same shape, so it is the
+   * close to incompressible. Over 92 pages of that load the encoded body goes 34,348 → 36,115 B (+4.3
+   * % of the body, ~+14 B per page once the column codec's run-length lane is in play; +19 B before
+   * it) — and the same figure appears on a high-entropy variant of the same shape, so it is the
    * column's own bytes rather than the fixture's regularity. On a synthetic page whose sibling keys
    * are exactly ±1 it comes out about 21 bytes ahead instead. The sign is data-dependent and the
    * magnitude is nil either way: 930 raw bytes per page become 14 on the wire.
@@ -7619,10 +7632,10 @@ public enum PageKind {
    * <p>
    * A raw-byte win that does not survive the codec is the trap this campaign already walked into once
    * with the elision tuples, so the lever ships proven and dormant rather than on. Turn it on with
-   * {@code -Dsirix.page.body.structuralColumns=true} to re-measure: on data whose sibling keys are NOT
-   * a constant delta — heavy update traffic, moved subtrees — the arithmetic can come out the other
-   * way, and the switch is how to find out. Not final, so a byte-identity test can flip it after class
-   * load.
+   * {@code -Dsirix.page.body.structuralColumns=true} to re-measure: on data whose sibling keys are
+   * NOT a constant delta — heavy update traffic, moved subtrees — the arithmetic can come out the
+   * other way, and the switch is how to find out. Not final, so a byte-identity test can flip it
+   * after class load.
    */
   public static boolean SIBLING_KEY_COLUMNS_ENABLED =
       Boolean.parseBoolean(System.getProperty("sirix.page.body.structuralColumns", "false"));
@@ -7684,7 +7697,8 @@ public enum PageKind {
    *
    * @param scratch the thread-local holding it
    * @param populatedCount entries the column covers
-   * @return a buffer of at least {@code StructuralKeyColumnCodec.maxEncodedSize(populatedCount)} bytes
+   * @return a buffer of at least {@code StructuralKeyColumnCodec.maxEncodedSize(populatedCount)}
+   *         bytes
    */
   private static byte[] structuralColumnScratch(final ThreadLocal<byte[]> scratch, final int populatedCount) {
     byte[] buffer = scratch.get();
@@ -7784,9 +7798,9 @@ public enum PageKind {
    * Test seam: the writer's deriver as the last page serialized on this thread left it.
    *
    * <p>
-   * A witness that the exception lists are empty — that the derivation was exact on the fixture rather
-   * than merely round-tripping through its own escape hatch — has to read them, and they are the
-   * writer's state, not the page's bytes.
+   * A witness that the exception lists are empty — that the derivation was exact on the fixture
+   * rather than merely round-tripping through its own escape hatch — has to read them, and they are
+   * the writer's state, not the page's bytes.
    *
    * @return the calling thread's writer-side deriver
    */
@@ -7796,9 +7810,9 @@ public enum PageKind {
 
   /**
    * Per-thread per-entry scratch holding the wire type byte of every elided fused-primitive slot —
-   * NUMBER's 2/3 subtype, a string's stored-form flag, 0 for a boolean. Written by the writer pre-scan
-   * beside {@link #SLOT_VALUE_ELIDED_SCRATCH}, whose markers are an internal encoding the derived
-   * section never sees.
+   * NUMBER's 2/3 subtype, a string's stored-form flag, 0 for a boolean. Written by the writer
+   * pre-scan beside {@link #SLOT_VALUE_ELIDED_SCRATCH}, whose markers are an internal encoding the
+   * derived section never sees.
    */
   private static final ThreadLocal<byte[]> SLOT_VALUE_DISK_TYPE_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT]);
@@ -7828,9 +7842,8 @@ public enum PageKind {
    * default 16): every Nth page per serialization thread runs the full bake-off and re-elects the
    * winner; the pages in between compare zero-run and LZ77 and add byte-run only while it holds the
    * election (or, under {@link #CODEC_BAKEOFF_STICKY_ONLY}, encode with the elected codec only).
-   * {@code 1} probes every page —
-   * the exhaustive pick-smallest behavior, required for byte-identical golden files (see
-   * {@link #emitSmallestBody}).
+   * {@code 1} probes every page — the exhaustive pick-smallest behavior, required for byte-identical
+   * golden files (see {@link #emitSmallestBody}).
    */
   private static final int STICKY_PROBE_INTERVAL = Integer.getInteger("sirix.codecBakeoff.probeInterval", 16);
 
@@ -7860,8 +7873,8 @@ public enum PageKind {
    * always comparing zero-run and LZ77 ({@code false}, the default).
    *
    * <p>
-   * Measured on a 1M-row ClickBench load (2026-08-30): the elected codec alone wrote the leaf class at
-   * 1,093.3 MB, a bake-off on every page at 1,037.7 MB (−5.1 %), for +1 s on a 30 s load. Always
+   * Measured on a 1M-row ClickBench load (2026-08-30): the elected codec alone wrote the leaf class
+   * at 1,093.3 MB, a bake-off on every page at 1,037.7 MB (−5.1 %), for +1 s on a 30 s load. Always
    * comparing the two codecs that decide page size recovers that at a fraction of the cost: zero-run
    * is near memcpy speed and LZ77 already runs on every page that elected it.
    *
@@ -8103,11 +8116,11 @@ public enum PageKind {
    * pages of a serialization thread, then every {@link #STICKY_PROBE_INTERVAL}-th page — run all
    * three codecs and (re-)elect the winner. The pages in between still encode zero-run and LZ77 and
    * write the smaller of the two; the election only decides whether byte-run is encoded as well. The
-   * elected codec ALONE ({@link #CODEC_BAKEOFF_STICKY_ONLY}) rested on the winner being stable
-   * within a workload, and it is not: index pages (NAME, PATH_SUMMARY) share the serialization
-   * threads with record pages, their probes elect zero-run, and the record pages that follow were
-   * written up to 3&times; their LZ77 size — 5.1 % of leaf bytes on a 1M-row ClickBench load. The
-   * emitted codec byte keeps the format self-describing, so readers never see the difference.
+   * elected codec ALONE ({@link #CODEC_BAKEOFF_STICKY_ONLY}) rested on the winner being stable within
+   * a workload, and it is not: index pages (NAME, PATH_SUMMARY) share the serialization threads with
+   * record pages, their probes elect zero-run, and the record pages that follow were written up to
+   * 3&times; their LZ77 size — 5.1 % of leaf bytes on a 1M-row ClickBench load. The emitted codec
+   * byte keeps the format self-describing, so readers never see the difference.
    *
    * <p>
    * <b>Determinism caveat.</b> With {@code probeInterval > 1} the codec picked for a page depends on
@@ -8242,9 +8255,9 @@ public enum PageKind {
    * </p>
    *
    * <p>
-   * <b>ON by default since 2026-09-03, and the default is the measured one.</b> A database is large by
-   * assumption, and at a size where the working set does not fit in memory this is a pure win on BOTH
-   * axes. Two whole-database 100M builds differing only in this flag, each then measured with a
+   * <b>ON by default since 2026-09-03, and the default is the measured one.</b> A database is large
+   * by assumption, and at a size where the working set does not fit in memory this is a pure win on
+   * BOTH axes. Two whole-database 100M builds differing only in this flag, each then measured with a
    * three-try 43-query leg back to back:
    * </p>
    *
@@ -8260,18 +8273,18 @@ public enum PageKind {
    * Paired per query the compressed database is {@code -2.244} ln FASTER, 23 queries faster to 11
    * slower. That is the condition this javadoc used to name as what would earn the default back — "a
    * decoder fast enough that a per-pass decode disappears into the I/O it saves" — reached not by a
-   * faster decoder but by a larger database: the scan is I/O-bound, so the bytes not read outweigh the
-   * decode.
+   * faster decoder but by a larger database: the scan is I/O-bound, so the bytes not read outweigh
+   * the decode.
    * </p>
    *
    * <p>
    * <b>The earlier rejection was real, and it was a SMALL-SCALE measurement.</b> It stands unchanged
    * as a fact about small databases: at 1M the same flag costs +22.4 % hot (+3.341 ln, 28 of 43
    * queries slower), because a cache-resident working set makes every decode pure added CPU buying no
-   * I/O back. The historical 100M figures quoted before (q16 20.68 → 38.15 s hot) predate the
-   * swizzle fix that removed ~3.9 GB of pinned dictionary OverflowPages from the record-page cache.
-   * <b>So a compression lever's query cost can INVERT with scale — the small-scale result does not
-   * merely mis-estimate the magnitude, it has the wrong sign.</b> Set
+   * I/O back. The historical 100M figures quoted before (q16 20.68 → 38.15 s hot) predate the swizzle
+   * fix that removed ~3.9 GB of pinned dictionary OverflowPages from the record-page cache. <b>So a
+   * compression lever's query cost can INVERT with scale — the small-scale result does not merely
+   * mis-estimate the magnitude, it has the wrong sign.</b> Set
    * {@code -Dsirix.page.overflow.compress=false} for a workload whose data is genuinely
    * memory-resident. A resource written with the flag cannot be read by a build that predates the
    * flag bit.
@@ -8305,9 +8318,9 @@ public enum PageKind {
    * <p>
    * {@link SirixLZ77Codec#decode} dispatches to the C decoder only when its output is native-backed
    * with tail slack; a heap output silently takes the Java decoder, measured here at 3.0 GB/s against
-   * 16.9 GB/s native on a 32 KB frame — 5.6&times;. An {@link OverflowPage} must own a heap array (its
-   * constructor's contract, so nothing retains a reservoir view), so the frame is decoded natively and
-   * then copied out. The copy runs at memcpy speed and is bought back many times over.
+   * 16.9 GB/s native on a 32 KB frame — 5.6&times;. An {@link OverflowPage} must own a heap array
+   * (its constructor's contract, so nothing retains a reservoir view), so the frame is decoded
+   * natively and then copied out. The copy runs at memcpy speed and is bought back many times over.
    * </p>
    *
    * <p>
@@ -8329,8 +8342,8 @@ public enum PageKind {
    * Deliberately NOT the sticky election of {@link #emitSmallestBody}: that election is per
    * serialization thread and shared across page kinds, and it has already been measured to poison
    * record pages once a different kind probes on the same thread. An overflow page is large — the
-   * whole class exists for payloads above 1 KB — so the encode cost is amortised over many KB and
-   * an exhaustive comparison is affordable where it would not be for a small page.
+   * whole class exists for payloads above 1 KB — so the encode cost is amortised over many KB and an
+   * exhaustive comparison is affordable where it would not be for a small page.
    * </p>
    *
    * <p>
@@ -8442,9 +8455,8 @@ public enum PageKind {
       };
     }
     if (produced != decodedLength) {
-      throw new IllegalStateException(
-          "Corrupt OverflowPage payload: codec " + codec + " produced " + produced + " bytes, expected "
-              + decodedLength);
+      throw new IllegalStateException("Corrupt OverflowPage payload: codec " + codec + " produced " + produced
+          + " bytes, expected " + decodedLength);
     }
     return new OverflowPage(data);
   }
@@ -8830,9 +8842,9 @@ public enum PageKind {
    *
    * @param source positioned at the page envelope (kind byte already consumed)
    * @param out receives {@code [recordPageKey, revision, populatedCount, fsstDictId,
-   *        hasCompleteColumnCoverage]}. The dictionary id is only knowable this early on a chunked page,
-   *        which hoists it into the body prefix; a monolith page keeps it in the tail and reports
-   *        {@code 0} here
+   *        hasCompleteColumnCoverage]}. The dictionary id is only knowable this early on a chunked
+   *        page, which hoists it into the body prefix; a monolith page keeps it in the tail and
+   *        reports {@code 0} here
    * @param bitmapOut receives the page's {@link PageLayout#BITMAP_WORDS} slot-bitmap words; pass
    *        {@code null} to skip the bitmap. A caller that may have to merge page fragments MUST pass
    *        one: the bitmap is what says which slots a fragment defines, and a fragment without it is
@@ -9064,8 +9076,8 @@ public enum PageKind {
         bmWord &= bmWord - 1;
         running += inMemLengthOf(i, slotBit);
         if (running > maximum) {
-          throw new SirixIOException("reconstructed heap exceeds the inline-page bound: " + running
-              + " bytes for " + populatedCount + " entries (maximum " + maximum + ")");
+          throw new SirixIOException("reconstructed heap exceeds the inline-page bound: " + running + " bytes for "
+              + populatedCount + " entries (maximum " + maximum + ")");
         }
       }
       return Math.toIntExact(running);
@@ -9240,9 +9252,9 @@ public enum PageKind {
           ? inMemLen >= 0 && inMemLen <= PageLayout.MAX_COMPACT_DIR_DATA_LENGTH
           : inMemLen > 0 && inMemLen <= PageLayout.MAX_COMPACT_DIR_DATA_LENGTH;
       if (!validLength || inMemLen > PageConstants.MAX_RECORD_SIZE) {
-        throw new SirixIOException("reconstructed slot " + slotBit + " kind " + kindId
-            + " has invalid inline length " + inMemLen + " (maximum "
-            + Math.min(PageLayout.MAX_COMPACT_DIR_DATA_LENGTH, PageConstants.MAX_RECORD_SIZE) + ")");
+        throw new SirixIOException(
+            "reconstructed slot " + slotBit + " kind " + kindId + " has invalid inline length " + inMemLen
+                + " (maximum " + Math.min(PageLayout.MAX_COMPACT_DIR_DATA_LENGTH, PageConstants.MAX_RECORD_SIZE) + ")");
       }
       inMemDataLengths[entryIdx] = inMemLen;
       // Stash widths for the expansion loop.
@@ -9420,11 +9432,11 @@ public enum PageKind {
       // Collect the reinjection ranges (in-memory offset, width, which field), kept sorted by offset
       // as they are inserted. Which field sits where inside the data region is kind-specific, so the
       // order they are collected in is not the order they appear in.
-      //   parentKey: offset 0, width pkWidth (always first when active)
-      //   pnk:       offset pnkOffInData, width pnkWidth
-      //   hash:      offset hashOffInData, width HASH_WIDTH
-      //   value:     offset valueOffInData, width valueWidth
-      //   nameKey:   offset nameKeyOffInData, width nameKeyWidthLocal
+      // parentKey: offset 0, width pkWidth (always first when active)
+      // pnk: offset pnkOffInData, width pnkWidth
+      // hash: offset hashOffInData, width HASH_WIDTH
+      // value: offset valueOffInData, width valueWidth
+      // nameKey: offset nameKeyOffInData, width nameKeyWidthLocal
       final int[] injectOffs = injectRangeOffsets;
       final int[] injectWidths = injectRangeWidths;
       final int[] injectKinds = injectRangeKinds;
@@ -9449,8 +9461,8 @@ public enum PageKind {
             NodeFieldLayout.HASH_WIDTH, INJECT_HASH);
       }
       if (valueWidth > 0) {
-        iCount = insertInjectRange(injectOffs, injectWidths, injectKinds, iCount, valueOffInData, valueWidth,
-            INJECT_VALUE);
+        iCount =
+            insertInjectRange(injectOffs, injectWidths, injectKinds, iCount, valueOffInData, valueWidth, INJECT_VALUE);
       }
       if (nameKeyWidthLocal > 0) {
         iCount = insertInjectRange(injectOffs, injectWidths, injectKinds, iCount, nameKeyOffInData, nameKeyWidthLocal,

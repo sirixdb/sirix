@@ -174,8 +174,7 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
                                 .build();
   }
 
-  private static BootstrapFixture bootstrapFsstTableAndAdvanceToNextRecordPage(
-      final JsonResourceSession session) {
+  private static BootstrapFixture bootstrapFsstTableAndAdvanceToNextRecordPage(final JsonResourceSession session) {
     try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
       final long objectNodeKey = wtx.insertObjectAsFirstChild().getNodeKey();
       long trainingNodeKey = Constants.NULL_ID_LONG;
@@ -213,14 +212,13 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       final long objectNodeKey) {
     try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(objectNodeKey));
-      final long touchNodeKey =
-          wtx.insertObjectRecordAsFirstChild("merge-touch", BooleanValue.FALSE).getNodeKey();
+      final long touchNodeKey = wtx.insertObjectRecordAsFirstChild("merge-touch", BooleanValue.FALSE).getNodeKey();
       assertEquals(TARGET_RECORD_PAGE_KEY, touchNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT);
 
       for (int i = 0; i < MERGE_FILLER_COUNT; i++) {
         assertTrue(wtx.moveTo(objectNodeKey));
-        final long fillerNodeKey = wtx.insertObjectRecordAsFirstChild("merge-filler-" + i,
-            new StringValue(MERGE_FILLER_VALUE)).getNodeKey();
+        final long fillerNodeKey =
+            wtx.insertObjectRecordAsFirstChild("merge-filler-" + i, new StringValue(MERGE_FILLER_VALUE)).getNodeKey();
         assertEquals(TARGET_RECORD_PAGE_KEY, fillerNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT,
             "merge fixture exhausted its target record page");
       }
@@ -229,8 +227,8 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       // metadata descriptor. Consume that tail immediately before the target so the target itself,
       // not merely earlier fillers, must publish a side image plus a newly created reference.
       assertTrue(wtx.moveTo(objectNodeKey));
-      final long tailNodeKey = wtx.insertObjectRecordAsFirstChild("merge-tail",
-          new StringValue(MERGE_TAIL_VALUE)).getNodeKey();
+      final long tailNodeKey =
+          wtx.insertObjectRecordAsFirstChild("merge-tail", new StringValue(MERGE_TAIL_VALUE)).getNodeKey();
       assertEquals(TARGET_RECORD_PAGE_KEY, tailNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT);
 
       assertTrue(wtx.moveTo(objectNodeKey));
@@ -242,15 +240,13 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       final int targetSlot = StorageEngineReader.recordPageOffset(targetNodeKey);
       assertTrue(page.isFusedObjectNamedStringValueCompressed(targetSlot),
           "the inherited FSST table must keep the newest source slot inline");
-      assertTrue(page.referenceEntrySet().isEmpty(),
-          "the source fragment must not already own an overflow reference");
+      assertTrue(page.referenceEntrySet().isEmpty(), "the source fragment must not already own an overflow reference");
       wtx.commit();
       return new LatestShadowFixture(targetNodeKey, touchNodeKey);
     }
   }
 
-  private static void updateTarget(final JsonResourceSession session, final long targetNodeKey,
-      final String value) {
+  private static void updateTarget(final JsonResourceSession session, final long targetNodeKey, final String value) {
     try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(targetNodeKey));
       assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind());
@@ -301,8 +297,7 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       final long targetNodeKey) {
     try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       assertTrue(rtx.moveTo(targetNodeKey));
-      assertEquals(NEWER_TARGET_VALUE, rtx.getValue(),
-          "read combine resurrected the older same-key inline value");
+      assertEquals(NEWER_TARGET_VALUE, rtx.getValue(), "read combine resurrected the older same-key inline value");
 
       final StorageEngineReader reader = rtx.getStorageEngineReader();
       final long recordPageKey = reader.pageKey(targetNodeKey, IndexType.DOCUMENT);
@@ -315,7 +310,8 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
               + remainingTailBytes(page) + ", inline=" + PageLayout.isSlotPopulated(page.getSlottedPage(), targetSlot)
               + ", inlineBytes=" + (PageLayout.isSlotPopulated(page.getSlottedPage(), targetSlot)
                   ? PageLayout.getDirDataLength(page.getSlottedPage(), targetSlot)
-                  : 0) + ", sideCount=" + page.getSideSlotCount());
+                  : 0)
+              + ", sideCount=" + page.getSideSlotCount());
       assertFalse(PageLayout.isSlotPopulated(page.getSlottedPage(), targetSlot));
       assertNotNull(page.getPageReference(targetNodeKey));
     }
@@ -339,14 +335,12 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       assertNotNull(page.getFsstSymbolTable(), "the revision-local FSST table must be resolved");
       assertTrue(page.isFusedObjectNamedStringValueCompressed(slot),
           "the bootstrap sample must be stored in FSST form, not merely build an unused table");
-      assertTrue(page.readFusedObjectNamedStringStoredBytes(slot).length
-              < expectedValue.getBytes(StandardCharsets.UTF_8).length,
-          "the stored bootstrap sample must be smaller than its raw UTF-8 value");
+      assertTrue(page.readFusedObjectNamedStringStoredBytes(slot).length < expectedValue.getBytes(
+          StandardCharsets.UTF_8).length, "the stored bootstrap sample must be smaller than its raw UTF-8 value");
     }
   }
 
-  private static DenseSpillFixture createDensePageSpill(final JsonResourceSession session,
-      final long objectNodeKey) {
+  private static DenseSpillFixture createDensePageSpill(final JsonResourceSession session, final long objectNodeKey) {
     try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(objectNodeKey));
       final long targetNodeKey =
@@ -355,8 +349,7 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind());
 
       assertTrue(wtx.moveTo(objectNodeKey));
-      final long touchNodeKey =
-          wtx.insertObjectRecordAsFirstChild("touch", BooleanValue.FALSE).getNodeKey();
+      final long touchNodeKey = wtx.insertObjectRecordAsFirstChild("touch", BooleanValue.FALSE).getNodeKey();
       assertEquals(TARGET_RECORD_PAGE_KEY, touchNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT);
 
       final var writer = wtx.getStorageEngineWriter();
@@ -393,8 +386,9 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       while (page.getSlottedPage().byteSize() < KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY
           || remainingTailBytes(page) >= spillThreshold + 2 * PageConstants.MAX_RECORD_SIZE) {
         assertTrue(wtx.moveTo(objectNodeKey));
-        final long fillerNodeKey = wtx.insertObjectRecordAsFirstChild("dense-string-" + denseFillers,
-            new StringValue(DENSE_FILLER_VALUE)).getNodeKey();
+        final long fillerNodeKey =
+            wtx.insertObjectRecordAsFirstChild("dense-string-" + denseFillers, new StringValue(DENSE_FILLER_VALUE))
+               .getNodeKey();
         assertEquals(TARGET_RECORD_PAGE_KEY, fillerNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT,
             "dense fixture exhausted its target record page");
         assertTrue(++denseFillers <= MAX_DENSE_FILLERS, "dense fixture failed to reach the maximum page size");
@@ -405,8 +399,8 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       while (remainingTailBytes(page) >= spillThreshold) {
         final int before = remainingTailBytes(page);
         assertTrue(wtx.moveTo(objectNodeKey));
-        final long fillerNodeKey = wtx.insertObjectRecordAsFirstChild("dense-tail-" + tailFillers++,
-            NullValue.INSTANCE).getNodeKey();
+        final long fillerNodeKey =
+            wtx.insertObjectRecordAsFirstChild("dense-tail-" + tailFillers++, NullValue.INSTANCE).getNodeKey();
         assertEquals(TARGET_RECORD_PAGE_KEY, fillerNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT,
             "tail fixture exhausted its target record page");
         assertTrue(remainingTailBytes(page) < before, "tail filler must consume page heap bytes");
@@ -429,8 +423,8 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       assertNull(page.getPageReference(targetNodeKey), "the OverflowPage is installed only while sealing the page");
 
       wtx.commit();
-      return new DenseSpillFixture(targetNodeKey, touchNodeKey, compressedWire.length,
-          compressedHeapEstimate, compressedInlineBytes);
+      return new DenseSpillFixture(targetNodeKey, touchNodeKey, compressedWire.length, compressedHeapEstimate,
+          compressedInlineBytes);
     }
   }
 
@@ -468,8 +462,7 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
 
       final StorageEngineReader reader = rtx.getStorageEngineReader();
       final long recordPageKey = reader.pageKey(fixture.targetNodeKey(), IndexType.DOCUMENT);
-      final var loaded =
-          reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, recordPageKey, 0, revision));
+      final var loaded = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, recordPageKey, 0, revision));
       assertNotNull(loaded);
       if (expectFragmentChain) {
         assertFalse(loaded.reference().getPageFragments().isEmpty(),
@@ -483,10 +476,8 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       assertFalse(page.hasSlottedPageSlot(fixture.targetNodeKey()));
       final PageReference companion = page.getPageReference(fixture.targetNodeKey());
       assertNotNull(companion, "descriptor must retain its same-record-key OverflowPage reference");
-      assertEquals(1, page.referenceEntrySet()
-                          .stream()
-                          .filter(entry -> entry.getKey() == fixture.targetNodeKey())
-                          .count());
+      assertEquals(1,
+          page.referenceEntrySet().stream().filter(entry -> entry.getKey() == fixture.targetNodeKey()).count());
 
       Page overflow = companion.getPage();
       if (overflow == null) {
@@ -495,14 +486,12 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       final OverflowPage overflowPage = assertInstanceOf(OverflowPage.class, overflow);
       assertTrue(overflowPage.dataLength() > PageConstants.MAX_RECORD_SIZE,
           "canonical raw record should be larger than each measured compressed inline form: wire="
-              + fixture.compressedWireBytes() + ", heapEstimate=" + fixture.compressedHeapEstimate()
-              + ", actualSlot=" + fixture.compressedInlineBytes());
+              + fixture.compressedWireBytes() + ", heapEstimate=" + fixture.compressedHeapEstimate() + ", actualSlot="
+              + fixture.compressedInlineBytes());
 
-      final DataRecord decoded = session.getResourceConfig()
-                                        .recordPersister
-                                        .deserialize(new ByteArrayBytesIn(overflowPage.getDataBytes()),
-                                            fixture.targetNodeKey(), page.getDeweyIdAsByteArray(slot),
-                                            session.getResourceConfig());
+      final DataRecord decoded =
+          session.getResourceConfig().recordPersister.deserialize(new ByteArrayBytesIn(overflowPage.getDataBytes()),
+              fixture.targetNodeKey(), page.getDeweyIdAsByteArray(slot), session.getResourceConfig());
       final ObjectNamedStringNode overflowNode = assertInstanceOf(ObjectNamedStringNode.class, decoded);
       assertFalse(overflowNode.isCompressed(),
           "OverflowPage payload must be canonical raw and independent of the record-page FSST table");
@@ -517,6 +506,6 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
   }
 
   private record DenseSpillFixture(long targetNodeKey, long touchNodeKey, int compressedWireBytes,
-                                   int compressedHeapEstimate, int compressedInlineBytes) {
+      int compressedHeapEstimate, int compressedInlineBytes) {
   }
 }

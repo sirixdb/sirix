@@ -64,8 +64,8 @@ public interface BufferManager extends AutoCloseable {
    * Decoded global-dictionary records, retained across transactions.
    *
    * <p>
-   * A read view retains blocks only for its own lifetime and is built per query execution, so
-   * without this every execution re-decodes the dictionary material it touches. Missing is safe.
+   * A read view retains blocks only for its own lifetime and is built per query execution, so without
+   * this every execution re-decodes the dictionary material it touches. Missing is safe.
    * </p>
    */
   Cache<GlobalDictionaryRecordCacheKey, DataRecord> getGlobalDictionaryRecordCache();

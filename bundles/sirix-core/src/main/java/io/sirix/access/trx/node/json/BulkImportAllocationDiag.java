@@ -52,8 +52,7 @@ public final class BulkImportAllocationDiag {
 
   static {
     if (ENABLED) {
-      Runtime.getRuntime()
-             .addShutdownHook(new Thread(BulkImportAllocationDiag::dump, "bulk-import-alloc-diag-dump"));
+      Runtime.getRuntime().addShutdownHook(new Thread(BulkImportAllocationDiag::dump, "bulk-import-alloc-diag-dump"));
     }
   }
 
@@ -124,7 +123,9 @@ public final class BulkImportAllocationDiag {
     return calls * (STRING_OBJECT_BYTES + BYTE_ARRAY_HEADER_BYTES) + roundToObjectGrain(chars, calls);
   }
 
-  /** Sum of each value array's payload rounded up to the 8-byte grain, approximated over the total. */
+  /**
+   * Sum of each value array's payload rounded up to the 8-byte grain, approximated over the total.
+   */
   private static long roundToObjectGrain(final long chars, final long calls) {
     // Rounding each array individually would need the per-name distribution; over a schema-shaped
     // corpus every occurrence of a given key has the same length, so the mean rounding error is
@@ -153,7 +154,8 @@ public final class BulkImportAllocationDiag {
             + "  allocated=%,d B (%.2f GB), of which %.2f GB is garbage on the spot%n",
         calls, misses, chars, calls == 0L
             ? 0.0d
-            : (double) chars / calls, nameInternBytes(), nameInternBytes() / (double) (1L << 30),
+            : (double) chars / calls,
+        nameInternBytes(), nameInternBytes() / (double) (1L << 30),
         nameInternBytes() * (calls - misses) / (double) calls / (double) (1L << 30));
     System.out.flush();
   }

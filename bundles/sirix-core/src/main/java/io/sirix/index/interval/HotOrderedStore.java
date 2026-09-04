@@ -20,20 +20,26 @@ import static java.util.Objects.requireNonNull;
 /**
  * Persistent {@link OrderedStore} backed by a SirixDB HOT (Height-Optimized Trie) sub-tree.
  *
- * <p>This is the SirixDB realisation of the storage SPI the {@link RelationalIntervalTree} drives.
- * One {@code (forkNode, endpoint) -> multiset(ref)} logical ordered map is encoded in a single HOT
+ * <p>
+ * This is the SirixDB realisation of the storage SPI the {@link RelationalIntervalTree} drives. One
+ * {@code (forkNode, endpoint) -> multiset(ref)} logical ordered map is encoded in a single HOT
  * sub-tree shared by BOTH RI-tree stores; a per-instance one-byte {@link #store} discriminator
  * ({@link ValidTimeKey#STORE_LOWER} / {@link ValidTimeKey#STORE_UPPER}) keeps the two stores in
  * disjoint, contiguous key ranges. The record references (node keys) are stored as the HOT slot
- * VALUE — a chunked Roaring bitmap, exactly as the CAS index stores node keys under a CAS value.</p>
+ * VALUE — a chunked Roaring bitmap, exactly as the CAS index stores node keys under a CAS value.
+ * </p>
  *
- * <p>A {@code (forkNode, [endpointLo, endpointHi])} {@link #scan} is one contiguous HOT range scan
+ * <p>
+ * A {@code (forkNode, [endpointLo, endpointHi])} {@link #scan} is one contiguous HOT range scan
  * over {@code [(store,fork,endpointLo), (store,fork,endpointHi)]} thanks to the order-preserving
- * {@code [store][fork][endpoint]} key encoding (see {@link ValidTimeKeySerializer}).</p>
+ * {@code [store][fork][endpoint]} key encoding (see {@link ValidTimeKeySerializer}).
+ * </p>
  *
- * <p>The {@code reader} may be {@code null} on a writer-only store (the build / maintain path never
+ * <p>
+ * The {@code reader} may be {@code null} on a writer-only store (the build / maintain path never
  * scans); {@code scan} is then a no-op. The {@code writer} may be {@code null} on a read-only store
- * (the query path never mutates); {@code insert}/{@code remove} then throw.</p>
+ * (the query path never mutates); {@code insert}/{@code remove} then throw.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -44,8 +50,8 @@ public final class HotOrderedStore implements OrderedStore {
   private final @Nullable HOTIndexReader<ValidTimeKey> reader;
 
   /**
-   * @param store  the discriminator byte ({@link ValidTimeKey#STORE_LOWER} or
-   *               {@link ValidTimeKey#STORE_UPPER})
+   * @param store the discriminator byte ({@link ValidTimeKey#STORE_LOWER} or
+   *        {@link ValidTimeKey#STORE_UPPER})
    * @param writer the HOT index writer (mutations); may be {@code null} for a read-only store
    * @param reader the HOT index reader (scans); may be {@code null} for a writer-only store
    */

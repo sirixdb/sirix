@@ -9,18 +9,18 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>
  * The two halves of a key sit side by side in ONE {@code long[]} (slot {@code i} at {@code 2i} and
- * {@code 2i + 1}), so a probe touches one cache line and an insert allocates nothing. The all-zero key
- * is the empty-slot marker; a real all-zero key is kept in a flag. Linear probing at a load of at most
- * one half: the low bits of the low half index the table, so a caller that partitions keys by the
- * HIGH half ({@link #partitionOf(long, int)}, as {@link SharedDistinctHash128Set} does) keeps the two
- * decisions independent.
+ * {@code 2i + 1}), so a probe touches one cache line and an insert allocates nothing. The all-zero
+ * key is the empty-slot marker; a real all-zero key is kept in a flag. Linear probing at a load of
+ * at most one half: the low bits of the low half index the table, so a caller that partitions keys
+ * by the HIGH half ({@link #partitionOf(long, int)}, as {@link SharedDistinctHash128Set} does)
+ * keeps the two decisions independent.
  * </p>
  *
  * <p>
- * Every array the set allocates is charged to a shared byte {@code budget} (bytes remaining, shared by
- * the workers of one operation); a growth the budget refuses throws
- * {@link ByteBudgetExceededException} and the caller declines the whole operation. Single-threaded by
- * contract; {@link SharedDistinctHash128Set} is the form several workers fill together.
+ * Every array the set allocates is charged to a shared byte {@code budget} (bytes remaining, shared
+ * by the workers of one operation); a growth the budget refuses throws
+ * {@link ByteBudgetExceededException} and the caller declines the whole operation. Single-threaded
+ * by contract; {@link SharedDistinctHash128Set} is the form several workers fill together.
  * </p>
  */
 public final class DistinctHash128Set implements DistinctHash128Sink {
@@ -67,7 +67,10 @@ public final class DistinctHash128Set implements DistinctHash128Sink {
     this.growAt = capacity >>> 1;
   }
 
-  /** The smallest power-of-two capacity (at least {@link #MIN_CAPACITY}) holding {@code keys} at half load. */
+  /**
+   * The smallest power-of-two capacity (at least {@link #MIN_CAPACITY}) holding {@code keys} at half
+   * load.
+   */
   static int capacityFor(final long keys) {
     long capacity = MIN_CAPACITY;
     while (capacity < 2L * keys) {

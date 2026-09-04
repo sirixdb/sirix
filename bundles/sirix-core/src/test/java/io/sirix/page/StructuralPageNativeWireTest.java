@@ -303,12 +303,11 @@ final class StructuralPageNativeWireTest {
     for (int index = 0; index < partialKeys.length; index++) {
       partialKeys[index] = index;
     }
-    return HOTIndirectPage.createMultiNode(12L, 8, 5, 0xF800_0000_0000_0000L, partialKeys,
-        childReferences(17, 2_000L), 4);
+    return HOTIndirectPage.createMultiNode(12L, 8, 5, 0xF800_0000_0000_0000L, partialKeys, childReferences(17, 2_000L),
+        4);
   }
 
-  private static void assertSingleMaskRoutingParity(final HOTIndirectPage hot,
-      final HOTIndirectPage cold) {
+  private static void assertSingleMaskRoutingParity(final HOTIndirectPage hot, final HOTIndirectPage cold) {
     final byte[] key = new byte[6];
     for (int partial = 0; partial < 32; partial++) {
       key[5] = (byte) (partial << 3);
@@ -317,13 +316,18 @@ final class StructuralPageNativeWireTest {
     }
   }
 
-  private static void assertMultiMaskRoutingParity(final HOTIndirectPage hot,
-      final HOTIndirectPage cold) {
+  private static void assertMultiMaskRoutingParity(final HOTIndirectPage hot, final HOTIndirectPage cold) {
     final byte[] key = new byte[18];
     for (int partial = 0; partial < 8; partial++) {
-      key[0] = (byte) ((partial & 0b100) == 0 ? 0 : 0x80);
-      key[9] = (byte) ((partial & 0b010) == 0 ? 0 : 0x40);
-      key[17] = (byte) ((partial & 0b001) == 0 ? 0 : 0x20);
+      key[0] = (byte) ((partial & 0b100) == 0
+          ? 0
+          : 0x80);
+      key[9] = (byte) ((partial & 0b010) == 0
+          ? 0
+          : 0x40);
+      key[17] = (byte) ((partial & 0b001) == 0
+          ? 0
+          : 0x20);
       assertEquals(hot.findChildIndex(key), cold.findChildIndex(key),
           "cold MultiMask routing differs for dense partial " + partial);
     }

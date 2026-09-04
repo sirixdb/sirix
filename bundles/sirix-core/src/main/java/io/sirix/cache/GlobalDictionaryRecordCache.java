@@ -13,9 +13,10 @@ import java.util.function.BiFunction;
  *
  * <p>
  * A read view retains blocks for its own lifetime, but a view is built per query execution and dies
- * with it, so every execution re-fetched and re-decoded the dictionary material it touched. Measured
- * on a 43-query ClickBench leg: <b>26,300 LZ77 decode dispatches with three global columns against
- * 125 without any</b> — the whole difference is dictionary records being decoded again and again.
+ * with it, so every execution re-fetched and re-decoded the dictionary material it touched.
+ * Measured on a 43-query ClickBench leg: <b>26,300 LZ77 decode dispatches with three global columns
+ * against 125 without any</b> — the whole difference is dictionary records being decoded again and
+ * again.
  * </p>
  *
  * <p>
@@ -41,8 +42,8 @@ public final class GlobalDictionaryRecordCache implements Cache<GlobalDictionary
     }
     cache = Caffeine.newBuilder()
                     .maximumWeight(maxWeightBytes)
-                    .weigher((GlobalDictionaryRecordCacheKey key, DataRecord record) -> record instanceof
-                        final ValueDictionaryValueBlockNode block
+                    .weigher((GlobalDictionaryRecordCacheKey key,
+                        DataRecord record) -> record instanceof final ValueDictionaryValueBlockNode block
                             ? Math.max(DEFAULT_RECORD_WEIGHT, block.rawBytes().length)
                             : DEFAULT_RECORD_WEIGHT)
                     .scheduler(scheduler)

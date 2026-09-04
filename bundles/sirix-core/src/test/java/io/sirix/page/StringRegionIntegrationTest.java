@@ -279,7 +279,8 @@ final class StringRegionIntegrationTest {
 
       // false -> true: PageKind reuses the same per-thread path encoder and both wires reproduce A.
       name.reset();
-      final StringRegion.Encoder enabledAgain = Objects.requireNonNull(PageKind.resetStringRegionPathCandidate(true, null));
+      final StringRegion.Encoder enabledAgain =
+          Objects.requireNonNull(PageKind.resetStringRegionPathCandidate(true, null));
       assertSame(path, enabledAgain);
       addSharedCandidateValue(name, enabledAgain, scratch, "same-value", false);
       addSharedCandidateValue(name, enabledAgain, scratch, "same-value", true);
@@ -346,8 +347,8 @@ final class StringRegionIntegrationTest {
       PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, page, SerializationType.DATA);
       final BytesIn<?> source = sink.bytesForRead();
       source.readByte(); // pageKind id
-      deserialized = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source,
-          SerializationType.DATA);
+      deserialized =
+          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, SerializationType.DATA);
       for (int row = 0; row < 2 * rows; row++) {
         final int slot = (int) (row & (Constants.NDP_NODE_COUNT - 1));
         assertArrayEquals(page.getSlotAsByteArray(slot), deserialized.getSlotAsByteArray(slot),

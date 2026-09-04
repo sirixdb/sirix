@@ -85,8 +85,18 @@ final class GroupHashRangePassTest {
       if (i > 0) {
         sb.append(',');
       }
-      sb.append("{\"id\":").append(i).append(",\"k7\":").append(i % 7).append(",\"k40\":").append(i % 40)
-        .append(",\"s\":\"s").append(i % 50).append("\",\"u\":").append(i % 97).append(",\"amount\":").append(i)
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"k7\":")
+        .append(i % 7)
+        .append(",\"k40\":")
+        .append(i % 40)
+        .append(",\"s\":\"s")
+        .append(i % 50)
+        .append("\",\"u\":")
+        .append(i % 97)
+        .append(",\"amount\":")
+        .append(i)
         .append('}');
     }
     sb.append(']');

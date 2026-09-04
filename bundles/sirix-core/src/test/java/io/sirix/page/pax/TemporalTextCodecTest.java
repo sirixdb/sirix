@@ -20,13 +20,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The temporal text codec, whose whole value rests on one property: an ACCEPTED value must render back
- * to the bytes it was given, and anything that would not must be REFUSED rather than approximated.
+ * The temporal text codec, whose whole value rests on one property: an ACCEPTED value must render
+ * back to the bytes it was given, and anything that would not must be REFUSED rather than
+ * approximated.
  *
  * <p>
- * These tests therefore spend most of their effort on refusal and on exhaustive round trips, not on a
- * handful of happy examples. A codec that silently canonicalises {@code "2013-7-5"} into
- * {@code "2013-07-05"} would pass any example-based test written by the person who wrote the encoder.
+ * These tests therefore spend most of their effort on refusal and on exhaustive round trips, not on
+ * a handful of happy examples. A codec that silently canonicalises {@code "2013-7-5"} into
+ * {@code "2013-07-05"} would pass any example-based test written by the person who wrote the
+ * encoder.
  * </p>
  */
 final class TemporalTextCodecTest {
@@ -123,14 +125,12 @@ final class TemporalTextCodecTest {
         "2013-07-15 12.14.56", // dots for colons
         "+2013-07-15", "2013-7-15 ", " 2013-07-15",
         // Right shape, impossible values.
-        "2013-13-01", "2013-00-01", "2013-07-32", "2013-07-00",
-        "2013-02-29", // 2013 is not a leap year
+        "2013-13-01", "2013-00-01", "2013-07-32", "2013-07-00", "2013-02-29", // 2013 is not a leap year
         "1900-02-29", // century non-leap
         "2100-02-29", // century non-leap
         "2013-07-15 24:00:00", "2013-07-15 12:60:00", "2013-07-15 12:14:60",
         // Non-digits in digit positions.
-        "20a3-07-15", "2013-0x-15", "2013-07-1z", "2013-07-15 1a:14:56",
-    };
+        "20a3-07-15", "2013-0x-15", "2013-07-1z", "2013-07-15 1a:14:56",};
     for (final String s : refused) {
       assertEquals(null, roundTrip(s), "must be refused: '" + s + "'");
     }
@@ -151,8 +151,7 @@ final class TemporalTextCodecTest {
           if (wrong == canonical.charAt(pos)) {
             continue;
           }
-          final String corrupted =
-              canonical.substring(0, pos) + wrong + canonical.substring(pos + 1);
+          final String corrupted = canonical.substring(0, pos) + wrong + canonical.substring(pos + 1);
           assertEquals(canonical.length(), corrupted.length(), "corruption kept the length");
           assertEquals(null, roundTrip(corrupted),
               "position " + pos + " of '" + canonical + "' set to '" + wrong + "' must be refused");
@@ -170,8 +169,7 @@ final class TemporalTextCodecTest {
           continue;
         }
         for (final char wrong : new char[] {'x', '-', ' ', '/', 'a', '\u007f'}) {
-          final String corrupted =
-              canonical.substring(0, pos) + wrong + canonical.substring(pos + 1);
+          final String corrupted = canonical.substring(0, pos) + wrong + canonical.substring(pos + 1);
           assertEquals(null, roundTrip(corrupted),
               "position " + pos + " of '" + canonical + "' set to '" + wrong + "' must be refused");
         }
@@ -248,7 +246,8 @@ final class TemporalTextCodecTest {
   @DisplayName("bad arguments are refused rather than silently corrupting a buffer")
   void badArgumentsAreRefused() {
     final byte[] b = utf8("2013-07-15");
-    assertThrows(IndexOutOfBoundsException.class, () -> TemporalTextCodec.encode(b, 4, 10, TemporalTextCodec.FORM_DATE));
+    assertThrows(IndexOutOfBoundsException.class,
+        () -> TemporalTextCodec.encode(b, 4, 10, TemporalTextCodec.FORM_DATE));
     assertThrows(IndexOutOfBoundsException.class,
         () -> TemporalTextCodec.decode(0L, TemporalTextCodec.FORM_DATE, new byte[9], 0));
     assertThrows(IllegalArgumentException.class,
@@ -331,8 +330,8 @@ final class TemporalTextCodecTest {
   @Test
   @DisplayName("the civil/day conversions are exact inverses across the whole rendered range")
   void civilConversionsAreInverses() {
-    for (long days = TemporalTextCodec.daysFromCivil(1, 1, 1); days <= TemporalTextCodec.daysFromCivil(9999, 12, 31);
-        days += 7) {
+    for (long days = TemporalTextCodec.daysFromCivil(1, 1, 1); days <= TemporalTextCodec.daysFromCivil(9999, 12,
+        31); days += 7) {
       final long ymd = TemporalTextCodec.civilFromDays(days);
       final int y = (int) (ymd >> 32);
       final int m = (int) (ymd >> 16) & 0xFFFF;

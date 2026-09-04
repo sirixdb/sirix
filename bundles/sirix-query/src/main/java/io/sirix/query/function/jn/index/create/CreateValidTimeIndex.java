@@ -43,9 +43,9 @@ import java.util.Set;
  * <p>
  * The resource MUST be configured with valid-time paths (see
  * {@link io.sirix.access.ResourceConfiguration.Builder#validTimePaths(String, String)}); the index
- * always indexes those two fields. {@code $paths}, when omitted, defaults to {@code /[]/<validFrom>}
- * and {@code /[]/<validTo>} built from the resource's valid-time field names. The index uses the
- * canonical HOT trie and its order-preserving range scans.
+ * always indexes those two fields. {@code $paths}, when omitted, defaults to
+ * {@code /[]/<validFrom>} and {@code /[]/<validTo>} built from the resource's valid-time field
+ * names. The index uses the canonical HOT trie and its order-preserving range scans.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -89,7 +89,8 @@ public final class CreateValidTimeIndex extends AbstractFunction {
     // an auto-created interval index. Checked on the READ-side controller BEFORE acquiring a write
     // transaction, so the common already-indexed case neither begins a wtx that would be left open
     // nor reverts an existing wtx as a side effect.
-    final IndexDef alreadyExisting = findValidTimeIndexDef(resourceSession.getRtxIndexController(rtx.getRevisionNumber()));
+    final IndexDef alreadyExisting =
+        findValidTimeIndexDef(resourceSession.getRtxIndexController(rtx.getRevisionNumber()));
     if (alreadyExisting != null) {
       return alreadyExisting.materialize();
     }

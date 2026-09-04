@@ -330,10 +330,8 @@ class NodeReferencesSerializerTest {
   private static void assertAccumulatorRejects(final byte[] payload) {
     final HOTLeafPage leaf = leafWithValue(payload);
     try {
-      final NodeReferencesSerializer.ChunkAccumulator accumulator =
-          new NodeReferencesSerializer.ChunkAccumulator();
-      assertThrows(IllegalArgumentException.class,
-          () -> accumulator.addChunk(leaf, leaf.valueRef(0), 0L));
+      final NodeReferencesSerializer.ChunkAccumulator accumulator = new NodeReferencesSerializer.ChunkAccumulator();
+      assertThrows(IllegalArgumentException.class, () -> accumulator.addChunk(leaf, leaf.valueRef(0), 0L));
     } finally {
       leaf.close();
     }
@@ -400,10 +398,10 @@ class NodeReferencesSerializerTest {
       final HOTLeafPage leaf = leafWithValue(existing);
       try {
         Arrays.fill(scratch, (byte) 0x5A);
-        final byte[] allocatingResult = NodeReferencesSerializer.mergePackedSingleBitFromSlot(
-            leaf, leaf.valueRef(0), incoming, 0, incoming.length);
-        final int resultLength = NodeReferencesSerializer.mergePackedSingleBitFromSlot(
-            leaf, leaf.valueRef(0), incoming, 0, incoming.length, scratch, scratchOffset);
+        final byte[] allocatingResult =
+            NodeReferencesSerializer.mergePackedSingleBitFromSlot(leaf, leaf.valueRef(0), incoming, 0, incoming.length);
+        final int resultLength = NodeReferencesSerializer.mergePackedSingleBitFromSlot(leaf, leaf.valueRef(0), incoming,
+            0, incoming.length, scratch, scratchOffset);
 
         if (allocatingResult == NodeReferencesSerializer.MERGE_UNCHANGED) {
           assertEquals(NodeReferencesSerializer.PACKED_MERGE_UNCHANGED, resultLength);
@@ -412,8 +410,7 @@ class NodeReferencesSerializerTest {
           }
         } else {
           assertEquals(allocatingResult.length, resultLength);
-          assertArrayEquals(allocatingResult,
-              Arrays.copyOfRange(scratch, scratchOffset, scratchOffset + resultLength));
+          assertArrayEquals(allocatingResult, Arrays.copyOfRange(scratch, scratchOffset, scratchOffset + resultLength));
           assertEquals((byte) 0x5A, scratch[scratchOffset - 1]);
           assertEquals((byte) 0x5A, scratch[scratchOffset + resultLength]);
         }
@@ -431,9 +428,8 @@ class NodeReferencesSerializerTest {
     final byte[] scratch = new byte[NodeReferencesSerializer.MAX_PACKED_PAYLOAD_LENGTH];
     Arrays.fill(scratch, (byte) 0x33);
     try {
-      assertThrows(IllegalArgumentException.class,
-          () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(leaf, leaf.valueRef(0),
-              singleBit(20L), 0, singleBit(20L).length, scratch, 0));
+      assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(leaf,
+          leaf.valueRef(0), singleBit(20L), 0, singleBit(20L).length, scratch, 0));
       for (final byte value : scratch) {
         assertEquals((byte) 0x33, value, "corruption failure must not touch caller scratch");
       }
@@ -449,9 +445,8 @@ class NodeReferencesSerializerTest {
     Arrays.fill(scratch, (byte) 0x22);
     final byte[] incoming = singleBit(20L);
     try {
-      assertThrows(IndexOutOfBoundsException.class,
-          () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(leaf, leaf.valueRef(0),
-              incoming, 0, incoming.length, scratch, 0));
+      assertThrows(IndexOutOfBoundsException.class, () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(leaf,
+          leaf.valueRef(0), incoming, 0, incoming.length, scratch, 0));
       for (final byte value : scratch) {
         assertEquals((byte) 0x22, value, "capacity failure must not touch caller scratch");
       }
@@ -504,8 +499,8 @@ class NodeReferencesSerializerTest {
         final byte[] scratch = new byte[64];
         Arrays.fill(scratch, (byte) 0x5A);
         final int offset = 5;
-        final int resultLength = NodeReferencesSerializer.removePackedSingleBitFromSlot(leaf, leaf.valueRef(0),
-            removed, scratch, offset);
+        final int resultLength =
+            NodeReferencesSerializer.removePackedSingleBitFromSlot(leaf, leaf.valueRef(0), removed, scratch, offset);
 
         assertEquals(2 + (keys.length - 1) * Long.BYTES, resultLength);
         final NodeReferences result = NodeReferencesSerializer.deserialize(scratch, offset, resultLength);
@@ -514,8 +509,7 @@ class NodeReferencesSerializerTest {
           assertEquals(key != removed, result.contains(key), "unexpected membership for key " + key);
         }
         assertEquals((byte) 0x5A, scratch[offset - 1], "bytes before the output range must be untouched");
-        assertEquals((byte) 0x5A, scratch[offset + resultLength],
-            "bytes after the output range must be untouched");
+        assertEquals((byte) 0x5A, scratch[offset + resultLength], "bytes after the output range must be untouched");
       } finally {
         leaf.close();
       }
@@ -565,10 +559,12 @@ class NodeReferencesSerializerTest {
     final byte[] trailing = Arrays.copyOf(packedOf(10L, 30L), 2 + 3 * Long.BYTES);
     final HOTLeafPage trailingLeaf = leafWithValue(trailing);
     try {
-      assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.removePackedSingleBitFromSlot(
-          truncatedLeaf, truncatedLeaf.valueRef(0), 10L, new byte[32], 0));
-      assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.removePackedSingleBitFromSlot(
-          trailingLeaf, trailingLeaf.valueRef(0), 10L, new byte[32], 0));
+      assertThrows(IllegalArgumentException.class,
+          () -> NodeReferencesSerializer.removePackedSingleBitFromSlot(truncatedLeaf, truncatedLeaf.valueRef(0), 10L,
+              new byte[32], 0));
+      assertThrows(IllegalArgumentException.class,
+          () -> NodeReferencesSerializer.removePackedSingleBitFromSlot(trailingLeaf, trailingLeaf.valueRef(0), 10L,
+              new byte[32], 0));
     } finally {
       truncatedLeaf.close();
       trailingLeaf.close();
@@ -579,8 +575,7 @@ class NodeReferencesSerializerTest {
   void postingFormatsRejectNonCanonicalTombstonesAndPackedOrdering() {
     assertThrows(IllegalArgumentException.class,
         () -> NodeReferencesSerializer.deserialize(new byte[] {(byte) 0xFE, 0x01}));
-    assertThrows(IllegalArgumentException.class,
-        () -> NodeReferencesSerializer.deserialize(new byte[] {0x00, 0x00}));
+    assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.deserialize(new byte[] {0x00, 0x00}));
 
     final byte[] unsorted = packedOf(10L, 30L);
     for (int i = 0; i < Long.BYTES; i++) {
@@ -592,10 +587,10 @@ class NodeReferencesSerializerTest {
 
     final HOTLeafPage leaf = leafWithValue(unsorted);
     try {
-      assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.removePackedSingleBitFromSlot(
-          leaf, leaf.valueRef(0), 10L, new byte[32], 0));
-      assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(
-          leaf, leaf.valueRef(0), singleBit(20L), 0, singleBit(20L).length));
+      assertThrows(IllegalArgumentException.class,
+          () -> NodeReferencesSerializer.removePackedSingleBitFromSlot(leaf, leaf.valueRef(0), 10L, new byte[32], 0));
+      assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(leaf,
+          leaf.valueRef(0), singleBit(20L), 0, singleBit(20L).length));
     } finally {
       leaf.close();
     }
@@ -609,14 +604,14 @@ class NodeReferencesSerializerTest {
     final HOTLeafPage validExisting = leafWithValue(inRange);
     try {
       assertThrows(IllegalArgumentException.class,
-          () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(
-              malformedExisting, malformedExisting.valueRef(0), inRange, 0, inRange.length));
+          () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(malformedExisting, malformedExisting.valueRef(0),
+              inRange, 0, inRange.length));
       assertThrows(IllegalArgumentException.class,
-          () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(
-              validExisting, validExisting.valueRef(0), outOfRange, 0, outOfRange.length));
+          () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(validExisting, validExisting.valueRef(0),
+              outOfRange, 0, outOfRange.length));
       assertThrows(IllegalArgumentException.class,
-          () -> NodeReferencesSerializer.removePackedSingleBitFromSlot(
-              malformedExisting, malformedExisting.valueRef(0), 7L, new byte[16], 0));
+          () -> NodeReferencesSerializer.removePackedSingleBitFromSlot(malformedExisting, malformedExisting.valueRef(0),
+              7L, new byte[16], 0));
     } finally {
       malformedExisting.close();
       validExisting.close();
@@ -632,11 +627,11 @@ class NodeReferencesSerializerTest {
     final HOTLeafPage fullMalformedLeaf = leafWithValue(fullMalformedPayload);
     try {
       assertThrows(IllegalArgumentException.class,
-          () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(
-              fullMalformedLeaf, fullMalformedLeaf.valueRef(0), inRange, 0, inRange.length));
+          () -> NodeReferencesSerializer.mergePackedSingleBitFromSlot(fullMalformedLeaf, fullMalformedLeaf.valueRef(0),
+              inRange, 0, inRange.length));
       assertThrows(IllegalArgumentException.class,
-          () -> NodeReferencesSerializer.removePackedSingleBitFromSlot(
-              fullMalformedLeaf, fullMalformedLeaf.valueRef(0), 7L, new byte[512], 0));
+          () -> NodeReferencesSerializer.removePackedSingleBitFromSlot(fullMalformedLeaf, fullMalformedLeaf.valueRef(0),
+              7L, new byte[512], 0));
     } finally {
       fullMalformedLeaf.close();
     }
@@ -644,13 +639,10 @@ class NodeReferencesSerializerTest {
 
   @Test
   void chunkDeserializerRejectsPackedAndRoaringValuesOutsideUnsigned16BitDomain() {
-    assertThrows(IllegalArgumentException.class,
-        () -> NodeReferencesSerializer.deserializeChunk(new byte[0]));
+    assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.deserializeChunk(new byte[0]));
     assertTrue(NodeReferencesSerializer.deserializeChunk(singleBit(0xFFFFL)).contains(0xFFFFL));
-    assertThrows(IllegalArgumentException.class,
-        () -> NodeReferencesSerializer.deserializeChunk(singleBit(1L << 16)));
-    assertThrows(IllegalArgumentException.class,
-        () -> NodeReferencesSerializer.deserializeChunk(roaringChunk(true)));
+    assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.deserializeChunk(singleBit(1L << 16)));
+    assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.deserializeChunk(roaringChunk(true)));
   }
 
   @Test
@@ -662,13 +654,13 @@ class NodeReferencesSerializerTest {
     final HOTLeafPage validExisting = leafWithValue(validRoaring);
     try {
       assertThrows(IllegalArgumentException.class,
-          () -> malformedExisting.mergeWithNodeRefs(
-              "k".getBytes(StandardCharsets.UTF_8), 1, incoming, incoming.length));
+          () -> malformedExisting.mergeWithNodeRefs("k".getBytes(StandardCharsets.UTF_8), 1, incoming,
+              incoming.length));
       assertArrayEquals(malformedRoaring, malformedExisting.getValue(0));
 
       assertThrows(IllegalArgumentException.class,
-          () -> validExisting.mergeWithNodeRefs(
-              "k".getBytes(StandardCharsets.UTF_8), 1, malformedRoaring, malformedRoaring.length));
+          () -> validExisting.mergeWithNodeRefs("k".getBytes(StandardCharsets.UTF_8), 1, malformedRoaring,
+              malformedRoaring.length));
       assertArrayEquals(validRoaring, validExisting.getValue(0));
 
       assertThrows(IllegalArgumentException.class,
@@ -687,9 +679,8 @@ class NodeReferencesSerializerTest {
     final byte[] malformedPacked = singleBit(1L << 16);
     final HOTLeafPage leaf = leafWithValue(tombstone);
     try {
-      assertThrows(IllegalArgumentException.class,
-          () -> leaf.mergeWithNodeRefs(
-              "k".getBytes(StandardCharsets.UTF_8), 1, malformedPacked, malformedPacked.length));
+      assertThrows(IllegalArgumentException.class, () -> leaf.mergeWithNodeRefs("k".getBytes(StandardCharsets.UTF_8), 1,
+          malformedPacked, malformedPacked.length));
       assertArrayEquals(tombstone, leaf.getValue(0));
     } finally {
       leaf.close();
@@ -737,10 +728,8 @@ class NodeReferencesSerializerTest {
   void chunkAccumulatorRejectsAnUnreadableSlotReference() {
     final HOTLeafPage leaf = leafWithValue(singleBit(7L));
     try {
-      final NodeReferencesSerializer.ChunkAccumulator accumulator =
-          new NodeReferencesSerializer.ChunkAccumulator();
-      assertThrows(IllegalStateException.class,
-          () -> accumulator.addChunk(leaf, HOTLeafPage.NO_VALUE_REF, 0L));
+      final NodeReferencesSerializer.ChunkAccumulator accumulator = new NodeReferencesSerializer.ChunkAccumulator();
+      assertThrows(IllegalStateException.class, () -> accumulator.addChunk(leaf, HOTLeafPage.NO_VALUE_REF, 0L));
     } finally {
       leaf.close();
     }

@@ -37,11 +37,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Regression tests for Phase 0 bug fixes in the HOT (Height Optimized Trie) index.
  *
- * <p>These tests verify fixes for:
+ * <p>
+ * These tests verify fixes for:
  * <ul>
- *   <li>Bug 1: Signed byte comparison in SiblingMerger merge ordering</li>
- *   <li>Bug 2: Identical keys fallback to bit 0 in HeightOptimalSplitter</li>
- *   <li>Bug 4: Page key persistence across transactions (nextPageKey counter)</li>
+ * <li>Bug 1: Signed byte comparison in SiblingMerger merge ordering</li>
+ * <li>Bug 2: Identical keys fallback to bit 0 in HeightOptimalSplitter</li>
+ * <li>Bug 4: Page key persistence across transactions (nextPageKey counter)</li>
  * </ul>
  */
 @DisplayName("HOT Bug Fix Regression Tests (Phase 0)")
@@ -68,12 +69,10 @@ class HOTBugFixRegressionTest {
       rightRef.setKey(2);
 
       // BiNode with partial key 0x01 (first child index determines partial key extraction)
-      final HOTIndirectPage nodeWithLowKey =
-          HOTIndirectPage.createBiNode(10L, 1, 0, leftRef, rightRef, 1);
+      final HOTIndirectPage nodeWithLowKey = HOTIndirectPage.createBiNode(10L, 1, 0, leftRef, rightRef, 1);
 
       // BiNode with partial key 0xFF
-      final HOTIndirectPage nodeWithHighKey =
-          HOTIndirectPage.createBiNode(11L, 1, 0, leftRef, rightRef, 1);
+      final HOTIndirectPage nodeWithHighKey = HOTIndirectPage.createBiNode(11L, 1, 0, leftRef, rightRef, 1);
 
       // Verify getPartialKey returns the expected bytes for basic comparison
       // The core fix is in SiblingMerger line 265: Byte.toUnsignedInt()
@@ -233,8 +232,7 @@ class HOTBugFixRegressionTest {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
 
-        final String additionalJson =
-            "{\"features\":[{\"type\":\"ExtraFeature\"},{\"type\":\"ExtraFeature2\"}]}";
+        final String additionalJson = "{\"features\":[{\"type\":\"ExtraFeature\"},{\"type\":\"ExtraFeature2\"}]}";
         trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(additionalJson));
 
         trx.commit();

@@ -19,37 +19,44 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Apples-to-apples per-query timing against a preserved scale DB for the
- * DuckDB comparison. Differences from {@link ScaleBenchMain}'s query phase:
- * a FRESH {@link SirixVectorizedExecutor} is created for every iteration, so
- * the executor-level RESULT caches never serve a timed run (DuckDB does not
- * cache query results either) — the store, page caches, and the projection
- * index are shared across iterations, mirroring DuckDB's loaded table.
+ * Apples-to-apples per-query timing against a preserved scale DB for the DuckDB comparison.
+ * Differences from {@link ScaleBenchMain}'s query phase: a FRESH {@link SirixVectorizedExecutor} is
+ * created for every iteration, so the executor-level RESULT caches never serve a timed run (DuckDB
+ * does not cache query results either) — the store, page caches, and the projection index are
+ * shared across iterations, mirroring DuckDB's loaded table.
  *
  * Usage: SirixVsDuckBenchMain &lt;dbDir&gt; [iters=3] [threads=cores] [projection=true|false]
  *
- * <p>projection=false skips projection creation. To measure only region/scan
- * paths, use a database that has no catalogued projection definition; the flag
- * does not hide a persisted production index.
+ * <p>
+ * projection=false skips projection creation. To measure only region/scan paths, use a database
+ * that has no catalogued projection definition; the flag does not hide a persisted production
+ * index.
  */
 public final class SirixVsDuckBenchMain {
 
   private static final Map<String, String> QUERIES = new LinkedHashMap<>();
   static {
-    QUERIES.put("filterCount",            "count(for $u in $doc[] where $u.age > 40 and $u.active return $u)");
-    QUERIES.put("groupByDept",            "for $u in $doc[] let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
-    QUERIES.put("sumAge",                 "sum(for $u in $doc[] return $u.age)");
-    QUERIES.put("avgAge",                 "avg(for $u in $doc[] return $u.age)");
-    QUERIES.put("minMaxAge",              "{\"min\": min(for $u in $doc[] return $u.age), \"max\": max(for $u in $doc[] return $u.age)}");
-    QUERIES.put("groupBy2Keys",           "for $u in $doc[] let $d := $u.dept, $c := $u.city group by $d, $c return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
-    QUERIES.put("filterGroupBy",          "for $u in $doc[] where $u.active let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
-    QUERIES.put("countDistinct",          "count(for $u in $doc[] let $d := $u.dept group by $d return $d)");
-    QUERIES.put("compoundAndFilterCount", "count(for $u in $doc[] where $u.age > 30 and $u.age < 50 and $u.active return $u)");
+    QUERIES.put("filterCount", "count(for $u in $doc[] where $u.age > 40 and $u.active return $u)");
+    QUERIES.put("groupByDept",
+        "for $u in $doc[] let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
+    QUERIES.put("sumAge", "sum(for $u in $doc[] return $u.age)");
+    QUERIES.put("avgAge", "avg(for $u in $doc[] return $u.age)");
+    QUERIES.put("minMaxAge",
+        "{\"min\": min(for $u in $doc[] return $u.age), \"max\": max(for $u in $doc[] return $u.age)}");
+    QUERIES.put("groupBy2Keys",
+        "for $u in $doc[] let $d := $u.dept, $c := $u.city group by $d, $c return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
+    QUERIES.put("filterGroupBy",
+        "for $u in $doc[] where $u.active let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
+    QUERIES.put("countDistinct", "count(for $u in $doc[] let $d := $u.dept group by $d return $d)");
+    QUERIES.put("compoundAndFilterCount",
+        "count(for $u in $doc[] where $u.age > 30 and $u.age < 50 and $u.active return $u)");
   }
 
   public static void main(final String[] args) throws Exception {
     final Path dbDir = Path.of(args[0]);
-    final int iters = args.length > 1 ? Integer.parseInt(args[1]) : 3;
+    final int iters = args.length > 1
+        ? Integer.parseInt(args[1])
+        : 3;
     final int threads = args.length > 2
         ? Integer.parseInt(args[2])
         : Runtime.getRuntime().availableProcessors();
@@ -60,8 +67,8 @@ public final class SirixVsDuckBenchMain {
     alloc.init(offheap);
 
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection coll = (JsonDBCollection) store.lookup("scale-db");
       final JsonDBItem docItem = (JsonDBItem) coll.getDocument();
       ctx.bind(new QNm("doc"), (Sequence) docItem);
@@ -69,8 +76,8 @@ public final class SirixVsDuckBenchMain {
       if (projection) {
         final long tProj = System.nanoTime();
         final int leaves = ScaleBenchProjectionSetup.ensureProjection(session);
-        System.out.printf("# projection: %,d leaves in %,d ms; threads=%d, iters=%d%n",
-                          leaves, (System.nanoTime() - tProj) / 1_000_000, threads, iters);
+        System.out.printf("# projection: %,d leaves in %,d ms; threads=%d, iters=%d%n", leaves,
+            (System.nanoTime() - tProj) / 1_000_000, threads, iters);
       } else {
         System.out.printf("# projection: DISABLED (region/scan paths); threads=%d, iters=%d%n", threads, iters);
       }
@@ -105,8 +112,8 @@ public final class SirixVsDuckBenchMain {
       // let-binding to a DOCUMENT SourceRef the executor's acceptsSource gate can verify; an
       // external variable annotates as UNKNOWN since brackit 1.0-alpha9 and silently declines
       // every query to the generic pipeline.
-      final Sequence result = new Query(chain,
-          "let $doc := jn:doc('scale-db','records.jn') return (" + query + ")").execute(ctx);
+      final Sequence result =
+          new Query(chain, "let $doc := jn:doc('scale-db','records.jn') return (" + query + ")").execute(ctx);
       final StringWriter out = new StringWriter();
       try (PrintWriter pw = new PrintWriter(out)) {
         new StringSerializer(pw).serialize(result);

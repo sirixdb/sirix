@@ -66,8 +66,8 @@ public final class IndexDefs {
   }
 
   /**
-   * Map a logical NAME definition number onto its non-overlapping physical {@link io.sirix.page.NamePage}
-   * reference slot.
+   * Map a logical NAME definition number onto its non-overlapping physical
+   * {@link io.sirix.page.NamePage} reference slot.
    */
   private static int physicalNameIndexId(final int indexDefNo, final IndexDef.DbType dbType) {
     Objects.requireNonNull(dbType, "dbType must not be null");
@@ -80,8 +80,8 @@ public final class IndexDefs {
       case XML -> PageConstants.XML_NAME_INDEX_OFFSET;
     };
     if (indexDefNo >= Constants.INP_REFERENCE_COUNT - base) {
-      throw new IllegalArgumentException("NAME index definition number " + indexDefNo
-          + " maps outside the NamePage reference space");
+      throw new IllegalArgumentException(
+          "NAME index definition number " + indexDefNo + " maps outside the NamePage reference space");
     }
     return base + indexDefNo;
   }
@@ -94,17 +94,15 @@ public final class IndexDefs {
    * @param dbType database type defining the reserved NamePage prefix
    * @return logical NAME index definition number
    */
-  public static int logicalNameIndexDefNoForPhysicalSlot(final int physicalIndexId,
-      final IndexDef.DbType dbType) {
+  public static int logicalNameIndexDefNoForPhysicalSlot(final int physicalIndexId, final IndexDef.DbType dbType) {
     Objects.requireNonNull(dbType, "dbType must not be null");
     final int base = switch (dbType) {
       case JSON -> PageConstants.JSON_NAME_INDEX_OFFSET;
       case XML -> PageConstants.XML_NAME_INDEX_OFFSET;
     };
     if (physicalIndexId < base || physicalIndexId >= Constants.INP_REFERENCE_COUNT) {
-      throw new IllegalArgumentException("Physical NAME index slot " + physicalIndexId
-          + " is outside the secondary " + dbType + " NamePage range [" + base + ", "
-          + Constants.INP_REFERENCE_COUNT + ")");
+      throw new IllegalArgumentException("Physical NAME index slot " + physicalIndexId + " is outside the secondary "
+          + dbType + " NamePage range [" + base + ", " + Constants.INP_REFERENCE_COUNT + ")");
     }
     return physicalIndexId - base;
   }
@@ -119,8 +117,8 @@ public final class IndexDefs {
    * @param dbType the database type
    * @return a new vector {@link IndexDef} instance
    */
-  public static IndexDef createVectorIdxDef(final int dimension, final String distanceType,
-      final Set<Path<QNm>> paths, final int indexDefNo, final IndexDef.DbType dbType) {
+  public static IndexDef createVectorIdxDef(final int dimension, final String distanceType, final Set<Path<QNm>> paths,
+      final int indexDefNo, final IndexDef.DbType dbType) {
     return new IndexDef(dimension, distanceType, paths, 16, 200, indexDefNo, dbType);
   }
 
@@ -136,9 +134,8 @@ public final class IndexDefs {
    * @param dbType the database type
    * @return a new vector {@link IndexDef} instance
    */
-  public static IndexDef createVectorIdxDef(final int dimension, final String distanceType,
-      final Set<Path<QNm>> paths, final int hnswM, final int hnswEfConstruction,
-      final int indexDefNo, final IndexDef.DbType dbType) {
+  public static IndexDef createVectorIdxDef(final int dimension, final String distanceType, final Set<Path<QNm>> paths,
+      final int hnswM, final int hnswEfConstruction, final int indexDefNo, final IndexDef.DbType dbType) {
     return new IndexDef(dimension, distanceType, paths, hnswM, hnswEfConstruction, indexDefNo, dbType);
   }
 
@@ -155,31 +152,27 @@ public final class IndexDefs {
    * @param dbType the database type
    * @return a new vector {@link IndexDef} instance
    */
-  public static IndexDef createVectorIdxDef(final int dimension, final String distanceType,
-      final Set<Path<QNm>> paths, final int hnswM, final int hnswEfConstruction,
-      final int hnswEfSearch, final int indexDefNo, final IndexDef.DbType dbType) {
-    return new IndexDef(dimension, distanceType, paths, hnswM, hnswEfConstruction,
-        hnswEfSearch, indexDefNo, dbType);
+  public static IndexDef createVectorIdxDef(final int dimension, final String distanceType, final Set<Path<QNm>> paths,
+      final int hnswM, final int hnswEfConstruction, final int hnswEfSearch, final int indexDefNo,
+      final IndexDef.DbType dbType) {
+    return new IndexDef(dimension, distanceType, paths, hnswM, hnswEfConstruction, hnswEfSearch, indexDefNo, dbType);
   }
 
   /**
-   * Create a projection {@link IndexDef}. Rows materialised at query time
-   * correspond one-to-one with the records matching {@code rootPath}, and
-   * each row carries the declared field columns in {@code fieldPaths}
-   * order — HOT leaf pages are laid out as parallel primitive arrays
-   * (one per column + a {@code recordKey} column), enabling SIMD-friendly
-   * multi-field filter scans without the OBJECT_KEY indirection the
-   * generic predicate path pays.
+   * Create a projection {@link IndexDef}. Rows materialised at query time correspond one-to-one with
+   * the records matching {@code rootPath}, and each row carries the declared field columns in
+   * {@code fieldPaths} order — HOT leaf pages are laid out as parallel primitive arrays (one per
+   * column + a {@code recordKey} column), enabling SIMD-friendly multi-field filter scans without the
+   * OBJECT_KEY indirection the generic predicate path pays.
    *
-   * @param rootPath    projection root (e.g. {@code $doc[]})
-   * @param fieldPaths  ordered sub-field paths; order dictates column layout
-   * @param fieldTypes  per-field value type (index-aligned with {@code fieldPaths})
-   * @param indexDefNo  stable id slot in the resource's index catalogue
-   * @param dbType      XML / JSON
+   * @param rootPath projection root (e.g. {@code $doc[]})
+   * @param fieldPaths ordered sub-field paths; order dictates column layout
+   * @param fieldTypes per-field value type (index-aligned with {@code fieldPaths})
+   * @param indexDefNo stable id slot in the resource's index catalogue
+   * @param dbType XML / JSON
    */
-  public static IndexDef createProjectionIdxDef(final Path<QNm> rootPath,
-      final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes,
-      final int indexDefNo, final IndexDef.DbType dbType) {
+  public static IndexDef createProjectionIdxDef(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
+      final List<Type> fieldTypes, final int indexDefNo, final IndexDef.DbType dbType) {
     return new IndexDef(rootPath, fieldPaths, fieldTypes, indexDefNo, dbType);
   }
 
@@ -189,9 +182,9 @@ public final class IndexDefs {
    * output-sensitive stabbing queries; the valid-time field names are read from the resource's
    * {@link io.sirix.access.ValidTimeConfig} at build/maintain time.
    *
-   * @param paths      the two indexed valid-time paths (e.g. {@code /[]/validFrom}, {@code /[]/validTo})
+   * @param paths the two indexed valid-time paths (e.g. {@code /[]/validFrom}, {@code /[]/validTo})
    * @param indexDefNo stable id slot in the resource's index catalogue
-   * @param dbType     XML / JSON
+   * @param dbType XML / JSON
    * @return a new valid-time {@link IndexDef} instance
    */
   public static IndexDef createValidTimeIdxDef(final Set<Path<QNm>> paths, final int indexDefNo,

@@ -266,10 +266,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * <p>
    * The checks below are the delegated constructor's, in ITS EXACT ORDER — projection type first
    * (which is also what makes a null {@code indexDef} fail the way it always has), then
-   * {@code storageEngineWriter}, {@code pathSummary}, {@code indexDef}, {@code maintenanceTrx}.
-   * Order is not cosmetic here: checking {@code maintenanceTrx} early would turn a non-projection
-   * {@link IndexDef} combined with a null transaction from an {@link IllegalArgumentException} into
-   * a {@link NullPointerException}. Repeating them in the delegated constructor costs nothing.
+   * {@code storageEngineWriter}, {@code pathSummary}, {@code indexDef}, {@code maintenanceTrx}. Order
+   * is not cosmetic here: checking {@code maintenanceTrx} early would turn a non-projection
+   * {@link IndexDef} combined with a null transaction from an {@link IllegalArgumentException} into a
+   * {@link NullPointerException}. Repeating them in the delegated constructor costs nothing.
    */
   private static @Nullable ProjectionBulkLoad resolveBulkLoadForNewListener(
       final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummary, final IndexDef indexDef,
@@ -290,8 +290,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * {@link #bulkSkipsNamedKinds} are always derived from the SAME source.
    *
    * <p>
-   * The public constructor resolves the load from the global registry and delegates here, so there
-   * is no extra work on any production path — the resolution happens exactly once, as before.
+   * The public constructor resolves the load from the global registry and delegates here, so there is
+   * no extra work on any production path — the resolution happens exactly once, as before.
    *
    * <p>
    * It exists because the two fields are correlated and only one of them is a reference: a test that
@@ -302,8 +302,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * @param injectedBulkLoad the armed load to route notifications to, or {@code null} for ordinary
    *        maintenance
    */
-  ProjectionIndexChangeListener(final StorageEngineWriter storageEngineWriter,
-      final PathSummaryReader pathSummary, final IndexDef indexDef, final NodeReadOnlyTrx maintenanceTrx,
+  ProjectionIndexChangeListener(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummary,
+      final IndexDef indexDef, final NodeReadOnlyTrx maintenanceTrx,
       final @Nullable ProjectionBulkLoad injectedBulkLoad) {
     if (!indexDef.isProjectionIndex()) {
       throw new IllegalArgumentException(
@@ -1725,9 +1725,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * modelled: {@link ProjectionBulkLoad#abort()} drops the build without finalizing, so slot 0 keeps
    * the stale tombstone it has carried since the load began, and
    * {@link #invalidate(ProjectionIndexMetadata.StaleReason)} makes every later notification a no-op.
-   * Both matter — without the invalidate the listener would fall back to
-   * the dirty-set patcher and buffer a record key for every remaining row of the corpus, trading one
-   * unbounded structure for another.
+   * Both matter — without the invalidate the listener would fall back to the dirty-set patcher and
+   * buffer a record key for every remaining row of the corpus, trading one unbounded structure for
+   * another.
    * </p>
    */
   private void abandonForOversizedDictionary(final ProjectionBulkLoad load,
@@ -1953,10 +1953,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Resolve the persisted maintenance state before the first ordinary notification. A stale marker
-   * is written only when a load was explicitly abandoned, so that definition remains a transaction-
-   * local no-op without touching row groups or structural-order side slots. Absence is not a mode:
-   * a catalogued definition without metadata is inconsistent and must fail the owning transaction.
+   * Resolve the persisted maintenance state before the first ordinary notification. A stale marker is
+   * written only when a load was explicitly abandoned, so that definition remains a transaction-
+   * local no-op without touching row groups or structural-order side slots. Absence is not a mode: a
+   * catalogued definition without metadata is inconsistent and must fail the owning transaction.
    */
   private boolean skipExplicitlyAbandonedProjection() {
     // Read through the writer's reader view. Constructing writable HOT storage here would CoW the
@@ -2404,10 +2404,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // here — which an earlier version of this call did, simply by not passing it — erases the only
       // route from a converted page's anchor to its dictionary, and every such page becomes
       // unresolvable on the very next read ("cannot resolve id N against it").
-      final ProjectionIndexMetadata refreshed =
-          new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(), meta.fieldNames(), persistedKinds,
-              newRowGroupCount, rtx.getRevisionNumber(), persistedSetSummaries, valueDictionaryHeaderKeys,
-              meta.segmentAnchors());
+      final ProjectionIndexMetadata refreshed = new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(),
+          meta.fieldNames(), persistedKinds, newRowGroupCount, rtx.getRevisionNumber(), persistedSetSummaries,
+          valueDictionaryHeaderKeys, meta.segmentAnchors());
       fences.flush(newRowGroupCount);
       final ProjectionBloomChunks.RewriteStats bloomStats =
           ProjectionBloomChunks.rewriteTouchedChunks(storage, persistedKinds, newRowGroupCount,
@@ -3238,10 +3237,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   /**
    * Write a row group and fold its record-key range into the fence arrays. The segment-slot write
-   * encodes once and lets
-   * {@link ProjectionIndexHOTStorage#putRowGroupAsColumnSegmentSlots} do the per-segment
-   * carry-forward, so an unchanged column segment stays a true no-op (its slot value and overflow
-   * page carry forward untouched) and segments that vanished from the rebuilt row group are
+   * encodes once and lets {@link ProjectionIndexHOTStorage#putRowGroupAsColumnSegmentSlots} do the
+   * per-segment carry-forward, so an unchanged column segment stays a true no-op (its slot value and
+   * overflow page carry forward untouched) and segments that vanished from the rebuilt row group are
    * tombstoned.
    */
   private static long writeRowGroup(final ProjectionIndexHOTStorage storage, final long slot,
@@ -3317,8 +3315,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
     final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(payload);
     if (metadata == null && payload != null) {
-      throw new IllegalStateException(
-          "unsupported or non-metadata projection payload for index " + indexDef.getID());
+      throw new IllegalStateException("unsupported or non-metadata projection payload for index " + indexDef.getID());
     }
     return metadata;
   }

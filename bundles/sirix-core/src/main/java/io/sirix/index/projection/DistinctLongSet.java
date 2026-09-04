@@ -9,19 +9,20 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>
  * One {@code long} per slot; {@code 0L} is the empty-slot marker and a real zero is kept in a flag.
- * Slots are indexed by the LOW bits of {@link #mix(long)} and a caller that partitions values by the
- * HIGH bits of the same mix ({@link #partitionOf(long, int)}, as {@link SharedDistinctLongSet} does)
- * keeps the two decisions independent — the values themselves (user ids, dictionary ids, timestamps)
- * are anything but uniform in their low bits. Linear probing at a load of at most three quarters: a
- * probe run touches one or two cache lines and the table stays half the size the 128-bit form
- * ({@link DistinctHash128Set}) would need for the same keys.
+ * Slots are indexed by the LOW bits of {@link #mix(long)} and a caller that partitions values by
+ * the HIGH bits of the same mix ({@link #partitionOf(long, int)}, as {@link SharedDistinctLongSet}
+ * does) keeps the two decisions independent — the values themselves (user ids, dictionary ids,
+ * timestamps) are anything but uniform in their low bits. Linear probing at a load of at most three
+ * quarters: a probe run touches one or two cache lines and the table stays half the size the
+ * 128-bit form ({@link DistinctHash128Set}) would need for the same keys.
  * </p>
  *
  * <p>
- * Every array the set allocates is charged to a shared byte {@code budget} (bytes remaining, shared by
- * the workers of one operation); a growth the budget refuses throws
- * {@link DistinctHash128Set.ByteBudgetExceededException} and the caller declines the whole operation.
- * Single-threaded by contract; {@link SharedDistinctLongSet} is the form several workers fill together.
+ * Every array the set allocates is charged to a shared byte {@code budget} (bytes remaining, shared
+ * by the workers of one operation); a growth the budget refuses throws
+ * {@link DistinctHash128Set.ByteBudgetExceededException} and the caller declines the whole
+ * operation. Single-threaded by contract; {@link SharedDistinctLongSet} is the form several workers
+ * fill together.
  * </p>
  */
 public final class DistinctLongSet implements DistinctLongSink {
@@ -39,7 +40,8 @@ public final class DistinctLongSet implements DistinctLongSink {
   private long chargedBytes;
 
   /**
-   * A set sized for {@code expectedKeys} values without growing, its arrays charged to {@code budget}.
+   * A set sized for {@code expectedKeys} values without growing, its arrays charged to
+   * {@code budget}.
    *
    * @param expectedKeys the values the set should hold before its first growth, at least zero
    * @param budget the shared bytes remaining, or {@code null} for an unbounded set
@@ -57,7 +59,10 @@ public final class DistinctLongSet implements DistinctLongSink {
     this.growAt = growAtFor(capacity);
   }
 
-  /** The smallest power-of-two capacity (at least {@link #MIN_CAPACITY}) holding {@code keys} at three-quarter load. */
+  /**
+   * The smallest power-of-two capacity (at least {@link #MIN_CAPACITY}) holding {@code keys} at
+   * three-quarter load.
+   */
   static int capacityFor(final long keys) {
     long capacity = MIN_CAPACITY;
     while (growAtFor(capacity) < keys) {
@@ -73,7 +78,9 @@ public final class DistinctLongSet implements DistinctLongSink {
     return (int) (capacity - (capacity >>> 2));
   }
 
-  /** MurmurHash3's 64-bit finaliser: a bijection whose every output bit depends on every input bit. */
+  /**
+   * MurmurHash3's 64-bit finaliser: a bijection whose every output bit depends on every input bit.
+   */
   public static long mix(long v) {
     v ^= v >>> 33;
     v *= 0xff51afd7ed558ccdL;
@@ -102,7 +109,8 @@ public final class DistinctLongSet implements DistinctLongSink {
    * Add {@code value}.
    *
    * @return {@code true} when the value was not in the set before
-   * @throws DistinctHash128Set.ByteBudgetExceededException when the insert needs a growth the budget refuses
+   * @throws DistinctHash128Set.ByteBudgetExceededException when the insert needs a growth the budget
+   *         refuses
    */
   public boolean add(final long value) {
     if (value == 0L) {

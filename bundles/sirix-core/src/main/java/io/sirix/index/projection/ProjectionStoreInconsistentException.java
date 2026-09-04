@@ -10,11 +10,11 @@ package io.sirix.index.projection;
  * <p>
  * This is not corruption and must never be reported as such. The bytes decode fine; what is broken
  * is an agreement between them, which is a WRITER's mistake and is repaired by replacing the
- * unusable definition with a fresh tree, not by quarantining a column. Task #45 spent four
- * rounds chasing "known-corrupt BODY segment" before the actual fault turned out to be a leaf
- * descriptor that maintenance had rewritten with the declared column kind while the payload and the
- * metadata still carried the elected one; the message blamed the bytes because the code had no way
- * to say anything else.
+ * unusable definition with a fresh tree, not by quarantining a column. Task #45 spent four rounds
+ * chasing "known-corrupt BODY segment" before the actual fault turned out to be a leaf descriptor
+ * that maintenance had rewritten with the declared column kind while the payload and the metadata
+ * still carried the elected one; the message blamed the bytes because the code had no way to say
+ * anything else.
  * </p>
  *
  * <p>

@@ -65,8 +65,7 @@ final class FusedOverflowDescriptorVersioningTest {
   @Timeout(value = 1, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
   void descriptorAndSameKeyReferenceAreVersionedAsOneCarrier(final VersioningType versioningType,
       final boolean useDeweyIDs) {
-    final Path databasePath =
-        temporaryDirectory.resolve(versioningType.name() + "-dewey-" + useDeweyIDs);
+    final Path databasePath = temporaryDirectory.resolve(versioningType.name() + "-dewey-" + useDeweyIDs);
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
 
     final long payloadNodeKey;
@@ -79,9 +78,9 @@ final class FusedOverflowDescriptorVersioningTest {
         touchNodeKey = nodeKeys[1];
 
         updateString(session, payloadNodeKey, OVERFLOW_B); // revision 2: inline -> descriptor + reference
-        updateString(session, touchNodeKey, TOUCH_1);      // revision 3: carry the untouched pair
-        updateString(session, payloadNodeKey, INLINE_C);   // revision 4: pair -> inline, shadow both halves
-        updateString(session, touchNodeKey, TOUCH_2);      // revision 5: carry inline without stale reference
+        updateString(session, touchNodeKey, TOUCH_1); // revision 3: carry the untouched pair
+        updateString(session, payloadNodeKey, INLINE_C); // revision 4: pair -> inline, shadow both halves
+        updateString(session, touchNodeKey, TOUCH_2); // revision 5: carry inline without stale reference
         assertEquals(5, session.getMostRecentRevisionNumber());
 
         assertRevision(session, 1, payloadNodeKey, INLINE_A, false, touchNodeKey, TOUCH_0);
@@ -129,12 +128,10 @@ final class FusedOverflowDescriptorVersioningTest {
   private static long[] insertInitialRevision(final JsonResourceSession session) {
     try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
       final long objectNodeKey = wtx.insertObjectAsFirstChild().getNodeKey();
-      final long payloadNodeKey =
-          wtx.insertObjectRecordAsFirstChild("payload", new StringValue(INLINE_A)).getNodeKey();
+      final long payloadNodeKey = wtx.insertObjectRecordAsFirstChild("payload", new StringValue(INLINE_A)).getNodeKey();
       assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind());
       assertTrue(wtx.moveTo(objectNodeKey));
-      final long touchNodeKey =
-          wtx.insertObjectRecordAsFirstChild("touch", new StringValue(TOUCH_0)).getNodeKey();
+      final long touchNodeKey = wtx.insertObjectRecordAsFirstChild("touch", new StringValue(TOUCH_0)).getNodeKey();
       assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind());
       wtx.commit();
       return new long[] {payloadNodeKey, touchNodeKey};
@@ -151,9 +148,8 @@ final class FusedOverflowDescriptorVersioningTest {
     }
   }
 
-  private static void assertRevision(final JsonResourceSession session, final int revision,
-      final long payloadNodeKey, final String expectedPayload, final boolean overflow,
-      final long touchNodeKey, final String expectedTouch) {
+  private static void assertRevision(final JsonResourceSession session, final int revision, final long payloadNodeKey,
+      final String expectedPayload, final boolean overflow, final long touchNodeKey, final String expectedTouch) {
     try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       assertTrue(rtx.moveTo(payloadNodeKey));
       assertEquals(NodeKind.OBJECT_NAMED_STRING, rtx.getKind());
@@ -169,17 +165,14 @@ final class FusedOverflowDescriptorVersioningTest {
       final long payloadPageKey = reader.pageKey(payloadNodeKey, IndexType.DOCUMENT);
       assertEquals(payloadPageKey, reader.pageKey(touchNodeKey, IndexType.DOCUMENT),
           "the unrelated mutation must exercise the payload's record page");
-      final var loaded =
-          reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, payloadPageKey, 0, revision));
+      final var loaded = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, payloadPageKey, 0, revision));
       assertNotNull(loaded, "document record page must exist");
       final KeyValueLeafPage page = (KeyValueLeafPage) loaded.page();
       final int slot = StorageEngineReader.recordPageOffset(payloadNodeKey);
       assertNotNull(page.getSlot(slot), "fused records must retain scan-visible inline bytes");
 
-      final long sameKeyReferenceCount = page.referenceEntrySet()
-                                                 .stream()
-                                                 .filter(entry -> entry.getKey() == payloadNodeKey)
-                                                 .count();
+      final long sameKeyReferenceCount =
+          page.referenceEntrySet().stream().filter(entry -> entry.getKey() == payloadNodeKey).count();
       if (overflow) {
         assertTrue(page.isFusedObjectNamedStringOverflowDescriptor(slot),
             "oversized fused value must be represented by a metadata descriptor");
@@ -195,8 +188,7 @@ final class FusedOverflowDescriptorVersioningTest {
         assertTrue(page.hasSlottedPageSlot(payloadNodeKey), "inline value must be a complete slot record");
         assertNull(page.getPageReference(payloadNodeKey),
             "inline value must shadow and remove any older same-record-key overflow reference");
-        assertEquals(0, sameKeyReferenceCount,
-            "inline value must not retain a same-record-key overflow reference");
+        assertEquals(0, sameKeyReferenceCount, "inline value must not retain a same-record-key overflow reference");
       }
     }
   }

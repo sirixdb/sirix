@@ -545,8 +545,9 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
       final int bytes = bigDecimal.unscaledValue().bitLength() / Byte.SIZE + 1;
       return bytes + stopBitEncodedSize(bytes) + DeltaVarIntCodec.computeSignedEncodedWidth(bigDecimal.scale());
     }
-    throw new IllegalStateException("Unsupported number type: "
-        + (number == null ? "null" : number.getClass().getName()));
+    throw new IllegalStateException("Unsupported number type: " + (number == null
+        ? "null"
+        : number.getClass().getName()));
   }
 
   private static int stopBitEncodedSize(final int value) {

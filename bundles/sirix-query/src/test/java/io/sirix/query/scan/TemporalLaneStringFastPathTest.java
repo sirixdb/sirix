@@ -57,12 +57,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <h2>Why every test here first proves the lane was TAKEN</h2>
  *
  * <p>
- * {@code StringRegion.resolveTemporal} is ALL-OR-NOTHING: one dictionary entry it cannot encode — an
- * FSST-compressed one, a value off the canonical shape — and the whole tag keeps its bytes. A corpus
- * that quietly fails to convert leaves a tag that DOES store inline bytes, the guard is never reached,
- * and every answer assertion below passes with the guard deleted. So each test establishes
- * {@link #pagesWithATemporalTag()} first: a witness that is zero exactly when this class would
- * otherwise be proving nothing.
+ * {@code StringRegion.resolveTemporal} is ALL-OR-NOTHING: one dictionary entry it cannot encode —
+ * an FSST-compressed one, a value off the canonical shape — and the whole tag keeps its bytes. A
+ * corpus that quietly fails to convert leaves a tag that DOES store inline bytes, the guard is
+ * never reached, and every answer assertion below passes with the guard deleted. So each test
+ * establishes {@link #pagesWithATemporalTag()} first: a witness that is zero exactly when this
+ * class would otherwise be proving nothing.
  * </p>
  */
 final class TemporalLaneStringFastPathTest {
@@ -138,8 +138,8 @@ final class TemporalLaneStringFastPathTest {
    *
    * <p>
    * Deliberately {@link KeyValueLeafPage#getStringRegionPayload()} and not
-   * {@code getStringRegionHeader()}: the latter falls back to re-deriving the region from the
-   * slotted page when none was persisted, and a derive is an ENCODE, so it consults
+   * {@code getStringRegionHeader()}: the latter falls back to re-deriving the region from the slotted
+   * page when none was persisted, and a derive is an ENCODE, so it consults
    * {@code temporalLaneEnabled()} at read time. Asking for the payload does not trigger that
    * fallback.
    * </p>
@@ -147,9 +147,9 @@ final class TemporalLaneStringFastPathTest {
    * <p>
    * The payload accessor alone is not a guarantee of provenance — a derive installs its result into
    * the same region table, so a page some earlier call already derived would answer from that. What
-   * closes it here is that {@code setUp} disarms the switch before any witness runs: a derive under
-   * a disarmed switch cannot produce a temporal tag, so this count can only be raised by tags that
-   * were genuinely written.
+   * closes it here is that {@code setUp} disarms the switch before any witness runs: a derive under a
+   * disarmed switch cannot produce a temporal tag, so this count can only be raised by tags that were
+   * genuinely written.
    * </p>
    *
    * @return the number of leaf pages with at least one persisted temporal tag
@@ -183,7 +183,9 @@ final class TemporalLaneStringFastPathTest {
     }
   }
 
-  /** Fails the test outright when nothing converted, so an answer assertion cannot stand in for it. */
+  /**
+   * Fails the test outright when nothing converted, so an answer assertion cannot stand in for it.
+   */
   private void requireTheLaneWasTaken() throws Exception {
     assertTrue(pagesWithATemporalTag() > 0,
         "no page took the temporal lane, so the kernels never meet a tag without inline bytes and "
@@ -246,8 +248,8 @@ final class TemporalLaneStringFastPathTest {
     requireTheLaneWasTaken();
     // The kernel names the key after the group FIELD, so the interpreter's must be named the same
     // or the two agree on every number and compare unequal.
-    final List<String> expected = normalizeGroups(interpreted("for $r in " + DOC
-        + " let $ts := $r.ts group by $ts return {\"ts\": $ts, \"count\": count($r)}"));
+    final List<String> expected = normalizeGroups(
+        interpreted("for $r in " + DOC + " let $ts := $r.ts group by $ts return {\"ts\": $ts, \"count\": count($r)}"));
     assertEquals(DISTINCT, expected.size(), "the interpreter must see every group");
     onExecutor(executor -> assertEquals(expected,
         normalizeGroups(serialize(executor.executeGroupByCount(null, SOURCE_PATH, "ts"))),

@@ -102,8 +102,7 @@ final class HOTSparseRootReferenceTest {
 
     private byte[] buffer = new byte[1];
 
-    private RootProbe(final StorageEngineReader storageEngineReader, final IndexType indexType,
-        final int indexNumber) {
+    private RootProbe(final StorageEngineReader storageEngineReader, final IndexType indexType, final int indexNumber) {
       super(storageEngineReader, indexType, indexNumber);
     }
 

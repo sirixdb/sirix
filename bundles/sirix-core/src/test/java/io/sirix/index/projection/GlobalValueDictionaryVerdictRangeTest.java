@@ -33,16 +33,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Splitting the verdict sweep across bucket ranges, which is what lets it run on more than one thread.
+ * Splitting the verdict sweep across bucket ranges, which is what lets it run on more than one
+ * thread.
  *
  * <h2>The property, and why a small corpus cannot test it</h2>
  *
  * <p>
  * Ids are 1-based and bucketed by {@code (id - 1) >>> 8}, so bucket {@code b} owns ids
- * {@code 256b+1 .. 256b+256} and therefore verdict WORDS {@code 4b .. 4b+4} — five words, the last of
- * which is bucket {@code b+1}'s first. Adjacent buckets SHARE a boundary word. A lane that OR-ed into
- * one shared array would lose the other lane's bits there, dropping matches at one id in 256; the
- * existing verdict test interns a dozen values, occupies a single bucket, and could never see it.
+ * {@code 256b+1 .. 256b+256} and therefore verdict WORDS {@code 4b .. 4b+4} — five words, the last
+ * of which is bucket {@code b+1}'s first. Adjacent buckets SHARE a boundary word. A lane that OR-ed
+ * into one shared array would lose the other lane's bits there, dropping matches at one id in 256;
+ * the existing verdict test interns a dozen values, occupies a single bucket, and could never see
+ * it.
  * </p>
  *
  * <p>
@@ -123,9 +125,9 @@ final class GlobalValueDictionaryVerdictRangeTest {
    * <p>
    * Every number here comes from {@link GlobalValueDictionary.VerdictSlice}, which is the SAME code
    * the executor's parallel sweep splits and merges through. A copy of the slice sizing, the word
-   * base or the merge clamp in this file would agree with itself while the shipped arithmetic
-   * drifted — and drift in exactly those three numbers is the dropped row this class exists to
-   * catch, so there is no copy.
+   * base or the merge clamp in this file would agree with itself while the shipped arithmetic drifted
+   * — and drift in exactly those three numbers is the dropped row this class exists to catch, so
+   * there is no copy.
    * </p>
    */
   private static long[] split(final GlobalValueDictionary.ReadView view, final ProjectionIndexScan.Op op,
@@ -157,9 +159,8 @@ final class GlobalValueDictionaryVerdictRangeTest {
     final long headerKey = buildDictionary(values);
     final byte[] needle = "google".getBytes(StandardCharsets.UTF_8);
     withView(headerKey, view -> {
-      for (final ProjectionIndexScan.Op op : List.of(ProjectionIndexScan.Op.STR_CONTAINS,
-          ProjectionIndexScan.Op.EQ, ProjectionIndexScan.Op.NE, ProjectionIndexScan.Op.STR_LT,
-          ProjectionIndexScan.Op.STR_GE)) {
+      for (final ProjectionIndexScan.Op op : List.of(ProjectionIndexScan.Op.STR_CONTAINS, ProjectionIndexScan.Op.EQ,
+          ProjectionIndexScan.Op.NE, ProjectionIndexScan.Op.STR_LT, ProjectionIndexScan.Op.STR_GE)) {
         final long[] whole = view.stringOpVerdict(op, needle);
         for (final int lanes : new int[] {1, 2, 3, 4, 5, 8, 17}) {
           assertArrayEquals(whole, split(view, op, needle, lanes),

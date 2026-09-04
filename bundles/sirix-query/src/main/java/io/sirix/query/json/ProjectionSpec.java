@@ -28,8 +28,8 @@ import static java.util.Objects.requireNonNull;
  * @param fieldTypes one type name per field — {@code long}, {@code double}, {@code decimal},
  *        {@code boolean}, {@code string}, {@code timestamp} ({@code datetime}) or {@code date}. The
  *        two temporal names declare that every value is exactly {@code YYYY-MM-DDTHH:MM:SS} or
- *        {@code YYYY-MM-DD}: the column then stores an epoch instead of the text, and a value of any
- *        other shape fails the build
+ *        {@code YYYY-MM-DD}: the column then stores an epoch instead of the text, and a value of
+ *        any other shape fails the build
  * @param expectedRows how many records the source will deliver, or {@code -1} when unknown. Only
  *        the resource-wide value dictionary's election reads it, and only to decline a column whose
  *        dictionary would not fit in its byte budget. A streaming build cannot derive this — it

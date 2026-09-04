@@ -289,8 +289,9 @@ public final class NumberNode extends AbstractFlyweightNode
           ? Integer.MAX_VALUE
           : (int) payloadBytes;
     }
-    throw new IllegalStateException("Unsupported number type: "
-        + (number == null ? "null" : number.getClass().getName()));
+    throw new IllegalStateException("Unsupported number type: " + (number == null
+        ? "null"
+        : number.getClass().getName()));
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================

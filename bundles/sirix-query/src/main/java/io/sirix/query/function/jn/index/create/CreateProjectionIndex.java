@@ -50,10 +50,16 @@ import java.util.function.Consumer;
  * {@code $rootPath} selects the record set (e.g. {@code /[]} for a top-level array,
  * {@code /wrapper/records/[]} for a nested one); {@code $fields} are the projected column paths
  * relative to the document root; {@code $types} declare the per-column primitive shape —
- * {@code "long"} (also accepts {@code integer}/{@code int}), {@code "boolean"} ({@code bool}), or
- * {@code "string"} ({@code str}). Floating-point column types are not supported yet: numeric
- * columns store 64-bit longs and non-integral values are flagged unrepresentable, so declaring a
- * {@code double} column would silently degrade — it is rejected instead.
+ * {@code "long"} ({@code integer}/{@code int}), {@code "double"} ({@code float}), {@code "decimal"}
+ * ({@code dec}), {@code "boolean"} ({@code bool}), {@code "string"} ({@code str}),
+ * {@code "timestamp"} ({@code datetime}) or {@code "date"}, exactly as {@code mapType} accepts them
+ * and its rejection message lists them. Double/decimal columns store exact doubles in an
+ * order-preserving encoding; a decimal not exactly representable as a double marks the column
+ * not-value-exact and value-exact consumers decline it (fail-closed). A declared temporal column
+ * stores the epoch rather than the text and therefore requires every value to be exactly
+ * {@code YYYY-MM-DDTHH:MM:SS} (timestamp) or {@code YYYY-MM-DD} (date);
+ * {@code -Dsirix.projection.temporalKinds=false} makes such a column build and serve as an ordinary
+ * string-dictionary column instead (see {@code ProjectionTemporalCodec}).
  *
  * <p>
  * Projection indexes work like the other index families ({@code jn:create-path-index} etc.): each
@@ -71,10 +77,9 @@ import java.util.function.Consumer;
  * <p>
  * The projection is built over the passed document's revision — like the sibling functions, a
  * document bound to an older revision reverts the write transaction to that revision first — and
- * written in the one segmented projection format (see
- * {@code ProjectionIndexColumnSegmentCodec}) together with a self-describing
- * {@link ProjectionIndexMetadata} payload into the session's write transaction: call
- * {@code sdb:commit($doc)} afterwards to persist.
+ * written in the one segmented projection format (see {@code ProjectionIndexColumnSegmentCodec})
+ * together with a self-describing {@link ProjectionIndexMetadata} payload into the session's write
+ * transaction: call {@code sdb:commit($doc)} afterwards to persist.
  *
  * <p>
  * <b>Experimental.</b> Once built, the projection is maintained INCREMENTALLY by the update
@@ -232,9 +237,9 @@ public final class CreateProjectionIndex extends AbstractFunction {
       }
       final JsonIndexController wtxController = session.getWtxIndexController(wtx.getRevisionNumber());
       final var storageEngineWriter = wtx.getStorageEngineWriter();
-      final int indexNumber = storageEngineWriter
-          .getProjectionIndexPage(storageEngineWriter.getActualRevisionRootPage())
-          .nextUnallocatedIndex();
+      final int indexNumber =
+          storageEngineWriter.getProjectionIndexPage(storageEngineWriter.getActualRevisionRootPage())
+                             .nextUnallocatedIndex();
       if (wtxController.getIndexes().getIndexDef(indexNumber, IndexType.PROJECTION) != null) {
         throw new IllegalStateException("Projection catalogue contains definition " + indexNumber
             + " without an initialized physical tree; refusing to reuse its id");
@@ -441,13 +446,12 @@ public final class CreateProjectionIndex extends AbstractFunction {
       // YYYY-MM-DD (date), and the column stores the epoch rather than the text.
       case "timestamp", "datetime" -> Type.DATI;
       case "date" -> Type.DATE;
-      default -> throw new QueryException(
-          new QNm("Unsupported projection column type '" + type + "' — use long (integer/int), double "
-              + "(float), decimal (dec), boolean (bool), string (str), timestamp (datetime) or date. "
-              + "Double/decimal columns "
-              + "store exact doubles in an order-preserving encoding; decimals that are not "
-              + "exactly representable as doubles mark the column not-value-exact and value-exact "
-              + "consumers decline it (fail-closed)."));
+      default -> throw new QueryException(new QNm("Unsupported projection column type '" + type
+          + "' — use long (integer/int), double "
+          + "(float), decimal (dec), boolean (bool), string (str), timestamp (datetime) or date. "
+          + "Double/decimal columns " + "store exact doubles in an order-preserving encoding; decimals that are not "
+          + "exactly representable as doubles mark the column not-value-exact and value-exact "
+          + "consumers decline it (fail-closed)."));
     };
   }
 }

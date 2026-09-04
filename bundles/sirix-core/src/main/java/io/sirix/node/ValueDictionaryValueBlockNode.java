@@ -64,8 +64,7 @@ public final class ValueDictionaryValueBlockNode implements DataRecord {
    *        starting at {@code 0} and ending at {@code bytes.length}
    * @param bytes the packed UTF-8 values, ascending by id
    */
-  public ValueDictionaryValueBlockNode(final long nodeKey, final int firstId, final int[] offsets,
-      final byte[] bytes) {
+  public ValueDictionaryValueBlockNode(final long nodeKey, final int firstId, final int[] offsets, final byte[] bytes) {
     this(nodeKey, firstId, requireCopy(offsets), requireCopy(bytes), false);
   }
 
@@ -77,8 +76,8 @@ public final class ValueDictionaryValueBlockNode implements DataRecord {
    * constructor copies, so ownership transfer is always an explicit, named choice rather than a
    * property of which constructor you happened to call.
    */
-  public static ValueDictionaryValueBlockNode takeOwnership(final long nodeKey, final int firstId,
-      final int[] offsets, final byte[] bytes) {
+  public static ValueDictionaryValueBlockNode takeOwnership(final long nodeKey, final int firstId, final int[] offsets,
+      final byte[] bytes) {
     return new ValueDictionaryValueBlockNode(nodeKey, firstId, offsets, bytes, false);
   }
 
@@ -96,8 +95,8 @@ public final class ValueDictionaryValueBlockNode implements DataRecord {
     return values.clone();
   }
 
-  private ValueDictionaryValueBlockNode(final long nodeKey, final int firstId, final int[] offsets,
-      final byte[] bytes, final boolean unusedOwnershipMarker) {
+  private ValueDictionaryValueBlockNode(final long nodeKey, final int firstId, final int[] offsets, final byte[] bytes,
+      final boolean unusedOwnershipMarker) {
     if (nodeKey <= 0) {
       throw new IllegalArgumentException("value dictionary value block key must be positive");
     }
@@ -234,8 +233,8 @@ public final class ValueDictionaryValueBlockNode implements DataRecord {
 
   @Override
   public boolean equals(final Object object) {
-    return object instanceof ValueDictionaryValueBlockNode other && nodeKey == other.nodeKey
-        && firstId == other.firstId && Arrays.equals(offsets, other.offsets) && Arrays.equals(bytes, other.bytes);
+    return object instanceof ValueDictionaryValueBlockNode other && nodeKey == other.nodeKey && firstId == other.firstId
+        && Arrays.equals(offsets, other.offsets) && Arrays.equals(bytes, other.bytes);
   }
 
   @Override

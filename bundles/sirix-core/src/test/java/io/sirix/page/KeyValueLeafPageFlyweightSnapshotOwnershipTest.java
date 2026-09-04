@@ -44,18 +44,15 @@ final class KeyValueLeafPageFlyweightSnapshotOwnershipTest {
 
       final KeyValueLeafPage snapshot = source.deepCopy();
       copy = snapshot;
-      final JsonDocumentRootNode snapshotRoot =
-          assertInstanceOf(JsonDocumentRootNode.class, snapshot.getRecord(0));
+      final JsonDocumentRootNode snapshotRoot = assertInstanceOf(JsonDocumentRootNode.class, snapshot.getRecord(0));
       copiedRoot = snapshotRoot;
       assertNotSame(sourceRoot, snapshotRoot,
           "an async copy must not share a flyweight whose mutable binding crosses the epoch boundary");
 
       snapshot.addReferences(config);
 
-      assertAll("serializing the copy must not mutate the live record",
-          () -> assertFalse(sourceRoot.isBound()),
-          () -> assertTrue(snapshotRoot.isBoundTo(snapshot.getSlottedPage())),
-          () -> assertRootFields(sourceRoot));
+      assertAll("serializing the copy must not mutate the live record", () -> assertFalse(sourceRoot.isBound()),
+          () -> assertTrue(snapshotRoot.isBoundTo(snapshot.getSlottedPage())), () -> assertRootFields(sourceRoot));
 
       source.addReferences(config);
 
@@ -88,9 +85,8 @@ final class KeyValueLeafPageFlyweightSnapshotOwnershipTest {
 
       assertDoesNotThrow(source::close,
           "closing one snapshot must not materialize a record from another snapshot's reused frame");
-      assertAll(() -> assertTrue(source.isClosed()),
-          () -> assertTrue(sourceRoot.isBoundTo(reusedForeignFrame),
-              "the frame owner, not this closed page, controls the foreign binding"));
+      assertAll(() -> assertTrue(source.isClosed()), () -> assertTrue(sourceRoot.isBoundTo(reusedForeignFrame),
+          "the frame owner, not this closed page, controls the foreign binding"));
     } finally {
       sourceRoot.clearBinding();
       source.close();
@@ -108,9 +104,8 @@ final class KeyValueLeafPageFlyweightSnapshotOwnershipTest {
       sourceRoot.bind(reusedForeignFrame, 0L, 0L, 0);
 
       assertDoesNotThrow(source::clearRecordsForGC);
-      assertAll(() -> assertNull(source.getRecord(0)),
-          () -> assertTrue(sourceRoot.isBoundTo(reusedForeignFrame),
-              "GC cleanup must clear only this page's reference, not another page's binding"));
+      assertAll(() -> assertNull(source.getRecord(0)), () -> assertTrue(sourceRoot.isBoundTo(reusedForeignFrame),
+          "GC cleanup must clear only this page's reference, not another page's binding"));
     } finally {
       sourceRoot.clearBinding();
       source.close();
@@ -134,9 +129,7 @@ final class KeyValueLeafPageFlyweightSnapshotOwnershipTest {
   }
 
   private static void assertRootFields(final JsonDocumentRootNode root) {
-    assertAll(() -> assertEquals(17L, root.getFirstChildKey()),
-        () -> assertEquals(17L, root.getLastChildKey()),
-        () -> assertEquals(1L, root.getChildCount()),
-        () -> assertEquals(9L, root.getDescendantCount()));
+    assertAll(() -> assertEquals(17L, root.getFirstChildKey()), () -> assertEquals(17L, root.getLastChildKey()),
+        () -> assertEquals(1L, root.getChildCount()), () -> assertEquals(9L, root.getDescendantCount()));
   }
 }

@@ -91,7 +91,8 @@ public final class RegionsOnlyPage implements AutoCloseable {
   /**
    * Positive certificate that no record is stored through the overflow-reference section.
    *
-   * <p>Overflow values are intentionally absent from the PAX regions. A column scan therefore must
+   * <p>
+   * Overflow values are intentionally absent from the PAX regions. A column scan therefore must
    * reconstruct a page unless completeness is known; otherwise it could either resurrect an older
    * inline value or miss a predicate matching the current overflow value. Older images carry no
    * positive bit and are conservatively treated as unknown.

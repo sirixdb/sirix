@@ -455,18 +455,19 @@ public final class HOTTrieReader implements AutoCloseable {
   /**
    * Locate the first entry whose key is at least {@code searchKey[0..searchKeyLen)}.
    *
-   * <p>This overload is the canonical seek for reusable serialization buffers. Tail bytes outside
-   * the valid prefix never participate in PEXT routing, leaf insertion-point lookup, mismatch-bit
+   * <p>
+   * This overload is the canonical seek for reusable serialization buffers. Tail bytes outside the
+   * valid prefix never participate in PEXT routing, leaf insertion-point lookup, mismatch-bit
    * detection, or the final branch decision, so callers do not need to allocate an exactly-sized
-   * array before every seek.</p>
+   * array before every seek.
+   * </p>
    *
    * @param rootRef root of the HOT subtree
    * @param searchKey buffer containing the lexicographic search key
    * @param searchKeyLen number of valid bytes in {@code searchKey}
    * @return position of the first entry {@code >= searchKey[0..searchKeyLen)}, or exhaustion
    */
-  public LowerBoundResult lowerBound(final PageReference rootRef, final byte[] searchKey,
-      final int searchKeyLen) {
+  public LowerBoundResult lowerBound(final PageReference rootRef, final byte[] searchKey, final int searchKeyLen) {
     Objects.requireNonNull(rootRef, "rootRef");
     Objects.checkFromIndexSize(0, searchKeyLen, Objects.requireNonNull(searchKey, "searchKey").length);
     return retryingBound(rootRef, searchKey, searchKeyLen, true);
@@ -491,22 +492,23 @@ public final class HOTTrieReader implements AutoCloseable {
    * @param searchKeyLen number of valid bytes in {@code searchKey}
    * @return position of the first entry {@code > searchKey[0..searchKeyLen)}, or exhaustion
    */
-  public LowerBoundResult upperBound(final PageReference rootRef, final byte[] searchKey,
-      final int searchKeyLen) {
+  public LowerBoundResult upperBound(final PageReference rootRef, final byte[] searchKey, final int searchKeyLen) {
     Objects.requireNonNull(rootRef, "rootRef");
     Objects.checkFromIndexSize(0, searchKeyLen, Objects.requireNonNull(searchKey, "searchKey").length);
     return retryingBound(rootRef, searchKey, searchKeyLen, false);
   }
 
-  private LowerBoundResult retryingBound(final PageReference rootRef, final byte[] searchKey,
-      final int searchKeyLen, final boolean isLowerBound) {
+  private LowerBoundResult retryingBound(final PageReference rootRef, final byte[] searchKey, final int searchKeyLen,
+      final boolean isLowerBound) {
     for (int attempt = 0; attempt < MAX_STAMP_RETRIES; attempt++) {
       final LowerBoundResult result = lowerOrUpperBound(rootRef, searchKey, searchKeyLen, isLowerBound);
       if (result != LowerBoundResult.RETRY) {
         return result;
       }
     }
-    throw stampRetriesExhausted(isLowerBound ? "lowerBound" : "upperBound");
+    throw stampRetriesExhausted(isLowerBound
+        ? "lowerBound"
+        : "upperBound");
   }
 
   /**
@@ -848,8 +850,7 @@ public final class HOTTrieReader implements AutoCloseable {
     return navigateToLeafUnchecked(rootRef, key, key.length);
   }
 
-  private HOTLeafPage navigateToLeafUnchecked(final PageReference rootRef, final byte[] key,
-      final int keyLen) {
+  private HOTLeafPage navigateToLeafUnchecked(final PageReference rootRef, final byte[] key, final int keyLen) {
     pathDepth = 0;
     PageReference currentRef = rootRef;
 

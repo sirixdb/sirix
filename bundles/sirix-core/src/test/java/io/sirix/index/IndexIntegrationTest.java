@@ -31,8 +31,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Integration tests for the path, name, and CAS index packages.
  *
- * <p>These tests use small inline JSON documents to verify index creation,
- * querying, listener-based updates (insert/delete), and cross-revision correctness.</p>
+ * <p>
+ * These tests use small inline JSON documents to verify index creation, querying, listener-based
+ * updates (insert/delete), and cross-revision correctness.
+ * </p>
  */
 class IndexIntegrationTest {
 
@@ -67,24 +69,21 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("Create path index, shred JSON, verify results for a specific path")
     void testPathIndexCreationAndQuery() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         // Index the path /name
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var pathIndexDef =
-            IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
         // Shred the sample JSON
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -95,8 +94,8 @@ class IndexIntegrationTest {
         final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToName);
         assertEquals(1, pathNodeKeys.size(), "Should have exactly one PCR for /name");
 
-        final HOTLongIndexReader reader = HOTLongIndexReader.create(
-            trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
+        final HOTLongIndexReader reader =
+            HOTLongIndexReader.create(trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
         final var references = reader.get(pathNodeKeys.iterator().nextLong(), SearchMode.EQUAL);
         assertNotNull(references, "Should find references for /name");
         assertEquals(1, references.getNodeKeys().getLongCardinality(),
@@ -107,23 +106,20 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("Path index for nested path returns correct count")
     void testPathIndexNestedPath() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         // Index /address/city
         final var pathToCity = parse("/address/city", PathParser.Type.JSON);
-        final var pathIndexDef =
-            IndexDefs.createPathIdxDef(Collections.singleton(pathToCity), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToCity), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -133,8 +129,8 @@ class IndexIntegrationTest {
         final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToCity);
         assertEquals(1, pathNodeKeys.size(), "Should have exactly one PCR for /address/city");
 
-        final HOTLongIndexReader reader = HOTLongIndexReader.create(
-            trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
+        final HOTLongIndexReader reader =
+            HOTLongIndexReader.create(trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
         final var references = reader.get(pathNodeKeys.iterator().nextLong(), SearchMode.EQUAL);
         assertNotNull(references, "Should find references for /address/city");
         assertEquals(1, references.getNodeKeys().getLongCardinality(),
@@ -145,11 +141,10 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("Path index for multiple paths indexes all matching nodes")
     void testPathIndexMultiplePaths() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
@@ -160,13 +155,11 @@ class IndexIntegrationTest {
         paths.add(pathToCity);
         paths.add(pathToZip);
 
-        final var pathIndexDef =
-            IndexDefs.createPathIdxDef(paths, 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(paths, 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -174,8 +167,7 @@ class IndexIntegrationTest {
         assertNotNull(indexDef);
 
         // Open with null filter -> should return all entries from both paths
-        final var iterator =
-            indexController.openPathIndex(trx.getStorageEngineReader(), indexDef, null);
+        final var iterator = indexController.openPathIndex(trx.getStorageEngineReader(), indexDef, null);
 
         long totalCount = 0;
         while (iterator.hasNext()) {
@@ -183,33 +175,29 @@ class IndexIntegrationTest {
         }
 
         // /address/city has 1 node, /address/zip has 1 node => total 2
-        assertEquals(2, totalCount,
-            "Should find 2 total indexed nodes across both paths");
+        assertEquals(2, totalCount, "Should find 2 total indexed nodes across both paths");
       }
     }
 
     @Test
     @DisplayName("Path index updates after node deletion")
     void testPathIndexAfterDeletion() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         // Index /[]/name — the correct path for names inside a top-level array
         final var pathToName = parse("/[]/name", PathParser.Type.JSON);
-        final var pathIndexDef =
-            IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
         // Shred a document with 2 name keys inside array objects
         final var json = "[{\"name\":\"Alice\"},{\"name\":\"Bob\"}]";
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(json),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(json),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -220,12 +208,11 @@ class IndexIntegrationTest {
         final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToName);
         assertEquals(1, pathNodeKeys.size(), "Should have exactly one PCR for /[]/name");
 
-        final HOTLongIndexReader reader = HOTLongIndexReader.create(
-            trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
+        final HOTLongIndexReader reader =
+            HOTLongIndexReader.create(trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
         final var refsBefore = reader.get(pathNodeKeys.iterator().nextLong(), SearchMode.EQUAL);
         assertNotNull(refsBefore);
-        assertEquals(2, refsBefore.getNodeKeys().getLongCardinality(),
-            "Should have 2 name nodes before deletion");
+        assertEquals(2, refsBefore.getNodeKeys().getLongCardinality(), "Should have 2 name nodes before deletion");
 
         // Navigate to first object and remove it (removing its "name" key too)
         trx.moveToDocumentRoot();
@@ -241,12 +228,11 @@ class IndexIntegrationTest {
 
         final var pathNodeKeysAfter = trx.getPathSummary().getPCRsForPath(pathToName);
         if (!pathNodeKeysAfter.isEmpty()) {
-          final HOTLongIndexReader readerAfter = HOTLongIndexReader.create(
-              trx.getStorageEngineReader(), updatedDef.getType(), updatedDef.getID());
+          final HOTLongIndexReader readerAfter =
+              HOTLongIndexReader.create(trx.getStorageEngineReader(), updatedDef.getType(), updatedDef.getID());
           final var refsAfter = readerAfter.get(pathNodeKeysAfter.iterator().nextLong(), SearchMode.EQUAL);
           assertNotNull(refsAfter);
-          assertEquals(1, refsAfter.getNodeKeys().getLongCardinality(),
-              "Should have 1 name node after deletion");
+          assertEquals(1, refsAfter.getNodeKeys().getLongCardinality(), "Should have 1 name node after deletion");
         }
       }
     }
@@ -254,24 +240,21 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("Path index returns correct counts across revisions via write transaction")
     void testPathIndexAcrossRevisions() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         // Index /name
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var pathIndexDef =
-            IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
         // Shred document and commit (revision 1)
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -282,12 +265,11 @@ class IndexIntegrationTest {
         final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToName);
         assertEquals(1, pathNodeKeys.size());
 
-        final HOTLongIndexReader reader = HOTLongIndexReader.create(
-            trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
+        final HOTLongIndexReader reader =
+            HOTLongIndexReader.create(trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
         final var refsR1 = reader.get(pathNodeKeys.iterator().nextLong(), SearchMode.EQUAL);
         assertNotNull(refsR1, "Should find /name in path index at revision 1");
-        assertEquals(1, refsR1.getNodeKeys().getLongCardinality(),
-            "Should have 1 name node at revision 1");
+        assertEquals(1, refsR1.getNodeKeys().getLongCardinality(), "Should have 1 name node at revision 1");
 
         // Delete the "name" key node -> revision 2
         trx.moveToDocumentRoot();
@@ -307,8 +289,8 @@ class IndexIntegrationTest {
 
         final var pathNodeKeysR2 = trx.getPathSummary().getPCRsForPath(pathToName);
         if (!pathNodeKeysR2.isEmpty()) {
-          final HOTLongIndexReader readerR2 = HOTLongIndexReader.create(
-              trx.getStorageEngineReader(), updatedDef.getType(), updatedDef.getID());
+          final HOTLongIndexReader readerR2 =
+              HOTLongIndexReader.create(trx.getStorageEngineReader(), updatedDef.getType(), updatedDef.getID());
           final var refsR2 = readerR2.get(pathNodeKeysR2.iterator().nextLong(), SearchMode.EQUAL);
           if (refsR2 != null) {
             assertEquals(0, refsR2.getNodeKeys().getLongCardinality(),
@@ -322,11 +304,10 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("openPathIndex with null filter returns all indexed entries")
     void testOpenPathIndexWithNullFilter() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
@@ -337,13 +318,11 @@ class IndexIntegrationTest {
         paths.add(pathToName);
         paths.add(pathToCity);
 
-        final var pathIndexDef =
-            IndexDefs.createPathIdxDef(paths, 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(paths, 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -351,8 +330,7 @@ class IndexIntegrationTest {
         assertNotNull(indexDef);
 
         // Open with null filter -> should return all entries
-        final var iterator =
-            indexController.openPathIndex(trx.getStorageEngineReader(), indexDef, null);
+        final var iterator = indexController.openPathIndex(trx.getStorageEngineReader(), indexDef, null);
 
         long totalCount = 0;
         while (iterator.hasNext()) {
@@ -360,30 +338,26 @@ class IndexIntegrationTest {
         }
 
         // /name has 1 node, /address/city has 1 node => total 2
-        assertEquals(2, totalCount,
-            "Should find 2 total indexed nodes across both paths");
+        assertEquals(2, totalCount, "Should find 2 total indexed nodes across both paths");
       }
     }
 
     @Test
     @DisplayName("findPathIndex finds registered path index definitions")
     void testFindPathIndex() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var pathIndexDef =
-            IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -410,11 +384,10 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("Create name index on all object keys and query specific names")
     void testNameIndexAllKeys() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
@@ -422,14 +395,12 @@ class IndexIntegrationTest {
         final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(allObjectKeyNames), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query for "name" key
-        final var nameIterator = indexController.openNameIndex(
-            trx.getStorageEngineReader(), allObjectKeyNames,
+        final var nameIterator = indexController.openNameIndex(trx.getStorageEngineReader(), allObjectKeyNames,
             indexController.createNameFilter(Set.of("name")));
 
         assertTrue(nameIterator.hasNext(), "Should find 'name' in name index");
@@ -438,39 +409,34 @@ class IndexIntegrationTest {
             "Should have exactly 1 'name' key in the document");
 
         // Query for "city" key
-        final var cityIterator = indexController.openNameIndex(
-            trx.getStorageEngineReader(), allObjectKeyNames,
+        final var cityIterator = indexController.openNameIndex(trx.getStorageEngineReader(), allObjectKeyNames,
             indexController.createNameFilter(Set.of("city")));
 
         assertTrue(cityIterator.hasNext(), "Should find 'city' in name index");
         final var cityRefs = cityIterator.next();
-        assertEquals(1, cityRefs.getNodeKeys().getLongCardinality(),
-            "Should have exactly 1 'city' key");
+        assertEquals(1, cityRefs.getNodeKeys().getLongCardinality(), "Should have exactly 1 'city' key");
       }
     }
 
     @Test
     @DisplayName("Name index query for multiple names returns all matching entries")
     void testNameIndexMultipleNames() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(allObjectKeyNames), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query for both "name" and "age" keys
-        final var iterator = indexController.openNameIndex(
-            trx.getStorageEngineReader(), allObjectKeyNames,
+        final var iterator = indexController.openNameIndex(trx.getStorageEngineReader(), allObjectKeyNames,
             indexController.createNameFilter(Set.of("name", "age")));
 
         int entryCount = 0;
@@ -487,38 +453,33 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("Selective name index only includes specified names")
     void testSelectiveNameIndex() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         // Create a selective name index that only includes "name" and "city"
-        final var selectiveIndex = IndexDefs.createSelectiveNameIdxDef(
-            Set.of(new QNm("name"), new QNm("city")), 0, IndexDef.DbType.JSON);
+        final var selectiveIndex =
+            IndexDefs.createSelectiveNameIdxDef(Set.of(new QNm("name"), new QNm("city")), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(selectiveIndex), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query for "name" - should be present
-        final var nameIterator = indexController.openNameIndex(
-            trx.getStorageEngineReader(), selectiveIndex,
+        final var nameIterator = indexController.openNameIndex(trx.getStorageEngineReader(), selectiveIndex,
             indexController.createNameFilter(Set.of("name")));
         assertTrue(nameIterator.hasNext(), "Should find 'name' in selective index");
 
         // Query for "age" - should NOT be in the selective index
-        final var ageIterator = indexController.openNameIndex(
-            trx.getStorageEngineReader(), selectiveIndex,
+        final var ageIterator = indexController.openNameIndex(trx.getStorageEngineReader(), selectiveIndex,
             indexController.createNameFilter(Set.of("age")));
         if (ageIterator.hasNext()) {
           final var refs = ageIterator.next();
-          assertEquals(0, refs.getNodeKeys().getLongCardinality(),
-              "'age' should not be in selective index");
+          assertEquals(0, refs.getNodeKeys().getLongCardinality(), "'age' should not be in selective index");
         }
       }
     }
@@ -526,40 +487,35 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("Filtered name index excludes specified names")
     void testFilteredNameIndex() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         // Create a filtered name index that excludes "age" and "tags"
-        final var filteredIndex = IndexDefs.createFilteredNameIdxDef(
-            Set.of(new QNm("age"), new QNm("tags")), 0, IndexDef.DbType.JSON);
+        final var filteredIndex =
+            IndexDefs.createFilteredNameIdxDef(Set.of(new QNm("age"), new QNm("tags")), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(filteredIndex), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query for "name" - should be in the index (not excluded)
-        final var nameIterator = indexController.openNameIndex(
-            trx.getStorageEngineReader(), filteredIndex,
+        final var nameIterator = indexController.openNameIndex(trx.getStorageEngineReader(), filteredIndex,
             indexController.createNameFilter(Set.of("name")));
         assertTrue(nameIterator.hasNext(), "'name' should be in filtered index");
         final var nameRefs = nameIterator.next();
         assertEquals(1, nameRefs.getNodeKeys().getLongCardinality());
 
         // Query for "age" - should not be indexed (excluded)
-        final var ageIterator = indexController.openNameIndex(
-            trx.getStorageEngineReader(), filteredIndex,
+        final var ageIterator = indexController.openNameIndex(trx.getStorageEngineReader(), filteredIndex,
             indexController.createNameFilter(Set.of("age")));
         if (ageIterator.hasNext()) {
           final var ageRefs = ageIterator.next();
-          assertEquals(0, ageRefs.getNodeKeys().getLongCardinality(),
-              "'age' should not be in the filtered index");
+          assertEquals(0, ageRefs.getNodeKeys().getLongCardinality(), "'age' should not be in the filtered index");
         }
       }
     }
@@ -567,11 +523,10 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("Name index count updates after node deletion")
     void testNameIndexAfterDeletion() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
@@ -580,20 +535,17 @@ class IndexIntegrationTest {
 
         // Shred a document with two top-level name keys by wrapping in array
         final var json = "[{\"x\":1},{\"x\":2}]";
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(json),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(json),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Verify "x" appears 2 times initially
-        final var xIterator = indexController.openNameIndex(
-            trx.getStorageEngineReader(), allObjectKeyNames,
+        final var xIterator = indexController.openNameIndex(trx.getStorageEngineReader(), allObjectKeyNames,
             indexController.createNameFilter(Set.of("x")));
 
         assertTrue(xIterator.hasNext());
         final var initialRefs = xIterator.next();
-        assertEquals(2, initialRefs.getNodeKeys().getLongCardinality(),
-            "Should have 2 'x' keys initially");
+        assertEquals(2, initialRefs.getNodeKeys().getLongCardinality(), "Should have 2 'x' keys initially");
 
         // Remove the first object {\"x\":1}
         trx.moveToDocumentRoot();
@@ -604,37 +556,33 @@ class IndexIntegrationTest {
 
         // Re-check: "x" should now appear only once
         final var updatedController = session.getWtxIndexController(trx.getRevisionNumber());
-        final var updatedNameIdx = updatedController.getIndexes().getIndexDef(
-            allObjectKeyNames.getID(), IndexType.NAME);
+        final var updatedNameIdx =
+            updatedController.getIndexes().getIndexDef(allObjectKeyNames.getID(), IndexType.NAME);
         assertNotNull(updatedNameIdx, "Name index definition should persist after commit");
 
-        final var xIterator2 = updatedController.openNameIndex(
-            trx.getStorageEngineReader(), updatedNameIdx,
+        final var xIterator2 = updatedController.openNameIndex(trx.getStorageEngineReader(), updatedNameIdx,
             updatedController.createNameFilter(Set.of("x")));
 
         assertTrue(xIterator2.hasNext());
         final var updatedRefs = xIterator2.next();
-        assertEquals(1, updatedRefs.getNodeKeys().getLongCardinality(),
-            "Should have 1 'x' key after deletion");
+        assertEquals(1, updatedRefs.getNodeKeys().getLongCardinality(), "Should have 1 'x' key after deletion");
       }
     }
 
     @Test
     @DisplayName("findNameIndex finds registered name index")
     void testFindNameIndex() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(allObjectKeyNames), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -660,33 +608,27 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("Create CAS index on /name, query for exact string match")
     void testCASIndexExactStringMatch() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query CAS index for "Alice" at /name
-        final var casIterator = indexController.openCASIndex(
-            trx.getStorageEngineReader(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/name"),
-                new Str("Alice"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        final var casIterator =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/name"), new Str("Alice"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
         assertTrue(casIterator.hasNext(), "Should find 'Alice' at /name");
 
@@ -706,33 +648,27 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("CAS index query for non-existent value returns no results")
     void testCASIndexNoMatch() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query for "Charlie" which does not exist
-        final var casIterator = indexController.openCASIndex(
-            trx.getStorageEngineReader(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/name"),
-                new Str("Charlie"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        final var casIterator =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/name"), new Str("Charlie"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
         assertFalse(casIterator.hasNext(), "Should not find 'Charlie' at /name");
       }
@@ -741,32 +677,26 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("CAS index on /address/city with exact match")
     void testCASIndexNestedPath() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToCity = parse("/address/city", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Collections.singleton(pathToCity), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToCity), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
-        final var casIterator = indexController.openCASIndex(
-            trx.getStorageEngineReader(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/address/city"),
-                new Str("NYC"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        final var casIterator =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/address/city"), new Str("NYC"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
         assertTrue(casIterator.hasNext(), "Should find 'NYC' at /address/city");
         final var refs = casIterator.next();
@@ -777,36 +707,31 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("CAS index with GREATER search mode on string values")
     void testCASIndexGreaterSearchMode() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         // Index /[]/address/zip as string for objects inside a top-level array
         final var pathToZip = parse("/[]/address/zip", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Collections.singleton(pathToZip), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToZip), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
         // Shred array of objects with different zip codes
-        final var json = "[{\"address\":{\"zip\":\"10001\"}},{\"address\":{\"zip\":\"20002\"}},{\"address\":{\"zip\":\"30003\"}}]";
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(json),
+        final var json =
+            "[{\"address\":{\"zip\":\"10001\"}},{\"address\":{\"zip\":\"20002\"}},{\"address\":{\"zip\":\"30003\"}}]";
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(json),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query for zips GREATER than "10001"
-        final var casIterator = indexController.openCASIndex(
-            trx.getStorageEngineReader(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/[]/address/zip"),
-                new Str("10001"),
-                SearchMode.GREATER,
-                new JsonPCRCollector(trx)));
+        final var casIterator =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/[]/address/zip"), new Str("10001"), SearchMode.GREATER, new JsonPCRCollector(trx)));
 
         long count = 0;
         while (casIterator.hasNext()) {
@@ -820,37 +745,29 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("CAS index with range filter (CASFilterRange)")
     void testCASIndexRangeFilter() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         // Index /[]/value as DEC for numeric range queries
         final var pathToValue = parse("/[]/value", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.DEC, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.DEC, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
         // Shred array of objects with numeric values
         final var json = "[{\"value\":10},{\"value\":20},{\"value\":30},{\"value\":40},{\"value\":50}]";
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(json),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(json),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query for values in range [20, 40] inclusive
-        final var rangeIterator = indexController.openCASIndex(
-            trx.getStorageEngineReader(), casIndexDef,
-            indexController.createCASFilterRange(
-                Set.of("/[]/value"),
-                new Dbl(20),
-                new Dbl(40),
-                true,
-                true,
+        final var rangeIterator = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef,
+            indexController.createCASFilterRange(Set.of("/[]/value"), new Dbl(20), new Dbl(40), true, true,
                 new JsonPCRCollector(trx)));
 
         long count = 0;
@@ -865,36 +782,29 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("CAS index with empty path set returns all indexed entries")
     void testCASIndexAllEntries() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         // Index /[]/name — items in an array of objects
         final var pathToName = parse("/[]/name", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
         // Shred multiple objects at top level via array
         final var json = "[{\"name\":\"Alice\"},{\"name\":\"Bob\"},{\"name\":\"Charlie\"}]";
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(json),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(json),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query with empty path set and null key -> should return all entries
-        final var allIterator = indexController.openCASIndex(
-            trx.getStorageEngineReader(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of(),
-                null,
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        final var allIterator = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef,
+            indexController.createCASFilter(Set.of(), null, SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
         long count = 0;
         while (allIterator.hasNext()) {
@@ -908,22 +818,20 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("findCASIndex finds registered CAS index definition")
     void testFindCASIndex() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -940,11 +848,10 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("CAS index on multiple paths indexes entries from all paths")
     void testCASIndexMultiplePaths() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
@@ -955,36 +862,26 @@ class IndexIntegrationTest {
         paths.add(pathToName);
         paths.add(pathToCity);
 
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, paths, 0, IndexDef.DbType.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR, paths, 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query for "Alice" at /name
-        final var nameIterator = indexController.openCASIndex(
-            trx.getStorageEngineReader(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/name"),
-                new Str("Alice"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        final var nameIterator =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/name"), new Str("Alice"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
         assertTrue(nameIterator.hasNext(), "Should find 'Alice' at /name");
         assertEquals(1, nameIterator.next().getNodeKeys().getLongCardinality());
 
         // Query for "NYC" at /address/city
-        final var cityIterator = indexController.openCASIndex(
-            trx.getStorageEngineReader(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/address/city"),
-                new Str("NYC"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        final var cityIterator =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/address/city"), new Str("NYC"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
         assertTrue(cityIterator.hasNext(), "Should find 'NYC' at /address/city");
         assertEquals(1, cityIterator.next().getNodeKeys().getLongCardinality());
@@ -994,44 +891,37 @@ class IndexIntegrationTest {
     @Test
     @DisplayName("CAS index with read-only transaction queries after commit")
     void testCASIndexWithReadOnlyTrx() {
-      final var database =
-          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       // Write phase: create index and data
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
 
       // Read phase: query with read-only transaction
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = session.beginNodeReadOnlyTrx()) {
+          final var rtx = session.beginNodeReadOnlyTrx()) {
 
         final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
-        final var casIndex = indexController.getIndexes().findCASIndex(
-            parse("/name", PathParser.Type.JSON), Type.STR);
+        final var casIndex = indexController.getIndexes().findCASIndex(parse("/name", PathParser.Type.JSON), Type.STR);
 
         assertTrue(casIndex.isPresent(), "CAS index should exist after commit");
 
-        final var casIterator = indexController.openCASIndex(
-            rtx.getStorageEngineReader(), casIndex.get(),
-            indexController.createCASFilter(
-                Set.of("/name"),
-                new Str("Alice"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(rtx)));
+        final var casIterator =
+            indexController.openCASIndex(rtx.getStorageEngineReader(), casIndex.get(), indexController.createCASFilter(
+                Set.of("/name"), new Str("Alice"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
 
         assertTrue(casIterator.hasNext(), "Read-only trx should find 'Alice'");
         final var refs = casIterator.next();
@@ -1059,18 +949,16 @@ class IndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var pathIndexDef =
-            IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -1092,18 +980,16 @@ class IndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToCity = parse("/address/city", PathParser.Type.JSON);
-        final var pathIndexDef =
-            IndexDefs.createPathIdxDef(Collections.singleton(pathToCity), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToCity), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -1122,24 +1008,22 @@ class IndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var pathIndexDef =
-            IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = session.beginNodeReadOnlyTrx()) {
+          final var rtx = session.beginNodeReadOnlyTrx()) {
 
         final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
         final var found = indexController.getIndexes().findPathIndex(parse("/name", PathParser.Type.JSON));
@@ -1157,28 +1041,23 @@ class IndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
-        final var casIterator = indexController.openCASIndex(
-            trx.getStorageEngineReader(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/name"),
-                new Str("Alice"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        final var casIterator =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/name"), new Str("Alice"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
         assertTrue(casIterator.hasNext(), "HOT CAS index should find 'Alice' at /name");
         final var nodeReferences = casIterator.next();
@@ -1196,28 +1075,23 @@ class IndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
-        final var casIterator = indexController.openCASIndex(
-            trx.getStorageEngineReader(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/name"),
-                new Str("Charlie"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        final var casIterator =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/name"), new Str("Charlie"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
         assertFalse(casIterator.hasNext(), "HOT CAS index should not find 'Charlie'");
       }
@@ -1229,28 +1103,23 @@ class IndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToCity = parse("/address/city", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Collections.singleton(pathToCity), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToCity), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
-        final var casIterator = indexController.openCASIndex(
-            trx.getStorageEngineReader(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/address/city"),
-                new Str("NYC"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        final var casIterator =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/address/city"), new Str("NYC"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
         assertTrue(casIterator.hasNext(), "HOT CAS should find 'NYC' at /address/city");
         assertEquals(1, casIterator.next().getNodeKeys().getLongCardinality());
@@ -1263,38 +1132,32 @@ class IndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/name", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = session.beginNodeReadOnlyTrx()) {
+          final var rtx = session.beginNodeReadOnlyTrx()) {
 
         final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
-        final var casIndex = indexController.getIndexes().findCASIndex(
-            parse("/name", PathParser.Type.JSON), Type.STR);
+        final var casIndex = indexController.getIndexes().findCASIndex(parse("/name", PathParser.Type.JSON), Type.STR);
 
         assertTrue(casIndex.isPresent(), "HOT CAS index should exist after commit");
 
-        final var casIterator = indexController.openCASIndex(
-            rtx.getStorageEngineReader(), casIndex.get(),
-            indexController.createCASFilter(
-                Set.of("/name"),
-                new Str("Alice"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(rtx)));
+        final var casIterator =
+            indexController.openCASIndex(rtx.getStorageEngineReader(), casIndex.get(), indexController.createCASFilter(
+                Set.of("/name"), new Str("Alice"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
 
         assertTrue(casIterator.hasNext(), "HOT CAS read-only trx should find 'Alice'");
         assertEquals(1, casIterator.next().getNodeKeys().getLongCardinality());
@@ -1307,20 +1170,18 @@ class IndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
 
         final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(allObjectKeyNames), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createStringReader(SAMPLE_JSON),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createStringReader(SAMPLE_JSON),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
-        final var nameIterator = indexController.openNameIndex(
-            trx.getStorageEngineReader(), allObjectKeyNames,
+        final var nameIterator = indexController.openNameIndex(trx.getStorageEngineReader(), allObjectKeyNames,
             indexController.createNameFilter(Set.of("name")));
 
         assertTrue(nameIterator.hasNext(), "HOT name index should find 'name'");

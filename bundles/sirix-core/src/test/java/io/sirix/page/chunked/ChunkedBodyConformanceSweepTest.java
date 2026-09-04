@@ -66,9 +66,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("Chunked body conformance sweep")
 final class ChunkedBodyConformanceSweepTest {
 
-  private static final String[] FLAG_NAMES =
-      {"hashElision", "parentKeyColumn", "pathNodeKeyColumn", "valueElision", "nameKeyElision",
-          "derivedElision", null, "extended"};
+  private static final String[] FLAG_NAMES = {"hashElision", "parentKeyColumn", "pathNodeKeyColumn", "valueElision",
+      "nameKeyElision", "derivedElision", null, "extended"};
 
   /** Names of the second flags byte's bits, in the same order. */
   private static final String[] EXTENDED_FLAG_NAMES = {"rightSibColumn", "leftSibColumn"};
@@ -326,8 +325,11 @@ final class ChunkedBodyConformanceSweepTest {
         unreached++;
       }
     }
-    out.append("  ").append(combinations - unreached).append(" of ").append(combinations)
-        .append(" combinations reached\n");
+    out.append("  ")
+       .append(combinations - unreached)
+       .append(" of ")
+       .append(combinations)
+       .append(" combinations reached\n");
     System.out.println(out);
   }
 }

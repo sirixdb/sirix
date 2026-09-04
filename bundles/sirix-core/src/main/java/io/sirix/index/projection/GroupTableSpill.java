@@ -14,24 +14,25 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>
  * A parallel group-by hands every worker its own {@link NumericGroupAggTable}, so a group that all
- * workers see is held once per worker: memory is {@code workers × groups}, which for a million-group
- * string key at 100M rows is several GB before the post-scan merge even starts — the heap exhaustion
- * that sent q13 ({@code SearchPhrase, COUNT(DISTINCT UserID)}) to the interpreter. Here a worker checks
- * its table every {@link #SUB_CHUNK_LEAVES} row groups and, past {@link #flushGroups()} groups, merges
- * it into the partition tables under each partition's monitor and starts a fresh one: resident state
- * is {@code groups + workers × flushGroups}. The post-scan merge takes a partition's shared table as
- * its base ({@link #takeOrCreate}) so nothing is copied twice, and the merge itself is the same
- * {@link NumericGroupAggTable#mergePartitionIndexed} the post-scan already runs — first-seen ordinals,
- * exact sums, identity lanes and the zero-key group all merge the way they always did.
+ * workers see is held once per worker: memory is {@code workers × groups}, which for a
+ * million-group string key at 100M rows is several GB before the post-scan merge even starts — the
+ * heap exhaustion that sent q13 ({@code SearchPhrase, COUNT(DISTINCT UserID)}) to the interpreter.
+ * Here a worker checks its table every {@link #SUB_CHUNK_LEAVES} row groups and, past
+ * {@link #flushGroups()} groups, merges it into the partition tables under each partition's monitor
+ * and starts a fresh one: resident state is {@code groups + workers × flushGroups}. The post-scan
+ * merge takes a partition's shared table as its base ({@link #takeOrCreate}) so nothing is copied
+ * twice, and the merge itself is the same {@link NumericGroupAggTable#mergePartitionIndexed} the
+ * post-scan already runs — first-seen ordinals, exact sums, identity lanes and the zero-key group
+ * all merge the way they always did.
  * </p>
  *
  * <p>
- * Every table the spill hands out or creates shares one {@link LongChunkPool}: a flushed worker table
- * {@link NumericGroupAggTable#release releases} its chunks, a growing partition table recycles the
- * ones it outgrew, and the caller releases the merged tables once a pass has emitted its candidates —
- * so a pass allocates its storage once and G1 promotes it once, instead of copying ≈ 9 GB of
- * short-lived tables through the young generation per pass (the q32 profile at 100M). Kill switch
- * {@code -Dsirix.projection.groupTable.chunkPool=false}.
+ * Every table the spill hands out or creates shares one {@link LongChunkPool}: a flushed worker
+ * table {@link NumericGroupAggTable#release releases} its chunks, a growing partition table
+ * recycles the ones it outgrew, and the caller releases the merged tables once a pass has emitted
+ * its candidates — so a pass allocates its storage once and G1 promotes it once, instead of copying
+ * ≈ 9 GB of short-lived tables through the young generation per pass (the q32 profile at 100M).
+ * Kill switch {@code -Dsirix.projection.groupTable.chunkPool=false}.
  * </p>
  *
  * <p>
@@ -39,22 +40,23 @@ import static java.util.Objects.requireNonNull;
  * walked the partitions in one fixed order made every worker queue on the same monitor as the one
  * ahead of it: a lock convoy that parked a fifth of the workers' wall at 100M (q32's wall profile),
  * with each shared table's rehashes (six of them, 600 MB copied per partition, from a worker-sized
- * hint) taken under that lock while the queue waited. Two answers, one kill switch each: every flush
- * starts its walk at a different partition ({@link #flushStart}, {@code
+ * hint) taken under that lock while the queue waited. Two answers, one kill switch each: every
+ * flush starts its walk at a different partition ({@link #flushStart}, {@code
  * -Dsirix.projection.groupTable.flushOffset=false}), and a shared table is created at the count the
  * caller's plan expects it to hold ({@link #sharedTableHint}, {@code
- * -Dsirix.projection.groupTable.presizeShared=false}) — witnessed per spill by {@link
- * #sharedRehashes}, which a taken pre-size leaves at zero.
+ * -Dsirix.projection.groupTable.presizeShared=false}) — witnessed per spill by
+ * {@link #sharedRehashes}, which a taken pre-size leaves at zero.
  * </p>
  *
  * <p>
  * The pass's row groups are dealt to the workers from one shared cursor ({@link #claimLeaves}), a
  * morsel of {@link #SUB_CHUNK_LEAVES} at a time, not as a fixed slice of the leaf range per worker.
  * The cost of a row group is a property of the DATA: a leaf range dense in the grouped strings runs
- * about twice as slow as its neighbours (at 100M, worker 8's slice finished every pass of q16 and q18
- * 45–57 % after the median worker, with the same slice slowest in every pass and every try), and a
- * static partition ends its scan with the slowest slice. A shared cursor ends it within one morsel of
- * the mean, and the workers sweep the file together instead of from twenty starting points.
+ * about twice as slow as its neighbours (at 100M, worker 8's slice finished every pass of q16 and
+ * q18 45–57 % after the median worker, with the same slice slowest in every pass and every try),
+ * and a static partition ends its scan with the slowest slice. A shared cursor ends it within one
+ * morsel of the mean, and the workers sweep the file together instead of from twenty starting
+ * points.
  * </p>
  */
 public final class GroupTableSpill {
@@ -156,11 +158,11 @@ public final class GroupTableSpill {
   public static final int WORKER_TABLE_HINT = 1 << 16;
 
   /**
-   * Configured worker-table sizing hint, in groups. The DEFAULT is
-   * {@link #WORKER_TABLE_HINT}, which predates the stripe spill: back then a flush meant probing every
-   * group into a shared table far larger than any cache, so flushing rarely was worth a big local
-   * table. Now a flush is a sequential stripe copy with a compaction behind it, and the trade has
-   * inverted — a table small enough to PROBE out of cache is worth flushing more often for.
+   * Configured worker-table sizing hint, in groups. The DEFAULT is {@link #WORKER_TABLE_HINT}, which
+   * predates the stripe spill: back then a flush meant probing every group into a shared table far
+   * larger than any cache, so flushing rarely was worth a big local table. Now a flush is a
+   * sequential stripe copy with a compaction behind it, and the trade has inverted — a table small
+   * enough to PROBE out of cache is worth flushing more often for.
    *
    * <p>
    * The probe is where the suite's CPU is: {@code NumericGroupAggTable.acquireExact} alone is 17 % of
@@ -170,10 +172,11 @@ public final class GroupTableSpill {
    * <p>
    * <b>MEASURED AND REFUTED (2026-09-03), which is why the default is unchanged.</b> At 100M, hot
    * seconds for q32+q18+q13: <b>65,536 → 12.557 s</b>, 16,384 → 14.238, 8,192 → 14.275, 4,096 →
-   * 14.453. Monotonically worse. Cache residency is real but it is not what dominates: a smaller table
-   * flushes more often, and every flush drags a COMPACTION that probes the partition table anyway — so
-   * shrinking the local table moves the misses rather than removing them, and adds the stripe copies
-   * on top. The knob stays because it is how that was learned, not because a smaller value is wanted.
+   * 14.453. Monotonically worse. Cache residency is real but it is not what dominates: a smaller
+   * table flushes more often, and every flush drags a COMPACTION that probes the partition table
+   * anyway — so shrinking the local table moves the misses rather than removing them, and adds the
+   * stripe copies on top. The knob stays because it is how that was learned, not because a smaller
+   * value is wanted.
    * </p>
    */
   public static final String WORKER_HINT_PROPERTY = "sirix.projection.groupTable.workerHint";
@@ -183,7 +186,11 @@ public final class GroupTableSpill {
     final int configured = Integer.getInteger(WORKER_HINT_PROPERTY, WORKER_TABLE_HINT);
     return Math.max(16, configured);
   }
-  /** Skew allowance on a shared table's expected share, in percent (a partition's count is ± its root). */
+
+  /**
+   * Skew allowance on a shared table's expected share, in percent (a partition's count is ± its
+   * root).
+   */
   private static final int SHARED_HINT_SKEW_PCT = 5;
   /**
    * Standard deviations of a hash partition's count (≈ √share) the hint must still cover when the
@@ -205,7 +212,10 @@ public final class GroupTableSpill {
     return Boolean.parseBoolean(System.getProperty(FLUSH_OFFSET_PROPERTY, "true"));
   }
 
-  /** Whether shared tables are created at the plan's expected count: the override when set, else the property. */
+  /**
+   * Whether shared tables are created at the plan's expected count: the override when set, else the
+   * property.
+   */
   public static boolean presizeSharedEnabled() {
     final int testing = presizeSharedForTesting;
     if (testing >= 0) {
@@ -249,15 +259,23 @@ public final class GroupTableSpill {
    * (default on).
    */
   public static final String STRIPE_SPILL_PROPERTY = "sirix.projection.groupTable.stripeSpill";
-  /** Flush threshold in groups per worker table under the stripe spill when the property sets none. */
+  /**
+   * Flush threshold in groups per worker table under the stripe spill when the property sets none.
+   */
   public static final int STRIPE_FLUSH_GROUPS = WORKER_TABLE_HINT;
-  /** Stripes a partition buffers before a compaction, whatever the budget says (a batch worth probing). */
+  /**
+   * Stripes a partition buffers before a compaction, whatever the budget says (a batch worth
+   * probing).
+   */
   private static final long MIN_COMPACT_STRIPES = 4_096L;
   private static volatile int stripeSpillForTesting = -1;
   private static final LongAdder STRIPES_SPILLED = new LongAdder();
   private static final LongAdder COMPACTIONS = new LongAdder();
 
-  /** Whether spills copy stripes into partition buffers: the test override when set, else the property. */
+  /**
+   * Whether spills copy stripes into partition buffers: the test override when set, else the
+   * property.
+   */
   public static boolean stripeSpillEnabled() {
     final int testing = stripeSpillForTesting;
     if (testing >= 0) {
@@ -292,19 +310,19 @@ public final class GroupTableSpill {
    * Append-only run of whole stripes for ONE partition: a stripe never crosses a chunk, and the
    * chunks GROW from a handful of stripes to the spill's {@link LongChunkPool} length, so a shape
    * with thousands of partitions and few groups costs stripes rather than chunks while a partition
-   * that fills recycles pooled chunks like the tables. Written under the partition's monitor, read
-   * by the one worker that builds the partition after the scan has joined — so it carries no
+   * that fills recycles pooled chunks like the tables. Written under the partition's monitor, read by
+   * the one worker that builds the partition after the scan has joined — so it carries no
    * synchronisation of its own.
    *
    * <p>
-   * Why a buffer and not the shared table it replaces: a flush that probes {@code flushGroups}
-   * groups into a shared table of the pass's share pays a cache miss per group on a table far
-   * larger than any cache (at 100M, q32's 62 MB partition tables: ≈ 400 ns per group, 24 % of the
-   * query's CPU, plus the local table's own misses and its rehashes — and the shared table's
-   * chunks then rehash under the partition's monitor). A stripe copy is one sequential
-   * {@code stride}-lane write; the partition's table is built ONCE from the buffer, hinted at its
-   * exact stripe count so it never rehashes, and a high-cardinality shape (a group per row) pays
-   * one probe per group instead of two plus a merge.
+   * Why a buffer and not the shared table it replaces: a flush that probes {@code flushGroups} groups
+   * into a shared table of the pass's share pays a cache miss per group on a table far larger than
+   * any cache (at 100M, q32's 62 MB partition tables: ≈ 400 ns per group, 24 % of the query's CPU,
+   * plus the local table's own misses and its rehashes — and the shared table's chunks then rehash
+   * under the partition's monitor). A stripe copy is one sequential {@code stride}-lane write; the
+   * partition's table is built ONCE from the buffer, hinted at its exact stripe count so it never
+   * rehashes, and a high-cardinality shape (a group per row) pays one probe per group instead of two
+   * plus a merge.
    */
   static final class StripeBuffer {
     /** Stripes the FIRST chunk of a buffer holds; a partition that stays small costs only this. */
@@ -327,9 +345,9 @@ public final class GroupTableSpill {
 
     /**
      * Lanes the next chunk is allocated at: the previous chunk doubled, from
-     * {@value #FIRST_CHUNK_STRIPES} stripes up to the pool's chunk — so a partition holding a
-     * handful of groups costs a handful of stripes, and one holding millions still reaches the
-     * pooled size within a few chunks. Always a whole number of stripes.
+     * {@value #FIRST_CHUNK_STRIPES} stripes up to the pool's chunk — so a partition holding a handful
+     * of groups costs a handful of stripes, and one holding millions still reaches the pooled size
+     * within a few chunks. Always a whole number of stripes.
      */
     private int nextChunkLanes() {
       if (chunkCount == 0) {
@@ -341,7 +359,9 @@ public final class GroupTableSpill {
           : doubled - doubled % stride;
     }
 
-    /** Copy the stripe whose accumulator base is {@code accBase} of {@code src} (key lane at base − 1). */
+    /**
+     * Copy the stripe whose accumulator base is {@code accBase} of {@code src} (key lane at base − 1).
+     */
     void append(final long[] src, final int accBase, final LongChunkPool pool) {
       final int st = stride;
       if (chunkCount == 0 || used[chunkCount - 1] + st > chunks[chunkCount - 1].length) {
@@ -403,11 +423,11 @@ public final class GroupTableSpill {
   /**
    * The partition the {@code ordinal}-th flush of a spill starts its walk at: the flushes step
    * through the partitions by an odd stride near {@code 0.618 × partitions}, so any {@code
-   * partitions} consecutive flushes start at {@code partitions} DISTINCT partitions (an odd stride
-   * is coprime to a power of two) and consecutive ones start far apart (the golden-ratio stride is
-   * the one whose multiples spread most evenly). Workers that flush together therefore meet on a
-   * monitor only by coincidence, not by construction. A spill built with the rotation switched off
-   * starts every flush at partition 0 instead ({@link #flushOffset}).
+   * partitions} consecutive flushes start at {@code partitions} DISTINCT partitions (an odd stride is
+   * coprime to a power of two) and consecutive ones start far apart (the golden-ratio stride is the
+   * one whose multiples spread most evenly). Workers that flush together therefore meet on a monitor
+   * only by coincidence, not by construction. A spill built with the rotation switched off starts
+   * every flush at partition 0 instead ({@link #flushOffset}).
    */
   static int flushStart(final long ordinal, final int partitions) {
     return (int) (ordinal * flushStride(partitions)) & (partitions - 1);
@@ -419,8 +439,8 @@ public final class GroupTableSpill {
   }
 
   /**
-   * The sizing hint of a shared partition table when the caller's plan knows the shape's group
-   * count, or {@code -1} when it does not (or the pre-size is switched off): the uniform share of
+   * The sizing hint of a shared partition table when the caller's plan knows the shape's group count,
+   * or {@code -1} when it does not (or the pre-size is switched off): the uniform share of
    * {@code expectedGroups} per partition plus {@value #SHARED_HINT_SKEW_PCT} percent skew allowance,
    * never past the share of the pass budget — beyond what the budget lets a pass hold, a hint can
    * only be an estimate's error, and the table grows on demand there as before. Storage is chunked
@@ -431,11 +451,11 @@ public final class GroupTableSpill {
    * <p>
    * Hence the allowance is refused when IT ALONE crosses that boundary: at 100M rows a share of
    * 3,124,927 groups fits a 2^22-bucket table (grows at 3,145,728) and its 5 % allowance asked for
-   * 2^23 — every shared table of every pass doubled, 2.1 GB of fresh chunks per pass past the retained
-   * pool, and the hot tries ran SLOWER per pass than the cold one (q32: 1.5 → 1.8 s, gc 32 → 42). A
-   * partition's count deviates from its share by about its root, so the tighter hint keeps
-   * {@value #SHARED_HINT_TIGHT_ROOTS} roots of headroom and lets an estimate that is truly off pay one
-   * rehash instead.
+   * 2^23 — every shared table of every pass doubled, 2.1 GB of fresh chunks per pass past the
+   * retained pool, and the hot tries ran SLOWER per pass than the cold one (q32: 1.5 → 1.8 s, gc 32 →
+   * 42). A partition's count deviates from its share by about its root, so the tighter hint keeps
+   * {@value #SHARED_HINT_TIGHT_ROOTS} roots of headroom and lets an estimate that is truly off pay
+   * one rehash instead.
    */
   static int sharedTableHint(final long expectedGroups, final int partitions, final int passLo, final int passHi,
       final long budget) {
@@ -459,8 +479,8 @@ public final class GroupTableSpill {
 
   /**
    * Chunks a spill's pool keeps at most: twice the resident state of a pass — {@code budget} groups
-   * plus the workers' unflushed tables — at the table's 3/4 load factor. The pool never holds more than
-   * it was given, so this is a safety net against a runaway caller, not a tuning knob.
+   * plus the workers' unflushed tables — at the table's 3/4 load factor. The pool never holds more
+   * than it was given, so this is a safety net against a runaway caller, not a tuning knob.
    */
   static int poolCapacityChunks(final long budget, final int threshold, final int stride, final int chunkLanes) {
     final double groups = Math.min(budget, 1L << 32) + 64.0 * threshold;
@@ -482,10 +502,10 @@ public final class GroupTableSpill {
 
   /**
    * Capacity slack over the live group count: {@link NumericGroupAggTable} grows at 3/4 load and
-   * rounds its bucket count UP to a power of two, so a table holding {@code n} groups has between
-   * 4/3 and 8/3 buckets per group. Two is the midpoint of that range and the figure the budget
-   * charges — the ceiling would forfeit a third of the heap share on every shape, and the floor
-   * would plan a pass that cannot hold what it planned for.
+   * rounds its bucket count UP to a power of two, so a table holding {@code n} groups has between 4/3
+   * and 8/3 buckets per group. Two is the midpoint of that range and the figure the budget charges —
+   * the ceiling would forfeit a third of the heap share on every shape, and the floor would plan a
+   * pass that cannot hold what it planned for.
    */
   private static final long CAPACITY_SLACK = 2L;
 
@@ -519,6 +539,7 @@ public final class GroupTableSpill {
     }
     return Math.min(BYTES_PER_GROUP, (long) strideLanes * Long.BYTES * CAPACITY_SLACK);
   }
+
   private static volatile long groupBudgetForTesting = -1L;
 
   /**
@@ -606,10 +627,10 @@ public final class GroupTableSpill {
   }
 
   /**
-   * The clean-heap ceiling for a stripe of {@code strideLanes} lanes. A refresh compares the budget it
-   * planned against this, so the two must be charged the SAME bytes per group: a narrow shape whose
-   * budget was widened by its stride would otherwise be measured against a ceiling computed for a
-   * 128-byte stripe and look as though a collection could not help it.
+   * The clean-heap ceiling for a stripe of {@code strideLanes} lanes. A refresh compares the budget
+   * it planned against this, so the two must be charged the SAME bytes per group: a narrow shape
+   * whose budget was widened by its stride would otherwise be measured against a ceiling computed for
+   * a 128-byte stripe and look as though a collection could not help it.
    *
    * @param strideLanes lanes per group stripe ({@link NumericGroupAggTable#strideFor})
    */
@@ -648,10 +669,10 @@ public final class GroupTableSpill {
   }
 
   /**
-   * The fewest balanced passes whose LARGEST share holds {@code groups} uniformly hashed groups within
-   * {@code budget}: one pass while the count fits the budget, else the smallest count whose largest
-   * share's expected groups fit, at most one pass per partition (where the caller's abort machinery
-   * decides what a pass cannot hold).
+   * The fewest balanced passes whose LARGEST share holds {@code groups} uniformly hashed groups
+   * within {@code budget}: one pass while the count fits the budget, else the smallest count whose
+   * largest share's expected groups fit, at most one pass per partition (where the caller's abort
+   * machinery decides what a pass cannot hold).
    */
   public static int passesFor(final long groups, final long budget, final int partitions) {
     if (groups <= budget) {
@@ -665,7 +686,9 @@ public final class GroupTableSpill {
     return partitions;
   }
 
-  /** The groups the largest of {@code passes} balanced passes over {@code groups} is expected to hold. */
+  /**
+   * The groups the largest of {@code passes} balanced passes over {@code groups} is expected to hold.
+   */
   public static long expectedLargestPass(final long groups, final int passes, final int partitions) {
     final long share = largestPassShare(partitions, passes);
     return (groups * share + partitions - 1) / partitions;
@@ -674,8 +697,8 @@ public final class GroupTableSpill {
   /**
    * The smallest group count for which {@link #passesFor} answers at least {@code passes} at
    * {@code budget}: the count that makes {@code passes - 1} passes insufficient. A completed pass set
-   * whose SEED aborted records this instead of its exact count, so the next seeding lands on the
-   * pass count that completed instead of the one that aborted again.
+   * whose SEED aborted records this instead of its exact count, so the next seeding lands on the pass
+   * count that completed instead of the one that aborted again.
    */
   public static long groupsForcingPasses(final int passes, final long budget, final int partitions) {
     if (passes <= 1) {
@@ -762,7 +785,10 @@ public final class GroupTableSpill {
   private final int partitions;
   private final int shift;
   private final IntFunction<NumericGroupAggTable> factory;
-  /** {@link #sharedTableHint}: the hint a shared table is created at, or {@code -1} for the worker hint. */
+  /**
+   * {@link #sharedTableHint}: the hint a shared table is created at, or {@code -1} for the worker
+   * hint.
+   */
   private final int sharedHint;
   private final boolean flushOffset;
   private final AtomicLong flushOrdinal = new AtomicLong();
@@ -776,7 +802,10 @@ public final class GroupTableSpill {
   /** Shared by every table of this spill, or {@code null} when the pool is switched off. */
   private final LongChunkPool pool;
   private final LongAdder spilled = new LongAdder();
-  /** Stripes sitting in the partition buffers: resident state the abort must price, not yet deduplicated. */
+  /**
+   * Stripes sitting in the partition buffers: resident state the abort must price, not yet
+   * deduplicated.
+   */
   private final LongAdder buffered = new LongAdder();
   private final LongAdder abandoned = new LongAdder();
   private final LongAdder leavesScanned = new LongAdder();
@@ -806,11 +835,11 @@ public final class GroupTableSpill {
    * A pass spill whose SHARED tables are created at the count the caller's plan expects them to hold.
    *
    * @param factory builds a table of the worker tables' layout at a sizing hint: worker tables are
-   *        asked for at {@link #WORKER_TABLE_HINT}, shared partition tables at {@link
-   *        #sharedTableHint} when {@code expectedGroups} is known
-   * @param expectedGroups the shape's total group count over ALL partitions as the plan expects it
-   *        (a memoised or abort-estimated count), or {@code 0} when the plan is blind — shared
-   *        tables then start at the worker hint and grow
+   *        asked for at {@link #WORKER_TABLE_HINT}, shared partition tables at
+   *        {@link #sharedTableHint} when {@code expectedGroups} is known
+   * @param expectedGroups the shape's total group count over ALL partitions as the plan expects it (a
+   *        memoised or abort-estimated count), or {@code 0} when the plan is blind — shared tables
+   *        then start at the worker hint and grow
    */
   public GroupTableSpill(final int partitions, final int shift, final IntFunction<NumericGroupAggTable> factory,
       final long expectedGroups, final int passLo, final int passHi, final long budget) {
@@ -958,7 +987,9 @@ public final class GroupTableSpill {
         : leafCount;
   }
 
-  /** Row groups claimed so far through {@link #claimLeaves}, bounded by nothing: a witness for tests. */
+  /**
+   * Row groups claimed so far through {@link #claimLeaves}, bounded by nothing: a witness for tests.
+   */
   public int leavesClaimed() {
     return leafCursor.get();
   }
@@ -989,8 +1020,8 @@ public final class GroupTableSpill {
   /**
    * The pass count an abort recommends at {@code budget}: the fewest balanced passes that hold the
    * {@link #estimatedTotalGroups estimated total}, at most one pass per partition. No floor above the
-   * aborted count here — the caller knows whether the budget it restarts with is the one that
-   * aborted (then at least one more pass) or a refreshed, wider one (then the fit as it is).
+   * aborted count here — the caller knows whether the budget it restarts with is the one that aborted
+   * (then at least one more pass) or a refreshed, wider one (then the fit as it is).
    */
   public int recommendedPasses(final int totalLeaves, final long budget) {
     return Math.min(partitions, passesFor(estimatedTotalGroups(totalLeaves), budget, partitions));
@@ -999,8 +1030,8 @@ public final class GroupTableSpill {
   /**
    * The abort-time total-group estimate: the groups this pass saw (spilled plus abandoned in worker
    * tables), extrapolated over the unscanned leaves and over the partitions this pass did not own —
-   * exposed so the caller can memo it on the handle and seed the NEXT execution's pass count directly,
-   * skipping the aborted scan this execution already paid for.
+   * exposed so the caller can memo it on the handle and seed the NEXT execution's pass count
+   * directly, skipping the aborted scan this execution already paid for.
    */
   public long estimatedTotalGroups(final int totalLeaves) {
     final double fraction = Math.max(0.01, (double) leavesScanned.sum() / Math.max(1, totalLeaves));
@@ -1016,10 +1047,10 @@ public final class GroupTableSpill {
   }
 
   /**
-   * Merge every group of {@code local} into the shared partition tables, then {@link
-   * NumericGroupAggTable#release release} it: its chunks return to the pool for the caller's next
-   * {@link #freshLocal} (a fresh table is cheaper than a reset of a grown one). The caller must not
-   * touch {@code local} afterwards.
+   * Merge every group of {@code local} into the shared partition tables, then
+   * {@link NumericGroupAggTable#release release} it: its chunks return to the pool for the caller's
+   * next {@link #freshLocal} (a fresh table is cheaper than a reset of a grown one). The caller must
+   * not touch {@code local} afterwards.
    */
   public void flush(final NumericGroupAggTable local) {
     try {
@@ -1170,9 +1201,9 @@ public final class GroupTableSpill {
   }
 
   /**
-   * The stripe spill's post-scan finish of one partition: compact whatever the scan left buffered
-   * and land the zero group on partition 0's table, so {@link #takeOrCreate} hands over one table
-   * holding every group spilled there. Under the partition's monitor.
+   * The stripe spill's post-scan finish of one partition: compact whatever the scan left buffered and
+   * land the zero group on partition 0's table, so {@link #takeOrCreate} hands over one table holding
+   * every group spilled there. Under the partition's monitor.
    */
   private void finishStripes(final int part) {
     final StripeBuffer buffer = stripeBuffers[part];
@@ -1247,8 +1278,8 @@ public final class GroupTableSpill {
 
   /**
    * A shared partition table sized for a compaction of {@code stripes}: never more than the stripes
-   * that will land in it (they bound its groups from above) and never more than one partition's
-   * share of the pass budget — a blind plan's worker hint would otherwise size EVERY partition of a
+   * that will land in it (they bound its groups from above) and never more than one partition's share
+   * of the pass budget — a blind plan's worker hint would otherwise size EVERY partition of a
    * thousand-partition split for a whole worker table.
    */
   private NumericGroupAggTable createSharedForStripes(final long stripes) {
@@ -1271,7 +1302,9 @@ public final class GroupTableSpill {
     return sharedRehashes.sum();
   }
 
-  /** The hint shared tables are created at, or {@code -1} for the worker hint (test observability). */
+  /**
+   * The hint shared tables are created at, or {@code -1} for the worker hint (test observability).
+   */
   public int sharedHint() {
     return sharedHint;
   }
@@ -1282,14 +1315,15 @@ public final class GroupTableSpill {
   }
 
   /**
-   * Drop the shared partition tables of an ABORTED pass. The estimate and the pass recommendation need
-   * only the counters ({@link #groupsSpilled}, {@link #groupsAbandoned}, leaves scanned), but the
-   * tables stay reachable through this spill until the arm has re-planned — and a restart that refreshes
-   * the budget by a forced collection measures whatever is still REFERENCED, not what the arm intends
-   * to keep: at 100M (q32) the aborted pass's 16.6M spilled groups read as 3.9 GB of live heap, the
-   * budget FELL 11.5M → 7.9M and the restart ran 16 passes instead of 8. Call after the parallel
-   * section has joined and before re-planning; the spill is not reused. The pool is drained for the
-   * same reason: what it holds is retained by intent only, and the measurement must not count it.
+   * Drop the shared partition tables of an ABORTED pass. The estimate and the pass recommendation
+   * need only the counters ({@link #groupsSpilled}, {@link #groupsAbandoned}, leaves scanned), but
+   * the tables stay reachable through this spill until the arm has re-planned — and a restart that
+   * refreshes the budget by a forced collection measures whatever is still REFERENCED, not what the
+   * arm intends to keep: at 100M (q32) the aborted pass's 16.6M spilled groups read as 3.9 GB of live
+   * heap, the budget FELL 11.5M → 7.9M and the restart ran 16 passes instead of 8. Call after the
+   * parallel section has joined and before re-planning; the spill is not reused. The pool is drained
+   * for the same reason: what it holds is retained by intent only, and the measurement must not count
+   * it.
    */
   public void releaseTables() {
     for (int p = 0; p < partitions; p++) {
@@ -1326,8 +1360,8 @@ public final class GroupTableSpill {
 
   /**
    * The shared table of {@code part} as the post-scan merge base — detached, so it is merged into
-   * exactly once — or a fresh table from {@code fresh} when nothing was spilled there. Post-scan only,
-   * after the parallel section has joined.
+   * exactly once — or a fresh table from {@code fresh} when nothing was spilled there. Post-scan
+   * only, after the parallel section has joined.
    */
   public NumericGroupAggTable takeOrCreate(final int part, final Supplier<NumericGroupAggTable> fresh) {
     final NumericGroupAggTable table;

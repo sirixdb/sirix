@@ -20,51 +20,51 @@ import static java.util.Objects.requireNonNull;
  * ENCODE-direction dictionaries scoped to a SEGMENT of record pages, minted during the load.
  *
  * <p>
- * This is the write half of {@code docs/SEGMENT_SCOPED_DICTIONARIES.md}: the answer to the pre-pass.
- * {@link TrieLaneWriteDictionaries} resolves against a dictionary a PRE-PASS already committed, which
- * is why the corpus must be read twice, why the value set must be closed before the shred, and why an
- * unknown value fails the build. Here a segment's dictionary is built AS its pages are encoded — a
- * value is minted the first time it is seen — so there is no pre-pass, no second read, no closed
- * corpus and no absent value.
+ * This is the write half of {@code docs/SEGMENT_SCOPED_DICTIONARIES.md}: the answer to the
+ * pre-pass. {@link TrieLaneWriteDictionaries} resolves against a dictionary a PRE-PASS already
+ * committed, which is why the corpus must be read twice, why the value set must be closed before
+ * the shred, and why an unknown value fails the build. Here a segment's dictionary is built AS its
+ * pages are encoded — a value is minted the first time it is seen — so there is no pre-pass, no
+ * second read, no closed corpus and no absent value.
  * </p>
  *
  * <h2>Why the anchor is a SEGMENT id, not a storage key</h2>
  *
  * A page records {@link #dictionaryKey} while it is encoded, and a segment's dictionary cannot be
- * written until every page of that segment has been encoded — so the storage key does not exist yet at
- * the moment the page needs an anchor. The anchor is therefore the segment's own id, and the resource
- * maps segment to header key once the segment is persisted. The page format is unchanged: the anchor
- * is a {@code long} the page stores and hands back to the reader, and only the two resolvers interpret
- * it.
+ * written until every page of that segment has been encoded — so the storage key does not exist yet
+ * at the moment the page needs an anchor. The anchor is therefore the segment's own id, and the
+ * resource maps segment to header key once the segment is persisted. The page format is unchanged:
+ * the anchor is a {@code long} the page stores and hands back to the reader, and only the two
+ * resolvers interpret it.
  *
  * <h2>Why views are per PAGE, and why that is the correctness argument</h2>
  *
  * {@link #idOf} carries no page, and record pages are encoded on the async flush pool
- * ({@code sirix.asyncFlush.parallelism}) — so a page of segment N can be encoded AFTER the writer has
- * moved on to segment N+1. A resolver that answered "the segment I am currently filling" would mint
- * that page's ids in N+1 and stamp N+1's anchor onto a page whose neighbours point at N: a coherent
- * wrong answer, and one the reader's entry-count validity check cannot catch, because both
+ * ({@code sirix.asyncFlush.parallelism}) — so a page of segment N can be encoded AFTER the writer
+ * has moved on to segment N+1. A resolver that answered "the segment I am currently filling" would
+ * mint that page's ids in N+1 and stamp N+1's anchor onto a page whose neighbours point at N: a
+ * coherent wrong answer, and one the reader's entry-count validity check cannot catch, because both
  * dictionaries are live and both are large enough.
  *
  * <p>
  * So the segment is bound to the PAGE, not to a moment: {@link #viewFor} is called on the
- * single-threaded writer side where the page's record-page key is known, and the view the page carries
- * answers for that page's segment forever after, whatever the flush pool does and whenever it does it.
- * This is the same class of defect as the thread-local scratch shared between a serializer and a
- * decoder re-entered from inside it — anything an encoder reads as "the current X" is suspect when the
- * encoder runs on a pool.
+ * single-threaded writer side where the page's record-page key is known, and the view the page
+ * carries answers for that page's segment forever after, whatever the flush pool does and whenever
+ * it does it. This is the same class of defect as the thread-local scratch shared between a
+ * serializer and a decoder re-entered from inside it — anything an encoder reads as "the current X"
+ * is suspect when the encoder runs on a pool.
  * </p>
  *
  * <h2>Ids are ARRIVAL-ordered, and that costs nothing here</h2>
  *
  * Ids cannot be collation-ranked: they are minted at page encode, before the segment's value set is
- * known. That is not a compromise. Nothing probes value to id after a segment freezes — the read side
- * resolves id to value, which is an indexed lookup on any id order — so a segment dictionary needs no
- * persisted forward index, which is the entire cost that made a corpus-wide streaming dictionary
- * unaffordable (0.81 radix nodes per entry, each with a 256-slot child array, retained by
- * copy-on-write across appends: 64.7 B/entry at D = 275 K rising to 1,650 at D = 18 M). Rank order
- * still matters for the PROJECTION's dictionary, where id-order zone pruning reads it; it does not
- * matter here.
+ * known. That is not a compromise. Nothing probes value to id after a segment freezes — the read
+ * side resolves id to value, which is an indexed lookup on any id order — so a segment dictionary
+ * needs no persisted forward index, which is the entire cost that made a corpus-wide streaming
+ * dictionary unaffordable (0.81 radix nodes per entry, each with a 256-slot child array, retained
+ * by copy-on-write across appends: 64.7 B/entry at D = 275 K rising to 1,650 at D = 18 M). Rank
+ * order still matters for the PROJECTION's dictionary, where id-order zone pruning reads it; it
+ * does not matter here.
  *
  * <h2>What it deliberately cannot do</h2>
  *
@@ -198,12 +198,12 @@ public final class SegmentScopedDictionaries {
      * Ids issued so far — from the MINTING COUNTER, never from {@code ids.size()}.
      *
      * <p>
-     * {@code ConcurrentHashMap.size()} is weakly consistent: while another flush thread is inserting
-     * it can report a count BELOW an id already issued. The encoder derives the id lane's bit width
-     * from this number, so a count that lags an issued id writes that id TRUNCATED — a silently
-     * different value, not a failure (measured: id 344 against a reported 343). The counter can only
-     * ever over-report, by an id whose mapping is still being installed, and a width one bit too wide
-     * costs nothing.
+     * {@code ConcurrentHashMap.size()} is weakly consistent: while another flush thread is inserting it
+     * can report a count BELOW an id already issued. The encoder derives the id lane's bit width from
+     * this number, so a count that lags an issued id writes that id TRUNCATED — a silently different
+     * value, not a failure (measured: id 344 against a reported 343). The counter can only ever
+     * over-report, by an id whose mapping is still being installed, and a width one bit too wide costs
+     * nothing.
      * </p>
      */
     int size() {

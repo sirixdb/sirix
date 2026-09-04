@@ -39,7 +39,9 @@ import java.util.concurrent.TimeUnit;
 /**
  * End-to-end Chicago shredder benchmark with fully configurable resource settings.
  *
- * <p>Run with:
+ * <p>
+ * Run with:
+ * 
  * <pre>
  * ./gradlew :sirix-benchmarks:jmh -Pjmh.includes='.*ChicagoShredderBenchmark.*'
  * </pre>
@@ -55,15 +57,11 @@ public class ChicagoShredderBenchmark {
   private static final String RESOURCE = "chicagoResource";
 
   public enum CompressionPipeline {
-    NONE,
-    FFI_LZ4
+    NONE, FFI_LZ4
   }
 
   public enum TraversalMode {
-    NONE,
-    DESCENDANT,
-    POSTORDER,
-    BOTH
+    NONE, DESCENDANT, POSTORDER, BOTH
   }
 
   private static void clampLoggingForBenchmarks() {

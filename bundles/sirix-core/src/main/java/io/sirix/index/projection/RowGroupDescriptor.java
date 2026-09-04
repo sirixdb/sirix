@@ -125,10 +125,10 @@ public final class RowGroupDescriptor {
   // ==================== write ====================
 
   /**
-   * Serialize the sole descriptor shape. Entry arrays are parallel,
-   * {@code columnSegmentCount} entries each; entries must be sorted by ascending
-   * {@code columnSegmentId} (binary-searchable, deterministic bytes). Segment payloads are stored in
-   * their adjacent segment slots, never in this byte array.
+   * Serialize the sole descriptor shape. Entry arrays are parallel, {@code columnSegmentCount}
+   * entries each; entries must be sorted by ascending {@code columnSegmentId} (binary-searchable,
+   * deterministic bytes). Segment payloads are stored in their adjacent segment slots, never in this
+   * byte array.
    */
   public static byte[] serialize(final int rowCount, final long firstRecordKey, final long lastRecordKey,
       final byte[] kinds, final int columnSegmentCount, final int[] columnSegmentIds, final int[] byteLens,
@@ -183,8 +183,7 @@ public final class RowGroupDescriptor {
           + contentHashes.length + " colFlags=" + colFlags.length + " mins=" + mins.length + " maxs=" + maxs.length);
     }
     for (int i = 0; i < columnSegmentCount; i++) {
-      if (byteLens[i] < ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES
-          || byteLens[i] > MAX_SEGMENT_BYTES) {
+      if (byteLens[i] < ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES || byteLens[i] > MAX_SEGMENT_BYTES) {
         throw new IllegalArgumentException("byteLen out of range at entry " + i + ": " + byteLens[i]);
       }
     }
@@ -261,9 +260,8 @@ public final class RowGroupDescriptor {
     for (int i = 0; i < columnSegmentCount; i++) {
       final int id = entryColumnSegmentId(d, i);
       if (id <= previousId) {
-        throw new IllegalStateException(
-            "Corrupt leaf descriptor: segment ids are not strictly ascending at entry " + i + " (" + id
-                + " after " + previousId + ")");
+        throw new IllegalStateException("Corrupt leaf descriptor: segment ids are not strictly ascending at entry " + i
+            + " (" + id + " after " + previousId + ")");
       }
       previousId = id;
       final int byteLen = entryByteLen(d, i);
@@ -291,15 +289,15 @@ public final class RowGroupDescriptor {
       final long first = firstRecordKey(descriptor);
       final long last = lastRecordKey(descriptor);
       if (first > last && (first != Long.MAX_VALUE || last != Long.MIN_VALUE)) {
-        throw new IllegalStateException("Corrupt leaf descriptor: invalid record-key fences [" + first + ", " + last
-            + "]");
+        throw new IllegalStateException(
+            "Corrupt leaf descriptor: invalid record-key fences [" + first + ", " + last + "]");
       }
     }
 
     int entry = requireEntry(descriptor, 0, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(), "KEYS");
     requireNonBodyMirror(descriptor, 0, "KEYS");
-    final int minimumKeysBytes = ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES + 2 * Long.BYTES + 1
-        + 2 * Integer.BYTES;
+    final int minimumKeysBytes =
+        ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES + 2 * Long.BYTES + 1 + 2 * Integer.BYTES;
     requireMinimumBytes(descriptor, 0, minimumKeysBytes, "KEYS");
 
     for (int column = 0; column < columnCount; column++) {
@@ -309,15 +307,18 @@ public final class RowGroupDescriptor {
       final int bodyEntry = entry;
       entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column),
           "BODY(" + column + ")");
-      requireMinimumBytes(descriptor, bodyEntry, ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES + 1
-          + (rowCount == 0 ? 0 : 2 * Long.BYTES + 1), "BODY(" + column + ")");
-      final int unknownFlags = entryColFlags(descriptor, bodyEntry) & ~(
-          ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE
+      requireMinimumBytes(descriptor, bodyEntry,
+          ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES + 1 + (rowCount == 0
+              ? 0
+              : 2 * Long.BYTES + 1),
+          "BODY(" + column + ")");
+      final int unknownFlags =
+          entryColFlags(descriptor, bodyEntry) & ~(ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE
               | ProjectionIndexRowGroupPage.COLUMN_FLAG_NON_INTEGRAL
               | ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE);
       if (unknownFlags != 0) {
-        throw new IllegalStateException("Corrupt leaf descriptor: BODY(" + column + ") has unknown flags 0x"
-            + Integer.toHexString(unknownFlags));
+        throw new IllegalStateException(
+            "Corrupt leaf descriptor: BODY(" + column + ") has unknown flags 0x" + Integer.toHexString(unknownFlags));
       }
       if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE
           && (entryColFlags(descriptor, bodyEntry) & ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE) != 0) {
@@ -342,8 +343,8 @@ public final class RowGroupDescriptor {
         requireNonBodyMirror(descriptor, dictEntry, "DICT(" + column + ")");
 
         if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET && entry < segmentCount
-            && entryColumnSegmentId(descriptor, entry)
-                == ProjectionIndexColumnSegmentCodec.setCountsColumnSegmentId(column)) {
+            && entryColumnSegmentId(descriptor,
+                entry) == ProjectionIndexColumnSegmentCodec.setCountsColumnSegmentId(column)) {
           final int countsEntry = entry++;
           requireNonBodyMirror(descriptor, countsEntry, "SET_COUNTS(" + column + ")");
           if (entryByteLen(descriptor, countsEntry) > ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES) {
@@ -389,8 +390,8 @@ public final class RowGroupDescriptor {
           "Corrupt leaf descriptor: expected " + name + " segment id " + expectedId + " but found " + actual);
     }
     if (expectedId >= HOTLeafPage.MAX_OVERFLOW_PAGE_REF_SUB_ID) {
-      throw new IllegalStateException("Corrupt leaf descriptor: segment id " + expectedId
-          + " cannot be encoded as slotKind=id+1");
+      throw new IllegalStateException(
+          "Corrupt leaf descriptor: segment id " + expectedId + " cannot be encoded as slotKind=id+1");
     }
     return entryIndex + 1;
   }

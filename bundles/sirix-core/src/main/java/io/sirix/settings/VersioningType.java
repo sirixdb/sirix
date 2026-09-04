@@ -830,8 +830,7 @@ public enum VersioningType {
         for (final int offset : populatedSlots) {
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) == 0 && !(claimedReferences > 0
               && slotShadowedByNewerOverflowReference(completePage, recordPageKey, offset))) {
-            copySlotPreservingMetadata(outOfWindowKvp, completeKvp, offset,
-                outOfWindowKvp.getSlotNodeKindId(offset),
+            copySlotPreservingMetadata(outOfWindowKvp, completeKvp, offset, outOfWindowKvp.getSlotNodeKindId(offset),
                 outCopier);
             filledBitmap[offset >>> 6] |= (1L << (offset & 63));
           }
@@ -927,8 +926,8 @@ public enum VersioningType {
    * @param recordKey the record key of the overflow reference
    * @return {@code true} if a newer fragment claimed this record as an inline record
    */
-  private static boolean referenceShadowedByNewerInlineSlot(final KeyValueLeafPage target,
-      final long[] filledBitmap, final long recordKey) {
+  private static boolean referenceShadowedByNewerInlineSlot(final KeyValueLeafPage target, final long[] filledBitmap,
+      final long recordKey) {
     final int offset = StorageEngineReader.recordPageOffset(recordKey);
     if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) == 0) {
       return false;
@@ -1038,8 +1037,8 @@ public enum VersioningType {
   /**
    * Copy one logical overflow carrier. A reference-only record has no side slot; a dense-page fused
    * record additionally carries a projection-visible slot image which must version atomically with
-   * that reference. Keeping this pairing here prevents one versioning strategy from silently
-   * dropping the side half while the others remain correct.
+   * that reference. Keeping this pairing here prevents one versioning strategy from silently dropping
+   * the side half while the others remain correct.
    */
   private static void copyOverflowCarrier(final KeyValuePage<?> sourcePage, final KeyValuePage<?> targetPage,
       final long recordKey, final PageReference reference) {
@@ -1060,8 +1059,8 @@ public enum VersioningType {
    *
    * <p>
    * For multi-fragment combines, do not call this — use the decompress-on- merge path (see
-   * {@link #copySlotPreservingMetadata}) instead, which rewrites each compressed slot to its uncompressed
-   * form so the target correctly carries {@code fsstSymbolTable = null}.
+   * {@link #copySlotPreservingMetadata}) instead, which rewrites each compressed slot to its
+   * uncompressed form so the target correctly carries {@code fsstSymbolTable = null}.
    *
    * <p>
    * In the modification combines, the MODIFIED page needs this binding just as much as the complete
@@ -1114,8 +1113,7 @@ public enum VersioningType {
    *        the whole fragment loop to amortize the symbol-table parse
    */
   protected static void copySlotPreservingMetadata(final KeyValueLeafPage src, final KeyValueLeafPage dst,
-      final int offset,
-      final int nodeKindId, final FsstAwareSlotCopier copier) {
+      final int offset, final int nodeKindId, final FsstAwareSlotCopier copier) {
     // The fused overflow descriptor carries no FSST payload even when its source page has a table.
     // Raw-copy it together with its companion reference; sending marker 2 through the ordinary
     // "could not decompress" branch can falsely reject a safe cross-table fragment merge.
@@ -1379,8 +1377,8 @@ public enum VersioningType {
               ? result.putOrReplace(key, value)
               : result.mergeWithNodeRefs(key, key.length, value, value.length);
           if (!inserted) {
-            throw new IllegalStateException("HOT fragment merge cannot fit key from leaf "
-                + olderPage.getPageKey() + " into leaf " + result.getPageKey());
+            throw new IllegalStateException("HOT fragment merge cannot fit key from leaf " + olderPage.getPageKey()
+                + " into leaf " + result.getPageKey());
           }
         }
 
@@ -1496,9 +1494,8 @@ public enum VersioningType {
       // full-dump cadence; hotLeaf.getRevision() remains the actual revision of the prior physical
       // head recorded in every newly prepended PageFragmentKey.
       final int currentRevision = storageEngineReader.getRevisionNumber();
-      final boolean forceFullEmit =
-          bumpHOTPageFragmentChain(reference, hotLeaf.getRevision(), currentRevision,
-              revsToRestore, storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId());
+      final boolean forceFullEmit = bumpHOTPageFragmentChain(reference, hotLeaf.getRevision(), currentRevision,
+          revsToRestore, storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId());
 
       modifiedLeaf = hotLeaf.copyForRevision(currentRevision);
       if (this == FULL || forceFullEmit) {
@@ -1619,8 +1616,7 @@ public enum VersioningType {
       // decision (clear the chain and dirty the copied leaf); it never rebuilds the HOT subtree or
       // index.
       final boolean fullDumpRevision = revToRestore <= 1
-          || (!existing.isEmpty()
-              && (long) currentRevision - existing.getFirst().revision() >= revToRestore);
+          || (!existing.isEmpty() && (long) currentRevision - existing.getFirst().revision() >= revToRestore);
       if (fullDumpRevision) {
         reference.setPageFragments(List.of()); // this commit re-dumps the whole leaf; no chain
         return true;

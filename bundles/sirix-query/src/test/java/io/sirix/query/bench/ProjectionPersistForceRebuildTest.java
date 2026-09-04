@@ -41,7 +41,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@link ProjectionIndexBuilder} into tree 0.</li>
  * <li>Prove that initializing tree 0 again with a different shape fails before mutation and leaves
  * every persisted row group byte-identical.</li>
- * <li>Build the 6-column projection into virgin tree 1 and prove that it hydrates byte-identically.</li>
+ * <li>Build the 6-column projection into virgin tree 1 and prove that it hydrates
+ * byte-identically.</li>
  * </ol>
  *
  * <p>

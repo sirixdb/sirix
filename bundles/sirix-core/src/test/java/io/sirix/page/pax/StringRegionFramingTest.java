@@ -51,12 +51,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class StringRegionFramingTest {
 
   /** SHA-256 of the small fixture's region as the pre-framing encoder wrote it. */
-  private static final String HEAD_SMALL_SHA256 =
-      "1bc670d6bf6957beaebe57f6855a1fa4bb2d482803b70c33a69014cd4b9dc075";
+  private static final String HEAD_SMALL_SHA256 = "1bc670d6bf6957beaebe57f6855a1fa4bb2d482803b70c33a69014cd4b9dc075";
 
   /** SHA-256 of the record-shaped fixture's region as the pre-framing encoder wrote it. */
-  private static final String HEAD_WIDE_SHA256 =
-      "2ff5de380f8e4b4b4f508284c72f9e8d206ce4aeceb886ab4ae94631b087bd11";
+  private static final String HEAD_WIDE_SHA256 = "2ff5de380f8e4b4b4f508284c72f9e8d206ce4aeceb886ab4ae94631b087bd11";
 
   private static final int DISTINCT_TAG = 100;
   private static final int REPEATED_TAG = 200;
@@ -69,8 +67,8 @@ final class StringRegionFramingTest {
   }
 
   private static byte[] url(final int row) {
-    return ("https://example.org/catalog/products/item-" + row + "/details?locale=en-US&campaign=" + row)
-        .getBytes(StandardCharsets.UTF_8);
+    return ("https://example.org/catalog/products/item-" + row + "/details?locale=en-US&campaign=" + row).getBytes(
+        StandardCharsets.UTF_8);
   }
 
   private static byte[] repeated(final int row) {
@@ -248,9 +246,8 @@ final class StringRegionFramingTest {
           }
         }
         assertEquals(occurrences, StringRegion.countDictId(framed, fh, start, n, found), "countDictId " + row);
-        assertEquals(StringRegion.countDictId(legacy, lh, start, n,
-            StringRegion.findDictId(legacy, lh, t, want, null)), StringRegion.countDictId(framed, fh, start, n, found),
-            "countDictId parity " + row);
+        assertEquals(StringRegion.countDictId(legacy, lh, start, n, StringRegion.findDictId(legacy, lh, t, want, null)),
+            StringRegion.countDictId(framed, fh, start, n, found), "countDictId parity " + row);
 
         final long[] rowBits = new long[(n + 63) >>> 6];
         assertEquals(occurrences, StringRegion.selectDictIdInto(framed, fh, start, n, found, rowBits),
@@ -309,10 +306,8 @@ final class StringRegionFramingTest {
     final StringRegion.Header h = new StringRegion.Header().parseInto(payload);
     // Ids are tag-local, so a window spanning tags never had a meaning; on the plain lane it would
     // silently answer with another tag's ranks.
-    assertThrows(IllegalArgumentException.class,
-        () -> StringRegion.countDictId(payload, h, 0, h.count, 0));
-    assertThrows(IllegalArgumentException.class,
-        () -> StringRegion.countDictIds(payload, h, 0, h.count, new long[64]));
+    assertThrows(IllegalArgumentException.class, () -> StringRegion.countDictId(payload, h, 0, h.count, 0));
+    assertThrows(IllegalArgumentException.class, () -> StringRegion.countDictIds(payload, h, 0, h.count, new long[64]));
   }
 
   // ────────────────────────────────────────────────────────── length-table widths
@@ -335,7 +330,11 @@ final class StringRegionFramingTest {
       final MemorySegment payload = PaxTestSegments.of(wire);
       final StringRegion.Header h = new StringRegion.Header().parseInto(payload);
 
-      final int expectedWidth = length <= Byte.MAX_VALUE ? 1 : (length <= Short.MAX_VALUE ? 2 : 4);
+      final int expectedWidth = length <= Byte.MAX_VALUE
+          ? 1
+          : (length <= Short.MAX_VALUE
+              ? 2
+              : 4);
       assertEquals(expectedWidth, h.tagLengthWidth[0], "length width for a " + length + "-byte value");
       assertFalse(h.tagPlainLane[0], "a repeated value keeps the dictionary at every width");
       assertEquals(length, StringRegion.decodeStringLength(payload, h, 0, 0), "length of entry 0");

@@ -84,8 +84,9 @@ final class HOTBranchLeafPairIdentityTest {
           "the independent wrapper must preserve the source's one logical TIL identity");
       assertSame(shape.source(), pageOf(log, pairedSource));
       assertFalse(shape.source().isClosed());
-      assertFalse(log.namesReleasedHOTLeafPage(TransactionIntentLog.indexScope(IndexType.PATH, 0),
-          shape.source().getPageKey()), "a live shared identity must not be retired");
+      assertFalse(
+          log.namesReleasedHOTLeafPage(TransactionIntentLog.indexScope(IndexType.PATH, 0), shape.source().getPageKey()),
+          "a live shared identity must not be retired");
       assertTrue(HOTMalformedSubtreeDetector.detect(shape.rootReference(), ref -> pageOf(log, ref)).isEmpty());
 
       assertTrue(log.snapshot() > 0,
@@ -131,11 +132,10 @@ final class HOTBranchLeafPairIdentityTest {
       final HOTLeafPage right = new HOTLeafPage(2_001L, 2, IndexType.PROJECTION);
       assertTrue(right.put(key(0x80), new byte[] {9, 8, 7}));
       final PageReference rightReference = reference(right);
-      final HOTIncrementalInsert.BiNode pair = new HOTIncrementalInsert.BiNode(0, 1,
-          copiedSourceReference, rightReference);
-      final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(
-          new HOTIndirectPage[0], new PageReference[] {sourceReference}, new int[0], 0, pair, 2,
-          new AtomicLong(2_100L)::getAndIncrement);
+      final HOTIncrementalInsert.BiNode pair =
+          new HOTIncrementalInsert.BiNode(0, 1, copiedSourceReference, rightReference);
+      final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(new HOTIndirectPage[0],
+          new PageReference[] {sourceReference}, new int[0], 0, pair, 2, new AtomicLong(2_100L)::getAndIncrement);
 
       log.put(copiedSourceReference, PageContainer.getInstance(copiedSource, copiedSource));
       log.put(rightReference, PageContainer.getInstance(right, right));
@@ -310,17 +310,16 @@ final class HOTBranchLeafPairIdentityTest {
     final PageReference leftReference = reference(left);
     final PageReference rightReference = reference(right);
     final PageReference highReference = reference(high);
-    final HOTIndirectPage parent = HOTIndirectPage.createSpanNode(303, 1, 0, PAIR_MASK,
-        new int[] {0, 2, 3}, new PageReference[] {leftReference, rightReference, highReference}, 1);
+    final HOTIndirectPage parent = HOTIndirectPage.createSpanNode(303, 1, 0, PAIR_MASK, new int[] {0, 2, 3},
+        new PageReference[] {leftReference, rightReference, highReference}, 1);
     final PageReference parentReference = reference(parent);
-    final AbstractHOTIndexWriter.LeafNavigationResult route = new AbstractHOTIndexWriter.LeafNavigationResult(
-        left, leftReference, new HOTIndirectPage[] {parent}, new PageReference[] {parentReference}, new int[] {0}, 1);
+    final AbstractHOTIndexWriter.LeafNavigationResult route = new AbstractHOTIndexWriter.LeafNavigationResult(left,
+        leftReference, new HOTIndirectPage[] {parent}, new PageReference[] {parentReference}, new int[] {0}, 1);
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
 
     try {
-      assertSame(sentinel, assertThrows(IllegalStateException.class,
-          () -> invokePrivate(writer, "consolidateLeafParent",
-              new Class<?>[] {AbstractHOTIndexWriter.LeafNavigationResult.class}, route)));
+      assertSame(sentinel, assertThrows(IllegalStateException.class, () -> invokePrivate(writer,
+          "consolidateLeafParent", new Class<?>[] {AbstractHOTIndexWriter.LeafNavigationResult.class}, route)));
       verify(storageEngineWriter).markTransactionRollbackOnly(sentinel);
       assertSame(parent, parentReference.getPage(),
           "the maintenance parent must remain untouched when construction fails before publication");
@@ -347,9 +346,9 @@ final class HOTBranchLeafPairIdentityTest {
     for (int childIndex = 0; childIndex < parent.getNumChildren(); childIndex++) {
       originalLeaves.add(assertInstanceOf(HOTLeafPage.class, pageOf(log, parent.getChildReference(childIndex))));
     }
-    final AbstractHOTIndexWriter.LeafNavigationResult route = new AbstractHOTIndexWriter.LeafNavigationResult(
-        shape.source(), shape.sourceReference(), new HOTIndirectPage[] {parent},
-        new PageReference[] {shape.rootReference()}, new int[] {0}, 1);
+    final AbstractHOTIndexWriter.LeafNavigationResult route =
+        new AbstractHOTIndexWriter.LeafNavigationResult(shape.source(), shape.sourceReference(),
+            new HOTIndirectPage[] {parent}, new PageReference[] {shape.rootReference()}, new int[] {0}, 1);
     final IllegalStateException sentinel = new IllegalStateException("injected after consolidation publication");
     final List<HOTLeafPage> locallyOwnedReplacements = new ArrayList<>();
 
@@ -368,9 +367,8 @@ final class HOTBranchLeafPairIdentityTest {
     });
 
     try {
-      assertSame(sentinel, assertThrows(IllegalStateException.class,
-          () -> invokePrivate(fixture.writer(), "consolidateLeafParent",
-              new Class<?>[] {AbstractHOTIndexWriter.LeafNavigationResult.class}, route)));
+      assertSame(sentinel, assertThrows(IllegalStateException.class, () -> invokePrivate(fixture.writer(),
+          "consolidateLeafParent", new Class<?>[] {AbstractHOTIndexWriter.LeafNavigationResult.class}, route)));
       verify(fixture.storageEngineWriter()).markTransactionRollbackOnly(sentinel);
       assertFalse(locallyOwnedReplacements.isEmpty(),
           "the fixture must publish at least one locally owned merged leaf before registration");
@@ -410,8 +408,7 @@ final class HOTBranchLeafPairIdentityTest {
       final PageReference copyRef = copy.getPageReference(refKey);
       assertNotNull(copyRef);
       if (sourceRef == pendingSideReference) {
-        assertSame(sourceRef, copyRef,
-            "a bounded pending immutable write must keep its exact coordination identity");
+        assertSame(sourceRef, copyRef, "a bounded pending immutable write must keep its exact coordination identity");
       } else {
         assertNotSameReference(sourceRef, copyRef, "ordinary side references require independent wrappers");
         assertEquals(sourceRef.getKey(), copyRef.getKey());
@@ -466,8 +463,8 @@ final class HOTBranchLeafPairIdentityTest {
     final PageReference middleReference = reference(middle);
     final HOTLeafPage high = leaf(102, 0xA0);
     final PageReference highReference = reference(high);
-    final HOTIndirectPage root = HOTIndirectPage.createSpanNode(103, 1, 0, PAIR_MASK,
-        new int[] {0, 2, 3}, new PageReference[] {sourceReference, middleReference, highReference}, 1);
+    final HOTIndirectPage root = HOTIndirectPage.createSpanNode(103, 1, 0, PAIR_MASK, new int[] {0, 2, 3},
+        new PageReference[] {sourceReference, middleReference, highReference}, 1);
     final PageReference rootReference = reference(root);
 
     put(log, sourceReference, source);
@@ -484,14 +481,13 @@ final class HOTBranchLeafPairIdentityTest {
     final PageReference middleLowReference = reference(middleLow);
     final HOTLeafPage middleHigh = leaf(202, 0x90);
     final PageReference middleHighReference = reference(middleHigh);
-    final HOTIndirectPage middle = HOTIndirectPage.createSpanNode(203, 1, 0,
-        0x1000_0000_0000_0000L, new int[] {0, 1},
+    final HOTIndirectPage middle = HOTIndirectPage.createSpanNode(203, 1, 0, 0x1000_0000_0000_0000L, new int[] {0, 1},
         new PageReference[] {middleLowReference, middleHighReference}, 1);
     final PageReference middleReference = reference(middle);
     final HOTLeafPage high = leaf(204, 0xA0);
     final PageReference highReference = reference(high);
-    final HOTIndirectPage root = HOTIndirectPage.createSpanNode(205, 1, 0, PAIR_MASK,
-        new int[] {0, 2, 3}, new PageReference[] {sourceReference, middleReference, highReference}, 2);
+    final HOTIndirectPage root = HOTIndirectPage.createSpanNode(205, 1, 0, PAIR_MASK, new int[] {0, 2, 3},
+        new PageReference[] {sourceReference, middleReference, highReference}, 2);
     final PageReference rootReference = reference(root);
 
     put(log, sourceReference, source);

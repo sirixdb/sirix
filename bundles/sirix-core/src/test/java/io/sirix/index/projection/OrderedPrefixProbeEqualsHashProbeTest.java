@@ -43,27 +43,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * <b>How the differential is constructed.</b> The same values are interned into two dictionaries in
  * the same ascending order, so both mint identical ids. One is declared rank-ordered and therefore
- * has {@code forwardRootKey == 0} and is probed by binary search; the other is not, so it builds the
- * forward index and is probed by hash. The test asserts that difference explicitly, because a
+ * has {@code forwardRootKey == 0} and is probed by binary search; the other is not, so it builds
+ * the forward index and is probed by hash. The test asserts that difference explicitly, because a
  * differential in which both sides ran the same code would pass while proving nothing.
  * </p>
  *
  * <p>
  * <b>THE SHARED PREFIX IN THE COLLATION CASES IS LOAD-BEARING. Do not "tidy" it.</b> The first
- * version of this fixture used {@code "private-use-\uE000"} against {@code "supplementary-<U+10000>"},
- * and the comparator mutation PASSED — because the ASCII prefixes differ, so every comparison was
- * settled before it reached the character that distinguishes UTF-8 byte order from UTF-16 code-unit
- * order. The witness proved less than it claimed, and only running the mutation revealed it. Any
- * case added here to exercise the collation must share its prefix with the case it is contrasted
- * against.
+ * version of this fixture used {@code "private-use-\uE000"} against
+ * {@code "supplementary-<U+10000>"}, and the comparator mutation PASSED — because the ASCII
+ * prefixes differ, so every comparison was settled before it reached the character that
+ * distinguishes UTF-8 byte order from UTF-16 code-unit order. The witness proved less than it
+ * claimed, and only running the mutation revealed it. Any case added here to exercise the collation
+ * must share its prefix with the case it is contrasted against.
  * </p>
  *
  * <p>
- * <b>Mutations this must fail:</b> dropping the final byte comparison after the search converges (the
- * collision pair then returns its neighbour's id); using {@code <} where {@code <=} is meant at a
- * block boundary (the first value of each block is reported absent); comparing with unsigned byte
- * order instead of {@link ValueDictionaryEntryNode#compareUtf16Range} (the supplementary-character
- * cases inverts against the U+E000..U+FFFF ones).
+ * <b>Mutations this must fail:</b> dropping the final byte comparison after the search converges
+ * (the collision pair then returns its neighbour's id); using {@code <} where {@code <=} is meant
+ * at a block boundary (the first value of each block is reported absent); comparing with unsigned
+ * byte order instead of {@link ValueDictionaryEntryNode#compareUtf16Range} (the
+ * supplementary-character cases inverts against the U+E000..U+FFFF ones).
  * </p>
  *
  * <p>
@@ -129,7 +129,8 @@ final class OrderedPrefixProbeEqualsHashProbeTest {
         // below — the test would keep passing while proving nothing about the structure it exists
         // to guard.
         assertNotEquals(0L, ordered.getBlockIndexKey(), "the rank-ordered dictionary must carry a separator array");
-        assertNotEquals(0L, hashed.getForwardRootKey(), "the control must build the forward index it is the control for");
+        assertNotEquals(0L, hashed.getForwardRootKey(),
+            "the control must build the forward index it is the control for");
         assertEquals(0, hashed.getOrderedPrefixCount(), "the control must not claim any ordered prefix");
         assertEquals(ordered.getEntryCount(), hashed.getEntryCount());
 
@@ -180,8 +181,8 @@ final class OrderedPrefixProbeEqualsHashProbeTest {
     // UTF-16 code-unit order disagree. The prefix MUST be identical, or the comparison is decided
     // before it reaches the differing character and the case proves nothing — which is exactly what
     // the first version of this fixture did, and the mutation caught it.
-    //   UTF-8 bytes:  0xEE (U+E000) < 0xF0 (U+10000)      -> private use first
-    //   UTF-16 units: 0xD800 (surrogate) < 0xE000         -> supplementary first
+    // UTF-8 bytes: 0xEE (U+E000) < 0xF0 (U+10000) -> private use first
+    // UTF-16 units: 0xD800 (surrogate) < 0xE000 -> supplementary first
     values.add(utf8("collate-\uE000"));
     values.add(utf8("collate-\uF8FF"));
     values.add(utf8("collate-" + new String(Character.toChars(0x10000))));
@@ -260,8 +261,7 @@ final class OrderedPrefixProbeEqualsHashProbeTest {
     }
     final var storageEngineWriter = wtx.getStorageEngineWriter();
     final NamePage namePage = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
-    final long headerKey =
-        writer.flush(namePage, DatabaseType.JSON, storageEngineWriter, storageEngineWriter.getLog());
+    final long headerKey = writer.flush(namePage, DatabaseType.JSON, storageEngineWriter, storageEngineWriter.getLog());
     writer.release();
     if (rankOrdered) {
       // The separator array must be BUILT here, or the search silently takes the whole-prefix

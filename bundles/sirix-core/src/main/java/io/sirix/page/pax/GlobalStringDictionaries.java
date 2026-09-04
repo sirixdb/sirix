@@ -15,8 +15,8 @@ import org.jspecify.annotations.Nullable;
  * 97.9 % of a converted tag's region bytes are the value bytes it no longer keeps. But the page
  * layer cannot reach that dictionary. {@code deserializePage} is handed a
  * {@code ResourceConfiguration} and no reader, and giving it one would not help: the dictionary's
- * records live in the {@code NamePage} sub-trie, so a record page's decode would recurse into
- * page decodes of its own.
+ * records live in the {@code NamePage} sub-trie, so a record page's decode would recurse into page
+ * decodes of its own.
  *
  * <p>
  * So the resolver arrives the way the FSST symbol table already does — from the component that
@@ -58,19 +58,19 @@ public interface GlobalStringDictionaries {
    * Bind to the dictionary a PAGE names, or refuse — the temporal-validity check.
    *
    * <p>
-   * Called ONCE per tag per page, before any {@link #valueOf}, with the anchor the page recorded.
-   * It is the check the anchor exists for, and it does not live in the parse: parse can only compare
-   * the recorded count against the ids in THAT LEAF (about six of them), which is true for
-   * essentially any corrupt value. Only a resolver holds the live dictionary and can ask the
-   * question that matters.
+   * Called ONCE per tag per page, before any {@link #valueOf}, with the anchor the page recorded. It
+   * is the check the anchor exists for, and it does not live in the parse: parse can only compare the
+   * recorded count against the ids in THAT LEAF (about six of them), which is true for essentially
+   * any corrupt value. Only a resolver holds the live dictionary and can ask the question that
+   * matters.
    * </p>
    *
    * <p>
-   * Refuse when the named dictionary is unreadable, when it is not the one this tag resolves
-   * against, or when its live entry count is BELOW the recorded one. That last case is a different
-   * dictionary under a reused key: a rank-ordered dictionary only ever appends, so it cannot shrink,
-   * and a smaller live count means the key was reused by something else. Ids resolved against it
-   * would be plausible and wrong.
+   * Refuse when the named dictionary is unreadable, when it is not the one this tag resolves against,
+   * or when its live entry count is BELOW the recorded one. That last case is a different dictionary
+   * under a reused key: a rank-ordered dictionary only ever appends, so it cannot shrink, and a
+   * smaller live count means the key was reused by something else. Ids resolved against it would be
+   * plausible and wrong.
    * </p>
    *
    * <p>
@@ -90,10 +90,10 @@ public interface GlobalStringDictionaries {
    * The id {@code value} is stored under for {@code tag}, for the ENCODE direction.
    *
    * <p>
-   * Returns {@link #ID_ABSENT} when the dictionary does not hold the value, which a caller must
-   * treat as "this tag cannot be written as ids on this page" rather than minting anything: the
-   * dictionary is complete before the load begins, so a miss means the writer and the pre-pass
-   * disagree about the value set, and an id no reader can resolve is worse than the bytes.
+   * Returns {@link #ID_ABSENT} when the dictionary does not hold the value, which a caller must treat
+   * as "this tag cannot be written as ids on this page" rather than minting anything: the dictionary
+   * is complete before the load begins, so a miss means the writer and the pre-pass disagree about
+   * the value set, and an id no reader can resolve is worse than the bytes.
    * </p>
    */
   int idOf(int tag, byte[] value, int offset, int length);
@@ -102,16 +102,16 @@ public interface GlobalStringDictionaries {
    * The bytes stored under {@code id} for {@code tag}, for the DECODE direction.
    *
    * <p>
-   * <b>It takes the page's anchor and performs {@link #accepts} itself.</b> Not as a convenience —
-   * an ordering requirement that a caller must remember is the same shape as a check that lives only
-   * in prose, which is how the temporal-validity rule went missing the first time. Passing the
-   * anchor is the only way to ask for a value, so the check cannot be skipped by forgetting it.
+   * <b>It takes the page's anchor and performs {@link #accepts} itself.</b> Not as a convenience — an
+   * ordering requirement that a caller must remember is the same shape as a check that lives only in
+   * prose, which is how the temporal-validity rule went missing the first time. Passing the anchor is
+   * the only way to ask for a value, so the check cannot be skipped by forgetting it.
    * </p>
    *
    * <p>
    * {@code null} when the id cannot be resolved — a refused anchor, a torn or absent dictionary —
-   * which callers must surface rather than substitute, because an empty string and an unresolvable
-   * id are different answers and only one of them is a value.
+   * which callers must surface rather than substitute, because an empty string and an unresolvable id
+   * are different answers and only one of them is a value.
    * </p>
    */
   byte @Nullable [] valueOf(int tag, long dictionaryKey, int recordedEntryCount, int id);
@@ -120,12 +120,12 @@ public interface GlobalStringDictionaries {
    * The node key of the dictionary {@code tag} resolves against, so the page can NAME it.
    *
    * <p>
-   * Written into the region beside the ids, and the reason the trie lane is safe at all. A
-   * dictionary is a function of (resource, generation), not of the page, and a rank rebuild
-   * REASSIGNS every id — so a copy-on-write leaf written against one generation and still reachable
-   * after the next would resolve its ids against the wrong dictionary and return plausible wrong
-   * values for a page nobody touched. Naming the dictionary makes resolution a function of the page
-   * again, which is the property that lets FSST pages cache their symbol table safely.
+   * Written into the region beside the ids, and the reason the trie lane is safe at all. A dictionary
+   * is a function of (resource, generation), not of the page, and a rank rebuild REASSIGNS every id —
+   * so a copy-on-write leaf written against one generation and still reachable after the next would
+   * resolve its ids against the wrong dictionary and return plausible wrong values for a page nobody
+   * touched. Naming the dictionary makes resolution a function of the page again, which is the
+   * property that lets FSST pages cache their symbol table safely.
    * </p>
    */
   long dictionaryKey(int tag);

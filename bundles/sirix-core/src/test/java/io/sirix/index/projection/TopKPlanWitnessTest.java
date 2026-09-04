@@ -30,15 +30,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Witnesses for the bounded top-k's PLAN ({@link ProjectionColumnScan#topKRecordKeys}) and the store
- * memos it is built from, on hand-shaped stores where every expected answer, skip count and decline
- * follows from the construction. The randomized parity tests prove the ANSWER; these prove that the
- * mechanism engaged — a plan that silently falls back to a full document-order walk returns the same
- * keys, and only the skip and tie counters tell the two apart.
+ * Witnesses for the bounded top-k's PLAN ({@link ProjectionColumnScan#topKRecordKeys}) and the
+ * store memos it is built from, on hand-shaped stores where every expected answer, skip count and
+ * decline follows from the construction. The randomized parity tests prove the ANSWER; these prove
+ * that the mechanism engaged — a plan that silently falls back to a full document-order walk
+ * returns the same keys, and only the skip and tie counters tell the two apart.
  */
 final class TopKPlanWitnessTest {
 
-  /** Columns: 0 = long ({@code leaf * 1000 + row}), 1 = double, 2 = boolean, 3 = the shaped string column. */
+  /**
+   * Columns: 0 = long ({@code leaf * 1000 + row}), 1 = double, 2 = boolean, 3 = the shaped string
+   * column.
+   */
   private static final byte[] KINDS =
       {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
           ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,};
@@ -109,7 +112,10 @@ final class TopKPlanWitnessTest {
     return new Shaped(directories, fetcher);
   }
 
-  /** The catalog fetcher's shape: ranged fetches may run concurrently, so memo passes and slabs fan out. */
+  /**
+   * The catalog fetcher's shape: ranged fetches may run concurrently, so memo passes and slabs fan
+   * out.
+   */
   private static ColumnSegmentFetcher concurrent(final ColumnSegmentFetcher plain) {
     return new ColumnSegmentFetcher() {
       @Override
@@ -168,8 +174,8 @@ final class TopKPlanWitnessTest {
           "after leaf 0 fills the heap, every other admitted leaf (1, 2, 3, 4, 6, 7) is skipped by the stop rule");
 
       skipped = ProjectionColumnScan.topKLeavesSkippedCount();
-      assertArrayEquals(new long[] {key(0, 2), key(0, 3), key(0, 4), key(1, 2)}, topK(store, notEmpty, false, 4, fetcher),
-          "k=4 crosses into leaf 1");
+      assertArrayEquals(new long[] {key(0, 2), key(0, 3), key(0, 4), key(1, 2)},
+          topK(store, notEmpty, false, 4, fetcher), "k=4 crosses into leaf 1");
       assertEquals(4L, ProjectionColumnScan.topKLeavesSkippedCount() - skipped,
           "chunks of 1 and 2 leaves evaluate leaves 0, 1 and 2; the stop rule skips 3, 4, 6 and 7");
 
@@ -232,7 +238,8 @@ final class TopKPlanWitnessTest {
       final ProjectionColumnStore store = fx.fresh();
       long skipped = ProjectionColumnScan.topKLeavesSkippedCount();
       assertArrayEquals(new long[] {key(2, 0)}, topK(store, new ColumnPredicate[0], false, 1, fetcher));
-      assertEquals(2L, ProjectionColumnScan.topKLeavesSkippedCount() - skipped, "leaf 2 fills the heap, 0 and 1 are skipped");
+      assertEquals(2L, ProjectionColumnScan.topKLeavesSkippedCount() - skipped,
+          "leaf 2 fills the heap, 0 and 1 are skipped");
       skipped = ProjectionColumnScan.topKLeavesSkippedCount();
       assertArrayEquals(new long[] {key(1, 0)}, topK(store, new ColumnPredicate[0], true, 1, fetcher));
       assertEquals(2L, ProjectionColumnScan.topKLeavesSkippedCount() - skipped, "descending: leaf 1 leads");
@@ -310,7 +317,10 @@ final class TopKPlanWitnessTest {
 
   // ==================== the memos the plan is built from ====================
 
-  /** {@code leaf % 3}: 0 → ["a", "b"], 1 → ["b", missing], 2 → rowless; 4,400 leaves so the memo passes fan out. */
+  /**
+   * {@code leaf % 3}: 0 → ["a", "b"], 1 → ["b", missing], 2 → rowless; 4,400 leaves so the memo
+   * passes fan out.
+   */
   private static Shaped memoCorpus() {
     return buildShaped(4_400, leaf -> switch (leaf % 3) {
       case 0 -> new String[] {"a", "b"};

@@ -32,18 +32,18 @@ import java.util.Set;
  * Bench helper for a catalogued (age, active, dept, city) projection index over the current
  * revision of {@code session}'s resource.
  *
- * <p>Lives in its own compilation unit so it can import
- * {@link io.brackit.query.util.path.Path} cleanly without colliding with
- * {@link java.nio.file.Path} that the bench-main uses extensively.
+ * <p>
+ * Lives in its own compilation unit so it can import {@link io.brackit.query.util.path.Path}
+ * cleanly without colliding with {@link java.nio.file.Path} that the bench-main uses extensively.
  *
- * <p>Creation uses the ordinary index-controller lifecycle and serving uses
+ * <p>
+ * Creation uses the ordinary index-controller lifecycle and serving uses
  * {@link ProjectionIndexCatalog}. Benchmarks therefore exercise the same persisted segment-slot
  * store as production queries; there is no benchmark-only builder or registry injection.
  */
 public final class ProjectionIndexBenchSetup {
 
-  private ProjectionIndexBenchSetup() {
-  }
+  private ProjectionIndexBenchSetup() {}
 
   /**
    * Ensure the projection exists for {@code session}'s most recent revision and return its persisted
@@ -51,9 +51,9 @@ public final class ProjectionIndexBenchSetup {
    */
   public static BuildResult ensureProjection(final JsonResourceSession session) {
     final Path<QNm> rootPath = Path.parse("/[]", PathParser.Type.JSON);
-    final List<Path<QNm>> fieldPaths = List.of(Path.parse("/[]/age", PathParser.Type.JSON),
-        Path.parse("/[]/active", PathParser.Type.JSON), Path.parse("/[]/dept", PathParser.Type.JSON),
-        Path.parse("/[]/city", PathParser.Type.JSON));
+    final List<Path<QNm>> fieldPaths =
+        List.of(Path.parse("/[]/age", PathParser.Type.JSON), Path.parse("/[]/active", PathParser.Type.JSON),
+            Path.parse("/[]/dept", PathParser.Type.JSON), Path.parse("/[]/city", PathParser.Type.JSON));
     final List<Type> fieldTypes = List.of(Type.LON, Type.BOOL, Type.STR, Type.STR);
     return ensureProjection(session, rootPath, fieldPaths, fieldTypes);
   }
@@ -65,9 +65,9 @@ public final class ProjectionIndexBenchSetup {
       final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes) {
     final int revision = session.getMostRecentRevisionNumber();
     final IndexDef existing = session.getRtxIndexController(revision)
-        .getIndexes()
-        .findProjectionIndex(rootPath, fieldPaths, fieldTypes)
-        .orElse(null);
+                                     .getIndexes()
+                                     .findProjectionIndex(rootPath, fieldPaths, fieldTypes)
+                                     .orElse(null);
     final IndexDef def;
     if (existing != null) {
       def = existing;
@@ -78,8 +78,8 @@ public final class ProjectionIndexBenchSetup {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final JsonIndexController controller = session.getWtxIndexController(wtx.getRevisionNumber());
         final var writer = wtx.getStorageEngineWriter();
-        final int indexNumber = writer.getProjectionIndexPage(writer.getActualRevisionRootPage())
-            .nextUnallocatedIndex();
+        final int indexNumber =
+            writer.getProjectionIndexPage(writer.getActualRevisionRootPage()).nextUnallocatedIndex();
         if (controller.getIndexes().getIndexDef(indexNumber, IndexType.PROJECTION) != null) {
           throw new IllegalStateException("Projection catalogue contains definition " + indexNumber
               + " without an initialized physical tree; refusing to reuse its id");
@@ -113,30 +113,28 @@ public final class ProjectionIndexBenchSetup {
 
   /**
    * PERSIST the projection as a CATALOGUED definition — the production discovery path
-   * ({@code ProjectionIndexCatalog}), not the in-memory registry pool the other install here
-   * uses. This is what a cold query really faces: the handle is rebuilt from the slot-0
-   * metadata blob plus a row-group directory walk, and each queried column's segments are
-   * read from storage on demand. Nothing is placed in the registry, and the catalog is
-   * authoritative once a definition exists, so the query path cannot silently fall back to
-   * RAM-resident leaves.
+   * ({@code ProjectionIndexCatalog}), not the in-memory registry pool the other install here uses.
+   * This is what a cold query really faces: the handle is rebuilt from the slot-0 metadata blob plus
+   * a row-group directory walk, and each queried column's segments are read from storage on demand.
+   * Nothing is placed in the registry, and the catalog is authoritative once a definition exists, so
+   * the query path cannot silently fall back to RAM-resident leaves.
    *
    * @return the number of persisted row groups
    */
   /**
-   * The JSONiq surface a user would actually call: {@code jn:create-projection-index} builds
-   * the projection AND catalogues its definition, so {@code ProjectionIndexCatalog} — which is
-   * authoritative once a definition exists — discovers it after re-open. Returns the query's
-   * result string (the commit revision) for diagnostics.
+   * The JSONiq surface a user would actually call: {@code jn:create-projection-index} builds the
+   * projection AND catalogues its definition, so {@code ProjectionIndexCatalog} — which is
+   * authoritative once a definition exists — discovers it after re-open. Returns the query's result
+   * string (the commit revision) for diagnostics.
    *
-   * <p>Hand-persisting the row-group slots is NOT equivalent: it stores the data but leaves the
+   * <p>
+   * Hand-persisting the row-group slots is NOT equivalent: it stores the data but leaves the
    * definition undeclared, and the catalog then finds nothing to serve.
    */
-  public static String createProjectionIndexViaQuery(final SirixCompileChain chain,
-      final SirixQueryContext ctx, final String docExpr) {
-    final String q = "let $doc := " + docExpr + "\n"
-        + "let $stats := jn:create-projection-index($doc, '/[]',\n"
-        + "    ('/[]/age', '/[]/active', '/[]/dept', '/[]/city'),\n"
-        + "    ('long', 'boolean', 'string', 'string'))\n"
+  public static String createProjectionIndexViaQuery(final SirixCompileChain chain, final SirixQueryContext ctx,
+      final String docExpr) {
+    final String q = "let $doc := " + docExpr + "\n" + "let $stats := jn:create-projection-index($doc, '/[]',\n"
+        + "    ('/[]/age', '/[]/active', '/[]/dept', '/[]/city'),\n" + "    ('long', 'boolean', 'string', 'string'))\n"
         + "return {\"revision\": sdb:commit($doc)}";
     final var buf = IOUtils.createBuffer();
     try (var ser = new StringSerializer(buf)) {
@@ -147,8 +145,8 @@ public final class ProjectionIndexBenchSetup {
 
 
   /**
-   * The first catalogued PROJECTION definition's id for {@code session}'s revision, or -1.
-   * Reads the resource's index definitions the same way the catalog does.
+   * The first catalogued PROJECTION definition's id for {@code session}'s revision, or -1. Reads the
+   * resource's index definitions the same way the catalog does.
    */
   public static int firstProjectionDefId(final JsonResourceSession session, final int revision) {
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
@@ -163,12 +161,13 @@ public final class ProjectionIndexBenchSetup {
   }
 
   /** Row-group count recorded in a persisted projection's slot-0 metadata blob, or 0. */
-  public static int projectionRowGroupCount(final JsonResourceSession session, final int revision,
-      final int defId) {
+  public static int projectionRowGroupCount(final JsonResourceSession session, final int revision, final int defId) {
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
-      final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(
-          ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), defId, 0L));
-      return metadata == null ? 0 : metadata.rowGroupCount();
+      final ProjectionIndexMetadata metadata =
+          ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), defId, 0L));
+      return metadata == null
+          ? 0
+          : metadata.rowGroupCount();
     }
   }
 

@@ -64,16 +64,15 @@ final class IndexLifecycleGuardTest {
     when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(revisionRootPage);
     if (indexType == IndexType.VALIDTIME) {
       final JsonResourceSession resourceSession = mock(JsonResourceSession.class);
-      final ResourceConfiguration resourceConfiguration = ResourceConfiguration.newBuilder("guard-resource")
-          .validTimePaths("validFrom", "validTo")
-          .build();
+      final ResourceConfiguration resourceConfiguration =
+          ResourceConfiguration.newBuilder("guard-resource").validTimePaths("validFrom", "validTo").build();
       when(wtx.getResourceSession()).thenReturn(resourceSession);
       when(resourceSession.getResourceConfig()).thenReturn(resourceConfiguration);
     }
     reservePhysicalId(indexType, indexDef, storageEngineWriter, revisionRootPage);
 
-    final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> controller.createIndexes(Set.of(indexDef), wtx));
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> controller.createIndexes(Set.of(indexDef), wtx));
 
     assertTrue(failure.getMessage().contains(indexType + " index " + indexDef.getID()));
     assertTrue(controller.getIndexes().getIndexDefs().isEmpty(), "guard failure catalogued the rejected definition");
@@ -94,14 +93,12 @@ final class IndexLifecycleGuardTest {
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
     final RevisionRootPage revisionRootPage = mock(RevisionRootPage.class);
     final PathSummaryReader pathSummary = mock(PathSummaryReader.class);
-    final ResourceConfiguration resourceConfiguration = ResourceConfiguration.newBuilder("guard-resource")
-        .buildPathSummary(true)
-        .build();
+    final ResourceConfiguration resourceConfiguration =
+        ResourceConfiguration.newBuilder("guard-resource").buildPathSummary(true).build();
     when(wtx.getResourceSession()).thenReturn(resourceSession);
     when(resourceSession.getResourceConfig()).thenReturn(resourceConfiguration);
     when(wtx.getPathSummary()).thenReturn(pathSummary);
-    when(pathSummary.getPCRsForPaths(Set.of(projection.getProjectionRootPath())))
-        .thenReturn(new LongOpenHashSet());
+    when(pathSummary.getPCRsForPaths(Set.of(projection.getProjectionRootPath()))).thenReturn(new LongOpenHashSet());
     when(wtx.getStorageEngineWriter()).thenReturn(storageEngineWriter);
     when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(revisionRootPage);
     reservePhysicalId(IndexType.PROJECTION, projection, storageEngineWriter, revisionRootPage);
@@ -129,8 +126,8 @@ final class IndexLifecycleGuardTest {
     when(storageEngineWriter.getNamePage(revisionRootPage)).thenReturn(namePage);
     doReturn(mock(XmlResourceSession.class)).when(storageEngineWriter).getResourceSession();
 
-    final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> controller.createIndexes(Set.of(indexDef), wtx));
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> controller.createIndexes(Set.of(indexDef), wtx));
 
     assertTrue(failure.getMessage().contains("NAME index " + indexDef.getID()));
     assertTrue(controller.getIndexes().getIndexDefs().isEmpty());
@@ -187,23 +184,23 @@ final class IndexLifecycleGuardTest {
   @Test
   void samePhysicalIdCannotBeReboundToDifferentDefinition() {
     final JsonIndexController controller = new JsonIndexController();
-    final IndexDef existing = IndexDefs.createPathIdxDef(
-        Set.of(Path.parse("/[]/old", PathParser.Type.JSON)), LOGICAL_ID, IndexDef.DbType.JSON);
-    final IndexDef requested = IndexDefs.createPathIdxDef(
-        Set.of(Path.parse("/[]/new", PathParser.Type.JSON)), LOGICAL_ID, IndexDef.DbType.JSON);
+    final IndexDef existing = IndexDefs.createPathIdxDef(Set.of(Path.parse("/[]/old", PathParser.Type.JSON)),
+        LOGICAL_ID, IndexDef.DbType.JSON);
+    final IndexDef requested = IndexDefs.createPathIdxDef(Set.of(Path.parse("/[]/new", PathParser.Type.JSON)),
+        LOGICAL_ID, IndexDef.DbType.JSON);
     controller.getIndexes().add(existing);
     final JsonNodeTrx wtx = mock(JsonNodeTrx.class);
 
-    final IllegalStateException creationFailure = assertThrows(IllegalStateException.class,
-        () -> controller.createIndexes(Set.of(requested), wtx));
+    final IllegalStateException creationFailure =
+        assertThrows(IllegalStateException.class, () -> controller.createIndexes(Set.of(requested), wtx));
     assertTrue(creationFailure.getMessage().contains("different definition"));
     assertSame(existing, controller.getIndexes().getIndexDef(LOGICAL_ID, IndexType.PATH),
         "the rejected definition replaced the catalogued definition");
     assertEquals(1, controller.getIndexes().getIndexDefs().size());
     verifyNoMoreInteractions(wtx);
 
-    final IllegalStateException listenerFailure = assertThrows(IllegalStateException.class,
-        () -> controller.createIndexListeners(Set.of(requested), wtx));
+    final IllegalStateException listenerFailure =
+        assertThrows(IllegalStateException.class, () -> controller.createIndexListeners(Set.of(requested), wtx));
     assertTrue(listenerFailure.getMessage().contains("different definition"));
     verifyNoMoreInteractions(wtx);
   }
@@ -211,17 +208,15 @@ final class IndexLifecycleGuardTest {
   @Test
   void xmlValidTimeDefinitionIsRejectedBeforeCatalogOrTransactionMutation() {
     final XmlIndexController controller = new XmlIndexController();
-    final IndexDef validTime = IndexDefs.createValidTimeIdxDef(
-        Set.of(Path.parse("/validFrom", PathParser.Type.XML)), LOGICAL_ID, IndexDef.DbType.XML);
+    final IndexDef validTime = IndexDefs.createValidTimeIdxDef(Set.of(Path.parse("/validFrom", PathParser.Type.XML)),
+        LOGICAL_ID, IndexDef.DbType.XML);
     final XmlNodeTrx wtx = mock(XmlNodeTrx.class);
 
-    assertThrows(UnsupportedOperationException.class,
-        () -> controller.createIndexes(Set.of(validTime), wtx));
+    assertThrows(UnsupportedOperationException.class, () -> controller.createIndexes(Set.of(validTime), wtx));
     assertTrue(controller.getIndexes().getIndexDefs().isEmpty());
     verifyNoMoreInteractions(wtx);
 
-    assertThrows(UnsupportedOperationException.class,
-        () -> controller.createIndexListeners(Set.of(validTime), wtx));
+    assertThrows(UnsupportedOperationException.class, () -> controller.createIndexListeners(Set.of(validTime), wtx));
     assertTrue(controller.getIndexes().getIndexDefs().isEmpty());
     verifyNoMoreInteractions(wtx);
   }
@@ -236,15 +231,15 @@ final class IndexLifecycleGuardTest {
     when(wtx.getResourceSession()).thenReturn(resourceSession);
     when(resourceSession.getResourceConfig()).thenReturn(resourceConfiguration);
 
-    final IllegalStateException creationFailure = assertThrows(IllegalStateException.class,
-        () -> controller.createIndexes(Set.of(validTime), wtx));
+    final IllegalStateException creationFailure =
+        assertThrows(IllegalStateException.class, () -> controller.createIndexes(Set.of(validTime), wtx));
     assertTrue(creationFailure.getMessage().contains("no ValidTimeConfig"));
     assertTrue(controller.getIndexes().getIndexDefs().isEmpty());
     verify(wtx).getResourceSession();
     verifyNoMoreInteractions(wtx);
 
-    final IllegalStateException listenerFailure = assertThrows(IllegalStateException.class,
-        () -> controller.createIndexListeners(Set.of(validTime), wtx));
+    final IllegalStateException listenerFailure =
+        assertThrows(IllegalStateException.class, () -> controller.createIndexListeners(Set.of(validTime), wtx));
     assertTrue(listenerFailure.getMessage().contains("no ValidTimeConfig"));
     assertTrue(controller.getIndexes().getIndexDefs().isEmpty());
   }
@@ -259,8 +254,8 @@ final class IndexLifecycleGuardTest {
       case PATH -> IndexDefs.createPathIdxDef(Set.of(fieldPath), LOGICAL_ID, IndexDef.DbType.JSON);
       case CAS -> IndexDefs.createCASIdxDef(false, Type.STR, Set.of(fieldPath), LOGICAL_ID, IndexDef.DbType.JSON);
       case NAME -> IndexDefs.createNameIdxDef(LOGICAL_ID, IndexDef.DbType.JSON);
-      case PROJECTION -> IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON),
-          List.of(fieldPath), List.of(Type.STR), LOGICAL_ID, IndexDef.DbType.JSON);
+      case PROJECTION -> IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON), List.of(fieldPath),
+          List.of(Type.STR), LOGICAL_ID, IndexDef.DbType.JSON);
       case VALIDTIME -> IndexDefs.createValidTimeIdxDef(Set.of(fieldPath), LOGICAL_ID, IndexDef.DbType.JSON);
       default -> throw new IllegalArgumentException("unsupported guard fixture type: " + indexType);
     };

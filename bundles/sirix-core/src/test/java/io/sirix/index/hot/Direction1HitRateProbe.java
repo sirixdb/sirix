@@ -56,8 +56,7 @@ final class Direction1HitRateProbe {
     final long offPathOkBefore = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK.get();
     final long offPathFallbackBefore = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK.get();
     final long heightReencodesBefore = AbstractHOTIndexWriter.STRUCTURAL_HEIGHT_REENCODE.get();
-    final long preflightFailuresBefore =
-        AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
+    final long preflightFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
 
     final int entriesPerRev = 1_000;
     final int totalRevs = 10;
@@ -107,10 +106,9 @@ final class Direction1HitRateProbe {
     final long fallbacks = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get() - fallbackBefore;
     final long offPathOk = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK.get() - offPathOkBefore;
     final long offPathFallback = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK.get() - offPathFallbackBefore;
-    final long heightReencodes =
-        AbstractHOTIndexWriter.STRUCTURAL_HEIGHT_REENCODE.get() - heightReencodesBefore;
-    final long preflightFailures = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get()
-        - preflightFailuresBefore;
+    final long heightReencodes = AbstractHOTIndexWriter.STRUCTURAL_HEIGHT_REENCODE.get() - heightReencodesBefore;
+    final long preflightFailures =
+        AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get() - preflightFailuresBefore;
     final long totalC2 = subInserts + fallbacks;
     final long totalIssueB = offPathOk + offPathFallback;
 

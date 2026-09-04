@@ -24,11 +24,11 @@ import java.util.List;
  *
  * <p>
  * A bench utility, not a serving mechanism: it opens any database read-only, finds the projection
- * covering a field (or the resource's first projection definition when none is named) and sums every
- * byte the index occupies from the row-group descriptors — the authority for each segment's stored
- * length. It exists because the storage plan's per-column B/row figures were previously read off a
- * dump that counted only KEYS, BODY, DICT and BLOOM, and therefore under-reported the index by the
- * DICT_HASHES segments, the descriptors themselves and the per-segment page framing.
+ * covering a field (or the resource's first projection definition when none is named) and sums
+ * every byte the index occupies from the row-group descriptors — the authority for each segment's
+ * stored length. It exists because the storage plan's per-column B/row figures were previously read
+ * off a dump that counted only KEYS, BODY, DICT and BLOOM, and therefore under-reported the index
+ * by the DICT_HASHES segments, the descriptors themselves and the per-segment page framing.
  *
  * <p>
  * What is counted, per leaf and per column:
@@ -37,8 +37,8 @@ import java.util.List;
  * STRING_BLOOM and DICT_HASHES — at its recorded {@code byteLen};</li>
  * <li>the descriptor blob itself, at its serialized length, plus its container marker;</li>
  * <li>the per-segment storage framing: one slot discriminator byte for a segment stored inline in
- * its HOT slot, and for a referenced segment the discriminator plus the {@link
- * io.sirix.page.OverflowPage} envelope it costs on the wire.</li>
+ * its HOT slot, and for a referenced segment the discriminator plus the
+ * {@link io.sirix.page.OverflowPage} envelope it costs on the wire.</li>
  * </ul>
  *
  * <p>
@@ -48,16 +48,17 @@ import java.util.List;
  * figures are per-segment constants, printed in the report so every number can be re-derived.
  *
  * <p>
- * Usage: {@code ProjectionDiskDump <database dir> <resource> [<field>] [<rows>]}. With no field, the
- * first projection definition of the resource is used; with no row count, the exact row total from
- * the descriptors is used.
+ * Usage: {@code ProjectionDiskDump <database dir> <resource> [<field>] [<rows>]}. With no field,
+ * the first projection definition of the resource is used; with no row count, the exact row total
+ * from the descriptors is used.
  */
 public final class ProjectionDiskDump {
 
   /**
    * Payloads at or below this size are stored inline in their HOT slot rather than in an
-   * {@link io.sirix.page.OverflowPage}. Mirrors {@code ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES},
-   * which is package-private; the value is printed in the report so the split can be audited.
+   * {@link io.sirix.page.OverflowPage}. Mirrors
+   * {@code ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES}, which is package-private; the value
+   * is printed in the report so the split can be audited.
    */
   private static final int INLINE_SEGMENT_MAX_BYTES = 512;
 
@@ -124,8 +125,7 @@ public final class ProjectionDiskDump {
             definition.getProjectionFields().size());
       }
 
-      final ProjectionIndexRegistry.Handle handle =
-          resolveHandle(session, resourceKey, revision, definitions, field);
+      final ProjectionIndexRegistry.Handle handle = resolveHandle(session, resourceKey, revision, definitions, field);
       if (handle == null) {
         System.out.println("no projection handle covers " + (field == null
             ? "the resource's first definition"
@@ -307,12 +307,15 @@ public final class ProjectionDiskDump {
     printLine("segment + descriptor framing", framingBytes, total, perRowDivisor);
     printLine("TOTAL", total, total, perRowDivisor);
 
-    System.out.printf("%nsegments: %,d keys, %,d column, %,d descriptors; %,d stored inline (<= %,d B), "
-        + "%,d referenced through an OverflowPage%n", keysSegments, sum(segmentsByColumn), (long) leaves,
-        inlineSegments, INLINE_SEGMENT_MAX_BYTES, referencedSegments);
-    System.out.printf("framing constants: %d B slot discriminator per segment, %d B blob marker per descriptor, "
-        + "%d B OverflowPage envelope per referenced payload%n", SEGMENT_SLOT_DISCRIMINATOR_BYTES, BLOB_MARKER_BYTES,
-        OVERFLOW_PAGE_ENVELOPE_BYTES);
+    System.out.printf(
+        "%nsegments: %,d keys, %,d column, %,d descriptors; %,d stored inline (<= %,d B), "
+            + "%,d referenced through an OverflowPage%n",
+        keysSegments, sum(segmentsByColumn), (long) leaves, inlineSegments, INLINE_SEGMENT_MAX_BYTES,
+        referencedSegments);
+    System.out.printf(
+        "framing constants: %d B slot discriminator per segment, %d B blob marker per descriptor, "
+            + "%d B OverflowPage envelope per referenced payload%n",
+        SEGMENT_SLOT_DISCRIMINATOR_BYTES, BLOB_MARKER_BYTES, OVERFLOW_PAGE_ENVELOPE_BYTES);
     System.out.println("NOT counted (so the total is a floor): the HOT leaf pages carrying the segment slots, "
         + "the fence chunks, and any storage-layer page compression applied on top of these bytes.");
   }
@@ -324,7 +327,9 @@ public final class ProjectionDiskDump {
             : 100.0 * bytes / total);
   }
 
-  /** The segment's stored length from the descriptor, or {@code -1} when the leaf has no such segment. */
+  /**
+   * The segment's stored length from the descriptor, or {@code -1} when the leaf has no such segment.
+   */
   private static int segmentByteLength(final byte[] descriptor, final int columnSegmentId) {
     final int entry = RowGroupDescriptor.entryIndexOf(descriptor, columnSegmentId);
     return entry < 0
@@ -332,7 +337,9 @@ public final class ProjectionDiskDump {
         : RowGroupDescriptor.entryByteLen(descriptor, entry);
   }
 
-  /** Slot discriminator, plus the OverflowPage envelope when the payload is too large to sit inline. */
+  /**
+   * Slot discriminator, plus the OverflowPage envelope when the payload is too large to sit inline.
+   */
   private static int segmentFramingBytes(final int payloadLength) {
     return payloadLength > INLINE_SEGMENT_MAX_BYTES
         ? SEGMENT_SLOT_DISCRIMINATOR_BYTES + OVERFLOW_PAGE_ENVELOPE_BYTES

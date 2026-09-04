@@ -16,8 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The balanced hash-range pass arithmetic: any pass count up to the partition count, consecutive
- * ranges differing by at most one partition, the fewest passes whose largest share fits a budget, and
- * the abort-time estimate that counts the never-flushed worker tables.
+ * ranges differing by at most one partition, the fewest passes whose largest share fits a budget,
+ * and the abort-time estimate that counts the never-flushed worker tables.
  */
 final class GroupTableSpillPassPlanTest {
 
@@ -64,7 +64,8 @@ final class GroupTableSpillPassPlanTest {
     assertEquals(2, GroupTableSpill.passesFor(budget + 1L, budget, 32));
     assertEquals(1, GroupTableSpill.passesFor(0L, budget, 32));
     assertEquals(1, GroupTableSpill.passesFor(5L, Long.MAX_VALUE, 32));
-    // Beyond one pass per partition the count stays at the partition count: the abort machinery decides.
+    // Beyond one pass per partition the count stays at the partition count: the abort machinery
+    // decides.
     assertEquals(32, GroupTableSpill.passesFor(budget * 33L, budget, 32));
     for (long groups = 1L; groups <= 4_096L; groups += 7L) {
       for (final long b : new long[] {1L, 3L, 32L, 100L, 1_000L}) {
@@ -88,7 +89,8 @@ final class GroupTableSpillPassPlanTest {
       for (int passes = 2; passes <= 32; passes++) {
         final long forcing = GroupTableSpill.groupsForcingPasses(passes, budget, 32);
         assertTrue(GroupTableSpill.passesFor(forcing, budget, 32) >= passes, passes + "@" + budget + ": " + forcing);
-        assertTrue(GroupTableSpill.passesFor(forcing - 1L, budget, 32) < passes, passes + "@" + budget + ": " + (forcing - 1L));
+        assertTrue(GroupTableSpill.passesFor(forcing - 1L, budget, 32) < passes,
+            passes + "@" + budget + ": " + (forcing - 1L));
       }
     }
     assertEquals(0L, GroupTableSpill.groupsForcingPasses(1, 1_000L, 32));
@@ -99,8 +101,8 @@ final class GroupTableSpillPassPlanTest {
   @DisplayName("the abort-time estimate counts abandoned worker tables and the pass's share of the key space")
   void estimateCountsAbandonedTablesAndTheShare() {
     // A pass owning 8 of 32 partitions saw 1,000 groups over a quarter of the leaves: 16,000 estimated.
-    final GroupTableSpill spill = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 16, false, 0L, 0),
-        8, 16, 3_000L);
+    final GroupTableSpill spill =
+        new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 16, false, 0L, 0), 8, 16, 3_000L);
     spill.noteLeavesScanned(25);
     spill.noteAbandonedLocal(600);
     spill.noteAbandonedLocal(400);
@@ -117,8 +119,8 @@ final class GroupTableSpillPassPlanTest {
   @Test
   @DisplayName("releasing an aborted pass drops its shared tables and keeps every counter the estimate needs")
   void releaseDropsTheTablesAndKeepsTheCounters() {
-    final GroupTableSpill spill = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 16, false, 0L, 0),
-        0, 32, 50L);
+    final GroupTableSpill spill =
+        new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 16, false, 0L, 0), 0, 32, 50L);
     final NumericGroupAggTable local = spill.freshLocal();
     for (long key = 1; key <= 120; key++) {
       local.acquire(key, key);
@@ -134,8 +136,8 @@ final class GroupTableSpillPassPlanTest {
     }
     assertEquals(120, heldBefore, "every spilled group sits in exactly one shared partition table");
     // Rebuild the shared state (takeOrCreate detached it) and release it the way an abort does.
-    final GroupTableSpill again = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 16, false, 0L, 0),
-        0, 32, 50L);
+    final GroupTableSpill again =
+        new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 16, false, 0L, 0), 0, 32, 50L);
     again.noteLeavesScanned(10);
     again.noteAbandonedLocal(30);
     final NumericGroupAggTable local2 = again.freshLocal();
@@ -168,7 +170,8 @@ final class GroupTableSpillPassPlanTest {
     final int stripes = GroupTableSpill.setStripeSpillForTesting(0);
     try {
       // 2^12 entries hinted: every chunk has the pool's full length from the first insertion.
-      final GroupTableSpill spill = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0));
+      final GroupTableSpill spill =
+          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0));
       final LongChunkPool pool = spill.chunkPool();
       assertTrue(pool != null, "the pool is on");
       assertEquals(NumericGroupAggTable.fullChunkLanes(new NumericGroupAggTable(1, 16, true).stride()),
@@ -213,8 +216,8 @@ final class GroupTableSpillPassPlanTest {
     final int previous = GroupTableSpill.setChunkPoolForTesting(1);
     final int retainBefore = LongChunkPool.setRetainForTesting(0);
     try {
-      final GroupTableSpill spill = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0),
-          0, 32, 50L);
+      final GroupTableSpill spill =
+          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0), 0, 32, 50L);
       final NumericGroupAggTable local = spill.freshLocal();
       for (long key = 1; key <= 3_000; key++) {
         local.acquire(key, key);
@@ -238,8 +241,8 @@ final class GroupTableSpillPassPlanTest {
     final int previous = GroupTableSpill.setChunkPoolForTesting(1);
     final int retainBefore = LongChunkPool.setRetainForTesting(1);
     try {
-      final GroupTableSpill first = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0),
-          0, 32, 50L);
+      final GroupTableSpill first =
+          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0), 0, 32, 50L);
       final LongChunkPool pool = first.chunkPool();
       assertTrue(pool.isShared(), "retention on: the spill draws from the JVM-lifetime pool");
       final NumericGroupAggTable local = first.freshLocal();
@@ -257,8 +260,8 @@ final class GroupTableSpillPassPlanTest {
       assertTrue(LongChunkPool.retainedBytes() >= (long) pool.pooled() * pool.chunkLanes() * Long.BYTES,
           "the retained bytes account for this pool");
 
-      final GroupTableSpill second = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0),
-          0, 32, 50L);
+      final GroupTableSpill second =
+          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0), 0, 32, 50L);
       assertSame(pool, second.chunkPool(), "the next spill of the same layout shares the pool");
       final long hitsBefore = pool.hits();
       final long missesBefore = pool.misses();
@@ -294,7 +297,8 @@ final class GroupTableSpillPassPlanTest {
   void killSwitchDisablesThePool() {
     final int previous = GroupTableSpill.setChunkPoolForTesting(0);
     try {
-      final GroupTableSpill spill = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0));
+      final GroupTableSpill spill =
+          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0));
       assertTrue(spill.chunkPool() == null);
       final NumericGroupAggTable local = spill.freshLocal();
       assertTrue(local.chunkPool() == null);
@@ -374,8 +378,10 @@ final class GroupTableSpillPassPlanTest {
   @Test
   @DisplayName("the skew allowance is refused when it alone would double the shared table's capacity")
   void sharedHintNeverDoublesTheTableForItsSkewAllowance() {
-    // 100M rows over 32 partitions: the share fits a 2^22-bucket table (it grows at 3,145,728) and the 5 %
-    // allowance asked for 2^23 — the observed q32 doubling. The hint stays inside the smaller table with
+    // 100M rows over 32 partitions: the share fits a 2^22-bucket table (it grows at 3,145,728) and the
+    // 5 %
+    // allowance asked for 2^23 — the observed q32 doubling. The hint stays inside the smaller table
+    // with
     // eight roots of headroom above the share.
     final long expected = 99_997_672L;
     final long share = expected / 32; // 3,124,927
@@ -417,7 +423,8 @@ final class GroupTableSpillPassPlanTest {
       final int groups = 96_000;
       // Planned exactly: 3,000 per partition, hinted 3,150 — every shared table holds its share as built.
       final List<Integer> hints = new ArrayList<>();
-      final GroupTableSpill planned = new GroupTableSpill(32, 59, recordingFactory(hints), groups, 0, 32, Long.MAX_VALUE);
+      final GroupTableSpill planned =
+          new GroupTableSpill(32, 59, recordingFactory(hints), groups, 0, 32, Long.MAX_VALUE);
       assertEquals(3_150, planned.sharedHint());
       hints.clear();
       final long presizedBefore = GroupTableSpill.presizedSharedCount();
@@ -442,8 +449,8 @@ final class GroupTableSpillPassPlanTest {
 
       // Planned a hundredfold short: the same groups grow the tables — and the witness counts it.
       final List<Integer> shortHints = new ArrayList<>();
-      final GroupTableSpill planShort = new GroupTableSpill(32, 59, recordingFactory(shortHints), 32 * 30, 0, 32,
-          Long.MAX_VALUE);
+      final GroupTableSpill planShort =
+          new GroupTableSpill(32, 59, recordingFactory(shortHints), 32 * 30, 0, 32, Long.MAX_VALUE);
       assertEquals(31, planShort.sharedHint(), "30 + 5 % (integer) per partition");
       final NumericGroupAggTable local2 = planShort.freshLocal();
       for (long key = 1; key <= groups; key++) {
@@ -458,8 +465,8 @@ final class GroupTableSpillPassPlanTest {
       assertTrue(planShort.sharedRehashes() >= 32L * 6L,
           "3,000 groups in a 32-bucket table rehash at least six times per partition: " + planShort.sharedRehashes());
       // An aborted pass's release sums the same witness, so a blind pass's growth is never lost.
-      final GroupTableSpill planShortAborted = new GroupTableSpill(32, 59, recordingFactory(new ArrayList<>()),
-          32 * 30, 0, 32, Long.MAX_VALUE);
+      final GroupTableSpill planShortAborted =
+          new GroupTableSpill(32, 59, recordingFactory(new ArrayList<>()), 32 * 30, 0, 32, Long.MAX_VALUE);
       final NumericGroupAggTable local4 = planShortAborted.freshLocal();
       for (long key = 1; key <= groups; key++) {
         local4.acquire(key, key);
@@ -467,18 +474,21 @@ final class GroupTableSpillPassPlanTest {
       planShortAborted.flush(local4);
       assertEquals(0L, planShortAborted.sharedRehashes(), "summed only as the tables leave the spill");
       planShortAborted.releaseTables();
-      assertTrue(planShortAborted.sharedRehashes() >= 32L * 6L, "release sums the rehashes: " + planShortAborted.sharedRehashes());
+      assertTrue(planShortAborted.sharedRehashes() >= 32L * 6L,
+          "release sums the rehashes: " + planShortAborted.sharedRehashes());
 
       // Blind: no hint, the shared tables are asked for at the worker hint and never pre-sized.
       final List<Integer> blindHints = new ArrayList<>();
-      final GroupTableSpill blind = new GroupTableSpill(32, 59, recordingFactory(blindHints), 0L, 0, 32, Long.MAX_VALUE);
+      final GroupTableSpill blind =
+          new GroupTableSpill(32, 59, recordingFactory(blindHints), 0L, 0, 32, Long.MAX_VALUE);
       assertEquals(-1, blind.sharedHint());
       final long presizedBeforeBlind = GroupTableSpill.presizedSharedCount();
       final NumericGroupAggTable local3 = blind.freshLocal();
       local3.acquire(5L, 5L);
       blindHints.clear();
       blind.flush(local3);
-      assertEquals(List.of(GroupTableSpill.WORKER_TABLE_HINT), blindHints, "the one shared table takes the worker hint");
+      assertEquals(List.of(GroupTableSpill.WORKER_TABLE_HINT), blindHints,
+          "the one shared table takes the worker hint");
       assertEquals(presizedBeforeBlind, GroupTableSpill.presizedSharedCount(), "nothing pre-sized");
       // A released aborted pass sums the rehashes too (the witness is not lost with the tables).
       assertEquals(0L, blind.sharedRehashes());
@@ -499,7 +509,8 @@ final class GroupTableSpillPassPlanTest {
     final int presizeBefore = GroupTableSpill.setPresizeSharedForTesting(0);
     try {
       final List<Integer> hints = new ArrayList<>();
-      final GroupTableSpill spill = new GroupTableSpill(32, 59, recordingFactory(hints), 96_000L, 0, 32, Long.MAX_VALUE);
+      final GroupTableSpill spill =
+          new GroupTableSpill(32, 59, recordingFactory(hints), 96_000L, 0, 32, Long.MAX_VALUE);
       assertFalse(spill.flushOffset(), "the walk is fixed");
       assertEquals(-1, spill.sharedHint(), "no pre-size");
       final long presizedBefore = GroupTableSpill.presizedSharedCount();
@@ -528,8 +539,8 @@ final class GroupTableSpillPassPlanTest {
   @Test
   @DisplayName("a flush that dies of memory still counts its table's groups toward the abort-time estimate")
   void failedFlushCountsItsGroupsAsAbandoned() {
-    final GroupTableSpill spill = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 16, true, 0L, 0),
-        0, 32, Long.MAX_VALUE);
+    final GroupTableSpill spill =
+        new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 16, true, 0L, 0), 0, 32, Long.MAX_VALUE);
     final NumericGroupAggTable local = spill.freshLocal();
     for (long key = 1; key <= 40; key++) {
       local.acquire(key, key);
@@ -577,7 +588,8 @@ final class GroupTableSpillPassPlanTest {
     assertThrows(IllegalArgumentException.class, () -> spill.claimLeaves(leaves, 0));
     assertThrows(IllegalArgumentException.class, () -> spill.claimLeaves(-1, morsel));
     // A fresh spill (a new pass) starts over.
-    assertEquals(0, new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 16, true, 0L, 0)).claimLeaves(leaves, morsel));
+    assertEquals(0,
+        new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 16, true, 0L, 0)).claimLeaves(leaves, morsel));
   }
 
   @Test

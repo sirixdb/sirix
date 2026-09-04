@@ -75,8 +75,7 @@ public enum HashAlgorithm {
     public long computeHashLong(final ByteBuffer buffer) {
       final int length = buffer.remaining();
       if (buffer.hasArray()) {
-        return HASHER.hash(buffer.array(), HashAccesses.BYTES, (long) buffer.arrayOffset() + buffer.position(),
-            length);
+        return HASHER.hash(buffer.array(), HashAccesses.BYTES, (long) buffer.arrayOffset() + buffer.position(), length);
       }
       // FileChannel readers exclusively own their borrowed direct buffer through checksum and decode.
       // The library's own ByteBuffer kernel is never entered for a buffer without an array: linking

@@ -129,6 +129,7 @@ public final class ProjectionColumnScan {
       }
       return a;
     }
+
     final long[] mask = new long[MASK_WORDS];
   }
 
@@ -159,8 +160,8 @@ public final class ProjectionColumnScan {
   }
 
   /**
-   * The predicates' zone-map / fingerprint keep mask ({@code null} = nothing pruned), for callers that
-   * feed the kernels windowed slices instead of the shared resident fill.
+   * The predicates' zone-map / fingerprint keep mask ({@code null} = nothing pruned), for callers
+   * that feed the kernels windowed slices instead of the shared resident fill.
    */
   public static long @Nullable [] predicateKeepMask(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
@@ -171,12 +172,13 @@ public final class ProjectionColumnScan {
    * The keep mask for BOTH predicate shapes a scan can carry: the conjunctive {@code predicates}
    * narrow the mask predicate by predicate, and a {@code tree} contributes the leaf set its program
    * can still reach — every tree leaf's evidence is gathered on its own (a fresh all-kept mask, the
-   * same zone / fingerprint rules), then combined by the program: AND intersects, OR unites, NOT keeps
-   * every leaf (the operand's evidence bounds where the operand matches and says nothing about its
-   * negation). A tree leaf whose evidence drops nothing therefore contributes an all-kept operand, so
-   * an OR over one evidence-less leaf keeps everything — degrading to the unpruned fill, never past
-   * it. A {@code (CounterID = c AND (src = a OR src = b))} tree over a CounterID-sorted table prunes
-   * to CounterID's leaves exactly as the flat conjunction would. {@code null} = nothing pruned.
+   * same zone / fingerprint rules), then combined by the program: AND intersects, OR unites, NOT
+   * keeps every leaf (the operand's evidence bounds where the operand matches and says nothing about
+   * its negation). A tree leaf whose evidence drops nothing therefore contributes an all-kept
+   * operand, so an OR over one evidence-less leaf keeps everything — degrading to the unpruned fill,
+   * never past it. A {@code (CounterID = c AND (src = a OR src = b))} tree over a CounterID-sorted
+   * table prunes to CounterID's leaves exactly as the flat conjunction would. {@code null} = nothing
+   * pruned.
    */
   public static long @Nullable [] predicateKeepMask(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ProjectionIndexScan.@Nullable PredicateTree tree,
@@ -230,7 +232,10 @@ public final class ProjectionColumnScan {
     return cols;
   }
 
-  /** Whether every leaf in {@code [fromLeaf, toLeaf)} is dropped by {@code keep} — a morsel a pass can skip whole. */
+  /**
+   * Whether every leaf in {@code [fromLeaf, toLeaf)} is dropped by {@code keep} — a morsel a pass can
+   * skip whole.
+   */
   public static boolean allPruned(final long @Nullable [] keep, final int fromLeaf, final int toLeaf) {
     if (keep == null || fromLeaf >= toLeaf) {
       return false;
@@ -294,13 +299,13 @@ public final class ProjectionColumnScan {
 
   /**
    * Ranged conjunctive count over a per-leaf access — the windowed twin of
-   * {@link #conjunctiveCount(ProjectionColumnStore, ColumnPredicate[], int, int, ColumnSlice[][])} for the
-   * caller whose predicate column the fill budget refused to retain: {@code [fromRowGroup, toRowGroup)}
-   * is decoded one window at a time through {@code access}, touching the predicate columns and nothing
-   * else, where the whole-leaf byte route it replaces hydrates every column of every row group. The
-   * access is single-threaded by contract — one per parallel worker; a keep-masked access hands the
-   * kernel the pruned sentinel for a leaf the zone/fingerprint evidence dropped, so that leaf's window
-   * is never fetched.
+   * {@link #conjunctiveCount(ProjectionColumnStore, ColumnPredicate[], int, int, ColumnSlice[][])}
+   * for the caller whose predicate column the fill budget refused to retain:
+   * {@code [fromRowGroup, toRowGroup)} is decoded one window at a time through {@code access},
+   * touching the predicate columns and nothing else, where the whole-leaf byte route it replaces
+   * hydrates every column of every row group. The access is single-threaded by contract — one per
+   * parallel worker; a keep-masked access hands the kernel the pruned sentinel for a leaf the
+   * zone/fingerprint evidence dropped, so that leaf's window is never fetched.
    */
   public static long conjunctiveCount(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int fromRowGroup, final int toRowGroup, final ProjectionColumnStore.LeafColumnAccess access) {
@@ -370,8 +375,7 @@ public final class ProjectionColumnScan {
     // that requests a sum over a temporal column is the one that must decline, and an overflow here
     // raises ArithmeticException, which callers already treat as a decline.
     if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(numericColumn))) {
-      throw new IllegalStateException(
-          "aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
+      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
     }
     final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
     final ColumnSlice[] aggCol = store.column(numericColumn, fetcher);
@@ -429,8 +433,7 @@ public final class ProjectionColumnScan {
     // that requests a sum over a temporal column is the one that must decline, and an overflow here
     // raises ArithmeticException, which callers already treat as a decline.
     if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(numericColumn))) {
-      throw new IllegalStateException(
-          "aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
+      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
     }
     final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
     final ColumnSlice[] aggCol = store.column(numericColumn, fetcher);
@@ -724,31 +727,32 @@ public final class ProjectionColumnScan {
    * string column at 100M rows therefore touches tens to thousands of leaves, never the column.
    *
    * <p>
-   * <b>The plan comes from descriptor and memo truth — zero leaf decodes.</b> Each leaf's BEST possible
-   * first key is its zone bound for a numeric kind ({@link ProjectionColumnStore#zoneIndex}) and its
-   * smallest / largest referenced dictionary VALUE for a per-leaf string kind
+   * <b>The plan comes from descriptor and memo truth — zero leaf decodes.</b> Each leaf's BEST
+   * possible first key is its zone bound for a numeric kind ({@link ProjectionColumnStore#zoneIndex})
+   * and its smallest / largest referenced dictionary VALUE for a per-leaf string kind
    * ({@link ProjectionColumnStore#stringValueExtrema} — dict ids are meaningless for value order). A
    * {@code <>} predicate on the first key that names that extremum moves the bound to the SECOND
    * distinct extremum (q25's shape, {@code WHERE SearchPhrase <> '' ORDER BY SearchPhrase}: the empty
-   * string is every leaf's minimum, so without the refinement every leaf ties and nothing can ever
-   * be skipped); a leaf without a second one holds no matching row at all and is dropped. A bound is
+   * string is every leaf's minimum, so without the refinement every leaf ties and nothing can ever be
+   * skipped); a leaf without a second one holds no matching row at all and is dropped. A bound is
    * USABLE only when every matching row of the leaf is guaranteed to carry every order key: the
-   * column is all-present on the leaf ({@link ProjectionColumnStore#allPresentLeaves}) or a
-   * predicate names it (every predicate op is missing ⇒ false). Otherwise the leaf may hide a
-   * matching row with an empty key — which the interpreter places by the empty-least/greatest mode
-   * and this scan can only answer by declining — so it is visited unconditionally, and FIRST, so the
-   * heap it fills bounds every leaf after it.
+   * column is all-present on the leaf ({@link ProjectionColumnStore#allPresentLeaves}) or a predicate
+   * names it (every predicate op is missing ⇒ false). Otherwise the leaf may hide a matching row with
+   * an empty key — which the interpreter places by the empty-least/greatest mode and this scan can
+   * only answer by declining — so it is visited unconditionally, and FIRST, so the heap it fills
+   * bounds every leaf after it.
    *
    * <p>
    * <b>Best-first, chunked, parallel.</b> Leaves with a usable bound follow, best-first, in doubling
-   * chunks (1, 2, 4, …, {@value #TOPK_CHUNK_MAX}); each chunk is split into contiguous slabs evaluated
-   * in parallel, one {@link TopKHeap} per slab, merged into the global heap after the chunk. A leaf
-   * whose bound is strictly worse than the worst row of a FULL heap — the global one, frozen for the
-   * chunk, or the slab's own — is skipped without a decode; the walk STOPS at the first chunk whose
-   * next leaf is skippable, because every leaf after it is ordered no better. Ties on the first key
-   * fall through to evaluation, so the selection is exact; ranks are the leaf's document-order base
-   * plus the row index, so the total order never depends on visitation. When every leaf offers the
-   * same best key the reordering cannot skip anything and the leaves are walked in document order.
+   * chunks (1, 2, 4, …, {@value #TOPK_CHUNK_MAX}); each chunk is split into contiguous slabs
+   * evaluated in parallel, one {@link TopKHeap} per slab, merged into the global heap after the
+   * chunk. A leaf whose bound is strictly worse than the worst row of a FULL heap — the global one,
+   * frozen for the chunk, or the slab's own — is skipped without a decode; the walk STOPS at the
+   * first chunk whose next leaf is skippable, because every leaf after it is ordered no better. Ties
+   * on the first key fall through to evaluation, so the selection is exact; ranks are the leaf's
+   * document-order base plus the row index, so the total order never depends on visitation. When
+   * every leaf offers the same best key the reordering cannot skip anything and the leaves are walked
+   * in document order.
    *
    * @return record keys of the first {@code k} rows of the full stable sort, in emission order — or
    *         {@code null} when a matching row misses an order key, which only the generic pipeline can
@@ -760,8 +764,9 @@ public final class ProjectionColumnScan {
   }
 
   /**
-   * Global-string-capable twin of {@link #topKRecordKeys(ProjectionColumnStore, ColumnPredicate[], int[], boolean[],
-   * int, ColumnSegmentFetcher)}. {@code globalSortViews} is aligned to {@code sortColumns}; only
+   * Global-string-capable twin of
+   * {@link #topKRecordKeys(ProjectionColumnStore, ColumnPredicate[], int[], boolean[], int, ColumnSegmentFetcher)}.
+   * {@code globalSortViews} is aligned to {@code sortColumns}; only
    * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} positions require a non-null view.
    */
   public static long @Nullable [] topKRecordKeys(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
@@ -771,14 +776,14 @@ public final class ProjectionColumnScan {
   }
 
   /**
-   * {@link #topKRecordKeys(ProjectionColumnStore, ColumnPredicate[], int[], boolean[], int, ColumnSegmentFetcher,
-   * GlobalValueDictionary.ReadView[])} with a per-thread view opener. A {@link GlobalValueDictionary.ReadView}
-   * is single-threaded (its slice caches and its reader belong to the thread that opened it), and a
-   * non-rank-ordered dictionary resolves slices on every id comparison — so the slabs, which run on
-   * pool threads, may only compare through views {@code slabViews} opened ON their own thread.
-   * {@code slabViews} must return views aligned to {@code sortColumns} for the calling thread; when
-   * it is {@code null} and some global key needs slice resolution the leaves are evaluated on the
-   * calling thread alone. A rank-ordered dictionary compares ids as integers and never needs it.
+   * {@link #topKRecordKeys(ProjectionColumnStore, ColumnPredicate[], int[], boolean[], int, ColumnSegmentFetcher, GlobalValueDictionary.ReadView[])}
+   * with a per-thread view opener. A {@link GlobalValueDictionary.ReadView} is single-threaded (its
+   * slice caches and its reader belong to the thread that opened it), and a non-rank-ordered
+   * dictionary resolves slices on every id comparison — so the slabs, which run on pool threads, may
+   * only compare through views {@code slabViews} opened ON their own thread. {@code slabViews} must
+   * return views aligned to {@code sortColumns} for the calling thread; when it is {@code null} and
+   * some global key needs slice resolution the leaves are evaluated on the calling thread alone. A
+   * rank-ordered dictionary compares ids as integers and never needs it.
    */
   public static long @Nullable [] topKRecordKeys(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int[] sortColumns, final boolean[] descending, final int k, final ColumnSegmentFetcher fetcher,
@@ -828,7 +833,8 @@ public final class ProjectionColumnScan {
         : 0L;
     // Built BEFORE keyKind: the extrema walk over the first key's dictionaries is what establishes
     // that column's collation verdict, and a separate sweep for it would cost more than it saves.
-    final TopKPlan plan = planTopK(store, predicates, sortColumns, descending, keep, leafRows, fetcher, globalSortViews);
+    final TopKPlan plan =
+        planTopK(store, predicates, sortColumns, descending, keep, leafRows, fetcher, globalSortViews);
     final byte[] keyKind = new byte[keyCount];
     for (int kk = 0; kk < keyCount; kk++) {
       keyKind[kk] = switch (store.columnKind(sortColumns[kk])) {
@@ -877,7 +883,8 @@ public final class ProjectionColumnScan {
         final AtomicReference<RuntimeException> failure = new AtomicReference<>();
         IntStream.range(0, slabs).parallel().forEach(slab -> {
           try {
-            run.evaluateSlab(slab, from + (int) ((long) len * slab / slabs), from + (int) ((long) len * (slab + 1) / slabs));
+            run.evaluateSlab(slab, from + (int) ((long) len * slab / slabs),
+                from + (int) ((long) len * (slab + 1) / slabs));
           } catch (final RuntimeException e) {
             failure.compareAndSet(null, e);
           }
@@ -908,16 +915,22 @@ public final class ProjectionColumnScan {
               + "evaluated=%d skipped=%d cand=%d workers=%d resident=%b%n",
           k, keyCount, predicates.length, plan.sorted
               ? "best-first"
-              : "document", leafCount, visitCount, plan.unknownCount, (tPlan1 - tPlan0) / 1e6, (tEnd - tPlan1) / 1e6,
-          chunks, run.evaluated.sum(), run.skipped.sum(), run.candidates.sum(), workers, resident);
+              : "document",
+          leafCount, visitCount, plan.unknownCount, (tPlan1 - tPlan0) / 1e6, (tEnd - tPlan1) / 1e6, chunks,
+          run.evaluated.sum(), run.skipped.sum(), run.candidates.sum(), workers, resident);
     }
     return global.sortedRecordKeys();
   }
 
-  /** Upper bound on the leaves one chunk of {@link #topKRecordKeys} evaluates before re-checking the stop rule. */
+  /**
+   * Upper bound on the leaves one chunk of {@link #topKRecordKeys} evaluates before re-checking the
+   * stop rule.
+   */
   static final int TOPK_CHUNK_MAX = 4096;
 
-  /** Slabs per chunk of {@link #topKRecordKeys} when the fetcher tolerates concurrent ranged fetches. */
+  /**
+   * Slabs per chunk of {@link #topKRecordKeys} when the fetcher tolerates concurrent ranged fetches.
+   */
   private static final int TOPK_WORKERS =
       Math.max(1, Integer.getInteger("sirix.topK.workers", Runtime.getRuntime().availableProcessors()));
 
@@ -927,11 +940,17 @@ public final class ProjectionColumnScan {
    * descriptors and memos alone.
    */
   private static final class TopKPlan {
-    /** Leaves to visit: the unknown-bound ones first in leaf order, then the known ones (sorted by {@link #orderVisit}). */
+    /**
+     * Leaves to visit: the unknown-bound ones first in leaf order, then the known ones (sorted by
+     * {@link #orderVisit}).
+     */
     final int[] visit;
     final int visitCount;
     final int unknownCount;
-    /** Per leaf: {@code -1} no usable bound; for a numeric first key {@code 0}; for a string one the extrema slot. */
+    /**
+     * Per leaf: {@code -1} no usable bound; for a numeric first key {@code 0}; for a string one the
+     * extrema slot.
+     */
     private final byte[] lbSlot;
     private final long @Nullable [] lbNumeric;
     private final @Nullable StringValueExtrema extrema;
@@ -940,8 +959,7 @@ public final class ProjectionColumnScan {
     boolean sorted;
 
     TopKPlan(final int[] visit, final int visitCount, final int unknownCount, final byte[] lbSlot,
-        final long @Nullable [] lbNumeric, final @Nullable StringValueExtrema extrema,
-        final boolean descendingFirst) {
+        final long @Nullable [] lbNumeric, final @Nullable StringValueExtrema extrema, final boolean descendingFirst) {
       this.visit = visit;
       this.visitCount = visitCount;
       this.unknownCount = unknownCount;
@@ -955,7 +973,10 @@ public final class ProjectionColumnScan {
       return lbSlot[leaf] >= 0;
     }
 
-    /** Whether {@code leaf}'s every row is strictly worse on the first key than the worst row of the FULL {@code heap}. */
+    /**
+     * Whether {@code leaf}'s every row is strictly worse on the first key than the worst row of the
+     * FULL {@code heap}.
+     */
     boolean strictlyWorse(final TopKHeap heap, final int leaf) {
       final int slot = lbSlot[leaf];
       if (slot < 0) {
@@ -968,9 +989,9 @@ public final class ProjectionColumnScan {
     }
 
     /**
-     * Order the known leaves best-first on the first key (ties in leaf order), or leave the whole
-     * visit list in document order when every known leaf offers the same best — then no leaf can ever
-     * be skipped and the reordering would only cost locality — or when the escape hatch asks for it.
+     * Order the known leaves best-first on the first key (ties in leaf order), or leave the whole visit
+     * list in document order when every known leaf offers the same best — then no leaf can ever be
+     * skipped and the reordering would only cost locality — or when the escape hatch asks for it.
      */
     void orderVisit(final byte firstKeyKind) {
       final int knownCount = visitCount - unknownCount;
@@ -1024,7 +1045,10 @@ public final class ProjectionColumnScan {
       return true;
     }
 
-    /** Stable radix sort of the known leaves by their numeric best — ascending on {@code ~best} for a descending key. */
+    /**
+     * Stable radix sort of the known leaves by their numeric best — ascending on {@code ~best} for a
+     * descending key.
+     */
     private void sortKnownNumeric(final int from, final int n) {
       final long[] keys = new long[n];
       final int[] perm = new int[n];
@@ -1114,7 +1138,10 @@ public final class ProjectionColumnScan {
       System.arraycopy(sorted, 0, visit, from, n);
     }
 
-    /** The first eight bytes as a big-endian long, zero-padded, biased so signed order is unsigned order. */
+    /**
+     * The first eight bytes as a big-endian long, zero-padded, biased so signed order is unsigned
+     * order.
+     */
     private static long unsignedPrefix(final byte[] bytes, final int off, final int len) {
       long prefix = 0L;
       final int n = Math.min(Long.BYTES, len);
@@ -1214,8 +1241,8 @@ public final class ProjectionColumnScan {
             // loose, the memo is lane truth, and only a leaf whose zone names the literal pays it.
             int slot = slot1;
             for (final ColumnPredicate p : predicates) {
-              if (p.column != first || p.op != ProjectionIndexScan.Op.NE || p.stringLitBytes != null
-                  || slot != slot1 || p.longLit != bound) {
+              if (p.column != first || p.op != ProjectionIndexScan.Op.NE || p.stringLitBytes != null || slot != slot1
+                  || p.longLit != bound) {
                 continue;
               }
               if (longExtrema == null) {
@@ -1291,7 +1318,9 @@ public final class ProjectionColumnScan {
     return new TopKPlan(visit, unknownCount + knownCount, unknownCount, lbSlot, lbNumeric, extrema, desc);
   }
 
-  /** Whether some predicate excludes ONE long-lane literal of {@code column} ({@code column <> lit}). */
+  /**
+   * Whether some predicate excludes ONE long-lane literal of {@code column} ({@code column <> lit}).
+   */
   private static boolean firstKeyExcludesLongLiteral(final ColumnPredicate[] predicates, final int column) {
     for (final ColumnPredicate p : predicates) {
       if (p.column == column && p.op == ProjectionIndexScan.Op.NE && p.stringLitBytes == null) {
@@ -1310,7 +1339,10 @@ public final class ProjectionColumnScan {
     return false;
   }
 
-  /** The shared state of one {@link #topKRecordKeys} evaluation: the global heap, one local heap per slab, counters. */
+  /**
+   * The shared state of one {@link #topKRecordKeys} evaluation: the global heap, one local heap per
+   * slab, counters.
+   */
   private static final class TopKRun {
     private final ProjectionColumnStore store;
     private final ColumnPredicate[] predicates;
@@ -1327,7 +1359,10 @@ public final class ProjectionColumnScan {
     private final byte[] keyKind;
     private final boolean[] descending;
     private final GlobalValueDictionary.ReadView[] globalSortViews;
-    /** Opens views on the CALLING thread for a slab's heap; {@code null} when the caller's views serve every slab. */
+    /**
+     * Opens views on the CALLING thread for a slab's heap; {@code null} when the caller's views serve
+     * every slab.
+     */
     private final @Nullable Supplier<GlobalValueDictionary.ReadView[]> slabViews;
     final AtomicBoolean declined = new AtomicBoolean();
     final LongAdder evaluated = new LongAdder();
@@ -1658,8 +1693,7 @@ public final class ProjectionColumnScan {
       // A temporal cell is handed out as its stored EPOCH, exactly as a global id is: this kernel has
       // no business rendering text, and the caller that asked for a temporal column formats the run
       // through ProjectionTemporalCodec. The executor gates the kind before it gets here.
-      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
           ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
         sink.acceptLong(slice.numericValues()[rowIdx]);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
@@ -1679,9 +1713,9 @@ public final class ProjectionColumnScan {
   }
 
   /**
-   * Resolve + validate the order columns: NUMERIC_LONG, STRING_DICT, or STRING_GLOBAL slices, one
-   * per key. A global string's numeric lane carries its dictionary id; the bounded top-K caller
-   * supplies the revision-bound read view that turns that id into an order in
+   * Resolve + validate the order columns: NUMERIC_LONG, STRING_DICT, or STRING_GLOBAL slices, one per
+   * key. A global string's numeric lane carries its dictionary id; the bounded top-K caller supplies
+   * the revision-bound read view that turns that id into an order in
    * {@link #topKSortColumnsOrderable(ProjectionColumnStore, int[], GlobalValueDictionary.ReadView[])}.
    */
   private static ColumnSlice[][] resolveSortColumns(final ProjectionColumnStore store, final int[] sortColumns,
@@ -1706,8 +1740,8 @@ public final class ProjectionColumnScan {
       if (!ProjectionIndexRowGroupPage.isOrderedLongKind(kind)
           && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
           && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
-        throw new IllegalStateException("sortColumn " + sortColumns[k]
-            + " is not NUMERIC_LONG, a temporal kind, STRING_DICT, or STRING_GLOBAL");
+        throw new IllegalStateException(
+            "sortColumn " + sortColumns[k] + " is not NUMERIC_LONG, a temporal kind, STRING_DICT, or STRING_GLOBAL");
       }
     }
   }
@@ -1743,8 +1777,7 @@ public final class ProjectionColumnScan {
         if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
           throw new IllegalStateException("String-set column " + p.column + " only serves EQ membership");
         }
-      } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
-          && p.globalIdVerdict != null) {
+      } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL && p.globalIdVerdict != null) {
         // A pre-evaluated verdict over the resource-wide dictionary: the slice evaluator answers
         // each row with one bit test against its id — servable for every per-value string op.
         switch (p.op) {
@@ -1805,7 +1838,8 @@ public final class ProjectionColumnScan {
   /**
    * The tree's keep mask: its program run over per-leaf evidence masks. Each leaf predicate is priced
    * on a FRESH all-kept mask (an OR operand must not inherit its sibling's drops), AND intersects, OR
-   * unites, NOT replaces its operand by all-kept. {@code null} = the program can still reach every leaf.
+   * unites, NOT replaces its operand by all-kept. {@code null} = the program can still reach every
+   * leaf.
    */
   private static long @Nullable [] computeTreeKeepMask(final ProjectionColumnStore store,
       final ProjectionIndexScan.PredicateTree tree, final ColumnSegmentFetcher fetcher) {
@@ -1917,13 +1951,17 @@ public final class ProjectionColumnScan {
     return masks;
   }
 
-  /** Whether {@link #pruneLeaves} would price {@code p} by string fingerprint (Op.EQ on STRING_DICT). */
+  /**
+   * Whether {@link #pruneLeaves} would price {@code p} by string fingerprint (Op.EQ on STRING_DICT).
+   */
   private static boolean bloomPrunable(final ProjectionColumnStore store, final ColumnPredicate p) {
     return p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ
         && store.columnKind(p.column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
   }
 
-  /** The all-kept mask over {@code n} leaves (tail bits clear) — the starting point of every prune. */
+  /**
+   * The all-kept mask over {@code n} leaves (tail bits clear) — the starting point of every prune.
+   */
   public static long[] allKeptMask(final int n) {
     if (n < 0) {
       throw new IllegalArgumentException("n < 0: " + n);
@@ -1935,12 +1973,12 @@ public final class ProjectionColumnScan {
    * Zone stabbing for MANY values of one long-lane column ({@link #zonePrunableKind}: ordered-long,
    * or global-string whose values are dictionary ids) in ONE pass over the memoized
    * {@link ProjectionColumnStore.ZoneIndex}: SET bit {@code leaf} in {@code keeps[j]} when the leaf
-   * MAY hold {@code sortedValues[j]} — its descriptor range covers the value, or the range is
-   * unknown (no evidence is never a proof of absence). Containment needs no value order, so a
-   * global column's ids stab exactly whatever order they were minted in. A leaf whose every cell is missing sets
-   * nothing. Values must be strictly ascending; masks are OR-ed into (callers pass zeroed masks for
-   * a pure answer). Per leaf the work is two binary searches over the values plus the covered span,
-   * so k values cost about one {@link #pruneLeaves} walk rather than k.
+   * MAY hold {@code sortedValues[j]} — its descriptor range covers the value, or the range is unknown
+   * (no evidence is never a proof of absence). Containment needs no value order, so a global column's
+   * ids stab exactly whatever order they were minted in. A leaf whose every cell is missing sets
+   * nothing. Values must be strictly ascending; masks are OR-ed into (callers pass zeroed masks for a
+   * pure answer). Per leaf the work is two binary searches over the values plus the covered span, so
+   * k values cost about one {@link #pruneLeaves} walk rather than k.
    *
    * @return the number of bits set
    */
@@ -1950,7 +1988,8 @@ public final class ProjectionColumnScan {
       throw new IllegalArgumentException("store, values and masks must pair up");
     }
     if (!zonePrunableKind(store.columnKind(col))) {
-      throw new IllegalArgumentException("column " + col + " has no long-lane zone (not ordered-long or global-string)");
+      throw new IllegalArgumentException(
+          "column " + col + " has no long-lane zone (not ordered-long or global-string)");
     }
     final int n = store.leafCount();
     final int words = (n + 63) >>> 6;
@@ -2126,7 +2165,10 @@ public final class ProjectionColumnScan {
    * AND. Returns the leaf's rowCount (0 = pruned/empty; the mask may still be all-zero for a live
    * rowCount).
    */
-  /** {@link #evaluateMask(ColumnPredicate[], ColumnSlice[][], int, int, long[])} over a per-leaf access. */
+  /**
+   * {@link #evaluateMask(ColumnPredicate[], ColumnSlice[][], int, int, long[])} over a per-leaf
+   * access.
+   */
   static int evaluateMask(final ColumnPredicate[] predicates, final ProjectionColumnStore.LeafColumnAccess access,
       final int leaf, final int rowCount, final long[] mask, final ColumnSlice[] leafSlices) {
     if (rowCount <= 0) {
@@ -2697,14 +2739,14 @@ public final class ProjectionColumnScan {
    * to the {@code sink} — one hash per (leaf, entry), never per row — and the size of the set behind
    * the sink is the distinct present count. Same contract as the content-based kernel: sparse-clean
    * unpredicated callers only, since every non-empty entry was interned by a present row and only a
-   * zero-length entry (the "" default a MISSING row interns) needs per-row disambiguation. The "" hash
-   * is put once, when some leaf proves a present row references it.
+   * zero-length entry (the "" default a MISSING row interns) needs per-row disambiguation. The ""
+   * hash is put once, when some leaf proves a present row references it.
    *
    * <p>
    * Two 128-bit hashes of distinct values coincide with probability {@code 2^-128} per pair — below
    * the hardware error rate at any cardinality this store can hold — which is what lets the count be
-   * exact without keeping a byte of any value. The {@code hash} scratch is the caller's {@code long[2]}
-   * (one per worker), so the kernel allocates nothing per entry.
+   * exact without keeping a byte of any value. The {@code hash} scratch is the caller's
+   * {@code long[2]} (one per worker), so the kernel allocates nothing per entry.
    * </p>
    *
    * @param access per-leaf access to the column, resident or windowed
@@ -2715,7 +2757,8 @@ public final class ProjectionColumnScan {
    * @param hash a {@code long[2]} scratch for the hash halves
    * @return {@code false} when a slice is missing or lacks its dictionary, id or presence lanes — the
    *         caller declines; {@code true} when every leaf was folded in
-   * @throws DistinctHash128Set.ByteBudgetExceededException when the set behind the sink is refused a growth
+   * @throws DistinctHash128Set.ByteBudgetExceededException when the set behind the sink is refused a
+   *         growth
    */
   public static boolean distinctDictUnion(final ProjectionColumnStore.LeafColumnAccess access, final int col,
       final int fromLeaf, final int toLeaf, final DistinctHash128Sink sink, final long[] hash) {
@@ -2778,7 +2821,8 @@ public final class ProjectionColumnScan {
    * @param sink where the values go: a set, or a worker's handle on a shared one
    * @return {@code false} when a non-empty slice lacks its value or presence lane — the caller
    *         declines; {@code true} when every slice was folded in
-   * @throws DistinctHash128Set.ByteBudgetExceededException when the set behind the sink is refused a growth
+   * @throws DistinctHash128Set.ByteBudgetExceededException when the set behind the sink is refused a
+   *         growth
    */
   public static boolean distinctLongs(final ColumnSlice[] slices, final int fromSlice, final int toSlice,
       final DistinctLongSink sink) {
@@ -2814,8 +2858,8 @@ public final class ProjectionColumnScan {
    * present value of slices {@code [fromSlice, toSlice)}. The caller sizes {@code seen} from the
    * column's zone map ({@code (max - min) / 64 + 1} words) and, with one bitset per worker, ORs the
    * workers' bitsets and counts the bits — the count is exact and the row loop never branches on a
-   * table probe. A value below {@code min} or past the bitset is the zone map lying about the
-   * column, and is reported rather than counted.
+   * table probe. A value below {@code min} or past the bitset is the zone map lying about the column,
+   * and is reported rather than counted.
    *
    * @param slices the column's slices, resident
    * @param fromSlice the first slice, inclusive
@@ -2861,8 +2905,8 @@ public final class ProjectionColumnScan {
   }
 
   /**
-   * Bits set in the OR of {@code bitsets} over words {@code [fromWord, toWord)}: one worker's share of
-   * the merge that follows {@link #distinctBitset}, so the merge is as parallel as the fill.
+   * Bits set in the OR of {@code bitsets} over words {@code [fromWord, toWord)}: one worker's share
+   * of the merge that follows {@link #distinctBitset}, so the merge is as parallel as the fill.
    *
    * @param bitsets one bitset per worker, all of one length
    * @param fromWord the first word, inclusive
@@ -2882,9 +2926,9 @@ public final class ProjectionColumnScan {
   }
 
   /**
-   * Whether a PRESENT row of the slice references dictionary entry {@code emptyId}: {@code 1} when one
-   * does (every row present, or an id scan finds one), {@code 0} when none does, {@code -1} when the
-   * slice lacks its presence or id lane.
+   * Whether a PRESENT row of the slice references dictionary entry {@code emptyId}: {@code 1} when
+   * one does (every row present, or an id scan finds one), {@code 0} when none does, {@code -1} when
+   * the slice lacks its presence or id lane.
    */
   private static int emptyEntryReferenced(final ColumnSlice slice, final int emptyId, final int rowCount) {
     final long[] presence = slice.presenceWords();

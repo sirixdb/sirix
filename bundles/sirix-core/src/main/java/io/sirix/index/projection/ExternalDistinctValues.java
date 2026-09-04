@@ -24,22 +24,22 @@ import static java.util.Objects.requireNonNull;
  * the engine's collation — the corpus half of the dictionary pre-pass.
  *
  * <p>
- * A resource-wide rank-ordered dictionary is built by streaming each distinct value exactly once, in
- * order ({@link PrePassDictionaryBuilder}). Producing that stream is the half that cannot be done in
- * memory at scale: one ClickBench column's distinct set is 18.3 million values and 3.4 GB of bytes at
- * 100M rows, so a {@code List<byte[]>} of them — what the harness route required its caller to
- * supply — is not a candidate. This is the ordinary external answer: buffer into an arena, sort and
- * SPILL a deduplicated ascending run when the arena fills, then merge the runs.
+ * A resource-wide rank-ordered dictionary is built by streaming each distinct value exactly once,
+ * in order ({@link PrePassDictionaryBuilder}). Producing that stream is the half that cannot be
+ * done in memory at scale: one ClickBench column's distinct set is 18.3 million values and 3.4 GB
+ * of bytes at 100M rows, so a {@code List<byte[]>} of them — what the harness route required its
+ * caller to supply — is not a candidate. This is the ordinary external answer: buffer into an
+ * arena, sort and SPILL a deduplicated ascending run when the arena fills, then merge the runs.
  * </p>
  *
  * <h2>Why dedup happens in the sort, not on add</h2>
  *
  * A hash set keyed by value would deduplicate earlier and buffer more distinct values per byte of
- * budget, at the cost of one object (or one probe front) per distinct value — the very structure the
- * rank pass exists to remove. Appending blindly and deduplicating in the sort keeps the resident
- * cost to the arena bytes plus eight bytes of index per BUFFERED value, and duplicates that survive
- * into a run are dropped by the merge. The price is that a column whose values repeat heavily spills
- * more often than it strictly must; the output is identical either way.
+ * budget, at the cost of one object (or one probe front) per distinct value — the very structure
+ * the rank pass exists to remove. Appending blindly and deduplicating in the sort keeps the
+ * resident cost to the arena bytes plus eight bytes of index per BUFFERED value, and duplicates
+ * that survive into a run are dropped by the merge. The price is that a column whose values repeat
+ * heavily spills more often than it strictly must; the output is identical either way.
  *
  * <h2>Ordering</h2>
  *
@@ -58,7 +58,9 @@ public final class ExternalDistinctValues implements AutoCloseable {
   /** Arena bytes a collector buffers before it spills, when the caller names no budget. */
   public static final long DEFAULT_BUDGET_BYTES = 64L << 20;
 
-  /** Smallest budget worth running: below this the run count grows faster than the merge tolerates. */
+  /**
+   * Smallest budget worth running: below this the run count grows faster than the merge tolerates.
+   */
   public static final long MIN_BUDGET_BYTES = 1 << 12;
 
   /** Values below this length are sorted by insertion rather than by partitioning. */
@@ -209,8 +211,7 @@ public final class ExternalDistinctValues implements AutoCloseable {
     try {
       Files.createDirectories(spillDirectory);
       run = Files.createTempFile(spillDirectory, "distinct-", ".run");
-      try (DataOutputStream out = new DataOutputStream(
-          new BufferedOutputStream(Files.newOutputStream(run), 1 << 20))) {
+      try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(run), 1 << 20))) {
         for (int i = 0; i < count; i++) {
           if (i > 0 && equalAt(i - 1, i)) {
             continue;
@@ -268,8 +269,8 @@ public final class ExternalDistinctValues implements AutoCloseable {
       final int offset = offsets[i];
       final int length = lengths[i];
       int j = i - 1;
-      while (j >= low && ValueDictionaryEntryNode.compareUtf16Range(arena, offsets[j], lengths[j], arena, offset,
-          length) > 0) {
+      while (j >= low
+          && ValueDictionaryEntryNode.compareUtf16Range(arena, offsets[j], lengths[j], arena, offset, length) > 0) {
         offsets[j + 1] = offsets[j];
         lengths[j + 1] = lengths[j];
         j--;
@@ -416,8 +417,8 @@ public final class ExternalDistinctValues implements AutoCloseable {
         } else {
           cursor.close();
         }
-        if (previous != null && ValueDictionaryEntryNode.compareUtf16Range(previous, 0, previous.length, value, 0,
-            value.length) == 0) {
+        if (previous != null
+            && ValueDictionaryEntryNode.compareUtf16Range(previous, 0, previous.length, value, 0, value.length) == 0) {
           continue; // the same value, reached through another run
         }
         previous = value;

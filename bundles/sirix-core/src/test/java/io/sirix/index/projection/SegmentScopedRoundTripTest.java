@@ -26,14 +26,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The segment-dictionary scheme end to end WITHOUT a pre-pass: values are minted as pages encode,
- * each segment is sealed once its pages are done, and a page's ids resolve back to the exact bytes it
- * wrote — through its own segment, never a neighbour's.
+ * each segment is sealed once its pages are done, and a page's ids resolve back to the exact bytes
+ * it wrote — through its own segment, never a neighbour's.
  *
  * <p>
  * The dictionary store is faked (a header key to a value list), so what is under test is the part
  * this design adds: minting per segment, the anchor translation, and the refusals. Turning a value
- * list into committed dictionary pages is {@link PrePassDictionaryBuilder}'s job and is tested where
- * it lives.
+ * list into committed dictionary pages is {@link PrePassDictionaryBuilder}'s job and is tested
+ * where it lives.
  * </p>
  */
 final class SegmentScopedRoundTripTest {
@@ -208,8 +208,7 @@ final class SegmentScopedRoundTripTest {
     assertEquals(1, anchors.sealedCount());
     assertThrows(IllegalStateException.class, () -> anchors.seal(3, 0, 43L, 7));
     assertThrows(IllegalStateException.class, () -> anchors.seal(3, 0, 42L, 9));
-    assertThrows(IllegalArgumentException.class,
-        () -> anchors.seal(3, 1, SegmentDictionaryAnchors.NO_HEADER_KEY, 1));
+    assertThrows(IllegalArgumentException.class, () -> anchors.seal(3, 1, SegmentDictionaryAnchors.NO_HEADER_KEY, 1));
     assertEquals(42L, anchors.headerKeyOf(3, 0));
     assertEquals(7, anchors.sealedEntryCountOf(3, 0));
     assertEquals(SegmentDictionaryAnchors.NO_HEADER_KEY, anchors.headerKeyOf(3, 1), "another column is separate");

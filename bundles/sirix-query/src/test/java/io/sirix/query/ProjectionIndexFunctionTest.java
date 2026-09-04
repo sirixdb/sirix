@@ -624,8 +624,7 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
           return replace json value of $doc[0].age with 99
         """));
     Assertions.assertTrue(causeChainContains(failure, "has no live metadata"), failure::toString);
-    Assertions.assertNull(readProjectionMetadata(0),
-        "failed maintenance must not manufacture replacement metadata");
+    Assertions.assertNull(readProjectionMetadata(0), "failed maintenance must not manufacture replacement metadata");
     test("""
           let $doc := jn:doc('json-path1','sales.jn')
           return sum(for $r in $doc[] return $r.age)
@@ -636,8 +635,9 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
   public void explicitlyAbandonedProjectionMakesLaterMaintenanceANoOp() throws IOException {
     query(STORE_QUERY);
     query(CREATE_INDEX_QUERY);
-    final byte[] staleMetadata = ProjectionIndexMetadata.staleTombstone(
-        ProjectionIndexMetadata.StaleReason.GLOBAL_DICTIONARY_BUDGET_EXCEEDED).serialize();
+    final byte[] staleMetadata =
+        ProjectionIndexMetadata.staleTombstone(ProjectionIndexMetadata.StaleReason.GLOBAL_DICTIONARY_BUDGET_EXCEEDED)
+                               .serialize();
 
     final Path dbPath = Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), "json-path1");
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);

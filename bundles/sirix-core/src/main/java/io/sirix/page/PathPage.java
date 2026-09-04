@@ -46,9 +46,11 @@ import static java.util.Objects.requireNonNull;
 /**
  * Container page for path indexes.
  *
- * <p>Each occupied delegate slot roots one versioned HOT tree. The sparse
- * {@code maxHotPageKeys} map is the only per-index metadata: it persists each tree's HOT page-key
- * allocator without retaining metadata from the removed keyed-trie secondary-index format.</p>
+ * <p>
+ * Each occupied delegate slot roots one versioned HOT tree. The sparse {@code maxHotPageKeys} map
+ * is the only per-index metadata: it persists each tree's HOT page-key allocator without retaining
+ * metadata from the removed keyed-trie secondary-index format.
+ * </p>
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
@@ -60,8 +62,8 @@ public final class PathPage extends AbstractForwardingPage {
   private Page delegate;
 
   /**
-   * Maximum HOT page keys per index number. Used by the canonical HOT index writer for persistent page key
-   * allocation across transactions.
+   * Maximum HOT page keys per index number. Used by the canonical HOT index writer for persistent
+   * page key allocation across transactions.
    */
   private final Int2LongMap maxHotPageKeys;
 
@@ -95,8 +97,8 @@ public final class PathPage extends AbstractForwardingPage {
   }
 
   /**
-   * Copy constructor for write-side CoW. Deep-copies the delegate's reference array and the
-   * allocator map so writer-side mutations don't bleed into the historical revision's view.
+   * Copy constructor for write-side CoW. Deep-copies the delegate's reference array and the allocator
+   * map so writer-side mutations don't bleed into the historical revision's view.
    */
   public PathPage(final PathPage other) {
     final Page otherDelegate = other.delegate;
@@ -147,8 +149,8 @@ public final class PathPage extends AbstractForwardingPage {
   }
 
   /**
-   * Determine whether a physical path tree id has ever been initialized without creating a
-   * structural reference.
+   * Determine whether a physical path tree id has ever been initialized without creating a structural
+   * reference.
    *
    * @param index the physical index number
    * @return {@code true} if allocator metadata or a non-virgin root reserves the id
@@ -166,7 +168,9 @@ public final class PathPage extends AbstractForwardingPage {
   /**
    * Return the first uninitialized physical path tree id at or after {@code fromInclusive}.
    *
-   * <p>The scan is read-only: neither sparse nor full delegates gain placeholder references.</p>
+   * <p>
+   * The scan is read-only: neither sparse nor full delegates gain placeholder references.
+   * </p>
    *
    * @param fromInclusive first physical id to inspect
    * @return the first uninitialized id
@@ -179,9 +183,8 @@ public final class PathPage extends AbstractForwardingPage {
         return index;
       }
     }
-    throw new IllegalStateException(
-        "Path index reference space exhausted at or after " + fromInclusive + ": "
-            + Constants.INP_REFERENCE_COUNT + " physical ids available");
+    throw new IllegalStateException("Path index reference space exhausted at or after " + fromInclusive + ": "
+        + Constants.INP_REFERENCE_COUNT + " physical ids available");
   }
 
   /**

@@ -14,10 +14,10 @@ import java.lang.foreign.ValueLayout;
  * <p>
  * A region header is a run of small parallel arrays — a tag dictionary, a value count per tag, a
  * frame-of-reference base per tag. Written as {@code int}/{@code long} those arrays cost 4 and 8
- * bytes for numbers that are almost always below 128, and on a page holding a wide record schema the
- * per-tag framing came to as much as the values it framed. A varint spends one byte on those and
- * pays a byte back only on the rare wide value, so the framing shrinks with the data rather than
- * with the declared type.
+ * bytes for numbers that are almost always below 128, and on a page holding a wide record schema
+ * the per-tag framing came to as much as the values it framed. A varint spends one byte on those
+ * and pays a byte back only on the rare wide value, so the framing shrinks with the data rather
+ * than with the declared type.
  *
  * <h2>Canonical by contract</h2>
  *

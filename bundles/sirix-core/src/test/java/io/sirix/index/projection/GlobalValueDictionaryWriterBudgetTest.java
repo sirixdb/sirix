@@ -302,10 +302,9 @@ final class GlobalValueDictionaryWriterBudgetTest {
     final long[] allocations = ProjectionIndexBuilder.planAutoGlobalDictionaryBudgets(aggregate,
         new long[] {firstProjection, secondProjection}, new long[] {16_000L, 15_000L}, true);
 
-    assertTrue(ProjectionIndexBuilder.streamingGlobalDictionaryComponentBudget(allocations[0])
-        >= 2L * firstProjection);
-    assertTrue(ProjectionIndexBuilder.streamingGlobalDictionaryComponentBudget(allocations[1])
-        >= 2L * secondProjection);
+    assertTrue(ProjectionIndexBuilder.streamingGlobalDictionaryComponentBudget(allocations[0]) >= 2L * firstProjection);
+    assertTrue(
+        ProjectionIndexBuilder.streamingGlobalDictionaryComponentBudget(allocations[1]) >= 2L * secondProjection);
     assertEquals(aggregate, Math.addExact(allocations[0], allocations[1]),
         "even simultaneous writer-plus-front peaks must stay inside the configured aggregate");
   }

@@ -85,8 +85,7 @@ final class HOTLeafPageFrameOwnershipTest {
     final long oldBinding = leaf.readStampBinding();
 
     try {
-      assertSame(oldReleaseFailure,
-          assertThrows(AssertionError.class, () -> leaf.put(new byte[] {1}, new byte[] {2})));
+      assertSame(oldReleaseFailure, assertThrows(AssertionError.class, () -> leaf.put(new byte[] {1}, new byte[] {2})));
 
       assertEquals(oldLiveBefore, allocator.liveSlotCount(oldFrameClass), "the replaced frame must be returned");
       assertEquals(newLiveBefore + 1, allocator.liveSlotCount(newFrameClass),
@@ -130,8 +129,8 @@ final class HOTLeafPageFrameOwnershipTest {
     final MemorySegment wireSegment = MemorySegment.ofArray(truncatedWire);
     final AtomicInteger releaseCalls = new AtomicInteger();
     final AssertionError cleanupFailure = new AssertionError("injected zero-copy frame cleanup failure");
-    final ByteHandler.DecompressionResult decompressionResult = new ByteHandler.DecompressionResult(wireSegment,
-        wireSegment, () -> {
+    final ByteHandler.DecompressionResult decompressionResult =
+        new ByteHandler.DecompressionResult(wireSegment, wireSegment, () -> {
           releaseCalls.incrementAndGet();
           throw cleanupFailure;
         }, new AtomicBoolean());
@@ -143,8 +142,7 @@ final class HOTLeafPageFrameOwnershipTest {
     assertTrue(decompressionResult.ownershipTransferred().get(),
         "the HOT leaf must have taken ownership before its trailer failed");
     assertEquals(1, releaseCalls.get(), "failed deserialization must release the transferred frame exactly once");
-    assertEquals(1, primaryFailure.getSuppressed().length,
-        "cleanup failure must not replace the corruption exception");
+    assertEquals(1, primaryFailure.getSuppressed().length, "cleanup failure must not replace the corruption exception");
     assertSame(cleanupFailure, primaryFailure.getSuppressed()[0]);
 
     // Mirrors AbstractReader's finally block. Once ownership was transferred, the result close is

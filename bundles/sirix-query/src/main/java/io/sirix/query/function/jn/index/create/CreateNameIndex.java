@@ -89,11 +89,9 @@ public final class CreateNameIndex extends AbstractFunction {
 
     final var storageEngineWriter = wtx.getStorageEngineWriter();
     final int physicalIndexId = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage())
-        .nextUnallocatedSecondaryNameIndex(DatabaseType.JSON);
-    final int indexDefNo =
-        IndexDefs.logicalNameIndexDefNoForPhysicalSlot(physicalIndexId, IndexDef.DbType.JSON);
-    final IndexDef selectiveNameIdxDef =
-        IndexDefs.createSelectiveNameIdxDef(include, indexDefNo, IndexDef.DbType.JSON);
+                                                   .nextUnallocatedSecondaryNameIndex(DatabaseType.JSON);
+    final int indexDefNo = IndexDefs.logicalNameIndexDefNoForPhysicalSlot(physicalIndexId, IndexDef.DbType.JSON);
+    final IndexDef selectiveNameIdxDef = IndexDefs.createSelectiveNameIdxDef(include, indexDefNo, IndexDef.DbType.JSON);
     try {
       controller.createIndexes(Set.of(selectiveNameIdxDef), wtx);
     } catch (final SirixIOException e) {

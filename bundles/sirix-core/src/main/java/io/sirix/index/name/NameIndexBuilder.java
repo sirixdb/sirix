@@ -25,9 +25,9 @@ public final class NameIndexBuilder {
   public final StorageEngineReader storageEngineReader;
 
   /**
-   * Bulk loader for the HOT index, non-{@code null} exactly when this builder starts against an
-   * empty index tree — the normal "create an index over an already-shredded revision" case. Every
-   * entry is collected and the trie is materialised once in {@link #finish()}.
+   * Bulk loader for the HOT index, non-{@code null} exactly when this builder starts against an empty
+   * index tree — the normal "create an index over an already-shredded revision" case. Every entry is
+   * collected and the trie is materialised once in {@link #finish()}.
    */
   private final @Nullable HOTBulkIndexLoader<QNm> bulkLoader;
 

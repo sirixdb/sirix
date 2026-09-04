@@ -44,18 +44,20 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * HARD CORRECTNESS GATE for the optimizer auto-selection of the VALIDTIME interval index for a plain
- * FLWOR stabbing predicate ({@code JsonValidTimeStep} → {@code jn:scan-valid-time-index}).
+ * HARD CORRECTNESS GATE for the optimizer auto-selection of the VALIDTIME interval index for a
+ * plain FLWOR stabbing predicate ({@code JsonValidTimeStep} → {@code jn:scan-valid-time-index}).
  *
- * <p>For many instants (incl. boundaries):</p>
+ * <p>
+ * For many instants (incl. boundaries):
+ * </p>
  * <ul>
- *   <li>the plain FLWOR {@code for $x in jn:doc(...)[] where $x.validFrom <= $t and $t <= $x.validTo
+ * <li>the plain FLWOR {@code for $x in jn:doc(...)[] where $x.validFrom <= $t and $t <= $x.validTo
  *       return $x} — and its operator/operand-order variants — returns exactly the brute-force set,
- *       which also equals {@code jn:valid-at};</li>
- *   <li>each matching query's OPTIMIZED AST actually contains {@code scan-valid-time-index} (the
- *       rewrite fired);</li>
- *   <li>NEGATIVE cases (one bound only, {@code $x}-dependent point, mismatched points, no VALIDTIME
- *       index, non-valid-time fields) do NOT rewrite yet still return the correct result.</li>
+ * which also equals {@code jn:valid-at};</li>
+ * <li>each matching query's OPTIMIZED AST actually contains {@code scan-valid-time-index} (the
+ * rewrite fired);</li>
+ * <li>NEGATIVE cases (one bound only, {@code $x}-dependent point, mismatched points, no VALIDTIME
+ * index, non-valid-time fields) do NOT rewrite yet still return the correct result.</li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -133,8 +135,7 @@ public final class ValidTimeIndexOptimizerRewriteTest {
             // conjunct order swapped: P <= validTo first
             "for $x in jn:doc('%1$s','%2$s')[] where %3$s <= xs:dateTime($x.validTo) and xs:dateTime($x.validFrom) <= %3$s return $x",
             // mixed: ge + le, swapped operands on one side
-            "for $x in jn:doc('%1$s','%2$s')[] where %3$s ge xs:dateTime($x.validFrom) and %3$s le xs:dateTime($x.validTo) return $x",
-        };
+            "for $x in jn:doc('%1$s','%2$s')[] where %3$s ge xs:dateTime($x.validFrom) and %3$s le xs:dateTime($x.validTo) return $x",};
 
         for (final Instant t : testTimes) {
           final Set<Integer> brute = bruteForce(records, t);
@@ -160,8 +161,8 @@ public final class ValidTimeIndexOptimizerRewriteTest {
           final String lit = "xs:dateTime('" + t + "')";
 
           // jn:valid-at oracle (also index-accelerated, independently verified elsewhere).
-          final Set<Integer> validAt = idsFromObjectQuery(chain, ctx,
-              "jn:valid-at('" + DB + "', '" + RES + "', " + lit + ")");
+          final Set<Integer> validAt =
+              idsFromObjectQuery(chain, ctx, "jn:valid-at('" + DB + "', '" + RES + "', " + lit + ")");
           assertEquals(brute, validAt, "jn:valid-at must equal brute force at t=" + t);
 
           for (final String tmpl : variantTemplates) {
@@ -228,7 +229,10 @@ public final class ValidTimeIndexOptimizerRewriteTest {
 
   // ---- rewrite inspection --------------------------------------------------------------------
 
-  /** Compile {@code query} and return true iff its optimized AST contains a jn:scan-valid-time-index node. */
+  /**
+   * Compile {@code query} and return true iff its optimized AST contains a jn:scan-valid-time-index
+   * node.
+   */
   private static boolean optimizedContainsScanFunction(final BasicJsonDBStore store, final String query) {
     final SirixCompileChain chain = new SirixCompileChain(null, store);
     chain.compile(query);
@@ -254,8 +258,7 @@ public final class ValidTimeIndexOptimizerRewriteTest {
 
   private static void assertNoRewriteButCorrect(final BasicJsonDBStore store, final SirixCompileChain chain,
       final SirixQueryContext ctx, final String query, final Set<Integer> expected) {
-    assertFalse(optimizedContainsScanFunction(store, query),
-        "must NOT rewrite (negative case): " + query);
+    assertFalse(optimizedContainsScanFunction(store, query), "must NOT rewrite (negative case): " + query);
     assertEquals(expected, idsFromObjectQuery(chain, ctx, query),
         "negative-case query must still return the correct result: " + query);
   }
@@ -319,8 +322,8 @@ public final class ValidTimeIndexOptimizerRewriteTest {
     int id = 0;
     final long maxFromOffsetDays = ChronoUnit.DAYS.between(base, UNIVERSAL);
     for (int i = 0; i < 130; i++) {
-      final Instant from = base.plus(rnd.nextInt((int) maxFromOffsetDays), ChronoUnit.DAYS)
-                               .plusSeconds(rnd.nextInt(86_400));
+      final Instant from =
+          base.plus(rnd.nextInt((int) maxFromOffsetDays), ChronoUnit.DAYS).plusSeconds(rnd.nextInt(86_400));
       final Instant to = (i % 6 == 0)
           ? Instant.parse("2999-12-31T23:59:59Z")
           : UNIVERSAL.plus(1 + rnd.nextInt(800), ChronoUnit.DAYS).plusSeconds(rnd.nextInt(86_400));
@@ -342,9 +345,17 @@ public final class ValidTimeIndexOptimizerRewriteTest {
       if (i > 0) {
         sb.append(",");
       }
-      sb.append("{\"id\": ").append(r.id())
-        .append(", \"").append(VALID_FROM).append("\": \"").append(r.validFrom())
-        .append("\", \"").append(VALID_TO).append("\": \"").append(r.validTo()).append("\"}");
+      sb.append("{\"id\": ")
+        .append(r.id())
+        .append(", \"")
+        .append(VALID_FROM)
+        .append("\": \"")
+        .append(r.validFrom())
+        .append("\", \"")
+        .append(VALID_TO)
+        .append("\": \"")
+        .append(r.validTo())
+        .append("\"}");
     }
     sb.append("]");
     return sb.toString();
@@ -370,10 +381,9 @@ public final class ValidTimeIndexOptimizerRewriteTest {
     final var dbPath = sirixPath.resolve(dbName);
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
-      database.createResource(ResourceConfiguration.newBuilder(RES)
-          .validTimePaths(VALID_FROM, VALID_TO).buildPathSummary(true).build());
-      try (JsonResourceSession session = database.beginResourceSession(RES);
-          JsonNodeTrx wtx = session.beginNodeTrx()) {
+      database.createResource(
+          ResourceConfiguration.newBuilder(RES).validTimePaths(VALID_FROM, VALID_TO).buildPathSummary(true).build());
+      try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }

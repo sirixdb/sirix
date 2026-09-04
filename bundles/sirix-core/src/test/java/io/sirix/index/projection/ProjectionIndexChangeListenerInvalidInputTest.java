@@ -23,8 +23,8 @@ import static org.mockito.Mockito.mock;
  *
  * <p>
  * The public constructor delegates to the injecting one, and {@code this(...)} must be the first
- * statement — so the argument expression that resolves the armed bulk load runs BEFORE the delegated
- * constructor validates anything. That ordering is the hazard this pins:
+ * statement — so the argument expression that resolves the armed bulk load runs BEFORE the
+ * delegated constructor validates anything. That ordering is the hazard this pins:
  *
  * <ul>
  * <li>resolving first would dereference arguments nobody has checked, so identical bad input would
@@ -79,17 +79,16 @@ final class ProjectionIndexChangeListenerInvalidInputTest {
   void nullArgumentsAreReportedInOrder() {
     final IndexDef def = projectionDef();
     assertEquals("storageEngineWriter",
-        assertThrows(NullPointerException.class,
-            () -> new ProjectionIndexChangeListener(null, mock(PathSummaryReader.class), def,
-                mock(NodeReadOnlyTrx.class))).getMessage());
+        assertThrows(NullPointerException.class, () -> new ProjectionIndexChangeListener(null,
+            mock(PathSummaryReader.class), def, mock(NodeReadOnlyTrx.class))).getMessage());
     assertEquals("pathSummary",
         assertThrows(NullPointerException.class,
             () -> new ProjectionIndexChangeListener(mock(StorageEngineWriter.class), null, def,
                 mock(NodeReadOnlyTrx.class))).getMessage());
     assertEquals("maintenanceTrx",
         assertThrows(NullPointerException.class,
-            () -> new ProjectionIndexChangeListener(mock(StorageEngineWriter.class), mock(PathSummaryReader.class),
-                def, null)).getMessage());
+            () -> new ProjectionIndexChangeListener(mock(StorageEngineWriter.class), mock(PathSummaryReader.class), def,
+                null)).getMessage());
     // storageEngineWriter outranks maintenanceTrx when BOTH are null — the delegated order.
     assertEquals("storageEngineWriter", assertThrows(NullPointerException.class,
         () -> new ProjectionIndexChangeListener(null, mock(PathSummaryReader.class), def, null)).getMessage());
@@ -113,12 +112,12 @@ final class ProjectionIndexChangeListenerInvalidInputTest {
     final IndexDef def = projectionDef();
     assertEquals("maintenanceTrx",
         assertThrows(NullPointerException.class,
-            () -> new ProjectionIndexChangeListener(mock(StorageEngineWriter.class), mock(PathSummaryReader.class),
-                def, null)).getMessage(),
+            () -> new ProjectionIndexChangeListener(mock(StorageEngineWriter.class), mock(PathSummaryReader.class), def,
+                null)).getMessage(),
         "a null transaction must be reported as such, not dereferenced by the bulk-load resolver");
-    assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionIndexChangeListener(mock(StorageEngineWriter.class), mock(PathSummaryReader.class),
-            nonProjectionDef(), null),
+    assertThrows(
+        IllegalArgumentException.class, () -> new ProjectionIndexChangeListener(mock(StorageEngineWriter.class),
+            mock(PathSummaryReader.class), nonProjectionDef(), null),
         "the projection-type refusal must precede every null check");
   }
 }

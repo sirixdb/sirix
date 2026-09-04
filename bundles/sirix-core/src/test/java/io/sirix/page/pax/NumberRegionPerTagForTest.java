@@ -25,32 +25,32 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The per-tag frame of reference: one width per tag rather than one per page, and a zone map that is
- * the frame of reference rather than a second copy of it.
+ * The per-tag frame of reference: one width per tag rather than one per page, and a zone map that
+ * is the frame of reference rather than a second copy of it.
  *
  * <h2>What the fixtures are</h2>
  *
  * <p>
- * Two shapes, both drawn from what a record-shaped corpus actually puts on a leaf. The <em>mixed</em>
- * one is the smallest fixture that breaks the page-wide width: an 8-bit field, a 16-bit field, a
- * constant field and a 64-bit hash, where the hash's spread alone forced every other tag onto plain
- * longs. The <em>wide</em> one is a page of 60 numeric fields over 10 rows — the shape where per-tag
- * framing has to pay for itself against the values it frames.
+ * Two shapes, both drawn from what a record-shaped corpus actually puts on a leaf. The
+ * <em>mixed</em> one is the smallest fixture that breaks the page-wide width: an 8-bit field, a
+ * 16-bit field, a constant field and a 64-bit hash, where the hash's spread alone forced every
+ * other tag onto plain longs. The <em>wide</em> one is a page of 60 numeric fields over 10 rows —
+ * the shape where per-tag framing has to pay for itself against the values it frames.
  *
  * <h2>What the assertions are</h2>
  *
  * <p>
  * Ground truth is the input {@code long[]}, never a second decoder. Every region-only door — scalar
- * decode, bulk decode, count, masked count, aggregate, selection, selection bitmap, zone-map prune —
- * is asserted against a hand-written loop over those values, with the vector path forced on and off,
- * because the kernels hold two implementations of every predicate.
+ * decode, bulk decode, count, masked count, aggregate, selection, selection bitmap, zone-map prune
+ * — is asserted against a hand-written loop over those values, with the vector path forced on and
+ * off, because the kernels hold two implementations of every predicate.
  *
  * <p>
- * The size claims are pinned as bytes, not as ratios of themselves: the mutation is the kill switch,
- * which restores one width for the whole page, and it must cost at least four times the bytes on the
- * wide fixture. The kill switch's own output is pinned to a digest recorded from HEAD-compiled
- * classes, so "byte-identical to the old encoder" means the old encoder, not this one agreeing with
- * itself.
+ * The size claims are pinned as bytes, not as ratios of themselves: the mutation is the kill
+ * switch, which restores one width for the whole page, and it must cost at least four times the
+ * bytes on the wide fixture. The kill switch's own output is pinned to a digest recorded from
+ * HEAD-compiled classes, so "byte-identical to the old encoder" means the old encoder, not this one
+ * agreeing with itself.
  */
 @DisplayName("number region, per-tag frame of reference")
 final class NumberRegionPerTagForTest {
@@ -239,10 +239,10 @@ final class NumberRegionPerTagForTest {
         "the varint zone map must be well under a third of the fixed one: " + zoneV2.length + " vs " + zoneV1.length);
 
     // Both regions together, as the region table writes them.
-    final int perTagWire = wireBytes(RegionTable.KIND_NUMBER, perTag) + wireBytes(RegionTable.KIND_NUMBER_ZONEMAP,
-        zoneV2);
-    final int pageWideWire = wireBytes(RegionTable.KIND_NUMBER, pageWide) + wireBytes(RegionTable.KIND_NUMBER_ZONEMAP,
-        zoneV1);
+    final int perTagWire =
+        wireBytes(RegionTable.KIND_NUMBER, perTag) + wireBytes(RegionTable.KIND_NUMBER_ZONEMAP, zoneV2);
+    final int pageWideWire =
+        wireBytes(RegionTable.KIND_NUMBER, pageWide) + wireBytes(RegionTable.KIND_NUMBER_ZONEMAP, zoneV1);
     assertTrue(perTagWire * 2 < pageWideWire,
         "the per-tag pair must more than halve the wire: " + perTagWire + " vs " + pageWideWire);
 
@@ -266,7 +266,9 @@ final class NumberRegionPerTagForTest {
   @DisplayName("every region-only door agrees with the record path, vector and scalar")
   void everyDoorAgreesWithTheRecordPath() {
     for (final boolean vector : new boolean[] {true, false}) {
-      BitUnpackSimd.setWarmupRemainingForTesting(vector ? 0 : Integer.MAX_VALUE);
+      BitUnpackSimd.setWarmupRemainingForTesting(vector
+          ? 0
+          : Integer.MAX_VALUE);
       for (final Column column : new Column[] {mixed(), wide()}) {
         assertDoorsAgree(column, vector);
       }
@@ -280,7 +282,9 @@ final class NumberRegionPerTagForTest {
     assertEquals(NumberRegion.ENC_PER_TAG_FOR, h.encodingKind);
     assertEquals(column.count, h.count, "count is derived from the per-tag counts");
     final long[] expected = inRegionOrder(column, h);
-    final String path = vector ? " [vector]" : " [scalar]";
+    final String path = vector
+        ? " [vector]"
+        : " [scalar]";
 
     for (int i = 0; i < column.count; i++) {
       assertEquals(expected[i], NumberRegion.decodeValueAt(payload, h, i), "decodeValueAt " + i + path);
@@ -328,10 +332,12 @@ final class NumberRegionPerTagForTest {
           wantIdx[wantedSelection++] = i;
         }
       }
-      assertEquals(wanted, NumberRegionSimd.countMatchingRange(payload, h, start, end, VectorOperators.GE, lo,
-          VectorOperators.LE, hi), "range count of tag " + tag + path);
-      assertEquals(wanted, NumberRegionSimd.countMatching(payload, h, start, end, VectorOperators.LE, hi)
-          - NumberRegionSimd.countMatching(payload, h, start, end, VectorOperators.LT, lo),
+      assertEquals(wanted,
+          NumberRegionSimd.countMatchingRange(payload, h, start, end, VectorOperators.GE, lo, VectorOperators.LE, hi),
+          "range count of tag " + tag + path);
+      assertEquals(wanted,
+          NumberRegionSimd.countMatching(payload, h, start, end, VectorOperators.LE, hi)
+              - NumberRegionSimd.countMatching(payload, h, start, end, VectorOperators.LT, lo),
           "one-sided counts of tag " + tag + path);
 
       final int produced = NumberRegionSimd.selectMatching(payload, h, start, end, VectorOperators.GE, lo,
@@ -361,14 +367,14 @@ final class NumberRegionPerTagForTest {
           }
         }
       }
-      assertEquals(wantedLive, NumberRegionSimd.countMatchingRangeMasked(payload, h, start, end, VectorOperators.GE,
-          lo, VectorOperators.LE, hi, live), "masked count of tag " + tag + path);
+      assertEquals(wantedLive, NumberRegionSimd.countMatchingRangeMasked(payload, h, start, end, VectorOperators.GE, lo,
+          VectorOperators.LE, hi, live), "masked count of tag " + tag + path);
 
       // The prune must agree with the scan wherever it commits to an answer.
       for (final long[] range : new long[][] {{Long.MIN_VALUE, min - 1}, {min, max}, {max + 1, Long.MAX_VALUE},
           {lo, hi}}) {
-        final long pruned = NumberRegionSimd.pruneCount(h.tagMin[tag], h.tagMax[tag], range[0], range[1],
-            h.tagCount[tag]);
+        final long pruned =
+            NumberRegionSimd.pruneCount(h.tagMin[tag], h.tagMax[tag], range[0], range[1], h.tagCount[tag]);
         if (pruned != NumberRegionSimd.PRUNE_UNKNOWN) {
           assertEquals(NumberRegionSimd.countMatchingRange(payload, h, start, end, VectorOperators.GE, range[0],
               VectorOperators.LE, range[1]), pruned, "prune disagreed with the scan for tag " + tag + path);
@@ -437,21 +443,22 @@ final class NumberRegionPerTagForTest {
   @DisplayName("every width the encoder can choose round-trips, the ceiling and the wrap included")
   void widthBoundaries() {
     BitUnpackSimd.setWarmupRemainingForTesting(0);
-    final long[][] shapes = {
-        {0L, 0L},                                          // constant, width 0
-        {5L, 6L},                                          // width 1
-        {-3L, 252L},                                       // width 8, negative base
-        {1L, (1L << 55)},                                  // width 56
-        {1L, (1L << 56)},                                  // spread past the packer's ceiling -> 64
-        {Long.MIN_VALUE, Long.MAX_VALUE},                  // the spread that wraps the signed range
-        {Long.MAX_VALUE - 3, Long.MAX_VALUE},              // width 2 at the top of the range
+    final long[][] shapes = {{0L, 0L}, // constant, width 0
+        {5L, 6L}, // width 1
+        {-3L, 252L}, // width 8, negative base
+        {1L, (1L << 55)}, // width 56
+        {1L, (1L << 56)}, // spread past the packer's ceiling -> 64
+        {Long.MIN_VALUE, Long.MAX_VALUE}, // the spread that wraps the signed range
+        {Long.MAX_VALUE - 3, Long.MAX_VALUE}, // width 2 at the top of the range
     };
     for (final long[] shape : shapes) {
       final int n = 40;
       final long[] values = new long[n];
       final int[] tags = new int[n];
       for (int i = 0; i < n; i++) {
-        values[i] = (i & 1) == 0 ? shape[0] : shape[1];
+        values[i] = (i & 1) == 0
+            ? shape[0]
+            : shape[1];
         tags[i] = 3;
       }
       final byte[] wire = NumberRegion.encode(values, tags, n, NumberRegion.TAG_KIND_NAME);
@@ -560,10 +567,10 @@ final class NumberRegionPerTagForTest {
         }
         assertEquals(source.valueMin, z.valueMin, "the page-global bounds are folded, not stored");
         assertEquals(source.valueMax, z.valueMax);
-        assertEquals(0L, NumberRegionSimd.pruneCount(z.tagMin[0], z.tagMax[0], Long.MIN_VALUE, z.tagMin[0] - 1L,
-            z.tagCount[0]), "an out-of-range predicate must be settled from the summary alone");
-        assertEquals(retainedBefore, back.retainedBytes(),
-            "settling it must leave the number column deferred");
+        assertEquals(0L,
+            NumberRegionSimd.pruneCount(z.tagMin[0], z.tagMax[0], Long.MIN_VALUE, z.tagMin[0] - 1L, z.tagCount[0]),
+            "an out-of-range predicate must be settled from the summary alone");
+        assertEquals(retainedBefore, back.retainedBytes(), "settling it must leave the number column deferred");
       }
     }
   }
@@ -604,8 +611,8 @@ final class NumberRegionPerTagForTest {
   private static byte[] encodeWide(final boolean directoryIsExternal) {
     final Column wide = wide();
     final NumberRegion.Encoder encoder = new NumberRegion.Encoder(1024);
-    final int length = encoder.encodeInto(wide.values, wide.tags, wide.count, NumberRegion.TAG_KIND_PATH_NODE,
-        directoryIsExternal);
+    final int length =
+        encoder.encodeInto(wide.values, wide.tags, wide.count, NumberRegion.TAG_KIND_PATH_NODE, directoryIsExternal);
     return Arrays.copyOf(encoder.output(), length);
   }
 
@@ -666,8 +673,7 @@ final class NumberRegionPerTagForTest {
     final MemorySegment inline = PaxTestSegments.of(encodeWide(false));
     final MemorySegment folded = PaxTestSegments.of(encodeWide(true));
     final NumberRegion.Header ih = new NumberRegion.Header().parseInto(inline);
-    final NumberRegion.Header fh =
-        new NumberRegion.Header().parseInto(folded, PaxTestSegments.of(wideDirectory(true)));
+    final NumberRegion.Header fh = new NumberRegion.Header().parseInto(folded, PaxTestSegments.of(wideDirectory(true)));
 
     final long[] inlineAll = new long[ih.count];
     final long[] foldedAll = new long[fh.count];
@@ -690,9 +696,10 @@ final class NumberRegionPerTagForTest {
       }
       final long lo = fh.tagMin[tag];
       final long hi = lo + ((fh.tagMax[tag] - lo) >>> 1);
-      assertEquals(NumberRegionSimd.countMatchingRange(inline, ih, start, end, VectorOperators.GE, lo,
-          VectorOperators.LE, hi), NumberRegionSimd.countMatchingRange(folded, fh, start, end, VectorOperators.GE,
-              lo, VectorOperators.LE, hi), "count of tag " + tag);
+      assertEquals(
+          NumberRegionSimd.countMatchingRange(inline, ih, start, end, VectorOperators.GE, lo, VectorOperators.LE, hi),
+          NumberRegionSimd.countMatchingRange(folded, fh, start, end, VectorOperators.GE, lo, VectorOperators.LE, hi),
+          "count of tag " + tag);
       assertTrue(NumberRegionSimd.aggregateRange(inline, ih, start, end, inlineAggregate));
       assertTrue(NumberRegionSimd.aggregateRange(folded, fh, start, end, foldedAggregate));
       assertArrayEquals(inlineAggregate, foldedAggregate, "aggregate of tag " + tag);
@@ -715,8 +722,7 @@ final class NumberRegionPerTagForTest {
     final NumberRegion.Header fh =
         new NumberRegion.Header().parseInto(PaxTestSegments.of(folded), PaxTestSegments.of(directory));
 
-    final NumberZoneMapRegion.Header z =
-        new NumberZoneMapRegion.Header().parseInto(PaxTestSegments.of(directory));
+    final NumberZoneMapRegion.Header z = new NumberZoneMapRegion.Header().parseInto(PaxTestSegments.of(directory));
     assertNotNull(z);
     for (int tag = 0; tag < fh.dictSize; tag++) {
       assertEquals(tag, NumberZoneMapRegion.lookupTag(z, fh.dict[tag]), "lookupTag " + tag);
@@ -724,8 +730,8 @@ final class NumberRegionPerTagForTest {
       assertEquals(fh.tagMax[tag], z.tagMax[tag], "tagMax " + tag);
       assertEquals(fh.tagCount[tag], z.tagCount[tag], "tagCount " + tag);
       // Settled from the summary alone: no byte of the value region is read to answer this.
-      assertEquals(0L, NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], Long.MIN_VALUE,
-          z.tagMin[tag] - 1L, z.tagCount[tag]), "prune of tag " + tag);
+      assertEquals(0L, NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], Long.MIN_VALUE, z.tagMin[tag] - 1L,
+          z.tagCount[tag]), "prune of tag " + tag);
     }
 
     // A reader that asks for the values gets the directory too — the pairing is the reader's rule,
@@ -737,8 +743,8 @@ final class NumberRegionPerTagForTest {
       table.write(sink, true);
       try (RegionTable back = RegionTable.read(sink.bytesForRead(), RegionTable.maskOf(RegionTable.KIND_NUMBER))) {
         assertNotNull(back.payload(RegionTable.KIND_NUMBER_ZONEMAP), "the directory travels with its column");
-        final NumberRegion.Header read = new NumberRegion.Header().parseInto(
-            back.payload(RegionTable.KIND_NUMBER), back.payload(RegionTable.KIND_NUMBER_ZONEMAP));
+        final NumberRegion.Header read = new NumberRegion.Header().parseInto(back.payload(RegionTable.KIND_NUMBER),
+            back.payload(RegionTable.KIND_NUMBER_ZONEMAP));
         assertEquals(fh.count, read.count);
         assertEquals(fh.dictSize, read.dictSize);
       }

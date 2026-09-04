@@ -220,9 +220,8 @@ public final class NodeReferencesSerializer {
           "offset and length must be non-negative: offset=" + offset + ", length=" + length);
     }
     if (offset > bytes.length - length) {
-      throw new IllegalArgumentException(
-          "offset + length exceeds array length: offset=" + offset + ", length=" + length + ", arrayLength="
-              + bytes.length);
+      throw new IllegalArgumentException("offset + length exceeds array length: offset=" + offset + ", length=" + length
+          + ", arrayLength=" + bytes.length);
     }
 
     if (length == 0) {
@@ -249,14 +248,18 @@ public final class NodeReferencesSerializer {
   /**
    * Deserialize one chunk-local posting list and enforce its unsigned-16-bit value domain.
    *
-   * <p>The general {@link #deserialize(byte[], int, int)} method intentionally accepts arbitrary
-   * 64-bit node keys. HOT secondary indexes store only the low 16 bits in each composite-key chunk,
-   * however; accepting a wider value there either preserves corrupt storage or aliases it when the
-   * chunk index is recombined. This contextual entry point keeps those semantics explicit.</p>
+   * <p>
+   * The general {@link #deserialize(byte[], int, int)} method intentionally accepts arbitrary 64-bit
+   * node keys. HOT secondary indexes store only the low 16 bits in each composite-key chunk, however;
+   * accepting a wider value there either preserves corrupt storage or aliases it when the chunk index
+   * is recombined. This contextual entry point keeps those semantics explicit.
+   * </p>
    *
-   * <p>Validation is allocation-free after the ordinary deserialize: Roaring iterates in unsigned
-   * order, so checking its last value proves the complete set is within {@code [0, 65535]} without
-   * creating an iterator or copying the bitmap.</p>
+   * <p>
+   * Validation is allocation-free after the ordinary deserialize: Roaring iterates in unsigned order,
+   * so checking its last value proves the complete set is within {@code [0, 65535]} without creating
+   * an iterator or copying the bitmap.
+   * </p>
    *
    * @param bytes serialized chunk payload
    * @return deserialized, validated chunk references
@@ -288,11 +291,13 @@ public final class NodeReferencesSerializer {
   /**
    * Validate a serialized chunk payload without materializing its common packed representation.
    *
-   * <p>This is for pass-through paths such as resurrection over a tombstone: they retain the
-   * incoming bytes unchanged, but still must not publish malformed chunk-local values. Packed and
-   * tombstone payloads are checked directly in the caller's array with no copy or allocation;
-   * Roaring payloads use {@link #deserializeChunk(byte[], int, int)} because validating their
-   * compressed container structure necessarily requires decoding it.</p>
+   * <p>
+   * This is for pass-through paths such as resurrection over a tombstone: they retain the incoming
+   * bytes unchanged, but still must not publish malformed chunk-local values. Packed and tombstone
+   * payloads are checked directly in the caller's array with no copy or allocation; Roaring payloads
+   * use {@link #deserializeChunk(byte[], int, int)} because validating their compressed container
+   * structure necessarily requires decoding it.
+   * </p>
    *
    * @param bytes serialized payload backing array
    * @param offset first payload byte
@@ -301,9 +306,8 @@ public final class NodeReferencesSerializer {
   public static void requireValidChunkPayload(final byte[] bytes, final int offset, final int length) {
     requireNonNull(bytes, "bytes cannot be null");
     if (offset < 0 || length <= 0 || offset > bytes.length - length) {
-      throw new IllegalArgumentException(
-          "Chunk payload range must be non-empty and within the array: offset=" + offset + ", length=" + length
-              + ", arrayLength=" + bytes.length);
+      throw new IllegalArgumentException("Chunk payload range must be non-empty and within the array: offset=" + offset
+          + ", length=" + length + ", arrayLength=" + bytes.length);
     }
 
     final byte format = bytes[offset];
@@ -324,8 +328,7 @@ public final class NodeReferencesSerializer {
 
     final int count = bytes[offset + 1] & 0xFF;
     if (count == 0 || count > PACKED_THRESHOLD) {
-      throw new IllegalArgumentException(
-          "Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
+      throw new IllegalArgumentException("Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
     }
     final int requiredLength = 2 + count * Long.BYTES;
     if (requiredLength != length) {
@@ -583,8 +586,7 @@ public final class NodeReferencesSerializer {
       final byte format = leaf.refByteAt(ref, 0);
       if (format == TOMBSTONE_FORMAT) {
         if (length != 1) {
-          throw new IllegalArgumentException(
-              "Tombstone payload must be exactly one byte, but slot has " + length);
+          throw new IllegalArgumentException("Tombstone payload must be exactly one byte, but slot has " + length);
         }
         return true;
       }
@@ -594,15 +596,14 @@ public final class NodeReferencesSerializer {
         }
         final int chunkCount = leaf.refByteAt(ref, 1) & 0xFF;
         if (chunkCount == 0 || chunkCount > PACKED_THRESHOLD) {
-          throw new IllegalArgumentException(
-              "Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + chunkCount);
+          throw new IllegalArgumentException("Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + chunkCount);
         }
         final int requiredLength = 2 + chunkCount * Long.BYTES;
         if (requiredLength != length) {
           // Canonical slot payloads have neither truncation nor ignored trailing bytes. Treat both
           // as corruption: accepting the latter could let an interrupted rewrite hide postings.
-          throw new IllegalArgumentException("Packed count " + chunkCount + " requires exactly " + requiredLength
-              + " bytes but slot has " + length);
+          throw new IllegalArgumentException(
+              "Packed count " + chunkCount + " requires exactly " + requiredLength + " bytes but slot has " + length);
         }
         long previousBit16 = 0L;
         for (int i = 0; i < chunkCount; i++) {
@@ -670,10 +671,10 @@ public final class NodeReferencesSerializer {
 
   /**
    * Identity sentinel returned by the allocating
-   * {@link #mergePackedSingleBitFromSlot(HOTLeafPage, long, byte[], int, int)} API when the new bit is
-   * already present in the slot's packed set — the caller skips the slot rewrite entirely. A distinct
-   * sentinel is needed because the payload is still in slot memory: there is no existing array to
-   * hand back by identity the way a copying merge would.
+   * {@link #mergePackedSingleBitFromSlot(HOTLeafPage, long, byte[], int, int)} API when the new bit
+   * is already present in the slot's packed set — the caller skips the slot rewrite entirely. A
+   * distinct sentinel is needed because the payload is still in slot memory: there is no existing
+   * array to hand back by identity the way a copying merge would.
    */
   public static final byte[] MERGE_UNCHANGED = new byte[0];
 
@@ -728,14 +729,16 @@ public final class NodeReferencesSerializer {
   }
 
   /**
-   * Allocation-free twin of {@link #mergePackedSingleBitFromSlot(HOTLeafPage, long, byte[], int,
-   * int)}. A positive return is the exact payload length written at {@code scratchOffset}; primitive
-   * status values distinguish a non-qualifying shape and an unchanged set without allocating a
-   * carrier.
+   * Allocation-free twin of
+   * {@link #mergePackedSingleBitFromSlot(HOTLeafPage, long, byte[], int, int)}. A positive return is
+   * the exact payload length written at {@code scratchOffset}; primitive status values distinguish a
+   * non-qualifying shape and an unchanged set without allocating a carrier.
    *
-   * <p>The complete resident packed payload is range- and ordering-validated before the first scratch
+   * <p>
+   * The complete resident packed payload is range- and ordering-validated before the first scratch
    * byte is written. A corruption failure therefore leaves caller-owned scratch unchanged. Neither
-   * input array is retained.</p>
+   * input array is retained.
+   * </p>
    *
    * @param leaf the leaf holding the existing payload
    * @param ref the slot's packed value handle from {@link HOTLeafPage#valueRef(int)}
@@ -749,13 +752,11 @@ public final class NodeReferencesSerializer {
    * @throws IllegalArgumentException if the incoming bit or a resident packed payload is malformed
    * @throws IndexOutOfBoundsException if an input range is invalid or a required result does not fit
    */
-  public static int mergePackedSingleBitFromSlot(final HOTLeafPage leaf, final long ref,
-      final byte[] newValue, final int newOffset, final int newLen, final byte[] scratch,
-      final int scratchOffset) {
+  public static int mergePackedSingleBitFromSlot(final HOTLeafPage leaf, final long ref, final byte[] newValue,
+      final int newOffset, final int newLen, final byte[] scratch, final int scratchOffset) {
     requireNonNull(scratch, "scratch cannot be null");
     if (scratchOffset < 0 || scratchOffset > scratch.length) {
-      throw new IndexOutOfBoundsException(
-          "scratchOffset=" + scratchOffset + " scratch.length=" + scratch.length);
+      throw new IndexOutOfBoundsException("scratchOffset=" + scratchOffset + " scratch.length=" + scratch.length);
     }
 
     final int mergePlan = packedSingleBitMergePlan(leaf, ref, newValue, newOffset, newLen);
@@ -776,8 +777,8 @@ public final class NodeReferencesSerializer {
    * Validate both merge inputs and return {@code insertionIndex + 1}, or a primitive merge status.
    * Returning the shifted index reserves zero for the unchanged result.
    */
-  private static int packedSingleBitMergePlan(final HOTLeafPage leaf, final long ref,
-      final byte[] newValue, final int newOffset, final int newLen) {
+  private static int packedSingleBitMergePlan(final HOTLeafPage leaf, final long ref, final byte[] newValue,
+      final int newOffset, final int newLen) {
     requireNonNull(leaf, "leaf cannot be null");
     requireNonNull(newValue, "newValue cannot be null");
     if (newOffset < 0 || newLen < 0 || newOffset > newValue.length - newLen) {
@@ -795,13 +796,11 @@ public final class NodeReferencesSerializer {
     }
     final int count = leaf.refByteAt(ref, 1) & 0xFF;
     if (count == 0 || count > PACKED_THRESHOLD) {
-      throw new IllegalArgumentException(
-          "Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
+      throw new IllegalArgumentException("Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
     }
     if (existingLen != 2 + count * Long.BYTES) {
-      throw new IllegalArgumentException(
-          "Packed count " + count + " requires exactly " + (2 + count * Long.BYTES)
-              + " bytes but slot has " + existingLen);
+      throw new IllegalArgumentException("Packed count " + count + " requires exactly " + (2 + count * Long.BYTES)
+          + " bytes but slot has " + existingLen);
     }
     final long newKey = requireChunkBit16(readKeyBE(newValue, newOffset + 2));
 
@@ -844,9 +843,9 @@ public final class NodeReferencesSerializer {
   }
 
   /** Write one already-validated merge plan into caller-owned storage. */
-  private static void writePackedSingleBitMerge(final HOTLeafPage leaf, final long ref,
-      final byte[] newValue, final int newOffset, final int insertionIndex, final byte[] destination,
-      final int destinationOffset, final int resultLen) {
+  private static void writePackedSingleBitMerge(final HOTLeafPage leaf, final long ref, final byte[] newValue,
+      final int newOffset, final int insertionIndex, final byte[] destination, final int destinationOffset,
+      final int resultLen) {
     final int count = (HOTLeafPage.refLength(ref) - 2) / Long.BYTES;
     final long newKey = readKeyBE(newValue, newOffset + 2);
     destination[destinationOffset] = PACKED_FORMAT;
@@ -866,17 +865,21 @@ public final class NodeReferencesSerializer {
   /**
    * Remove one posting bit from a packed payload while it is still resident in a HOT leaf slot.
    *
-   * <p>The applicable path is allocation-free: it validates the packed header, binary-searches the
+   * <p>
+   * The applicable path is allocation-free: it validates the packed header, binary-searches the
    * sorted unsigned keys through {@link HOTLeafPage#refLongBEAt(long, int)}, and splices the two
    * surviving ranges directly into caller-owned scratch. The returned positive value is the exact
    * payload length written at {@code scratchOffset}. Primitive status constants distinguish a
-   * different representation, an absent bit, and removal of the final bit without allocating a
-   * result carrier.</p>
+   * different representation, an absent bit, and removal of the final bit without allocating a result
+   * carrier.
+   * </p>
    *
-   * <p>A payload bearing the packed marker must be canonical: its count is in
+   * <p>
+   * A payload bearing the packed marker must be canonical: its count is in
    * {@code [1, PACKED_THRESHOLD]} and its stored length is exactly {@code 2 + count * 8}. Violations
    * fail loudly instead of falling through to a copying path that could mistake corrupt postings for
-   * an absent bit.</p>
+   * an absent bit.
+   * </p>
    *
    * @param leaf leaf holding the existing payload
    * @param ref packed value handle returned by {@link HOTLeafPage#valueRef(int)}
@@ -896,8 +899,7 @@ public final class NodeReferencesSerializer {
       throw new IllegalArgumentException("posting-list chunk bit must be in [0, 65535]: " + bit);
     }
     if (scratchOffset < 0 || scratchOffset > scratch.length) {
-      throw new IndexOutOfBoundsException(
-          "scratchOffset=" + scratchOffset + " scratch.length=" + scratch.length);
+      throw new IndexOutOfBoundsException("scratchOffset=" + scratchOffset + " scratch.length=" + scratch.length);
     }
 
     final int existingLen = HOTLeafPage.refLength(ref);
@@ -913,8 +915,7 @@ public final class NodeReferencesSerializer {
 
     final int count = leaf.refByteAt(ref, 1) & 0xFF;
     if (count == 0 || count > PACKED_THRESHOLD) {
-      throw new IllegalArgumentException(
-          "Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
+      throw new IllegalArgumentException("Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
     }
     final int requiredLen = 2 + count * Long.BYTES;
     if (existingLen != requiredLen) {
@@ -956,8 +957,8 @@ public final class NodeReferencesSerializer {
     }
     final int suffixEntries = count - removalIndex - 1;
     if (suffixEntries > 0) {
-      leaf.copyRefInto(ref, 2 + (removalIndex + 1) * Long.BYTES, scratch,
-          scratchOffset + 2 + prefixBytes, suffixEntries * Long.BYTES);
+      leaf.copyRefInto(ref, 2 + (removalIndex + 1) * Long.BYTES, scratch, scratchOffset + 2 + prefixBytes,
+          suffixEntries * Long.BYTES);
     }
     return resultLen;
   }
@@ -1109,8 +1110,7 @@ public final class NodeReferencesSerializer {
 
     final int count = bytes[offset] & 0xFF;
     if (count == 0 || count > PACKED_THRESHOLD) {
-      throw new IllegalArgumentException(
-          "Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
+      throw new IllegalArgumentException("Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
     }
 
     // Canonical packed payloads have neither truncation nor ignored trailing bytes.

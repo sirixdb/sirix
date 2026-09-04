@@ -1920,8 +1920,7 @@ public enum NodeKind implements DeweyIdSerializer {
       }
       final int byteLength = source.readInt();
       if (firstId <= 0 || count <= 0 || count > ValueDictionaryValueBlockNode.MAX_BLOCK_VALUES
-          || byteLength == Integer.MIN_VALUE
-          || Math.abs(byteLength) > ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES) {
+          || byteLength == Integer.MIN_VALUE || Math.abs(byteLength) > ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES) {
         throw new IllegalStateException("invalid value dictionary value block header");
       }
       // The id range must fit an int: a corrupt firstId near MAX_VALUE would otherwise construct a
@@ -2755,6 +2754,7 @@ public enum NodeKind implements DeweyIdSerializer {
       throw new UnsupportedOperationException();
     }
   }
+
   /** LEB128, shared by the arms that frame variable-width tables. */
   private static void writeUnsignedVarInt(final BytesOut<?> sink, final int value) {
     int remaining = value;

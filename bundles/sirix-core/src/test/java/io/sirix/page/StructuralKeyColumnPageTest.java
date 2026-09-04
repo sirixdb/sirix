@@ -32,14 +32,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * The columns work: they strip both sibling varints out of every record and put them back byte for
- * byte, under the same offset-table predicate the parentKey column uses. What they do not do is make
- * the page smaller. In document order both keys are a constant delta from the node key, so the
+ * byte, under the same offset-table predicate the parentKey column uses. What they do not do is
+ * make the page smaller. In document order both keys are a constant delta from the node key, so the
  * varints are the same two bytes in every record and the body codec was already removing them for
- * nothing. Measured on a 92-page JSON record load the columns take 930 B per page out of the raw heap
- * and put 14 B per page back on the wire; on the synthetic page below, whose sibling keys are exactly
- * ±1, they come out about 21 bytes ahead. Either way what reaches disk barely moves. This suite pins
- * both halves: correctness, so the mechanism can be turned on the day the arithmetic changes, and the
- * magnitude, so nobody turns it on believing it shrinks anything.
+ * nothing. Measured on a 92-page JSON record load the columns take 930 B per page out of the raw
+ * heap and put 14 B per page back on the wire; on the synthetic page below, whose sibling keys are
+ * exactly ±1, they come out about 21 bytes ahead. Either way what reaches disk barely moves. This
+ * suite pins both halves: correctness, so the mechanism can be turned on the day the arithmetic
+ * changes, and the magnitude, so nobody turns it on believing it shrinks anything.
  */
 @DisplayName("Structural sibling-key columns")
 final class StructuralKeyColumnPageTest {
@@ -146,12 +146,10 @@ final class StructuralKeyColumnPageTest {
     // on the magnitude, which is the finding that keeps the default off: whatever the raw heap says,
     // this lever does not move the page by anything worth the format surface.
     final int wireDelta = Math.abs(withColumns.length - inline.length);
-    assertTrue(wireDelta * 20 < inline.length,
-        "the wire must barely move, or the premise behind the default is stale: " + withColumns.length + " vs "
-            + inline.length);
-    assertTrue(inlineHeap - columnHeap > wireDelta * 20,
-        "the raw heap saving must dwarf what reaches the wire — heap " + (inlineHeap - columnHeap) + " B, wire "
-            + wireDelta + " B");
+    assertTrue(wireDelta * 20 < inline.length, "the wire must barely move, or the premise behind the default is stale: "
+        + withColumns.length + " vs " + inline.length);
+    assertTrue(inlineHeap - columnHeap > wireDelta * 20, "the raw heap saving must dwarf what reaches the wire — heap "
+        + (inlineHeap - columnHeap) + " B, wire " + wireDelta + " B");
   }
 
   // ──────────────────────────────────────────────────────────────── helpers
@@ -202,8 +200,8 @@ final class StructuralKeyColumnPageTest {
   }
 
   /**
-   * Records in document order: each slot's right sibling is the next node key and its left sibling the
-   * previous one, except at the record boundaries, which is the shape the column codec's node-key
+   * Records in document order: each slot's right sibling is the next node key and its left sibling
+   * the previous one, except at the record boundaries, which is the shape the column codec's node-key
    * predictors are built for.
    */
   private void fillRecordShaped(final KeyValueLeafPage page) {
@@ -225,8 +223,8 @@ final class StructuralKeyColumnPageTest {
   }
 
   private KeyValueLeafPage newPage(final ResourceConfiguration config) {
-    return new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1,
-        arena.allocate(MemorySegmentAllocator.SIXTYFOUR_KB), null);
+    return new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, arena.allocate(MemorySegmentAllocator.SIXTYFOUR_KB),
+        null);
   }
 
   private static KeyValueLeafPage roundTrip(final ResourceConfiguration config, final KeyValueLeafPage page) {

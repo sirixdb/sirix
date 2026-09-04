@@ -226,8 +226,7 @@ final class MetadataSetCountsTest {
 
   private static Map<Integer, Map<String, Long>> initializeSummaries(final ProjectionIndexHOTStorage storage,
       final byte[] columnKinds, final Map<Integer, Map<String, Long>> summaries) {
-    final ProjectionSetSummaryChunks.BuildAccumulator initializer =
-        new ProjectionSetSummaryChunks.BuildAccumulator();
+    final ProjectionSetSummaryChunks.BuildAccumulator initializer = new ProjectionSetSummaryChunks.BuildAccumulator();
     try {
       initializer.append(new ProjectionIndexRowGroupPage(columnKinds.clone()));
       final Map<Integer, Map<String, Long>> capabilities = initializer.writeAll(storage, columnKinds);

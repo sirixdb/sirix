@@ -56,12 +56,12 @@ public final class ValidTimeFreshAllocationTest {
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .validTimePaths(VALID_FROM, VALID_TO)
-          .buildPathSummary(true)
-          .build());
+                                                   .validTimePaths(VALID_FROM, VALID_TO)
+                                                   .buildPathSummary(true)
+                                                   .build());
 
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           JsonNodeTrx wtx = session.beginNodeTrx()) {
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOCUMENT), JsonNodeTrx.Commit.NO);
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, null);
         wtx.commit();
@@ -71,7 +71,7 @@ public final class ValidTimeFreshAllocationTest {
 
       drop(database, Set.of(IndexType.VALIDTIME, IndexType.CAS));
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           JsonNodeTrx wtx = session.beginNodeTrx()) {
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, null);
         wtx.commit();
       }
@@ -85,7 +85,7 @@ public final class ValidTimeFreshAllocationTest {
 
       drop(database, Set.of(IndexType.VALIDTIME));
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           JsonNodeTrx wtx = session.beginNodeTrx()) {
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
         final JsonIndexController controller = session.getWtxIndexController(wtx.getRevisionNumber());
         final IndexDef explicit = ValidTimeIndexes.createIntervalIndex(controller, wtx,
             ValidTimeIndexes.defaultPaths(validTimeConfig), null, RESOURCE);
@@ -107,13 +107,13 @@ public final class ValidTimeFreshAllocationTest {
 
   private static void drop(final Database<JsonResourceSession> database, final Set<IndexType> types) {
     try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         JsonNodeTrx wtx = session.beginNodeTrx()) {
+        JsonNodeTrx wtx = session.beginNodeTrx()) {
       final var controller = session.getWtxIndexController(wtx.getRevisionNumber());
       final Set<IndexDef> toDrop = controller.getIndexes()
-          .getIndexDefs()
-          .stream()
-          .filter(indexDef -> types.contains(indexDef.getType()))
-          .collect(Collectors.toUnmodifiableSet());
+                                             .getIndexDefs()
+                                             .stream()
+                                             .filter(indexDef -> types.contains(indexDef.getType()))
+                                             .collect(Collectors.toUnmodifiableSet());
       assertFalse(toDrop.isEmpty(), "drop fixture found no matching definitions");
       controller.dropIndexes(toDrop, wtx);
       wtx.commit();

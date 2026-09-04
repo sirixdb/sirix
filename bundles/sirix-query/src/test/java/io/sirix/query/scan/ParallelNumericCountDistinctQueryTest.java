@@ -24,12 +24,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * End-to-end witness for the parallel numeric count-distinct arms: a projection of 100,000 rows (past
- * the row floor below which the count stays on one thread) with a WIDE column (a 52-bit value per
- * row — the shared hash-set arm), a NARROW one (the per-worker bitset arm) and a narrow one MISSING on
- * every other row. Every answer must equal the truth kept while the rows were written and the
- * interpreter's, and the parallel-arm counter must have moved — the one-thread arms give the same
- * answers, so the answers alone would not notice a fan-out that never engaged.
+ * End-to-end witness for the parallel numeric count-distinct arms: a projection of 100,000 rows
+ * (past the row floor below which the count stays on one thread) with a WIDE column (a 52-bit value
+ * per row — the shared hash-set arm), a NARROW one (the per-worker bitset arm) and a narrow one
+ * MISSING on every other row. Every answer must equal the truth kept while the rows were written
+ * and the interpreter's, and the parallel-arm counter must have moved — the one-thread arms give
+ * the same answers, so the answers alone would not notice a fan-out that never engaged.
  */
 final class ParallelNumericCountDistinctQueryTest {
   private static final String DB = "parallel-count-distinct-db";

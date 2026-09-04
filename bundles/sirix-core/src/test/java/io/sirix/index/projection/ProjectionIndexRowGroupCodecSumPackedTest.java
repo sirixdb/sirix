@@ -40,7 +40,10 @@ final class ProjectionIndexRowGroupCodecSumPackedTest {
     return sum;
   }
 
-  /** The widths the writer emits: 1..56 packed and 64 raw ({@link ProjectionIndexRowGroupCodec#clampPackWidth}). */
+  /**
+   * The widths the writer emits: 1..56 packed and 64 raw
+   * ({@link ProjectionIndexRowGroupCodec#clampPackWidth}).
+   */
   private static int[] writerWidths() {
     final int[] widths = new int[57];
     for (int w = 1; w <= 56; w++) {
@@ -55,7 +58,9 @@ final class ProjectionIndexRowGroupCodecSumPackedTest {
     final Random rnd = new Random(0x5EED_5EEDL);
     final int[] counts = {1, 2, 7, 63, 64, 65, 127, 128, 1000, 1024, 1025};
     for (final int width : writerWidths()) {
-      final long mask = width == 64 ? -1L : (1L << width) - 1L;
+      final long mask = width == 64
+          ? -1L
+          : (1L << width) - 1L;
       for (final int count : counts) {
         final long[] values = new long[count];
         long expected = 0L;
@@ -79,7 +84,9 @@ final class ProjectionIndexRowGroupCodecSumPackedTest {
   @Test
   void allOnesAndAllZerosAtEveryWidth() {
     for (final int width : writerWidths()) {
-      final long mask = width == 64 ? -1L : (1L << width) - 1L;
+      final long mask = width == 64
+          ? -1L
+          : (1L << width) - 1L;
       final int count = 1024;
       final long[] ones = new long[count];
       Arrays.fill(ones, mask);

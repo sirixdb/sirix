@@ -27,12 +27,12 @@ import java.util.concurrent.atomic.LongAdder;
  *
  * <h2>Why this is not {@link TrieLaneDictionaries}</h2>
  *
- * That one answers the DECODE direction and holds one transaction's reader. This runs somewhere very
- * different: {@code PageKind.buildRegionTable} builds a record page's string region inside
+ * That one answers the DECODE direction and holds one transaction's reader. This runs somewhere
+ * very different: {@code PageKind.buildRegionTable} builds a record page's string region inside
  * {@code serializeSnapshotWindowAsync}'s {@code runAsync} plus parallel {@code forEach}, so
- * {@link #idOf} is called concurrently from many ForkJoinPool threads. A resolver that walked the trie
- * through the writer from there would be the same hazard that got the writer-side resolution front
- * deleted: concurrent mutation of a reader declared single-threaded.
+ * {@link #idOf} is called concurrently from many ForkJoinPool threads. A resolver that walked the
+ * trie through the writer from there would be the same hazard that got the writer-side resolution
+ * front deleted: concurrent mutation of a reader declared single-threaded.
  *
  * <h2>Thread confinement is the safety argument, not a detail</h2>
  *
@@ -46,26 +46,26 @@ import java.util.concurrent.atomic.LongAdder;
  * its bytes and its id in four separate arrays with no synchronisation and no volatiles. Shared
  * across threads, a reader can match one thread's HASH against another thread's ID and get back a
  * valid-looking id for a different value — not a crash and not a torn field, but a coherent wrong
- * answer that flows straight into the id lane. One memo per thread makes that unreachable rather than
- * unlikely.
+ * answer that flows straight into the id lane. One memo per thread makes that unreachable rather
+ * than unlikely.
  * </p>
  *
  * <h2>Why a probe and not a value table</h2>
  *
  * The alternative is retaining the pre-pass's sorted values and binary-searching them, which is
  * thread-safe by immutability and costs roughly 18.3M x 184 B ≈ 4-5 GB of heap for URL alone, times
- * every converted column, held for the whole load — on a load that has historically run its arenas to
- * the edge. A probe holds no value set at all. {@code PrebuiltGlobalDictionary}'s javadoc prices this
- * exact shape: paid once per per-leaf DICTIONARY ENTRY and memoised across leaves, ~600k probes for
- * URL and Title together at 1M. That matches the measured leaf shape — a leaf is only ~9.7 ClickBench
- * rows, so ~6 distinct values per tag per leaf.
+ * every converted column, held for the whole load — on a load that has historically run its arenas
+ * to the edge. A probe holds no value set at all. {@code PrebuiltGlobalDictionary}'s javadoc prices
+ * this exact shape: paid once per per-leaf DICTIONARY ENTRY and memoised across leaves, ~600k
+ * probes for URL and Title together at 1M. That matches the measured leaf shape — a leaf is only
+ * ~9.7 ClickBench rows, so ~6 distinct values per tag per leaf.
  *
  * <h2>What it deliberately cannot do</h2>
  *
- * The DECODE direction. {@link #valueOf} and {@link #accepts} always refuse: an encoder never turns an
- * id back into bytes, and answering would invite a caller to read pages through a resolver built for
- * writing. Reading is {@link TrieLaneDictionaries}' job, from a reader positioned at the reading
- * transaction's revision.
+ * The DECODE direction. {@link #valueOf} and {@link #accepts} always refuse: an encoder never turns
+ * an id back into bytes, and answering would invite a caller to read pages through a resolver built
+ * for writing. Reading is {@link TrieLaneDictionaries}' job, from a reader positioned at the
+ * reading transaction's revision.
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
@@ -173,9 +173,10 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
    * </p>
    *
    * <p>
-   * The order is the Dekker one and it matters: {@code idOf} increments BEFORE reading {@code closed},
-   * {@code close()} writes {@code closed} BEFORE reading this. Both fields carry the necessary
-   * happens-before, so no interleaving lets a probe start after close and no probe is missed.
+   * The order is the Dekker one and it matters: {@code idOf} increments BEFORE reading
+   * {@code closed}, {@code close()} writes {@code closed} BEFORE reading this. Both fields carry the
+   * necessary happens-before, so no interleaving lets a probe start after close and no probe is
+   * missed.
    * </p>
    */
   private final AtomicInteger inFlight = new AtomicInteger();
@@ -186,8 +187,8 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
    * @param headerKeyByColumn column to header key, from {@code sirix.projection.globalDict.prebuilt}
    * @param entryCountByColumn column to the dictionary's entry count
    */
-  public TrieLaneWriteDictionaries(final ResourceSession<?, ?> resourceSession,
-      final int dictionaryRevision, final Int2LongMap headerKeyByColumn, final Int2IntMap entryCountByColumn) {
+  public TrieLaneWriteDictionaries(final ResourceSession<?, ?> resourceSession, final int dictionaryRevision,
+      final Int2LongMap headerKeyByColumn, final Int2IntMap entryCountByColumn) {
     this.resourceSession = Objects.requireNonNull(resourceSession, "resourceSession");
     if (dictionaryRevision < 0) {
       throw new IllegalArgumentException("dictionary revision must not be negative: " + dictionaryRevision);
@@ -220,9 +221,8 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
    * @param columnCount the projection's column count, for the anchor parser's bounds check
    * @return the resolver, or {@code null} when no prebuilt anchors are configured
    */
-  public static @Nullable TrieLaneWriteDictionaries bindConfigured(
-      final ResourceSession<?, ?> resourceSession, final int dictionaryRevision,
-      final int columnCount) {
+  public static @Nullable TrieLaneWriteDictionaries bindConfigured(final ResourceSession<?, ?> resourceSession,
+      final int dictionaryRevision, final int columnCount) {
     final long[] anchors = ProjectionIndexBuilder.configuredPrebuiltAnchors(columnCount);
     if (anchors == null) {
       return null;

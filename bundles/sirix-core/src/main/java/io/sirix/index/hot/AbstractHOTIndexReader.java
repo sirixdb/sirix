@@ -120,8 +120,7 @@ public abstract class AbstractHOTIndexReader<K> {
      * Return a buffer capable of holding {@code prefix || chunkIdx_be4}. Reuse the caller's spare
      * capacity whenever possible; otherwise retain one fallback buffer with the pooled walk state.
      */
-    private byte[] compositeSeekBuffer(final byte[] prefixBuf, final int prefixLen,
-        final int compositeLen) {
+    private byte[] compositeSeekBuffer(final byte[] prefixBuf, final int prefixLen, final int compositeLen) {
       if (prefixBuf.length >= compositeLen) {
         return prefixBuf;
       }
@@ -557,23 +556,33 @@ public abstract class AbstractHOTIndexReader<K> {
     return switch (indexType) {
       case PATH -> {
         final PathPage pathPage = storageEngineReader.getPathPage(rootPage);
-        yield pathPage == null ? null : pathPage.getIndexReference(indexNumber);
+        yield pathPage == null
+            ? null
+            : pathPage.getIndexReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = storageEngineReader.getCASPage(rootPage);
-        yield casPage == null ? null : casPage.getIndexReference(indexNumber);
+        yield casPage == null
+            ? null
+            : casPage.getIndexReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = storageEngineReader.getNamePage(rootPage);
-        yield namePage == null ? null : namePage.getIndexReference(nameDatabaseType(), indexNumber);
+        yield namePage == null
+            ? null
+            : namePage.getIndexReference(nameDatabaseType(), indexNumber);
       }
       case PROJECTION -> {
         final ProjectionIndexPage projectionPage = storageEngineReader.getProjectionIndexPage(rootPage);
-        yield projectionPage == null ? null : projectionPage.getIndexReference(indexNumber);
+        yield projectionPage == null
+            ? null
+            : projectionPage.getIndexReference(indexNumber);
       }
       case VALIDTIME -> {
         final ValidTimeIndexPage vtPage = storageEngineReader.getValidTimeIndexPage(rootPage);
-        yield vtPage == null ? null : vtPage.getIndexReference(indexNumber);
+        yield vtPage == null
+            ? null
+            : vtPage.getIndexReference(indexNumber);
       }
       default -> null;
     };

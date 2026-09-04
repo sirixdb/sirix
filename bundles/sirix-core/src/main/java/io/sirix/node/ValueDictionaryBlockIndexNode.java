@@ -11,10 +11,10 @@ import io.sirix.utils.ToStringHelper;
  * <p>
  * Dropping the forward hash index over an ordered prefix (§3.3.2) turns "which id holds this value"
  * into a binary search over the reverse index. Measured without this array that search costs
- * <b>26x</b> the hash probe, and the reason is not tree depth: a search over 275k values touches ~18
- * DIFFERENT blocks and every block is a front-coded LZ77 frame that has to be decoded WHOLE before a
- * single value inside it can be compared. The hash probe decodes exactly one. Both are decode-bound;
- * the search simply decodes eighteen times more.
+ * <b>26x</b> the hash probe, and the reason is not tree depth: a search over 275k values touches
+ * ~18 DIFFERENT blocks and every block is a front-coded LZ77 frame that has to be decoded WHOLE
+ * before a single value inside it can be compared. The hash probe decodes exactly one. Both are
+ * decode-bound; the search simply decodes eighteen times more.
  * </p>
  *
  * <p>
@@ -29,9 +29,9 @@ import io.sirix.utils.ToStringHelper;
  * <b>The separator contract</b>, which is what makes a search over truncated keys exact:
  * {@code previousBlockLastValue < separator[i] <= firstValueOf(block i)} under the engine's UTF-16
  * collation. A needle therefore belongs to block {@code i} exactly when {@code i} is the LARGEST
- * index whose separator does not exceed it — there is no ambiguity to resolve by probing neighbours,
- * and no case where a truncated separator makes a present value look absent. Entry 0's separator is
- * empty, so every value is at or after it.
+ * index whose separator does not exceed it — there is no ambiguity to resolve by probing
+ * neighbours, and no case where a truncated separator makes a present value look absent. Entry 0's
+ * separator is empty, so every value is at or after it.
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -174,7 +174,10 @@ public final class ValueDictionaryBlockIndexNode implements DataRecord {
 
   @Override
   public String toString() {
-    return ToStringHelper.of(this).add("nodeKey", nodeKey).add("blocks", firstIds.length)
-                         .add("separatorBytes", separators.length).toString();
+    return ToStringHelper.of(this)
+                         .add("nodeKey", nodeKey)
+                         .add("blocks", firstIds.length)
+                         .add("separatorBytes", separators.length)
+                         .toString();
   }
 }

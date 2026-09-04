@@ -54,8 +54,8 @@ public final class JsonTestHelper {
   private static final String TMPDIR = System.getProperty("java.io.tmpdir");
 
   /**
-   * Per-JVM unique base directory. Using the PID ensures that parallel Gradle forks
-   * or concurrent test tasks don't share the same database files.
+   * Per-JVM unique base directory. Using the PID ensures that parallel Gradle forks or concurrent
+   * test tasks don't share the same database files.
    */
   private static final String SIRIX_BASE = "sirix-" + ProcessHandle.current().pid();
 

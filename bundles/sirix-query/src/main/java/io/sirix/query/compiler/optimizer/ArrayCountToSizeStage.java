@@ -12,16 +12,18 @@ import io.sirix.query.function.jn.SirixArraySize;
  * Rewrites {@code count(for $x in E[] return $x)} and {@code count(E[])} into
  * {@code jn:sirix-array-size(E)}.
  *
- * <p>Counting an array by unboxing it walks every member: on the 3.48 M-record comparison corpus
- * that is a 325–360 ms full scan, against <b>0.2 ms</b> for the stored-size accessor, because a JSON
+ * <p>
+ * Counting an array by unboxing it walks every member: on the 3.48 M-record comparison corpus that
+ * is a 325–360 ms full scan, against <b>0.2 ms</b> for the stored-size accessor, because a JSON
  * array node stores its child count and the answer is a single node read. PostgreSQL cannot do this
  * — an MVCC heap has no O(1) row count, which is why {@code SELECT count(*)} scans there too — so
  * this is a structural advantage that was simply not being reached.
  *
- * <p><b>Why the rewrite is sound.</b> The {@code return} clause must be exactly the loop variable and
+ * <p>
+ * <b>Why the rewrite is sound.</b> The {@code return} clause must be exactly the loop variable and
  * the pipeline must carry no other clause: a {@code where}, {@code let}, {@code group by},
- * {@code order by}, {@code count}, positional {@code at $p}, or {@code allowing empty} changes either
- * the count or the binding, and every one is rejected below. At runtime
+ * {@code order by}, {@code count}, positional {@code at $p}, or {@code allowing empty} changes
+ * either the count or the binding, and every one is rejected below. At runtime
  * {@link SirixArraySize} takes the O(1) child-count arm only for a direct Sirix-backed array; every
  * other operand is delegated to Brackit's own array-access implementation before it is counted.
  * This preserves Brackit's runtime sequence dispatch and error behavior for the general case.
@@ -52,8 +54,8 @@ public final class ArrayCountToSizeStage implements Stage {
 
   /** @return the stored-size call when {@code node} matches the pattern, else {@code null}. */
   private static AST tryRewrite(final AST node) {
-    if (node.getType() != XQ.FunctionCall || node.getChildCount() != 1
-        || !(node.getValue() instanceof QNm fn) || !isBuiltinCount(fn)) {
+    if (node.getType() != XQ.FunctionCall || node.getChildCount() != 1 || !(node.getValue() instanceof QNm fn)
+        || !isBuiltinCount(fn)) {
       return null;
     }
     final AST arrayExpr = countableArrayExpr(node.getChild(0));
@@ -78,8 +80,7 @@ public final class ArrayCountToSizeStage implements Stage {
       return false;
     }
     final String ns = fn.getNamespaceURI();
-    return ns == null || ns.isEmpty()
-        || Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns);
+    return ns == null || ns.isEmpty() || Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns);
   }
 
   /**
@@ -127,10 +128,8 @@ public final class ArrayCountToSizeStage implements Stage {
 
   /** {@code E[]} — an ArrayAccess whose index is the empty sequence, i.e. "all members". */
   private static boolean isUnboxAll(final AST node) {
-    return node.getType() == XQ.ArrayAccess
-        && node.getChildCount() == 2
-        && node.getChild(1).getType() == XQ.SequenceExpr
-        && node.getChild(1).getChildCount() == 0;
+    return node.getType() == XQ.ArrayAccess && node.getChildCount() == 2
+        && node.getChild(1).getType() == XQ.SequenceExpr && node.getChild(1).getChildCount() == 0;
   }
 
   private static boolean sameVariable(final AST declared, final AST referenced) {

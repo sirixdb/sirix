@@ -240,16 +240,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * Disjoint from {@link #COMPACT_SCRATCH}: a growing packed merge may have to compact the page after
    * its result has been written here, so sharing the arrays would destroy the pending replacement.
    */
-  private static final ThreadLocal<byte[]> PACKED_MERGE_SCRATCH = ThreadLocal.withInitial(
-      () -> new byte[NodeReferencesSerializer.MAX_PACKED_PAYLOAD_LENGTH]);
+  private static final ThreadLocal<byte[]> PACKED_MERGE_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[NodeReferencesSerializer.MAX_PACKED_PAYLOAD_LENGTH]);
 
-  /** Rare defensive fallback if an internal caller ever supplies {@link #COMPACT_SCRATCH} as input. */
-  private static final ThreadLocal<byte[]> COMPACT_ALIAS_SCRATCH = ThreadLocal.withInitial(
-      () -> new byte[DEFAULT_SIZE]);
+  /**
+   * Rare defensive fallback if an internal caller ever supplies {@link #COMPACT_SCRATCH} as input.
+   */
+  private static final ThreadLocal<byte[]> COMPACT_ALIAS_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[DEFAULT_SIZE]);
 
-  /** Stages relocated slot offsets until a compacting replacement has copied every byte successfully. */
-  private static final ThreadLocal<int[]> COMPACT_OFFSETS_SCRATCH = ThreadLocal.withInitial(
-      () -> new int[MAX_ENTRIES]);
+  /**
+   * Stages relocated slot offsets until a compacting replacement has copied every byte successfully.
+   */
+  private static final ThreadLocal<int[]> COMPACT_OFFSETS_SCRATCH = ThreadLocal.withInitial(() -> new int[MAX_ENTRIES]);
 
   // ===== SIMD species for PEXT equality search =====
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_256;
@@ -315,11 +318,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Allocation-free ownership handle for a frame acquired by this page.
    *
-   * <p>The handle itself is constructed <em>before</em> the allocator is entered. Once a native
-   * frame has been acquired, {@link #bind(MemorySegment)} and {@link #run()} perform no Java-heap
-   * allocation. This matters both in the constructor and in the zero-copy-to-mutable transition:
-   * an {@link OutOfMemoryError} while creating a capturing lambda must never strand a frame or leave
-   * {@link #slotMemory} paired with the preceding frame's releaser.</p>
+   * <p>
+   * The handle itself is constructed <em>before</em> the allocator is entered. Once a native frame
+   * has been acquired, {@link #bind(MemorySegment)} and {@link #run()} perform no Java-heap
+   * allocation. This matters both in the constructor and in the zero-copy-to-mutable transition: an
+   * {@link OutOfMemoryError} while creating a capturing lambda must never strand a frame or leave
+   * {@link #slotMemory} paired with the preceding frame's releaser.
+   * </p>
    */
   private static final class AllocatorSegmentReleaser implements Runnable {
     private final MemorySegmentAllocator allocator;
@@ -1605,7 +1610,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Return an exact defensive copy of the value stored at {@code index}.
    *
-   * <p>Unlike {@link #getValue(int)}, this preserves a valid zero-length value as {@code new byte[0]}
+   * <p>
+   * Unlike {@link #getValue(int)}, this preserves a valid zero-length value as {@code new byte[0]}
    * instead of conflating it with an absent/unreadable value. Callers that rebuild or migrate leaf
    * entries must use this method when zero-length projection tombstones are part of the value domain.
    *
@@ -1870,10 +1876,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * append, or a single compact-and-replace pass without materializing an exact-sized carrier array.
    * The source range is never retained.
    *
-   * <p>All source and slot ranges are validated before logical metadata is published. The compacting
-   * arm stages bytes and offsets in thread-local storage disjoint from the packed-merge source
-   * scratch, so compaction cannot overwrite a pending replacement. If the compacted result does not
-   * fit, this method returns {@code false} with the old logical value intact.</p>
+   * <p>
+   * All source and slot ranges are validated before logical metadata is published. The compacting arm
+   * stages bytes and offsets in thread-local storage disjoint from the packed-merge source scratch,
+   * so compaction cannot overwrite a pending replacement. If the compacted result does not fit, this
+   * method returns {@code false} with the old logical value intact.
+   * </p>
    */
   public boolean updateValueRange(int index, byte[] valueBuf, int valueOff, int valueLen) {
     if (index < 0 || index >= entryCount) {
@@ -1885,8 +1893,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
           "valueOff=" + valueOff + " valueLen=" + valueLen + " valueBuf.length=" + valueBuf.length);
     }
     if (valueLen > MAX_KEY_VALUE_LENGTH) {
-      throw new IllegalArgumentException(
-          "Value length " + valueLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
+      throw new IllegalArgumentException("Value length " + valueLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
     }
     ensureMutableSlotMemory();
     int entryOffset = slotOffsets[index];
@@ -1921,8 +1928,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       final int newEntryOffset = usedSlotMemorySize;
       slotMemory.set(JAVA_SHORT_UNALIGNED, newEntryOffset, (short) suffixLen);
       if (suffixLen > 0) {
-        MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, entryOffset + 2, slotMemory,
-            ValueLayout.JAVA_BYTE, newEntryOffset + 2, suffixLen);
+        MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, entryOffset + 2, slotMemory, ValueLayout.JAVA_BYTE,
+            newEntryOffset + 2, suffixLen);
       }
       final int newValueLenOffset = newEntryOffset + 2 + suffixLen;
       slotMemory.set(JAVA_SHORT_UNALIGNED, newValueLenOffset, (short) valueLen);
@@ -1937,8 +1944,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /** Compact all live entries while substituting one growing value, then publish in one step. */
-  private boolean compactAndReplaceValueRange(final int replacementIndex, final byte[] valueBuf,
-      final int valueOff, final int valueLen) {
+  private boolean compactAndReplaceValueRange(final int replacementIndex, final byte[] valueBuf, final int valueOff,
+      final int valueLen) {
     final long capacity = slotMemory.byteSize();
     int compactedSize = 0;
 
@@ -1949,8 +1956,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       final long valueRef = valueRef(i);
       final int oldValueLen = refLength(valueRef);
       if (oldValueLen < 0) {
-        throw new IllegalStateException(
-            "HOT leaf " + recordPageKey + " has an unreadable value at slot " + i);
+        throw new IllegalStateException("HOT leaf " + recordPageKey + " has an unreadable value at slot " + i);
       }
       final int oldSuffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, oldOffset));
       final int oldEntrySize = Math.addExact(Math.addExact(2 + oldSuffixLen, 2), oldValueLen);
@@ -1996,8 +2002,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         compacted[newOffset] = (byte) (oldSuffixLen & 0xFF);
         compacted[newOffset + 1] = (byte) ((oldSuffixLen >>> 8) & 0xFF);
         if (oldSuffixLen > 0) {
-          MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, oldOffset + 2, compacted, newOffset + 2,
-              oldSuffixLen);
+          MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, oldOffset + 2, compacted, newOffset + 2, oldSuffixLen);
         }
         final int newValueLenOffset = newOffset + 2 + oldSuffixLen;
         compacted[newValueLenOffset] = (byte) (valueLen & 0xFF);
@@ -2447,8 +2452,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * position beyond key length is treated as 0).
    *
    * <p>
-   * Used by writer-side validation to determine whether extending an ancestor's
-   * mask with bit {@code absBit} would preserve β-constancy at this leaf without splitting.
+   * Used by writer-side validation to determine whether extending an ancestor's mask with bit
+   * {@code absBit} would preserve β-constancy at this leaf without splitting.
    */
   public int isBitConstantAtAbsBit(int absBit) {
     if (absBit < 0 || entryCount == 0)
@@ -2577,17 +2582,18 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Classify one physically stored value according to this leaf's index type.
    *
-   * <p>Uses the packed value reference directly, so the check allocates nothing and never conflates
-   * a valid zero-length projection tombstone with an unreadable slot. An unreadable value is
-   * structural corruption and fails before a delete or compaction mutates the page.</p>
+   * <p>
+   * Uses the packed value reference directly, so the check allocates nothing and never conflates a
+   * valid zero-length projection tombstone with an unreadable slot. An unreadable value is structural
+   * corruption and fails before a delete or compaction mutates the page.
+   * </p>
    */
   private boolean isStoredTombstone(final int index) {
     Objects.checkIndex(index, entryCount);
     final long valueRef = valueRef(index);
     final int valueLength = refLength(valueRef);
     if (valueLength < 0) {
-      throw new IllegalStateException(
-          "HOT leaf " + recordPageKey + " has an unreadable value at slot " + index);
+      throw new IllegalStateException("HOT leaf " + recordPageKey + " has an unreadable value at slot " + index);
     }
     return indexType == IndexType.PROJECTION
         ? valueLength == 0
@@ -2822,8 +2828,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
           return updateValue(index, valueSlice);
         }
         final byte[] packedMergeScratch = PACKED_MERGE_SCRATCH.get();
-        final int fastMergedLength = NodeReferencesSerializer.mergePackedSingleBitFromSlot(this, existingRef,
-            value, 0, valueLen, packedMergeScratch, 0);
+        final int fastMergedLength = NodeReferencesSerializer.mergePackedSingleBitFromSlot(this, existingRef, value, 0,
+            valueLen, packedMergeScratch, 0);
         if (fastMergedLength == NodeReferencesSerializer.PACKED_MERGE_UNCHANGED) {
           return true; // new key already present — merged set unchanged, slot rewrite unnecessary
         }
@@ -2885,9 +2891,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Create the copy-on-write image that will be persisted by {@code targetRevision}.
    *
-   * <p>The source page keeps its historical revision. The returned page retains the same logical
-   * page key and the ordinary {@link #copy()} fragment dependency, but its wire header identifies
-   * the revision that writes this new physical image.</p>
+   * <p>
+   * The source page keeps its historical revision. The returned page retains the same logical page
+   * key and the ordinary {@link #copy()} fragment dependency, but its wire header identifies the
+   * revision that writes this new physical image.
+   * </p>
    *
    * @param targetRevision revision that will persist the copied image
    * @return an independent CoW page stamped with {@code targetRevision}
@@ -3419,9 +3427,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * {@code -1} if all keys (including {@code key}) would be identical.
    *
    * <p>
-   * Used by writer-side split selection to detect when an insert would introduce a
-   * new MSDB that coincides with an ancestor disc bit β — the safe-to- eager-split case (contiguous
-   * partition on β).
+   * Used by writer-side split selection to detect when an insert would introduce a new MSDB that
+   * coincides with an ancestor disc bit β — the safe-to- eager-split case (contiguous partition on
+   * β).
    */
   public int computeMsdbWithKey(byte[] key) {
     if (entryCount == 0)
@@ -4014,8 +4022,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @return packed slot coordinates, {@link FrameSlotAllocator#NO_SLOT_COORDINATES} when the memory
    *         is not a live frame slot, or {@link #STAMP_COORDINATES_UNBOUND} when there is no segment
    */
-  private long slotCoordinatesOf(final @Nullable MemorySegment segment,
-      final @Nullable MemorySegment baseSegment) {
+  private long slotCoordinatesOf(final @Nullable MemorySegment segment, final @Nullable MemorySegment baseSegment) {
     if (segment == null) {
       return STAMP_COORDINATES_UNBOUND;
     }

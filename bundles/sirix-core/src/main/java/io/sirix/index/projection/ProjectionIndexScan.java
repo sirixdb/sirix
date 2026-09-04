@@ -75,11 +75,11 @@ public final class ProjectionIndexScan {
      * satisfies the predicate.
      *
      * <p>
-     * The predicate keeps its STRING op — the ops every numeric kernel THROWS on — so a kernel that
-     * has not been taught this form fails loud instead of comparing ids as numbers. Kernels that
-     * prune by numeric zone maps or exact-value fingerprints must ignore verdict predicates: the
-     * long lane holds ids, and neither an id range nor a value fingerprint says anything about a
-     * substring or ordering verdict.
+     * The predicate keeps its STRING op — the ops every numeric kernel THROWS on — so a kernel that has
+     * not been taught this form fails loud instead of comparing ids as numbers. Kernels that prune by
+     * numeric zone maps or exact-value fingerprints must ignore verdict predicates: the long lane holds
+     * ids, and neither an id range nor a value fingerprint says anything about a substring or ordering
+     * verdict.
      */
     public final long @Nullable [] globalIdVerdict;
 
@@ -107,8 +107,8 @@ public final class ProjectionIndexScan {
     /**
      * A string predicate over a {@code STRING_GLOBAL} column, pre-evaluated per dictionary id.
      *
-     * @param op one of the string ops ({@code STR_*}, {@code EQ}, {@code NE}); the numeric ops make
-     *        no sense against a verdict and are refused
+     * @param op one of the string ops ({@code STR_*}, {@code EQ}, {@code NE}); the numeric ops make no
+     *        sense against a verdict and are refused
      * @param verdict bit {@code id} set iff the value interned under {@code id} matches
      * @param idCount ids the verdict covers; the bitset must span it
      */
@@ -120,7 +120,8 @@ public final class ProjectionIndexScan {
       // Ids are 1-BASED (bit 0 unused), so id == idCount lives in word idCount >>> 6 — an idCount
       // that is a multiple of 64 needs one word more than a 0-based ceil would grant.
       if (idCount < 0 || idCount >>> 6 >= verdict.length) {
-        throw new IllegalArgumentException("verdict bitset spans " + (verdict.length * 64L - 1) + " ids, needs " + idCount);
+        throw new IllegalArgumentException(
+            "verdict bitset spans " + (verdict.length * 64L - 1) + " ids, needs " + idCount);
       }
       switch (op) {
         case EQ, NE, STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> {
@@ -282,8 +283,8 @@ public final class ProjectionIndexScan {
     /**
      * Max leaf predicates (= max program stack depth) — bounds kernel scratch, which every consumer
      * sizes per thread (a {@code long[MAX_LEAVES][rows/64]} mask stack, a boolean per leaf), so 64
-     * costs ≤ 8 KiB per worker. 64 admits the any-k group rewrite's {@code OR_k AND_c (col = v)}
-     * shape for {@code k × columns ≤ 64} beside the hand-written IN/BETWEEN trees that fit in 16.
+     * costs ≤ 8 KiB per worker. 64 admits the any-k group rewrite's {@code OR_k AND_c (col = v)} shape
+     * for {@code k × columns ≤ 64} beside the hand-written IN/BETWEEN trees that fit in 16.
      */
     public static final int MAX_LEAVES = 64;
 
@@ -346,9 +347,8 @@ public final class ProjectionIndexScan {
     }
 
     /**
-     * Whether the program negates anywhere. A whole-leaf prune (every operand all-zero) is exact
-     * under AND/OR but NOT would flip it to all-true, so negating trees keep the exact per-leaf
-     * evaluation.
+     * Whether the program negates anywhere. A whole-leaf prune (every operand all-zero) is exact under
+     * AND/OR but NOT would flip it to all-true, so negating trees keep the exact per-leaf evaluation.
      */
     public boolean hasNot() {
       return hasNot;
@@ -437,8 +437,7 @@ public final class ProjectionIndexScan {
     switch (kind) {
       // A temporal predicate reaches here already mapped to numeric bounds (see the executor's
       // literal-to-bound rule), so the cells and the literal are in the same units.
-      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
           ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
         evalNumeric(leaf.numericColumn(p.column), rowCount, p.op, p.longLit, p.highLit, out);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->

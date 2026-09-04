@@ -6,26 +6,27 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * One distinct set of 64-bit values that several workers fill together: the values are split by the
- * top bits of their {@link DistinctLongSet#mix(long) mix} into partition sets, each guarded by its own
- * monitor, and every worker appends through a {@link #worker() buffered handle} that flushes a
+ * top bits of their {@link DistinctLongSet#mix(long) mix} into partition sets, each guarded by its
+ * own monitor, and every worker appends through a {@link #worker() buffered handle} that flushes a
  * partition's buffer into the partition set in one locked run.
  *
  * <p>
  * The 64-bit sibling of {@link SharedDistinctHash128Set}, for columns whose values ARE the keys — a
- * numeric column, or a GLOBAL string column's resource-wide ids. The alternative — one set per worker,
- * merged at the end — holds every value once per worker that saw it: 100M rows with 17.6M distinct
- * user ids over 20 workers would carry up to 80M values in flight against 17.6M in the answer, and
- * the merge would be the serial pass the workers were meant to remove. Here the footprint is the
- * answer's, plus one buffer page per (worker, partition); a drain of hundreds of values into ONE
- * partition table keeps that table's lines hot for the run, which a value-by-value insert into the
- * whole table never does.
+ * numeric column, or a GLOBAL string column's resource-wide ids. The alternative — one set per
+ * worker, merged at the end — holds every value once per worker that saw it: 100M rows with 17.6M
+ * distinct user ids over 20 workers would carry up to 80M values in flight against 17.6M in the
+ * answer, and the merge would be the serial pass the workers were meant to remove. Here the
+ * footprint is the answer's, plus one buffer page per (worker, partition); a drain of hundreds of
+ * values into ONE partition table keeps that table's lines hot for the run, which a value-by-value
+ * insert into the whole table never does.
  * </p>
  *
  * <p>
- * Every array is charged to the shared byte {@code budget}: partition sets as they grow, buffers as a
- * worker handle is created. A refusal throws {@link DistinctHash128Set.ByteBudgetExceededException}
- * from the worker that hit it, and the operation declines as a whole. The count is read after every
- * worker has {@link Worker#flush() flushed} and the workers were joined.
+ * Every array is charged to the shared byte {@code budget}: partition sets as they grow, buffers as
+ * a worker handle is created. A refusal throws
+ * {@link DistinctHash128Set.ByteBudgetExceededException} from the worker that hit it, and the
+ * operation declines as a whole. The count is read after every worker has {@link Worker#flush()
+ * flushed} and the workers were joined.
  * </p>
  */
 public final class SharedDistinctLongSet {
@@ -38,8 +39,8 @@ public final class SharedDistinctLongSet {
   private final @Nullable AtomicLong budget;
 
   /**
-   * A shared set of {@code partitions} partition sets, each sized for {@code expectedKeysPerPartition}
-   * values before growing.
+   * A shared set of {@code partitions} partition sets, each sized for
+   * {@code expectedKeysPerPartition} values before growing.
    *
    * @param partitions the partition count, a positive power of two
    * @param expectedKeysPerPartition values each partition set holds before its first growth
@@ -100,7 +101,10 @@ public final class SharedDistinctLongSet {
     return total;
   }
 
-  /** One worker's buffers: {@code bufferKeys} values per partition, flushed into the partition set when full. */
+  /**
+   * One worker's buffers: {@code bufferKeys} values per partition, flushed into the partition set
+   * when full.
+   */
   public final class Worker implements DistinctLongSink {
     private final long[][] buffers;
     private final int[] fill;
@@ -130,7 +134,10 @@ public final class SharedDistinctLongSet {
       fill[p] = at;
     }
 
-    /** Push every buffered value into its partition set; the worker's contribution is complete after this. */
+    /**
+     * Push every buffered value into its partition set; the worker's contribution is complete after
+     * this.
+     */
     public void flush() {
       for (int p = 0; p < buffers.length; p++) {
         final int at = fill[p];

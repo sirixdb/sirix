@@ -32,9 +32,9 @@ public final class PathIndexBuilder {
   private @Nullable LongSet resolvedPCRs;
 
   /**
-   * Bulk loader, non-{@code null} exactly when this builder starts against an
-   * empty index tree — the normal "create an index over an already-shredded revision" case. Every
-   * entry is collected and the trie is materialised once in {@link #finish()}.
+   * Bulk loader, non-{@code null} exactly when this builder starts against an empty index tree — the
+   * normal "create an index over an already-shredded revision" case. Every entry is collected and the
+   * trie is materialised once in {@link #finish()}.
    */
   private final @Nullable HOTLongBulkIndexLoader bulkLoader;
 
@@ -128,10 +128,10 @@ public final class PathIndexBuilder {
    * Add {@code node} to {@code PCR}'s posting list.
    *
    * <p>
-   * A slot write is an OR-merge of the incoming bitmap into the stored one, so adding one
-   * reference needs neither a read-back of the stored references nor a re-insert of them. Doing so
-   * made building an index quadratic in the number of nodes sharing a key — and for a PATH index
-   * every node under the indexed path shares one key, so that was the whole index.
+   * A slot write is an OR-merge of the incoming bitmap into the stored one, so adding one reference
+   * needs neither a read-back of the stored references nor a re-insert of them. Doing so made
+   * building an index quadratic in the number of nodes sharing a key — and for a PATH index every
+   * node under the indexed path shares one key, so that was the whole index.
    * </p>
    */
   private void processNode(final ImmutableNode node, final long PCR) throws SirixIOException {

@@ -236,8 +236,9 @@ class HOTMergeSplitStressTest {
           wtx.commit();
 
           // Query across the entire range
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/items/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/items/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {
@@ -283,8 +284,9 @@ class HOTMergeSplitStressTest {
           wtx.commit();
 
           // Range query
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/users/[]/name"), new Str("user_02000"), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef,
+              indexController.createCASFilter(Set.of("/users/[]/name"), new Str("user_02000"),
+                  SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {

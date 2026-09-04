@@ -32,7 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Regression witness for ClickBench q25 ({@code WHERE SearchPhrase <> '' ORDER BY SearchPhrase LIMIT
+ * Regression witness for ClickBench q25
+ * ({@code WHERE SearchPhrase <> '' ORDER BY SearchPhrase LIMIT
  * 10}) on a build whose sort key is STRING_GLOBAL with a rank-ordered dictionary (2026-09-03). The
  * bounded top-k planned its leaf bounds from the per-leaf string extrema (a per-leaf dictionary
  * kind) or from the zone (numeric kinds) and left a global key unbounded, so every leaf was visited
@@ -47,7 +48,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * permutation of zero-padded numbers so each leaf's second-smallest value differs and the ten
  * smallest values sit in a handful of leaves. The witness asserts the dictionary is global and
  * rank-ordered, that the sorted route served with the bounded heap, that leaves were actually
- * SKIPPED (the plan was neither unbounded nor tied), and the answer's equality with the interpreter.
+ * SKIPPED (the plan was neither unbounded nor tied), and the answer's equality with the
+ * interpreter.
  */
 final class SortedGlobalKeyExcludingItsMinimumQueryTest {
   private static final String DB = "sorted-global-key-db";
@@ -139,9 +141,7 @@ final class SortedGlobalKeyExcludingItsMinimumQueryTest {
 
   @Test
   void aGlobalKeyExcludingItsMinimumIsBoundedBySecondExtremaAndSkipsLeaves() throws Exception {
-    final String query = "subsequence(\nfor $h in " + DOC + "\n"
-        + "where $h.phrase != \"\"\n"
-        + "order by $h.phrase\n"
+    final String query = "subsequence(\nfor $h in " + DOC + "\n" + "where $h.phrase != \"\"\n" + "order by $h.phrase\n"
         + "return $h.phrase, 1, 10)";
     final String generic = run(query, false);
     assertTrue(generic.contains("\"p-0000"), "the interpreter answered nothing: " + generic);
@@ -162,10 +162,8 @@ final class SortedGlobalKeyExcludingItsMinimumQueryTest {
 
     // Descending: the bound is the largest present id; no leaf's maximum is the excluded empty
     // string, so the refinement stays on the first extremum and the plan still skips.
-    final String descQuery = "subsequence(\nfor $h in " + DOC + "\n"
-        + "where $h.phrase != \"\"\n"
-        + "order by $h.phrase descending\n"
-        + "return $h.phrase, 1, 10)";
+    final String descQuery = "subsequence(\nfor $h in " + DOC + "\n" + "where $h.phrase != \"\"\n"
+        + "order by $h.phrase descending\n" + "return $h.phrase, 1, 10)";
     final String descGeneric = run(descQuery, false);
     final long descSkippedBefore = ProjectionColumnScan.topKLeavesSkippedCount();
     assertEquals(descGeneric, run(descQuery, true), "the descending sorted arm diverges from the interpreter");

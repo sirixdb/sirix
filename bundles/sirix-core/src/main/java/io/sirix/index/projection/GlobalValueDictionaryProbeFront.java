@@ -70,8 +70,8 @@ final class GlobalValueDictionaryProbeFront {
 
   /**
    * Test seam: a lower fixed-table ceiling than the budget-derived one, so a streaming load can be
-   * driven into the mid-feed refusal deterministically without a corpus of a million distinct
-   * values. {@link Integer#MAX_VALUE} (the default) leaves the real ceiling in force. Only
+   * driven into the mid-feed refusal deterministically without a corpus of a million distinct values.
+   * {@link Integer#MAX_VALUE} (the default) leaves the real ceiling in force. Only
    * {@code CoordinatorFeedBudgetAbandonTest} sets it.
    */
   static volatile int TEST_MAX_ENTRIES = Integer.MAX_VALUE;

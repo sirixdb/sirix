@@ -55,8 +55,7 @@ final class ProjectionBulkSlotFinalizationAtomicityTest {
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
         JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
         JsonNodeTrx wtx = session.beginNodeTrx()) {
-      final ProjectionIndexHOTStorage storage =
-          ProjectionIndexHOTStorage.forBulkBuild(wtx.getStorageEngineWriter(), 0);
+      final ProjectionIndexHOTStorage storage = ProjectionIndexHOTStorage.forBulkBuild(wtx.getStorageEngineWriter(), 0);
       storage.beginBulkSlotAccumulation();
       storage.writeSlotValue(ownerSlotKey, new byte[] {1, 2, 3});
       storage.putSegmentPage(ownerSlotKey, 0, new byte[] {4, 5, 6, 7});
@@ -73,8 +72,8 @@ final class ProjectionBulkSlotFinalizationAtomicityTest {
       assertFalse(storage.hasPendingBulkSideAttaches(), "deferred side payloads must not survive the failure");
       assertEquals(0, storage.bulkSplicedEntryCount(), "no bulk root was published");
 
-      final SirixIOException nextWriteFailure = assertThrows(SirixIOException.class,
-          () -> storage.writeSlotValue(ownerSlotKey + 1, new byte[] {8}));
+      final SirixIOException nextWriteFailure =
+          assertThrows(SirixIOException.class, () -> storage.writeSlotValue(ownerSlotKey + 1, new byte[] {8}));
       assertSame(sentinel, nextWriteFailure.getCause(), "later mutations must report the latched cause");
       final SirixIOException commitFailure = assertThrows(SirixIOException.class, wtx::commit);
       assertSame(sentinel, commitFailure.getCause(), "a discarded accumulator must never be committable");

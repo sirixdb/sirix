@@ -27,11 +27,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Overflow records of a DOCUMENT page are swizzled onto their reference (sibling walks over large
- * values re-resolve them on every step, #1076); overflow records of an INDEX page are not. A swizzled
- * page lives as long as the record page owning the reference stays cached, and that cache weighs slot
- * memory only — on the projection value dictionary, whose 64 KiB blocks are all overlong, the swizzle
- * pinned every block ever walked (3.9 GB after two 100M-row dictionary walks) beside the weighed
- * dictionary record cache that exists to bound exactly that retention.
+ * values re-resolve them on every step, #1076); overflow records of an INDEX page are not. A
+ * swizzled page lives as long as the record page owning the reference stays cached, and that cache
+ * weighs slot memory only — on the projection value dictionary, whose 64 KiB blocks are all
+ * overlong, the swizzle pinned every block ever walked (3.9 GB after two 100M-row dictionary walks)
+ * beside the weighed dictionary record cache that exists to bound exactly that retention.
  */
 final class OverflowPageSwizzleTest {
 

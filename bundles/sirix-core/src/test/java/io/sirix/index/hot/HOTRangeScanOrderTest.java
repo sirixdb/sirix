@@ -166,8 +166,8 @@ final class HOTRangeScanOrderTest {
         json.append("]}");
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
         wtx.commit();
-        HOTInvariantValidator.validateIndex(wtx.getStorageEngineReader(), casIndexDef.getType(),
-            casIndexDef.getID()).assertOk();
+        HOTInvariantValidator.validateIndex(wtx.getStorageEngineReader(), casIndexDef.getType(), casIndexDef.getID())
+                             .assertOk();
 
         final var hotReader = HOTIndexReader.create(wtx.getStorageEngineReader(), CASKeySerializer.INSTANCE,
             casIndexDef.getType(), casIndexDef.getID());

@@ -71,15 +71,15 @@ final class ProjectionColumnScanParityTest {
   }
 
   /**
-   * {@code missingOneIn} is the hole rate ({@code 10} = the ~10% default). A SPARSE rate such as
-   * 300 (0.3%) leaves most 64-row words fully set beside a few holed ones — the block is not dense,
-   * so the per-word arms run with FULL words next to partial ones, the one shape neither the
-   * default nor {@code allPresent} produces. {@code longSpread} widens the long column's range from
-   * the default ±1,000 (where every extremum is a duplicate) to ±{@code longSpread}: a wide spread
-   * makes each extremum unique, and {@code pinExtremaAtWordEnds} plants a per-leaf unique minimum at
-   * row 127 and maximum at row 191 — the LAST bit of a (usually full) word — and a hole at row 200,
-   * so the block is never dense and an arm that folds 63 of a full word's 64 values changes the
-   * global answer deterministically (the leaf with the most extreme pin is a non-dense one).
+   * {@code missingOneIn} is the hole rate ({@code 10} = the ~10% default). A SPARSE rate such as 300
+   * (0.3%) leaves most 64-row words fully set beside a few holed ones — the block is not dense, so
+   * the per-word arms run with FULL words next to partial ones, the one shape neither the default nor
+   * {@code allPresent} produces. {@code longSpread} widens the long column's range from the default
+   * ±1,000 (where every extremum is a duplicate) to ±{@code longSpread}: a wide spread makes each
+   * extremum unique, and {@code pinExtremaAtWordEnds} plants a per-leaf unique minimum at row 127 and
+   * maximum at row 191 — the LAST bit of a (usually full) word — and a hole at row 200, so the block
+   * is never dense and an arm that folds 63 of a full word's 64 values changes the global answer
+   * deterministically (the leaf with the most extreme pin is a non-dense one).
    */
   private static Fixture buildFixture(final long seed, final int leaves, final boolean withEmptyLeaf,
       final boolean allPresent, final boolean bandedLongs, final int missingOneIn, final long longSpread,
@@ -143,8 +143,7 @@ final class ProjectionColumnScanParityTest {
         segmentsByOffset.put(nextOffset, encoded.segments()[i]);
         nextOffset += 1 + encoded.segments()[i].length;
       }
-      directories.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets,
-          new byte[ids.length][]));
+      directories.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets, new byte[ids.length][]));
     }
     final ColumnSegmentFetcher fetcher = wanted -> {
       final byte[][] out = new byte[wanted.length][];
@@ -373,8 +372,7 @@ final class ProjectionColumnScanParityTest {
    */
   @Test
   void everyAggregateMaskArmAgreesWithTheByteKernel() {
-    final int[] masks = {
-        ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_SUM,
+    final int[] masks = {ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_SUM,
         ProjectionColumnSegmentFoldScan.AGG_SUM,
         ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MIN,
         ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MAX,
@@ -382,8 +380,8 @@ final class ProjectionColumnScanParityTest {
         ProjectionColumnSegmentFoldScan.AGG_ALL};
     // {seed, leaves, mode}: mode 0 = ~10% holes, 1 = all present (dense blocks), 2 = 0.3% holes
     // (full words beside partial ones inside a non-dense block).
-    final long[][] fixtures = {{1, 7, 0}, {42, 7, 0}, {3, 7, 0}, {4, 6, 1}, {21, 6, 1}, {1234, 6, 1}, {5, 8, 2},
-        {77, 8, 2}, {2026, 8, 2}};
+    final long[][] fixtures =
+        {{1, 7, 0}, {42, 7, 0}, {3, 7, 0}, {4, 6, 1}, {21, 6, 1}, {1234, 6, 1}, {5, 8, 2}, {77, 8, 2}, {2026, 8, 2}};
     for (final long[] f : fixtures) {
       final long seed = f[0];
       final boolean allPresent = f[2] == 1;
@@ -520,9 +518,8 @@ final class ProjectionColumnScanParityTest {
       }
       return out;
     };
-    final ProjectionColumnStore store =
-        new ProjectionColumnStore(List.of(new RowGroupDirectory(1, encoded.descriptor(), ids, offsets,
-            new byte[ids.length][])));
+    final ProjectionColumnStore store = new ProjectionColumnStore(
+        List.of(new RowGroupDirectory(1, encoded.descriptor(), ids, offsets, new byte[ids.length][])));
     return new Fixture(store, List.of(raw), fetcher);
   }
 
@@ -716,9 +713,8 @@ final class ProjectionColumnScanParityTest {
       segmentsByOffset.put(nextOffset, encoded.segments()[i]);
       nextOffset += 1 + encoded.segments()[i].length;
     }
-    final ProjectionColumnStore store =
-        new ProjectionColumnStore(List.of(new RowGroupDirectory(1, encoded.descriptor(), ids, offsets,
-            new byte[ids.length][])));
+    final ProjectionColumnStore store = new ProjectionColumnStore(
+        List.of(new RowGroupDirectory(1, encoded.descriptor(), ids, offsets, new byte[ids.length][])));
     final ColumnSegmentFetcher fetcher = wanted -> {
       final byte[][] out = new byte[wanted.length][];
       for (int i = 0; i < wanted.length; i++) {
@@ -1023,8 +1019,8 @@ final class ProjectionColumnScanParityTest {
         for (final boolean desc : new boolean[] {false, true}) {
           for (final int k : new int[] {1, 3, 17, 300, 100_000}) {
             final long skippedBefore = ProjectionColumnScan.topKLeavesSkippedCount();
-            final long[] parallel = ProjectionColumnScan.topKRecordKeys(fx.store(), preds, longKey,
-                new boolean[] {desc}, k, concurrent);
+            final long[] parallel =
+                ProjectionColumnScan.topKRecordKeys(fx.store(), preds, longKey, new boolean[] {desc}, k, concurrent);
             final long skippedParallel = ProjectionColumnScan.topKLeavesSkippedCount() - skippedBefore;
             final long[] serial =
                 ProjectionColumnScan.topKRecordKeys(fx.store(), preds, longKey, new boolean[] {desc}, k, fx.fetcher());
@@ -1043,15 +1039,17 @@ final class ProjectionColumnScanParityTest {
       for (final boolean desc : new boolean[] {false, true}) {
         for (final int k : new int[] {1, 7, 250}) {
           final String label = "seed=" + seed + " desc=" + desc + " k=" + k;
-          assertArrayEquals(stringTopKOracle(fx, 3, Long.MIN_VALUE, desc, k),
-              ProjectionColumnScan.topKRecordKeys(fx.store(), new ColumnPredicate[0], new int[] {3},
-                  new boolean[] {desc}, k, concurrent),
+          assertArrayEquals(
+              stringTopKOracle(fx, 3, Long.MIN_VALUE, desc, k), ProjectionColumnScan.topKRecordKeys(fx.store(),
+                  new ColumnPredicate[0], new int[] {3}, new boolean[] {desc}, k, concurrent),
               "string key, parallel slabs vs oracle " + label);
           final long[] pair = ProjectionColumnScan.topKRecordKeys(fx.store(), new ColumnPredicate[0], new int[] {3, 0},
               new boolean[] {desc, !desc}, k, concurrent);
           assertArrayEquals(stringLongTopKOracle(fx, desc, !desc, k), pair, "(string, long) keys vs oracle " + label);
-          assertArrayEquals(ProjectionColumnScan.topKRecordKeys(fx.store(), new ColumnPredicate[0], new int[] {3, 0},
-              new boolean[] {desc, !desc}, k, fx.fetcher()), pair, "(string, long) keys, serial vs parallel " + label);
+          assertArrayEquals(
+              ProjectionColumnScan.topKRecordKeys(fx.store(), new ColumnPredicate[0], new int[] {3, 0},
+                  new boolean[] {desc, !desc}, k, fx.fetcher()),
+              pair, "(string, long) keys, serial vs parallel " + label);
         }
       }
     }
@@ -1072,10 +1070,8 @@ final class ProjectionColumnScanParityTest {
     ProjectionIndexByteScan.collectMatchingSortTuples(fx.rawLeaves(), new ColumnPredicate[0], longKey, bv, bk, bm);
     assertFalse(bm.isEmpty(), "the sparse fixture must hold rows without an order key");
     for (final ColumnSegmentFetcher fetcher : new ColumnSegmentFetcher[] {fx.fetcher(), concurrent}) {
-      assertEquals(null,
-          ProjectionColumnScan.topKRecordKeys(fx.store(), new ColumnPredicate[0], longKey, new boolean[] {false}, 5,
-              fetcher),
-          "a matching row without an order key must decline");
+      assertEquals(null, ProjectionColumnScan.topKRecordKeys(fx.store(), new ColumnPredicate[0], longKey,
+          new boolean[] {false}, 5, fetcher), "a matching row without an order key must decline");
     }
     final ColumnPredicate[] onKey = {ColumnPredicate.numeric(0, Op.GE, -1_000L)};
     bv.clear();
@@ -1298,8 +1294,7 @@ final class ProjectionColumnScanParityTest {
         nextOffset += 1 + encoded.segments()[i].length;
       }
       if (dirsOut != null) {
-        dirsOut.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets,
-            new byte[ids.length][]));
+        dirsOut.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets, new byte[ids.length][]));
       }
       leaf++;
     }

@@ -74,8 +74,7 @@ final class ProjectionStringIdentityRegistryTest {
   @Test
   @DisplayName("the same value recurring under one fingerprint is proven, not flagged")
   void repeatedValueIsProven() {
-    final ProjectionStringIdentityRegistry registry =
-        new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
+    final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
     assertTrue(prove(registry, 0, "gold"));
     assertTrue(prove(registry, 0, "gold"), "the same bytes must re-prove, however weak the fingerprint");
     assertTrue(registry.identityProven());
@@ -85,8 +84,7 @@ final class ProjectionStringIdentityRegistryTest {
   @Test
   @DisplayName("two distinct strings forced onto one fingerprint pair are caught by byte comparison")
   void injectedFingerprintCollisionIsCaught() {
-    final ProjectionStringIdentityRegistry registry =
-        new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
+    final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
     assertTrue(prove(registry, 0, "gold"));
     assertFalse(prove(registry, 0, "silver"), "a different value under the same pair must NOT be proven");
     assertTrue(registry.collisionDetected(), "the collision must latch");
@@ -96,8 +94,7 @@ final class ProjectionStringIdentityRegistryTest {
   @Test
   @DisplayName("equal-length distinct strings collide under a length-only fingerprint and are caught")
   void equalLengthCollisionIsCaught() {
-    final ProjectionStringIdentityRegistry registry =
-        new ProjectionStringIdentityRegistry(1, LENGTH_ONLY, 1 << 20);
+    final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(1, LENGTH_ONLY, 1 << 20);
     assertTrue(prove(registry, 0, "abcd"));
     assertTrue(prove(registry, 0, "abcd"));
     assertFalse(prove(registry, 0, "wxyz"), "same length, different bytes: not the same group");
@@ -107,8 +104,7 @@ final class ProjectionStringIdentityRegistryTest {
   @Test
   @DisplayName("components are proven independently")
   void componentsAreIndependent() {
-    final ProjectionStringIdentityRegistry registry =
-        new ProjectionStringIdentityRegistry(2, ALL_COLLIDE, 1 << 20);
+    final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(2, ALL_COLLIDE, 1 << 20);
     assertTrue(prove(registry, 0, "gold"));
     // The SAME forced pair in another component is another domain and must not be a collision.
     assertTrue(prove(registry, 1, "silver"));
@@ -120,8 +116,7 @@ final class ProjectionStringIdentityRegistryTest {
   @Test
   @DisplayName("a value differing only past a shared prefix is still caught")
   void prefixSharingValuesAreCaught() {
-    final ProjectionStringIdentityRegistry registry =
-        new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
+    final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
     assertTrue(prove(registry, 0, "https://example.com/a"));
     assertFalse(prove(registry, 0, "https://example.com/b"));
     assertTrue(registry.collisionDetected());
@@ -130,8 +125,7 @@ final class ProjectionStringIdentityRegistryTest {
   @Test
   @DisplayName("a value that is a strict prefix of the canonical one is not equal to it")
   void prefixIsNotEquality() {
-    final ProjectionStringIdentityRegistry registry =
-        new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
+    final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
     assertTrue(prove(registry, 0, "abcdef"));
     assertFalse(prove(registry, 0, "abc"), "a prefix is a different value");
     assertTrue(registry.collisionDetected());
@@ -142,9 +136,9 @@ final class ProjectionStringIdentityRegistryTest {
   void budgetExhaustionDeclinesConservatively() {
     // Budget fits exactly one entry — its four value bytes PLUS the per-entry overhead charge, so
     // that the budget bounds table and header footprint and not merely the strings.
-    final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(1,
-        ProjectionStringIdentityRegistry.DEFAULT_FINGERPRINT,
-        4L + ProjectionStringIdentityRegistry.ENTRY_OVERHEAD_BYTES);
+    final ProjectionStringIdentityRegistry registry =
+        new ProjectionStringIdentityRegistry(1, ProjectionStringIdentityRegistry.DEFAULT_FINGERPRINT,
+            4L + ProjectionStringIdentityRegistry.ENTRY_OVERHEAD_BYTES);
     assertTrue(prove(registry, 0, "abcd"));
     assertFalse(prove(registry, 0, "efgh"));
     assertTrue(registry.unproven(), "running out of budget must decline, never silently stop proving");
@@ -155,8 +149,7 @@ final class ProjectionStringIdentityRegistryTest {
   @Test
   @DisplayName("the local proof cache never turns an unproven pair into a proven one")
   void localCacheCannotLaunder() {
-    final ProjectionStringIdentityRegistry registry =
-        new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
+    final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
     final ProjectionStringIdentityRegistry.LocalProofCache cache =
         new ProjectionStringIdentityRegistry.LocalProofCache(1);
     final byte[] gold = utf8("gold");
@@ -301,8 +294,7 @@ final class ProjectionStringIdentityRegistryTest {
   void componentCountIsBoundedBeforeSizing() {
     final int tooMany = CompositeGroupIdentity.MAX_KEY_COMPONENTS + 1;
     assertThrows(IllegalArgumentException.class, () -> new ProjectionStringIdentityRegistry(tooMany));
-    assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionStringIdentityRegistry.LocalProofCache(tooMany));
+    assertThrows(IllegalArgumentException.class, () -> new ProjectionStringIdentityRegistry.LocalProofCache(tooMany));
     assertThrows(IllegalArgumentException.class,
         () -> new ProjectionStringIdentityRegistry.LocalProofCache(Integer.MAX_VALUE));
   }
@@ -311,8 +303,7 @@ final class ProjectionStringIdentityRegistryTest {
   @DisplayName("constructor arguments are checked")
   void constructorChecksArguments() {
     assertThrows(IllegalArgumentException.class, () -> new ProjectionStringIdentityRegistry(0));
-    assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 0L));
+    assertThrows(IllegalArgumentException.class, () -> new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 0L));
     assertThrows(NullPointerException.class, () -> new ProjectionStringIdentityRegistry(1, null, 16L));
     final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(1);
     assertThrows(IllegalArgumentException.class, () -> prove(registry, 1, "x"));
@@ -363,8 +354,7 @@ final class ProjectionStringIdentityRegistryTest {
   @Test
   @DisplayName("a mismatch under a shared fingerprint is still caught when the reader found the slot lock-free")
   void lockFreeReaderStillDefersMismatchToTheMonitor() {
-    final ProjectionStringIdentityRegistry registry =
-        new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
+    final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
     assertTrue(prove(registry, 0, "gold"));
     assertTrue(prove(registry, 0, "gold"), "byte-equal hit");
     assertEquals(1L, registry.lockedProves(), "the hit was served without the monitor");
@@ -421,15 +411,15 @@ final class ProjectionStringIdentityRegistryTest {
     assertTrue(registry.identityProven(), "no false collision, no budget refusal");
     final long locked = registry.lockedProves();
     assertTrue(locked >= distinct, "each distinct value was inserted under the monitor: " + locked);
-    assertTrue(locked < 2L * distinct,
-        "only racing first sightings may take the monitor twice; " + locked + " locked proofs for " + distinct
-            + " values means repeats are taking it");
+    assertTrue(locked < 2L * distinct, "only racing first sightings may take the monitor twice; " + locked
+        + " locked proofs for " + distinct + " values means repeats are taking it");
     for (int i = 0; i < distinct; i++) {
       assertTrue(registry.prove(0, lanesA[i], lanesB[i], vocabulary[i], 0, vocabulary[i].length),
           "value " + i + " survived the concurrent growth");
     }
     assertEquals(locked, registry.lockedProves(), "the post-race sweep took the monitor for nothing");
   }
+
   @Test
   @DisplayName("pre-proven and eager flags start clear, publish per component and validate the ordinal")
   void preProvenAndEagerFlags() {

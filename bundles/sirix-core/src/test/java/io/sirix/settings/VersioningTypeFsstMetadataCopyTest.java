@@ -78,7 +78,8 @@ final class VersioningTypeFsstMetadataCopyTest {
       older.setFsstSymbolTable(olderTable);
       older.setFsstSymbolTableId(OLDER_TABLE_ID);
 
-      @SuppressWarnings("rawtypes") final ResourceSession resourceSession = mock(ResourceSession.class);
+      @SuppressWarnings("rawtypes")
+      final ResourceSession resourceSession = mock(ResourceSession.class);
       when(resourceSession.getResourceConfig()).thenReturn(config);
       final StorageEngineReader reader = mock(StorageEngineReader.class);
       when(reader.getResourceSession()).thenReturn(resourceSession);
@@ -101,11 +102,9 @@ final class VersioningTypeFsstMetadataCopyTest {
 
   @ParameterizedTest(name = "{0}: periodic full publishes the newer target-only side winner")
   @EnumSource(value = VersioningType.class, names = {"DIFFERENTIAL", "INCREMENTAL"})
-  void periodicFullDoesNotPublishOlderReferenceOverNewerCompressedInline(
-      final VersioningType versioningType) {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("periodic-full-side-winner")
-        .useDeweyIDs(true)
-        .build();
+  void periodicFullDoesNotPublishOlderReferenceOverNewerCompressedInline(final VersioningType versioningType) {
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("periodic-full-side-winner").useDeweyIDs(true).build();
     final byte[] symbolTable = symbolTable(DENSE_TOKEN);
     final byte[] rawValue = (DENSE_TOKEN.repeat(12) + "newer").getBytes(StandardCharsets.UTF_8);
     final byte[] compressedValue = FSSTCompressor.encode(rawValue, symbolTable);
@@ -122,20 +121,18 @@ final class VersioningTypeFsstMetadataCopyTest {
       // only while the fragments are combined.
       for (int slot = 0; slot < 760; slot++) {
         final byte[] filler = objectNamedStringSlot(slot, compressedValue, true, 11, 12L);
-        newer.setSlotWithNodeKind(MemorySegment.ofArray(filler), slot,
-            NodeKind.OBJECT_NAMED_STRING.getId());
+        newer.setSlotWithNodeKind(MemorySegment.ofArray(filler), slot, NodeKind.OBJECT_NAMED_STRING.getId());
       }
-      final byte[] newerTarget = objectNamedStringSlot(TARGET_SLOT, compressedValue, true,
-          NEWER_NAME_KEY, NEWER_PATH_NODE_KEY);
-      newer.setSlotWithNodeKind(MemorySegment.ofArray(newerTarget), TARGET_SLOT,
-          NodeKind.OBJECT_NAMED_STRING.getId());
+      final byte[] newerTarget =
+          objectNamedStringSlot(TARGET_SLOT, compressedValue, true, NEWER_NAME_KEY, NEWER_PATH_NODE_KEY);
+      newer.setSlotWithNodeKind(MemorySegment.ofArray(newerTarget), TARGET_SLOT, NodeKind.OBJECT_NAMED_STRING.getId());
       newer.setDeweyId(NEWER_DEWEY_ID, TARGET_SLOT);
       newer.setFsstSymbolTable(symbolTable);
       newer.setFsstSymbolTableId(NEWEST_TABLE_ID);
 
       final long targetRecordKey = recordKey(TARGET_SLOT);
-      final byte[] olderRecord = objectNamedStringSlot(TARGET_SLOT,
-          "older".getBytes(StandardCharsets.UTF_8), false, 5, 6L);
+      final byte[] olderRecord =
+          objectNamedStringSlot(TARGET_SLOT, "older".getBytes(StandardCharsets.UTF_8), false, 5, 6L);
       final byte[] olderSideImage = appendDeweyId(olderRecord, OLDER_DEWEY_ID);
       final long olderSideToken = older.prepareSideSlot(NodeKind.OBJECT_NAMED_STRING.getId(),
           MemorySegment.ofArray(olderSideImage), olderSideImage.length);
@@ -144,7 +141,8 @@ final class VersioningTypeFsstMetadataCopyTest {
       olderReference.setPage(new OverflowPage(new byte[] {42}));
       older.setPageReference(targetRecordKey, olderReference);
 
-      @SuppressWarnings("rawtypes") final ResourceSession resourceSession = mock(ResourceSession.class);
+      @SuppressWarnings("rawtypes")
+      final ResourceSession resourceSession = mock(ResourceSession.class);
       when(resourceSession.getResourceConfig()).thenReturn(config);
       final StorageEngineReader reader = mock(StorageEngineReader.class);
       when(reader.getResourceSession()).thenReturn(resourceSession);
@@ -155,8 +153,8 @@ final class VersioningTypeFsstMetadataCopyTest {
 
       final PageReference owningReference = new PageReference().setKey(99L);
       final TransactionIntentLog log = mock(TransactionIntentLog.class);
-      container = versioningType.combineRecordPagesForModification(List.of(newer, older), 2,
-          reader, owningReference, log);
+      container =
+          versioningType.combineRecordPagesForModification(List.of(newer, older), 2, reader, owningReference, log);
 
       final KeyValueLeafPage complete = (KeyValueLeafPage) container.getComplete();
       final KeyValueLeafPage modified = (KeyValueLeafPage) container.getModified();
@@ -197,24 +195,22 @@ final class VersioningTypeFsstMetadataCopyTest {
     final long nodeKey = (RECORD_PAGE_KEY << Constants.NDP_NODE_COUNT_EXPONENT) + slot;
     final byte[] raw = value.getBytes(StandardCharsets.UTF_8);
     final MemorySegment scratch = MemorySegment.ofArray(new byte[512]);
-    final int length = StringNode.writeNewRecord(scratch, 0L, new int[6], nodeKey, 0L, 0L, 0L, 0, 0,
-        raw, false);
+    final int length = StringNode.writeNewRecord(scratch, 0L, new int[6], nodeKey, 0L, 0L, 0L, 0, 0, raw, false);
     return scratch.asSlice(0L, length).toArray(ValueLayout.JAVA_BYTE);
   }
 
-  private static byte[] objectNamedStringSlot(final int slot, final byte[] value,
-      final boolean compressed, final int nameKey, final long pathNodeKey) {
+  private static byte[] objectNamedStringSlot(final int slot, final byte[] value, final boolean compressed,
+      final int nameKey, final long pathNodeKey) {
     final long nodeKey = recordKey(slot);
     final MemorySegment scratch = MemorySegment.ofArray(new byte[1024]);
-    final int length = ObjectNamedStringNode.writeNewRecord(scratch, 0L,
-        new int[NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT], nodeKey, 0L, 0L, 0L,
-        nameKey, pathNodeKey, 1, 2, 0L, value, compressed);
+    final int length =
+        ObjectNamedStringNode.writeNewRecord(scratch, 0L, new int[NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT],
+            nodeKey, 0L, 0L, 0L, nameKey, pathNodeKey, 1, 2, 0L, value, compressed);
     return scratch.asSlice(0L, length).toArray(ValueLayout.JAVA_BYTE);
   }
 
   private static byte[] appendDeweyId(final byte[] record, final byte[] deweyId) {
-    final byte[] image = Arrays.copyOf(record, record.length + deweyId.length
-        + PageLayout.DEWEY_ID_TRAILER_SIZE);
+    final byte[] image = Arrays.copyOf(record, record.length + deweyId.length + PageLayout.DEWEY_ID_TRAILER_SIZE);
     System.arraycopy(deweyId, 0, image, record.length, deweyId.length);
     PageLayout.writeDeweyIdTrailer(MemorySegment.ofArray(image), image.length, deweyId.length);
     return image;
@@ -224,8 +220,8 @@ final class VersioningTypeFsstMetadataCopyTest {
     return (RECORD_PAGE_KEY << Constants.NDP_NODE_COUNT_EXPONENT) + slot;
   }
 
-  private static void assertNewerTargetOnlyWinner(final KeyValueLeafPage page,
-      final long targetRecordKey, final PageReference olderReference) {
+  private static void assertNewerTargetOnlyWinner(final KeyValueLeafPage page, final long targetRecordKey,
+      final PageReference olderReference) {
     assertTrue(page.hasSideSlot(TARGET_SLOT),
         "decompressing the dense latest fragment must force the target to a side slot");
     assertFalse(PageLayout.isSlotPopulated(page.getSlottedPage(), TARGET_SLOT));
@@ -233,8 +229,7 @@ final class VersioningTypeFsstMetadataCopyTest {
     assertNotNull(winner);
     assertNotSame(olderReference, winner, "the stale older reference replaced the newer winner");
     assertEquals(NEWER_NAME_KEY, page.getObjectKeyNameKeyFromSlot(TARGET_SLOT));
-    assertEquals(NEWER_PATH_NODE_KEY,
-        page.getObjectKeyPathNodeKeyFromSlot(TARGET_SLOT, targetRecordKey));
+    assertEquals(NEWER_PATH_NODE_KEY, page.getObjectKeyPathNodeKeyFromSlot(TARGET_SLOT, targetRecordKey));
     assertArrayEquals(NEWER_DEWEY_ID, page.getDeweyIdAsByteArray(TARGET_SLOT));
   }
 }

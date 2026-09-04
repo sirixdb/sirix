@@ -51,9 +51,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * {@link StringRegionGlobalLaneTest} proves the wire format. This proves the seam above it — the
  * one that decides whether a page whose values live in a resource-wide dictionary can be read back
- * at all. The cases are written against the hazards rather than the happy path, because the failures
- * this design exists to prevent are silent: a half-injected heap looks like a whole one, and a page
- * resolved against the wrong dictionary returns bytes of exactly the right shape.
+ * at all. The cases are written against the hazards rather than the happy path, because the
+ * failures this design exists to prevent are silent: a half-injected heap looks like a whole one,
+ * and a page resolved against the wrong dictionary returns bytes of exactly the right shape.
  * </p>
  *
  * <p>
@@ -78,7 +78,7 @@ final class TrieLaneReadSeamTest {
    * therefore 1..3, and their order in the page's LOCAL dictionary is whatever the encoder chose --
    * which is the reason the resolution walk sorts.
    */
-  private static final String[] VALUES = { "alpha", "beta", "gamma" };
+  private static final String[] VALUES = {"alpha", "beta", "gamma"};
 
   /** Enough slots that a partial injection would leave visible holes. */
   private static final int SLOTS = 24;
@@ -104,8 +104,8 @@ final class TrieLaneReadSeamTest {
    * without that flag can only be expanded eagerly, and eager expansion happens inside
    * {@code deserializePage} where the page object does not exist and nothing can hold a resolved
    * table. So the trie lane cannot be READ AT ALL on a page written with the flag off, and the flag
-   * is off by default ({@code sirix.chunkedBody.enable}). A converted resource has to be written
-   * with it on.
+   * is off by default ({@code sirix.chunkedBody.enable}). A converted resource has to be written with
+   * it on.
    * </p>
    *
    * <p>
@@ -159,9 +159,8 @@ final class TrieLaneReadSeamTest {
   void anUnresolvedPageIsRefusedLoudly() {
     withRoundTrip(new FakeDictionary(), (original, reloaded) -> {
       assertTrue(reloaded.hasGlobalStringTags(), "the lane must have engaged");
-      final SirixIOException refusal =
-          assertThrows(SirixIOException.class, () -> reloaded.getSlotAsByteArray(0),
-              "a page whose global tags nobody resolved must refuse, not hand back placeholder bytes");
+      final SirixIOException refusal = assertThrows(SirixIOException.class, () -> reloaded.getSlotAsByteArray(0),
+          "a page whose global tags nobody resolved must refuse, not hand back placeholder bytes");
       assertTrue(refusal.getMessage().contains(String.valueOf(TAG)),
           () -> "the refusal must name the tag that went unresolved: " + refusal.getMessage());
       assertTrue(refusal.getMessage().contains("resolved"),
@@ -175,18 +174,18 @@ final class TrieLaneReadSeamTest {
    * <p>
    * <b>What this does not prove, established by mutation rather than assumed.</b> Deleting the
    * pre-pass leaves this case green. The reason is in {@code LazyChunkedBody.materialize}: the
-   * chunk's materialized bit is set with a release store only AFTER {@code injector.inject}
-   * returns, so a throw anywhere inside injection leaves the chunk pending and the next touch
-   * re-runs decode and expansion from the wire bytes it still holds. A mid-loop throw is therefore
-   * recoverable today, and this case cannot tell one from a pre-pass.
+   * chunk's materialized bit is set with a release store only AFTER {@code injector.inject} returns,
+   * so a throw anywhere inside injection leaves the chunk pending and the next touch re-runs decode
+   * and expansion from the wire bytes it still holds. A mid-loop throw is therefore recoverable
+   * today, and this case cannot tell one from a pre-pass.
    * </p>
    *
    * <p>
    * What the pre-pass is still for, then, is two things this test does not carry: the refusal names
    * the PAGE and the tag rather than a slot (which {@link #anUnresolvedPageIsRefusedLoudly} does
-   * carry, and which deleting the pre-pass does break), and it holds if a future expansion route
-   * ever publishes a chunk before injecting into it. That is defence in depth, stated as such
-   * instead of claimed as proven.
+   * carry, and which deleting the pre-pass does break), and it holds if a future expansion route ever
+   * publishes a chunk before injecting into it. That is defence in depth, stated as such instead of
+   * claimed as proven.
    * </p>
    */
   @Test
@@ -223,8 +222,8 @@ final class TrieLaneReadSeamTest {
    * <p>
    * The dictionary is disarmed after the resolution: any further call to it fails the test. If
    * expansion still reached a resolver — through the page, through a captured lambda, through
-   * anything — the reads below would trip it. This is the case that would catch a well-meaning
-   * change that "just looks the value up when it is missing".
+   * anything — the reads below would trip it. This is the case that would catch a well-meaning change
+   * that "just looks the value up when it is missing".
    * </p>
    */
   @Test
@@ -242,11 +241,11 @@ final class TrieLaneReadSeamTest {
    * Resolution is PAGE-determined: the first transaction to resolve fixes the values.
    *
    * <p>
-   * A second transaction whose own anchors would have refused the tag is not a disagreement about
-   * the bytes -- it is one party declining to answer. The page NAMES its dictionary and a
-   * rank-ordered dictionary only appends, so any reader that can see that dictionary at all computes
-   * the same values. First-writer-wins is therefore free of the usual race hazard, and this pins it
-   * so a later "keep the newest" refactor has to argue with a test.
+   * A second transaction whose own anchors would have refused the tag is not a disagreement about the
+   * bytes -- it is one party declining to answer. The page NAMES its dictionary and a rank-ordered
+   * dictionary only appends, so any reader that can see that dictionary at all computes the same
+   * values. First-writer-wins is therefore free of the usual race hazard, and this pins it so a later
+   * "keep the newest" refactor has to argue with a test.
    * </p>
    */
   @Test
@@ -285,9 +284,8 @@ final class TrieLaneReadSeamTest {
     final FakeDictionary dictionary = new FakeDictionary();
     withRoundTrip(dictionary, (original, reloaded) -> {
       dictionary.liveEntryCount = 1;
-      final SirixIOException refusal =
-          assertThrows(SirixIOException.class, () -> resolve(reloaded, dictionary),
-              "a dictionary that shrank under a reused key must refuse rather than resolve");
+      final SirixIOException refusal = assertThrows(SirixIOException.class, () -> resolve(reloaded, dictionary),
+          "a dictionary that shrank under a reused key must refuse rather than resolve");
       assertTrue(refusal.getMessage().contains(String.valueOf(DICTIONARY_KEY)),
           () -> "the refusal must name the dictionary the page recorded: " + refusal.getMessage());
       assertTrue(refusal.getMessage().contains("appends"),
@@ -464,11 +462,10 @@ final class TrieLaneReadSeamTest {
     withRoundTrip(honest, (original, reloaded) -> {
       final FakeDictionary lying = new FakeDictionary();
       lying.substitute = true;
-      final SirixIOException refusal =
-          assertThrows(SirixIOException.class, () -> {
-            resolve(reloaded, lying);
-            reloaded.getSlotAsByteArray(0);
-          }, "a value whose length disagrees with the one the page elided must be refused");
+      final SirixIOException refusal = assertThrows(SirixIOException.class, () -> {
+        resolve(reloaded, lying);
+        reloaded.getSlotAsByteArray(0);
+      }, "a value whose length disagrees with the one the page elided must be refused");
       assertTrue(refusal.getMessage().contains("disagree") || refusal.getMessage().contains("mismatch"),
           () -> "the refusal must say the page and the dictionary disagree: " + refusal.getMessage());
     });
@@ -552,9 +549,9 @@ final class TrieLaneReadSeamTest {
    * <b>It does NOT reproduce the gate's failure, and that is recorded here so nobody reads it as
    * covering it.</b> It was written as the reproduction hypothesis — string-only fixtures never
    * exercised the shared slot/type/width arrays with two kinds — and it passes. So the corruption
-   * needs something this page does not have: it appears only a few thousand records into a real
-   * load, on pages that also carry name-key elision, overflow carriers, many more tags, and values
-   * long enough to matter. The next attempt should start from the loaded database, not from here.
+   * needs something this page does not have: it appears only a few thousand records into a real load,
+   * on pages that also carry name-key elision, overflow carriers, many more tags, and values long
+   * enough to matter. The next attempt should start from the loaded database, not from here.
    * </p>
    *
    * <p>
@@ -586,8 +583,8 @@ final class TrieLaneReadSeamTest {
       PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, original, SerializationType.DATA);
       final BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      reloaded = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE
-          .deserializePageLazily(config, source, SerializationType.DATA, null);
+      reloaded = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePageLazily(config, source,
+          SerializationType.DATA, null);
 
       assertTrue(reloaded.hasGlobalStringTags(),
           "the mixed page must still convert its string tag, or this proves nothing about the lane");
@@ -621,10 +618,10 @@ final class TrieLaneReadSeamTest {
   @Test
   @DisplayName("a tag index carrying a different tag value is refused, not read")
   void aShiftedTagIndexIsRefused() {
-    final ResolvedGlobalStrings table = ResolvedGlobalStrings.forTags(2)
-                                                             .tag(0, TAG, new int[] { 1 },
-                                                                 new byte[][] { "alpha".getBytes(StandardCharsets.UTF_8) })
-                                                             .build();
+    final ResolvedGlobalStrings table =
+        ResolvedGlobalStrings.forTags(2)
+                             .tag(0, TAG, new int[] {1}, new byte[][] {"alpha".getBytes(StandardCharsets.UTF_8)})
+                             .build();
     assertArrayEquals("alpha".getBytes(StandardCharsets.UTF_8), table.value(0, TAG, 0));
     assertThrows(IllegalStateException.class, () -> table.value(0, TAG + 1, 0),
         "the table is indexed by a position, and a position means nothing for a region it was not parsed "
@@ -637,7 +634,7 @@ final class TrieLaneReadSeamTest {
   @DisplayName("a tag resolved with a hole is refused at build time")
   void aHoleIsRefusedAtBuildTime() {
     assertThrows(IllegalArgumentException.class,
-        () -> ResolvedGlobalStrings.forTags(1).tag(0, TAG, new int[] { 1, 2 }, new byte[][] { new byte[1], null }),
+        () -> ResolvedGlobalStrings.forTags(1).tag(0, TAG, new int[] {1, 2}, new byte[][] {new byte[1], null}),
         "a half-resolved tag would expand into a record with an absent value, which is not a record with an "
             + "empty value");
   }
@@ -676,8 +673,8 @@ final class TrieLaneReadSeamTest {
 
       final BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      reloaded = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE
-          .deserializePageLazily(config, source, SerializationType.DATA, null);
+      reloaded = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePageLazily(config, source,
+          SerializationType.DATA, null);
       body.accept(original, reloaded);
     } finally {
       if (reloaded != null) {
@@ -707,27 +704,25 @@ final class TrieLaneReadSeamTest {
 
   private static void writeNumber(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
       final long pathNodeKey, final long value) {
-    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, pathNodeKey, 0, 0, 0L, value, HASH_FN,
-        (byte[]) null);
+    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, pathNodeKey, 0,
+        0, 0L, value, HASH_FN, (byte[]) null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1)));
   }
 
   private static void writeString(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
       final long pathNodeKey, final String value) {
-    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, pathNodeKey, 0, 0, 0L,
-        value.getBytes(StandardCharsets.UTF_8), HASH_FN, (byte[]) null, false, null);
+    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, pathNodeKey, 0,
+        0, 0L, value.getBytes(StandardCharsets.UTF_8), HASH_FN, (byte[]) null, false, null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1)));
   }
 
   /**
-   * A resource-wide dictionary, stubbed: rank-ordered ids, a live count that can be made to shrink,
-   * a record of the ids it was asked for, and a poison switch.
+   * A resource-wide dictionary, stubbed: rank-ordered ids, a live count that can be made to shrink, a
+   * record of the ids it was asked for, and a poison switch.
    *
    * <p>
    * The poison switch is what turns "expansion reads the table" from an assertion about code shape
@@ -795,8 +790,7 @@ final class TrieLaneReadSeamTest {
       final byte[] value = values.get(id);
       return value == null || !substitute
           ? value
-          : (new String(value, StandardCharsets.UTF_8) + "-from-another-generation")
-              .getBytes(StandardCharsets.UTF_8);
+          : (new String(value, StandardCharsets.UTF_8) + "-from-another-generation").getBytes(StandardCharsets.UTF_8);
     }
 
     @Override

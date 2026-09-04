@@ -45,10 +45,8 @@ final class NamePageCopyForWriteTest {
 
     final NamePage copy = NamePage.copyForWrite(historical);
 
-    final PageReference historicalReference =
-        historical.getIndexReference(DatabaseType.JSON, SECONDARY_INDEX_OFFSET);
-    final PageReference copiedReference =
-        copy.getIndexReference(DatabaseType.JSON, SECONDARY_INDEX_OFFSET);
+    final PageReference historicalReference = historical.getIndexReference(DatabaseType.JSON, SECONDARY_INDEX_OFFSET);
+    final PageReference copiedReference = copy.getIndexReference(DatabaseType.JSON, SECONDARY_INDEX_OFFSET);
     assertNotSame(historicalReference, copiedReference);
     copiedReference.setKey(99L);
     assertEquals(41L, historicalReference.getKey());
@@ -138,8 +136,8 @@ final class NamePageCopyForWriteTest {
     when(writer.hasTrxIntentLog()).thenReturn(true);
     when(writer.<HashEntryNode>getRecord(1L, IndexType.NAME, DICTIONARY_OFFSET)).thenReturn(entry);
     when(writer.<HashCountEntryNode>getRecord(2L, IndexType.NAME, DICTIONARY_OFFSET)).thenReturn(count);
-    when(writer.<HashCountEntryNode>prepareRecordForModification(2L, IndexType.NAME, DICTIONARY_OFFSET))
-        .thenReturn(new HashCountEntryNode(2L, 1));
+    when(writer.<HashCountEntryNode>prepareRecordForModification(2L, IndexType.NAME, DICTIONARY_OFFSET)).thenReturn(
+        new HashCountEntryNode(2L, 1));
     return writer;
   }
 }

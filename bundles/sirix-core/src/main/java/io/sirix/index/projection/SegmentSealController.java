@@ -14,9 +14,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * later page can still be minted into it.
  *
  * <p>
- * This is the condition {@code docs/SEGMENT_SCOPED_DICTIONARIES.md} names as the pipeline's, not the
- * dictionary's. It cannot be a row count. Record pages are encoded on the async flush pool, so the
- * writer passing a segment's last row says nothing about whether that segment's pages have been
+ * This is the condition {@code docs/SEGMENT_SCOPED_DICTIONARIES.md} names as the pipeline's, not
+ * the dictionary's. It cannot be a row count. Record pages are encoded on the async flush pool, so
+ * the writer passing a segment's last row says nothing about whether that segment's pages have been
  * encoded — a page adopted in segment N can still be sitting in the flush queue while the writer
  * fills N + 2, and a value minted from it after N was sealed would be lost from the dictionary its
  * own page points at.
@@ -37,10 +37,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * </ol>
  *
  * The second clause is what makes the first safe. Record pages are adopted in ascending key order
- * during a bulk load, so a later segment's page proves the writer has moved on; without it, a segment
- * that momentarily has no page in flight — between two adoptions — would be sealed while still
- * growing. Anything the load never sealed is caught by {@link #drain()} at commit, so the rule may be
- * conservative but must never be eager.
+ * during a bulk load, so a later segment's page proves the writer has moved on; without it, a
+ * segment that momentarily has no page in flight — between two adoptions — would be sealed while
+ * still growing. Anything the load never sealed is caught by {@link #drain()} at commit, so the
+ * rule may be conservative but must never be eager.
  *
  * <p>
  * A resource that inserts out of key order (not a bulk load) simply seals fewer segments early and
@@ -124,8 +124,8 @@ public final class SegmentSealController {
       final long segment = entry.getKey();
       final int pending = entry.getValue().get();
       if (pending != 0) {
-        throw new IllegalStateException("segment " + segment + " still has " + pending
-            + " page(s) encoding; fence the flush pool before draining");
+        throw new IllegalStateException(
+            "segment " + segment + " still has " + pending + " page(s) encoding; fence the flush pool before draining");
       }
       if (sealed.putIfAbsent(segment, Boolean.TRUE) == null) {
         ready.add(segment);
@@ -139,12 +139,12 @@ public final class SegmentSealController {
    * already fenced the flush pool.
    *
    * <p>
-   * {@link #drain} refuses while a page is outstanding because sealing then would drop the values that
-   * page is about to mint. After a fence that cannot happen: no page is encoding, so a residual count
-   * means only that the page was encoded through a path the encode listener does not observe (the
-   * listener is hooked to the windowed flush's sequential pass; a page promoted to the intent log, or
-   * written synchronously, never reaches it). Those pages HAVE minted their values — the fence
-   * guarantees it — so their segments are sealable, and the counter is stale rather than wrong.
+   * {@link #drain} refuses while a page is outstanding because sealing then would drop the values
+   * that page is about to mint. After a fence that cannot happen: no page is encoding, so a residual
+   * count means only that the page was encoded through a path the encode listener does not observe
+   * (the listener is hooked to the windowed flush's sequential pass; a page promoted to the intent
+   * log, or written synchronously, never reaches it). Those pages HAVE minted their values — the
+   * fence guarantees it — so their segments are sealable, and the counter is stale rather than wrong.
    * </p>
    *
    * <p>

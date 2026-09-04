@@ -63,8 +63,7 @@ final class OverflowSlotSidecarVersioningTest {
   @ParameterizedTest(name = "{0}, Dewey IDs={1}: sidecar carrier lifecycle")
   @MethodSource("versioningConfigurations")
   @Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
-  void capacitySidecarsDoNotResurrectAcrossFragments(final VersioningType versioningType,
-      final boolean useDeweyIDs) {
+  void capacitySidecarsDoNotResurrectAcrossFragments(final VersioningType versioningType, final boolean useDeweyIDs) {
     final Path databasePath = temporaryDirectory.resolve(versioningType.name() + "-dewey-" + useDeweyIDs);
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
 
@@ -119,8 +118,7 @@ final class OverflowSlotSidecarVersioningTest {
     try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
       final long objectNodeKey = wtx.insertObjectAsFirstChild().getNodeKey();
 
-      final long completeNodeKey =
-          wtx.insertObjectRecordAsFirstChild("complete", BooleanValue.FALSE).getNodeKey();
+      final long completeNodeKey = wtx.insertObjectRecordAsFirstChild("complete", BooleanValue.FALSE).getNodeKey();
       final int completeNameKey = wtx.getNameKey();
       final long completePathNodeKey = wtx.getPathNodeKey();
       final byte[] completeDeweyId = deweyBytes(wtx, useDeweyIDs);
@@ -133,8 +131,7 @@ final class OverflowSlotSidecarVersioningTest {
       final byte[] descriptorDeweyId = deweyBytes(wtx, useDeweyIDs);
 
       assertTrue(wtx.moveTo(objectNodeKey));
-      final long touchNodeKey =
-          wtx.insertObjectRecordAsFirstChild("touch", BooleanValue.FALSE).getNodeKey();
+      final long touchNodeKey = wtx.insertObjectRecordAsFirstChild("touch", BooleanValue.FALSE).getNodeKey();
 
       assertEquals(completeNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT,
           descriptorNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT);
@@ -145,9 +142,8 @@ final class OverflowSlotSidecarVersioningTest {
       assertFalse(StorageEngineReader.recordPageOffset(touchNodeKey) == PADDING_SLOT);
 
       wtx.commit();
-      return new Fixture(objectNodeKey, completeNodeKey, descriptorNodeKey, touchNodeKey,
-          completeNameKey, descriptorNameKey, completePathNodeKey, descriptorPathNodeKey,
-          completeDeweyId, descriptorDeweyId);
+      return new Fixture(objectNodeKey, completeNodeKey, descriptorNodeKey, touchNodeKey, completeNameKey,
+          descriptorNameKey, completePathNodeKey, descriptorPathNodeKey, completeDeweyId, descriptorDeweyId);
     }
   }
 
@@ -162,9 +158,9 @@ final class OverflowSlotSidecarVersioningTest {
 
   private static void spillAtCapacity(final JsonResourceSession session, final Fixture fixture) {
     try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-      final ObjectNamedBooleanNode complete = (ObjectNamedBooleanNode) wtx.getStorageEngineWriter()
-                                                                         .prepareRecordForModificationDocument(
-                                                                             fixture.completeNodeKey());
+      final ObjectNamedBooleanNode complete =
+          (ObjectNamedBooleanNode) wtx.getStorageEngineWriter()
+                                      .prepareRecordForModificationDocument(fixture.completeNodeKey());
       final KeyValueLeafPage page = complete.getOwnerPage();
       assertNotNull(page);
       final ObjectNamedBooleanNode completeSnapshot = complete.toSnapshot();
@@ -182,8 +178,8 @@ final class OverflowSlotSidecarVersioningTest {
 
   /**
    * Fill only the bump-allocation tail by repeatedly replacing one unreachable test slot. The live
-   * footprint remains one tiny slot, so the next revision's normal version combine compacts the
-   * page and can exercise the sidecar-to-inline transition without deleting hundreds of fixtures.
+   * footprint remains one tiny slot, so the next revision's normal version combine compacts the page
+   * and can exercise the sidecar-to-inline transition without deleting hundreds of fixtures.
    */
   private static void saturateBumpTail(final KeyValueLeafPage page) {
     final long paddingNodeKey = (page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT) + PADDING_SLOT;
@@ -196,8 +192,8 @@ final class OverflowSlotSidecarVersioningTest {
       page.completeDirectWrite(0, paddingNodeKey, PADDING_SLOT, PADDING_BYTES, null);
     }
 
-    final int remaining = (int) (page.getSlottedPage().byteSize() - PageLayout.HEAP_START
-        - PageLayout.getHeapEnd(page.getSlottedPage()));
+    final int remaining =
+        (int) (page.getSlottedPage().byteSize() - PageLayout.HEAP_START - PageLayout.getHeapEnd(page.getSlottedPage()));
     final int trailerBytes = page.areDeweyIDsStored()
         ? PageLayout.DEWEY_ID_TRAILER_SIZE
         : 0;
@@ -242,8 +238,7 @@ final class OverflowSlotSidecarVersioningTest {
     }
   }
 
-  private static void updateTouch(final JsonResourceSession session, final long touchNodeKey,
-      final boolean value) {
+  private static void updateTouch(final JsonResourceSession session, final long touchNodeKey, final boolean value) {
     try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(touchNodeKey));
       assertEquals(NodeKind.OBJECT_NAMED_BOOLEAN, wtx.getKind());
@@ -268,17 +263,16 @@ final class OverflowSlotSidecarVersioningTest {
     }
   }
 
-  private static void assertRevision(final JsonResourceSession session, final int revision,
-      final Fixture fixture, final Shape shape, final boolean expectedComplete,
-      final String expectedDescriptor, final boolean expectedTouch) {
+  private static void assertRevision(final JsonResourceSession session, final int revision, final Fixture fixture,
+      final Shape shape, final boolean expectedComplete, final String expectedDescriptor, final boolean expectedTouch) {
     try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       assertTransaction(session, rtx, fixture, shape, expectedComplete, expectedDescriptor, expectedTouch);
     }
   }
 
   private static void assertTransaction(final JsonResourceSession session, final JsonNodeReadOnlyTrx rtx,
-      final Fixture fixture, final Shape shape, final boolean expectedComplete,
-      final String expectedDescriptor, final boolean expectedTouch) {
+      final Fixture fixture, final Shape shape, final boolean expectedComplete, final String expectedDescriptor,
+      final boolean expectedTouch) {
     if (shape == Shape.DELETED) {
       assertFalse(rtx.moveTo(fixture.completeNodeKey()), "deleted complete-image record resurrected");
       assertFalse(rtx.moveTo(fixture.descriptorNodeKey()), "deleted descriptor record resurrected");
@@ -310,14 +304,13 @@ final class OverflowSlotSidecarVersioningTest {
     }
   }
 
-  private static void assertPhysicalCarriers(final JsonResourceSession session,
-      final JsonNodeReadOnlyTrx rtx, final Fixture fixture, final Shape shape,
-      final boolean expectedComplete) {
+  private static void assertPhysicalCarriers(final JsonResourceSession session, final JsonNodeReadOnlyTrx rtx,
+      final Fixture fixture, final Shape shape, final boolean expectedComplete) {
     final StorageEngineReader reader = rtx.getStorageEngineReader();
     final long recordPageKey = reader.pageKey(fixture.completeNodeKey(), IndexType.DOCUMENT);
     assertEquals(recordPageKey, reader.pageKey(fixture.descriptorNodeKey(), IndexType.DOCUMENT));
-    final var loaded = reader.getRecordPage(
-        new IndexLogKey(IndexType.DOCUMENT, recordPageKey, 0, rtx.getRevisionNumber()));
+    final var loaded =
+        reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, recordPageKey, 0, rtx.getRevisionNumber()));
     assertNotNull(loaded);
     final KeyValueLeafPage page = (KeyValueLeafPage) loaded.page();
     final int completeSlot = slot(fixture.completeNodeKey());
@@ -344,21 +337,18 @@ final class OverflowSlotSidecarVersioningTest {
     }
   }
 
-  private static void assertCompleteSideCarrier(final KeyValueLeafPage page, final Fixture fixture,
-      final int slot, final boolean expectedValue) {
-    assertSideCarrier(page, fixture.completeNodeKey(), slot, NodeKind.OBJECT_NAMED_BOOLEAN,
-        fixture.completeDeweyId());
+  private static void assertCompleteSideCarrier(final KeyValueLeafPage page, final Fixture fixture, final int slot,
+      final boolean expectedValue) {
+    assertSideCarrier(page, fixture.completeNodeKey(), slot, NodeKind.OBJECT_NAMED_BOOLEAN, fixture.completeDeweyId());
     assertEquals(fixture.objectNodeKey(), page.getSlotParentKey(slot));
     assertEquals(fixture.completeNameKey(), page.getObjectKeyNameKeyFromSlot(slot));
-    assertEquals(fixture.completePathNodeKey(),
-        page.getObjectKeyPathNodeKeyFromSlot(slot, fixture.completeNodeKey()));
+    assertEquals(fixture.completePathNodeKey(), page.getObjectKeyPathNodeKeyFromSlot(slot, fixture.completeNodeKey()));
     assertEquals(expectedValue, page.getFusedObjectNamedBooleanValueFromSlot(slot),
         "the complete side image must retain its value, not only projection metadata");
     assertContains(page.getObjectKeySlotsForNameKey(fixture.completeNameKey()), slot);
   }
 
-  private static void assertDescriptorSideCarrier(final KeyValueLeafPage page, final Fixture fixture,
-      final int slot) {
+  private static void assertDescriptorSideCarrier(final KeyValueLeafPage page, final Fixture fixture, final int slot) {
     assertSideCarrier(page, fixture.descriptorNodeKey(), slot, NodeKind.OBJECT_NAMED_STRING,
         fixture.descriptorDeweyId());
     assertTrue(page.isFusedObjectNamedStringOverflowDescriptor(slot));
@@ -369,8 +359,8 @@ final class OverflowSlotSidecarVersioningTest {
     assertContains(page.getObjectKeySlotsForNameKey(fixture.descriptorNameKey()), slot);
   }
 
-  private static void assertSideCarrier(final KeyValueLeafPage page, final long nodeKey,
-      final int slot, final NodeKind kind, final byte[] expectedDeweyId) {
+  private static void assertSideCarrier(final KeyValueLeafPage page, final long nodeKey, final int slot,
+      final NodeKind kind, final byte[] expectedDeweyId) {
     assertTrue(page.hasSideSlot(slot));
     assertFalse(PageLayout.isSlotPopulated(page.getSlottedPage(), slot),
         "one logical record must never occupy both the inline heap and sidecar");
@@ -385,8 +375,8 @@ final class OverflowSlotSidecarVersioningTest {
     assertEquals(1, sameKeyReferenceCount(page, nodeKey));
   }
 
-  private static void assertInlineCarrier(final KeyValueLeafPage page, final long nodeKey,
-      final int slot, final NodeKind kind, final byte[] expectedDeweyId) {
+  private static void assertInlineCarrier(final KeyValueLeafPage page, final long nodeKey, final int slot,
+      final NodeKind kind, final byte[] expectedDeweyId) {
     assertFalse(page.hasSideSlot(slot));
     assertTrue(PageLayout.isSlotPopulated(page.getSlottedPage(), slot));
     assertNotNull(page.getSlot(slot));
@@ -398,8 +388,7 @@ final class OverflowSlotSidecarVersioningTest {
     assertArrayEquals(expectedDeweyId, page.getDeweyIdAsByteArray(slot));
   }
 
-  private static void assertRetiredCarrier(final KeyValueLeafPage page, final long nodeKey,
-      final int slot) {
+  private static void assertRetiredCarrier(final KeyValueLeafPage page, final long nodeKey, final int slot) {
     assertFalse(page.hasSideSlot(slot), "delete must shadow the older side image");
     assertNull(page.getPageReference(nodeKey), "delete must shadow the older overflow reference");
     assertEquals(0, sameKeyReferenceCount(page, nodeKey));
@@ -434,14 +423,11 @@ final class OverflowSlotSidecarVersioningTest {
   }
 
   private enum Shape {
-    INLINE,
-    SIDE,
-    DELETED
+    INLINE, SIDE, DELETED
   }
 
-  private record Fixture(long objectNodeKey, long completeNodeKey, long descriptorNodeKey,
-                         long touchNodeKey, int completeNameKey, int descriptorNameKey,
-                         long completePathNodeKey, long descriptorPathNodeKey,
-                         byte[] completeDeweyId, byte[] descriptorDeweyId) {
+  private record Fixture(long objectNodeKey, long completeNodeKey, long descriptorNodeKey, long touchNodeKey,
+      int completeNameKey, int descriptorNameKey, long completePathNodeKey, long descriptorPathNodeKey,
+      byte[] completeDeweyId, byte[] descriptorDeweyId) {
   }
 }

@@ -88,8 +88,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * Ordinary materialising methods here are a per-LITERAL or per-WINNER cost. The explicitly created
  * {@link ReadView} is the exception for operators that must interpret global ids while scanning: it
- * binds the header and name page to one revision and exposes allocation-free comparisons and the two
- * admitted substring transforms. It never exposes or copies an entry's byte array.
+ * binds the header and name page to one revision and exposes allocation-free comparisons and the
+ * two admitted substring transforms. It never exposes or copies an entry's byte array.
  */
 public final class GlobalValueDictionary {
 
@@ -118,16 +118,16 @@ public final class GlobalValueDictionary {
    * <p>
    * A read-only transaction's dictionary record memo is a no-op, so a probe that walks from the
    * reverse root materialises three radix nodes plus the bucket before it reaches the entry — five
-   * record decodes for one id. Retaining the bucket collapses that to one decode per id for any
-   * scan with locality. Sixteen buckets span 4096 consecutive ids and cost sixteen references, so
-   * this is bounded by the VIEW, never by the dictionary's cardinality.
+   * record decodes for one id. Retaining the bucket collapses that to one decode per id for any scan
+   * with locality. Sixteen buckets span 4096 consecutive ids and cost sixteen references, so this is
+   * bounded by the VIEW, never by the dictionary's cardinality.
    */
   private static final int READ_VIEW_BUCKET_CACHE_SIZE = 16;
 
   /**
    * FLOOR for both per-view tables: the smallest they may be, and what they are when the resident
-   * budget is off. Named as a floor rather than a size because it is no longer either table's
-   * actual length -- {@link #READ_VIEW_BLOCK_SLOTS} decides that from the budget.
+   * budget is off. Named as a floor rather than a size because it is no longer either table's actual
+   * length -- {@link #READ_VIEW_BLOCK_SLOTS} decides that from the budget.
    */
   private static final int READ_VIEW_TABLE_FLOOR = 16;
 
@@ -137,10 +137,10 @@ public final class GlobalValueDictionary {
    * <p>
    * RESIDENCY BY FIT, never unconditional. A decoded block is up to
    * {@link ValueDictionaryValueBlockNode#MAX_BLOCK_BYTES}, so the budget divided by that bound gives
-   * the number of slots the view may hold, and the table being DIRECT-MAPPED is what makes the
-   * budget a real bound rather than a hope — a slot holds at most one block, so resident bytes can
-   * never exceed slots times the bound, and a collision simply re-decodes through the path that
-   * already exists. There is no eviction policy to get wrong because there is no eviction: the map
+   * the number of slots the view may hold, and the table being DIRECT-MAPPED is what makes the budget
+   * a real bound rather than a hope — a slot holds at most one block, so resident bytes can never
+   * exceed slots times the bound, and a collision simply re-decodes through the path that already
+   * exists. There is no eviction policy to get wrong because there is no eviction: the map
    * overwrites, and being wrong about what to keep costs a decode, never an answer.
    * </p>
    *
@@ -151,13 +151,13 @@ public final class GlobalValueDictionary {
    * transactions, which serves the same misses from one place instead of once per view — and with it
    * present the per-view table is worth 381 ns against 312 ns on the same point read, and nothing at
    * all on the 43-query leg (cold 6.786 against 6.744, hot 1.288 against 1.302, min of three legs
-   * each, where the spread WITHIN each configuration is larger than the difference between them).
-   * A per-view budget is also the wrong shape at scale: it is claimed once per view, so ten views
-   * would claim it ten times for one dictionary, where the shared cache claims it once.
+   * each, where the spread WITHIN each configuration is larger than the difference between them). A
+   * per-view budget is also the wrong shape at scale: it is claimed once per view, so ten views would
+   * claim it ten times for one dictionary, where the shared cache claims it once.
    *
    * <p>
-   * The knob stays because the arithmetic behind it is still true where no shared cache is
-   * available. Set it to a byte budget to restore the sized table; the budget divided by
+   * The knob stays because the arithmetic behind it is still true where no shared cache is available.
+   * Set it to a byte budget to restore the sized table; the budget divided by
    * {@link ValueDictionaryValueBlockNode#MAX_BLOCK_BYTES} gives the slot count, and the table being
    * DIRECT-MAPPED is what makes it a bound rather than a hope.
    * </p>
@@ -175,13 +175,12 @@ public final class GlobalValueDictionary {
    * The two caches sit in series on a point read — a bucket must be resolved to learn which block
    * covers an id — so sizing only the blocks moves the cost rather than removing it. Measured: with
    * 2048 block slots and the bucket table left at 16, a random read fell from 23.9 us to 1.7 us and
-   * STOPPED there, because every read still decoded its bucket. A bucket record is far smaller than
-   * a block (it holds references, not values), so matching the counts costs a small fraction of the
+   * STOPPED there, because every read still decoded its bucket. A bucket record is far smaller than a
+   * block (it holds references, not values), so matching the counts costs a small fraction of the
    * block budget and is not metered separately.
    * </p>
    */
-  private static final int READ_VIEW_BUCKET_SLOTS =
-      Math.max(READ_VIEW_BUCKET_CACHE_SIZE, READ_VIEW_BLOCK_SLOTS);
+  private static final int READ_VIEW_BUCKET_SLOTS = Math.max(READ_VIEW_BUCKET_CACHE_SIZE, READ_VIEW_BLOCK_SLOTS);
 
   static {
     // Both tables index with `x & (SLOTS - 1)`, which is a modulo only for a power of two. A later
@@ -224,14 +223,16 @@ public final class GlobalValueDictionary {
   /**
    * Open a bounded reverse-dictionary view tied to the reader's current revision.
    *
-   * <p>The fixed direct-mapped caches retain immutable entry-node and reverse-bucket references
-   * only — never a value, so the view's footprint is fixed whatever the dictionary's cardinality.
-   * A hot-loop HIT performs neither a radix traversal nor an allocation. A MISS resolves through a
-   * retained bucket when one is held, which removes the three radix-node decodes a walk from the
-   * root would repeat for all 256 ids the bucket covers; it still decodes the entry record itself,
-   * so a miss is NOT allocation-free. The view refuses an incomplete/unknown dictionary
-   * up front and checks the revision before every operation, so it can never reinterpret a row id
-   * against another revision's dictionary.</p>
+   * <p>
+   * The fixed direct-mapped caches retain immutable entry-node and reverse-bucket references only —
+   * never a value, so the view's footprint is fixed whatever the dictionary's cardinality. A hot-loop
+   * HIT performs neither a radix traversal nor an allocation. A MISS resolves through a retained
+   * bucket when one is held, which removes the three radix-node decodes a walk from the root would
+   * repeat for all 256 ids the bucket covers; it still decodes the entry record itself, so a miss is
+   * NOT allocation-free. The view refuses an incomplete/unknown dictionary up front and checks the
+   * revision before every operation, so it can never reinterpret a row id against another revision's
+   * dictionary.
+   * </p>
    *
    * @param headerNodeKey dictionary header key recorded by the projection column
    * @param reader reader positioned at the revision that owns the projection rows
@@ -271,9 +272,9 @@ public final class GlobalValueDictionary {
    * the id/bucket/word aliasing {@link ReadView#fillStringOpVerdict} documents — bucket {@code b}
    * owns ids {@code 256b+1 .. 256b+256} and therefore words {@code 4b .. 4b+4}, the last of which is
    * bucket {@code b+1}'s first — so getting any one of them wrong drops a row SILENTLY, at one id in
-   * 256, on the path whose whole job is to decide which rows match. A second copy of the three is
-   * how a caller and its regression test agree with each other while both drift from the sweep;
-   * every caller therefore splits through this type instead of recomputing it.
+   * 256, on the path whose whole job is to decide which rows match. A second copy of the three is how
+   * a caller and its regression test agree with each other while both drift from the sweep; every
+   * caller therefore splits through this type instead of recomputing it.
    * </p>
    *
    * <p>
@@ -306,10 +307,10 @@ public final class GlobalValueDictionary {
      * @param buckets {@link ReadView#verdictBucketCount()}
      * @param lane the lane, {@code 0 <= lane < lanes}
      * @param lanes number of lanes the sweep is split into, at least one
-     * @return the lane's share, possibly {@linkplain #isEmpty() empty} when there are more lanes
-     *         than buckets
-     * @throws IllegalArgumentException if {@code buckets} is negative, {@code lanes} is not
-     *         positive, or {@code lane} is not a lane of {@code lanes}
+     * @return the lane's share, possibly {@linkplain #isEmpty() empty} when there are more lanes than
+     *         buckets
+     * @throws IllegalArgumentException if {@code buckets} is negative, {@code lanes} is not positive,
+     *         or {@code lane} is not a lane of {@code lanes}
      */
     public static VerdictSlice forLane(final int buckets, final int lane, final int lanes) {
       if (buckets < 0) {
@@ -348,9 +349,9 @@ public final class GlobalValueDictionary {
      * Evaluate {@code op} against this lane's buckets into the lane-owned slice.
      *
      * <p>
-     * {@code view} may be — and for a parallel sweep MUST be — a view of the lane's own, since a
-     * view's slice caches are single-threaded. It must be a view of the same revision and entry
-     * count the split was sized from; a caller crossing views is responsible for checking that.
+     * {@code view} may be — and for a parallel sweep MUST be — a view of the lane's own, since a view's
+     * slice caches are single-threaded. It must be a view of the same revision and entry count the
+     * split was sized from; a caller crossing views is responsible for checking that.
      * </p>
      *
      * @param view the dictionary view the lane reads through
@@ -370,10 +371,9 @@ public final class GlobalValueDictionary {
      *
      * <p>
      * The write is clamped to what {@code verdict} addresses: the last bucket's slice covers the
-     * boundary word of a bucket that does not exist, and the final bucket is partial whenever the
-     * entry count is not a multiple of 256, so the tail of the last lane's slice legitimately
-     * describes ids past the dictionary. Those words are zero — no id set them — so clamping drops
-     * nothing.
+     * boundary word of a bucket that does not exist, and the final bucket is partial whenever the entry
+     * count is not a multiple of 256, so the tail of the last lane's slice legitimately describes ids
+     * past the dictionary. Those words are zero — no id set them — so clamping drops nothing.
      * </p>
      *
      * @param verdict the whole-dictionary bitset, sized as {@link ReadView#newVerdict()} sizes it
@@ -402,9 +402,9 @@ public final class GlobalValueDictionary {
     private final DatabaseType databaseType;
     private final StorageEngineReader reader;
     /**
-     * Per-id SLICE cache: the backing array a value lives in, plus its offset and length. No entry
-     * node and no copied {@code byte[]} — a scan compares far more values than it emits, so a
-     * wrapper or a copy per compared id is precisely the per-row garbage the packed layout removes.
+     * Per-id SLICE cache: the backing array a value lives in, plus its offset and length. No entry node
+     * and no copied {@code byte[]} — a scan compares far more values than it emits, so a wrapper or a
+     * copy per compared id is precisely the per-row garbage the packed layout removes.
      */
     private final int[] cachedIds = new int[READ_VIEW_CACHE_SIZE];
     private final byte[][] cachedBacking = new byte[READ_VIEW_CACHE_SIZE][];
@@ -413,24 +413,24 @@ public final class GlobalValueDictionary {
     /**
      * SPILL lane, same slot indexing. A spilled value stays behind its record rather than having its
      * array handed out: a record owns its bytes, and exposing them to keep one cache uniform would
-     * trade the node's immutability for a convenience. Exactly one of {@code cachedBacking[slot]}
-     * and {@code cachedSpills[slot]} is non-null for a resolved slot.
+     * trade the node's immutability for a convenience. Exactly one of {@code cachedBacking[slot]} and
+     * {@code cachedSpills[slot]} is non-null for a resolved slot.
      */
     private final ValueDictionaryEntryNode[] cachedSpills = new ValueDictionaryEntryNode[READ_VIEW_CACHE_SIZE];
     /** Direct-mapped reverse-bucket retention; {@code -1} marks an unused slot. */
     private int @Nullable [] cachedBuckets;
     private ValueDictionaryValueBucketNode @Nullable [] cachedBucketNodes;
     /**
-     * Direct-mapped retention of decoded SUB-BLOCKS, keyed by record key. A block is up to 64 KiB
-     * and packs many consecutive ids, so decoding one per probe dominated the miss path; holding a
-     * few costs a fixed number of references and no per-id state.
+     * Direct-mapped retention of decoded SUB-BLOCKS, keyed by record key. A block is up to 64 KiB and
+     * packs many consecutive ids, so decoding one per probe dominated the miss path; holding a few
+     * costs a fixed number of references and no per-id state.
      */
     private long @Nullable [] cachedBlockKeys;
     private ValueDictionaryValueBlockNode @Nullable [] cachedBlocks;
     /**
      * Separator array over the ordered prefix, loaded ONCE per view and then kept. It is the whole
-     * point of the structure: without it a binary-search probe decodes one block per step, with it
-     * one block per probe, and re-reading it per probe would give back exactly what it saves.
+     * point of the structure: without it a binary-search probe decodes one block per step, with it one
+     * block per probe, and re-reading it per probe would give back exactly what it saves.
      */
     private final long blockIndexKey;
 
@@ -445,9 +445,9 @@ public final class GlobalValueDictionary {
     private long @Nullable [] transformedValues;
 
     /**
-     * Whether EVERY id is in collation order of its value — {@code orderedPrefixCount == entryCount}
-     * on the header, the single test an ordering arm may make. While it holds, id order IS value
-     * order, so id comparisons answer string comparisons with no dictionary touch at all.
+     * Whether EVERY id is in collation order of its value — {@code orderedPrefixCount == entryCount} on
+     * the header, the single test an ordering arm may make. While it holds, id order IS value order, so
+     * id comparisons answer string comparisons with no dictionary touch at all.
      */
     private final boolean fullyOrdered;
 
@@ -505,11 +505,11 @@ public final class GlobalValueDictionary {
     }
 
     /**
-     * Fill {@code table[fromId..toId]} with the per-id string lengths of this view, in the given
-     * mode — the id-range half of {@link #lengthTable(byte)}, so callers holding one view PER WORKER
-     * can derive one table over disjoint id ranges in parallel (the view's slice caches are
-     * single-threaded; the table's disjoint ranges need no coordination). Ids are walked in order,
-     * so every block of the range is decoded once.
+     * Fill {@code table[fromId..toId]} with the per-id string lengths of this view, in the given mode —
+     * the id-range half of {@link #lengthTable(byte)}, so callers holding one view PER WORKER can
+     * derive one table over disjoint id ranges in parallel (the view's slice caches are
+     * single-threaded; the table's disjoint ranges need no coordination). Ids are walked in order, so
+     * every block of the range is decoded once.
      *
      * @param lengthMode {@link ProjectionIndexByteScan#STRING_LENGTH_UTF8_BYTES} or
      *        {@link ProjectionIndexByteScan#STRING_LENGTH_CODE_POINTS}
@@ -523,8 +523,8 @@ public final class GlobalValueDictionary {
         throw new IllegalArgumentException("not a string length mode: " + lengthMode);
       }
       if (fromId < 1 || toId > entryCount || toId >= table.length) {
-        throw new IllegalArgumentException("id range [" + fromId + ", " + toId + "] outside 1.." + entryCount
-            + " or the table of " + table.length);
+        throw new IllegalArgumentException(
+            "id range [" + fromId + ", " + toId + "] outside 1.." + entryCount + " or the table of " + table.length);
       }
       for (int id = fromId; id <= toId; id++) {
         final int slot = sliceSlot(id);
@@ -556,9 +556,9 @@ public final class GlobalValueDictionary {
      * Materialize the value interned under {@code id} as a {@link String}.
      *
      * <p>
-     * For WINNERS only — group emission, deferred-extremum results — never for per-row work: the
-     * whole point of the id lanes is that rows stay integers. Packed ids decode straight off their
-     * slice; spilled ids go through the record's defensive copy, which is fine at winner cardinality.
+     * For WINNERS only — group emission, deferred-extremum results — never for per-row work: the whole
+     * point of the id lanes is that rows stay integers. Packed ids decode straight off their slice;
+     * spilled ids go through the record's defensive copy, which is fine at winner cardinality.
      */
     public String valueAsString(final int id) {
       final int slot = sliceSlot(id);
@@ -566,8 +566,7 @@ public final class GlobalValueDictionary {
       if (spill != null) {
         return new String(spill.getValue(), StandardCharsets.UTF_8);
       }
-      return new String(cachedBacking[slot], cachedOffsets[slot], cachedLengths[slot],
-          StandardCharsets.UTF_8);
+      return new String(cachedBacking[slot], cachedOffsets[slot], cachedLengths[slot], StandardCharsets.UTF_8);
     }
 
     /**
@@ -577,17 +576,17 @@ public final class GlobalValueDictionary {
      *
      * <p>
      * This is the global half of the two-phase pattern the per-leaf dictionaries already use
-     * ({@code evalStringDict}): the string work runs once per DISTINCT value here, and every row
-     * group afterwards answers each row with one bit test against the id it already stores. Packed
-     * ids evaluate over their zero-copy {@code (backing, offset, length)} slices through the same
-     * per-entry authority the leaf kernels use ({@code ProjectionIndexScan.stringDictEntryMatches}),
-     * so op semantics — including the UTF-16 collation contract for the ordering ops — cannot drift
-     * between the two dictionary tiers. Spilled ids evaluate through their record's own entry
-     * points, which exist so the record's array never escapes.
+     * ({@code evalStringDict}): the string work runs once per DISTINCT value here, and every row group
+     * afterwards answers each row with one bit test against the id it already stores. Packed ids
+     * evaluate over their zero-copy {@code (backing, offset, length)} slices through the same per-entry
+     * authority the leaf kernels use ({@code ProjectionIndexScan.stringDictEntryMatches}), so op
+     * semantics — including the UTF-16 collation contract for the ordering ops — cannot drift between
+     * the two dictionary tiers. Spilled ids evaluate through their record's own entry points, which
+     * exist so the record's array never escapes.
      *
      * <p>
-     * Sequential ids share sub-blocks, so the sweep runs at block-cache speed; the returned bitset
-     * is immutable by convention and safe to share across scan workers.
+     * Sequential ids share sub-blocks, so the sweep runs at block-cache speed; the returned bitset is
+     * immutable by convention and safe to share across scan workers.
      *
      * @param op one of {@code EQ}, {@code NE}, {@code STR_LT/LE/GT/GE}, {@code STR_CONTAINS}
      * @param literalUtf8 the literal, UTF-8 encoded
@@ -607,8 +606,8 @@ public final class GlobalValueDictionary {
     }
 
     /**
-     * An empty verdict bitset for this revision, sized {@code (entryCount + 64) >> 6} words — one
-     * bit per id plus the unused bit zero, which is the size every consumer of a verdict assumes.
+     * An empty verdict bitset for this revision, sized {@code (entryCount + 64) >> 6} words — one bit
+     * per id plus the unused bit zero, which is the size every consumer of a verdict assumes.
      *
      * @return a fresh, zeroed bitset
      */
@@ -678,8 +677,7 @@ public final class GlobalValueDictionary {
       if (bucketLo == bucketHi) {
         return;
       }
-      final boolean litHasSupplementary =
-          ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
+      final boolean litHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
       // BLOCK-AT-A-TIME, not id-at-a-time. A per-id walk routes all entryCount values through
       // sliceSlot, whose direct-mapped slice cache MISSES on every one of them — ascending ids never
       // repeat a slot — so each value pays a revision check, two cache probes and a bucket search to
@@ -699,8 +697,8 @@ public final class GlobalValueDictionary {
           final ValueDictionaryValueBlockNode node = GlobalValueDictionaryRadix.blockNode(bucketNode.blockKey(block),
               blockFirstId, namePage, databaseType, reader);
           if (node == null) {
-            throw new IllegalStateException("global value dictionary block " + blockFirstId + " is missing from "
-                + "revision " + revision);
+            throw new IllegalStateException(
+                "global value dictionary block " + blockFirstId + " is missing from " + "revision " + revision);
           }
           // Read the packed bytes once; a coded block expanded them when it deserialized, and
           // re-entering through valueOffset(id) per value would re-check the id's range for nothing.
@@ -737,8 +735,8 @@ public final class GlobalValueDictionary {
 
     /**
      * Op dispatch for a SPILLED value, through the record's no-escape entry points. Semantics mirror
-     * {@code stringDictEntryMatches} arm for arm; ordering uses {@code compareToRange}, which is
-     * UTF-16 collation unconditionally — the same order the byte-path arm reaches via its
+     * {@code stringDictEntryMatches} arm for arm; ordering uses {@code compareToRange}, which is UTF-16
+     * collation unconditionally — the same order the byte-path arm reaches via its
      * supplementary-character fallback.
      */
     private static boolean spillMatches(final ValueDictionaryEntryNode spill, final ProjectionIndexScan.Op op,
@@ -817,16 +815,15 @@ public final class GlobalValueDictionary {
      *
      * <p>
      * Returns {@code (low << 32) | high} packed, because this is on the probe path and a record here
-     * would allocate per probe. Without a separator array the range is the whole ordered prefix,
-     * which is correct and merely slower — the array is an accelerator, never a source of truth.
+     * would allocate per probe. Without a separator array the range is the whole ordered prefix, which
+     * is correct and merely slower — the array is an accelerator, never a source of truth.
      * </p>
      */
     long candidateIdRange(final byte[] utf8, final int offset, final int length, final int boundary) {
       if (!blockIndexLoaded) {
         blockIndexLoaded = true;
         if (blockIndexKey != 0L) {
-          final DataRecord record =
-              namePage.getProjectionValueDictionaryRecord(blockIndexKey, databaseType, reader);
+          final DataRecord record = namePage.getProjectionValueDictionaryRecord(blockIndexKey, databaseType, reader);
           if (record instanceof ValueDictionaryBlockIndexNode index) {
             blockIndex = index;
           }
@@ -866,8 +863,8 @@ public final class GlobalValueDictionary {
       final byte[] backing = cachedBacking[slot];
       final int offset = cachedOffsets[slot];
       final int valueLength = cachedLengths[slot];
-      if (ProjectionIndexByteScan.packIsoMinuteSubstring(backing, offset, valueLength, start, length)
-          == Long.MIN_VALUE) {
+      if (ProjectionIndexByteScan.packIsoMinuteSubstring(backing, offset, valueLength, start,
+          length) == Long.MIN_VALUE) {
         throw new IllegalArgumentException("dictionary value is not an admissible ISO-minute substring");
       }
       return new String(backing, offset + start - 1, length, StandardCharsets.US_ASCII);
@@ -908,8 +905,7 @@ public final class GlobalValueDictionary {
       if (bucketNode == null) {
         bucketNode = GlobalValueDictionaryRadix.valueBucketOf(reverseRootKey, bucket, namePage, databaseType, reader);
         if (bucketNode == null) {
-          throw new IllegalStateException(
-              "global value dictionary id " + id + " is missing from revision " + revision);
+          throw new IllegalStateException("global value dictionary id " + id + " is missing from revision " + revision);
         }
         cachedBucketNodes[bucketSlot] = bucketNode;
         cachedBuckets[bucketSlot] = bucket;
@@ -936,8 +932,7 @@ public final class GlobalValueDictionary {
       } else {
         final long spillKey = bucketNode.spillKeyCovering(id);
         if (spillKey == 0L) {
-          throw new IllegalStateException(
-              "global value dictionary id " + id + " is missing from revision " + revision);
+          throw new IllegalStateException("global value dictionary id " + id + " is missing from revision " + revision);
         }
         cachedSpills[slot] = GlobalValueDictionaryRadix.spillEntry(spillKey, namePage, databaseType, reader);
         cachedBacking[slot] = null;
@@ -1011,12 +1006,18 @@ public final class GlobalValueDictionary {
    */
   private static final AtomicLong RESIDENT_BLOCKS = new AtomicLong();
 
-  /** @return blocks warmed into the record cache since JVM start; {@code 0} means the warmer never ran. */
+  /**
+   * @return blocks warmed into the record cache since JVM start; {@code 0} means the warmer never
+   *         ran.
+   */
   public static long warmedBlockCount() {
     return WARMED_BLOCKS.get();
   }
 
-  /** @return warmed blocks still resident when their pass ended; below {@link #warmedBlockCount()} means churn. */
+  /**
+   * @return warmed blocks still resident when their pass ended; below {@link #warmedBlockCount()}
+   *         means churn.
+   */
   public static long residentBlockCount() {
     return RESIDENT_BLOCKS.get();
   }
@@ -1026,19 +1027,19 @@ public final class GlobalValueDictionary {
    * that would otherwise pay for them.
    *
    * <p>
-   * <b>Why this exists.</b> A first verdict build over a 275,494-entry dictionary measured 142 ms,
-   * of which 123 ms was first touch — 84 ms fetching and deserializing 1,085 block records and 39 ms
+   * <b>Why this exists.</b> A first verdict build over a 275,494-entry dictionary measured 142 ms, of
+   * which 123 ms was first touch — 84 ms fetching and deserializing 1,085 block records and 39 ms
    * decoding and front-expanding them — against 19 ms of steady-state work once they are resident.
    * Every later execution pays the 19 ms. This moves the 123 ms off the query that happens to be
-   * first. A prefetch of the pages alone would move only the 84 ms; a warmer has to fetch in order
-   * to decode, so it moves both.
+   * first. A prefetch of the pages alone would move only the 84 ms; a warmer has to fetch in order to
+   * decode, so it moves both.
    * </p>
    *
    * <p>
    * <b>It caches values, never accessors.</b> Nothing here is retained: the walk touches records
-   * through {@code NamePage}, which populates the record cache with decoded, immutable block
-   * records, and the reader this runs on belongs to the caller. No {@link ReadView} is held, so no
-   * transaction is pinned past its own lifetime.
+   * through {@code NamePage}, which populates the record cache with decoded, immutable block records,
+   * and the reader this runs on belongs to the caller. No {@link ReadView} is held, so no transaction
+   * is pinned past its own lifetime.
    * </p>
    *
    * <p>
@@ -1046,8 +1047,8 @@ public final class GlobalValueDictionary {
    * {@code budgetBytes}, so a dictionary larger than the record cache warms its low ids and leaves
    * the rest; a query reaching an unwarmed block decodes it through the path that already exists.
    * Racing is safe for the same reason — a query arriving mid-warm finds some blocks resident and
-   * fetches the others. A failure is swallowed for the same reason: warming is an optimisation, and
-   * a resource that closed underneath a background walk must not turn into a query error.
+   * fetches the others. A failure is swallowed for the same reason: warming is an optimisation, and a
+   * resource that closed underneath a background walk must not turn into a query error.
    * </p>
    *
    * @param headerNodeKey the dictionary's header key
@@ -1088,9 +1089,8 @@ public final class GlobalValueDictionary {
     final int bucketCount = (view.entryCount() - 1 >>> 8) + 1;
     try {
       for (int bucket = 0; bucket < bucketCount && bytes < budgetBytes; bucket++) {
-        final ValueDictionaryValueBucketNode bucketNode =
-            GlobalValueDictionaryRadix.valueBucketOf(view.reverseRootKey, bucket, view.namePage, view.databaseType,
-                reader);
+        final ValueDictionaryValueBucketNode bucketNode = GlobalValueDictionaryRadix.valueBucketOf(view.reverseRootKey,
+            bucket, view.namePage, view.databaseType, reader);
         if (bucketNode == null) {
           break;
         }
@@ -1372,15 +1372,15 @@ public final class GlobalValueDictionary {
    *
    * <p>
    * Partitions on REVERSE BUCKET boundaries (256 ids), not on block boundaries. The two are nearly
-   * the same partition, and the bucket one is total by construction — a bucket covers its ids
-   * whether they are packed in blocks or spilled to their own records, so the search's within-range
-   * step handles a spilled value with no special case.
+   * the same partition, and the bucket one is total by construction — a bucket covers its ids whether
+   * they are packed in blocks or spilled to their own records, so the search's within-range step
+   * handles a spilled value with no special case.
    * </p>
    *
    * @return the record key of the separator array, or 0 when the dictionary is too small to index
    */
-  public static long buildBlockIndex(final long headerNodeKey, final NamePage namePage,
-      final DatabaseType databaseType, final StorageEngineWriter writer, final TransactionIntentLog log) {
+  public static long buildBlockIndex(final long headerNodeKey, final NamePage namePage, final DatabaseType databaseType,
+      final StorageEngineWriter writer, final TransactionIntentLog log) {
     final ValueDictionaryHeaderNode header = header(headerNodeKey, writer);
     if (header == null || !header.isFullyOrdered() || header.getEntryCount() <= VALUES_PER_INDEXED_RANGE) {
       return 0L;
@@ -1414,11 +1414,9 @@ public final class GlobalValueDictionary {
     final long indexKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 1L);
     namePage.putProjectionValueDictionaryRecord(
         ValueDictionaryBlockIndexNode.takeOwnership(indexKey, firstIds, packed, offsets), databaseType, writer, log);
-    namePage.putProjectionValueDictionaryRecord(
-        new ValueDictionaryHeaderNode(header.getNodeKey(), ValueDictionaryHeaderNode.VERSION, entryCount,
-            header.getForwardRootKey(), header.getReverseRootKey(), header.getGeneration(),
-            header.getOrderedPrefixCount(), indexKey),
-        databaseType, writer, log);
+    namePage.putProjectionValueDictionaryRecord(new ValueDictionaryHeaderNode(header.getNodeKey(),
+        ValueDictionaryHeaderNode.VERSION, entryCount, header.getForwardRootKey(), header.getReverseRootKey(),
+        header.getGeneration(), header.getOrderedPrefixCount(), indexKey), databaseType, writer, log);
     return indexKey;
   }
 

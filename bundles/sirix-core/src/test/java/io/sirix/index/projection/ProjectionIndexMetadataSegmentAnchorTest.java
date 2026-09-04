@@ -18,14 +18,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The segment-anchor section of the projection metadata: where a page's SEGMENT anchor is translated
- * into the dictionary it was sealed under.
+ * The segment-anchor section of the projection metadata: where a page's SEGMENT anchor is
+ * translated into the dictionary it was sealed under.
  *
  * <p>
  * The property that matters as much as the round trip is the one about ABSENCE. The metadata parser
  * refuses any trailing bytes it does not understand — deliberately, so a shifted field can never be
- * read as data — which means adding a section is only safe if a payload WITHOUT it still parses. Every
- * database written before segment dictionaries existed is such a payload.
+ * read as data — which means adding a section is only safe if a payload WITHOUT it still parses.
+ * Every database written before segment dictionaries existed is such a payload.
  * </p>
  */
 final class ProjectionIndexMetadataSegmentAnchorTest {
@@ -34,8 +34,8 @@ final class ProjectionIndexMetadataSegmentAnchorTest {
 
   private static ProjectionIndexMetadata withAnchors(final SegmentAnchor... anchors) {
     return new ProjectionIndexMetadata(ROOT, new String[] {"/[]/a", "/[]/b"}, new String[] {"a", "b"},
-        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG},
+        new byte[] {
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG},
         7, 3, null, null, anchors.length == 0
             ? null
             : anchors);

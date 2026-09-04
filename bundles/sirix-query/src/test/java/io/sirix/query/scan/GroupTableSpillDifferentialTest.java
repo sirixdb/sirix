@@ -26,15 +26,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The group-table spill against the interpreter, with the threshold pinned so low that every
- * worker flushes into the shared partition tables many times per query.
+ * The group-table spill against the interpreter, with the threshold pinned so low that every worker
+ * flushes into the shared partition tables many times per query.
  *
  * <p>
  * Spilling changes WHERE a group's state lives mid-scan, not what it is: first-seen ordinals (the
  * interpreter's first-appearance emission order), exact sums, identity lanes of composite keys, the
- * zero-key group and the grouped COUNT(DISTINCT) lane must all come out of the shared tables exactly
- * as they came out of one table per worker. Strict serving is on, so an arm that failed and fell back
- * would fail the test rather than agree by accident through the interpreter.
+ * zero-key group and the grouped COUNT(DISTINCT) lane must all come out of the shared tables
+ * exactly as they came out of one table per worker. Strict serving is on, so an arm that failed and
+ * fell back would fail the test rather than agree by accident through the interpreter.
  * </p>
  */
 final class GroupTableSpillDifferentialTest {
@@ -51,7 +51,8 @@ final class GroupTableSpillDifferentialTest {
       "for $h in " + DOC + " let $k := $h.k40 group by $k return {\"k40\": $k, \"sum\": sum($h.amount)}",
       // a zero group key beside the others (with a sum, so the table arm serves it rather than the
       // count-only group-count arm)
-      "for $h in " + DOC + " let $k := $h.k7 group by $k return {\"k7\": $k, \"c\": count($h), \"sum\": sum($h.amount)}",
+      "for $h in " + DOC
+          + " let $k := $h.k7 group by $k return {\"k7\": $k, \"c\": count($h), \"sum\": sum($h.amount)}",
       // string key with grouped COUNT(DISTINCT) and a top-k (an order spec ON a string key declines the
       // plan, so ties resolve by the selector's stable first-appearance order, as the interpreter's do)
       "subsequence(for $h in " + DOC + " let $k := $h.s group by $k let $u := count(distinct-values($h.u)) "
@@ -60,8 +61,7 @@ final class GroupTableSpillDifferentialTest {
       "for $h in " + DOC + " let $k := $h.s group by $k return {\"s\": $k, \"sum\": sum($h.amount)}",
       // composite key with identity lanes, top-k
       "subsequence(for $h in " + DOC + " let $a := $h.k7, $b := $h.k40 group by $a, $b let $c := count($h) "
-          + "order by $c descending "
-          + "return {\"k7\": $a, \"k40\": $b, \"c\": $c, \"sum\": sum($h.amount)}, 1, 10)",
+          + "order by $c descending " + "return {\"k7\": $a, \"k40\": $b, \"c\": $c, \"sum\": sum($h.amount)}, 1, 10)",
       // a predicate before the group-by, ordered (the count-only numeric arm emits an UNORDERED group-by
       // in hash order, which the spec leaves implementation-dependent — not a table-arm shape)
       "subsequence(for $h in " + DOC + " where $h.amount ge 3000 let $k := $h.k40 group by $k let $c := count($h) "
@@ -84,8 +84,18 @@ final class GroupTableSpillDifferentialTest {
       if (i > 0) {
         sb.append(',');
       }
-      sb.append("{\"id\":").append(i).append(",\"k7\":").append(i % 7).append(",\"k40\":").append(i % 40)
-        .append(",\"s\":\"s").append(i % 300).append("\",\"u\":").append(i % 97).append(",\"amount\":").append(i)
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"k7\":")
+        .append(i % 7)
+        .append(",\"k40\":")
+        .append(i % 40)
+        .append(",\"s\":\"s")
+        .append(i % 300)
+        .append("\",\"u\":")
+        .append(i % 97)
+        .append(",\"amount\":")
+        .append(i)
         .append('}');
     }
     sb.append(']');
@@ -130,7 +140,8 @@ final class GroupTableSpillDifferentialTest {
     assertTrue(GroupTableSpill.flushCount() > flushesBefore,
         "no worker table was ever flushed: the threshold seam did not take, the agreement above is vacuous");
     // The flushed tables' chunks must have been RECYCLED into later tables — the pool engaged, the
-    // agreement above ran over recycled (zeroed) storage, and the winners survived the pass-end release.
+    // agreement above ran over recycled (zeroed) storage, and the winners survived the pass-end
+    // release.
     assertTrue(LongChunkPool.totalHits() > poolHitsBefore, "no recycled chunk was ever taken: the chunk pool is idle");
   }
 

@@ -92,8 +92,8 @@ final class ExternalDistinctValuesTest {
     try (ExternalDistinctValues values = new ExternalDistinctValues(dir, ExternalDistinctValues.MIN_BUDGET_BYTES)) {
       addAll(values, input);
       final List<String> out = drain(values);
-      assertTrue(values.spilledRuns() > 1, "a 4 KiB budget over 4,000 values must spill several runs: "
-          + values.spilledRuns());
+      assertTrue(values.spilledRuns() > 1,
+          "a 4 KiB budget over 4,000 values must spill several runs: " + values.spilledRuns());
       assertEquals(expected(input), out, "the merged output is the distinct input, ascending");
       assertEquals(300L, values.distinct(), "each of the 300 values appears exactly once");
       assertEquals(4_000L, values.appended());

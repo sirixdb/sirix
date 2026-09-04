@@ -32,10 +32,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * releases what no open query pins any more.
  *
  * <p>
- * Every assertion here is about an OPTIMISATION, never about an answer: the windowed lanes serve any
- * column without retention, so a refused fill and a released fill must both leave the store able to
- * answer. What the tests pin down is the accounting and the lifetime — bytes charged once, released
- * exactly once, and never released out from under a query that still holds them.
+ * Every assertion here is about an OPTIMISATION, never about an answer: the windowed lanes serve
+ * any column without retention, so a refused fill and a released fill must both leave the store
+ * able to answer. What the tests pin down is the accounting and the lifetime — bytes charged once,
+ * released exactly once, and never released out from under a query that still holds them.
  * </p>
  */
 final class ResidencyReleaseTest {
@@ -71,7 +71,9 @@ final class ResidencyReleaseTest {
     ProjectionColumnStore.sampleHeadroomShare();
   }
 
-  /** Pin the share to exactly {@code bytes} (the share is a quarter of the headroom on any real heap). */
+  /**
+   * Pin the share to exactly {@code bytes} (the share is a quarter of the headroom on any real heap).
+   */
   private static void shareOf(final long bytes) {
     HeapHeadroom.setHeadroomForTesting(Math.max(0L, bytes) * 4L);
     final long share = ProjectionColumnStore.sampleHeadroomShare();
@@ -336,7 +338,8 @@ final class ResidencyReleaseTest {
     assertEquals(b, f.store().retainedFillBytes());
     assertEquals(evictionsBefore + 1, ProjectionColumnStore.residencyEvictionCount(), "no eviction");
 
-    // A column the CURRENT query already reads is pinned and never evicted, even when it would make room.
+    // A column the CURRENT query already reads is pinned and never evicted, even when it would make
+    // room.
     ProjectionColumnStore.setColumnFillBudgetBytesForTesting(a + b - 1);
     try (ProjectionResidencyScope reader = ProjectionResidencyScope.open()) {
       assertTrue(f.store().columnFilled(1), "observing the resident column pins it for this query");
@@ -346,7 +349,8 @@ final class ResidencyReleaseTest {
       assertEquals(b, f.store().retainedFillBytes());
       assertNotNull(reader);
     }
-    // Once that query is gone the same fit evicts column 1 and admits column 0 through the fill door itself.
+    // Once that query is gone the same fit evicts column 1 and admits column 0 through the fill door
+    // itself.
     assertNotNull(f.store().column(0, f.fetcher()), "the fill door makes room too, not only the planner gates");
     assertFalse(f.store().columnFilled(1));
     assertEquals(a, f.store().retainedFillBytes());
@@ -373,7 +377,10 @@ final class ResidencyReleaseTest {
     }
   }
 
-  /** Sum every present value of {@code col} through the access — the answer must not depend on the route. */
+  /**
+   * Sum every present value of {@code col} through the access — the answer must not depend on the
+   * route.
+   */
   private static long sumThrough(final LeafColumnAccess access, final int col, final int leaves) {
     long sum = 0;
     for (int leaf = 0; leaf < leaves; leaf++) {

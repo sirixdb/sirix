@@ -112,8 +112,7 @@ final class ProjectionUnifiedMutationPathTest {
 
       assertArrayEquals(initialValue(UPDATED_SLOT), readRawSlot(readerOne, UPDATED_SLOT));
       assertArrayEquals(initialValue(DELETED_SLOT), readRawSlot(readerOne, DELETED_SLOT));
-      assertArrayEquals(initialBloomBlob,
-          ProjectionIndexHOTStorage.readBlob(readerOne, 0, TOMBSTONED_BLOOM_SLOT));
+      assertArrayEquals(initialBloomBlob, ProjectionIndexHOTStorage.readBlob(readerOne, 0, TOMBSTONED_BLOOM_SLOT));
       assertNull(readRawSlot(readerOne, INSERTED_SLOT));
 
       assertArrayEquals(updatedValue, readRawSlot(readerTwo, UPDATED_SLOT),

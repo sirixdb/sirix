@@ -146,8 +146,7 @@ final class SiblingMerger {
    * @param revision current revision
    * @return the merge result
    */
-  static MergeResult mergeSiblings(HOTIndirectPage left, HOTIndirectPage right,
-      long newPageKey, int revision) {
+  static MergeResult mergeSiblings(HOTIndirectPage left, HOTIndirectPage right, long newPageKey, int revision) {
 
     if (!canMerge(left, right)) {
       return MergeResult.failure();
@@ -209,8 +208,7 @@ final class SiblingMerger {
    * @param targetPage the page to receive merged entries
    * @return true if merge was successful
    */
-  static boolean mergeLeafPages(HOTLeafPage left, HOTLeafPage right,
-      HOTLeafPage targetPage) {
+  static boolean mergeLeafPages(HOTLeafPage left, HOTLeafPage right, HOTLeafPage targetPage) {
 
     // Check if combined entries fit
     int totalEntries = left.getEntryCount() + right.getEntryCount();
@@ -252,8 +250,8 @@ final class SiblingMerger {
    * @param revision current revision
    * @return the merge result, or failure if no merge occurred
    */
-  static MergeResult handleDeletionWithMerge(HOTIndirectPage node, @Nullable HOTIndirectPage sibling,
-      long newPageKey, int revision) {
+  static MergeResult handleDeletionWithMerge(HOTIndirectPage node, @Nullable HOTIndirectPage sibling, long newPageKey,
+      int revision) {
 
     // Check if merge is warranted
     if (!shouldMerge(node)) {

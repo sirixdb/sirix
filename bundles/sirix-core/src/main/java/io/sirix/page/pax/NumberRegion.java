@@ -47,9 +47,9 @@ import java.util.Objects;
  * One width for the whole page is the wrong unit: the values are already grouped by tag, and a page
  * of a record-shaped corpus holds an 8-bit flag beside a 64-bit hash. The page-wide frame of
  * reference made the flag cost what the hash costs — and, because the spread of a 64-bit hash
- * exceeds what a bit-packed layout can express at all, it forced every tag on the page back to plain
- * longs. The per-tag layout gives each tag its own frame: its own base, its own width, its own
- * byte-aligned run of packed values.
+ * exceeds what a bit-packed layout can express at all, it forced every tag on the page back to
+ * plain longs. The per-tag layout gives each tag its own frame: its own base, its own width, its
+ * own byte-aligned run of packed values.
  *
  * <p>
  * The zone map is not stored beside the frame of reference — it <em>is</em> the frame of reference.
@@ -118,8 +118,8 @@ public final class NumberRegion {
    * are the same two numbers, stored once. See the class comment for the wire layout.
    *
    * <p>
-   * Elected per page against the whole-region encodings and written only when it is strictly
-   * smaller, so a page the older layouts encode better keeps them.
+   * Elected per page against the whole-region encodings and written only when it is strictly smaller,
+   * so a page the older layouts encode better keeps them.
    */
   public static final byte ENC_PER_TAG_FOR = 6;
 
@@ -394,8 +394,8 @@ public final class NumberRegion {
     public int valueBytesOffset;
     public int valueBytesLength;
     /**
-     * Bits per value for each tag; {@code 0} means constant, {@code 64} means raw longs. Populated
-     * only for {@link #ENC_PER_TAG_FOR}; else null.
+     * Bits per value for each tag; {@code 0} means constant, {@code 64} means raw longs. Populated only
+     * for {@link #ENC_PER_TAG_FOR}; else null.
      */
     public byte[] tagWidth;
     /**
@@ -568,8 +568,8 @@ public final class NumberRegion {
         final long valueCount = VarInt.readUnsigned(payload, position);
         position += VarInt.sizeOfUnsigned(valueCount);
         if (valueCount < 0L || valueCount > Integer.MAX_VALUE - running) {
-          throw new IllegalArgumentException("per-tag number region: tag " + i + " declares " + valueCount
-              + " values, which overruns the region");
+          throw new IllegalArgumentException(
+              "per-tag number region: tag " + i + " declares " + valueCount + " values, which overruns the region");
         }
         tagCount[i] = (int) valueCount;
         tagStart[i] = running;
@@ -600,8 +600,7 @@ public final class NumberRegion {
 
     /**
      * Parse a {@link #ENC_PER_TAG_FOR_EXTERNAL} payload: the directory comes from the zone map, the
-     * values from this payload, and everything else is derived exactly as for the self-contained
-     * form.
+     * values from this payload, and everything else is derived exactly as for the self-contained form.
      */
     private Header parsePerTagForExternal(final MemorySegment payload, final int valuePrefix,
         final MemorySegment directoryPayload) {
@@ -612,8 +611,8 @@ public final class NumberRegion {
       if (directoryTagKind != tagKind) {
         // The two regions disagree about what their tags MEAN — a nameKey read as a pathNodeKey
         // would prune and scan against a different column. Never a shape to work around.
-        throw new IllegalArgumentException("number region declares tagKind=" + tagKind
-            + " but its directory declares " + directoryTagKind);
+        throw new IllegalArgumentException(
+            "number region declares tagKind=" + tagKind + " but its directory declares " + directoryTagKind);
       }
       return deriveTagFrames(payload, valuePrefix);
     }
@@ -637,8 +636,8 @@ public final class NumberRegion {
         offset += packedBytes(tagCount[i], width);
       }
       if (offset > payload.byteSize()) {
-        throw new IllegalArgumentException("per-tag number region needs " + offset + " bytes but the payload holds "
-            + payload.byteSize());
+        throw new IllegalArgumentException(
+            "per-tag number region needs " + offset + " bytes but the payload holds " + payload.byteSize());
       }
       valueBytesOffset = PER_TAG_NO_PAGE_WIDE_OFFSET;
       valueBytesLength = (int) (offset - valuesStart);
@@ -804,8 +803,8 @@ public final class NumberRegion {
      * Encode into this instance's reusable output buffer.
      *
      * @param directoryIsExternal the caller undertakes to publish this region's per-tag directory as
-     *        the page's {@link RegionTable#KIND_NUMBER_ZONEMAP}, from {@link #directoryInto}. Only
-     *        then may the encoder omit the directory here; a caller that cannot promise it gets the
+     *        the page's {@link RegionTable#KIND_NUMBER_ZONEMAP}, from {@link #directoryInto}. Only then
+     *        may the encoder omit the directory here; a caller that cannot promise it gets the
      *        self-contained form, which every reader can decode alone.
      * @return exact encoded length; only this prefix of {@link #output()} is valid
      */
@@ -919,8 +918,8 @@ public final class NumberRegion {
           final int width = bitPacked
               ? Math.max(1, 64 - Long.numberOfLeadingZeros(spread))
               : 64;
-          incumbentBytes = (long) PLAIN_FIXED_HEADER_BYTES + (long) BYTES_PER_TAG * dictSize
-              + bitsToBytes((long) count * width);
+          incumbentBytes =
+              (long) PLAIN_FIXED_HEADER_BYTES + (long) BYTES_PER_TAG * dictSize + bitsToBytes((long) count * width);
         }
         if (perTagCandidate < incumbentBytes) {
           rememberDirectory(count, dictSize, min, max, tagKind, external
@@ -952,8 +951,8 @@ public final class NumberRegion {
      * Size the per-tag layout and fill {@link #tagWidths} for the writer.
      *
      * <p>
-     * One pass over the tags, no pass over the values: the per-tag bounds are already computed, and
-     * the width of a tag is a function of its spread alone.
+     * One pass over the tags, no pass over the values: the per-tag bounds are already computed, and the
+     * width of a tag is a function of its spread alone.
      *
      * @return exact bytes {@link #encodePerTagFor} would write
      */
@@ -977,8 +976,8 @@ public final class NumberRegion {
 
     /**
      * Record what {@link #directoryInto} will hand the zone-map writer. Kept from the encode rather
-     * than re-parsed out of the payload, because the external form no longer has a directory to
-     * parse — and re-parsing what we just wrote was never anything but a second copy of it.
+     * than re-parsed out of the payload, because the external form no longer has a directory to parse —
+     * and re-parsing what we just wrote was never anything but a second copy of it.
      */
     private void rememberDirectory(final int count, final int dictSize, final long min, final long max,
         final byte tagKind, final byte encodingKind) {
@@ -995,14 +994,14 @@ public final class NumberRegion {
      * value counts and starts, and their bounds.
      *
      * <p>
-     * This is the writer's counterpart to a parse. It exists because
-     * {@link #ENC_PER_TAG_FOR_EXTERNAL} publishes that directory as the zone map instead of inside
-     * the value region, so the writer must hand it over rather than read it back.
+     * This is the writer's counterpart to a parse. It exists because {@link #ENC_PER_TAG_FOR_EXTERNAL}
+     * publishes that directory as the zone map instead of inside the value region, so the writer must
+     * hand it over rather than read it back.
      *
      * <p>
      * The decode-side fields are deliberately left cleared: the target describes a directory, not a
-     * decodable region, and a stale width or offset from a previous page is exactly the kind of
-     * mixture that reads as valid.
+     * decodable region, and a stale width or offset from a previous page is exactly the kind of mixture
+     * that reads as valid.
      */
     public void directoryInto(final Header target) {
       target.encodingKind = lastEncodingKind;
@@ -1424,8 +1423,8 @@ public final class NumberRegion {
   }
 
   /**
-   * Pack {@code values[from, from + count)} as {@code bitWidth}-bit residuals of {@code base},
-   * low bits first, starting at {@code out[outOff]}.
+   * Pack {@code values[from, from + count)} as {@code bitWidth}-bit residuals of {@code base}, low
+   * bits first, starting at {@code out[outOff]}.
    *
    * <p>
    * Every byte of {@code [outOff, outOff + packedBytes(count, bitWidth))} is assigned, the trailing

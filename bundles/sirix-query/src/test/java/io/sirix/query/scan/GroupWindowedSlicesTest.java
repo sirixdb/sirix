@@ -36,18 +36,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The sliced group arms with the column fill budget pinned to one byte: no column can be resident,
- * so the arms must feed their kernels per-sub-chunk windowed slices ({@code windowedSlices}) instead
- * of falling back to the whole-leaf byte kernels — the 100M shape of a fat column.
+ * so the arms must feed their kernels per-sub-chunk windowed slices ({@code windowedSlices})
+ * instead of falling back to the whole-leaf byte kernels — the 100M shape of a fat column.
  *
  * <p>
  * Each query runs windowed FIRST (a resident fill persists in the catalog's store across executors,
  * so the order matters), then resident with the budget restored, then through the interpreter; all
- * three must agree. Engagement is asserted per query — a serve that quietly took another route would
- * make the agreement vacuous — and every fixture is fresh, because the handle promotes whole-leaf
- * payloads after two route arrivals. Strict serving is on: an arm that failed and fell back fails the
- * test. Two seam variants: single-leaf sub-chunks with the hash-range pass budget and the spill
- * threshold pinned low (many fills and releases, passes re-creating the per-worker arrays), and the
- * defaults.
+ * three must agree. Engagement is asserted per query — a serve that quietly took another route
+ * would make the agreement vacuous — and every fixture is fresh, because the handle promotes
+ * whole-leaf payloads after two route arrivals. Strict serving is on: an arm that failed and fell
+ * back fails the test. Two seam variants: single-leaf sub-chunks with the hash-range pass budget
+ * and the spill threshold pinned low (many fills and releases, passes re-creating the per-worker
+ * arrays), and the defaults.
  * </p>
  */
 final class GroupWindowedSlicesTest {
@@ -58,7 +58,8 @@ final class GroupWindowedSlicesTest {
 
   /** Shapes whose arm must serve WINDOWED under the one-byte budget. */
   private static final List<String> WINDOWED = List.of(
-      // numeric key with a zone-prunable predicate (leaves below the bound decode nothing), top-k by count
+      // numeric key with a zone-prunable predicate (leaves below the bound decode nothing), top-k by
+      // count
       "subsequence(for $h in " + DOC + " where $h.amount ge 2000 let $k := $h.k40 group by $k let $c := count($h) "
           + "order by $c descending return {\"k40\": $k, \"c\": $c, \"sum\": sum($h.amount)}, 1, 12)",
       // numeric key with a grouped COUNT(DISTINCT)
@@ -68,7 +69,8 @@ final class GroupWindowedSlicesTest {
       "subsequence(for $h in " + DOC + " where $h.k7 eq 1 or $h.k40 eq 3 let $k := $h.k40 group by $k "
           + "let $c := count($h) order by $c descending return {\"k40\": $k, \"c\": $c}, 1, 12)",
       // OR trees WITH leaf evidence (amount is the document order, so both branches name leaf ranges):
-      // the tree's keep mask must drop the middle leaves on every arm — numeric, string and composite keys
+      // the tree's keep mask must drop the middle leaves on every arm — numeric, string and composite
+      // keys
       "subsequence(for $h in " + DOC + " where ($h.amount ge 7000 and $h.k7 eq 1) or $h.amount lt 500 "
           + "let $k := $h.k40 group by $k let $c := count($h) order by $c descending "
           + "return {\"k40\": $k, \"c\": $c, \"sum\": sum($h.amount)}, 1, 12)",
@@ -162,15 +164,26 @@ final class GroupWindowedSlicesTest {
       final int day = minute / 1440;
       final int hh = (minute % 1440) / 60;
       final int mm = minute % 60;
-      sb.append("{\"id\":").append(i).append(",\"k7\":").append(i % 7).append(",\"k40\":").append(i % 40)
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"k7\":")
+        .append(i % 7)
+        .append(",\"k40\":")
+        .append(i % 40)
         // w: 8000 distinct values, so every group's string extremum lives in ONE leaf — a pass that
         // overwrote instead of folding across sub-chunks would answer with the wrong leaf's value
-        .append(",\"s\":\"s").append(i % 50).append("\",\"w\":\"w").append(String.format("%05d", (i * 7919) % 8000))
+        .append(",\"s\":\"s")
+        .append(i % 50)
+        .append("\",\"w\":\"w")
+        .append(String.format("%05d", (i * 7919) % 8000))
         .append("\",\"u\":")
         // signed: the extrema sit at rows 3 and 5 (mod 64) only, so a full-word fold that samples
         // one lane per four values misses both; sp: present on every third row, never 0, so a fold
         // that ignores presence folds the absent rows' phantom 0 into the minimum
-        .append(i % 97).append(",\"amount\":").append(i).append(",\"signed\":")
+        .append(i % 97)
+        .append(",\"amount\":")
+        .append(i)
+        .append(",\"signed\":")
         .append(i % 64 == 3
             ? -1000
             : i % 64 == 5
@@ -180,8 +193,14 @@ final class GroupWindowedSlicesTest {
             ? ",\"sp\":" + (i * 3 + 7)
             : "")
         .append(",\"t\":\"2024-")
-        .append(String.format("%02d", 1 + day / 28)).append('-').append(String.format("%02d", 1 + day % 28))
-        .append('T').append(String.format("%02d", hh)).append(':').append(String.format("%02d", mm)).append(":00\"}");
+        .append(String.format("%02d", 1 + day / 28))
+        .append('-')
+        .append(String.format("%02d", 1 + day % 28))
+        .append('T')
+        .append(String.format("%02d", hh))
+        .append(':')
+        .append(String.format("%02d", mm))
+        .append(":00\"}");
     }
     sb.append(']');
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
@@ -259,7 +278,10 @@ final class GroupWindowedSlicesTest {
     }
   }
 
-  /** The OR-tree WHERE whose both branches name leaf ranges of the document order, per tree-capable arm. */
+  /**
+   * The OR-tree WHERE whose both branches name leaf ranges of the document order, per tree-capable
+   * arm.
+   */
   static Stream<String> treeArms() {
     final String where = " where ($h.amount ge 7000 and $h.k7 eq 1) or $h.amount lt 500 ";
     return Stream.of(
@@ -318,9 +340,9 @@ final class GroupWindowedSlicesTest {
     final ProjectionColumnStore store;
     final long budget;
     try (var db = Databases.openJsonDatabase(dbDir.resolve(DB)); var session = db.beginResourceSession(RES)) {
-      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
-          session.getResourceConfig().getResource().toString(), session.getMostRecentRevisionNumber(),
-          new String[] {"[]"}, new String[] {"k40", "amount"});
+      final ProjectionIndexRegistry.Handle handle =
+          ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(),
+              session.getMostRecentRevisionNumber(), new String[] {"[]"}, new String[] {"k40", "amount"});
       assertNotNull(handle, "the projection must be loadable");
       store = handle.columnStoreOrNull();
       assertNotNull(store, "the catalog must build a column store");
@@ -375,9 +397,9 @@ final class GroupWindowedSlicesTest {
     final ProjectionColumnStore store;
     final long combined;
     try (var db = Databases.openJsonDatabase(dbDir.resolve(DB)); var session = db.beginResourceSession(RES)) {
-      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
-          session.getResourceConfig().getResource().toString(), session.getMostRecentRevisionNumber(),
-          new String[] {"[]"}, new String[] {"k40", "amount"});
+      final ProjectionIndexRegistry.Handle handle =
+          ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(),
+              session.getMostRecentRevisionNumber(), new String[] {"[]"}, new String[] {"k40", "amount"});
       assertNotNull(handle, "the projection must be loadable");
       store = handle.columnStoreOrNull();
       assertNotNull(store, "the catalog must build a column store");
@@ -415,7 +437,9 @@ final class GroupWindowedSlicesTest {
     }
   }
 
-  /** Pin the shared headroom share to exactly {@code bytes} (a quarter of the headroom on this heap). */
+  /**
+   * Pin the shared headroom share to exactly {@code bytes} (a quarter of the headroom on this heap).
+   */
   private static void shareOf(final long bytes) {
     HeapHeadroom.setHeadroomForTesting(Math.max(0L, bytes) * 4L);
     assertEquals(bytes, ProjectionColumnStore.sampleHeadroomShare(),

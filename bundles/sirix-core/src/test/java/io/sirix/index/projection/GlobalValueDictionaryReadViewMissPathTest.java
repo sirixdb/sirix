@@ -128,15 +128,16 @@ final class GlobalValueDictionaryReadViewMissPathTest {
         // evicts the view cache continuously.
         for (int id = 1; id <= ENTRIES; id++) {
           assertEquals(valueOf(id), GlobalValueDictionary.value(headerKey, id, reader), "id " + id);
-          final int neighbour = id == ENTRIES ? 1 : id + 1;
+          final int neighbour = id == ENTRIES
+              ? 1
+              : id + 1;
           assertEquals(Integer.signum(valueOf(id).compareTo(valueOf(neighbour))),
               Integer.signum(view.compareIds(id, neighbour)), "ordering of " + id + " vs " + neighbour);
         }
         // Ordering follows UTF-16, not first-seen and not raw UTF-8.
         final int fullwidth = ENTRIES + 1;
         final int supplementary = ENTRIES + 2;
-        assertEquals(Integer.signum("𐐀".compareTo("！")),
-            Integer.signum(view.compareIds(supplementary, fullwidth)),
+        assertEquals(Integer.signum("𐐀".compareTo("！")), Integer.signum(view.compareIds(supplementary, fullwidth)),
             "supplementary-plane ordering must follow UTF-16");
         // Overflow declines rather than wrapping.
         assertEquals(Long.MIN_VALUE, view.xsIntegerOfSubstring(ENTRIES + 3, 1, 20));
@@ -204,12 +205,16 @@ final class GlobalValueDictionaryReadViewMissPathTest {
         // loop's result is pinned rather than merely "not a sentinel".
         long expected = 0L;
         for (int id = 1; id <= ENTRIES; id++) {
-          expected += Integer.signum(valueOf(id).compareTo(valueOf(id == ENTRIES ? 1 : id + 1)));
+          expected += Integer.signum(valueOf(id).compareTo(valueOf(id == ENTRIES
+              ? 1
+              : id + 1)));
         }
         long checksum = 0L;
         for (int pass = 0; pass < 4; pass++) {
           for (int id = 1; id <= ENTRIES; id++) {
-            checksum += Integer.signum(view.compareIds(id, id == ENTRIES ? 1 : id + 1));
+            checksum += Integer.signum(view.compareIds(id, id == ENTRIES
+                ? 1
+                : id + 1));
           }
         }
 
@@ -217,7 +222,9 @@ final class GlobalValueDictionaryReadViewMissPathTest {
         final long before = threads.getCurrentThreadAllocatedBytes();
         for (int pass = 0; pass < passes; pass++) {
           for (int id = 1; id <= ENTRIES; id++) {
-            checksum += Integer.signum(view.compareIds(id, id == ENTRIES ? 1 : id + 1));
+            checksum += Integer.signum(view.compareIds(id, id == ENTRIES
+                ? 1
+                : id + 1));
           }
         }
         final long allocated = threads.getCurrentThreadAllocatedBytes() - before;
@@ -234,19 +241,16 @@ final class GlobalValueDictionaryReadViewMissPathTest {
         for (int id = 1; id <= ENTRIES; id++) {
           controlSink += GlobalValueDictionary.value(headerKey, id, rtx.getStorageEngineReader()).length();
         }
-        final double controlPerProbe =
-            (double) (threads.getCurrentThreadAllocatedBytes() - controlBefore) / ENTRIES;
+        final double controlPerProbe = (double) (threads.getCurrentThreadAllocatedBytes() - controlBefore) / ENTRIES;
         assertTrue(controlSink > 0);
 
         System.out.println("[readview-miss] " + allocated + " bytes over " + probes + " probes = " + perProbe
             + " B/probe; materialising control = " + controlPerProbe + " B/probe");
 
-        assertTrue(perProbe < SLICE_PATH_MAX_BYTES_PER_PROBE,
-            "miss path allocated " + allocated + " bytes over " + probes + " probes (" + perProbe
-                + " B/probe); a per-id copy or wrapper is back on the compare path");
-        assertTrue(controlPerProbe > perProbe * 4.0,
-            "the materialising control (" + controlPerProbe + " B/probe) must dominate the slice path ("
-                + perProbe + " B/probe), or this meter is not discriminating");
+        assertTrue(perProbe < SLICE_PATH_MAX_BYTES_PER_PROBE, "miss path allocated " + allocated + " bytes over "
+            + probes + " probes (" + perProbe + " B/probe); a per-id copy or wrapper is back on the compare path");
+        assertTrue(controlPerProbe > perProbe * 4.0, "the materialising control (" + controlPerProbe
+            + " B/probe) must dominate the slice path (" + perProbe + " B/probe), or this meter is not discriminating");
 
         // FULLY HOT window: a working set inside both caches, so no bucket or sub-block decode can
         // hide a regression. The thrash bound above is ~40 B/probe and would happily admit a 16-byte
@@ -254,21 +258,27 @@ final class GlobalValueDictionaryReadViewMissPathTest {
         final int hotIds = 200;
         for (int pass = 0; pass < 4; pass++) {
           for (int id = 1; id <= hotIds; id++) {
-            checksum += Integer.signum(view.compareIds(id, id == hotIds ? 1 : id + 1));
+            checksum += Integer.signum(view.compareIds(id, id == hotIds
+                ? 1
+                : id + 1));
           }
         }
         final long hotBefore = threads.getCurrentThreadAllocatedBytes();
         long hotChecksum = 0L;
         for (int pass = 0; pass < passes; pass++) {
           for (int id = 1; id <= hotIds; id++) {
-            hotChecksum += Integer.signum(view.compareIds(id, id == hotIds ? 1 : id + 1));
+            hotChecksum += Integer.signum(view.compareIds(id, id == hotIds
+                ? 1
+                : id + 1));
           }
         }
         final long hotAllocated = threads.getCurrentThreadAllocatedBytes() - hotBefore;
         final double hotPerProbe = (double) hotAllocated / ((long) passes * hotIds);
         long hotExpected = 0L;
         for (int id = 1; id <= hotIds; id++) {
-          hotExpected += Integer.signum(valueOf(id).compareTo(valueOf(id == hotIds ? 1 : id + 1)));
+          hotExpected += Integer.signum(valueOf(id).compareTo(valueOf(id == hotIds
+              ? 1
+              : id + 1)));
         }
         assertEquals(hotExpected * passes, hotChecksum, "hot window must compute the same exact ordering");
         System.out.println("[readview-hot] " + hotAllocated + " bytes = " + hotPerProbe + " B/probe");

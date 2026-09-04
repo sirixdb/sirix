@@ -26,13 +26,14 @@ import java.util.Set;
  * 105 would pay ingest and space for 80 columns no query reads.
  *
  * <h2>Types</h2> The projection's type vocabulary is narrower than SQL's: {@code INT} and
- * {@code LONG} both become {@code long}. {@code DATE} and {@code DATETIME} are ISO-8601 JSON strings
- * by the loader's own encoding contract, so they are DECLARED as {@code date} and {@code timestamp}:
- * the projection then stores each as an epoch in its numeric lane — one bit-packed integer per row
- * instead of a per-leaf string dictionary — and reproduces the exact original text on emission. That
- * contract is enforced at load time by {@code ClickBenchLoadMain#validate}, which is what makes the
- * declaration safe to state here; a value that violated it fails the projection build loudly instead
- * of being indexed as something the queries cannot compare.
+ * {@code LONG} both become {@code long}. {@code DATE} and {@code DATETIME} are ISO-8601 JSON
+ * strings by the loader's own encoding contract, so they are DECLARED as {@code date} and
+ * {@code timestamp}: the projection then stores each as an epoch in its numeric lane — one
+ * bit-packed integer per row instead of a per-leaf string dictionary — and reproduces the exact
+ * original text on emission. That contract is enforced at load time by
+ * {@code ClickBenchLoadMain#validate}, which is what makes the declaration safe to state here; a
+ * value that violated it fails the projection build loudly instead of being indexed as something
+ * the queries cannot compare.
  */
 public final class ClickBenchProjection {
 
@@ -70,7 +71,10 @@ public final class ClickBenchProjection {
     throw new AssertionError("no instances");
   }
 
-  /** The projection type for {@code column}: {@code long}, {@code string}, {@code date} or {@code timestamp}. */
+  /**
+   * The projection type for {@code column}: {@code long}, {@code string}, {@code date} or
+   * {@code timestamp}.
+   */
   static String projectionType(final String column) {
     return switch (ClickBenchSchema.typeOf(column)) {
       case INT, LONG -> "long";

@@ -141,11 +141,13 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
   public static final byte PAYLOAD_FLAG_FSST = 1;
 
   /**
-   * The inline record carries only the fused field metadata; the authoritative record, including
-   * its value, lives in the same-key {@code OverflowPage} reference.
+   * The inline record carries only the fused field metadata; the authoritative record, including its
+   * value, lives in the same-key {@code OverflowPage} reference.
    *
-   * <p>This third state is deliberately explicit. Treating an overflow descriptor as an empty raw
-   * string would let column sketches and direct-slot readers manufacture false negatives.</p>
+   * <p>
+   * This third state is deliberately explicit. Treating an overflow descriptor as an empty raw string
+   * would let column sketches and direct-slot readers manufacture false negatives.
+   * </p>
    */
   public static final byte PAYLOAD_FLAG_OVERFLOW = 2;
 
@@ -565,17 +567,16 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
   }
 
   /**
-   * Serialize only the fixed-size, scan-visible metadata for an out-of-line fused string record.
-   * The returned bytes are a normal flyweight slot whose payload flag requires readers to resolve
-   * the same-key overflow reference; they are never a user-visible empty string.
+   * Serialize only the fixed-size, scan-visible metadata for an out-of-line fused string record. The
+   * returned bytes are a normal flyweight slot whose payload flag requires readers to resolve the
+   * same-key overflow reference; they are never a user-visible empty string.
    */
   public int serializeOverflowDescriptorToHeap(final MemorySegment target, final long offset) {
     if (!metadataParsed) {
       parseMetadataFields();
     }
     return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
-        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, EMPTY_PAYLOAD, 0, 0,
-        PAYLOAD_FLAG_OVERFLOW);
+        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, EMPTY_PAYLOAD, 0, 0, PAYLOAD_FLAG_OVERFLOW);
   }
 
   /** Conservative upper bound for {@link #serializeOverflowDescriptorToHeap}. */
@@ -607,10 +608,10 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
   }
 
   /**
-   * Everything except the payload, at its MINIMUM: kind byte + {@link #FIELD_COUNT}-byte offset
-   * table + seven varints of one byte each + 8-byte hash + payload flag + one-byte payload-length
-   * varint. The floor of the wire {@code writeNewRecord} emits, as the upper bound above is its
-   * ceiling — a record can serialize below the ceiling but never below this.
+   * Everything except the payload, at its MINIMUM: kind byte + {@link #FIELD_COUNT}-byte offset table
+   * + seven varints of one byte each + 8-byte hash + payload flag + one-byte payload-length varint.
+   * The floor of the wire {@code writeNewRecord} emits, as the upper bound above is its ceiling — a
+   * record can serialize below the ceiling but never below this.
    */
   private static final int SERIALIZED_METADATA_LOWER_BOUND = 1 + FIELD_COUNT + 7 + Long.BYTES + 1 + 1;
 
@@ -1208,8 +1209,8 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     BytesIn<?> bytesIn = createBytesIn(valueOffset);
     final byte flag = bytesIn.readByte();
     if (flag == PAYLOAD_FLAG_OVERFLOW) {
-      throw new IllegalStateException("Overflow descriptor for node " + nodeKey
-          + " reached the generic value parser without its OverflowPage");
+      throw new IllegalStateException(
+          "Overflow descriptor for node " + nodeKey + " reached the generic value parser without its OverflowPage");
     }
     if (flag != PAYLOAD_FLAG_RAW && flag != PAYLOAD_FLAG_FSST) {
       throw new IllegalStateException("Corrupted fused string payload flag " + flag + " for node " + nodeKey);

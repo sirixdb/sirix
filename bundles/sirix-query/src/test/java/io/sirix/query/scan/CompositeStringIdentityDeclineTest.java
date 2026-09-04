@@ -67,7 +67,10 @@ public final class CompositeStringIdentityDeclineTest {
       + "group by $d, $k let $c := count($u) order by $c descending "
       + "return {\"d\": $d, \"k\": $k, \"c\": $c}, 1, 20)";
 
-  /** The same shape under a row predicate: partial coverage, so it can USE the column memo but never EARN it. */
+  /**
+   * The same shape under a row predicate: partial coverage, so it can USE the column memo but never
+   * EARN it.
+   */
   private static final String PREDICATED_QUERY = "subsequence(for $u in " + SRC + " where $u.amount < 50 "
       + "let $d := $u.dept, $k := $u.k7 group by $d, $k let $c := count($u) order by $c descending "
       + "return {\"d\": $d, \"k\": $k, \"c\": $c}, 1, 20)";
@@ -83,10 +86,15 @@ public final class CompositeStringIdentityDeclineTest {
       if (i > 0) {
         sb.append(',');
       }
-      sb.append("{\"id\":").append(i)
-        .append(",\"dept\":\"").append(DEPTS[i % DEPTS.length]).append('"')
-        .append(",\"k7\":").append(i % 7)
-        .append(",\"amount\":").append(i % 97)
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"dept\":\"")
+        .append(DEPTS[i % DEPTS.length])
+        .append('"')
+        .append(",\"k7\":")
+        .append(i % 7)
+        .append(",\"amount\":")
+        .append(i % 97)
         .append('}');
     }
     sb.append(']');
@@ -188,8 +196,7 @@ public final class CompositeStringIdentityDeclineTest {
         "a memo earned under another fingerprint must not pre-prove anything");
     assertEquals(servedBefore, SirixVectorizedExecutor.groupAggServedCount(),
         "the adversarial fingerprint must still DECLINE — the memo did not launder it");
-    assertEquals(memoedBefore + 1, SirixVectorizedExecutor.groupIdentityMemoedCount(),
-        "a refuted scan notes nothing");
+    assertEquals(memoedBefore + 1, SirixVectorizedExecutor.groupIdentityMemoedCount(), "a refuted scan notes nothing");
   }
 
   @Test

@@ -114,8 +114,9 @@ class HOTIntegrationCoverageTest {
           wtx.commit();
 
           // Query should find entries with value >= 0
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/items/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/items/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long totalRefs = 0;
           while (casIndex.hasNext()) {
@@ -159,8 +160,9 @@ class HOTIntegrationCoverageTest {
           wtx.commit();
 
           // Range query: 100 <= id < 200
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/records/[]/id"), new Int32(100), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/records/[]/id"), new Int32(100), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {
@@ -204,8 +206,9 @@ class HOTIntegrationCoverageTest {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
 
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/data/[]/num"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/data/[]/num"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {
@@ -249,8 +252,9 @@ class HOTIntegrationCoverageTest {
           wtx.commit();
 
           // Query for strings starting with "user"
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/users/[]/name"), new Str("user"), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/users/[]/name"), new Str("user"), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {
@@ -297,8 +301,9 @@ class HOTIntegrationCoverageTest {
           wtx.commit();
 
           // Query age < 50
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/people/[]/age"), new Int32(50), SearchMode.LOWER, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/people/[]/age"), new Int32(50), SearchMode.LOWER, new JsonPCRCollector(wtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {
@@ -340,8 +345,9 @@ class HOTIntegrationCoverageTest {
           wtx.commit();
 
           // Query scores >= 25.0
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/tests/[]/score"), new Dbl(25.0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/tests/[]/score"), new Dbl(25.0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {
@@ -383,8 +389,9 @@ class HOTIntegrationCoverageTest {
           wtx.commit();
 
           // Query for value that doesn't exist (>= 1000)
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/items/[]/val"), new Int32(1000), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/items/[]/val"), new Int32(1000), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {
@@ -437,8 +444,9 @@ class HOTIntegrationCoverageTest {
           wtx.commit();
 
           // Query first CAS index (price)
-          var casIndex1 = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef1, indexController.createCASFilter(
-              Set.of("/products/[]/price"), new Dbl(100.0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex1 = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef1,
+              indexController.createCASFilter(Set.of("/products/[]/price"), new Dbl(100.0), SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
 
           long casCount1 = 0;
           while (casIndex1.hasNext()) {
@@ -447,8 +455,9 @@ class HOTIntegrationCoverageTest {
           assertTrue(casCount1 > 0, "First CAS index (price) should have results");
 
           // Query second CAS index (quantity)
-          var casIndex2 = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef2, indexController.createCASFilter(
-              Set.of("/products/[]/quantity"), new Int32(100), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex2 = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef2,
+              indexController.createCASFilter(Set.of("/products/[]/quantity"), new Int32(100),
+                  SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long casCount2 = 0;
           while (casIndex2.hasNext()) {
@@ -520,8 +529,9 @@ class HOTIntegrationCoverageTest {
           final var casIndexDef =
               IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToVal), 0, IndexDef.DbType.JSON);
 
-          var casIndex = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/data/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(rtx)));
+          var casIndex =
+              indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/data/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(rtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {
@@ -568,8 +578,9 @@ class HOTIntegrationCoverageTest {
           wtx.commit();
 
           // Query for negative values
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/readings/[]/temp"), new Int32(0), SearchMode.LOWER, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/readings/[]/temp"), new Int32(0), SearchMode.LOWER, new JsonPCRCollector(wtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {
@@ -612,8 +623,9 @@ class HOTIntegrationCoverageTest {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
 
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/numbers/[]/big"), new Dbl(1e10), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/numbers/[]/big"), new Dbl(1e10), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {
@@ -659,8 +671,9 @@ class HOTIntegrationCoverageTest {
           wtx.commit();
 
           // Query for a specific sparse value
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/sparse/[]/val"), new Int32(25000), SearchMode.EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/sparse/[]/val"), new Int32(25000), SearchMode.EQUAL, new JsonPCRCollector(wtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {

@@ -139,14 +139,12 @@ final class FsstDecompressedInlineOverflowVersioningTest {
       int padding = 0;
       while (lastNodeKey < Constants.NDP_NODE_COUNT - 1L) {
         assertTrue(wtx.moveTo(objectNodeKey));
-        lastNodeKey =
-            wtx.insertObjectRecordAsLastChild("padding-" + padding++, NullValue.INSTANCE).getNodeKey();
+        lastNodeKey = wtx.insertObjectRecordAsLastChild("padding-" + padding++, NullValue.INSTANCE).getNodeKey();
       }
       assertEquals(Constants.NDP_NODE_COUNT - 1L, lastNodeKey);
 
       assertTrue(wtx.moveTo(objectNodeKey));
-      final long touchNodeKey =
-          wtx.insertObjectRecordAsLastChild("touch", BooleanValue.FALSE).getNodeKey();
+      final long touchNodeKey = wtx.insertObjectRecordAsLastChild("touch", BooleanValue.FALSE).getNodeKey();
 
       assertTrue(wtx.moveTo(objectNodeKey));
       final long targetNodeKey =
@@ -214,8 +212,7 @@ final class FsstDecompressedInlineOverflowVersioningTest {
 
       final StorageEngineReader reader = rtx.getStorageEngineReader();
       final long recordPageKey = reader.pageKey(fixture.targetNodeKey(), IndexType.DOCUMENT);
-      final var loaded =
-          reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, recordPageKey, 0, revision));
+      final var loaded = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, recordPageKey, 0, revision));
       assertNotNull(loaded);
       if (expectFragmentChain) {
         assertFalse(loaded.reference().getPageFragments().isEmpty(),
@@ -235,8 +232,7 @@ final class FsstDecompressedInlineOverflowVersioningTest {
     }
   }
 
-  private static void assertCompressedInline(final KeyValueLeafPage page, final int slot,
-      final Fixture fixture) {
+  private static void assertCompressedInline(final KeyValueLeafPage page, final int slot, final Fixture fixture) {
     assertNotEquals(KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID, page.getFsstSymbolTableId(),
         "the inline record must name the revision-local FSST table it uses");
     assertNotNull(page.getFsstSymbolTable());
@@ -257,18 +253,16 @@ final class FsstDecompressedInlineOverflowVersioningTest {
         "the persisted payload must be encoded, not merely associated with an FSST table");
   }
 
-  private static void assertCanonicalOverflow(final JsonResourceSession session,
-      final StorageEngineReader reader, final KeyValueLeafPage page, final int slot, final Fixture fixture) {
+  private static void assertCanonicalOverflow(final JsonResourceSession session, final StorageEngineReader reader,
+      final KeyValueLeafPage page, final int slot, final Fixture fixture) {
     assertNotNull(page.getSlot(slot), "overflow carrier must retain scan-visible fused metadata");
     assertTrue(page.isFusedObjectNamedStringOverflowDescriptor(slot));
     assertFalse(page.hasSlottedPageSlot(fixture.targetNodeKey()));
 
     final PageReference companion = page.getPageReference(fixture.targetNodeKey());
     assertNotNull(companion, "descriptor must retain its same-record-key OverflowPage reference");
-    assertEquals(1, page.referenceEntrySet()
-                        .stream()
-                        .filter(entry -> entry.getKey() == fixture.targetNodeKey())
-                        .count());
+    assertEquals(1,
+        page.referenceEntrySet().stream().filter(entry -> entry.getKey() == fixture.targetNodeKey()).count());
 
     Page overflow = companion.getPage();
     if (overflow == null) {
@@ -276,14 +270,12 @@ final class FsstDecompressedInlineOverflowVersioningTest {
     }
     final OverflowPage overflowPage = assertInstanceOf(OverflowPage.class, overflow);
     assertTrue(overflowPage.dataLength() > PageConstants.MAX_RECORD_SIZE,
-        "decoded raw generic carrier must exceed 512 bytes (bootstrap generic="
-            + fixture.rawGenericBytes() + ", flyweight=" + fixture.rawFlyweightBytes() + ')');
+        "decoded raw generic carrier must exceed 512 bytes (bootstrap generic=" + fixture.rawGenericBytes()
+            + ", flyweight=" + fixture.rawFlyweightBytes() + ')');
 
-    final DataRecord decoded = session.getResourceConfig()
-                                      .recordPersister
-                                      .deserialize(new ByteArrayBytesIn(overflowPage.getDataBytes()),
-                                          fixture.targetNodeKey(), page.getDeweyIdAsByteArray(slot),
-                                          session.getResourceConfig());
+    final DataRecord decoded =
+        session.getResourceConfig().recordPersister.deserialize(new ByteArrayBytesIn(overflowPage.getDataBytes()),
+            fixture.targetNodeKey(), page.getDeweyIdAsByteArray(slot), session.getResourceConfig());
     final ObjectNamedStringNode overflowNode = assertInstanceOf(ObjectNamedStringNode.class, decoded);
     assertFalse(overflowNode.isCompressed(),
         "generic OverflowPage data must be raw and independent of any record-page FSST table");
@@ -292,6 +284,6 @@ final class FsstDecompressedInlineOverflowVersioningTest {
   }
 
   private record Fixture(long targetNodeKey, long touchNodeKey, byte[] deweyId, int rawGenericBytes,
-                         int rawFlyweightBytes) {
+      int rawFlyweightBytes) {
   }
 }

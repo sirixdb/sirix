@@ -38,9 +38,9 @@ import java.util.Set;
  * The definition is removed from the catalogue; its immutable historical tree is left untouched.
  * Projection tree ids are never reused while their physical reference exists, so a later creation
  * receives a new, empty tree and cannot mistake unmaintained pre-drop columns for current data. The
- * catalogue change rides the session's write transaction — call {@code sdb:commit($doc)} to persist.
- * Revisions committed BEFORE the drop keep their catalogue entry and payloads, so time-travel
- * queries at those revisions continue to be served by the projection.
+ * catalogue change rides the session's write transaction — call {@code sdb:commit($doc)} to
+ * persist. Revisions committed BEFORE the drop keep their catalogue entry and payloads, so
+ * time-travel queries at those revisions continue to be served by the projection.
  *
  * @author Johannes Lichtenberger
  */

@@ -402,8 +402,8 @@ final class HOTIndirectPageSplitFaithfulTest {
     final int liveBefore = frameAllocator.liveSlotCount(frameClass);
     final List<PageReference> dropped = new ArrayList<>();
 
-    final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(chain.parent, 4, 2,
-        IndexType.CAS, allocator::getAndIncrement, dropped);
+    final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(chain.parent, 4, 2, IndexType.CAS,
+        allocator::getAndIncrement, dropped);
     try {
       assertEquals(2, consolidated.getNumChildren(), "the three-leaf left chain must collapse twice");
       assertEquals(List.of(chain.references[0], chain.references[1], chain.references[2]), dropped,
@@ -477,13 +477,11 @@ final class HOTIndirectPageSplitFaithfulTest {
   @DisplayName("projection consolidation preserves a zero-length opaque value without mutating its source")
   void projectionConsolidationPreservesZeroLengthValue() {
     final AtomicLong allocator = new AtomicLong(1);
-    final HOTLeafPage[] leaves = {
-        projectionLeaf(allocator, new byte[] {0x00}, new byte[0]),
+    final HOTLeafPage[] leaves = {projectionLeaf(allocator, new byte[] {0x00}, new byte[0]),
         projectionLeaf(allocator, new byte[] {0x20}, new byte[] {(byte) 0xA5}),
         projectionLeaf(allocator, new byte[] {0x40}, new byte[] {0x12, 0x34}),
         projectionLeaf(allocator, new byte[] {(byte) 0x80}, new byte[] {(byte) 0xFF})};
-    final PageReference[] references = {swizzle(leaves[0]), swizzle(leaves[1]), swizzle(leaves[2]),
-        swizzle(leaves[3])};
+    final PageReference[] references = {swizzle(leaves[0]), swizzle(leaves[1]), swizzle(leaves[2]), swizzle(leaves[3])};
     final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
         references, 1, 1, allocator::getAndIncrement);
     final List<PageReference> dropped = new ArrayList<>();
@@ -922,11 +920,10 @@ final class HOTIndirectPageSplitFaithfulTest {
   }
 
   private static ConsolidationChain consolidationChain(final AtomicLong allocator, final IndexType indexType) {
-    final HOTLeafPage[] leaves = {leaf(allocator, new byte[] {0x00}, indexType),
-        leaf(allocator, new byte[] {0x20}, indexType), leaf(allocator, new byte[] {0x40}, indexType),
-        leaf(allocator, new byte[] {(byte) 0x80}, indexType)};
-    final PageReference[] references = {swizzle(leaves[0]), swizzle(leaves[1]), swizzle(leaves[2]),
-        swizzle(leaves[3])};
+    final HOTLeafPage[] leaves =
+        {leaf(allocator, new byte[] {0x00}, indexType), leaf(allocator, new byte[] {0x20}, indexType),
+            leaf(allocator, new byte[] {0x40}, indexType), leaf(allocator, new byte[] {(byte) 0x80}, indexType)};
+    final PageReference[] references = {swizzle(leaves[0]), swizzle(leaves[1]), swizzle(leaves[2]), swizzle(leaves[3])};
     final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
         references, 1, 1, allocator::getAndIncrement);
     return new ConsolidationChain(parent, leaves, references);

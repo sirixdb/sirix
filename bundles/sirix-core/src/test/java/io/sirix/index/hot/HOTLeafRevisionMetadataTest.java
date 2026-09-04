@@ -47,8 +47,7 @@ final class HOTLeafRevisionMetadataTest {
 
   @ParameterizedTest(name = "{0}")
   @EnumSource(VersioningType.class)
-  void coldWireImagesAndFragmentKeysCarryTheirPhysicalRevision(final VersioningType versioningType)
-      throws IOException {
+  void coldWireImagesAndFragmentKeysCarryTheirPhysicalRevision(final VersioningType versioningType) throws IOException {
     final Path databasePath = temporaryDirectory.resolve(versioningType.name().toLowerCase());
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try {
@@ -87,8 +86,7 @@ final class HOTLeafRevisionMetadataTest {
         }
         case INCREMENTAL -> {
           assertColdRevision(databasePath, secondRevision, new long[] {11L, 12L}, firstRevision);
-          assertColdRevision(databasePath, thirdRevision, new long[] {11L, 12L, 13L}, secondRevision,
-              firstRevision);
+          assertColdRevision(databasePath, thirdRevision, new long[] {11L, 12L, 13L}, secondRevision, firstRevision);
           assertColdRevision(databasePath, fourthRevision, new long[] {12L, 13L}, thirdRevision, secondRevision,
               firstRevision);
           assertColdRevision(databasePath, fifthRevision, new long[] {13L});
@@ -96,14 +94,12 @@ final class HOTLeafRevisionMetadataTest {
         }
         case SLIDING_SNAPSHOT -> {
           assertColdRevision(databasePath, secondRevision, new long[] {11L, 12L}, firstRevision);
-          assertColdRevision(databasePath, thirdRevision, new long[] {11L, 12L, 13L}, secondRevision,
-              firstRevision);
+          assertColdRevision(databasePath, thirdRevision, new long[] {11L, 12L, 13L}, secondRevision, firstRevision);
           assertColdRevision(databasePath, fourthRevision, new long[] {12L, 13L}, thirdRevision, secondRevision,
               firstRevision);
           assertColdRevision(databasePath, fifthRevision, new long[] {13L}, fourthRevision, thirdRevision,
               secondRevision);
-          assertColdRevision(databasePath, sixthRevision, new long[0], fifthRevision, fourthRevision,
-              thirdRevision);
+          assertColdRevision(databasePath, sixthRevision, new long[0], fifthRevision, fourthRevision, thirdRevision);
         }
       }
     } finally {
@@ -139,12 +135,10 @@ final class HOTLeafRevisionMetadataTest {
       assertEquals(lastUnrelatedRevision + 1, postGapDeltaRevision);
       assertEquals(postGapDeltaRevision + 1, rotatedFullRevision);
 
-      final long originalLeafPageKey =
-          assertColdRevision(databasePath, fullDumpRevision, new long[] {11L});
+      final long originalLeafPageKey = assertColdRevision(databasePath, fullDumpRevision, new long[] {11L});
       final long deltaLeafPageKey =
           assertColdRevision(databasePath, postGapDeltaRevision, new long[] {11L, 12L}, fullDumpRevision);
-      final long rotatedLeafPageKey =
-          assertColdRevision(databasePath, rotatedFullRevision, new long[] {11L, 12L, 13L});
+      final long rotatedLeafPageKey = assertColdRevision(databasePath, rotatedFullRevision, new long[] {11L, 12L, 13L});
       assertEquals(originalLeafPageKey, deltaLeafPageKey,
           "starting the differential chain must preserve the logical leaf identity");
       assertEquals(originalLeafPageKey, rotatedLeafPageKey,
@@ -196,8 +190,7 @@ final class HOTLeafRevisionMetadataTest {
           reader.releaseHOTLeafFragments(fragments, null);
         }
 
-        final HOTLongIndexReader indexReader =
-            HOTLongIndexReader.create(reader, IndexType.PATH, SPARSE_INDEX_NUMBER);
+        final HOTLongIndexReader indexReader = HOTLongIndexReader.create(reader, IndexType.PATH, SPARSE_INDEX_NUMBER);
         final var references = indexReader.get(0L, SearchMode.EQUAL);
         assertNotNull(references);
         assertEquals(2, references.getNodeKeys().getLongCardinality());
@@ -267,8 +260,8 @@ final class HOTLeafRevisionMetadataTest {
     }
   }
 
-  private static long assertColdRevision(final Path databasePath, final int revision,
-      final long[] expectedNodeKeys, final int... expectedFragmentRevisions) throws IOException {
+  private static long assertColdRevision(final Path databasePath, final int revision, final long[] expectedNodeKeys,
+      final int... expectedFragmentRevisions) throws IOException {
     Databases.getGlobalBufferManager().clearAllCaches();
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
         JsonResourceSession session = database.beginResourceSession(RESOURCE);
@@ -296,8 +289,7 @@ final class HOTLeafRevisionMetadataTest {
         reader.releaseHOTLeafFragments(physicalFragments, null);
       }
 
-      final HOTLongIndexReader indexReader =
-          HOTLongIndexReader.create(reader, IndexType.PATH, INDEX_NUMBER);
+      final HOTLongIndexReader indexReader = HOTLongIndexReader.create(reader, IndexType.PATH, INDEX_NUMBER);
       final var references = indexReader.get(PATH_KEY, SearchMode.EQUAL);
       if (expectedNodeKeys.length == 0) {
         assertNull(references, "the final posting tombstone must suppress every historical value");
@@ -323,8 +315,8 @@ final class HOTLeafRevisionMetadataTest {
     return reference;
   }
 
-  private static PageReference leafReferenceForKey(final StorageEngineReader reader,
-      final PageReference rootReference, final byte[] serializedKey) {
+  private static PageReference leafReferenceForKey(final StorageEngineReader reader, final PageReference rootReference,
+      final byte[] serializedKey) {
     PageReference reference = rootReference;
     while (true) {
       final Page page = reader.loadHOTPage(reference);

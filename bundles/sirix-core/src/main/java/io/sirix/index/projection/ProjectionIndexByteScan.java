@@ -339,8 +339,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -1633,8 +1633,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -1865,8 +1865,8 @@ public final class ProjectionIndexByteScan {
   static final long MISSING_COMPONENT_HASH = 0x9E3779B97F4A7C15L;
 
   /**
-   * Identity written under a set presence-mask bit for a component with no value at all; the mask
-   * bit is what disambiguates it from a stored value that happens to encode the same way.
+   * Identity written under a set presence-mask bit for a component with no value at all; the mask bit
+   * is what disambiguates it from a stored value that happens to encode the same way.
    */
   private static final long MISSING_COMPONENT_IDENTITY = 0L;
 
@@ -2482,9 +2482,9 @@ public final class ProjectionIndexByteScan {
       final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase, final int distinctBlock,
       final GroupDistinctAccumulator.Worker distinctOut, final GroupDistinctAccumulator.Sink distinctMissing,
       final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull, final Pattern keyRegex,
-      final String keyRegexRepl, final long[] regexDecline, final byte[] stringLengthModes,
-      final boolean cdStringDict, final GlobalValueDictionary.ReadView groupGlobalView,
-      final int[][] globalLengthTables, final long @Nullable [] globalKeyHashes) {
+      final String keyRegexRepl, final long[] regexDecline, final byte[] stringLengthModes, final boolean cdStringDict,
+      final GlobalValueDictionary.ReadView groupGlobalView, final int[][] globalLengthTables,
+      final long @Nullable [] globalKeyHashes) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2966,7 +2966,8 @@ public final class ProjectionIndexByteScan {
       final GroupDistinctAccumulator.Worker distinctOut, final long[] budget, final long[] keyOffsets,
       final int[] keySubstr, final long[] declineFlag, final ProjectionIndexScan.PredicateTree treeOrNull) {
     conjunctiveAggregateByGroupCompositeFlat(rowGroupPayloads, predicates, groupColumns, aggColumns, out, leafIndexBase,
-        distinctBlock, distinctOut, budget, keyOffsets, keySubstr, declineFlag, treeOrNull, null, null, null, null, null);
+        distinctBlock, distinctOut, budget, keyOffsets, keySubstr, declineFlag, treeOrNull, null, null, null, null,
+        null);
   }
 
   /**
@@ -3031,8 +3032,8 @@ public final class ProjectionIndexByteScan {
       final GroupDistinctAccumulator.Worker distinctOut, final long[] budget, final long[] keyOffsets,
       final int[] keySubstr, final long[] declineFlag, final ProjectionIndexScan.PredicateTree treeOrNull,
       final int[] keyCondCols, final long[] keyCondLits, final byte[][] keyCondElse, final long[] keyDivMod,
-      final GlobalValueDictionary.ReadView[] globalKeyViews,
-      final ProjectionStringIdentityRegistry identityRegistry, final long[] globalCondElseIds) {
+      final GlobalValueDictionary.ReadView[] globalKeyViews, final ProjectionStringIdentityRegistry identityRegistry,
+      final long[] globalCondElseIds) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -3091,9 +3092,8 @@ public final class ProjectionIndexByteScan {
       // so without this guard they would silently serve a probabilistic identity — the exact defect
       // the registry exists to remove. Numeric and substring-cast keys are unaffected: they carry
       // their raw or cast value in an exact lane and need no registry.
-      throw new IllegalArgumentException(
-          "composite key has a dictionary-string component and therefore requires a "
-              + "ProjectionStringIdentityRegistry; the registry-less overload cannot identify it exactly");
+      throw new IllegalArgumentException("composite key has a dictionary-string component and therefore requires a "
+          + "ProjectionStringIdentityRegistry; the registry-less overload cannot identify it exactly");
     }
     final int[] idLane = CompositeGroupIdentity.laneOffsets(identityKinds, keySubstr);
     final int identityWidth = idLane[keyCount];
@@ -3131,8 +3131,7 @@ public final class ProjectionIndexByteScan {
       for (int k = 0; k < keyCount; k++) {
         // Both roles of the literal — the conditional else branch and the missing-value
         // substitution — hash once here, in the dictionary's own domain.
-        if (keyCondElse[k] != null
-            && identityKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        if (keyCondElse[k] != null && identityKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
           // GLOBAL then-branch: identity space is the id space, so the else literal is its
           // RESOLVED id — a then-row holding the same value merges exactly. An uninterned literal
           // means no stored row can equal it, and the caller's sentinel (-2, below every real id
@@ -3446,8 +3445,8 @@ public final class ProjectionIndexByteScan {
             } else if (compKind[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
               if (subTransformed) {
                 final int id = Math.toIntExact(getLongLE(payload, compValOff[k] + rowIdx * 8));
-                final long transformed = globalKeyViews[k].xsIntegerOfSubstring(id, keySubstr[2 * k],
-                    keySubstr[2 * k + 1]);
+                final long transformed =
+                    globalKeyViews[k].xsIntegerOfSubstring(id, keySubstr[2 * k], keySubstr[2 * k + 1]);
                 if (transformed == Long.MIN_VALUE) {
                   declineFlag[0] = 1;
                   return;
@@ -3609,8 +3608,8 @@ public final class ProjectionIndexByteScan {
           // Untransformed (or conditional-then) global component: the winner's key part is the
           // interned value itself — one dictionary read per winner.
           outIsLong[k] = false;
-          outStrings[k] = globalKeyViews[k]
-              .valueAsString(Math.toIntExact(getLongLE(payload, columnDataOff[col] + rowIdx * 8)));
+          outStrings[k] =
+              globalKeyViews[k].valueAsString(Math.toIntExact(getLongLE(payload, columnDataOff[col] + rowIdx * 8)));
         }
       } else {
         outIsLong[k] = false;
@@ -3743,8 +3742,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += (rowCount + 63 >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -3895,13 +3894,13 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
-   * {@link #stringAggForWinnerGroups} with GLOBAL operand columns admitted: {@code aggGlobalViews}
-   * is index-aligned with {@code stringAggColumns}, a non-null entry marking that column as
+   * {@link #stringAggForWinnerGroups} with GLOBAL operand columns admitted: {@code aggGlobalViews} is
+   * index-aligned with {@code stringAggColumns}, a non-null entry marking that column as
    * {@code STRING_GLOBAL} and supplying the dictionary view its ids resolve through. The best value
-   * of a global operand is tracked as an ID under {@link GlobalValueDictionary.ReadView#compareIds}
-   * — the same UTF-16 collation {@code compareStrSlices} gives the per-leaf entries — and
-   * materialized once per winning group at the end. Rows whose id repeats the incumbent skip
-   * without a dictionary touch, which on low-cardinality operands is nearly every row.
+   * of a global operand is tracked as an ID under {@link GlobalValueDictionary.ReadView#compareIds} —
+   * the same UTF-16 collation {@code compareStrSlices} gives the per-leaf entries — and materialized
+   * once per winning group at the end. Rows whose id repeats the incumbent skip without a dictionary
+   * touch, which on low-cardinality operands is nearly every row.
    *
    * <p>
    * The view is a PER-WORKER object (its slice caches are not thread-safe); callers running fold
@@ -4075,29 +4074,29 @@ public final class ProjectionIndexByteScan {
                 continue;
               }
             } else {
-            slot = gidWinnerSlot.get(gid);
-            if (slot == -2) {
-              // Same hash domain as pass 1's global arm: utf8Hash of the regex-TRANSFORMED value.
-              final long h;
-              if (globalKeyHashes != null) {
-                h = globalKeyHashes[(int) gid]; // precomputed sweep — identical hash domain
-              } else {
-                final String transformed =
-                    keyRegex.matcher(groupGlobalView.valueAsString((int) gid)).replaceAll(keyRegexRepl);
-                h = utf8Hash(transformed.getBytes(StandardCharsets.UTF_8));
-              }
-              slot = -1;
-              for (int wi = 0; wi < winnerHashes.length; wi++) {
-                if (winnerHashes[wi] == h) {
-                  slot = wi;
-                  break;
+              slot = gidWinnerSlot.get(gid);
+              if (slot == -2) {
+                // Same hash domain as pass 1's global arm: utf8Hash of the regex-TRANSFORMED value.
+                final long h;
+                if (globalKeyHashes != null) {
+                  h = globalKeyHashes[(int) gid]; // precomputed sweep — identical hash domain
+                } else {
+                  final String transformed =
+                      keyRegex.matcher(groupGlobalView.valueAsString((int) gid)).replaceAll(keyRegexRepl);
+                  h = utf8Hash(transformed.getBytes(StandardCharsets.UTF_8));
                 }
+                slot = -1;
+                for (int wi = 0; wi < winnerHashes.length; wi++) {
+                  if (winnerHashes[wi] == h) {
+                    slot = wi;
+                    break;
+                  }
+                }
+                gidWinnerSlot.put(gid, slot);
               }
-              gidWinnerSlot.put(gid, slot);
-            }
-            if (slot < 0) {
-              continue;
-            }
+              if (slot < 0) {
+                continue;
+              }
             }
           } else {
             final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
@@ -4506,8 +4505,8 @@ public final class ProjectionIndexByteScan {
   private static void foldRowDistinct(final long[] slotArr, final int base, final byte[] payload,
       final int[] aggPresOff, final int[] aggValOff, final int aggCount, final int distinctBlock,
       final GroupDistinctAccumulator.Sink dset, final long[] budget, final int w, final int bit, final int rowIdx,
-      final byte[] stringLengthModes, final int[][] stringLengths, final int[][] globalLengthTables,
-      final int[] cdOff, final int[] cdLen, final long[] cdHash, final long sumExactMask) {
+      final byte[] stringLengthModes, final int[][] stringLengths, final int[][] globalLengthTables, final int[] cdOff,
+      final int[] cdLen, final long[] cdHash, final long sumExactMask) {
     slotArr[base]++;
     for (int a = 0; a < aggCount; a++) {
       final boolean stringLengthAgg = stringLengthModes != null && stringLengthModes[a] != STRING_LENGTH_NONE;
@@ -4609,8 +4608,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += (rowCount + 63 >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -5321,8 +5320,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -5542,8 +5541,7 @@ public final class ProjectionIndexByteScan {
     switch (kind) {
       // A temporal predicate arrives already expressed in the column's own units: the executor maps
       // the string literal onto an exact value or a half-open epoch range before building it.
-      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
           ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
         evalNumericBytes(payload, s.columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit, s.numericScratch,
             s.numericFlags, s.colMask);
@@ -5683,8 +5681,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {

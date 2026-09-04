@@ -35,8 +35,7 @@ final class ProjectionIndexBuilderFailureAtomicityTest {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
-      new JsonShredder.Builder(wtx,
-          JsonShredder.createStringReader("[{\"value\":1},{\"value\":2}]"),
+      new JsonShredder.Builder(wtx, JsonShredder.createStringReader("[{\"value\":1},{\"value\":2}]"),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
     }
   }
@@ -60,16 +59,15 @@ final class ProjectionIndexBuilderFailureAtomicityTest {
       // constructor legitimately prepares a writable page and therefore MUST fail closed, so
       // constructing one afterwards observes the rollback-only guard rather than the build.
       final boolean[] hookRan = new boolean[1];
-      final RuntimeException thrown = assertThrows(RuntimeException.class,
-          () -> ProjectionIndexBuilder.buildAndPersistWithPostWalkHook(definition, wtx.getPathSummary(), wtx,
-              wtx.getStorageEngineWriter(), false, storage -> {
+      final RuntimeException thrown =
+          assertThrows(RuntimeException.class, () -> ProjectionIndexBuilder.buildAndPersistWithPostWalkHook(definition,
+              wtx.getPathSummary(), wtx, wtx.getStorageEngineWriter(), false, storage -> {
                 hookRan[0] = true;
                 // ACCUMULATED, not finalized: at this seam the row group is readable through the
                 // live bulk accumulator / read-through, and the HOT tree has NOT been spliced yet.
                 assertNotNull(storage.getRowGroupFromColumnSegmentSlots(1),
                     "the seam must fire after a real row group was accumulated and readable");
-                assertNull(storage.getBlob(0),
-                    "metadata must not be published before the post-walk seam");
+                assertNull(storage.getBlob(0), "metadata must not be published before the post-walk seam");
                 throw injected;
               }));
       assertTrue(hookRan[0], "the post-walk seam never fired — every assertion inside it is vacuous");

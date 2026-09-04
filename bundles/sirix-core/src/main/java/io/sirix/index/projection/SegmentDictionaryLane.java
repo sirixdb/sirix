@@ -21,10 +21,10 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * This is the orchestration {@code docs/SEGMENT_SCOPED_DICTIONARIES.md} describes, over five pieces
  * that are each tested on their own: {@link SegmentScopedDictionaries} (mint, per-PAGE views),
- * {@link SegmentSealController} (when a segment is done), {@link SegmentDictionaryFlusher} (write one
- * sealed segment through the load's own writer), {@link SegmentDictionaryAnchors} (where each sealed
- * dictionary lives) and the metadata section that persists the last of those. The lane exists so a
- * caller wires three call sites rather than five objects.
+ * {@link SegmentSealController} (when a segment is done), {@link SegmentDictionaryFlusher} (write
+ * one sealed segment through the load's own writer), {@link SegmentDictionaryAnchors} (where each
+ * sealed dictionary lives) and the metadata section that persists the last of those. The lane
+ * exists so a caller wires three call sites rather than five objects.
  * </p>
  *
  * <h2>Why sealing happens at the DRAIN and not from the encode listener</h2>
@@ -32,15 +32,15 @@ import static java.util.Objects.requireNonNull;
  * The listener fires from the sequential pass that follows a flush window's join — the writer's own
  * critical section, mid-append. Writing a dictionary there would interleave a fresh page-allocating
  * write with the append pass that is walking the window. So the listener only does bookkeeping, and
- * every segment is sealed at {@link #sealAll}, which the caller invokes once the flush pool has been
- * fenced. {@link SegmentSealController#takeSealable} is therefore not consulted here; it exists for
- * the incremental regime a 100M load needs, where holding every segment's values to the end is not
- * affordable, and it is left switched off until this shape is measured.
+ * every segment is sealed at {@link #sealAll}, which the caller invokes once the flush pool has
+ * been fenced. {@link SegmentSealController#takeSealable} is therefore not consulted here; it
+ * exists for the incremental regime a 100M load needs, where holding every segment's values to the
+ * end is not affordable, and it is left switched off until this shape is measured.
  *
  * <h2>Kill switch</h2>
  *
- * {@code -Dsirix.projection.segmentDict=true} arms the lane; it is OFF by default, so a load that does
- * not ask for it behaves exactly as before and every page keeps its bytes.
+ * {@code -Dsirix.projection.segmentDict=true} arms the lane; it is OFF by default, so a load that
+ * does not ask for it behaves exactly as before and every page keeps its bytes.
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
@@ -80,8 +80,8 @@ public final class SegmentDictionaryLane {
   private static long leavesPerSegment() {
     final long configured = Long.getLong(LEAVES_PER_SEGMENT_PROPERTY, DEFAULT_LEAVES_PER_SEGMENT);
     if (configured <= 0 || Long.bitCount(configured) != 1) {
-      throw new IllegalArgumentException(LEAVES_PER_SEGMENT_PROPERTY + " must be a positive power of two: "
-          + configured);
+      throw new IllegalArgumentException(
+          LEAVES_PER_SEGMENT_PROPERTY + " must be a positive power of two: " + configured);
     }
     return configured;
   }
@@ -91,8 +91,7 @@ public final class SegmentDictionaryLane {
    * Installs the per-page resolver factory and the encode-completion listener; the caller hands the
    * dictionaries to the builder so tag publication reaches them.
    */
-  public static @Nullable SegmentDictionaryLane bind(final StorageEngineWriter storageEngineWriter,
-      final int columns) {
+  public static @Nullable SegmentDictionaryLane bind(final StorageEngineWriter storageEngineWriter, final int columns) {
     if (!enabled()) {
       return null;
     }
@@ -114,9 +113,9 @@ public final class SegmentDictionaryLane {
 
   /**
    * Seal every segment: write each one's values as a dictionary through the load's own writer and
-   * record where it went. Call once the flush pool has been fenced: the fence is what makes this safe,
-   * and {@link SegmentSealController#drainAfterFence} trusts it rather than the encode counter, which
-   * a page written outside the windowed flush leaves stale.
+   * record where it went. Call once the flush pool has been fenced: the fence is what makes this
+   * safe, and {@link SegmentSealController#drainAfterFence} trusts it rather than the encode counter,
+   * which a page written outside the windowed flush leaves stale.
    *
    * @return the anchors to persist, empty when the lane minted nothing
    */

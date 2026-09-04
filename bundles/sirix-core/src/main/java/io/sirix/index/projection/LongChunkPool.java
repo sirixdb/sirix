@@ -16,8 +16,8 @@ import java.util.concurrent.atomic.LongAdder;
  * <p>
  * Why: a hash-range pass allocates its tables ONCE per flush and per rehash and drops them shortly
  * after — at 100M (q32) ≈ 16 GB per 2.3 s pass, of which G1 copied ≈ 9 GB through survivor and old
- * regions (≈ 19% of the query's wall time in young pauses, 20% of its CPU in evacuation memcpy).
- * A chunk that lives in the pool for the whole query is promoted once and then never copied again,
+ * regions (≈ 19% of the query's wall time in young pauses, 20% of its CPU in evacuation memcpy). A
+ * chunk that lives in the pool for the whole query is promoted once and then never copied again,
  * while every array stays below the humongous threshold the storage design commits to.
  *
  * <p>
@@ -25,22 +25,23 @@ import java.util.concurrent.atomic.LongAdder;
  * so its pool starts empty: at 100M (q16) each of the two passes of every try allocated 21,504
  * chunks (2.75 GB) that the previous pass had just handed back to a pool nobody would read again,
  * 5.5 GB of the 12.4 GB a hot try allocated, and the only part of it G1 promoted and copied. The
- * {@link #shared(int, int) shared} pools outlive the scan: one per chunk length for the JVM, holding
- * at most {@link #RETAIN_BYTES_PROPERTY} bytes IN TOTAL (default a quarter of the maximum heap — one
- * pass's tables at the clean-heap group budget). What they hold is retained BY INTENT and readable as
- * live heap by every collector record, so the group budget adds {@link #retainedBytes()} back to the
- * headroom it plans against ({@link GroupTableSpill#groupBudget()}): the next pass takes those chunks
- * instead of allocating, which is exactly the memory the budget would have planned to allocate.
+ * {@link #shared(int, int) shared} pools outlive the scan: one per chunk length for the JVM,
+ * holding at most {@link #RETAIN_BYTES_PROPERTY} bytes IN TOTAL (default a quarter of the maximum
+ * heap — one pass's tables at the clean-heap group budget). What they hold is retained BY INTENT
+ * and readable as live heap by every collector record, so the group budget adds
+ * {@link #retainedBytes()} back to the headroom it plans against
+ * ({@link GroupTableSpill#groupBudget()}): the next pass takes those chunks instead of allocating,
+ * which is exactly the memory the budget would have planned to allocate.
  * {@code -Dsirix.projection.groupTable.chunkPool.retain=false} restores a pool per scan.
  *
  * <p>
- * The ceiling bounds the RESOURCE, not each pool: a scan's stride fixes its chunk length, a suite of
- * group-bys visits several strides, and a ceiling applied per pool let every geometry keep a pass's
- * tables at once — at 100M the leg after q16 held one such pool per stride it had run, until q28 ran
- * 199 collections per try and q30 stalled at a full heap. So {@link #shared(int, int)} drains every
- * OTHER geometry's pool (during this scan their chunks are dead weight, and the next scan of that
- * length allocates once, as it did before pooling), and {@link #give} refuses a chunk that would carry
- * the total retained past the ceiling regardless of the pool it lands in.
+ * The ceiling bounds the RESOURCE, not each pool: a scan's stride fixes its chunk length, a suite
+ * of group-bys visits several strides, and a ceiling applied per pool let every geometry keep a
+ * pass's tables at once — at 100M the leg after q16 held one such pool per stride it had run, until
+ * q28 ran 199 collections per try and q30 stalled at a full heap. So {@link #shared(int, int)}
+ * drains every OTHER geometry's pool (during this scan their chunks are dead weight, and the next
+ * scan of that length allocates once, as it did before pooling), and {@link #give} refuses a chunk
+ * that would carry the total retained past the ceiling regardless of the pool it lands in.
  *
  * <p>
  * Chunks are zeroed when GIVEN, not when taken: a pooled chunk is therefore always an empty bucket

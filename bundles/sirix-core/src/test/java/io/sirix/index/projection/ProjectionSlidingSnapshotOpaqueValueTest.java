@@ -90,8 +90,7 @@ final class ProjectionSlidingSnapshotOpaqueValueTest {
         JsonNodeReadOnlyTrx revisionFour = session.beginNodeReadOnlyTrx(4)) {
       assertArrayEquals(PROJECTION_TOMBSTONE, readStoredSlot(revisionTwo.getStorageEngineReader(), DELETED_SLOT),
           "a zero-length projection value must remain a physically present tombstone");
-      assertArrayEquals(POSTING_TOMBSTONE_MARKER,
-          readStoredSlot(revisionFour.getStorageEngineReader(), OPAQUE_SLOT),
+      assertArrayEquals(POSTING_TOMBSTONE_MARKER, readStoredSlot(revisionFour.getStorageEngineReader(), OPAQUE_SLOT),
           "opaque projection 0xFE must not be classified as a posting-index tombstone while aging");
       assertArrayEquals(PROJECTION_TOMBSTONE, readStoredSlot(revisionFour.getStorageEngineReader(), DELETED_SLOT),
           "the newer zero-length tombstone must continue to shadow the retired live value");
@@ -101,7 +100,9 @@ final class ProjectionSlidingSnapshotOpaqueValueTest {
     }
   }
 
-  /** Read a physically present value exactly, preserving zero length instead of mapping it to null. */
+  /**
+   * Read a physically present value exactly, preserving zero length instead of mapping it to null.
+   */
   private static byte[] readStoredSlot(final StorageEngineReader reader, final long slotKey) {
     final PageReference root = ProjectionIndexHOTStorage.rootReference(reader, INDEX_NUMBER);
     assertNotNull(root);

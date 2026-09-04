@@ -14,11 +14,12 @@ import static java.util.Objects.requireNonNull;
  * DECODE-direction resolver for pages whose dictionaries are scoped to a SEGMENT.
  *
  * <p>
- * The twin of {@link SegmentScopedDictionaries}, and the difference from {@link TrieLaneDictionaries}
- * is one indirection: a trie-lane page's anchor IS the dictionary's header key, so that resolver
- * hands it straight to {@link GlobalValueDictionary#valueBytes}. A segment-scoped page's anchor is its
- * SEGMENT, because at page-encode time the segment's dictionary had not been written and had no key
- * yet, so this resolver translates through {@link SegmentDictionaryAnchors} first.
+ * The twin of {@link SegmentScopedDictionaries}, and the difference from
+ * {@link TrieLaneDictionaries} is one indirection: a trie-lane page's anchor IS the dictionary's
+ * header key, so that resolver hands it straight to {@link GlobalValueDictionary#valueBytes}. A
+ * segment-scoped page's anchor is its SEGMENT, because at page-encode time the segment's dictionary
+ * had not been written and had no key yet, so this resolver translates through
+ * {@link SegmentDictionaryAnchors} first.
  * </p>
  *
  * <h2>The two refusals, and why both are needed</h2>
@@ -26,18 +27,19 @@ import static java.util.Objects.requireNonNull;
  * <ul>
  * <li><b>Unsealed segment.</b> A page can outlive the crash that stopped its segment being sealed —
  * the pages are durable, the dictionary is not. Its ids resolve against nothing, so the page keeps
- * whatever the caller falls back to; it must never resolve against a DIFFERENT segment's dictionary,
- * which is what an anchor table lookup returning "some key" would do.</li>
+ * whatever the caller falls back to; it must never resolve against a DIFFERENT segment's
+ * dictionary, which is what an anchor table lookup returning "some key" would do.</li>
  * <li><b>An id past what the page saw.</b> Identical in spirit to the trie lane's rule: an id above
  * the count the page recorded is one the page could not have written. Refusing it is what stops a
- * later, larger dictionary answering from a part the page never saw. For a segment dictionary this is
- * belt and braces — a sealed segment never grows again — but the rule costs nothing and the invariant
- * it depends on is the pipeline's, not this class's.</li>
+ * later, larger dictionary answering from a part the page never saw. For a segment dictionary this
+ * is belt and braces — a sealed segment never grows again — but the rule costs nothing and the
+ * invariant it depends on is the pipeline's, not this class's.</li>
  * </ul>
  *
  * <p>
  * One instance belongs to one transaction and does not outlive it: it holds a
- * {@link StorageEngineReader}. A page or a cache may hold the VALUE this produces, never this object.
+ * {@link StorageEngineReader}. A page or a cache may hold the VALUE this produces, never this
+ * object.
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>

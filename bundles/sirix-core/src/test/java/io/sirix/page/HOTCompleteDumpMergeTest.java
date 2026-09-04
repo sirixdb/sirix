@@ -46,10 +46,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * IT NEVER DOES. Across three versioning strategies, six commit phases, three window widths, point
  * reads, content-byte comparison, occurrence counting and a full range enumeration over descriptor
- * and column-segment slots — with a structural split confirmed to have run in every one
- * — no merge has ever reached past a complete dump, and no key has ever been resurrected. Some
- * guard upstream of the merge prevents it and has NOT been identified. The merge was therefore left
- * exactly as it was: an unexplained absence is not a licence to change the storage layer.
+ * and column-segment slots — with a structural split confirmed to have run in every one — no merge
+ * has ever reached past a complete dump, and no key has ever been resurrected. Some guard upstream
+ * of the merge prevents it and has NOT been identified. The merge was therefore left exactly as it
+ * was: an unexplained absence is not a licence to change the storage layer.
  * </p>
  *
  * <p>
@@ -279,11 +279,10 @@ final class HOTCompleteDumpMergeTest {
   }
 
   /**
-   * Production-state coverage guard: starting from a root leaf, only a structural split can create
-   * an indirect root. This remains meaningful when implementation-specific split counters disappear.
+   * Production-state coverage guard: starting from a root leaf, only a structural split can create an
+   * indirect root. This remains meaningful when implementation-specific split counters disappear.
    */
-  private static void assertStructuralSplitRan(final VersioningType versioning,
-      final JsonResourceSession session) {
+  private static void assertStructuralSplitRan(final VersioningType versioning, final JsonResourceSession session) {
     try (JsonNodeReadOnlyTrx probe = session.beginNodeReadOnlyTrx()) {
       final StorageEngineReader reader = probe.getStorageEngineReader();
       final PageReference rootReference = ProjectionIndexHOTStorage.rootReference(reader, 0);
@@ -298,8 +297,8 @@ final class HOTCompleteDumpMergeTest {
   private static String counters() {
     return "single=" + VersioningType.singleFragmentReads() + " merges=" + VersioningType.multiFragmentMerges()
         + " walked=" + VersioningType.fragmentsWalked() + " shortCircuit=" + VersioningType.completeDumpShortCircuits()
-        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast()
-        + " carryFwd=" + VersioningType.carryForwardRotations();
+        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast() + " carryFwd="
+        + VersioningType.carryForwardRotations();
   }
 
   /**

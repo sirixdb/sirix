@@ -709,8 +709,8 @@ public final class ProjectionIndexRowGroupPage {
    * <p>
    * A slab-backed scalar dictionary is materialised at most once per live page generation. Each entry
    * is detached from the page-owned slab, so retaining or mutating the returned compatibility view
-   * cannot corrupt codecs, scans, later reuse of the page builder, or already-emitted output. Production
-   * consumers use the range accessors below and never invoke this method.
+   * cannot corrupt codecs, scans, later reuse of the page builder, or already-emitted output.
+   * Production consumers use the range accessors below and never invoke this method.
    */
   public synchronized byte[][] stringDictionary(final int column) {
     checkColumn(column);
@@ -845,8 +845,8 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /**
-   * Reassemble a page from decoded canonical segments. Arrays are adopted (not copied): the
-   * segment assembler hands over freshly built arrays sized for {@code rowCount}, which is all
+   * Reassemble a page from decoded canonical segments. Arrays are adopted (not copied): the segment
+   * assembler hands over freshly built arrays sized for {@code rowCount}, which is all
    * {@link #serialize()} ever reads. Package-private on purpose — the only legitimate caller is the
    * canonical segment codec.
    */
@@ -1082,8 +1082,8 @@ public final class ProjectionIndexRowGroupPage {
         switch (columnKinds[c]) {
           // STRING_GLOBAL rides the numeric lane: its cells are dictionary ids, stored and packed
           // exactly like any other integer column; the temporal kinds ride it as epochs.
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
-              COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE ->
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL, COLUMN_KIND_TIMESTAMP,
+              COLUMN_KIND_DATE ->
             numericCols[c] = new long[MAX_ROWS];
           case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
           case COLUMN_KIND_STRING_DICT -> {
@@ -1711,13 +1711,14 @@ public final class ProjectionIndexRowGroupPage {
    * flips the extractor's array so that later leaves are built as global from the start.
    *
    * @param c the column to convert
-   * <p>
-   * Takes the ENCODER interface rather than the concrete writer, because the same conversion serves
-   * two callers with opposite dictionary lifetimes: the builder's promotion, which mints ids into a
-   * dictionary it is still filling, and a build against a dictionary that is already complete, where
-   * {@code intern} resolves and refuses an unknown value instead of appending one. The body only ever
-   * calls {@code intern}, so the distinction belongs to the encoder and not here.
-   * </p>
+   *        <p>
+   *        Takes the ENCODER interface rather than the concrete writer, because the same conversion
+   *        serves two callers with opposite dictionary lifetimes: the builder's promotion, which
+   *        mints ids into a dictionary it is still filling, and a build against a dictionary that is
+   *        already complete, where {@code intern} resolves and refuses an unknown value instead of
+   *        appending one. The body only ever calls {@code intern}, so the distinction belongs to the
+   *        encoder and not here.
+   *        </p>
    *
    * @param dictionary the resource-wide dictionary to resolve against
    */
@@ -1784,8 +1785,8 @@ public final class ProjectionIndexRowGroupPage {
    * <p>
    * The mapping is by LOCAL DICTIONARY ENTRY, not by row, and it is required to be TOTAL over the
    * entries this leaf actually references: a missing entry is a defect in the pass that produced it,
-   * and silently writing id 0 would turn a present value into an absent cell — a wrong answer that
-   * no later stage could detect. It is therefore refused by name.
+   * and silently writing id 0 would turn a present value into an absent cell — a wrong answer that no
+   * later stage could detect. It is therefore refused by name.
    * </p>
    *
    * @param c the column to convert
@@ -2174,8 +2175,8 @@ public final class ProjectionIndexRowGroupPage {
         page.columnMin[c] = bb.getLong();
         page.columnMax[c] = bb.getLong();
         switch (kinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
-              COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE -> {
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL, COLUMN_KIND_TIMESTAMP,
+              COLUMN_KIND_DATE -> {
             final long[] col = page.numericCols[c];
             for (int i = 0; i < rowCount; i++)
               col[i] = bb.getLong();
@@ -2321,8 +2322,8 @@ public final class ProjectionIndexRowGroupPage {
       colHdr.putLong(columnMax[c]);
       baos.write(colHdr.array(), 0, colHdr.position());
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
-            COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE ->
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL, COLUMN_KIND_TIMESTAMP,
+            COLUMN_KIND_DATE ->
           writeLongs(baos, numericCols[c], rowCount);
         case COLUMN_KIND_BOOLEAN -> writeLongs(baos, booleanCols[c], (rowCount + 63) >>> 6);
         case COLUMN_KIND_STRING_DICT -> {

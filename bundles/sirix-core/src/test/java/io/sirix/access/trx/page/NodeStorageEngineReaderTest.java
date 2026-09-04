@@ -60,15 +60,14 @@ public final class NodeStorageEngineReaderTest {
       projectionIndexPage.getIndirectPageReference(index);
     }
     final RevisionRootPageReader revisionRootPageReader = mock(RevisionRootPageReader.class);
-    when(revisionRootPageReader.loadRevisionRootPage(any(StorageEngineReader.class), eq(0)))
-        .thenReturn(revisionRootPage);
+    when(revisionRootPageReader.loadRevisionRootPage(any(StorageEngineReader.class), eq(0))).thenReturn(
+        revisionRootPage);
 
     try (final var trx = new NodeStorageEngineReader(1, resourceManagerMock, new UberPage(), 0, mock(Reader.class),
         mock(BufferManager.class), revisionRootPageReader, mock(TransactionIntentLog.class))) {
       assertThrows(IllegalArgumentException.class,
           () -> trx.getPageReference(revisionRootPage, IndexType.PROJECTION, 4));
-      assertThrows(IllegalArgumentException.class,
-          () -> trx.getLeafPageReference(0L, 4, IndexType.PROJECTION));
+      assertThrows(IllegalArgumentException.class, () -> trx.getLeafPageReference(0L, 4, IndexType.PROJECTION));
       assertNull(projectionIndexPage.getIndexReference(4));
       assertEquals(4, projectionIndexPage.getReferencesCount());
     }
@@ -97,13 +96,13 @@ public final class NodeStorageEngineReaderTest {
         return null;
       });
 
-      final PageReference chainReference = new PageReference().setKey(headOffset)
-                                                              .setPageFragments(List.of(
-                                                                  new PageFragmentKeyImpl(1, fragmentOffset, 0L, 0L)));
+      final PageReference chainReference =
+          new PageReference().setKey(headOffset)
+                             .setPageFragments(List.of(new PageFragmentKeyImpl(1, fragmentOffset, 0L, 0L)));
       try (final var trx = new NodeStorageEngineReader(1, resourceManagerMock, new UberPage(), 3, pageReader,
           bufferManager, mock(RevisionRootPageReader.class), mock(TransactionIntentLog.class))) {
-        final SirixIOException failure = assertThrows(SirixIOException.class,
-            () -> trx.loadHOTLeafFragments(chainReference));
+        final SirixIOException failure =
+            assertThrows(SirixIOException.class, () -> trx.loadHOTLeafFragments(chainReference));
         assertTrue(failure.getMessage().contains("metadata revision=1, physical header revision=2"));
       }
 

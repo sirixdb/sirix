@@ -38,8 +38,8 @@ final class NumberZoneMapRegionTest {
 
   /**
    * The zone map's wire form follows the number region's: with the per-tag election on it is the
-   * varint V2 form, off it is the fixed-width V1 form. The cases below that pin V1 byte counts or
-   * its compression envelope set the switch, and must not leak it into the next case.
+   * varint V2 form, off it is the fixed-width V1 form. The cases below that pin V1 byte counts or its
+   * compression envelope set the switch, and must not leak it into the next case.
    */
   @AfterEach
   void clearEncoderOverrides() {

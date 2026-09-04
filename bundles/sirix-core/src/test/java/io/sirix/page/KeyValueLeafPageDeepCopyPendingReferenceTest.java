@@ -14,8 +14,8 @@ import org.junit.jupiter.api.Test;
 /**
  * {@link KeyValueLeafPage#deepCopy()} clones every carrier reference through the copy constructor —
  * which REFUSES a reference whose immutable page write is pending in the writer's side-page batch.
- * A carrier staged at bulk adoption must therefore be SHARED by the copy (the HOT leaf CoW rule), so
- * every copy observes the durable key that publication installs on the one handle. Pinned here
+ * A carrier staged at bulk adoption must therefore be SHARED by the copy (the HOT leaf CoW rule),
+ * so every copy observes the durable key that publication installs on the one handle. Pinned here
  * because no load path reaches the branch today (adopted leaves serialize in place); a future path
  * that stages a carrier of a page the flush lane still deep-copies would otherwise fail inside a
  * flush worker with no test warning.

@@ -22,8 +22,7 @@ final class HOTIncrementalHeightResolutionTest {
     final HOTLeafPage rightLeaf = leaf(1, 0x80);
     final PageReference unresolvedTallLeft = new PageReference();
     unresolvedTallLeft.setKey(100);
-    final HOTIndirectPage node = HOTIndirectPage.createBiNode(2, 1, 0, unresolvedTallLeft,
-        swizzle(rightLeaf), 2);
+    final HOTIndirectPage node = HOTIndirectPage.createBiNode(2, 1, 0, unresolvedTallLeft, swizzle(rightLeaf), 2);
 
     try {
       assertThrows(IllegalStateException.class,
@@ -40,14 +39,13 @@ final class HOTIncrementalHeightResolutionTest {
     final HOTLeafPage fourth = leaf(23, 0xC0);
     final PageReference unresolvedTallThird = new PageReference();
     unresolvedTallThird.setKey(200);
-    final HOTIndirectPage node = HOTIndirectPage.createMultiNode(24, 1, 0,
-        0xC000_0000_0000_0000L, new int[] {0, 1, 2, 3},
-        new PageReference[] {swizzle(first), swizzle(second), unresolvedTallThird, swizzle(fourth)}, 3);
+    final HOTIndirectPage node =
+        HOTIndirectPage.createMultiNode(24, 1, 0, 0xC000_0000_0000_0000L, new int[] {0, 1, 2, 3},
+            new PageReference[] {swizzle(first), swizzle(second), unresolvedTallThird, swizzle(fourth)}, 3);
 
     try {
       assertThrows(IllegalStateException.class,
-          () -> HOTIncrementalInsert.compressChildRange(node, 0, 4, 2,
-              new AtomicLong(30)::getAndIncrement));
+          () -> HOTIncrementalInsert.compressChildRange(node, 0, 4, 2, new AtomicLong(30)::getAndIncrement));
     } finally {
       first.close();
       second.close();

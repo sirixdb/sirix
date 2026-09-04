@@ -230,7 +230,9 @@ class PageLayoutFuzzTest {
           if (nodeKindId != 0) {
             assertCompactDirWireRejected(wire, 0, nodeKindId);
           }
-          assertCompactDirWireRoundTrip(wire, nodeKindId, nodeKindId == 0 ? 0 : 1);
+          assertCompactDirWireRoundTrip(wire, nodeKindId, nodeKindId == 0
+              ? 0
+              : 1);
         } else {
           final int rejectedKindId = nodeKindId;
           assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(1, rejectedKindId),
@@ -291,8 +293,7 @@ class PageLayoutFuzzTest {
       // Positive witness that the raise reached the wire: the largest representable record round
       // trips through both readers with its length intact.
       PageLayout.writeCompactDirEntry(wire, 0, PageConstants.MAX_RECORD_SIZE, 0);
-      assertEquals(PageConstants.MAX_RECORD_SIZE,
-          PageLayout.unpackDataLength(PageLayout.readCompactDirEntry(wire, 0)),
+      assertEquals(PageConstants.MAX_RECORD_SIZE, PageLayout.unpackDataLength(PageLayout.readCompactDirEntry(wire, 0)),
           "the cap itself must survive a compact-directory round trip");
       for (int dataLength = PageConstants.MAX_RECORD_SIZE + 1; dataLength < 1 << 10; dataLength++) {
         final int corruptWord = dataLength << 6;
@@ -316,10 +317,8 @@ class PageLayoutFuzzTest {
       final int packed = PageLayout.readCompactDirEntry(wire, 0);
       final byte[] wireBytes = {wire.get(ValueLayout.JAVA_BYTE, 0), wire.get(ValueLayout.JAVA_BYTE, 1)};
       final int streamed = PageLayout.readCompactDirEntry(new ByteArrayBytesIn(wireBytes));
-      assertEquals(dataLength, PageLayout.unpackDataLength(packed),
-          "dataLength mismatch for kind " + nodeKindId);
-      assertEquals(nodeKindId, PageLayout.unpackNodeKindId(packed),
-          "nodeKindId mismatch for length " + dataLength);
+      assertEquals(dataLength, PageLayout.unpackDataLength(packed), "dataLength mismatch for kind " + nodeKindId);
+      assertEquals(nodeKindId, PageLayout.unpackNodeKindId(packed), "nodeKindId mismatch for length " + dataLength);
       assertEquals(packed, streamed, "stream reader mismatch for length " + dataLength + " and kind " + nodeKindId);
     }
   }

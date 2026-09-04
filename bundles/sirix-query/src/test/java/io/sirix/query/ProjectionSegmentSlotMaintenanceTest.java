@@ -35,8 +35,8 @@ import java.nio.file.Path;
  *
  * <p>
  * The sole persisted layout keys each row group's descriptor at slotKind 0 of the composite key and
- * each semantic column segment at its own slot. Pre-commit maintenance patches those units directly;
- * there is no layout dispatch and no whole-index rebuild route.
+ * each semantic column segment at its own slot. Pre-commit maintenance patches those units
+ * directly; there is no layout dispatch and no whole-index rebuild route.
  * </p>
  *
  * <p>

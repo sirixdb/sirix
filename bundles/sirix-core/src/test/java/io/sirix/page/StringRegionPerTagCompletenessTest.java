@@ -81,11 +81,11 @@ final class StringRegionPerTagCompletenessTest {
    * The fixture deliberately holds no record in {@code (512, 1023]}, so the fused-cap raise that
    * ships with this change cannot move these bytes and the only thing the comparison can catch is a
    * completeness rule that fails to restore itself. Recorded by compiling {@code git show HEAD:} of
-   * every file this change touches into a separate output directory and serializing the same
-   * fixture there.
+   * every file this change touches into a separate output directory and serializing the same fixture
+   * there.
    */
   private static final String GOLDEN_KILL_SWITCH_PAGE =
-          "0100000001000000010000000000000000010000001f00ec070000ec07000001000000000000000000ffffff7f000000"
+      "0100000001000000010000000000000000010000001f00ec070000ec07000001000000000000000000ffffff7f000000"
           + "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
           + "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
           + "000000000000000000000000000000000000000000000000001f0000009706000001120b000000db00000003fda90e2e"
@@ -278,8 +278,7 @@ final class StringRegionPerTagCompletenessTest {
       for (int f = 0; f < INLINE_FIELDS; f++) {
         writeString(page, f, FIRST_INLINE_NAME_KEY + f, FIRST_PATH_NODE_KEY + f, inlineValue(f));
       }
-      writeString(page, INLINE_FIELDS, OVERSIZED_NAME_KEY, OVERSIZED_PATH_NODE_KEY,
-          "X".repeat(OVERSIZED_VALUE_LENGTH));
+      writeString(page, INLINE_FIELDS, OVERSIZED_NAME_KEY, OVERSIZED_PATH_NODE_KEY, "X".repeat(OVERSIZED_VALUE_LENGTH));
       deserialized = roundTrip(config, page);
 
       final StringRegion.Header header = deserialized.getStringRegionHeader();
@@ -427,8 +426,8 @@ final class StringRegionPerTagCompletenessTest {
   }
 
   private KeyValueLeafPage newPage(final ResourceConfiguration config) {
-    return new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1,
-        arena.allocate(MemorySegmentAllocator.SIXTYFOUR_KB), null);
+    return new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, arena.allocate(MemorySegmentAllocator.SIXTYFOUR_KB),
+        null);
   }
 
   /**
@@ -450,10 +449,9 @@ final class StringRegionPerTagCompletenessTest {
 
   private static void writeString(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
       final long pathNodeKey, final String value) {
-    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, pathNodeKey, 0, 0, 0L,
-        value.getBytes(StandardCharsets.UTF_8), HASH_FN, (byte[]) null, false, null);
+    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, pathNodeKey, 0,
+        0, 0L, value.getBytes(StandardCharsets.UTF_8), HASH_FN, (byte[]) null, false, null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1)));
   }

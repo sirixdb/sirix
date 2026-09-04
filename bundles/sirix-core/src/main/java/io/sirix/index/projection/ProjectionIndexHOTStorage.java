@@ -89,9 +89,9 @@ import java.util.function.Consumer;
  *
  * Two pre-redesign bug families remain guarded by tests: <b>grow-overwrite</b> (larger re-puts
  * silently dropped values that no longer fit — all writes now funnel through the single incremental
- * HOT driver) and <b>stale-swizzle use-after-close</b> (CoW'd references resolving a
- * closed {@link HOTLeafPage} — {@link PageReference#getPage()} treats a closed leaf as a cache
- * miss). See {@code ProjectionPersistForceRebuildTest} (sirix-query).
+ * HOT driver) and <b>stale-swizzle use-after-close</b> (CoW'd references resolving a closed
+ * {@link HOTLeafPage} — {@link PageReference#getPage()} treats a closed leaf as a cache miss). See
+ * {@code ProjectionPersistForceRebuildTest} (sirix-query).
  */
 public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long> {
 
@@ -198,9 +198,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /**
    * Enforce the only legal bulk-build boundary: a naturally virgin projection tree.
    *
-   * <p>This method never clears or replaces data. Existing projections are updated exclusively by
+   * <p>
+   * This method never clears or replaces data. Existing projections are updated exclusively by
    * incremental maintenance; callers that want to run an initializer over a populated definition
-   * receive a loud refusal instead of an implicit full rebuild.</p>
+   * receive a loud refusal instead of an implicit full rebuild.
+   * </p>
    */
   void requireVirginTreeForInitialBuild() {
     if (bulkSlotLoader != null) {
@@ -243,10 +245,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /**
    * Materialize everything accumulated since {@link #beginBulkSlotAccumulation} as this index's tree
    * (production {@code spliceBulkBuiltRoot}: empty-tree guard, canonical build, fresh-subtree TIL
-   * registration) and leave accumulation mode. A no-op when accumulation is not active. A failure
-   * at any point is fail-closed: the accumulator and deferred side payloads are released and the
-   * page transaction becomes rollback-only, because neither a discarded pre-publication prefix nor
-   * a partially attached post-publication tree is safe to commit.
+   * registration) and leave accumulation mode. A no-op when accumulation is not active. A failure at
+   * any point is fail-closed: the accumulator and deferred side payloads are released and the page
+   * transaction becomes rollback-only, because neither a discarded pre-publication prefix nor a
+   * partially attached post-publication tree is safe to commit.
    */
   void finalizeBulkSlotAccumulation() {
     final HOTBulkSlotLoader loader = bulkSlotLoader;
@@ -386,8 +388,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /**
    * High bit of a blob marker's length field marking the payload as INLINE (bytes in the slot value's
    * trailing region, right after the marker) rather than REFERENCED (bytes in a side-map
-   * {@link OverflowPage}). A blob is capped at {@link RowGroupDescriptor#MAX_SEGMENT_BYTES}
-   * (16 MB ≪ 2^31) so the true length never touches the sign bit.
+   * {@link OverflowPage}). A blob is capped at {@link RowGroupDescriptor#MAX_SEGMENT_BYTES} (16 MB ≪
+   * 2^31) so the true length never touches the sign bit.
    */
   private static final int BLOB_INLINE_FLAG = 0x8000_0000;
 
@@ -797,11 +799,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
             RowGroupDescriptor.entryByteLen(prior, priorIndex) != RowGroupDescriptor.entryByteLen(descriptor, nextIndex)
                 || RowGroupDescriptor.entryContentHash(prior,
                     priorIndex) != RowGroupDescriptor.entryContentHash(descriptor, nextIndex)
-                || RowGroupDescriptor.entryColFlags(prior,
-                    priorIndex) != RowGroupDescriptor.entryColFlags(descriptor, nextIndex)
+                || RowGroupDescriptor.entryColFlags(prior, priorIndex) != RowGroupDescriptor.entryColFlags(descriptor,
+                    nextIndex)
                 || RowGroupDescriptor.entryMin(prior, priorIndex) != RowGroupDescriptor.entryMin(descriptor, nextIndex)
-                || RowGroupDescriptor.entryMax(prior, priorIndex) != RowGroupDescriptor.entryMax(descriptor,
-                    nextIndex);
+                || RowGroupDescriptor.entryMax(prior, priorIndex) != RowGroupDescriptor.entryMax(descriptor, nextIndex);
         priorIndex++;
         nextIndex++;
       } else if (priorId < nextId) {
@@ -1821,9 +1822,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return new RawBlobSlot(rowGroupId, slotKind, payload, null, null, Constants.NULL_ID_LONG, slotKey);
     }
     if (kind != SEG_KIND_REF) {
-      throw new IllegalStateException(
-          "projection segment slot " + slotKey + " has noncanonical discriminator " + kind + " (" + valueSize
-              + " bytes, indexNumber=" + indexNumber + ")");
+      throw new IllegalStateException("projection segment slot " + slotKey + " has noncanonical discriminator " + kind
+          + " (" + valueSize + " bytes, indexNumber=" + indexNumber + ")");
     }
     final PageReference ref = leaf.getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
     final long offset = ref == null
@@ -2919,11 +2919,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
     /**
      * Entry index of {@code columnSegmentId} in row group {@code slot}, or {@code -1} when the
-     * descriptor does not declare it. Callers turn {@code -1} into corruption; an undeclared live
-     * slot cannot be ignored because it would have no lifecycle owner to tombstone. Slots arrive in
-     * ascending segment id within a row group, so the
-     * per-row-group rolling hint makes this O(1) amortized; the wrap-around scan keeps it correct for a
-     * descriptor whose entries are in some other order.
+     * descriptor does not declare it. Callers turn {@code -1} into corruption; an undeclared live slot
+     * cannot be ignored because it would have no lifecycle owner to tombstone. Slots arrive in
+     * ascending segment id within a row group, so the per-row-group rolling hint makes this O(1)
+     * amortized; the wrap-around scan keeps it correct for a descriptor whose entries are in some other
+     * order.
      *
      */
     private int entryIndexOf(final int slot, final int columnSegmentId) {
@@ -3347,8 +3347,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final byte[] sidePayload = getSegmentPageBytes(slotKey, BLOB_SEGMENT_ID);
       if (isInlineBlob(marker)) {
         if (sidePayload != null) {
-          throw new IllegalStateException(
-              "Inline blob at slot " + slotKey + " has an unexpected side-page reference");
+          throw new IllegalStateException("Inline blob at slot " + slotKey + " has an unexpected side-page reference");
         }
         return verifyInlineBlob(marker, slotKey);
       }
@@ -3627,9 +3626,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   // ==================== segment-slot navigation internals ====================
 
   /**
-   * Shared navigation preamble of the reader-side segment-slot helpers: serialize the slot key
-   * into {@code keyBuf} and navigate to the HOT leaf covering it. {@code null} when the trie has no
-   * such leaf. The caller owns the {@code trieReader} lifetime (segment resolution reads through the
+   * Shared navigation preamble of the reader-side segment-slot helpers: serialize the slot key into
+   * {@code keyBuf} and navigate to the HOT leaf covering it. {@code null} when the trie has no such
+   * leaf. The caller owns the {@code trieReader} lifetime (segment resolution reads through the
    * returned leaf's side map while the reader is open).
    */
   private static @Nullable HOTLeafPage navigateToSlotLeaf(final HOTTrieReader trieReader, final PageReference rootRef,

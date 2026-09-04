@@ -13,11 +13,11 @@ import java.util.concurrent.atomic.AtomicLongArray;
  * throwing the bytes away.
  *
  * <p>
- * Keyed by leaf IDENTITY — {@code (recordPageKey, indexType)} — and deliberately not by page object.
- * The insert thread supersedes a hot leaf while the flush runs, so the next epoch's snapshot holds a
- * DIFFERENT {@link io.sirix.page.KeyValueLeafPage} instance for the same leaf; a flag on the page is
- * therefore lost on every single retry (measured on a 1M load: 10,811 refusals, not one of them ever
- * seen again on the same object).
+ * Keyed by leaf IDENTITY — {@code (recordPageKey, indexType)} — and deliberately not by page
+ * object. The insert thread supersedes a hot leaf while the flush runs, so the next epoch's
+ * snapshot holds a DIFFERENT {@link io.sirix.page.KeyValueLeafPage} instance for the same leaf; a
+ * flag on the page is therefore lost on every single retry (measured on a 1M load: 10,811 refusals,
+ * not one of them ever seen again on the same object).
  * </p>
  *
  * <p>
@@ -26,9 +26,9 @@ import java.util.concurrent.atomic.AtomicLongArray;
  * property of the leaf's records, and records are only added inside a flush window, never removed —
  * so a leaf that refused once is expected to refuse again. "Expected" is not "guaranteed", and the
  * cost of being wrong is that a leaf which HAS become flushable waits for the final commit instead,
- * holding intent-log residency until then. Expiry turns that from unbounded into "at most N epochs",
- * at a cost of one encode per leaf per N epochs. It is the difference between an optimisation that
- * is safe because of an argument and one that is safe because it cannot run away.
+ * holding intent-log residency until then. Expiry turns that from unbounded into "at most N
+ * epochs", at a cost of one encode per leaf per N epochs. It is the difference between an
+ * optimisation that is safe because of an argument and one that is safe because it cannot run away.
  * </p>
  *
  * <p>
@@ -116,7 +116,8 @@ final class RefusedOverflowLeafTable {
    *
    * @param recordPageKey the leaf's record-page key
    * @param indexTypeId {@link IndexType#getID()} of the leaf
-   * @param epoch the flush epoch observing the refusal; a later {@link #shouldSkip} expires against it
+   * @param epoch the flush epoch observing the refusal; a later {@link #shouldSkip} expires against
+   *        it
    */
   void note(final long recordPageKey, final int indexTypeId, final long epoch) {
     final long packed = pack(recordPageKey, indexTypeId);
@@ -134,12 +135,11 @@ final class RefusedOverflowLeafTable {
    * @param recordPageKey the leaf's record-page key
    * @param indexTypeId {@link IndexType#getID()} of the leaf
    * @param epoch the current flush epoch
-   * @param maxSkippedEpochs how many epochs a mark may be honoured for; {@code <= 0} honours none,
-   *        so the caller's kill switch can be expressed as a bound of zero
+   * @param maxSkippedEpochs how many epochs a mark may be honoured for; {@code <= 0} honours none, so
+   *        the caller's kill switch can be expressed as a bound of zero
    * @return {@code true} only when this exact identity is resident and its mark has not expired
    */
-  boolean shouldSkip(final long recordPageKey, final int indexTypeId, final long epoch,
-      final int maxSkippedEpochs) {
+  boolean shouldSkip(final long recordPageKey, final int indexTypeId, final long epoch, final int maxSkippedEpochs) {
     if (maxSkippedEpochs <= 0) {
       return false;
     }
@@ -157,7 +157,9 @@ final class RefusedOverflowLeafTable {
     return age >= 0L && age < maxSkippedEpochs;
   }
 
-  /** The identity index a given leaf maps to; for the collision test, which needs two colliding keys. */
+  /**
+   * The identity index a given leaf maps to; for the collision test, which needs two colliding keys.
+   */
   int indexForTesting(final long recordPageKey, final int indexTypeId) {
     return indexOf(pack(recordPageKey, indexTypeId));
   }

@@ -142,8 +142,8 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
   private void createProjectionIndex(final IndexDef indexDef, final XmlNodeTrx nodeWriteTrx) {
     final PathSummaryReader pathSummary = requireProjectionPathSummary(nodeWriteTrx, indexDef);
     nodeWriteTrx.awaitPendingAsyncCommit();
-    ProjectionIndexBuilder.buildAndPersist(indexDef, pathSummary, nodeWriteTrx,
-        nodeWriteTrx.getStorageEngineWriter(), false);
+    ProjectionIndexBuilder.buildAndPersist(indexDef, pathSummary, nodeWriteTrx, nodeWriteTrx.getStorageEngineWriter(),
+        false);
   }
 
   @Override
@@ -153,7 +153,9 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
         nodeWriteTrx);
   }
 
-  /** Validate projection prerequisites before createIndexBuilders can publish a definition or page. */
+  /**
+   * Validate projection prerequisites before createIndexBuilders can publish a definition or page.
+   */
   private static void validateProjectionDefinitions(final Set<IndexDef> indexDefs, final XmlNodeTrx nodeWriteTrx) {
     for (final IndexDef indexDef : indexDefs) {
       if (indexDef.isProjectionIndex()) {

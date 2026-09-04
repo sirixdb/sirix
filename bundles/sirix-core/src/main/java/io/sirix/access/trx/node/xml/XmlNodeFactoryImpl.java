@@ -338,8 +338,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         : 0;
     final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(64 + compressedContent.length, deweyIdLen);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
-      final PINode node = new PINode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
-          rightSibKey, leftSibKey, NULL_KEY, NULL_KEY, 0, 0, 0, pathNodeKey, prefixKey, localNameKey, uriKey,
+      final PINode node = new PINode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber, rightSibKey,
+          leftSibKey, NULL_KEY, NULL_KEY, 0, 0, 0, pathNodeKey, prefixKey, localNameKey, uriKey,
           compressedContent.clone(), compression, hashFunction, id, target);
       kvl.setRecord(node);
       return node;

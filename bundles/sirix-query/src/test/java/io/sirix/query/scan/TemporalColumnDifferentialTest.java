@@ -35,9 +35,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * The columns store epochs, not text, so EVERY answer that shows a value is a formatter output and
  * every comparison against a string literal is a rewritten numeric one. Both are only correct if
- * they are indistinguishable from the interpreter's, which reads the document's own bytes — so every
- * assertion here is a differential, run with {@link SirixVectorizedExecutor#STRICT_SERVING} on so a
- * fail-soft decline cannot answer in the kernels' place and look like agreement.
+ * they are indistinguishable from the interpreter's, which reads the document's own bytes — so
+ * every assertion here is a differential, run with {@link SirixVectorizedExecutor#STRICT_SERVING}
+ * on so a fail-soft decline cannot answer in the kernels' place and look like agreement.
  *
  * <p>
  * The kill switch has its own class ({@code TemporalColumnKillSwitchTest}), because the property is
@@ -75,10 +75,17 @@ final class TemporalColumnDifferentialTest {
       final long epoch = epochOf(i);
       final int tsLength = ProjectionTemporalCodec.formatTimestamp(epoch, scratch, 0);
       final String timestamp = new String(scratch, 0, tsLength, java.nio.charset.StandardCharsets.UTF_8);
-      sb.append("{\"t\":\"").append(timestamp).append("\",\"d\":\"").append(timestamp, 0, 10).append("\",\"u\":\"")
+      sb.append("{\"t\":\"")
+        .append(timestamp)
+        .append("\",\"d\":\"")
+        .append(timestamp, 0, 10)
+        .append("\",\"u\":\"")
         .append(i % 17 == 0
             ? "http://www.google.com/q"
-            : "http://site" + i % 401 + ".example/p").append("\",\"v\":").append((i * 31) % 20_011).append('}');
+            : "http://site" + i % 401 + ".example/p")
+        .append("\",\"v\":")
+        .append((i * 31) % 20_011)
+        .append('}');
     }
     return sb.append(']').toString();
   }
@@ -117,9 +124,9 @@ final class TemporalColumnDifferentialTest {
   @DisplayName("the declaration builds TIMESTAMP and DATE columns, not string dictionaries")
   void declaredTypesBecomeTemporalColumns() throws Exception {
     try (var db = Databases.openJsonDatabase(dbDir.resolve(DB)); var session = db.beginResourceSession(RES)) {
-      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
-          session.getResourceConfig().getResource().toString(), session.getMostRecentRevisionNumber(),
-          new String[] {"[]"}, new String[] {"t", "d", "u", "v"});
+      final ProjectionIndexRegistry.Handle handle =
+          ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(),
+              session.getMostRecentRevisionNumber(), new String[] {"[]"}, new String[] {"t", "d", "u", "v"});
       assertNotNull(handle, "the projection must be loadable");
       assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, handle.columnKindOf(handle.columnOf("t")));
       assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_DATE, handle.columnKindOf(handle.columnOf("d")));
@@ -146,8 +153,9 @@ final class TemporalColumnDifferentialTest {
         SirixVectorizedExecutor::sortedScanServedCount);
     assertDifferentialServed("subsequence(for $h in " + DOC + " order by $h.t descending return $h.t, 1, 25)",
         SirixVectorizedExecutor::sortedScanServedCount);
-    assertDifferentialServed("subsequence(for $h in " + DOC + " where contains($h.u, 'google') order by $h.t "
-        + "return $h.t, 1, 12)", SirixVectorizedExecutor::sortedScanServedCount);
+    assertDifferentialServed(
+        "subsequence(for $h in " + DOC + " where contains($h.u, 'google') order by $h.t " + "return $h.t, 1, 12)",
+        SirixVectorizedExecutor::sortedScanServedCount);
     // Whole records: the winners are materialised from the trie, so this is where a sort key that
     // ordered the epoch differently from the text would show up as a different record.
     assertDifferentialServed("subsequence(for $h in " + DOC + " order by $h.t return $h, 1, 15)",
@@ -170,11 +178,13 @@ final class TemporalColumnDifferentialTest {
   @Test
   @DisplayName("grouping on a date, on a timestamp and on ISO substrings agrees with the interpreter")
   void groupByTemporalKeys() throws Exception {
-    assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := $h.d group by $k let $c := count($h) "
-        + "order by $c descending, $k ascending return {\"k\": $k, \"c\": $c}, 1, 12)",
+    assertDifferentialServed(
+        "subsequence(for $h in " + DOC + " let $k := $h.d group by $k let $c := count($h) "
+            + "order by $c descending, $k ascending return {\"k\": $k, \"c\": $c}, 1, 12)",
         SirixVectorizedExecutor::groupAggServedCount);
-    assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := $h.t group by $k let $c := count($h) "
-        + "order by $k ascending return {\"k\": $k, \"c\": $c}, 1, 12)",
+    assertDifferentialServed(
+        "subsequence(for $h in " + DOC + " let $k := $h.t group by $k let $c := count($h) "
+            + "order by $k ascending return {\"k\": $k, \"c\": $c}, 1, 12)",
         SirixVectorizedExecutor::groupAggServedCount);
     // The ISO substring windows, all arithmetic on the epoch. Uncapped, so the arm emits every
     // group; a LEADING window now carries an in-kernel order plan and the wrapper TRUSTS that order,
@@ -183,20 +193,24 @@ final class TemporalColumnDifferentialTest {
     assertDifferentialServed("for $h in " + DOC + " where $h.d ge '2024-06-01' and $h.d lt '2024-06-04' "
         + "let $k := substring($h.t, 1, 16) group by $k let $c := count($h) order by $k ascending "
         + "return {\"k\": $k, \"c\": $c}", SirixVectorizedExecutor::groupAggServedCount);
-    assertDifferentialServed("for $h in " + DOC + " let $k := substring($h.t, 15, 2) group by $k "
-        + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}",
+    assertDifferentialServed(
+        "for $h in " + DOC + " let $k := substring($h.t, 15, 2) group by $k "
+            + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}",
         SirixVectorizedExecutor::groupAggServedCount);
     // The date part of a timestamp, and the hour of the day.
-    assertDifferentialServed("for $h in " + DOC + " let $k := substring($h.t, 1, 10) group by $k "
-        + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}",
+    assertDifferentialServed(
+        "for $h in " + DOC + " let $k := substring($h.t, 1, 10) group by $k "
+            + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}",
         SirixVectorizedExecutor::groupAggServedCount);
-    assertDifferentialServed("for $h in " + DOC + " let $k := substring($h.t, 12, 2) group by $k "
-        + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}",
+    assertDifferentialServed(
+        "for $h in " + DOC + " let $k := substring($h.t, 12, 2) group by $k "
+            + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}",
         SirixVectorizedExecutor::groupAggServedCount);
     // The CAST variant emits the integer the window spells, not its two characters — a key type the
     // formatter must stay out of.
-    assertDifferentialServed("for $h in " + DOC + " let $k := xs:integer(substring($h.t, 15, 2)) group by $k "
-        + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}",
+    assertDifferentialServed(
+        "for $h in " + DOC + " let $k := xs:integer(substring($h.t, 15, 2)) group by $k "
+            + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}",
         SirixVectorizedExecutor::groupAggServedCount);
   }
 
@@ -208,28 +222,33 @@ final class TemporalColumnDifferentialTest {
     // materialising all of them. The subsequence carries an OFFSET, so the served sequence has to
     // agree with the interpreter's beyond the first emitted group as well.
     for (final int window : new int[] {16, 13, 10}) {
-      assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, " + window + ") "
-          + "group by $k let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}, 21, 10)",
+      assertDifferentialServed(
+          "subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, " + window + ") "
+              + "group by $k let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}, 21, 10)",
           SirixVectorizedExecutor::groupAggServedCount);
-      assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, " + window + ") "
-          + "group by $k let $c := count($h) order by $k descending return {\"k\": $k, \"c\": $c}, 21, 10)",
+      assertDifferentialServed(
+          "subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, " + window + ") "
+              + "group by $k let $c := count($h) order by $k descending return {\"k\": $k, \"c\": $c}, 21, 10)",
           SirixVectorizedExecutor::groupAggServedCount);
     }
     // The key as a TIE-BREAKER behind an aggregate spec: the day window makes many groups share a
     // count, and every one of those ties is resolved by the key — in kernel, on the transformed
     // long, against the interpreter's comparison of the rendered text.
-    assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, 10) group by $k "
-        + "let $c := count($h) order by $c descending, $k ascending return {\"k\": $k, \"c\": $c}, 11, 12)",
+    assertDifferentialServed(
+        "subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, 10) group by $k "
+            + "let $c := count($h) order by $c descending, $k ascending return {\"k\": $k, \"c\": $c}, 11, 12)",
         SirixVectorizedExecutor::groupAggServedCount);
     // The rule is about the ARITHMETIC, not about timestamps: a bare `idiv` over a numeric column is
     // the same monotonic truncation and orders in kernel on the integer it emits.
-    assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := $h.v idiv 100 group by $k "
-        + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}, 6, 8)",
+    assertDifferentialServed(
+        "subsequence(for $h in " + DOC + " let $k := $h.v idiv 100 group by $k "
+            + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}, 6, 8)",
         SirixVectorizedExecutor::groupAggServedCount);
     // (e) An order spec over an AGGREGATE was servable under a transformed key before and still is —
     // the key gate must not have narrowed anything.
-    assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, 10) group by $k "
-        + "let $c := count($h) order by $c descending, $k descending return {\"k\": $k, \"c\": $c}, 1, 9)",
+    assertDifferentialServed(
+        "subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, 10) group by $k "
+            + "let $c := count($h) order by $c descending, $k descending return {\"k\": $k, \"c\": $c}, 1, 9)",
         SirixVectorizedExecutor::groupAggServedCount);
 
     // (c)/(d) The shapes the gate refuses. Each is CAPPED: uncapped, a transformed key without a
@@ -320,12 +339,14 @@ final class TemporalColumnDifferentialTest {
         {"d", "2013-7-15"}, {"d", "2013-07-15T00:00:00"}}) {
       final Path dir = Files.createTempDirectory("sirix-temporal-bad-");
       try {
-        final String json = "[{\"t\":\"2024-01-01T00:00:00\",\"d\":\"2024-01-01\",\"u\":\"a\",\"v\":1},"
-            + "{\"t\":\"" + ("t".equals(bad[0])
+        final String json = "[{\"t\":\"2024-01-01T00:00:00\",\"d\":\"2024-01-01\",\"u\":\"a\",\"v\":1}," + "{\"t\":\""
+            + ("t".equals(bad[0])
                 ? bad[1]
-                : "2024-01-02T00:00:00") + "\",\"d\":\"" + ("d".equals(bad[0])
-                    ? bad[1]
-                    : "2024-01-02") + "\",\"u\":\"b\",\"v\":2}]";
+                : "2024-01-02T00:00:00")
+            + "\",\"d\":\"" + ("d".equals(bad[0])
+                ? bad[1]
+                : "2024-01-02")
+            + "\",\"u\":\"b\",\"v\":2}]";
         final Throwable failure = assertThrows(Throwable.class, () -> createFixture(dir, json),
             "a non-canonical " + bad[0] + " value '" + bad[1] + "' must fail the build");
         final String message = rootMessage(failure);

@@ -40,8 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class HOTPostingDeleteEvictionTest {
 
   private static final String RESOURCE = "posting-delete-eviction";
-  private static final int NAME_INDEX_NUMBER =
-      IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON).getID();
+  private static final int NAME_INDEX_NUMBER = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON).getID();
   private static final int ENTRY_COUNT = 20_000;
 
   @TempDir
@@ -108,8 +107,8 @@ final class HOTPostingDeleteEvictionTest {
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
         JsonResourceSession session = database.beginResourceSession(RESOURCE);
         JsonNodeTrx wtx = session.beginNodeTrx()) {
-      final HOTIndexWriter<QNm> writer = HOTIndexWriter.create(wtx.getStorageEngineWriter(),
-          NameKeySerializer.INSTANCE, IndexType.NAME, NAME_INDEX_NUMBER);
+      final HOTIndexWriter<QNm> writer = HOTIndexWriter.create(wtx.getStorageEngineWriter(), NameKeySerializer.INSTANCE,
+          IndexType.NAME, NAME_INDEX_NUMBER);
       for (int i = 0; i < ENTRY_COUNT; i++) {
         writer.indexNodeKey(key(i), i);
       }

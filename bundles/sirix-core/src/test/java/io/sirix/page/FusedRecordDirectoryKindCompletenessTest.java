@@ -29,8 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Every fused named record a page holds must be visible through the page's own name-key slot index —
- * whatever the record's size made of it.
+ * Every fused named record a page holds must be visible through the page's own name-key slot index
+ * — whatever the record's size made of it.
  *
  * <h2>The four size bands</h2>
  *
@@ -45,8 +45,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@link KeyValueLeafPage#getObjectKeySlotsForNameKey}, and therefore invisible to every anchored
  * scan. On the ClickBench hits corpus this band held 6146 of 1,000,000 records — q20 answered 94
  * where DuckDB and the record path answered 95.</li>
- * <li><b>Fused-overflow band</b> — fused actual over the cap, generic actual under it. These records
- * must take the overflow-carrier route (inline fused descriptor + OverflowPage), never the
+ * <li><b>Fused-overflow band</b> — fused actual over the cap, generic actual under it. These
+ * records must take the overflow-carrier route (inline fused descriptor + OverflowPage), never the
  * generic-inline lane; 1428 hits records sat here after the floor fix alone.</li>
  * <li><b>True overflow</b> — over the cap in every form: descriptor + OverflowPage, as always.</li>
  * </ol>
@@ -80,8 +80,8 @@ final class FusedRecordDirectoryKindCompletenessTest {
    * <p>
    * Uniform over 92 printable characters, NOT hex: a 16-symbol alphabet carries four bits per byte
    * and FSST halves it at commit, silently moving every value out of the size band it was built to
-   * exercise — the first version of this corpus passed its mutation check vacuously exactly that
-   * way. At ~6.5 bits per byte FSST declines these values and the bands hold.
+   * exercise — the first version of this corpus passed its mutation check vacuously exactly that way.
+   * At ~6.5 bits per byte FSST declines these values and the bands hold.
    */
   private static String payload(final Random rng, final int len) {
     final StringBuilder sb = new StringBuilder(len);
@@ -108,9 +108,13 @@ final class FusedRecordDirectoryKindCompletenessTest {
       final int len = i % 97 == 0
           ? 3_000
           : 400 + i % 200;
-      sb.append("{\"id\":").append(i)
-        .append(",\"note\":").append(i % 41)
-        .append(",\"URL\":\"").append(payload(rng, len)).append("\"}");
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"note\":")
+        .append(i % 41)
+        .append(",\"URL\":\"")
+        .append(payload(rng, len))
+        .append("\"}");
     }
     sb.append(']');
     return sb.toString();
@@ -187,8 +191,8 @@ final class FusedRecordDirectoryKindCompletenessTest {
 
   /**
    * The census: for every document leaf page, {@link KeyValueLeafPage#getObjectKeySlotsForNameKey}
-   * must report exactly the URL slots the cursor walk finds. The band assertions keep the test
-   * honest — a corpus change that stopped exercising a band would fail here, not silently pass.
+   * must report exactly the URL slots the cursor walk finds. The band assertions keep the test honest
+   * — a corpus change that stopped exercising a band would fail here, not silently pass.
    */
   private static void assertCensusExact(final JsonNodeReadOnlyTrx rtx, final String where) {
     int urlNameKey = Integer.MIN_VALUE;
@@ -286,7 +290,6 @@ final class FusedRecordDirectoryKindCompletenessTest {
     // slot appearing here means an inline-capable record was refused into it — census-invisible it
     // is not, but the page then refuses to emit ANY PAX region, so every column scan over it falls
     // back to the record heap. That is the silent cost a ceiling-keyed refusal reintroduces.
-    assertEquals(0, sideSlots,
-        where + ": inline-capable records were pushed into the overflow-slot sidecar");
+    assertEquals(0, sideSlots, where + ": inline-capable records were pushed into the overflow-slot sidecar");
   }
 }

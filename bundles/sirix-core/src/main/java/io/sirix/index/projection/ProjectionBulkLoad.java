@@ -109,8 +109,8 @@ public final class ProjectionBulkLoad {
    * OFF by default, opt in with {@code -Dsirix.projection.trieLane=true}.
    *
    * <p>
-   * <b>Default flipped 2026-09-01 because the lane writes DOCUMENT pages that cannot be read back.</b>
-   * The 1M gate's converted arm fails a subtree serialization with
+   * <b>Default flipped 2026-09-01 because the lane writes DOCUMENT pages that cannot be read
+   * back.</b> The 1M gate's converted arm fails a subtree serialization with
    * {@code AssertionError: Type not known} out of {@code deserializeNumber} — a fused NUMBER record's
    * payload type byte is wrong — while the four arms without the lane serialize byte-identically. It
    * reproduces with derived elision off too, so it is the lane's own path, and it appears a few pages
@@ -131,7 +131,9 @@ public final class ProjectionBulkLoad {
   private static final boolean TRIE_LANE_ENABLED =
       Boolean.parseBoolean(System.getProperty("sirix.projection.trieLane", "false"));
 
-  /** The trie lane's encode-side resolver for this load, or {@code null} when the lane is not bound. */
+  /**
+   * The trie lane's encode-side resolver for this load, or {@code null} when the lane is not bound.
+   */
   private volatile @Nullable TrieLaneWriteDictionaries trieLaneWriteDictionaries;
 
   /** The segment-scoped dictionary lane, or {@code null} when that lane is switched off. */
@@ -359,10 +361,9 @@ public final class ProjectionBulkLoad {
       // page written by an earlier run.
       return;
     }
-    final TrieLaneWriteDictionaries dictionaries =
-        TrieLaneWriteDictionaries.bindConfigured(storageEngineWriter.getResourceSession(),
-            storageEngineWriter.getResourceSession().getMostRecentRevisionNumber(),
-            indexDef.getProjectionFields().size());
+    final TrieLaneWriteDictionaries dictionaries = TrieLaneWriteDictionaries.bindConfigured(
+        storageEngineWriter.getResourceSession(),
+        storageEngineWriter.getResourceSession().getMostRecentRevisionNumber(), indexDef.getProjectionFields().size());
     if (dictionaries == null) {
       return;
     }
@@ -447,8 +448,9 @@ public final class ProjectionBulkLoad {
       // Should be unreachable after the drain above. Logged rather than thrown because by here the
       // pages are already written and refusing changes nothing -- but it is the signal that the
       // lane under-converted and that the arm's storage number is not the lever's number.
-      LOGGER.warn("trie lane: {} probes arrived AFTER the lane was released, so late-flushed pages kept "
-          + "their bytes; this arm under-converted and its size is not comparable",
+      LOGGER.warn(
+          "trie lane: {} probes arrived AFTER the lane was released, so late-flushed pages kept "
+              + "their bytes; this arm under-converted and its size is not comparable",
           dictionaries.closedProbeCount());
     }
     dictionaries.close();
@@ -967,12 +969,12 @@ public final class ProjectionBulkLoad {
    * table. A no-op when the lane is off.
    *
    * <p>
-   * Runs AFTER {@code finishPersistWithStreamingFences} has written slot 0, and rewrites it — the same
-   * shape {@code ProjectionRankPass} uses when it turns a column global after the fact. It cannot run
-   * before: the anchors do not exist until the dictionaries are written, and the dictionaries cannot be
-   * written until every page has been encoded. The flush pool is fenced first, because
-   * {@code SegmentSealController.drain} refuses while a page is still encoding — sealing then would
-   * drop the values that page is about to mint.
+   * Runs AFTER {@code finishPersistWithStreamingFences} has written slot 0, and rewrites it — the
+   * same shape {@code ProjectionRankPass} uses when it turns a column global after the fact. It
+   * cannot run before: the anchors do not exist until the dictionaries are written, and the
+   * dictionaries cannot be written until every page has been encoded. The flush pool is fenced first,
+   * because {@code SegmentSealController.drain} refuses while a page is still encoding — sealing then
+   * would drop the values that page is about to mint.
    * </p>
    */
   private void sealSegmentDictionaries(final StorageEngineWriter storageEngineWriter) {

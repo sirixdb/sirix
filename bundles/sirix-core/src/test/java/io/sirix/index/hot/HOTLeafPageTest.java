@@ -195,8 +195,7 @@ class HOTLeafPageTest {
       assertTrue(page.mergeWithNodeRefs(targetKey, targetKey.length, incoming, incoming.length));
       assertTrue(page.getUsedSlotsSize() < usedBeforeMerge, "the growing merge must compact the fragmented page");
 
-      final NodeReferences merged = NodeReferencesSerializer.deserialize(
-          page.getValue(page.findEntry(targetKey)));
+      final NodeReferences merged = NodeReferencesSerializer.deserialize(page.getValue(page.findEntry(targetKey)));
       assertEquals(2, merged.getNodeKeys().getLongCardinality());
       assertTrue(merged.contains(10L));
       assertTrue(merged.contains(20L));

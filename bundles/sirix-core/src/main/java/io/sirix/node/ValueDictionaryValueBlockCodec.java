@@ -22,12 +22,12 @@ import java.lang.foreign.ValueLayout;
  * <li><b>FRONT-CODED</b> — each entry becomes {@code (uvarint sharedPrefixLen, uvarint suffixLen)}
  * plus its suffix, measured against the PREVIOUS entry of the same block only, so a block stays
  * independently decodable. Discriminated by a NEGATIVE {@code byteLength}.</li>
- * <li><b>FRONT-CODED + LZ77</b> — the whole post-header payload as one {@link SirixLZ77Codec} frame.
- * Discriminated by a NEGATIVE {@code count}. This form exists because a 256-value block is ~33 KB,
- * far above {@code Constants.MAX_RECORD_SIZE}, so it is diverted to an {@code OverflowPage} and the
- * page body codec never sees it: measured {@code written/raw = 1.001}. Compressing inside the record
- * is the only place the dictionary can reach, and it was worth 0.52 to 0.33 of raw value bytes at
- * D = 2.62M.</li>
+ * <li><b>FRONT-CODED + LZ77</b> — the whole post-header payload as one {@link SirixLZ77Codec}
+ * frame. Discriminated by a NEGATIVE {@code count}. This form exists because a 256-value block is
+ * ~33 KB, far above {@code Constants.MAX_RECORD_SIZE}, so it is diverted to an {@code OverflowPage}
+ * and the page body codec never sees it: measured {@code written/raw = 1.001}. Compressing inside
+ * the record is the only place the dictionary can reach, and it was worth 0.52 to 0.33 of raw value
+ * bytes at D = 2.62M.</li>
  * </ul>
  *
  * <p>
@@ -67,8 +67,8 @@ final class ValueDictionaryValueBlockCodec {
    * Whether the front-coded payload is additionally offered as one LZ77 frame. Separable from
    * {@link #ENABLED} only so the two forms can be measured against each other; both default on.
    */
-  static final boolean COMPRESSED = ENABLED
-      && !"false".equalsIgnoreCase(System.getProperty("sirix.projection.globalDict.blockCompression", "true"));
+  static final boolean COMPRESSED =
+      ENABLED && !"false".equalsIgnoreCase(System.getProperty("sirix.projection.globalDict.blockCompression", "true"));
 
   private ValueDictionaryValueBlockCodec() {
     throw new AssertionError("no instances");
@@ -140,7 +140,9 @@ final class ValueDictionaryValueBlockCodec {
     return true;
   }
 
-  /** Builds the front-coded payload, compresses it, and emits it only when it beats both other forms. */
+  /**
+   * Builds the front-coded payload, compresses it, and emits it only when it beats both other forms.
+   */
   private static boolean serializeCompressed(final BytesOut<?> sink, final ValueDictionaryValueBlockNode node,
       final int[] shared, final int[] suffix, final int count, final int payloadLength, final int plainPayload) {
     final byte[] payload = new byte[payloadLength];
@@ -161,7 +163,8 @@ final class ValueDictionaryValueBlockCodec {
       throw new IllegalStateException("front-coded payload length disagrees with its plan");
     }
     final byte[] compressed = new byte[SirixLZ77Codec.maxEncodedSize(payloadLength)];
-    final int compressedLength = SirixLZ77Codec.encode(MemorySegment.ofArray(payload), 0L, payloadLength, compressed, 0);
+    final int compressedLength =
+        SirixLZ77Codec.encode(MemorySegment.ofArray(payload), 0L, payloadLength, compressed, 0);
     // Election across all three forms, by measured size; ties fall back to the simpler form.
     if (compressedLength + Integer.BYTES >= Math.min(payloadLength, plainPayload)) {
       return false;
@@ -199,8 +202,8 @@ final class ValueDictionaryValueBlockCodec {
    * <p>
    * {@link SirixLZ77Codec#decode} dispatches to the C decoder only when its output is native-backed
    * with tail slack; a heap output silently takes the Java decoder, measured at <b>3.0 GB/s against
-   * 16.9</b> on a 32 KB frame — and a 256-value block is ~33 KB, squarely in that regime. This is
-   * not only the probe path: it is reached by EVERY read of a compressed block, so it is paid by any
+   * 16.9</b> on a 32 KB frame — and a 256-value block is ~33 KB, squarely in that regime. This is not
+   * only the probe path: it is reached by EVERY read of a compressed block, so it is paid by any
    * query that materialises strings from a global-dictionary column.
    * </p>
    *

@@ -236,9 +236,9 @@ class DiscriminativeBitComputerTest {
     void testStartBytePosGe8() {
       // Keys that are identical in bytes 0-8 and differ only in byte 9
       // Old code: endBytePos = Math.min(startBytePos + maxBytes, 8) = Math.min(8+8, 8) = 8
-      //   → range [8, 8) is empty → mask = 0  (BUG)
-      // Fixed:   endBytePos = startBytePos + Math.min(maxBytes, 8) = 8 + 8 = 16
-      //   → range [8, 16) covers byte 9 → mask != 0
+      // → range [8, 8) is empty → mask = 0 (BUG)
+      // Fixed: endBytePos = startBytePos + Math.min(maxBytes, 8) = 8 + 8 = 16
+      // → range [8, 16) covers byte 9 → mask != 0
       byte[] prefix = new byte[9]; // 9 identical bytes
       byte[] key1 = new byte[10];
       byte[] key2 = new byte[10];

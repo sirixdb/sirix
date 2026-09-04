@@ -124,23 +124,33 @@ public final class HOTInvariantValidator {
     return switch (indexType) {
       case PATH -> {
         final PathPage pathPage = reader.getPathPage(rootPage);
-        yield pathPage == null ? null : pathPage.getIndexReference(indexNumber);
+        yield pathPage == null
+            ? null
+            : pathPage.getIndexReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = reader.getCASPage(rootPage);
-        yield casPage == null ? null : casPage.getIndexReference(indexNumber);
+        yield casPage == null
+            ? null
+            : casPage.getIndexReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = reader.getNamePage(rootPage);
-        yield namePage == null ? null : namePage.getIndexReference(databaseType(reader, indexNumber), indexNumber);
+        yield namePage == null
+            ? null
+            : namePage.getIndexReference(databaseType(reader, indexNumber), indexNumber);
       }
       case PROJECTION -> {
         final ProjectionIndexPage projectionPage = reader.getProjectionIndexPage(rootPage);
-        yield projectionPage == null ? null : projectionPage.getIndexReference(indexNumber);
+        yield projectionPage == null
+            ? null
+            : projectionPage.getIndexReference(indexNumber);
       }
       case VALIDTIME -> {
         final ValidTimeIndexPage validTimePage = reader.getValidTimeIndexPage(rootPage);
-        yield validTimePage == null ? null : validTimePage.getIndexReference(indexNumber);
+        yield validTimePage == null
+            ? null
+            : validTimePage.getIndexReference(indexNumber);
       }
       default -> null;
     };
@@ -276,10 +286,10 @@ public final class HOTInvariantValidator {
    * <p>
    * Why the existing invariants do not catch it: I7 (partials ascending) and I8 (children sorted by
    * first key) are the SAME invariant under a complete mask, and diverge only under an incomplete
-   * one. Canonical writer-side rerouting resolves that divergence in favour of
-   * I7 ("a firstKey sort would then break I7"), which keeps I7 green while I8's premise is already
-   * gone. I6 also stays green, because PEXT routing remains self-consistent — every key is still
-   * findable by point lookup. What breaks is ORDER, so only a range scan notices.
+   * one. Canonical writer-side rerouting resolves that divergence in favour of I7 ("a firstKey sort
+   * would then break I7"), which keeps I7 green while I8's premise is already gone. I6 also stays
+   * green, because PEXT routing remains self-consistent — every key is still findable by point
+   * lookup. What breaks is ORDER, so only a range scan notices.
    *
    * <p>
    * Observed violation this check was written for: a 196-row-group projection index whose leaf held
@@ -452,8 +462,8 @@ public final class HOTInvariantValidator {
       final long valueRef = leaf.valueRef(i);
       final int valueLength = HOTLeafPage.refLength(valueRef);
       if (valueLength < 0) {
-        addViolation("I1-leaf-key-uniqueness",
-            "leaf " + leaf.getPageKey() + " has an unreadable value at slot " + i, null);
+        addViolation("I1-leaf-key-uniqueness", "leaf " + leaf.getPageKey() + " has an unreadable value at slot " + i,
+            null);
         continue;
       }
       // Projection uses a physically present zero-length value as its tombstone. getValue(i)

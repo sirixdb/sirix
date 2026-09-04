@@ -66,8 +66,8 @@ public final class PageUtils {
    * @param reference reference from revision root
    * @param indexType the index type
    */
-  static void createKeyedTrie(final DatabaseType databaseType, final PageReference reference,
-      final IndexType indexType, final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
+  static void createKeyedTrie(final DatabaseType databaseType, final PageReference reference, final IndexType indexType,
+      final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
     switch (indexType) {
       case PATH, CAS, PROJECTION, VALIDTIME ->
         throw new IllegalArgumentException(indexType + " secondary indexes use HOT storage");
@@ -102,8 +102,8 @@ public final class PageUtils {
    * Create the initial HOT (Height Optimized Trie) tree structure.
    *
    * <p>
-   * Unlike the keyed trie which uses {@link KeyValueLeafPage}, this creates an
-   * {@link HOTLeafPage} for cache-friendly secondary indexes.
+   * Unlike the keyed trie which uses {@link KeyValueLeafPage}, this creates an {@link HOTLeafPage}
+   * for cache-friendly secondary indexes.
    * </p>
    *
    * @param reference reference from revision root

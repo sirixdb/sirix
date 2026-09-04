@@ -222,9 +222,9 @@ final class ProjectionIndexDescriptorStorageTest {
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
       storage.writeSlotValue(slotKey, corruptInlineBlob(payload));
 
-      final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> storage.putBlob(slotKey, payload),
-          "matching marker length/hash must not preserve an unverified resident payload");
+      final IllegalStateException failure =
+          assertThrows(IllegalStateException.class, () -> storage.putBlob(slotKey, payload),
+              "matching marker length/hash must not preserve an unverified resident payload");
       final SirixIOException commitFailure = assertThrows(SirixIOException.class, wtx::commit);
       assertSame(failure, commitFailure.getCause());
       wtx.rollback();
@@ -243,9 +243,9 @@ final class ProjectionIndexDescriptorStorageTest {
       storage.putBlob(slotKey, payload);
       storage.writeSlotValue(slotKey, new byte[] {1, 2, 3, 4});
 
-      final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> storage.tombstoneBlob(slotKey),
-          "an unreadable owner marker must not be deleted while its side page remains");
+      final IllegalStateException failure =
+          assertThrows(IllegalStateException.class, () -> storage.tombstoneBlob(slotKey),
+              "an unreadable owner marker must not be deleted while its side page remains");
       assertArrayEquals(payload, storage.getSegmentPageBytes(slotKey, 0),
           "the failed tombstone must not detach the side page");
       final SirixIOException commitFailure = assertThrows(SirixIOException.class, wtx::commit);
@@ -370,9 +370,10 @@ final class ProjectionIndexDescriptorStorageTest {
             ProjectionIndexHOTStorage.readBlob(r, INDEX_NUMBER, ProjectionIndexHOTStorage.rowGroupDescriptorSlotKey(1));
         assertNotNull(desc);
         RowGroupDescriptor.validate(desc);
-        assertEquals(27 + RowGroupDescriptor.columnCount(desc) + 2
-            + RowGroupDescriptor.columnSegmentCount(desc) * RowGroupDescriptor.ENTRY_BYTES, desc.length,
-            "segment-slot descriptor must contain no trailing payload");
+        assertEquals(
+            27 + RowGroupDescriptor.columnCount(desc) + 2
+                + RowGroupDescriptor.columnSegmentCount(desc) * RowGroupDescriptor.ENTRY_BYTES,
+            desc.length, "segment-slot descriptor must contain no trailing payload");
       }
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
@@ -511,9 +512,8 @@ final class ProjectionIndexDescriptorStorageTest {
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         final byte[] priorDescriptor = storage.getVerifiedRowGroupDescriptor(1);
         assertNotNull(priorDescriptor);
-        final ProjectionIndexColumnSegmentCodec.EncodedColumn age =
-            ProjectionIndexColumnSegmentCodec.encodeColumn(ageOnly, 0,
-                new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
+        final ProjectionIndexColumnSegmentCodec.EncodedColumn age = ProjectionIndexColumnSegmentCodec.encodeColumn(
+            ageOnly, 0, new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
         final ProjectionIndexColumnSegmentCodec.EncodedColumn[] replacements = {age};
         final long[] changedColumns = new long[(RowGroupDescriptor.columnCount(priorDescriptor) + Long.SIZE - 1) >>> 6];
         final byte[] patched =
@@ -838,8 +838,8 @@ final class ProjectionIndexDescriptorStorageTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(empty)); // live
-                                                                                                                   // empty
-                                                                                                                   // leaf
+                                                                                                     // empty
+                                                                                                     // leaf
         storage.putRowGroupAsColumnSegmentSlots(2, ProjectionIndexColumnSegmentCodec.encode(full));
         storage.tombstoneRowGroupAsColumnSegmentSlots(2); // tombstoned leaf
         wtx.commit();
@@ -871,8 +871,7 @@ final class ProjectionIndexDescriptorStorageTest {
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         for (int i = 0; i < numLeaves; i++) {
           raws[i] = rawLeaf(400, 100_000L * (i + 1), 0);
-          storage.putRowGroupAsColumnSegmentSlots(i + 1,
-              ProjectionIndexColumnSegmentCodec.encode(raws[i]));
+          storage.putRowGroupAsColumnSegmentSlots(i + 1, ProjectionIndexColumnSegmentCodec.encode(raws[i]));
         }
         wtx.commit();
       }
@@ -900,8 +899,7 @@ final class ProjectionIndexDescriptorStorageTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putBlob(0, metadata);
-        storage.putRowGroupAsColumnSegmentSlots(1,
-            ProjectionIndexColumnSegmentCodec.encode(rawLeaf(100, 500L, 0)));
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(rawLeaf(100, 500L, 0)));
         assertArrayEquals(metadata, storage.getBlob(0), "same-trx blob readback");
         wtx.commit();
       }
@@ -932,9 +930,13 @@ final class ProjectionIndexDescriptorStorageTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putBlob(0, metadata);
-        storage.putRowGroupAsColumnSegmentSlots(1,
-            ProjectionIndexColumnSegmentCodec.encode(rawLeaf(20, 900L, 0))); // dirty something so the
-                                                                                           // commit is non-empty
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(rawLeaf(20, 900L, 0))); // dirty
+                                                                                                                    // something
+                                                                                                                    // so
+                                                                                                                    // the
+                                                                                                                    // commit
+                                                                                                                    // is
+                                                                                                                    // non-empty
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
@@ -970,8 +972,7 @@ final class ProjectionIndexDescriptorStorageTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putBlob(0, meta);
-        storage.putRowGroupAsColumnSegmentSlots(1,
-            ProjectionIndexColumnSegmentCodec.encode(rawLeaf(50, 300L, 0)));
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(rawLeaf(50, 300L, 0)));
         assertArrayEquals(meta, storage.getBlob(0), "same-trx inline blob readback");
         assertNull(storage.getSegmentPageBytes(0, 0), "an inline blob writes no segment page");
         wtx.commit();
@@ -1178,8 +1179,8 @@ final class ProjectionIndexDescriptorStorageTest {
       // descriptor side page is still owned by the append-only staging pipeline, so that later
       // replacement rejects before touching its own slot. Catching the rejection must not allow the
       // earlier tombstones from the same logical row-group publication to commit.
-      final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> storage.putRowGroupAsColumnSegmentSlots(1, narrow));
+      final IllegalStateException failure =
+          assertThrows(IllegalStateException.class, () -> storage.putRowGroupAsColumnSegmentSlots(1, narrow));
       assertTrue(failure.getMessage().contains("append-only"));
 
       final SirixIOException commitFailure = assertThrows(SirixIOException.class, wtx::commit);
@@ -1191,13 +1192,13 @@ final class ProjectionIndexDescriptorStorageTest {
 
   @Test
   void failedColumnPatchAfterDescriptorPublicationMakesTheTransactionRollbackOnly() {
-    final ProjectionIndexRowGroupPage priorPage = ProjectionIndexRowGroupPage.deserialize(
-        narrowLeaf(ProjectionIndexRowGroupPage.MAX_ROWS, 2_000L));
+    final ProjectionIndexRowGroupPage priorPage =
+        ProjectionIndexRowGroupPage.deserialize(narrowLeaf(ProjectionIndexRowGroupPage.MAX_ROWS, 2_000L));
     final ProjectionIndexRowGroupPage replacementPage =
         new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
     for (int row = 0; row < priorPage.getRowCount(); row++) {
-      assertTrue(replacementPage.appendRow(priorPage.recordKeys()[row], new long[] {7L}, new boolean[1],
-          new String[1], new boolean[] {true}, new boolean[1], new boolean[1]));
+      assertTrue(replacementPage.appendRow(priorPage.recordKeys()[row], new long[] {7L}, new boolean[1], new String[1],
+          new boolean[] {true}, new boolean[1], new boolean[1]));
     }
 
     final ProjectionIndexColumnSegmentCodec.EncodeWorkspace workspace =
@@ -1211,10 +1212,10 @@ final class ProjectionIndexDescriptorStorageTest {
     final byte[] patchedDescriptor =
         ProjectionIndexColumnSegmentCodec.spliceColumns(prior.descriptor(), replacements, 1, changedColumns);
     final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0);
-    assertTrue(RowGroupDescriptor.entryByteLen(prior.descriptor(),
-        RowGroupDescriptor.entryIndexOf(prior.descriptor(), bodyId)) > ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES);
-    assertTrue(RowGroupDescriptor.entryByteLen(patchedDescriptor,
-        RowGroupDescriptor.entryIndexOf(patchedDescriptor, bodyId)) <= ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES);
+    assertTrue(RowGroupDescriptor.entryByteLen(prior.descriptor(), RowGroupDescriptor.entryIndexOf(prior.descriptor(),
+        bodyId)) > ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES);
+    assertTrue(RowGroupDescriptor.entryByteLen(patchedDescriptor, RowGroupDescriptor.entryIndexOf(patchedDescriptor,
+        bodyId)) <= ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES);
 
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
@@ -1281,8 +1282,7 @@ final class ProjectionIndexDescriptorStorageTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putBlob(0, small);
-        storage.putRowGroupAsColumnSegmentSlots(1,
-            ProjectionIndexColumnSegmentCodec.encode(rawLeaf(10, 700L, 0)));
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(rawLeaf(10, 700L, 0)));
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
@@ -1296,8 +1296,7 @@ final class ProjectionIndexDescriptorStorageTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putBlob(0, big);
-        storage.putRowGroupAsColumnSegmentSlots(2,
-            ProjectionIndexColumnSegmentCodec.encode(rawLeaf(10, 900L, 0)));
+        storage.putRowGroupAsColumnSegmentSlots(2, ProjectionIndexColumnSegmentCodec.encode(rawLeaf(10, 900L, 0)));
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();

@@ -27,12 +27,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Many literals, one evidence walk: {@link ProjectionColumnStore#applyBloomPruneMany} must narrow
- * every mask exactly as {@link ProjectionColumnStore#applyBloomPrune} does one literal at a time,
- * a tree of string equalities over one column must price them in ONE walk (counted in fetches),
- * and {@link ProjectionColumnScan#zoneStabSorted} must mark exactly the leaves whose zone admits
- * each value. The any-k group rewrite plans on these three answers; a mask mixed up between two
- * literals would choose the wrong groups — cheap, but the recursive aggregate would still be exact
- * — and a batched tree mask mixed up would drop rows, so parity is asserted bit for bit.
+ * every mask exactly as {@link ProjectionColumnStore#applyBloomPrune} does one literal at a time, a
+ * tree of string equalities over one column must price them in ONE walk (counted in fetches), and
+ * {@link ProjectionColumnScan#zoneStabSorted} must mark exactly the leaves whose zone admits each
+ * value. The any-k group rewrite plans on these three answers; a mask mixed up between two literals
+ * would choose the wrong groups — cheap, but the recursive aggregate would still be exact — and a
+ * batched tree mask mixed up would drop rows, so parity is asserted bit for bit.
  */
 final class MultiLiteralEvidenceTest {
 
@@ -189,8 +189,10 @@ final class MultiLiteralEvidenceTest {
     assertTrue(bit(batched, 0) && bit(batched, 5) && bit(batched, 63) && bit(batched, 64) && bit(batched, 69),
         "every home leaf survives the union");
     // Mixed trees: a numeric zone leaf AND a string equality — the string leaf still prices alone.
-    final PredicateTree mixed = PredicateTree.of(new ColumnPredicate[] {ColumnPredicate.numeric(0, Op.GE, 6_400L),
-        ColumnPredicate.stringEq(1, "t-64-3".getBytes(StandardCharsets.UTF_8))}, new byte[] {0, 1, PredicateTree.OP_AND});
+    final PredicateTree mixed = PredicateTree.of(
+        new ColumnPredicate[] {ColumnPredicate.numeric(0, Op.GE, 6_400L),
+            ColumnPredicate.stringEq(1, "t-64-3".getBytes(StandardCharsets.UTF_8))},
+        new byte[] {0, 1, PredicateTree.OP_AND});
     final long[] and = ProjectionColumnScan.predicateKeepMask(buildFixture().store(), new ColumnPredicate[0], mixed,
         buildFixture().fetcher());
     assertTrue(and != null && bit(and, 64), "leaf 64 survives the conjunction");
@@ -203,12 +205,13 @@ final class MultiLiteralEvidenceTest {
   @DisplayName("A leaf the program references twice is folded from its ORIGINAL evidence both times")
   void repeatedLeafReferenceDoesNotAliasItsMask() {
     final Fixture f = buildFixture();
-    // (col0 >= 6400 AND title = 'every') OR col0 >= 6400  ==  col0 >= 6400: leaves 64..69. An
+    // (col0 >= 6400 AND title = 'every') OR col0 >= 6400 == col0 >= 6400: leaves 64..69. An
     // implementation that folds the first reference in place and then reads it again answers with
     // the CONJUNCTION (even leaves 64, 66, 68 only) — three leaves silently dropped.
     final ColumnPredicate[] leaves = {ColumnPredicate.numeric(0, Op.GE, 6_400L),
         ColumnPredicate.stringEq(1, "every".getBytes(StandardCharsets.UTF_8))};
-    final PredicateTree tree = PredicateTree.of(leaves, new byte[] {0, 1, PredicateTree.OP_AND, 0, PredicateTree.OP_OR});
+    final PredicateTree tree =
+        PredicateTree.of(leaves, new byte[] {0, 1, PredicateTree.OP_AND, 0, PredicateTree.OP_OR});
     final long[] keep = ProjectionColumnScan.predicateKeepMask(f.store(), new ColumnPredicate[0], tree, f.fetcher());
     assertTrue(keep != null);
     assertEquals(6, kept(keep), "col0 >= 6400 alone decides: six leaves");
@@ -216,9 +219,10 @@ final class MultiLiteralEvidenceTest {
       assertTrue(bit(keep, leaf), "leaf " + leaf + " must survive (col0 >= 6400 OR ...)");
     }
     // The mirror image: 0 OR (0 AND 1), the repeated reference on the right.
-    final PredicateTree mirror = PredicateTree.of(leaves, new byte[] {0, 0, 1, PredicateTree.OP_AND, PredicateTree.OP_OR});
-    assertArrayEquals(keep, ProjectionColumnScan.predicateKeepMask(buildFixture().store(), new ColumnPredicate[0], mirror,
-        buildFixture().fetcher()));
+    final PredicateTree mirror =
+        PredicateTree.of(leaves, new byte[] {0, 0, 1, PredicateTree.OP_AND, PredicateTree.OP_OR});
+    assertArrayEquals(keep, ProjectionColumnScan.predicateKeepMask(buildFixture().store(), new ColumnPredicate[0],
+        mirror, buildFixture().fetcher()));
   }
 
   @Test

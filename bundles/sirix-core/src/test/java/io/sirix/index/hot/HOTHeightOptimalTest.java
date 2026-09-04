@@ -181,9 +181,7 @@ class HOTHeightOptimalTest {
     @DisplayName("Split creates BiNode with correct discriminative bit")
     void testSplitCreatesCorrectBiNode() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
-        db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .versioningApproach(VersioningType.FULL)
-                                               .build());
+        db.createResource(ResourceConfiguration.newBuilder("resource").versioningApproach(VersioningType.FULL).build());
 
         try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
 
@@ -269,9 +267,7 @@ class HOTHeightOptimalTest {
     @DisplayName("HOTIndirectPage uses full COW copies")
     void testIndirectPageCOW() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
-        db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .versioningApproach(VersioningType.FULL)
-                                               .build());
+        db.createResource(ResourceConfiguration.newBuilder("resource").versioningApproach(VersioningType.FULL).build());
 
         try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
 

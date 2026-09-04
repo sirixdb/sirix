@@ -55,8 +55,8 @@ public final class XmlFlyweightSerializedSizeEstimateTest {
 
     final LongArrayList attributeKeys = new LongArrayList(new long[] {2L});
     final LongArrayList namespaceKeys = new LongArrayList(new long[] {3L});
-    final ElementNode elementNode = new ElementNode(1L, 0L, 0, 0, 0L, 0L, 0L, 0L, 0L, 0L, 0L,
-        0L, 0, 0, 0, hashFunction, (byte[]) null, attributeKeys, namespaceKeys, new QNm("element"));
+    final ElementNode elementNode = new ElementNode(1L, 0L, 0, 0, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0, 0, 0, hashFunction,
+        (byte[]) null, attributeKeys, namespaceKeys, new QNm("element"));
     assertEquals(ElementNode.estimateSerializedSize(1, 1), elementNode.estimateSerializedSize());
     assertEstimateCoversSerializedBytes(elementNode);
   }
@@ -79,8 +79,7 @@ public final class XmlFlyweightSerializedSizeEstimateTest {
     final int estimate = node.estimateSerializedSize();
     try (Arena arena = Arena.ofConfined()) {
       final int actual = node.serializeToHeap(arena.allocate(estimate), 0L);
-      assertTrue(node.getKind() + " wrote " + actual + " bytes with estimate " + estimate,
-          actual <= estimate);
+      assertTrue(node.getKind() + " wrote " + actual + " bytes with estimate " + estimate, actual <= estimate);
     }
   }
 }

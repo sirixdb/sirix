@@ -66,18 +66,20 @@ import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 /**
- * The ONE-SHOT companion to {@link PaxVsProjectionAggregateBenchmark}: same queries, same
- * two storage tiers, but every timed invocation is a genuinely first-touch query on a warm
- * JVM. Untimed, per invocation: the executor is closed and recreated (dropping every
- * instance cache — compiled predicates, page-skip schedules, region caches, worker
- * transactions), the resource's buffer pool is evicted ({@link BufferManager#clearAllCaches()}),
- * and the catalog's decoded projection handle is evicted. The timed query then pays predicate
- * compilation, page loads and region access on the PAX arm, and catalog hydration plus
- * column-segment fetch and decode on the projection arm — the cost profile of "a warm server
- * answering this query for the first time". Both arms read their ordinary persisted format;
- * the benchmark has no RAM-resident projection-install route.
+ * The ONE-SHOT companion to {@link PaxVsProjectionAggregateBenchmark}: same queries, same two
+ * storage tiers, but every timed invocation is a genuinely first-touch query on a warm JVM.
+ * Untimed, per invocation: the executor is closed and recreated (dropping every instance cache —
+ * compiled predicates, page-skip schedules, region caches, worker transactions), the resource's
+ * buffer pool is evicted ({@link BufferManager#clearAllCaches()}), and the catalog's decoded
+ * projection handle is evicted. The timed query then pays predicate compilation, page loads and
+ * region access on the PAX arm, and catalog hydration plus column-segment fetch and decode on the
+ * projection arm — the cost profile of "a warm server answering this query for the first time".
+ * Both arms read their ordinary persisted format; the benchmark has no RAM-resident
+ * projection-install route.
  *
- * <p>Run with:
+ * <p>
+ * Run with:
+ * 
  * <pre>
  * ./gradlew :sirix-benchmarks:jmh -Pjmh.includes=PaxVsProjectionOneShotBenchmark
  * </pre>
@@ -87,35 +89,36 @@ import java.util.concurrent.TimeUnit;
 @Warmup(iterations = 3, time = 2)
 @Measurement(iterations = 5, time = 2)
 @Fork(value = 1,
-    jvmArgs = { "--add-modules=jdk.incubator.vector", "--enable-preview", "--enable-native-access=ALL-UNNAMED" })
+    jvmArgs = {"--add-modules=jdk.incubator.vector", "--enable-preview", "--enable-native-access=ALL-UNNAMED"})
 @State(Scope.Benchmark)
 public class PaxVsProjectionOneShotBenchmark {
 
-  @Param({ "100000", "1000000" })
+  @Param({"100000", "1000000"})
   public int recordCount;
 
-  /** {@code true} → catalogued covering projection (re-cooled per invocation); {@code false} → PAX. */
-  @Param({ "false", "true" })
+  /**
+   * {@code true} → catalogued covering projection (re-cooled per invocation); {@code false} → PAX.
+   */
+  @Param({"false", "true"})
   public boolean projectionIndex;
 
   /**
-   * Storage backend for the resource. {@code FILE_CHANNEL} is the buffered default;
-   * {@code IO_URING} selects the sirix-enterprise O_DIRECT io_uring backend, which bypasses
-   * the OS page cache entirely — reads there are storage-cold by construction, no
-   * {@link #osCold} needed. Override via
-   * {@code -Pjmh.benchmarkParameters="storage=IO_URING"} with
-   * {@code -PenterpriseCoreJar=<path>} supplying the provider.
+   * Storage backend for the resource. {@code FILE_CHANNEL} is the buffered default; {@code IO_URING}
+   * selects the sirix-enterprise O_DIRECT io_uring backend, which bypasses the OS page cache entirely
+   * — reads there are storage-cold by construction, no {@link #osCold} needed. Override via
+   * {@code -Pjmh.benchmarkParameters="storage=IO_URING"} with {@code -PenterpriseCoreJar=<path>}
+   * supplying the provider.
    */
-  @Param({ "FILE_CHANNEL" })
+  @Param({"FILE_CHANNEL"})
   public String storage;
 
   /**
    * {@code true} → additionally drop the OS page cache ({@code sync; echo 3 >
-   * /proc/sys/vm/drop_caches}, needs a privileged container) per invocation, so buffered
-   * FILE_CHANNEL reads hit real storage instead of kernel memory. Untimed like the rest of
-   * {@link #goCold()}. Override via {@code -Pjmh.benchmarkParameters="osCold=true"}.
+   * /proc/sys/vm/drop_caches}, needs a privileged container) per invocation, so buffered FILE_CHANNEL
+   * reads hit real storage instead of kernel memory. Untimed like the rest of {@link #goCold()}.
+   * Override via {@code -Pjmh.benchmarkParameters="osCold=true"}.
    */
-  @Param({ "false" })
+  @Param({"false"})
   public boolean osCold;
 
   private static final String JSON_DB = "pax-vs-proj-oneshot-db";
@@ -144,8 +147,7 @@ public class PaxVsProjectionOneShotBenchmark {
     ctx = SirixQueryContext.createWithJsonStore(store);
     chain = SirixCompileChain.createWithJsonStore(store);
 
-    try (Reader src = new GeneratedRecordsReader(recordCount);
-         JsonReader jsonReader = new JsonReader(src)) {
+    try (Reader src = new GeneratedRecordsReader(recordCount); JsonReader jsonReader = new JsonReader(src)) {
       store.create(JSON_DB, JSON_RESOURCE, jsonReader);
     }
 
@@ -160,14 +162,13 @@ public class PaxVsProjectionOneShotBenchmark {
 
     if (projectionIndex) {
       // Must run BEFORE $doc is bound: the index commit creates a new revision.
-      final ProjectionIndexBenchSetup.BuildResult built =
-          ProjectionIndexBenchSetup.ensureProjection(resourceSession);
+      final ProjectionIndexBenchSetup.BuildResult built = ProjectionIndexBenchSetup.ensureProjection(resourceSession);
       if (built.totalRows() != recordCount) {
         throw new IllegalStateException("projection rows " + built.totalRows() + " != records " + recordCount);
       }
       latestRev = resourceSession.getMostRecentRevisionNumber();
-      System.out.printf("# catalogued projection: %d row groups, %d rows (revision now %d)%n",
-          built.rowGroupCount(), built.totalRows(), latestRev);
+      System.out.printf("# catalogued projection: %d row groups, %d rows (revision now %d)%n", built.rowGroupCount(),
+          built.totalRows(), latestRev);
     }
 
     vecExecutor = new SirixVectorizedExecutor(resourceSession, latestRev);
@@ -186,22 +187,22 @@ public class PaxVsProjectionOneShotBenchmark {
     System.out.printf("# probe sum(age>40) = %s%n", probeResult.trim());
     System.out.printf("# probe count(age>40 and active) = %s%n",
         runQueryOnce("count(for $u in $doc[] where $u.age > 40 and $u.active return $u)").trim());
-    System.out.printf("# probe sum(age) = %s%n",
-        runQueryOnce("sum(for $u in $doc[] return $u.age)").trim());
+    System.out.printf("# probe sum(age) = %s%n", runQueryOnce("sum(for $u in $doc[] return $u.age)").trim());
     if (projectionIndex && delta == 0) {
       throw new IllegalStateException("projection installed but predicated aggregate was NOT projection-served");
     }
     if (!projectionIndex && delta != 0) {
       throw new IllegalStateException("no projection installed but predicated aggregate claims projection serving");
     }
-    System.out.printf("# tier verified: projectionIndex=%s storage=%s osCold=%s, "
-        + "projection scans during probe=%d%n", projectionIndex, storage, osCold, delta);
+    System.out.printf(
+        "# tier verified: projectionIndex=%s storage=%s osCold=%s, " + "projection scans during probe=%d%n",
+        projectionIndex, storage, osCold, delta);
   }
 
   /**
-   * Re-cool everything a first-touch query would find cold, outside the timed region:
-   * fresh executor (all instance caches and worker transactions gone), evicted buffer
-   * pool, and — on the projection arm — the catalog's decoded handle.
+   * Re-cool everything a first-touch query would find cold, outside the timed region: fresh executor
+   * (all instance caches and worker transactions gone), evicted buffer pool, and — on the projection
+   * arm — the catalog's decoded handle.
    */
   @Setup(Level.Invocation)
   public void goCold() {
@@ -232,11 +233,11 @@ public class PaxVsProjectionOneShotBenchmark {
   /** Fails loudly when the container cannot drop caches — a silent no-op would fake cold IO. */
   private static void dropOsPageCache() {
     try {
-      final Process p = new ProcessBuilder("sh", "-c", "sync && echo 3 > /proc/sys/vm/drop_caches")
-          .redirectErrorStream(true).start();
+      final Process p =
+          new ProcessBuilder("sh", "-c", "sync && echo 3 > /proc/sys/vm/drop_caches").redirectErrorStream(true).start();
       if (p.waitFor() != 0) {
-        throw new IllegalStateException("drop_caches exited " + p.exitValue()
-            + " — run in a privileged container or with osCold=false");
+        throw new IllegalStateException(
+            "drop_caches exited " + p.exitValue() + " — run in a privileged container or with osCold=false");
       }
     } catch (final IOException | InterruptedException e) {
       throw new IllegalStateException("drop_caches failed", e);
@@ -246,10 +247,14 @@ public class PaxVsProjectionOneShotBenchmark {
   @TearDown(Level.Trial)
   public void tearDown() {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
-    if (vecExecutor != null) vecExecutor.close();
-    if (resourceSession != null) resourceSession.close();
-    if (chain != null) chain.close();
-    if (store != null) store.close();
+    if (vecExecutor != null)
+      vecExecutor.close();
+    if (resourceSession != null)
+      resourceSession.close();
+    if (chain != null)
+      chain.close();
+    if (store != null)
+      store.close();
     Databases.removeDatabase(dbDir.resolve(JSON_DB));
   }
 

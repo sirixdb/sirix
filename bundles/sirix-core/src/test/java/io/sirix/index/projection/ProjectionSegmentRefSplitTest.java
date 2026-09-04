@@ -49,8 +49,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * never produced the shape.
  *
  * <p>
- * <b>Why the writes are shuffled.</b> Every production projection write uses the shared
- * incremental driver. Ascending appends — the real build's order at the 1M/10M tiers, and the shape
+ * <b>Why the writes are shuffled.</b> Every production projection write uses the shared incremental
+ * driver. Ascending appends — the real build's order at the 1M/10M tiers, and the shape
  * {@code HOTBinnaConformanceTest} covers — primarily exercise its merge-side leaf split. The strand
  * discharge family needs a key branching off ABOVE the leaf it descended to, which an out-of-order
  * arrival produces in quantity and therefore keeps this distinct side-reference routing shape
@@ -94,8 +94,7 @@ final class ProjectionSegmentRefSplitTest {
     final long carriesBefore = HOTIncrementalInsert.SPLIT_SEGMENT_REF_CARRIES.get();
     final long directionOneFallbacksBefore = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get();
     final long validationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get();
-    final long propagationFailuresBefore =
-        AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
+    final long propagationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
     final List<Long> order = new ArrayList<>(ROW_GROUPS);
     for (long rg = 1; rg <= ROW_GROUPS; rg++) {
       order.add(rg);
@@ -122,8 +121,7 @@ final class ProjectionSegmentRefSplitTest {
           + "test no longer covers the path it exists for (carries=" + carries + ")");
       assertEquals(0L, AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get() - directionOneFallbacksBefore,
           "projection insertion must not abandon a Direction-1 shape to subtree reconstruction");
-      assertEquals(0L,
-          AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get() - validationFailuresBefore,
+      assertEquals(0L, AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get() - validationFailuresBefore,
           "projection insertion published a malformed structural candidate");
       assertEquals(0L,
           AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get() - propagationFailuresBefore,

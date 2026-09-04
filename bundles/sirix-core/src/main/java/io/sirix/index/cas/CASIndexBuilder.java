@@ -46,9 +46,9 @@ public final class CASIndexBuilder {
 
   /**
    * Bulk loader, non-{@code null} exactly when this builder starts against an empty index tree — the
-   * normal "create an index over an already-shredded revision" case. Every entry is collected and
-   * the trie is materialised once in {@link #finish()}; see
-   * {@link HOTBulkIndexLoader} for why that is not the same cost as n incremental inserts.
+   * normal "create an index over an already-shredded revision" case. Every entry is collected and the
+   * trie is materialised once in {@link #finish()}; see {@link HOTBulkIndexLoader} for why that is
+   * not the same cost as n incremental inserts.
    */
   private final @Nullable HOTBulkIndexLoader<CASValue> bulkLoader;
 

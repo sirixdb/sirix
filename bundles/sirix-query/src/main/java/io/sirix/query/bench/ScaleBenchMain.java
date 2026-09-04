@@ -27,12 +27,13 @@ import java.util.Map;
 /**
  * Non-JMH scale runner for queries against a Sirix-stored JSON dataset.
  * <p>
- * JMH is unsuitable for record counts in the 100M-1B range because each
- * benchmark/parameter combination forks a fresh JVM and re-runs {@code @Setup}.
- * Re-shredding 1B records per fork would take days. This runner shreds once
- * and times each query in-process.
+ * JMH is unsuitable for record counts in the 100M-1B range because each benchmark/parameter
+ * combination forks a fresh JVM and re-runs {@code @Setup}. Re-shredding 1B records per fork would
+ * take days. This runner shreds once and times each query in-process.
  *
- * <p>Usage:
+ * <p>
+ * Usage:
+ * 
  * <pre>
  *   java io.sirix.benchmark.ScaleBenchMain &lt;recordCount&gt; [vectorized=true|false] [iters=N]
  * </pre>
@@ -45,15 +46,20 @@ public final class ScaleBenchMain {
 
   private static final Map<String, String> QUERIES = new LinkedHashMap<>();
   static {
-    QUERIES.put("filterCount",            "count(for $u in $doc[] where $u.age > 40 and $u.active return $u)");
-    QUERIES.put("groupByDept",            "for $u in $doc[] let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
-    QUERIES.put("sumAge",                 "sum(for $u in $doc[] return $u.age)");
-    QUERIES.put("avgAge",                 "avg(for $u in $doc[] return $u.age)");
-    QUERIES.put("minMaxAge",              "{\"min\": min(for $u in $doc[] return $u.age), \"max\": max(for $u in $doc[] return $u.age)}");
-    QUERIES.put("groupBy2Keys",           "for $u in $doc[] let $d := $u.dept, $c := $u.city group by $d, $c return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
-    QUERIES.put("filterGroupBy",          "for $u in $doc[] where $u.active let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
-    QUERIES.put("countDistinct",          "count(for $u in $doc[] let $d := $u.dept group by $d return $d)");
-    QUERIES.put("compoundAndFilterCount", "count(for $u in $doc[] where $u.age > 30 and $u.age < 50 and $u.active return $u)");
+    QUERIES.put("filterCount", "count(for $u in $doc[] where $u.age > 40 and $u.active return $u)");
+    QUERIES.put("groupByDept",
+        "for $u in $doc[] let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
+    QUERIES.put("sumAge", "sum(for $u in $doc[] return $u.age)");
+    QUERIES.put("avgAge", "avg(for $u in $doc[] return $u.age)");
+    QUERIES.put("minMaxAge",
+        "{\"min\": min(for $u in $doc[] return $u.age), \"max\": max(for $u in $doc[] return $u.age)}");
+    QUERIES.put("groupBy2Keys",
+        "for $u in $doc[] let $d := $u.dept, $c := $u.city group by $d, $c return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
+    QUERIES.put("filterGroupBy",
+        "for $u in $doc[] where $u.active let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
+    QUERIES.put("countDistinct", "count(for $u in $doc[] let $d := $u.dept group by $d return $d)");
+    QUERIES.put("compoundAndFilterCount",
+        "count(for $u in $doc[] where $u.age > 30 and $u.age < 50 and $u.active return $u)");
   }
 
   public static void main(String[] args) throws Exception {
@@ -70,24 +76,23 @@ public final class ScaleBenchMain {
 
     long recordCount = Long.parseLong(args[0]);
     boolean vectorized = args.length < 2 || Boolean.parseBoolean(args[1]);
-    int iters = args.length < 3 ? 3 : Integer.parseInt(args[2]);
+    int iters = args.length < 3
+        ? 3
+        : Integer.parseInt(args[2]);
 
     // Logback level is set via config in native-image build; no-op here to avoid
     // introducing logback-classic as a compile dependency for sirix-query.
 
     // Lift Sirix's 16 GB default offheap pool — at 100 M records the page-cache
     // pressure during shred otherwise tips over. Cap to host RAM minus heap.
-    long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes",
-                                                       String.valueOf(24L << 30)));
+    long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
     var alloc = Allocators.getInstance();
     alloc.init(offheap);
-    System.out.printf("# Allocator: %s   maxBufferSize = %d MB (initialized=%s)%n",
-                      alloc.getClass().getSimpleName(),
-                      alloc.getMaxBufferSize() / (1L << 20), alloc.isInitialized());
+    System.out.printf("# Allocator: %s   maxBufferSize = %d MB (initialized=%s)%n", alloc.getClass().getSimpleName(),
+        alloc.getMaxBufferSize() / (1L << 20), alloc.isInitialized());
     if (phaseTiming) {
       final long now = System.nanoTime();
-      System.out.printf("# PHASE allocInit: %,d ms (t=%,d ms)%n",
-          (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+      System.out.printf("# PHASE allocInit: %,d ms (t=%,d ms)%n", (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
       tPhase = now;
     }
 
@@ -114,7 +119,7 @@ public final class ScaleBenchMain {
       shredNeeded = true;
     }
     System.out.printf("# Records: %,d   Vectorized: %s   Iters: %d   DB: %s   Offheap: %d MB   Reuse: %s%n",
-                      recordCount, vectorized, iters, dbDir, offheap / (1L << 20), !shredNeeded);
+        recordCount, vectorized, iters, dbDir, offheap / (1L << 20), !shredNeeded);
 
     // Smaller auto-commit window keeps offheap segments getting recycled
     // during the shred phase. Default is 1 M nodes — too coarse for 100 M+ records.
@@ -140,37 +145,34 @@ public final class ScaleBenchMain {
     }
     HashType hash = HashType.fromString(System.getProperty("hashType", "NONE"));
     BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-        .location(dbDir)
-        .numberOfNodesBeforeAutoCommit(autoCommit)
-        .buildPathSummary(pathSummary)
-        .buildPathStatistics(pathStatistics)
-        .hashType(hash)
-        .build();
+                                             .location(dbDir)
+                                             .numberOfNodesBeforeAutoCommit(autoCommit)
+                                             .buildPathSummary(pathSummary)
+                                             .buildPathStatistics(pathStatistics)
+                                             .hashType(hash)
+                                             .build();
     System.out.printf("# pathSummary=%s  pathStatistics=%s%n", pathSummary, pathStatistics);
     if (phaseTiming) {
       final long now = System.nanoTime();
-      System.out.printf("# PHASE storeBuild: %,d ms (t=%,d ms)%n",
-          (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+      System.out.printf("# PHASE storeBuild: %,d ms (t=%,d ms)%n", (now - tPhase) / 1_000_000L,
+          (now - t0) / 1_000_000L);
       tPhase = now;
     }
     SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
     SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
     if (phaseTiming) {
       final long now = System.nanoTime();
-      System.out.printf("# PHASE ctxChain: %,d ms (t=%,d ms)%n",
-          (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+      System.out.printf("# PHASE ctxChain: %,d ms (t=%,d ms)%n", (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
       tPhase = now;
     }
 
     if (shredNeeded) {
       long shredStart = System.nanoTime();
-      try (Reader src = new GeneratedRecordsReader(0, recordCount, 42L);
-           JsonReader jr = new JsonReader(src)) {
+      try (Reader src = new GeneratedRecordsReader(0, recordCount, 42L); JsonReader jr = new JsonReader(src)) {
         store.create(JSON_DB, JSON_RESOURCE, jr);
       }
       long shredMs = (System.nanoTime() - shredStart) / 1_000_000L;
-      System.out.printf("# Shred: %,d ms (%.0f records/sec)%n",
-                        shredMs, recordCount * 1000.0 / Math.max(1, shredMs));
+      System.out.printf("# Shred: %,d ms (%.0f records/sec)%n", shredMs, recordCount * 1000.0 / Math.max(1, shredMs));
     } else {
       System.out.println("# Shred: skipped (re-using existing DB)");
     }
@@ -181,15 +183,14 @@ public final class ScaleBenchMain {
       JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
       if (phaseTiming) {
         final long now = System.nanoTime();
-        System.out.printf("# PHASE lookup: %,d ms (t=%,d ms)%n",
-            (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+        System.out.printf("# PHASE lookup: %,d ms (t=%,d ms)%n", (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
         tPhase = now;
       }
       session = coll.getDatabase().beginResourceSession(JSON_RESOURCE);
       if (phaseTiming) {
         final long now = System.nanoTime();
-        System.out.printf("# PHASE beginSession: %,d ms (t=%,d ms)%n",
-            (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+        System.out.printf("# PHASE beginSession: %,d ms (t=%,d ms)%n", (now - tPhase) / 1_000_000L,
+            (now - t0) / 1_000_000L);
         tPhase = now;
       }
     }
@@ -209,9 +210,10 @@ public final class ScaleBenchMain {
     if (Boolean.getBoolean("projection") && session != null && iters > 0) {
       final long tBuild = System.nanoTime();
       final int leafCount = ScaleBenchProjectionSetup.ensureProjection(session);
-      System.out.printf("# Projection index: %,d leaves, built in %,d ms%n",
-          leafCount, (System.nanoTime() - tBuild) / 1_000_000L);
-      if (phaseTiming) tPhase = System.nanoTime();
+      System.out.printf("# Projection index: %,d leaves, built in %,d ms%n", leafCount,
+          (System.nanoTime() - tBuild) / 1_000_000L);
+      if (phaseTiming)
+        tPhase = System.nanoTime();
     }
 
     if (vectorized) {
@@ -219,15 +221,14 @@ public final class ScaleBenchMain {
       // when a concurrency bug in Sirix's JVMCI-compiled allocator / page
       // combiner path triggers at high fan-out.
       int vecThreads = Integer.parseInt(
-          System.getProperty("sirix.vec.threads",
-              String.valueOf(Runtime.getRuntime().availableProcessors())));
+          System.getProperty("sirix.vec.threads", String.valueOf(Runtime.getRuntime().availableProcessors())));
       vec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), vecThreads);
       SequentialPipelineStrategy.setVectorizedExecutor(vec);
       System.out.printf("# Vec threads: %d%n", vecThreads);
       if (phaseTiming) {
         final long now = System.nanoTime();
-        System.out.printf("# PHASE vecExecutor: %,d ms (t=%,d ms)%n",
-            (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+        System.out.printf("# PHASE vecExecutor: %,d ms (t=%,d ms)%n", (now - tPhase) / 1_000_000L,
+            (now - t0) / 1_000_000L);
         tPhase = now;
       }
     }
@@ -237,8 +238,7 @@ public final class ScaleBenchMain {
     ctx.bind(DOC_VAR, (Sequence) docItem);
     if (phaseTiming) {
       final long now = System.nanoTime();
-      System.out.printf("# PHASE docBind: %,d ms (t=%,d ms)%n",
-          (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+      System.out.printf("# PHASE docBind: %,d ms (t=%,d ms)%n", (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
       tPhase = now;
     }
 
@@ -248,9 +248,10 @@ public final class ScaleBenchMain {
     if (iters <= 0) {
       System.out.println("# Iters <= 0: skipping query phase.");
     } else {
-      System.out.printf("%-26s | %10s | %10s | %10s | %10s%n", "query", "min(ms)", "avg(ms)", "max(ms)", "result_bytes");
-      System.out.printf("%-26s + %10s + %10s + %10s + %10s%n", "--------------------------",
-                        "----------", "----------", "----------", "------------");
+      System.out.printf("%-26s | %10s | %10s | %10s | %10s%n", "query", "min(ms)", "avg(ms)", "max(ms)",
+          "result_bytes");
+      System.out.printf("%-26s + %10s + %10s + %10s + %10s%n", "--------------------------", "----------", "----------",
+          "----------", "------------");
 
       for (Map.Entry<String, String> e : QUERIES.entrySet()) {
         runQueryRepeated(chain, ctx, e.getKey(), e.getValue(), iters);
@@ -258,14 +259,15 @@ public final class ScaleBenchMain {
     }
     if (phaseTiming) {
       final long now = System.nanoTime();
-      System.out.printf("# PHASE queries: %,d ms (t=%,d ms)%n",
-          (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+      System.out.printf("# PHASE queries: %,d ms (t=%,d ms)%n", (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
       tPhase = now;
     }
 
     SequentialPipelineStrategy.setVectorizedExecutor(null);
-    if (vec != null) vec.close();
-    if (session != null) session.close();
+    if (vec != null)
+      vec.close();
+    if (session != null)
+      session.close();
     chain.close();
     store.close();
     // Default: keep the DB around for re-use via -Dsirix.db=<path>. Set
@@ -279,8 +281,8 @@ public final class ScaleBenchMain {
     }
   }
 
-  private static void runQueryRepeated(SirixCompileChain chain, SirixQueryContext ctx,
-                                        String name, String body, int iters) {
+  private static void runQueryRepeated(SirixCompileChain chain, SirixQueryContext ctx, String name, String body,
+      int iters) {
     // A statically-resolvable source: brackit's optimizer traces the FLWOR let-binding to a
     // DOCUMENT SourceRef, so the vectorized executor's fail-closed acceptsSource gate can verify
     // database/resource/revision and ACCEPT (measured 47 ms filterCount at 10 M). The previous
@@ -293,7 +295,9 @@ public final class ScaleBenchMain {
     // -Dsirix.noWarmup=true skips warmup so the first measured iter is a
     // true cold run (no executor-level result cache pre-seeded).
     final boolean noWarmup = Boolean.getBoolean("sirix.noWarmup");
-    int warmupCount = noWarmup ? 0 : Math.max(3, Math.min(20, iters));
+    int warmupCount = noWarmup
+        ? 0
+        : Math.max(3, Math.min(20, iters));
     long warmDeadline = System.nanoTime() + 5_000_000_000L; // 5s budget
     for (int i = 0; i < warmupCount && System.nanoTime() < warmDeadline; i++) {
       runOnce(chain, ctx, wrapped);
@@ -306,10 +310,9 @@ public final class ScaleBenchMain {
       final String wrappedForIter;
       if (variedLiteral) {
         final int lowJit = i;
-        wrappedForIter = wrapped
-            .replace("$u.age > 40", "$u.age > " + (25 + lowJit))
-            .replace("$u.age > 30", "$u.age > " + (22 + lowJit))
-            .replace("$u.age < 50", "$u.age < " + (55 + lowJit));
+        wrappedForIter = wrapped.replace("$u.age > 40", "$u.age > " + (25 + lowJit))
+                                .replace("$u.age > 30", "$u.age > " + (22 + lowJit))
+                                .replace("$u.age < 50", "$u.age < " + (55 + lowJit));
       } else {
         wrappedForIter = wrapped;
       }
@@ -317,14 +320,15 @@ public final class ScaleBenchMain {
       bytes = runOnce(chain, ctx, wrappedForIter);
       long elapsed = System.nanoTime() - t0;
       sum += elapsed;
-      if (elapsed < min) min = elapsed;
-      if (elapsed > max) max = elapsed;
+      if (elapsed < min)
+        min = elapsed;
+      if (elapsed > max)
+        max = elapsed;
     }
     double minMs = min / 1e6;
     double maxMs = max / 1e6;
     double avgMs = (sum / (double) iters) / 1e6;
-    System.out.printf("%-26s | %10.3f | %10.3f | %10.3f | %,10d%n",
-                      name, minMs, avgMs, maxMs, bytes);
+    System.out.printf("%-26s | %10.3f | %10.3f | %10.3f | %,10d%n", name, minMs, avgMs, maxMs, bytes);
   }
 
   private static int runOnce(SirixCompileChain chain, SirixQueryContext ctx, String wrapped) {

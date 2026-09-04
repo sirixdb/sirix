@@ -20,9 +20,9 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  *
  * <p>
  * <b>Shared across the import, not per chunk.</b> The parallel importer builds one scanner per
- * chunk, so a per-scanner table canonicalises only within a chunk — the same 1M load minted the same
- * 105 names 560 times over. One table for the whole import makes the canonical instance global,
- * which is what the downstream memos want (they hash it, and a shared instance turns their
+ * chunk, so a per-scanner table canonicalises only within a chunk — the same 1M load minted the
+ * same 105 names 560 times over. One table for the whole import makes the canonical instance
+ * global, which is what the downstream memos want (they hash it, and a shared instance turns their
  * {@code equals} into a pointer comparison on the first test).
  * </p>
  *
@@ -38,10 +38,10 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * <p>
  * <b>Bounded, and degrades instead of failing.</b> The table never resizes. A document whose object
  * keys are effectively unbounded (keys carrying data rather than schema) would otherwise turn a
- * scanner-local cache into an unbounded retainer; past {@link #MAX_PROBES} the table stops trying and
- * returns a fresh String — which is exactly today's cost and today's behaviour, since the canonical
- * instance is a performance property and never a correctness one (the PCR and name memos are
- * value-equality maps). Load stays under 1/2 for any key set that fits.
+ * scanner-local cache into an unbounded retainer; past {@link #MAX_PROBES} the table stops trying
+ * and returns a fresh String — which is exactly today's cost and today's behaviour, since the
+ * canonical instance is a performance property and never a correctness one (the PCR and name memos
+ * are value-equality maps). Load stays under 1/2 for any key set that fits.
  * </p>
  */
 final class NameInternTable {

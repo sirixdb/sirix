@@ -602,9 +602,8 @@ public final class Databases {
       logger.info("  - NamesCache size: {} (fixed)", maxNamesCacheSize);
       logger.info("  - PathSummaryCache size: {} (fixed)", maxPathSummaryCacheSize);
 
-      GLOBAL_BUFFER_MANAGER =
-          new BufferManagerImpl(maxPageCacheBytes, maxRecordPageCacheBytes, maxRecordPageFragmentCacheBytes,
-              maxRevisionRootPageCache, maxNamesCacheSize, maxPathSummaryCacheSize);
+      GLOBAL_BUFFER_MANAGER = new BufferManagerImpl(maxPageCacheBytes, maxRecordPageCacheBytes,
+          maxRecordPageFragmentCacheBytes, maxRevisionRootPageCache, maxNamesCacheSize, maxPathSummaryCacheSize);
 
       // Initialize global epoch tracker (large slot count for all databases/resources)
       GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(RevisionEpochTracker.defaultSlotCount());

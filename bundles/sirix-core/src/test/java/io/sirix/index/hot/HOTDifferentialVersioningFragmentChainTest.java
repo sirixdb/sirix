@@ -26,18 +26,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Regression test for the HOT leaf-page CoW path under {@link VersioningType#DIFFERENTIAL}.
  *
- * <p>DIFFERENTIAL keeps a length-1 fragment chain: a read reconstructs the HEAD leaf from exactly
- * two on-disk fragments — the newest delta plus its anchor. The correctness requirement is that the
+ * <p>
+ * DIFFERENTIAL keeps a length-1 fragment chain: a read reconstructs the HEAD leaf from exactly two
+ * on-disk fragments — the newest delta plus its anchor. The correctness requirement is that the
  * anchor is the last <b>full dump</b> and every delta is <b>cumulative</b> since that dump. If the
  * anchor were instead the immediately-prior <em>sparse</em> delta (the pre-fix behaviour), then a
  * key written in revision N but not touched again would fall out of the two-fragment read window
- * two revisions later and silently vanish, even though no deletion ever occurred.</p>
+ * two revisions later and silently vanish, even though no deletion ever occurred.
+ * </p>
  *
- * <p>Each revision here touches the shared name-index leaf by adding exactly one new key while
- * leaving all earlier keys untouched (a sparse per-revision delta). With
+ * <p>
+ * Each revision here touches the shared name-index leaf by adding exactly one new key while leaving
+ * all earlier keys untouched (a sparse per-revision delta). With
  * {@code maxNumberOfRevisionsToRestore(3)} the read window spans two fragments, yet seven distinct
  * keys are inserted across seven revisions. Every key must remain visible at HEAD — the five oldest
- * keys are precisely the ones a non-cumulative, prior-delta-anchored chain would lose.</p>
+ * keys are precisely the ones a non-cumulative, prior-delta-anchored chain would lose.
+ * </p>
  */
 @DisplayName("HOT DIFFERENTIAL Fragment Chain Regression")
 final class HOTDifferentialVersioningFragmentChainTest {
@@ -69,8 +73,7 @@ final class HOTDifferentialVersioningFragmentChainTest {
       nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(nameIndexDef), trx);
       // Revision 1 seeds the leaf with the first key.
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"items\":[{\"k1\":1}]}"));
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\":[{\"k1\":1}]}"));
       trx.commit();
     }
 
@@ -111,8 +114,7 @@ final class HOTDifferentialVersioningFragmentChainTest {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(nameIndexDef), trx);
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"items\":[{\"name\":\"n1\"}]}"));
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\":[{\"name\":\"n1\"}]}"));
       trx.commit();
       revisions[0] = trx.getResourceSession().getMostRecentRevisionNumber();
     }
@@ -138,8 +140,7 @@ final class HOTDifferentialVersioningFragmentChainTest {
     }
   }
 
-  private static void appendItemAndCommit(
-      final Database<JsonResourceSession> database, final String json) {
+  private static void appendItemAndCommit(final Database<JsonResourceSession> database, final String json) {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
       trx.moveToDocumentRoot();
@@ -151,18 +152,14 @@ final class HOTDifferentialVersioningFragmentChainTest {
     }
   }
 
-  private static void assertNameKeyCount(
-      final NodeReadOnlyTrx rtx, final IndexController<?, ?> ic, final IndexDef nameIndexDef,
-      final String name, final long expected) {
-    assertNameKeyCount(rtx, ic, nameIndexDef, name, expected,
-        "expected " + expected + " '" + name + "' keys");
+  private static void assertNameKeyCount(final NodeReadOnlyTrx rtx, final IndexController<?, ?> ic,
+      final IndexDef nameIndexDef, final String name, final long expected) {
+    assertNameKeyCount(rtx, ic, nameIndexDef, name, expected, "expected " + expected + " '" + name + "' keys");
   }
 
-  private static void assertNameKeyCount(
-      final NodeReadOnlyTrx rtx, final IndexController<?, ?> ic, final IndexDef nameIndexDef,
-      final String name, final long expected, final String message) {
-    final var iter = ic.openNameIndex(rtx.getStorageEngineReader(), nameIndexDef,
-        ic.createNameFilter(Set.of(name)));
+  private static void assertNameKeyCount(final NodeReadOnlyTrx rtx, final IndexController<?, ?> ic,
+      final IndexDef nameIndexDef, final String name, final long expected, final String message) {
+    final var iter = ic.openNameIndex(rtx.getStorageEngineReader(), nameIndexDef, ic.createNameFilter(Set.of(name)));
     if (expected == 0) {
       if (!iter.hasNext()) {
         return;

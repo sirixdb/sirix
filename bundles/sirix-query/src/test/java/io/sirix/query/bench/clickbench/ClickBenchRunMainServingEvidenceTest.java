@@ -29,8 +29,7 @@ final class ClickBenchRunMainServingEvidenceTest {
 
     assertEquals(EnumSet.of(ClickBenchRunMain.ServingRoute.PROJECTION_COUNT_DISTINCT,
         ClickBenchRunMain.ServingRoute.GROUP_AGGREGATE), delta);
-    assertEquals("route=projection-count-distinct+group-aggregate",
-        ClickBenchRunMain.formatServingRoutes(true, delta));
+    assertEquals("route=projection-count-distinct+group-aggregate", ClickBenchRunMain.formatServingRoutes(true, delta));
   }
 
   @Test
@@ -49,8 +48,7 @@ final class ClickBenchRunMainServingEvidenceTest {
   @Test
   void q0RequiresStoredCardinalityAndEveryOtherQueryRequiresVectorizedEvidence() {
     final Set<ClickBenchRunMain.ServingRoute> none = EnumSet.noneOf(ClickBenchRunMain.ServingRoute.class);
-    final Set<ClickBenchRunMain.ServingRoute> vectorized =
-        EnumSet.of(ClickBenchRunMain.ServingRoute.PREDICATE_COUNT);
+    final Set<ClickBenchRunMain.ServingRoute> vectorized = EnumSet.of(ClickBenchRunMain.ServingRoute.PREDICATE_COUNT);
     final Set<ClickBenchRunMain.ServingRoute> structural =
         EnumSet.of(ClickBenchRunMain.ServingRoute.STRUCTURAL_ARRAY_SIZE);
 
@@ -69,7 +67,9 @@ final class ClickBenchRunMainServingEvidenceTest {
             query.index(), true, structural), () -> "q" + query.index() + " accepted only structural evidence");
       }
       assertNotNull(ClickBenchRunMain.servingProofFailure(ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED,
-          query.index(), false, query.index() == 0 ? structural : vectorized),
+          query.index(), false, query.index() == 0
+              ? structural
+              : vectorized),
           () -> "q" + query.index() + " accepted an incomplete run");
     }
     assertEquals(43, ClickBenchQueries.all().size());
@@ -78,54 +78,49 @@ final class ClickBenchRunMainServingEvidenceTest {
   @Test
   void genericProofRejectsVectorizedRoutesButAllowsTheStructuralRewrite() {
     final Set<ClickBenchRunMain.ServingRoute> none = EnumSet.noneOf(ClickBenchRunMain.ServingRoute.class);
-    final Set<ClickBenchRunMain.ServingRoute> served =
-        EnumSet.of(ClickBenchRunMain.ServingRoute.SORTED_SCAN);
+    final Set<ClickBenchRunMain.ServingRoute> served = EnumSet.of(ClickBenchRunMain.ServingRoute.SORTED_SCAN);
     final Set<ClickBenchRunMain.ServingRoute> structural =
         EnumSet.of(ClickBenchRunMain.ServingRoute.STRUCTURAL_ARRAY_SIZE);
 
-    assertNull(ClickBenchRunMain.servingProofFailure(ClickBenchRunMain.ServingProof.REQUIRE_GENERIC, 12, true,
-        none));
-    assertNotNull(ClickBenchRunMain.servingProofFailure(ClickBenchRunMain.ServingProof.REQUIRE_GENERIC, 12, true,
-        served));
-    assertNull(ClickBenchRunMain.servingProofFailure(ClickBenchRunMain.ServingProof.REQUIRE_GENERIC, 0, true,
-        structural));
+    assertNull(ClickBenchRunMain.servingProofFailure(ClickBenchRunMain.ServingProof.REQUIRE_GENERIC, 12, true, none));
+    assertNotNull(
+        ClickBenchRunMain.servingProofFailure(ClickBenchRunMain.ServingProof.REQUIRE_GENERIC, 12, true, served));
+    assertNull(
+        ClickBenchRunMain.servingProofFailure(ClickBenchRunMain.ServingProof.REQUIRE_GENERIC, 0, true, structural));
     assertEquals("route=generic", ClickBenchRunMain.formatServingRoutes(false, none));
     assertEquals("route=structural-array-size", ClickBenchRunMain.formatServingRoutes(false, structural));
   }
 
   @Test
   void oneServedTryCannotMaskALaterGenericDecline() {
-    final Set<ClickBenchRunMain.ServingRoute> served =
-        EnumSet.of(ClickBenchRunMain.ServingRoute.GROUP_AGGREGATE);
+    final Set<ClickBenchRunMain.ServingRoute> served = EnumSet.of(ClickBenchRunMain.ServingRoute.GROUP_AGGREGATE);
     final Set<ClickBenchRunMain.ServingRoute> none = EnumSet.noneOf(ClickBenchRunMain.ServingRoute.class);
 
-    assertNull(ClickBenchRunMain.servingProofFailureForTry(ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED,
-        18, 0, served));
-    final String failure = ClickBenchRunMain.servingProofFailureForTry(
-        ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED, 18, 1, none);
+    assertNull(
+        ClickBenchRunMain.servingProofFailureForTry(ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED, 18, 0, served));
+    final String failure =
+        ClickBenchRunMain.servingProofFailureForTry(ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED, 18, 1, none);
     assertNotNull(failure, "try 1 evidence must not certify a route-less try 2");
     assertTrue(failure.endsWith("on try 2"));
     assertThrows(IllegalArgumentException.class,
-        () -> ClickBenchRunMain.servingProofFailureForTry(ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED,
-            18, -1, served));
+        () -> ClickBenchRunMain.servingProofFailureForTry(ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED, 18, -1,
+            served));
   }
 
   @Test
   void proofModeMustAgreeWithTheAutoVectorizeSwitchAndNumberedSuite() {
-    ClickBenchRunMain.validateServingProofConfiguration(ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED, true,
-        false);
-    ClickBenchRunMain.validateServingProofConfiguration(ClickBenchRunMain.ServingProof.REQUIRE_GENERIC, false,
-        false);
+    ClickBenchRunMain.validateServingProofConfiguration(ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED, true, false);
+    ClickBenchRunMain.validateServingProofConfiguration(ClickBenchRunMain.ServingProof.REQUIRE_GENERIC, false, false);
 
     assertThrows(IllegalArgumentException.class,
-        () -> ClickBenchRunMain.validateServingProofConfiguration(
-            ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED, false, false));
+        () -> ClickBenchRunMain.validateServingProofConfiguration(ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED,
+            false, false));
     assertThrows(IllegalArgumentException.class,
-        () -> ClickBenchRunMain.validateServingProofConfiguration(ClickBenchRunMain.ServingProof.REQUIRE_GENERIC,
-            true, false));
+        () -> ClickBenchRunMain.validateServingProofConfiguration(ClickBenchRunMain.ServingProof.REQUIRE_GENERIC, true,
+            false));
     assertThrows(IllegalArgumentException.class,
-        () -> ClickBenchRunMain.validateServingProofConfiguration(
-            ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED, true, true));
+        () -> ClickBenchRunMain.validateServingProofConfiguration(ClickBenchRunMain.ServingProof.REQUIRE_VECTORIZED,
+            true, true));
   }
 
   @Test

@@ -26,8 +26,8 @@ public final class XmlCASIndexImpl implements XmlCASIndex {
   }
 
   @Override
-  public XmlCASIndexListener createListener(StorageEngineWriter storageEngineWriter, PathSummaryReader pathSummaryReader,
-      IndexDef indexDef) {
+  public XmlCASIndexListener createListener(StorageEngineWriter storageEngineWriter,
+      PathSummaryReader pathSummaryReader, IndexDef indexDef) {
     final var indexListenerDelegate = casIndexListenerFactory.create(storageEngineWriter, pathSummaryReader, indexDef);
     return new XmlCASIndexListener(indexListenerDelegate);
   }

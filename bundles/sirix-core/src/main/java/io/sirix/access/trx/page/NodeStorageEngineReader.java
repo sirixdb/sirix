@@ -343,8 +343,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * </p>
    *
    * <p>
-   * A field rather than a per-call allocation because this runs once per converted page, not once
-   * per reader. And a SWAP of the field rather than a key passed down, because the walk reaches
+   * A field rather than a per-call allocation because this runs once per converted page, not once per
+   * reader. And a SWAP of the field rather than a key passed down, because the walk reaches
    * {@code getRecord} transitively — {@code PathSummaryReader}'s constructor calls it, three frames
    * down — so nothing short of taking the shared slot away covers it.
    * </p>
@@ -492,8 +492,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /** Keep secondary-index records out of the generic keyed-trie route. */
-  static void validateKeyedTrieRoute(final StorageEngineReader storageEngineReader,
-      final IndexType indexType, final int index) {
+  static void validateKeyedTrieRoute(final StorageEngineReader storageEngineReader, final IndexType indexType,
+      final int index) {
     requireNonNull(storageEngineReader);
     requireNonNull(indexType);
     if (indexType == IndexType.PATH || indexType == IndexType.CAS || indexType == IndexType.PROJECTION
@@ -689,9 +689,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Index pages are deliberately NOT swizzled. A swizzled page lives as long as the record page
    * owning the reference stays cached, and the record-page cache weighs slot memory only — so on an
    * index whose records are mostly overlong (the projection value dictionary's 64 KiB blocks) the
-   * swizzle was an unbounded on-heap copy of everything ever walked: 181,737 blocks, 3.9 GB, after two
-   * 100M-row dictionary walks, never released, starving every heap-derived budget for the rest of the
-   * process. The dictionary already has its weighed cross-transaction record cache
+   * swizzle was an unbounded on-heap copy of everything ever walked: 181,737 blocks, 3.9 GB, after
+   * two 100M-row dictionary walks, never released, starving every heap-derived budget for the rest of
+   * the process. The dictionary already has its weighed cross-transaction record cache
    * ({@code BufferManager#getGlobalDictionaryRecordCache}) for exactly this retention, and the
    * navigation argument above does not apply to index reads. Same rule as
    * {@link #readSideOverflowPage} states for projection side pages.
@@ -1002,9 +1002,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * The dictionary walk re-enters {@link #getRecordPage(IndexLogKey, boolean)} for the NAME,
    * PROJECTION and PATH_SUMMARY pages it needs, and every one of those returns through the funnel
    * that starts a resolution. None of those page kinds carries a global tag today, so the recursion
-   * would terminate on content — which is exactly the kind of termination argument that stops
-   * holding when someone converts a new column. This makes it structural instead: a resolution in
-   * progress refuses to start another, full stop.
+   * would terminate on content — which is exactly the kind of termination argument that stops holding
+   * when someone converts a new column. This makes it structural instead: a resolution in progress
+   * refuses to start another, full stop.
    * </p>
    *
    * <p>
@@ -1043,18 +1043,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * <b>The guard transfer is the load-bearing part.</b> The dictionary walk below re-enters
    * {@code getRecordPage} for NAME/PROJECTION pages, and every entry calls
    * {@link #closeCurrentPageGuard()} and repoints {@link #currentPageGuard} at the page it fetched.
-   * The caller of the outer lookup is about to read THIS page's {@code MemorySegment} believing it
-   * is guarded, so an unprotected walk would let the sweeper free the frame under a live read — a
+   * The caller of the outer lookup is about to read THIS page's {@code MemorySegment} believing it is
+   * guarded, so an unprotected walk would let the sweeper free the frame under a live read — a
    * use-after-free, not a wrong value, and therefore invisible to every correctness witness. So a
-   * guard is taken before the walk and handed to {@code currentPageGuard} afterwards: the count
-   * never dips, and the field ends up where the caller needs it.
+   * guard is taken before the walk and handed to {@code currentPageGuard} afterwards: the count never
+   * dips, and the field ends up where the caller needs it.
    * </p>
    *
    * <p>
-   * {@code setMostRecentPage} needs no such care — it stores per-{@link IndexType} fields, so a
-   * NAME or PROJECTION fetch cannot displace the DOCUMENT entry. Nor does
-   * {@code reusableIndexLogKey}: all three callers ({@code getRecord}, {@code lookupSlotOrCached},
-   * {@code lookupSlot}) stop reading it the moment {@code getRecordPage} returns.
+   * {@code setMostRecentPage} needs no such care — it stores per-{@link IndexType} fields, so a NAME
+   * or PROJECTION fetch cannot displace the DOCUMENT entry. Nor does {@code reusableIndexLogKey}: all
+   * three callers ({@code getRecord}, {@code lookupSlotOrCached}, {@code lookupSlot}) stop reading it
+   * the moment {@code getRecordPage} returns.
    * </p>
    */
   private void resolveGlobalStrings(final KeyValueLeafPage page) {
@@ -1100,8 +1100,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    *
    * <p>
    * The split is deliberate: this owns the SITE (a header scratch belonging to one reader, and the
-   * caller's guard discipline), while what a resolution IS lives beside the table it produces —
-   * where a test can drive the real walk against a stub dictionary rather than restate it.
+   * caller's guard discipline), while what a resolution IS lives beside the table it produces — where
+   * a test can drive the real walk against a stub dictionary rather than restate it.
    * </p>
    */
   private ResolvedGlobalStrings buildGlobalStringTable(final KeyValueLeafPage page) {
@@ -1137,12 +1137,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * </p>
    *
    * <p>
-   * A field path may resolve to SEVERAL path node keys (the same shape under different roots), so
-   * the map is many-to-one and every one of those keys gets the column's anchor. The reverse — one
-   * key claimed by two columns with different dictionaries — is ambiguous, and such a key is
-   * dropped rather than guessed at: a page naming a dictionary the map does not agree with is
-   * refused loudly by {@link #buildGlobalStringTable}, which is the correct outcome for a question
-   * with two answers.
+   * A field path may resolve to SEVERAL path node keys (the same shape under different roots), so the
+   * map is many-to-one and every one of those keys gets the column's anchor. The reverse — one key
+   * claimed by two columns with different dictionaries — is ambiguous, and such a key is dropped
+   * rather than guessed at: a page naming a dictionary the map does not agree with is refused loudly
+   * by {@link #buildGlobalStringTable}, which is the correct outcome for a question with two answers.
    * </p>
    */
   /**
@@ -1304,9 +1303,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         // surviving prefix and drop the tail. Skip the definition entirely: it contributes no
         // anchors, so every page tagging with one of its path classes is refused loudly at
         // resolution, which is the fail-safe direction AND says out loud that something is wrong.
-        LOGGER.warn("trie lane: projection index {} has {} dictionary anchors but {} declared field paths;"
-            + " its anchors are not usable and pages using them will be refused", indexDef.getID(),
-            columnAnchors.length, fieldPaths.size());
+        LOGGER.warn(
+            "trie lane: projection index {} has {} dictionary anchors but {} declared field paths;"
+                + " its anchors are not usable and pages using them will be refused",
+            indexDef.getID(), columnAnchors.length, fieldPaths.size());
         continue;
       }
       for (int column = 0; column < columnAnchors.length; column++) {
@@ -1337,8 +1337,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // A declared path this revision's summary cannot parse contributes no anchor. Every page that
       // tags with one of its keys is then refused at resolution, which is the conservative answer:
       // the alternative is to resolve against a dictionary we could not confirm belongs to the tag.
-      LOGGER.debug("trie lane: field path {} does not resolve at revision {}", fieldPath, revisionNumber,
-          unresolvable);
+      LOGGER.debug("trie lane: field path {} does not resolve at revision {}", fieldPath, revisionNumber, unresolvable);
       return;
     }
     for (final LongIterator keys = pathClasses.iterator(); keys.hasNext();) {
@@ -1357,8 +1356,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         // answer, so there is no answer: drop the tag and let resolution refuse any page that uses
         // it, rather than pick one and return values that are plausible for the wrong column.
         anchors.remove(tag);
-        LOGGER.warn("trie lane: path class {} is claimed by two dictionaries ({} and {}); tag disabled", tag,
-            previous, dictionaryKey);
+        LOGGER.warn("trie lane: path class {} is claimed by two dictionaries ({} and {}); tag disabled", tag, previous,
+            dictionaryKey);
       }
     }
   }
@@ -1859,16 +1858,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // THE trie-lane resolution site, and the only one. Three properties put it here and nowhere
     // else:
     //
-    //   * It is BEFORE the first chunk attaches. getRecordPage hands back a page; expansion happens
-    //     later, in ensureChunkFor/getSlot. Nothing between the two can expand.
-    //   * It is OUTSIDE every cache compute. The FSST precedent cannot host this work for exactly
-    //     that reason -- resolveFsstSymbolTables runs INSIDE getOrLoadAndGuard's loader, where
-    //     walking a trie would be a compute inside a compute, which the underlying map forbids.
-    //     FSST escapes by pre-loading every table; an 18M-entry dictionary cannot be pre-loaded.
-    //   * It is the funnel for every route that GOES THROUGH THE CACHES. It is not literally every
-    //     route: readRecordPageFromExactReference -> readDetachedRecord surfaces a page and calls
-    //     ensureChunkFor without passing here, and the most-recently-read fast paths above return
-    //     pages this hook has already seen but a future one might not.
+    // * It is BEFORE the first chunk attaches. getRecordPage hands back a page; expansion happens
+    // later, in ensureChunkFor/getSlot. Nothing between the two can expand.
+    // * It is OUTSIDE every cache compute. The FSST precedent cannot host this work for exactly
+    // that reason -- resolveFsstSymbolTables runs INSIDE getOrLoadAndGuard's loader, where
+    // walking a trie would be a compute inside a compute, which the underlying map forbids.
+    // FSST escapes by pre-loading every table; an 18M-entry dictionary cannot be pre-loaded.
+    // * It is the funnel for every route that GOES THROUGH THE CACHES. It is not literally every
+    // route: readRecordPageFromExactReference -> readDetachedRecord surfaces a page and calls
+    // ensureChunkFor without passing here, and the most-recently-read fast paths above return
+    // pages this hook has already seen but a future one might not.
     //
     // That last point is why the injector's refusal must stay a THROW and must never become a null
     // return or a degrade. The refusal is what turns a missed route from a page with silently absent
@@ -2359,8 +2358,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final RegionsOnlyPage[] fragments = new RegionsOnlyPage[count];
     try {
       fragments[0] = pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, 0);
-      if (fragments[0] == null || !fragments[0].hasSlotBitmap()
-          || !fragments[0].hasCompleteColumnCoverage()) {
+      if (fragments[0] == null || !fragments[0].hasSlotBitmap() || !fragments[0].hasCompleteColumnCoverage()) {
         closeRegionFragments(fragments);
         return null;
       }
@@ -2904,8 +2902,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   private static boolean isReadableOverflowReference(final @Nullable PageReference reference) {
-    return reference != null && (reference.getPage() instanceof OverflowPage
-        || reference.getKey() != Constants.NULL_ID_LONG);
+    return reference != null
+        && (reference.getPage() instanceof OverflowPage || reference.getKey() != Constants.NULL_ID_LONG);
   }
 
   @Nullable
@@ -3218,8 +3216,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return switch (indexType) {
       case PATH_SUMMARY -> recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
       case REVISIONS -> recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
-      case DOCUMENT, NAME, VECTOR ->
-        recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
+      case DOCUMENT, NAME, VECTOR -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
       case PATH, CAS, PROJECTION, VALIDTIME ->
         throw new IllegalArgumentException(indexType + " indexes use HOT storage");
       default -> recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
@@ -3436,23 +3433,33 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final PageReference rootRef = switch (indexType) {
       case PATH -> {
         final PathPage pathPage = getPathPage(actualRootPage);
-        yield pathPage == null ? null : pathPage.getIndexReference(indexNumber);
+        yield pathPage == null
+            ? null
+            : pathPage.getIndexReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = getCASPage(actualRootPage);
-        yield casPage == null ? null : casPage.getIndexReference(indexNumber);
+        yield casPage == null
+            ? null
+            : casPage.getIndexReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = getNamePage(actualRootPage);
-        yield namePage == null ? null : namePage.getIndexReference(databaseType(), indexNumber);
+        yield namePage == null
+            ? null
+            : namePage.getIndexReference(databaseType(), indexNumber);
       }
       case PROJECTION -> {
         final ProjectionIndexPage projPage = getProjectionIndexPage(actualRootPage);
-        yield projPage == null ? null : projPage.getIndexReference(indexNumber);
+        yield projPage == null
+            ? null
+            : projPage.getIndexReference(indexNumber);
       }
       case VALIDTIME -> {
         final ValidTimeIndexPage vtPage = getValidTimeIndexPage(actualRootPage);
-        yield vtPage == null ? null : vtPage.getIndexReference(indexNumber);
+        yield vtPage == null
+            ? null
+            : vtPage.getIndexReference(indexNumber);
       }
       default -> null;
     };
@@ -3761,8 +3768,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         final int physicalRevision = hotFragment.getRevision();
         if (fragmentKey.revision() != physicalRevision) {
           throw new SirixIOException("HOT fragment revision mismatch at key " + fragmentKey.key()
-              + ": metadata revision=" + fragmentKey.revision() + ", physical header revision="
-              + physicalRevision);
+              + ": metadata revision=" + fragmentKey.revision() + ", physical header revision=" + physicalRevision);
         }
       }
     } catch (final Throwable loadFailed) {

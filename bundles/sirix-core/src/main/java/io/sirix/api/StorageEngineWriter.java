@@ -449,10 +449,12 @@ public interface StorageEngineWriter extends StorageEngineReader {
   /**
    * Resolve the current revision's transaction-private secondary-index container page.
    *
-   * <p>The first call for an exact revision-root slot fully copies the persisted page before it is
+   * <p>
+   * The first call for an exact revision-root slot fully copies the persisted page before it is
    * published to the transaction-intent log. Later calls return that same modified page. This is the
    * only supported mutation gateway for the PATH, CAS, NAME, PROJECTION, and VALIDTIME container
-   * pages; callers must never mutate a page obtained from the underlying reader.</p>
+   * pages; callers must never mutate a page obtained from the underlying reader.
+   * </p>
    *
    * @param indexType one of PATH, CAS, NAME, PROJECTION, or VALIDTIME
    * @param <P> the concrete container-page type selected by {@code indexType}

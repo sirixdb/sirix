@@ -103,9 +103,8 @@ final class HOTIncrementalSplitSegmentRefTest {
     final int liveBefore = frameAllocator.liveSlotCount(frameClass);
 
     try {
-      assertThrows(IllegalStateException.class,
-          () -> HOTIncrementalInsert.splitLeafPage(source, keyBytes(1), VALUE, 2, IndexType.PATH,
-              allocator::getAndIncrement));
+      assertThrows(IllegalStateException.class, () -> HOTIncrementalInsert.splitLeafPage(source, keyBytes(1), VALUE, 2,
+          IndexType.PATH, allocator::getAndIncrement));
 
       assertEquals(liveBefore, frameAllocator.liveSlotCount(frameClass),
           "neither unpublished half may survive a failed side-reference rehome");

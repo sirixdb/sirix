@@ -45,8 +45,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * which reaches its verdict through a different entry point ({@code compareToRange}).
  *
  * <p>
- * One value exceeds {@code MAX_BLOCK_BYTES}, forcing the SPILL representation, so both dispatch arms
- * of the sweep are exercised and asserted against the same reference.
+ * One value exceeds {@code MAX_BLOCK_BYTES}, forcing the SPILL representation, so both dispatch
+ * arms of the sweep are exercised and asserted against the same reference.
  */
 final class GlobalValueDictionaryStringOpVerdictTest {
 
@@ -54,32 +54,14 @@ final class GlobalValueDictionaryStringOpVerdictTest {
   private static final Path DATABASE_PATH = JsonTestHelper.PATHS.PATH1.getFile();
 
   /** Intern order = id order (1-based). */
-  private static final List<String> VALUES = List.of(
-      "",
-      "alpha",
-      "alphabet",
-      "left-google-right",
-      "\uE000-high-bmp",
-      "\uD83D\uDE00-supplementary",
-      "x".repeat(70_000) + "google",
-      "ZZZ");
+  private static final List<String> VALUES = List.of("", "alpha", "alphabet", "left-google-right", "\uE000-high-bmp",
+      "\uD83D\uDE00-supplementary", "x".repeat(70_000) + "google", "ZZZ");
 
-  private static final List<String> LITERALS = List.of(
-      "",
-      "alpha",
-      "google",
-      "\uE000",
-      "\uD83D\uDE00",
-      "zz");
+  private static final List<String> LITERALS = List.of("", "alpha", "google", "\uE000", "\uD83D\uDE00", "zz");
 
-  private static final List<ProjectionIndexScan.Op> OPS = List.of(
-      ProjectionIndexScan.Op.EQ,
-      ProjectionIndexScan.Op.NE,
-      ProjectionIndexScan.Op.STR_LT,
-      ProjectionIndexScan.Op.STR_LE,
-      ProjectionIndexScan.Op.STR_GT,
-      ProjectionIndexScan.Op.STR_GE,
-      ProjectionIndexScan.Op.STR_CONTAINS);
+  private static final List<ProjectionIndexScan.Op> OPS = List.of(ProjectionIndexScan.Op.EQ, ProjectionIndexScan.Op.NE,
+      ProjectionIndexScan.Op.STR_LT, ProjectionIndexScan.Op.STR_LE, ProjectionIndexScan.Op.STR_GT,
+      ProjectionIndexScan.Op.STR_GE, ProjectionIndexScan.Op.STR_CONTAINS);
 
   @BeforeEach
   void setUp() {
@@ -140,16 +122,16 @@ final class GlobalValueDictionaryStringOpVerdictTest {
           for (int id = 1; id <= VALUES.size(); id++) {
             final boolean expected = reference(VALUES.get(id - 1), op, literal);
             final boolean actual = (verdict[id >>> 6] & 1L << (id & 63)) != 0L;
-            assertEquals(expected, actual,
-                op + " vs " + compact(literal) + " for id " + id + " (" + compact(VALUES.get(id - 1))
-                    + ") — the verdict disagrees with the interpreter's String semantics");
+            assertEquals(expected, actual, op + " vs " + compact(literal) + " for id " + id + " ("
+                + compact(VALUES.get(id - 1)) + ") — the verdict disagrees with the interpreter's String semantics");
           }
         }
       }
       // Non-vacuity: the trap must actually be armed — the corpus must order differently under
       // UTF-16 and raw bytes for at least one (value, literal) pair, and the oversized value must
       // really have spilled rather than packed.
-      assertTrue("\uD83D\uDE00".compareTo("\uE000") < 0
+      assertTrue(
+          "\uD83D\uDE00".compareTo("\uE000") < 0
               && Arrays.compareUnsigned("\uD83D\uDE00".getBytes(StandardCharsets.UTF_8), 0, 4,
                   "\uE000".getBytes(StandardCharsets.UTF_8), 0, 3) > 0,
           "the collation trap is no longer armed — UTF-16 and byte order agree on this corpus");

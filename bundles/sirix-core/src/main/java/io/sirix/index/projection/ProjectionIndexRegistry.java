@@ -58,9 +58,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class ProjectionIndexRegistry {
 
   /**
-   * Byte bound of the per-handle string-length table memo ({@code sirix.projection.stringLength.memoBytes},
-   * default 512 MB; {@code 0} disables retention). An int per dictionary id: 72 MB for an 18M-id URL
-   * dictionary, so the default holds every global column of the 100M ClickBench resource.
+   * Byte bound of the per-handle string-length table memo
+   * ({@code sirix.projection.stringLength.memoBytes}, default 512 MB; {@code 0} disables retention).
+   * An int per dictionary id: 72 MB for an 18M-id URL dictionary, so the default holds every global
+   * column of the 100M ClickBench resource.
    */
   private static volatile long stringLengthMemoBytes =
       Math.max(0L, Long.getLong("sirix.projection.stringLength.memoBytes", 512L << 20));
@@ -199,14 +200,16 @@ public final class ProjectionIndexRegistry {
      * Every column's dictionary anchor, indexed by column, {@code 0} where the column is not global.
      *
      * <p>
-     * A COPY, because the array is the handle's own and a caller enumerating anchors must not be
-     * able to reach into it. For callers that need to act on the whole set — warming the
-     * dictionaries a resource has, rather than resolving one column's.
+     * A COPY, because the array is the handle's own and a caller enumerating anchors must not be able
+     * to reach into it. For callers that need to act on the whole set — warming the dictionaries a
+     * resource has, rather than resolving one column's.
      * </p>
      */
     public long[] valueDictionaryAnchors() {
       final long[] keys = valueDictionaryHeaderKeys;
-      return keys == null ? new long[0] : keys.clone();
+      return keys == null
+          ? new long[0]
+          : keys.clone();
     }
 
     /**
@@ -873,14 +876,13 @@ public final class ProjectionIndexRegistry {
 
     /**
      * Observed group cardinalities by GROUP-SHAPE FINGERPRINT — the pass-seeding memo. A group scan
-     * that ABORTS (groups past the per-pass budget) has paid most of a full scan before it learns
-     * the count; recording the abort-time estimate here lets the NEXT execution of the same shape
-     * start at the right pass count and never pay the aborted scan (q18 at 100M: 18.1M groups vs a
-     * 12.58M budget = one full wasted scan per TRY, hot included). Purely a performance seed: a
-     * stale or colliding entry only mis-picks the pass count, which the abort-and-restart machinery
-     * corrects — it can never change an answer. The handle's lifetime bounds staleness (a new
-     * revision is a new handle), and entries only grow (max-keep), so a transient under-estimate
-     * cannot pin a lower count.
+     * that ABORTS (groups past the per-pass budget) has paid most of a full scan before it learns the
+     * count; recording the abort-time estimate here lets the NEXT execution of the same shape start at
+     * the right pass count and never pay the aborted scan (q18 at 100M: 18.1M groups vs a 12.58M budget
+     * = one full wasted scan per TRY, hot included). Purely a performance seed: a stale or colliding
+     * entry only mis-picks the pass count, which the abort-and-restart machinery corrects — it can
+     * never change an answer. The handle's lifetime bounds staleness (a new revision is a new handle),
+     * and entries only grow (max-keep), so a transient under-estimate cannot pin a lower count.
      */
     private final Long2LongOpenHashMap observedGroupCounts = new Long2LongOpenHashMap();
 
@@ -902,18 +904,18 @@ public final class ProjectionIndexRegistry {
 
     /**
      * The completed hash-range pass set of each group shape, by shape fingerprint: the exact group
-     * count the merged partitions summed to (or, when a pass count seeded from the memo aborted
-     * anyway, the count the completing pass count implies at its budget) and the pass count that
-     * completed. Kept apart from {@link #observedGroupCounts} because the two disagree in kind: the
-     * abort-time figure extrapolates the groups seen so far over the unscanned leaves, and a
-     * distinct-arrival rate that decays (the heavy hitters are met early) makes it OVERSHOOT — q16 at
-     * 100M memoed past twice the budget from an abort and then ran four seeded passes on every hot
-     * try where two held, so its hot tries were slower than the cold one that had aborted. The pass
-     * count travels with the count because a pass is judged by the groups it FLUSHED, not by the
-     * groups it held: a pass set that completed held more per pass than the budget says a pass
-     * holds, and the count alone re-seeds twice the passes that held. A completed scan is
-     * overwritten, never max-kept: the newest completed scan is the truth of this shape, and a
-     * colliding shape's memo only mis-seeds a pass count the abort corrects.
+     * count the merged partitions summed to (or, when a pass count seeded from the memo aborted anyway,
+     * the count the completing pass count implies at its budget) and the pass count that completed.
+     * Kept apart from {@link #observedGroupCounts} because the two disagree in kind: the abort-time
+     * figure extrapolates the groups seen so far over the unscanned leaves, and a distinct-arrival rate
+     * that decays (the heavy hitters are met early) makes it OVERSHOOT — q16 at 100M memoed past twice
+     * the budget from an abort and then ran four seeded passes on every hot try where two held, so its
+     * hot tries were slower than the cold one that had aborted. The pass count travels with the count
+     * because a pass is judged by the groups it FLUSHED, not by the groups it held: a pass set that
+     * completed held more per pass than the budget says a pass holds, and the count alone re-seeds
+     * twice the passes that held. A completed scan is overwritten, never max-kept: the newest completed
+     * scan is the truth of this shape, and a colliding shape's memo only mis-seeds a pass count the
+     * abort corrects.
      */
     private final Long2ObjectOpenHashMap<CompletedGroupScan> completedGroupScans = new Long2ObjectOpenHashMap<>();
 
@@ -936,7 +938,10 @@ public final class ProjectionIndexRegistry {
       }
     }
 
-    /** Record a completed pass set — its group count and the pass count that completed; the newest overwrites. */
+    /**
+     * Record a completed pass set — its group count and the pass count that completed; the newest
+     * overwrites.
+     */
     public void noteCompletedGroupScan(final long fingerprint, final long groups, final int passes) {
       if (groups <= 0L || passes <= 0) {
         return;
@@ -949,13 +954,13 @@ public final class ProjectionIndexRegistry {
 
     /**
      * Dictionary-string columns whose EVERY per-leaf dictionary entry was proven pairwise distinct
-     * under a {@link ProjectionStringIdentityRegistry.Fingerprint}, by column ordinal. A verdict is
-     * a property of the column's data in this handle's revision, so it holds for every later scan
-     * over the column whatever its predicates: a subset of pairwise-distinct strings is pairwise
-     * distinct. Keyed by the fingerprint INSTANCE the proof ran under — a test that installs an
-     * adversarial fingerprint must not inherit a verdict the production functions earned. Only a
-     * PROVEN verdict is ever stored: a collision or a budget refusal declines that query and leaves
-     * the memo untouched, so the next query proves again.
+     * under a {@link ProjectionStringIdentityRegistry.Fingerprint}, by column ordinal. A verdict is a
+     * property of the column's data in this handle's revision, so it holds for every later scan over
+     * the column whatever its predicates: a subset of pairwise-distinct strings is pairwise distinct.
+     * Keyed by the fingerprint INSTANCE the proof ran under — a test that installs an adversarial
+     * fingerprint must not inherit a verdict the production functions earned. Only a PROVEN verdict is
+     * ever stored: a collision or a budget refusal declines that query and leaves the memo untouched,
+     * so the next query proves again.
      */
     private final Int2ObjectOpenHashMap<ProjectionStringIdentityRegistry.Fingerprint> provenStringIdentities =
         new Int2ObjectOpenHashMap<>();
@@ -967,7 +972,8 @@ public final class ProjectionIndexRegistry {
      * @param fingerprint the fingerprint the asking registry proves under
      * @return {@code true} when a scan over the column needs no identity proof
      */
-    public boolean stringIdentityProven(final int column, final ProjectionStringIdentityRegistry.Fingerprint fingerprint) {
+    public boolean stringIdentityProven(final int column,
+        final ProjectionStringIdentityRegistry.Fingerprint fingerprint) {
       Objects.requireNonNull(fingerprint, "fingerprint must not be null");
       synchronized (provenStringIdentities) {
         return provenStringIdentities.get(column) == fingerprint;
@@ -976,13 +982,14 @@ public final class ProjectionIndexRegistry {
 
     /**
      * Record that a FULL-coverage scan proved every dictionary entry of {@code column} pairwise
-     * distinct under {@code fingerprint}. Callers must have proven every entry of every leaf — a
-     * lazy or predicated scan proves only the entries its surviving rows name and must not note.
+     * distinct under {@code fingerprint}. Callers must have proven every entry of every leaf — a lazy
+     * or predicated scan proves only the entries its surviving rows name and must not note.
      *
      * @param column the column ordinal
      * @param fingerprint the fingerprint the proof ran under
      */
-    public void noteStringIdentityProven(final int column, final ProjectionStringIdentityRegistry.Fingerprint fingerprint) {
+    public void noteStringIdentityProven(final int column,
+        final ProjectionStringIdentityRegistry.Fingerprint fingerprint) {
       Objects.requireNonNull(fingerprint, "fingerprint must not be null");
       if (column < 0) {
         throw new IllegalArgumentException("column must be >= 0: " + column);
@@ -994,12 +1001,12 @@ public final class ProjectionIndexRegistry {
 
     /**
      * Per-id string-length tables of GLOBAL dictionary columns, by {@code (dictionary header key,
-     * length mode)}: what {@code AVG(length(col))} over a global column indexes per row. A table is
-     * one walk of the whole dictionary — every block decoded once, ~18M ids for URL at 100M — and it
-     * is a pure function of the dictionary this handle's build revision reads, so the first query to
-     * need it derives it and every later one indexes it. Retention is bounded in BYTES by
-     * {@code sirix.projection.stringLength.memoBytes}; past the bound a table is still returned to its query but
-     * not kept (the "0 disables" of the property is the kill switch).
+     * length mode)}: what {@code AVG(length(col))} over a global column indexes per row. A table is one
+     * walk of the whole dictionary — every block decoded once, ~18M ids for URL at 100M — and it is a
+     * pure function of the dictionary this handle's build revision reads, so the first query to need it
+     * derives it and every later one indexes it. Retention is bounded in BYTES by
+     * {@code sirix.projection.stringLength.memoBytes}; past the bound a table is still returned to its
+     * query but not kept (the "0 disables" of the property is the kill switch).
      */
     private final Long2ObjectOpenHashMap<int[]> stringLengthTables = new Long2ObjectOpenHashMap<>();
 

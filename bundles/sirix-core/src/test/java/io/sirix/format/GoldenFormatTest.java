@@ -323,8 +323,7 @@ public final class GoldenFormatTest {
           // taken from the free range above 59, NO existing id moved, and the kind only ever appears
           // inside a projection index built by a version that knows it -- so a database written
           // before it existed cannot contain one and still reads unchanged.
-          + "VALUE_DICTIONARY_BLOCK_INDEX=60,"
-          + "PROJECTION_INDEX_LEAF=44,VALUE_DICTIONARY_COLLISION=45,"
+          + "VALUE_DICTIONARY_BLOCK_INDEX=60," + "PROJECTION_INDEX_LEAF=44,VALUE_DICTIONARY_COLLISION=45,"
           + "VECTOR_NODE=56,VECTOR_INDEX_METADATA=58,UNKNOWN=22";
 
   @Test

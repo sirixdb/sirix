@@ -24,11 +24,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * dictionary MINTS must be the same numbers.
  *
  * <p>
- * They are produced by two independently written pieces of code — {@link SegmentScopedDictionaries}'
- * counter and {@link GlobalValueDictionaryWriter#intern}'s {@code entryCount + 1} — and if they ever
- * disagree, every page of the segment resolves to a plausible WRONG value with no exception anywhere.
- * That is the failure this test exists for; the dictionary-writing half needs a storage writer and is
- * exercised where the load runs.
+ * They are produced by two independently written pieces of code —
+ * {@link SegmentScopedDictionaries}' counter and {@link GlobalValueDictionaryWriter#intern}'s
+ * {@code entryCount + 1} — and if they ever disagree, every page of the segment resolves to a
+ * plausible WRONG value with no exception anywhere. That is the failure this test exists for; the
+ * dictionary-writing half needs a storage writer and is exercised where the load runs.
  * </p>
  */
 final class SegmentDictionaryIdAlignmentTest {

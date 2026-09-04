@@ -48,8 +48,8 @@ final class HOTDirectionOneSplitHalfAtomicityTest {
     final HOTIndirectPage leftHalf = (HOTIndirectPage) split.left().getPage();
 
     try {
-      assertTrue(fixture.writer.directionOneForTest(shape.route, shape.originalNode, split, leftHalf,
-          shape.insertedKey, value(0x51)));
+      assertTrue(fixture.writer.directionOneForTest(shape.route, shape.originalNode, split, leftHalf, shape.insertedKey,
+          value(0x51)));
 
       Page root = fixture.resolve(shape.rootRef);
       assertEquals(34, countEntries(root, fixture));
@@ -80,9 +80,9 @@ final class HOTDirectionOneSplitHalfAtomicityTest {
     final HOTIndirectPage leftHalf = (HOTIndirectPage) split.left().getPage();
 
     try {
-      final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
-          () -> fixture.writer.directionOneForTest(shape.route, shape.originalNode, split, leftHalf,
-              shape.insertedKey, value(0x51)));
+      final IllegalArgumentException failure =
+          assertThrows(IllegalArgumentException.class, () -> fixture.writer.directionOneForTest(shape.route,
+              shape.originalNode, split, leftHalf, shape.insertedKey, value(0x51)));
 
       assertSame(sentinel, failure);
       assertSame(shape.originalNode, shape.rootRef.getPage(),
@@ -128,14 +128,12 @@ final class HOTDirectionOneSplitHalfAtomicityTest {
         tallLowLeaf = leaf(pageKeys.getAndIncrement(), key(0x50), value(0x50));
         final HOTLeafPage tallHighLeaf = leaf(pageKeys.getAndIncrement(), key(0x54), value(0x54));
         tallLowRef = durableReference(tallLowLeaf, 200 + slot * 2L);
-        tallChild = HOTIndirectPage.createSpanNode(pageKeys.getAndIncrement(), 1, 0, 1L << (63 - 5),
-            new int[] {0, 1},
+        tallChild = HOTIndirectPage.createSpanNode(pageKeys.getAndIncrement(), 1, 0, 1L << (63 - 5), new int[] {0, 1},
             new PageReference[] {tallLowRef, durableReference(tallHighLeaf, 201 + slot * 2L)}, 1);
         tallChildRef = durableReference(tallChild, 300 + slot);
         children[slot] = tallChildRef;
       } else {
-        children[slot] = durableReference(leaf(pageKeys.getAndIncrement(), key(slot << 3), value(slot)),
-            300 + slot);
+        children[slot] = durableReference(leaf(pageKeys.getAndIncrement(), key(slot << 3), value(slot)), 300 + slot);
       }
     }
     final HOTIndirectPage originalNode = HOTIndirectPage.createMultiNode(pageKeys.getAndIncrement(), 1, 0,
@@ -200,8 +198,8 @@ final class HOTDirectionOneSplitHalfAtomicityTest {
     final HOTIndirectPage indirect = (HOTIndirectPage) page;
     int maxChildHeight = 0;
     for (int i = 0; i < indirect.getNumChildren(); i++) {
-      maxChildHeight = Math.max(maxChildHeight,
-          assertExactStoredHeights(fixture.resolve(indirect.getChildReference(i)), fixture));
+      maxChildHeight =
+          Math.max(maxChildHeight, assertExactStoredHeights(fixture.resolve(indirect.getChildReference(i)), fixture));
     }
     final int exactHeight = maxChildHeight + 1;
     assertEquals(exactHeight, indirect.getHeight(), "stale height at page " + indirect.getPageKey());
@@ -260,12 +258,12 @@ final class HOTDirectionOneSplitHalfAtomicityTest {
   }
 
   private record FullNodeShape(PageReference rootRef, HOTIndirectPage originalNode, PageReference tallChildRef,
-                               HOTIndirectPage tallChild, PageReference tallLowRef, HOTLeafPage tallLowLeaf,
-                               byte[] insertedKey, AbstractHOTIndexWriter.LeafNavigationResult route) {
+      HOTIndirectPage tallChild, PageReference tallLowRef, HOTLeafPage tallLowLeaf, byte[] insertedKey,
+      AbstractHOTIndexWriter.LeafNavigationResult route) {
   }
 
   private record WriterFixture(StorageEngineWriter storageEngineWriter, TestIndexWriter writer,
-                               Map<PageReference, PageContainer> logged) {
+      Map<PageReference, PageContainer> logged) {
     private Page resolve(final PageReference reference) {
       final PageContainer container = logged.get(reference);
       if (container != null) {

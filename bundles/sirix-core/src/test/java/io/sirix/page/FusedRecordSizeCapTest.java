@@ -108,8 +108,8 @@ final class FusedRecordSizeCapTest {
 
       final BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserialized = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE
-          .deserializePage(config, source, SerializationType.DATA);
+      deserialized =
+          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, SerializationType.DATA);
       assertArrayEquals(page.getSlotAsByteArray(0), deserialized.getSlotAsByteArray(0),
           "the newly-inline record has to survive the round trip, elision and all");
       assertArrayEquals(page.getSlotAsByteArray(1), deserialized.getSlotAsByteArray(1),
@@ -134,16 +134,15 @@ final class FusedRecordSizeCapTest {
         atTheCap[i] = (byte) i;
       }
       page.setSlot(atTheCap, 7);
-      assertThrows(IllegalArgumentException.class,
-          () -> page.setSlot(new byte[PageConstants.MAX_RECORD_SIZE + 1], 8),
+      assertThrows(IllegalArgumentException.class, () -> page.setSlot(new byte[PageConstants.MAX_RECORD_SIZE + 1], 8),
           "raw slotted-page bytes above the cap cannot be expressed by the wire directory");
 
       final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
       PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, page, SerializationType.DATA);
       final BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserialized = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE
-          .deserializePage(config, source, SerializationType.DATA);
+      deserialized =
+          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, SerializationType.DATA);
       assertArrayEquals(atTheCap, deserialized.getSlotAsByteArray(7),
           "the largest representable record must come back byte for byte");
     } finally {
@@ -156,18 +155,18 @@ final class FusedRecordSizeCapTest {
 
   /**
    * The cap decides a RECORD's fate, not the page's budget: the slotted page's backing memory still
-   * stops at {@link KeyValueLeafPage#MAX_SLOTTED_PAGE_CAPACITY} (the allocator's last size class,
-   * 256 KiB), so 1,024 slots of cap-sized records cannot all be inline whatever the cap is. What
-   * doubling the cap changes is how soon that ceiling arrives — roughly halving the records a full
-   * page holds inline — so this packs a page with cap-sized records well past the ceiling and
-   * requires that the diversion be graceful and lossless. {@code ensureInlineAppendCapacity} returns
-   * false rather than growing past the last size class, and the record goes to the page's
-   * {@code OverflowSlotSidecar} instead. Measured here: 253 of 1,024 cap-sized records stay in the
-   * heap (253,000 B) and 771 become side slots; at the old cap the same page held 495 inline. The
-   * sidecar needed no change — its {@code MAX_IMAGE_BYTES} aliases the cap, its per-slot length is a
-   * {@code short} (1,023 is far inside it), its 18-bit in-chunk offset is unaffected because one
-   * image never exceeds the cap, and {@code MAX_LIVE_BYTES} (1,024 x cap = 1,047,552) still fits an
-   * {@code int} and only bounds a growth heuristic.
+   * stops at {@link KeyValueLeafPage#MAX_SLOTTED_PAGE_CAPACITY} (the allocator's last size class, 256
+   * KiB), so 1,024 slots of cap-sized records cannot all be inline whatever the cap is. What doubling
+   * the cap changes is how soon that ceiling arrives — roughly halving the records a full page holds
+   * inline — so this packs a page with cap-sized records well past the ceiling and requires that the
+   * diversion be graceful and lossless. {@code ensureInlineAppendCapacity} returns false rather than
+   * growing past the last size class, and the record goes to the page's {@code OverflowSlotSidecar}
+   * instead. Measured here: 253 of 1,024 cap-sized records stay in the heap (253,000 B) and 771
+   * become side slots; at the old cap the same page held 495 inline. The sidecar needed no change —
+   * its {@code MAX_IMAGE_BYTES} aliases the cap, its per-slot length is a {@code short} (1,023 is far
+   * inside it), its 18-bit in-chunk offset is unaffected because one image never exceeds the cap, and
+   * {@code MAX_LIVE_BYTES} (1,024 x cap = 1,047,552) still fits an {@code int} and only bounds a
+   * growth heuristic.
    */
   @Test
   @DisplayName("a page packed with 1,000-byte records fills, diverts to the sidecar and round-trips")
@@ -175,8 +174,8 @@ final class FusedRecordSizeCapTest {
     final ResourceConfiguration config = newConfig();
     // Start at the smallest size class so the page has to grow its way to the ceiling under load,
     // and let the page own the frame: growth releases the previous one back to this allocator.
-    final KeyValueLeafPage page = new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1,
-        allocator.allocate(1), null, false);
+    final KeyValueLeafPage page =
+        new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, allocator.allocate(1), null, false);
     KeyValueLeafPage deserialized = null;
     try {
       final String value = "z".repeat(1_000 - FUSED_STRING_RECORD_OVERHEAD);
@@ -198,8 +197,8 @@ final class FusedRecordSizeCapTest {
 
       final BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserialized = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE
-          .deserializePage(config, source, SerializationType.DATA);
+      deserialized =
+          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, SerializationType.DATA);
       for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
         assertArrayEquals(page.getSlotAsByteArray(slot), deserialized.getSlotAsByteArray(slot),
             "slot " + slot + " did not survive the round trip");
@@ -217,15 +216,14 @@ final class FusedRecordSizeCapTest {
   }
 
   private KeyValueLeafPage newPage(final ResourceConfiguration config) {
-    return new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1,
-        arena.allocate(MemorySegmentAllocator.SIXTYFOUR_KB), null);
+    return new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, arena.allocate(MemorySegmentAllocator.SIXTYFOUR_KB),
+        null);
   }
 
   private static void writeString(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
       final String value) {
-    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L,
+    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L,
         value.getBytes(StandardCharsets.UTF_8), HASH_FN, (byte[]) null, false, null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1)));

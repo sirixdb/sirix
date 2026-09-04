@@ -26,8 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </p>
  *
  * <p>
- * The counters are process-wide and cumulative, so every assertion here is on a DELTA, and each test
- * uses tag values of its own so one test cannot read another's bytes.
+ * The counters are process-wide and cumulative, so every assertion here is on a DELTA, and each
+ * test uses tag values of its own so one test cannot read another's bytes.
  * </p>
  */
 final class StringRegionTagCensusTest {

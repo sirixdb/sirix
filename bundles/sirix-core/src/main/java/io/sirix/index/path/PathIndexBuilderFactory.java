@@ -11,8 +11,8 @@ import io.sirix.index.path.summary.PathSummaryReader;
 /** Factory for creating persistent HOT PATH index builders. */
 public final class PathIndexBuilderFactory {
   /** Creates a PATH index builder. */
-  public PathIndexBuilder create(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummaryReader,
-      final IndexDef indexDef) {
+  public PathIndexBuilder create(final StorageEngineWriter storageEngineWriter,
+      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     requireNonNull(storageEngineWriter);
     requireNonNull(indexDef);
     if (indexDef.getType() != IndexType.PATH) {

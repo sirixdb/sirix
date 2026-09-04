@@ -44,11 +44,11 @@ public final class ProjectionColumnGroupScan {
    * before the parallel fan-out (twenty workers racing the first fill would multiply the I/O) and
    * hands the shared immutable slice arrays in. {@code stringLengthModes[a]} selects codepoint or
    * UTF-8-byte length over STRING_DICT operands (null = all-numeric aggregates); a STRING_GLOBAL
-   * length operand instead supplies {@code globalLengthTables[a]}, the per-query id → length table the
-   * fold indexes with the row's id lane — no dictionary bytes are touched per leaf (the same table the
-   * whole-leaf twin and the composite arm consume). {@code cdStringDict} marks the distinct block's
-   * operand as STRING_DICT — see {@link #foldSliced} for the leaf-local-id → content-hash identity it
-   * feeds the set.
+   * length operand instead supplies {@code globalLengthTables[a]}, the per-query id → length table
+   * the fold indexes with the row's id lane — no dictionary bytes are touched per leaf (the same
+   * table the whole-leaf twin and the composite arm consume). {@code cdStringDict} marks the distinct
+   * block's operand as STRING_DICT — see {@link #foldSliced} for the leaf-local-id → content-hash
+   * identity it feeds the set.
    */
   public static void aggregateByGroupNumericFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
@@ -380,9 +380,9 @@ public final class ProjectionColumnGroupScan {
       final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols,
       final byte[] stringLengthModes, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
       final long[] missingAcc, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
-      final GroupDistinctAccumulator.Sink distinctMissing, final long[] budget, final boolean cdStringDict, final Pattern keyRegex,
-      final String keyRegexRepl, final long[] regexDecline, final GroupDistinctBitmaps distinctBitmaps,
-      final int[][] globalLengthTables, final long[] globalKeyHashes) {
+      final GroupDistinctAccumulator.Sink distinctMissing, final long[] budget, final boolean cdStringDict,
+      final Pattern keyRegex, final String keyRegexRepl, final long[] regexDecline,
+      final GroupDistinctBitmaps distinctBitmaps, final int[][] globalLengthTables, final long[] globalKeyHashes) {
     if (predicates == null || out == null || missingAcc == null || aggCols == null) {
       throw new IllegalArgumentException("predicates, out, missingAcc and aggCols must not be null");
     }
@@ -625,7 +625,8 @@ public final class ProjectionColumnGroupScan {
                       bit, rowIdx, distinctBlock, distinctBlock >= 0 && localWords == null
                           ? distinctOut.sinkFor(0L)
                           : null,
-                      budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, zeroWords, sumExactMask, globalLengthTables);
+                      budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, zeroWords, sumExactMask,
+                      globalLengthTables);
                 }
                 continue;
               }
@@ -706,9 +707,9 @@ public final class ProjectionColumnGroupScan {
   private static void foldSliced(final long[] slotArr, final int base, final long[][] aggValues,
       final long[][] aggPresence, final int[][] aggIds, final int[][] stringLengths, final byte[] stringLengthModes,
       final int aggCount, final int w, final int bit, final int rowIdx, final int distinctBlock,
-      final GroupDistinctAccumulator.Sink dset, final long[] budget, final byte[] cdDictBytes, final int[] cdDictOffsets,
-      final long[] cdHash, final GroupDistinctBitmaps bitmaps, final long[] dwords, final long sumExactMask,
-      final int[][] globalLengthTables) {
+      final GroupDistinctAccumulator.Sink dset, final long[] budget, final byte[] cdDictBytes,
+      final int[] cdDictOffsets, final long[] cdHash, final GroupDistinctBitmaps bitmaps, final long[] dwords,
+      final long sumExactMask, final int[][] globalLengthTables) {
     slotArr[base]++;
     for (int a = 0; a < aggCount; a++) {
       final boolean stringLengthAgg =
@@ -748,7 +749,8 @@ public final class ProjectionColumnGroupScan {
           if (!bitmaps.set(dwords, v)) {
             budget[1] = 1; // id outside the sized range — decline; a dropped id is a low count
           }
-        } else dset.add(v); // exact and bounded inside the shared accumulator; its overrun declines the arm
+        } else
+          dset.add(v); // exact and bounded inside the shared accumulator; its overrun declines the arm
         continue;
       }
       final int aggBase = base + 2 + 4 * a;
@@ -830,9 +832,9 @@ public final class ProjectionColumnGroupScan {
    * winners re-read key parts from slices.
    */
   /**
-   * Identity written under a set presence-mask bit for a component with no value at all. The mask
-   * bit is what makes it unambiguous — a real value may encode to any bit pattern, but never with
-   * its mask bit set.
+   * Identity written under a set presence-mask bit for a component with no value at all. The mask bit
+   * is what makes it unambiguous — a real value may encode to any bit pattern, but never with its
+   * mask bit set.
    */
   private static final long MISSING_COMPONENT_IDENTITY = 0L;
 
@@ -843,10 +845,10 @@ public final class ProjectionColumnGroupScan {
       final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
       final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[][] keyCols,
       final byte[] keyKinds, final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf,
-      final NumericGroupAggTable out, final int distinctBlock,
-      final GroupDistinctAccumulator.Worker distinctOut, final long[] budget, final long[] keyOffsets,
-      final int[] keySubstr, final long[] declineFlag, final int[] keyCondCols, final ColumnSlice[][] condCols,
-      final long[] keyCondLits, final byte[][] keyCondElseBytes, final long[] keyDivMod) {
+      final NumericGroupAggTable out, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
+      final long[] budget, final long[] keyOffsets, final int[] keySubstr, final long[] declineFlag,
+      final int[] keyCondCols, final ColumnSlice[][] condCols, final long[] keyCondLits,
+      final byte[][] keyCondElseBytes, final long[] keyDivMod) {
     aggregateByGroupCompositeFlat(store, predicates, predCols, treeOrNull, treeCols, keyCols, keyKinds, aggCols,
         fromLeaf, toLeaf, out, distinctBlock, distinctOut, budget, keyOffsets, keySubstr, declineFlag, keyCondCols,
         condCols, keyCondLits, keyCondElseBytes, keyDivMod, null);
@@ -857,11 +859,10 @@ public final class ProjectionColumnGroupScan {
       final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
       final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[][] keyCols,
       final byte[] keyKinds, final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf,
-      final NumericGroupAggTable out, final int distinctBlock,
-      final GroupDistinctAccumulator.Worker distinctOut, final long[] budget, final long[] keyOffsets,
-      final int[] keySubstr, final long[] declineFlag, final int[] keyCondCols, final ColumnSlice[][] condCols,
-      final long[] keyCondLits, final byte[][] keyCondElseBytes, final long[] keyDivMod,
-      final GlobalValueDictionary.ReadView[] globalKeyViews) {
+      final NumericGroupAggTable out, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
+      final long[] budget, final long[] keyOffsets, final int[] keySubstr, final long[] declineFlag,
+      final int[] keyCondCols, final ColumnSlice[][] condCols, final long[] keyCondLits,
+      final byte[][] keyCondElseBytes, final long[] keyDivMod, final GlobalValueDictionary.ReadView[] globalKeyViews) {
     aggregateByGroupCompositeFlat(store, predicates, predCols, treeOrNull, treeCols, keyCols, keyKinds, aggCols,
         fromLeaf, toLeaf, out, distinctBlock, distinctOut, budget, keyOffsets, keySubstr, declineFlag, keyCondCols,
         condCols, keyCondLits, keyCondElseBytes, keyDivMod, globalKeyViews, null, null);
@@ -872,13 +873,13 @@ public final class ProjectionColumnGroupScan {
    * exactly.
    *
    * <p>
-   * The identity lanes of a string component are a fingerprint pair, which discriminates but does
-   * not identify: two distinct strings sharing both fingerprints would produce equal lanes, so
-   * {@link NumericGroupAggTable#acquireExact} would fold them and never report a probe-key
-   * collision. {@code identityRegistry} closes that hole by comparing canonical BYTES for every
-   * fingerprint it has seen before — in this per-leaf dictionary pass, where the bytes are already
-   * in hand and already in cache from hashing them, never per row. A scan whose registry cannot
-   * prove identity returns early and the caller declines.
+   * The identity lanes of a string component are a fingerprint pair, which discriminates but does not
+   * identify: two distinct strings sharing both fingerprints would produce equal lanes, so
+   * {@link NumericGroupAggTable#acquireExact} would fold them and never report a probe-key collision.
+   * {@code identityRegistry} closes that hole by comparing canonical BYTES for every fingerprint it
+   * has seen before — in this per-leaf dictionary pass, where the bytes are already in hand and
+   * already in cache from hashing them, never per row. A scan whose registry cannot prove identity
+   * returns early and the caller declines.
    *
    * @param identityRegistry shared across this scan's workers, or {@code null} when every component
    *        is numeric or substring-cast and therefore already exact in one lane
@@ -890,11 +891,10 @@ public final class ProjectionColumnGroupScan {
       final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
       final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[][] keyCols,
       final byte[] keyKinds, final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf,
-      final NumericGroupAggTable out, final int distinctBlock,
-      final GroupDistinctAccumulator.Worker distinctOut, final long[] budget, final long[] keyOffsets,
-      final int[] keySubstr, final long[] declineFlag, final int[] keyCondCols, final ColumnSlice[][] condCols,
-      final long[] keyCondLits, final byte[][] keyCondElseBytes, final long[] keyDivMod,
-      final GlobalValueDictionary.ReadView[] globalKeyViews,
+      final NumericGroupAggTable out, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
+      final long[] budget, final long[] keyOffsets, final int[] keySubstr, final long[] declineFlag,
+      final int[] keyCondCols, final ColumnSlice[][] condCols, final long[] keyCondLits,
+      final byte[][] keyCondElseBytes, final long[] keyDivMod, final GlobalValueDictionary.ReadView[] globalKeyViews,
       final ProjectionStringIdentityRegistry identityRegistry, final long[] globalCondElseIds) {
     if (predicates == null || out == null || aggCols == null || keyCols == null) {
       throw new IllegalArgumentException("predicates, out, aggCols and keyCols must not be null");
@@ -931,9 +931,8 @@ public final class ProjectionColumnGroupScan {
       // so without this guard they would silently serve a probabilistic identity — the exact defect
       // the registry exists to remove. Numeric and substring-cast keys are unaffected: they carry
       // their raw or cast value in an exact lane and need no registry.
-      throw new IllegalArgumentException(
-          "composite key has a dictionary-string component and therefore requires a "
-              + "ProjectionStringIdentityRegistry; the registry-less overload cannot identify it exactly");
+      throw new IllegalArgumentException("composite key has a dictionary-string component and therefore requires a "
+          + "ProjectionStringIdentityRegistry; the registry-less overload cannot identify it exactly");
     }
     final int[] idLane = CompositeGroupIdentity.laneOffsets(keyKinds, keySubstr);
     final int identityWidth = idLane[keyCount];
@@ -1551,8 +1550,8 @@ public final class ProjectionColumnGroupScan {
         dictPacked = ds.hash;
         for (int i = 0; i < dictSize; i++) {
           final int off = dictOffsets[i];
-          dictPacked[i] = ProjectionIndexByteScan.packIsoMinuteSubstring(dictBytes, off,
-              dictOffsets[i + 1] - off, subStart, subLen);
+          dictPacked[i] = ProjectionIndexByteScan.packIsoMinuteSubstring(dictBytes, off, dictOffsets[i + 1] - off,
+              subStart, subLen);
         }
       }
       for (int a = 0; a < aggCount; a++) {
@@ -1752,9 +1751,9 @@ public final class ProjectionColumnGroupScan {
    *
    * <p>
    * Lane-at-a-time, not row-at-a-time: the generic per-row {@code foldSliced} (a bit walk plus an
-   * {@code addExact} per value) cost 16 ns/row on a resident column — 100M q29 spent 0.2 s hot on
-   * ONE column. Each aggregate lane is folded over the matched-and-present words with a
-   * straight-line loop on full words and a bit walk on partial ones, into leaf-local
+   * {@code addExact} per value) cost 16 ns/row on a resident column — 100M q29 spent 0.2 s hot on ONE
+   * column. Each aggregate lane is folded over the matched-and-present words with a straight-line
+   * loop on full words and a bit walk on partial ones, into leaf-local
    * {@code [count, sum, min, max]}; exactness is decided ONCE per leaf from the fold's own extrema
    * (every partial sum is bounded by {@code count × max|v|}), and only a leaf that could have wrapped
    * is re-summed with {@code addExact} — the interpreter promotes an overflowing sum, so the arm must
@@ -1794,7 +1793,9 @@ public final class ProjectionColumnGroupScan {
     }
   }
 
-  /** Values whose magnitude is below this never wrap a 64-row straight-line block, whatever the mask. */
+  /**
+   * Values whose magnitude is below this never wrap a 64-row straight-line block, whatever the mask.
+   */
   private static final long EXACT_SUM_MAGNITUDE = 1L << 62;
 
   /**

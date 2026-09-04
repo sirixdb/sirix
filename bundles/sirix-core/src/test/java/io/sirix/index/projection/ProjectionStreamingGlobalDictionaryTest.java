@@ -53,8 +53,10 @@ final class ProjectionStreamingGlobalDictionaryTest {
     try {
       assertEquals(componentBudget, dictionary.generationBudgetBytesForTest());
       assertEquals(componentBudget, dictionary.residentFrontBudgetBytesForTest());
-      assertTrue(Math.addExact(dictionary.generationBudgetBytesForTest(), dictionary.residentFrontBudgetBytesForTest())
-          <= combinedBudget, "the two simultaneously resident caps must not double-spend the planner allocation");
+      assertTrue(
+          Math.addExact(dictionary.generationBudgetBytesForTest(),
+              dictionary.residentFrontBudgetBytesForTest()) <= combinedBudget,
+          "the two simultaneously resident caps must not double-spend the planner allocation");
     } finally {
       dictionary.release();
     }

@@ -17,7 +17,8 @@ import org.jspecify.annotations.Nullable;
 import java.util.Objects;
 
 /**
- * Resolves a trie-lane tag's ids against the resource-wide dictionaries the projection anchors name.
+ * Resolves a trie-lane tag's ids against the resource-wide dictionaries the projection anchors
+ * name.
  *
  * <p>
  * One instance belongs to one transaction and does not outlive it: it holds a
@@ -80,7 +81,9 @@ public final class TrieLaneDictionaries implements GlobalStringDictionaries {
       return previous == 1;
     }
     final boolean verdict = check(tag, dictionaryKey, recordedEntryCount);
-    accepted.put(tag, (byte) (verdict ? 1 : 2));
+    accepted.put(tag, (byte) (verdict
+        ? 1
+        : 2));
     return verdict;
   }
 
@@ -115,7 +118,9 @@ public final class TrieLaneDictionaries implements GlobalStringDictionaries {
     // ID_UNKNOWN means "the dictionary could not be read", which is not the same as "the value is
     // not there" -- but for the ENCODE direction both mean the same thing: this tag cannot be
     // written as ids, and the caller keeps its bytes.
-    return id > 0 ? id : ID_ABSENT;
+    return id > 0
+        ? id
+        : ID_ABSENT;
   }
 
   @Override
@@ -143,7 +148,9 @@ public final class TrieLaneDictionaries implements GlobalStringDictionaries {
   @Override
   public int dictionaryEntryCount(final int tag) {
     final GlobalValueDictionary.ReadView view = viewOf(tag);
-    return view == null ? 0 : view.entryCount();
+    return view == null
+        ? 0
+        : view.entryCount();
   }
 
   private GlobalValueDictionary.@Nullable ReadView viewOf(final int tag) {
@@ -184,8 +191,7 @@ public final class TrieLaneDictionaries implements GlobalStringDictionaries {
 
   /** Only so a caller can log what a refusal was about; never part of a decision. */
   public String describe(final int tag) {
-    final ValueDictionaryHeaderNode header =
-        GlobalValueDictionary.header(anchors.getOrDefault(tag, 0L), reader);
+    final ValueDictionaryHeaderNode header = GlobalValueDictionary.header(anchors.getOrDefault(tag, 0L), reader);
     return header == null
         ? "tag " + tag + " has no readable dictionary"
         : "tag " + tag + " -> dictionary " + anchors.get(tag) + " with " + header.getEntryCount() + " entries";

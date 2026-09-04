@@ -185,8 +185,8 @@ class HOTIndirectPageTest {
         partialKeys[i] = i;
       }
 
-      final HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(1L, 1, 0,
-          0xF800_0000_0000_0000L, partialKeys, children, 0);
+      final HOTIndirectPage multiNode =
+          HOTIndirectPage.createMultiNode(1L, 1, 0, 0xF800_0000_0000_0000L, partialKeys, children, 0);
 
       assertEquals(32, multiNode.getNumChildren());
       for (int partial = 0; partial < partialKeys.length; partial++) {
@@ -314,7 +314,8 @@ class HOTIndirectPageTest {
 
       final BytesIn<?> source = sink.bytesForRead();
       source.readByte(); // Skip page kind id.
-      return (HOTIndirectPage) PageKind.HOT_INDIRECT_PAGE.deserializePage(resourceConfig, source, SerializationType.DATA);
+      return (HOTIndirectPage) PageKind.HOT_INDIRECT_PAGE.deserializePage(resourceConfig, source,
+          SerializationType.DATA);
     }
   }
 }

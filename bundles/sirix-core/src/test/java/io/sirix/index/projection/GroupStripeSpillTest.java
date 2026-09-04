@@ -16,8 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The STRIPE spill: a flush copies a worker table's live stripes into per-partition append buffers
- * and the partition's table is built from them, instead of probing every flushed group into a shared
- * table mid-scan.
+ * and the partition's table is built from them, instead of probing every flushed group into a
+ * shared table mid-scan.
  *
  * <p>
  * What has to hold: the groups that come out are the ones the table spill produces, lane for lane
@@ -31,7 +31,9 @@ final class GroupStripeSpillTest {
   private static final int PARTITIONS = 32;
   private static final int SHIFT = 64 - 5;
 
-  /** One aggregate column, aux on: stripe = key + [count, firstSeen, present, sum, min, max] + aux. */
+  /**
+   * One aggregate column, aux on: stripe = key + [count, firstSeen, present, sum, min, max] + aux.
+   */
   private static NumericGroupAggTable table(final int hint, final int idWidth) {
     return new NumericGroupAggTable(1, hint, true, 0L, idWidth);
   }
@@ -68,7 +70,10 @@ final class GroupStripeSpillTest {
     chunk[base + 5] = Math.max(chunk[base + 5], value);
   }
 
-  /** Every group of every partition, as {@code key -> [count, firstSeen, present, sum, min, max, aux]}. */
+  /**
+   * Every group of every partition, as
+   * {@code key -> [count, firstSeen, present, sum, min, max, aux]}.
+   */
   private static Map<Long, long[]> drain(final GroupTableSpill spill) {
     final Map<Long, long[]> out = new HashMap<>();
     for (int p = 0; p < PARTITIONS; p++) {
@@ -104,8 +109,8 @@ final class GroupStripeSpillTest {
     final int previous = GroupTableSpill.setStripeSpillForTesting(stripeSpill);
     final int threshold = GroupTableSpill.setFlushGroupsForTesting(64);
     try {
-      final GroupTableSpill spill = new GroupTableSpill(PARTITIONS, SHIFT, hint -> table(hint, 0), 0L, 0, PARTITIONS,
-          budget);
+      final GroupTableSpill spill =
+          new GroupTableSpill(PARTITIONS, SHIFT, hint -> table(hint, 0), 0L, 0, PARTITIONS, budget);
       final List<NumericGroupAggTable> finals = new ArrayList<>();
       for (int w = 0; w < workers; w++) {
         NumericGroupAggTable local = spill.freshLocal();
@@ -271,8 +276,8 @@ final class GroupStripeSpillTest {
     source[0] = 7L; // key lane; append copies from accBase - 1
     buffer.append(source, 1, pool);
     assertEquals(1, buffer.chunkCount(), "one stripe opens one chunk");
-    assertTrue(buffer.chunk(0).length < full / 8, "and that chunk is a handful of stripes, not the pooled length: "
-        + buffer.chunk(0).length + " of " + full);
+    assertTrue(buffer.chunk(0).length < full / 8,
+        "and that chunk is a handful of stripes, not the pooled length: " + buffer.chunk(0).length + " of " + full);
     assertEquals(stride, buffer.usedLanes(0));
     assertEquals(0L, pool.hits(), "a ramp chunk is never taken from the pool");
     // Fill until the ramp reaches the pooled length: only then does the buffer draw from the pool.

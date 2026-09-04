@@ -315,13 +315,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   public static final int MAX_SLOTTED_PAGE_CAPACITY =
       (int) FrameSlotAllocator.SIZE_CLASSES[FrameSlotAllocator.SIZE_CLASSES.length - 1];
 
-  /** Reused cold-path workspace for constructing one bounded side-slot image without young-gen churn. */
+  /**
+   * Reused cold-path workspace for constructing one bounded side-slot image without young-gen churn.
+   */
   private static final ThreadLocal<MemorySegment> SIDE_SLOT_IMAGE_SCRATCH =
       ThreadLocal.withInitial(() -> MemorySegment.ofArray(new byte[OverflowSlotSidecar.MAX_IMAGE_BYTES]));
 
   /** Maximum old flyweight image plus DeltaVarIntCodec's documented nine-byte field growth. */
-  private static final ThreadLocal<MemorySegment> RESIZE_OVERFLOW_SCRATCH = ThreadLocal.withInitial(
-      () -> MemorySegment.ofArray(new byte[PageConstants.MAX_RECORD_SIZE + 9]));
+  private static final ThreadLocal<MemorySegment> RESIZE_OVERFLOW_SCRATCH =
+      ThreadLocal.withInitial(() -> MemorySegment.ofArray(new byte[PageConstants.MAX_RECORD_SIZE + 9]));
 
   /**
    * Sentinel returned by {@link #prepareHeapForDirectWriteOrOverflow(int, int)} when the record
@@ -349,9 +351,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private boolean adoptedImmutableForFlush;
 
   /**
-   * How many async-flush epochs skipped this page because its out-of-line carriers were still
-   * pending immutable side-page writes; see {@link #overflowReferenceState()}. Bounded by the flush
-   * lane, which pins after a handful of deferrals rather than retrying forever.
+   * How many async-flush epochs skipped this page because its out-of-line carriers were still pending
+   * immutable side-page writes; see {@link #overflowReferenceState()}. Bounded by the flush lane,
+   * which pins after a handful of deferrals rather than retrying forever.
    */
   private byte flushDeferrals;
 
@@ -525,8 +527,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private MemorySegment slottedPage;
 
   /**
-   * Lazily allocated scan-visible images for logical slots whose carrier could not fit in the
-   * bounded slotted-page frame. The ordinary page therefore pays only this nullable reference.
+   * Lazily allocated scan-visible images for logical slots whose carrier could not fit in the bounded
+   * slotted-page frame. The ordinary page therefore pays only this nullable reference.
    */
   private OverflowSlotSidecar overflowSlotSidecar;
 
@@ -924,13 +926,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
      * later without any serialization work now.
      */
     PENDING_SIDE_WRITES,
-    /** At least one carrier is neither durable nor staged: only the recursive final commit can write it. */
+    /**
+     * At least one carrier is neither durable nor staged: only the recursive final commit can write it.
+     */
     UNRESOLVED
   }
 
   /**
-   * Classify the carrier references of this page for the async flush lane. Allocation-free apart
-   * from the map iterator; called once per page per epoch, never per record.
+   * Classify the carrier references of this page for the async flush lane. Allocation-free apart from
+   * the map iterator; called once per page per epoch, never per record.
    */
   public OverflowReferenceState overflowReferenceState() {
     if (references.isEmpty()) {
@@ -951,7 +955,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         : OverflowReferenceState.RESOLVED;
   }
 
-  /** Epochs that deferred this page while its carriers were pending; see {@link #noteFlushDeferral()}. */
+  /**
+   * Epochs that deferred this page while its carriers were pending; see {@link #noteFlushDeferral()}.
+   */
   public int flushDeferrals() {
     return flushDeferrals;
   }
@@ -969,11 +975,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * would, but on the thread that owns the page rather than inside the background flush.
    *
    * <p>
-   * The bulk lane's cold direct-write fallbacks arrive here as heap snapshots. Left for the flush lane,
-   * they force a defensive deep copy per epoch and, once they turn into overflow carriers, leave the
-   * page with unresolved references that the background flush cannot write: the page is then pinned
-   * until the final commit, and a large load keeps every such page resident. Materializing at
-   * adoption lets the writer stage the carriers as immutable side pages instead.
+   * The bulk lane's cold direct-write fallbacks arrive here as heap snapshots. Left for the flush
+   * lane, they force a defensive deep copy per epoch and, once they turn into overflow carriers,
+   * leave the page with unresolved references that the background flush cannot write: the page is
+   * then pinned until the final commit, and a large load keeps every such page resident.
+   * Materializing at adoption lets the writer stage the carriers as immutable side pages instead.
    * </p>
    *
    * @param resourceConfiguration the resource's serialization configuration
@@ -992,8 +998,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // so a survivor would be a programming error, not a state to carry: fail loudly.
     for (int i = 0; i < pending.length; i++) {
       if (pending[i] != null) {
-        throw new IllegalStateException("materializePendingRecords left record " + pending[i].getNodeKey()
-            + " of page " + recordPageKey + " unprocessed");
+        throw new IllegalStateException("materializePendingRecords left record " + pending[i].getNodeKey() + " of page "
+            + recordPageKey + " unprocessed");
       }
     }
     records = null;
@@ -1128,8 +1134,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // path spilled the same record, making storage shape depend on the insertion API.
     final int estimatedRecordSize = fn.estimateSerializedSize();
     if (estimatedRecordSize < 0) {
-      throw new IllegalStateException("negative serialized-size estimate for " + fn.getKind() + ": "
-          + estimatedRecordSize);
+      throw new IllegalStateException(
+          "negative serialized-size estimate for " + fn.getKind() + ": " + estimatedRecordSize);
     }
     final int deweyIdOverhead = areDeweyIDsStored
         ? deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE
@@ -1347,8 +1353,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final int totalBytes = Math.addExact(recordBytes, deweyOverhead);
     final int heapEnd = cachedHeapEnd;
     if (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < totalBytes) {
-      throw new IllegalStateException("Direct write exceeded its prepared inline reservation for slot "
-          + slotOffset + ": " + totalBytes + " bytes");
+      throw new IllegalStateException("Direct write exceeded its prepared inline reservation for slot " + slotOffset
+          + ": " + totalBytes + " bytes");
     }
     addedReferences = false;
     clearSerializedCache();
@@ -1391,8 +1397,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (overflowSlotSidecar != null) {
       removeSideSlot(slotOffset);
     }
-    if (!references.isEmpty()
-        && !isFusedOverflowDescriptor(slottedPage, absOffset, recordBytes, nodeKindId)) {
+    if (!references.isEmpty() && !isFusedOverflowDescriptor(slottedPage, absOffset, recordBytes, nodeKindId)) {
       references.remove(nodeKey);
     }
 
@@ -1445,10 +1450,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Remove the live inline representation of a record that is moving to an OverflowPage.
    *
-   * <p>The old heap allocation remains below {@code heapEnd} as ordinary bump-allocation garbage,
-   * while {@code heapUsed}, the directory and the bitmap describe only live inline records. DeweyID
-   * bytes are re-installed separately by {@link #processEntries(ResourceConfiguration, DataRecord[])}
-   * because they are record metadata rather than part of the overflow payload.</p>
+   * <p>
+   * The old heap allocation remains below {@code heapEnd} as ordinary bump-allocation garbage, while
+   * {@code heapUsed}, the directory and the bitmap describe only live inline records. DeweyID bytes
+   * are re-installed separately by {@link #processEntries(ResourceConfiguration, DataRecord[])}
+   * because they are record metadata rather than part of the overflow payload.
+   * </p>
    */
   private void clearInlineSlotForOverflow(final int offset) {
     if (slottedPage == null || !PageLayout.isSlotPopulated(slottedPage, offset)) {
@@ -1583,15 +1590,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * publication, without ever exposing a partially written page slot.
    */
   private void resizeRecordFieldOffFrame(final FlyweightNode fn, final long nodeKey, final int slotIndex,
-      final int fieldIndex, final int fieldCount, final DeltaVarIntCodec.FieldEncoder encoder,
-      final long oldRecordBase, final int oldRecordOnlyLength, final int oldTotalLength, final int nodeKindId,
-      final int deweyIdLength, final int deweyIdTrailerSize) {
+      final int fieldIndex, final int fieldCount, final DeltaVarIntCodec.FieldEncoder encoder, final long oldRecordBase,
+      final int oldRecordOnlyLength, final int oldTotalLength, final int nodeKindId, final int deweyIdLength,
+      final int deweyIdTrailerSize) {
     final MemorySegment scratch = RESIZE_OVERFLOW_SCRATCH.get();
     final int newRecordLength = DeltaVarIntCodec.resizeField(slottedPage, oldRecordBase, oldRecordOnlyLength,
         fieldCount, fieldIndex, scratch, 0L, encoder);
     if (newRecordLength <= 0 || newRecordLength > scratch.byteSize()) {
-      throw new IllegalStateException("Invalid resized flyweight length for slot " + slotIndex + ": "
-          + newRecordLength);
+      throw new IllegalStateException(
+          "Invalid resized flyweight length for slot " + slotIndex + ": " + newRecordLength);
     }
     final int newTotalLength = Math.addExact(newRecordLength, deweyIdLength + deweyIdTrailerSize);
     if (newTotalLength <= PageConstants.MAX_RECORD_SIZE && ensureInlineAppendCapacity(newTotalLength)) {
@@ -1623,8 +1630,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return;
     }
 
-    retainResizedRecordForOverflow(fn, nodeKey, slotIndex, scratch, oldRecordBase,
-        oldRecordOnlyLength, deweyIdLength);
+    retainResizedRecordForOverflow(fn, nodeKey, slotIndex, scratch, oldRecordBase, oldRecordOnlyLength, deweyIdLength);
   }
 
   /**
@@ -1633,13 +1639,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * carrier at commit.
    */
   private void retainResizedRecordForOverflow(final FlyweightNode fn, final long nodeKey, final int slotIndex,
-      final MemorySegment scratch, final long oldRecordBase,
-      final int oldRecordOnlyLength, final int deweyIdLength) {
+      final MemorySegment scratch, final long oldRecordBase, final int oldRecordOnlyLength, final int deweyIdLength) {
     final byte[] deweyIdBytes;
     if (areDeweyIDsStored && deweyIdLength > 0) {
       deweyIdBytes = new byte[deweyIdLength];
-      MemorySegment.copy(slottedPage, oldRecordBase + oldRecordOnlyLength, MemorySegment.ofArray(deweyIdBytes),
-          0L, deweyIdLength);
+      MemorySegment.copy(slottedPage, oldRecordBase + oldRecordOnlyLength, MemorySegment.ofArray(deweyIdBytes), 0L,
+          deweyIdLength);
     } else {
       deweyIdBytes = null;
     }
@@ -1700,8 +1705,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return;
     }
     if (sourcePage.recordPageKey != recordPageKey) {
-      throw new IllegalArgumentException("Source and target page keys differ: " + sourcePage.recordPageKey
-          + " != " + recordPageKey);
+      throw new IllegalArgumentException(
+          "Source and target page keys differ: " + sourcePage.recordPageKey + " != " + recordPageKey);
     }
     if (sourcePage.areDeweyIDsStored != areDeweyIDsStored) {
       throw new IllegalArgumentException("Source and target disagree about DeweyID storage");
@@ -1711,8 +1716,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       final long recordKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotIndex;
       final PageReference companion = sourcePage.getPageReference(recordKey);
       if (companion == null) {
-        throw new IllegalStateException("Side-slot carrier for record " + recordKey
-            + " has no companion page reference");
+        throw new IllegalStateException(
+            "Side-slot carrier for record " + recordKey + " has no companion page reference");
       }
       final OverflowSlotSidecar sourceSidecar = sourcePage.overflowSlotSidecar;
       final MemorySegment sourceImage = sourceSidecar.image(slotIndex);
@@ -1748,8 +1753,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (sourceOverflowDescriptor) {
       sourceCompanion = sourcePage.getPageReference(recordKey);
       if (sourceCompanion == null) {
-        throw new IllegalStateException("Overflow descriptor for record " + recordKey
-            + " has no companion page reference");
+        throw new IllegalStateException(
+            "Overflow descriptor for record " + recordKey + " has no companion page reference");
       }
     } else {
       sourceCompanion = null;
@@ -1821,15 +1826,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
   }
 
-  /** Divert one complete source-inline slot when a version-combined target frame is at its ceiling. */
+  /**
+   * Divert one complete source-inline slot when a version-combined target frame is at its ceiling.
+   */
   private void spillCopiedInlineSlotToOverflow(final KeyValueLeafPage sourcePage, final int slotIndex,
       final MemorySegment srcPage, final long srcAbs, final int srcTotalLen, final int srcNodeKindId) {
     final long recordKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotIndex;
     if (sourcePage.isFusedOverflowDescriptor(slotIndex)) {
       final PageReference companion = sourcePage.getPageReference(recordKey);
       if (companion == null) {
-        throw new IllegalStateException("Overflow descriptor for record " + recordKey
-            + " has no companion page reference");
+        throw new IllegalStateException(
+            "Overflow descriptor for record " + recordKey + " has no companion page reference");
       }
       final MemorySegment sourceImage = srcPage.asSlice(srcAbs, srcTotalLen);
       final long token = prepareSideSlot(srcNodeKindId, sourceImage, srcTotalLen);
@@ -1845,8 +1852,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         : sourceDeweyId.toArray(ValueLayout.JAVA_BYTE);
     final DataRecord snapshot;
     if (srcNodeKindId > 0) {
-      final FlyweightNode flyweight = FlyweightNodeFactory.createAndBind(srcPage, slotIndex, recordKey,
-          resourceConfig.nodeHashFunction);
+      final FlyweightNode flyweight =
+          FlyweightNodeFactory.createAndBind(srcPage, slotIndex, recordKey, resourceConfig.nodeHashFunction);
       try {
         sourcePage.attachFsstSymbolTable((DataRecord) flyweight);
         if (deweyIdBytes != null && flyweight instanceof Node node) {
@@ -1859,8 +1866,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     } else {
       final int recordLength = PageLayout.getRecordOnlyLength(srcPage, slotIndex);
       final MemorySegment recordImage = srcPage.asSlice(srcAbs, recordLength);
-      snapshot = recordPersister.deserialize(new MemorySegmentBytesIn(recordImage), recordKey, deweyIdBytes,
-          resourceConfig);
+      snapshot =
+          recordPersister.deserialize(new MemorySegmentBytesIn(recordImage), recordKey, deweyIdBytes, resourceConfig);
       sourcePage.attachFsstSymbolTable(snapshot);
     }
     canonicalizeOverflowString(snapshot);
@@ -1880,8 +1887,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     final int offset =
         (int) (recordKey - ((recordKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
-    return PageLayout.isSlotPopulated(slottedPage, offset)
-        && !isFusedOverflowDescriptor(offset);
+    return PageLayout.isSlotPopulated(slottedPage, offset) && !isFusedOverflowDescriptor(offset);
   }
 
   /**
@@ -2033,8 +2039,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (slottedPage == null || currentSize <= 0) {
       throw new IllegalStateException("Cannot grow an uninitialized slotted page");
     }
-    if (currentSize >= MAX_SLOTTED_PAGE_CAPACITY
-        || currentSize > MAX_SLOTTED_PAGE_CAPACITY >>> 1) {
+    if (currentSize >= MAX_SLOTTED_PAGE_CAPACITY || currentSize > MAX_SLOTTED_PAGE_CAPACITY >>> 1) {
       throw new IllegalStateException("Slotted page is already at its capacity ceiling: " + currentSize);
     }
     final int newSize = currentSize << 1;
@@ -2043,8 +2048,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     final MemorySegment grown = segmentAllocator.allocate(newSize);
     if (grown.byteSize() < newSize || grown.byteSize() > MAX_SLOTTED_PAGE_CAPACITY) {
-      final IllegalStateException failure = new IllegalStateException(
-          "Allocator returned invalid slotted-page frame size: " + grown.byteSize());
+      final IllegalStateException failure =
+          new IllegalStateException("Allocator returned invalid slotted-page frame size: " + grown.byteSize());
       try {
         segmentAllocator.release(grown);
       } catch (final Throwable cleanupFailure) {
@@ -2204,8 +2209,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return;
     }
     if (sourceOffset < 0 || sourceOffset > source.byteSize() - dataSize) {
-      throw new IndexOutOfBoundsException("source range: offset=" + sourceOffset + ", size=" + dataSize
-          + ", capacity=" + source.byteSize());
+      throw new IndexOutOfBoundsException(
+          "source range: offset=" + sourceOffset + ", size=" + dataSize + ", capacity=" + source.byteSize());
     }
 
     // Total allocation includes DeweyID trailer when DeweyIDs are stored — mirrors setSlotToHeap.
@@ -2472,16 +2477,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Whether this page already owns the current logical value of a deferred-preservation slot.
-   * A bare reference does not suffice when the complete page says it is the companion of an inline
-   * fused descriptor; that descriptor must still be copied. New reference-only publications clear
-   * the marker at publication time, so this distinction is only a defensive reconstruction check.
+   * Whether this page already owns the current logical value of a deferred-preservation slot. A bare
+   * reference does not suffice when the complete page says it is the companion of an inline fused
+   * descriptor; that descriptor must still be copied. New reference-only publications clear the
+   * marker at publication time, so this distinction is only a defensive reconstruction check.
    */
-  private boolean hasLogicalCarrierShadowingPreservation(final int slotNumber,
-      final KeyValueLeafPage completePage) {
+  private boolean hasLogicalCarrierShadowingPreservation(final int slotNumber, final KeyValueLeafPage completePage) {
     if (records != null && records[slotNumber] != null
-        || slottedPage != null && PageLayout.isSlotPopulated(slottedPage, slotNumber)
-        || hasSideSlot(slotNumber)) {
+        || slottedPage != null && PageLayout.isSlotPopulated(slottedPage, slotNumber) || hasSideSlot(slotNumber)) {
       return true;
     }
     final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber;
@@ -2496,8 +2499,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final MemorySegment completeSlottedPage = completePage == null
         ? null
         : completePage.slottedPage;
-    return completeSlottedPage == null
-        || !PageLayout.isSlotPopulated(completeSlottedPage, slotNumber)
+    return completeSlottedPage == null || !PageLayout.isSlotPopulated(completeSlottedPage, slotNumber)
         || !completePage.isFusedOverflowDescriptor(slotNumber);
   }
 
@@ -2561,8 +2563,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         ? PageLayout.DEWEY_ID_TRAILER_SIZE
         : 0);
     if (inlineBytes > PageConstants.MAX_RECORD_SIZE) {
-      throw new IllegalArgumentException("Raw slotted-page bytes cannot be installed as an OverflowPage: "
-          + inlineBytes + " bytes for slot " + slotNumber);
+      throw new IllegalArgumentException("Raw slotted-page bytes cannot be installed as an OverflowPage: " + inlineBytes
+          + " bytes for slot " + slotNumber);
     }
     if (!ensureInlineAppendCapacity(Math.toIntExact(inlineBytes))) {
       throw new IllegalStateException("No inline capacity remains for raw slot " + slotNumber
@@ -2578,8 +2580,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /** Install a canonical generic record and its complete inline companion, if one is required. */
-  private void installCanonicalOverflowCarrier(final DataRecord record, final byte[] recordBytes,
-      final int slotNumber, final byte[] deweyIdBytes) {
+  private void installCanonicalOverflowCarrier(final DataRecord record, final byte[] recordBytes, final int slotNumber,
+      final byte[] deweyIdBytes) {
     if (record == null) {
       throw new NullPointerException("record");
     }
@@ -2587,8 +2589,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       throw new NullPointerException("recordBytes");
     }
     if (isCompressedStringRecord(record)) {
-      throw new IllegalStateException("Overflow carrier must be canonical raw before installation: "
-          + record.getNodeKey());
+      throw new IllegalStateException(
+          "Overflow carrier must be canonical raw before installation: " + record.getNodeKey());
     }
     checkSideSlotNumber(slotNumber);
     final int deweyIdLength = deweyIdBytes == null
@@ -2641,8 +2643,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           inlineDescriptorBytes = descriptorBytes;
         }
       } else {
-        throw new IllegalArgumentException("Fused overflow record has no bounded metadata carrier: kind="
-            + kindId + ", nodeKey=" + record.getNodeKey());
+        throw new IllegalArgumentException("Fused overflow record has no bounded metadata carrier: kind=" + kindId
+            + ", nodeKey=" + record.getNodeKey());
       }
     } else if (areDeweyIDsStored) {
       // Generic/non-fused records are read from their OverflowPage. Only their Dewey metadata needs
@@ -2674,8 +2676,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       final byte[] deweyIdBytes) {
     final int estimatedRecordBytes = flyweight.estimateSerializedSize();
     if (estimatedRecordBytes < 0) {
-      throw new IllegalStateException("negative serialized-size estimate for " + flyweight.getKind() + ": "
-          + estimatedRecordBytes);
+      throw new IllegalStateException(
+          "negative serialized-size estimate for " + flyweight.getKind() + ": " + estimatedRecordBytes);
     }
     final int deweyIdLength = deweyIdBytes == null
         ? 0
@@ -2705,7 +2707,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return -1;
     }
     final long total = (long) recordBytes + (areDeweyIDsStored
-        ? (deweyIdBytes == null ? 0 : deweyIdBytes.length) + PageLayout.DEWEY_ID_TRAILER_SIZE
+        ? (deweyIdBytes == null
+            ? 0
+            : deweyIdBytes.length) + PageLayout.DEWEY_ID_TRAILER_SIZE
         : 0);
     if (total > OverflowSlotSidecar.MAX_IMAGE_BYTES) {
       return -1;
@@ -2714,8 +2718,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /** Append the page-format Dewey bytes/trailer to a bounded scratch record. */
-  private int appendSideDeweyTrailer(final MemorySegment scratch, final int recordBytes,
-      final byte[] deweyIdBytes) {
+  private int appendSideDeweyTrailer(final MemorySegment scratch, final int recordBytes, final byte[] deweyIdBytes) {
     if (!areDeweyIDsStored) {
       return recordBytes;
     }
@@ -2724,8 +2727,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         : deweyIdBytes.length;
     final int totalBytes = recordBytes + deweyIdLength + PageLayout.DEWEY_ID_TRAILER_SIZE;
     if (totalBytes > OverflowSlotSidecar.MAX_IMAGE_BYTES) {
-      throw new IllegalArgumentException("Side-slot image exceeds " + OverflowSlotSidecar.MAX_IMAGE_BYTES
-          + " bytes: " + totalBytes);
+      throw new IllegalArgumentException(
+          "Side-slot image exceeds " + OverflowSlotSidecar.MAX_IMAGE_BYTES + " bytes: " + totalBytes);
     }
     if (deweyIdLength > 0) {
       MemorySegment.copy(deweyIdBytes, 0, scratch, ValueLayout.JAVA_BYTE, recordBytes, deweyIdLength);
@@ -2737,14 +2740,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Copy an FSST-decoded string slot during a multi-fragment version merge.
    *
-   * <p>The rewritten bytes are still in flyweight slotted-page format. If decompression expands the
+   * <p>
+   * The rewritten bytes are still in flyweight slotted-page format. If decompression expands the
    * record past the inline ceiling, those bytes must never be handed directly to an
    * {@link OverflowPage}: overflow readers consume the generic {@link RecordSerializer} format. In
    * that case this method materializes the source record against the source fragment's dictionary,
-   * serializes a canonical raw snapshot, and installs the correct logical carrier.</p>
+   * serializes a canonical raw snapshot, and installs the correct logical carrier.
+   * </p>
    */
-  public void copyDecompressedStringSlotFrom(final KeyValueLeafPage source, final int slotNumber,
-      final int nodeKindId, final byte[] rewritten) {
+  public void copyDecompressedStringSlotFrom(final KeyValueLeafPage source, final int slotNumber, final int nodeKindId,
+      final byte[] rewritten) {
     if (source == null) {
       throw new NullPointerException("source must not be null");
     }
@@ -2754,8 +2759,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (slotNumber < 0 || slotNumber >= Constants.NDP_NODE_COUNT) {
       throw new IllegalArgumentException("slotNumber out of range: " + slotNumber);
     }
-    if (nodeKindId != NodeKind.STRING_VALUE.getId()
-        && nodeKindId != NodeKind.OBJECT_NAMED_STRING.getId() && nodeKindId != 0) {
+    if (nodeKindId != NodeKind.STRING_VALUE.getId() && nodeKindId != NodeKind.OBJECT_NAMED_STRING.getId()
+        && nodeKindId != 0) {
       throw new IllegalArgumentException("Not a string slot kind: " + nodeKindId);
     }
     if (areDeweyIDsStored != source.areDeweyIDsStored) {
@@ -2763,8 +2768,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
 
     if (recordPageKey != source.recordPageKey) {
-      throw new IllegalArgumentException("Source and target page keys differ: " + source.recordPageKey + " != "
-          + recordPageKey);
+      throw new IllegalArgumentException(
+          "Source and target page keys differ: " + source.recordPageKey + " != " + recordPageKey);
     }
     source.ensureChunkFor(slotNumber);
     validateDecompressedStringSlot(source, slotNumber, nodeKindId, rewritten);
@@ -2792,16 +2797,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     installCanonicalOverflowCarrier(snapshot, serializeOverflowRecord(snapshot), slotNumber, deweyIdBytes);
   }
 
-  private void validateDecompressedStringSlot(final KeyValueLeafPage source, final int slotNumber,
-      final int nodeKindId, final byte[] rewritten) {
+  private void validateDecompressedStringSlot(final KeyValueLeafPage source, final int slotNumber, final int nodeKindId,
+      final byte[] rewritten) {
     final MemorySegment sourcePage = source.slottedPage;
     if (sourcePage == null || !PageLayout.isSlotPopulated(sourcePage, slotNumber)) {
       throw new IllegalArgumentException("Source slot is not populated: " + slotNumber);
     }
     final int sourceNodeKindId = PageLayout.getDirNodeKindId(sourcePage, slotNumber);
     if (sourceNodeKindId != nodeKindId) {
-      throw new IllegalArgumentException("Source slot kind changed: expected " + nodeKindId + " but found "
-          + sourceNodeKindId);
+      throw new IllegalArgumentException(
+          "Source slot kind changed: expected " + nodeKindId + " but found " + sourceNodeKindId);
     }
     if (source.isFusedObjectNamedStringOverflowDescriptor(slotNumber)) {
       throw new IllegalArgumentException("An overflow descriptor is not a complete string slot: " + slotNumber);
@@ -2815,14 +2820,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         ? NodeKind.STRING_VALUE.getId()
         : nodeKindId;
     if (recordKindId != expectedRecordKindId) {
-      throw new IllegalArgumentException("Rewritten slot kind changed: expected " + expectedRecordKindId
-          + " but found " + recordKindId);
+      throw new IllegalArgumentException(
+          "Rewritten slot kind changed: expected " + expectedRecordKindId + " but found " + recordKindId);
     }
     if (nodeKindId == 0) {
       final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber;
-      final DataRecord legacyRecord = recordPersister.deserialize(
-          new MemorySegmentBytesIn(MemorySegment.ofArray(rewritten)), nodeKey, source.getDeweyIdAsByteArray(slotNumber),
-          resourceConfig);
+      final DataRecord legacyRecord =
+          recordPersister.deserialize(new MemorySegmentBytesIn(MemorySegment.ofArray(rewritten)), nodeKey,
+              source.getDeweyIdAsByteArray(slotNumber), resourceConfig);
       if (!(legacyRecord instanceof StringNode stringNode) || stringNode.isCompressed()) {
         throw new IllegalArgumentException("Legacy rewritten slot is not a raw string record: " + slotNumber);
       }
@@ -2850,14 +2855,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       if (data == null) {
         throw new IllegalStateException("Missing legacy string slot " + slotNumber + " on page " + recordPageKey);
       }
-      final DataRecord record = recordPersister.deserialize(new MemorySegmentBytesIn(data), nodeKey, deweyIdBytes,
-          resourceConfig);
+      final DataRecord record =
+          recordPersister.deserialize(new MemorySegmentBytesIn(data), nodeKey, deweyIdBytes, resourceConfig);
       attachFsstSymbolTable(record);
       return record;
     }
 
-    final FlyweightNode flyweight = FlyweightNodeFactory.createAndBind(slottedPage, slotNumber, nodeKey,
-        resourceConfig.nodeHashFunction);
+    final FlyweightNode flyweight =
+        FlyweightNodeFactory.createAndBind(slottedPage, slotNumber, nodeKey, resourceConfig.nodeHashFunction);
     try {
       if (deweyIdBytes != null && flyweight instanceof Node node) {
         node.setDeweyIDBytes(deweyIdBytes);
@@ -2888,16 +2893,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return false;
     }
     final long recordBase = scanRecordBase(page, slotNumber);
-    final int fieldOffset = page.get(ValueLayout.JAVA_BYTE,
-        recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
+    final int fieldOffset =
+        page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
     final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT + fieldOffset;
     if (page.get(ValueLayout.JAVA_BYTE, payloadStart) != ObjectNamedStringNode.PAYLOAD_FLAG_OVERFLOW) {
       return false;
     }
     final long recordKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber;
     if (references.get(recordKey) == null) {
-      throw new IllegalStateException("Overflow descriptor for record " + recordKey
-          + " has no same-page companion reference");
+      throw new IllegalStateException(
+          "Overflow descriptor for record " + recordKey + " has no same-page companion reference");
     }
     return true;
   }
@@ -2909,16 +2914,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return false;
     }
     final long recordBase = scanRecordBase(page, slotNumber);
-    final int fieldOffset = page.get(ValueLayout.JAVA_BYTE,
-        recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+    final int fieldOffset =
+        page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
     final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOffset;
     if (page.get(ValueLayout.JAVA_BYTE, payloadStart) != ObjectNamedNumberNode.PAYLOAD_TYPE_OVERFLOW) {
       return false;
     }
     final long recordKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber;
     if (references.get(recordKey) == null) {
-      throw new IllegalStateException("Overflow descriptor for record " + recordKey
-          + " has no same-page companion reference");
+      throw new IllegalStateException(
+          "Overflow descriptor for record " + recordKey + " has no same-page companion reference");
     }
     return true;
   }
@@ -2930,38 +2935,36 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         || kindId == FUSED_OBJECT_NAMED_NUMBER_KIND_ID && isFusedObjectNamedNumberOverflowDescriptor(slotNumber);
   }
 
-  private static boolean isFusedObjectNamedStringOverflowDescriptor(final MemorySegment record,
-      final int nodeKindId) {
+  private static boolean isFusedObjectNamedStringOverflowDescriptor(final MemorySegment record, final int nodeKindId) {
     return isFusedObjectNamedStringOverflowDescriptor(record, 0L, record.byteSize(), nodeKindId);
   }
 
-  private static boolean isFusedObjectNamedStringOverflowDescriptor(final MemorySegment record,
-      final long recordBase, final long recordLength, final int nodeKindId) {
+  private static boolean isFusedObjectNamedStringOverflowDescriptor(final MemorySegment record, final long recordBase,
+      final long recordLength, final int nodeKindId) {
     if (nodeKindId != FUSED_OBJECT_NAMED_STRING_KIND_ID
         || recordLength < 1L + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT) {
       return false;
     }
-    final int fieldOffset = record.get(ValueLayout.JAVA_BYTE,
-        recordBase + 1L + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
+    final int fieldOffset =
+        record.get(ValueLayout.JAVA_BYTE, recordBase + 1L + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
     final long relativePayloadStart = 1L + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT + fieldOffset;
     final long payloadStart = recordBase + relativePayloadStart;
     return relativePayloadStart < recordLength
         && record.get(ValueLayout.JAVA_BYTE, payloadStart) == ObjectNamedStringNode.PAYLOAD_FLAG_OVERFLOW;
   }
 
-  private static boolean isFusedObjectNamedNumberOverflowDescriptor(final MemorySegment record,
-      final int nodeKindId) {
+  private static boolean isFusedObjectNamedNumberOverflowDescriptor(final MemorySegment record, final int nodeKindId) {
     return isFusedObjectNamedNumberOverflowDescriptor(record, 0L, record.byteSize(), nodeKindId);
   }
 
-  private static boolean isFusedObjectNamedNumberOverflowDescriptor(final MemorySegment record,
-      final long recordBase, final long recordLength, final int nodeKindId) {
+  private static boolean isFusedObjectNamedNumberOverflowDescriptor(final MemorySegment record, final long recordBase,
+      final long recordLength, final int nodeKindId) {
     if (nodeKindId != FUSED_OBJECT_NAMED_NUMBER_KIND_ID
         || recordLength < 1L + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT) {
       return false;
     }
-    final int fieldOffset = record.get(ValueLayout.JAVA_BYTE,
-        recordBase + 1L + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+    final int fieldOffset =
+        record.get(ValueLayout.JAVA_BYTE, recordBase + 1L + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
     final long relativePayloadStart = 1L + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOffset;
     final long payloadStart = recordBase + relativePayloadStart;
     return relativePayloadStart < recordLength
@@ -3035,8 +3038,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Copy a prospective side-slot image into unpublished native storage. The returned opaque token
-   * is consumed by {@link #publishSideSlot(int, long)}; this method does not alter the logical slot.
+   * Copy a prospective side-slot image into unpublished native storage. The returned opaque token is
+   * consumed by {@link #publishSideSlot(int, long)}; this method does not alter the logical slot.
    */
   public long prepareSideSlot(final int nodeKindId, final MemorySegment image, final int length) {
     OverflowSlotSidecar sidecar = overflowSlotSidecar;
@@ -4551,9 +4554,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Return one 64-slot word of the logical record bitmap without allocating a merged bitmap.
-   * Inline records are the ordinary one-load path; cold side images, same-page overflow references,
-   * and pending records are ORed in only when present.
+   * Return one 64-slot word of the logical record bitmap without allocating a merged bitmap. Inline
+   * records are the ordinary one-load path; cold side images, same-page overflow references, and
+   * pending records are ORed in only when present.
    *
    * @param wordIndex bitmap word in {@code [0, 15]}
    * @return one word whose set bits each identify a logical record exactly once
@@ -4576,8 +4579,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /** Cold merge for pages carrying non-inline logical records. */
-  private long mergeColdLogicalSlotBitmapWord(final int wordIndex, long word,
-      final OverflowSlotSidecar sidecar, final DataRecord[] pendingRecords, final boolean referencesEmpty) {
+  private long mergeColdLogicalSlotBitmapWord(final int wordIndex, long word, final OverflowSlotSidecar sidecar,
+      final DataRecord[] pendingRecords, final boolean referencesEmpty) {
     if (sidecar != null) {
       word |= sidecar.bitmapWord(wordIndex);
     }
@@ -4677,9 +4680,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Zero-allocation iteration over logical records on the page.
    * <p>
-   * The ordinary path is the inline bitmap walk. Cold overflow side images, reference-only
-   * records, and pending heap records are appended exactly once when present. The consumer returns
-   * false to stop iteration early. {@link #populatedSlots()} and {@link #populatedSlotCount()} stay
+   * The ordinary path is the inline bitmap walk. Cold overflow side images, reference-only records,
+   * and pending heap records are appended exactly once when present. The consumer returns false to
+   * stop iteration early. {@link #populatedSlots()} and {@link #populatedSlotCount()} stay
    * physical-inline APIs for version reconstruction.
    * <p>
    * Example usage:
@@ -4753,8 +4756,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           continue;
         }
         final int slot = StorageEngineReader.recordPageOffset(recordKey);
-        if (page != null && PageLayout.isSlotPopulated(page, slot)
-            || sidecar != null && sidecar.has(slot)) {
+        if (page != null && PageLayout.isSlotPopulated(page, slot) || sidecar != null && sidecar.has(slot)) {
           continue;
         }
         processed++;
@@ -4767,10 +4769,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (pendingRecords != null) {
       final long baseRecordKey = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
       for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
-        if (pendingRecords[slot] == null
-            || page != null && PageLayout.isSlotPopulated(page, slot)
-            || sidecar != null && sidecar.has(slot)
-            || hasReferences && references.containsKey(baseRecordKey + slot)) {
+        if (pendingRecords[slot] == null || page != null && PageLayout.isSlotPopulated(page, slot)
+            || sidecar != null && sidecar.has(slot) || hasReferences && references.containsKey(baseRecordKey + slot)) {
           continue;
         }
         processed++;
@@ -5109,12 +5109,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
       final MemorySegment oldSegment = sidecar.segment(slotNumber);
       final long oldBase = sidecar.offset(slotNumber);
-      final int oldDeweyLength = Short.toUnsignedInt(
-          oldSegment.get(LE.SHORT, oldBase + oldTotalLength - PageLayout.DEWEY_ID_TRAILER_SIZE));
+      final int oldDeweyLength =
+          Short.toUnsignedInt(oldSegment.get(LE.SHORT, oldBase + oldTotalLength - PageLayout.DEWEY_ID_TRAILER_SIZE));
       final int recordLength = oldTotalLength - oldDeweyLength - PageLayout.DEWEY_ID_TRAILER_SIZE;
       if (recordLength < 0) {
-        throw new IllegalStateException("Corrupt side-slot Dewey length " + oldDeweyLength + " for slot "
-            + slotNumber);
+        throw new IllegalStateException("Corrupt side-slot Dewey length " + oldDeweyLength + " for slot " + slotNumber);
       }
       final int replacementLength = recordLength + deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE;
       if (replacementLength > OverflowSlotSidecar.MAX_IMAGE_BYTES) {
@@ -5154,8 +5153,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // New total: record + deweyId + 2-byte trailer
     final int newTotalLen = recordLen + deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE;
-    final boolean canPublishInline = newTotalLen <= PageConstants.MAX_RECORD_SIZE
-        && ensureInlineAppendCapacity(newTotalLen);
+    final boolean canPublishInline =
+        newTotalLen <= PageConstants.MAX_RECORD_SIZE && ensureInlineAppendCapacity(newTotalLen);
     if (!canPublishInline) {
       if (recordLen == 0) {
         if (newTotalLen > OverflowSlotSidecar.MAX_IMAGE_BYTES) {
@@ -5179,8 +5178,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         // format consumed by OverflowPage reads. Materialize one cold snapshot and serialize that
         // canonical format instead of copying the slot bytes verbatim.
         final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber;
-        final FlyweightNode flyweight = FlyweightNodeFactory.createAndBind(slottedPage, slotNumber, nodeKey,
-            resourceConfig.nodeHashFunction);
+        final FlyweightNode flyweight =
+            FlyweightNodeFactory.createAndBind(slottedPage, slotNumber, nodeKey, resourceConfig.nodeHashFunction);
         try {
           attachFsstSymbolTable((DataRecord) flyweight);
           overflowRecord = flyweight.toSnapshot();
@@ -5196,8 +5195,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         // strand the value when a later fragment has a different table.
         final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber;
         final MemorySegment boundedRecord = slottedPage.asSlice(oldAbsStart, recordLen);
-        overflowRecord = recordPersister.deserialize(new MemorySegmentBytesIn(boundedRecord), nodeKey,
-            deweyIdBytes, resourceConfig);
+        overflowRecord =
+            recordPersister.deserialize(new MemorySegmentBytesIn(boundedRecord), nodeKey, deweyIdBytes, resourceConfig);
         attachFsstSymbolTable(overflowRecord);
         canonicalizeOverflowString(overflowRecord);
         recordBytes = serializeOverflowRecord(overflowRecord);
@@ -5258,8 +5257,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   private void requireFsstTableForOverflow(final byte[] symbolTable, final long nodeKey) {
     if (symbolTable == null || symbolTable.length == 0) {
-      throw new IllegalStateException("Compressed record " + nodeKey
-          + " cannot enter OverflowPage without its FSST symbol table");
+      throw new IllegalStateException(
+          "Compressed record " + nodeKey + " cannot enter OverflowPage without its FSST symbol table");
     }
   }
 
@@ -5296,16 +5295,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     final MemorySegment segment = sidecar.segment(offset);
     final long base = sidecar.offset(offset);
-    final int deweyIdLength = Short.toUnsignedInt(
-        segment.get(LE.SHORT, base + totalLength - PageLayout.DEWEY_ID_TRAILER_SIZE));
+    final int deweyIdLength =
+        Short.toUnsignedInt(segment.get(LE.SHORT, base + totalLength - PageLayout.DEWEY_ID_TRAILER_SIZE));
     if (deweyIdLength == 0) {
       return null;
     }
     if (deweyIdLength > totalLength - PageLayout.DEWEY_ID_TRAILER_SIZE) {
       throw new IllegalStateException("Corrupt side-slot Dewey length " + deweyIdLength + " for slot " + offset);
     }
-    return segment.asSlice(base + totalLength - PageLayout.DEWEY_ID_TRAILER_SIZE - deweyIdLength,
-        deweyIdLength).asReadOnly();
+    return segment.asSlice(base + totalLength - PageLayout.DEWEY_ID_TRAILER_SIZE - deweyIdLength, deweyIdLength)
+                  .asReadOnly();
   }
 
   @Override
@@ -5857,8 +5856,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Refuse to expand a page whose global-dictionary tags nobody resolved, naming the SITE.
    *
    * <p>
-   * The pre-pass inside the injector already refuses such a page, so this adds no safety — it adds
-   * an answer to "which route reached expansion without a reader". Chunk expansion is reached from
+   * The pre-pass inside the injector already refuses such a page, so this adds no safety — it adds an
+   * answer to "which route reached expansion without a reader". Chunk expansion is reached from
    * places with no reader on the stack at all: the writer's copy-on-write {@code deepCopy()} on the
    * flush lane, the versioning combine, and the two commit-time FSST passes. A failure reported from
    * inside the injector names a page and a tag; a failure reported here names the route that has to
@@ -5936,9 +5935,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Install the dictionary resolver used when this page's string region is (re)built.
    *
    * <p>
-   * Only the PATH-tagged encoder consults it, because the projection's anchors are keyed by path
-   * node key; a page that ends up name-tagged converts nothing, which is correct rather than a
-   * missed opportunity — a name key does not identify a column.
+   * Only the PATH-tagged encoder consults it, because the projection's anchors are keyed by path node
+   * key; a page that ends up name-tagged converts nothing, which is correct rather than a missed
+   * opportunity — a name key does not identify a column.
    * </p>
    */
   public void setGlobalStringDictionaries(final @Nullable GlobalStringDictionaries resolver) {
@@ -5981,8 +5980,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Whether a reader still owes this page a resolution pass before its chunks may expand.
    *
    * <p>
-   * Two field reads, in the order that makes the common answer cheapest: a page with no global tags
-   * — which is every page of every resource that does not use the trie lane — answers on the first.
+   * Two field reads, in the order that makes the common answer cheapest: a page with no global tags —
+   * which is every page of every resource that does not use the trie lane — answers on the first.
    * </p>
    */
   public boolean needsGlobalStringResolution() {
@@ -5993,11 +5992,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Publish the bytes a reader resolved for this page's global tags.
    *
    * <p>
-   * BYTES, never the resolver that produced them — a resolver holds a transaction's reader and a
-   * page outlives transactions in the buffer cache. It is also why this is safe to publish once and
-   * share: resolution is page-determined (the page names its dictionary, and a rank-ordered
-   * dictionary only appends), so the first transaction to resolve a page fixes values that every
-   * later transaction would have computed identically.
+   * BYTES, never the resolver that produced them — a resolver holds a transaction's reader and a page
+   * outlives transactions in the buffer cache. It is also why this is safe to publish once and share:
+   * resolution is page-determined (the page names its dictionary, and a rank-ordered dictionary only
+   * appends), so the first transaction to resolve a page fixes values that every later transaction
+   * would have computed identically.
    * </p>
    *
    * <p>
@@ -6072,9 +6071,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * A sidecar slot is intentionally absent from the inline bitmap walked by every PAX builder.
-   * Until builders consume a merged inline+side iterator, retaining or deriving any column would be
-   * an incomplete-column wrong answer, so fail closed as one operation.
+   * A sidecar slot is intentionally absent from the inline bitmap walked by every PAX builder. Until
+   * builders consume a merged inline+side iterator, retaining or deriving any column would be an
+   * incomplete-column wrong answer, so fail closed as one operation.
    */
   private void dropColumnRegionsForSideSlots() {
     releaseRegionTableOwnership();
@@ -6635,10 +6634,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * True when this page's string region stores at least one tag as global dictionary ids.
    *
    * <p>
-   * Written once by deserialization, read on the return of every record-page lookup. Volatile
-   * because the writing thread (a cache loader) and the reading thread (whoever the cache hands the
-   * page to) are routinely different, and the loader's publication of the page does not by itself
-   * order this field for a reader that got the page from a later lookup.
+   * Written once by deserialization, read on the return of every record-page lookup. Volatile because
+   * the writing thread (a cache loader) and the reading thread (whoever the cache hands the page to)
+   * are routinely different, and the loader's publication of the page does not by itself order this
+   * field for a reader that got the page from a later lookup.
    * </p>
    */
   private volatile boolean hasGlobalStringTags;
@@ -6648,8 +6647,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    *
    * <p>
    * This is the field {@link #globalStringDictionaries} deliberately is NOT. F1 of the cache review
-   * says a cache may hold what a resolver produced and never the resolver itself — a resolver holds
-   * a transaction's reader, and a page in the buffer manager outlives any transaction. Value
+   * says a cache may hold what a resolver produced and never the resolver itself — a resolver holds a
+   * transaction's reader, and a page in the buffer manager outlives any transaction. Value
    * re-injection reads THIS and nothing else, so nothing on the expansion path can reach a reader.
    * </p>
    *
@@ -6905,7 +6904,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
               elementsUsable = false;
               continue;
             }
-                    elementNameKeys = grow(elementNameKeys, elementCount);
+            elementNameKeys = grow(elementNameKeys, elementCount);
             elementPathKeys = grow(elementPathKeys, elementCount);
             elementValues = grow(elementValues, elementCount);
             elementNameKeys[elementCount] = StringRegion.TAG_ORPHAN_ELEMENTS;
@@ -7026,8 +7025,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public static boolean ARRAY_ELEMENT_STRINGS_IN_REGION = Boolean.getBoolean("sirix.page.arrayElementStrings");
   /**
-   * Mutation seam for the element-staging purity rule ({@link #elementStagingStaysPure}). Tests
-   * only; {@code false} restores the refuted writer behaviour.
+   * Mutation seam for the element-staging purity rule ({@link #elementStagingStaysPure}). Tests only;
+   * {@code false} restores the refuted writer behaviour.
    */
   public static volatile boolean ELEMENT_STAGING_PURITY = true;
 
@@ -7038,9 +7037,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Whether staging this page's array-element strings stays representable after seeing a bare
-   * OBJECT or ARRAY slot — the array-membership column route's purity rule, applied identically by
-   * the writer ({@code PageKind.buildRegionTable}) and by the derive path here.
+   * Whether staging this page's array-element strings stays representable after seeing a bare OBJECT
+   * or ARRAY slot — the array-membership column route's purity rule, applied identically by the
+   * writer ({@code PageKind.buildRegionTable}) and by the derive path here.
    *
    * <p>
    * A bare OBJECT or ARRAY whose parent is an array is an ELEMENT the record-ordinal certificate
@@ -7049,8 +7048,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * (per-array refusal would make that array's strings invisible outside its truncated gap —
    * unsound). With an on-page parent the parent's kind decides; with an off-page parent only the
    * top-level container (document root or the first node) is known not to be an array. Scalars are
-   * never inspected: inside a gap they over-count into a decline, and an all-scalar orphan run
-   * leaves the page without a string column, which the orphan lookup already treats as undecidable.
+   * never inspected: inside a gap they over-count into a decline, and an all-scalar orphan run leaves
+   * the page without a string column, which the orphan lookup already treats as undecidable.
    * </p>
    */
   boolean elementStagingStaysPure(final int slot, final int kindId, final long pageKeyBase) {
@@ -7901,8 +7900,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         // band (fused form over the 512-byte cap, generic form under it). Such records take the
         // overflow-carrier route instead, which installs a fused kind-id descriptor carrying the
         // full scan metadata beside an OverflowPage holding the value.
-        final boolean fusedInlineRefused = record instanceof FlyweightNode
-            && isFusedAnyObjectNamedKindId(((NodeKind) record.getKind()).getId());
+        final boolean fusedInlineRefused =
+            record instanceof FlyweightNode && isFusedAnyObjectNamedKindId(((NodeKind) record.getKind()).getId());
         if (fusedInlineRefused || slotTotalSize > PageConstants.MAX_RECORD_SIZE
             || slotTotalSize > (long) MAX_SLOTTED_PAGE_CAPACITY - PageLayout.HEAP_START - cachedHeapEnd) {
           // Overflow page (#1076): the record is either larger than the per-record threshold or
@@ -8187,8 +8186,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
             ? 0
             : deweyId.length) + PageLayout.DEWEY_ID_TRAILER_SIZE
         : 0;
-    final long compressedEstimate = (long) node.estimateSerializedSize() - rawLength + compressedLength
-        + deweyOverhead;
+    final long compressedEstimate = (long) node.estimateSerializedSize() - rawLength + compressedLength + deweyOverhead;
     return compressedEstimate <= PageConstants.MAX_RECORD_SIZE;
   }
 

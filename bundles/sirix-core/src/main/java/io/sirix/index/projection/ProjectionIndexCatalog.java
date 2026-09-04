@@ -67,11 +67,12 @@ import java.util.concurrent.atomic.LongAdder;
  * ({@code -Dsirix.projection.cacheBytes}, default 8 GiB).</li>
  * </ul>
  *
- * <h2>Failure policy</h2> Expected non-usability (no payloads, unsupported format version, stale tombstone)
- * is cached silently. Corruption evidence (metadata that no longer matches the catalogued
- * definition, truncated leaf lists, decode failures) is logged at WARN and cached as unusable —
- * queries fall back to the always-correct generic pipeline. Unexpected transient failures (a
- * session closing mid-read, I/O errors) are logged and NOT cached, so the next query retries.
+ * <h2>Failure policy</h2> Expected non-usability (no payloads, unsupported format version, stale
+ * tombstone) is cached silently. Corruption evidence (metadata that no longer matches the
+ * catalogued definition, truncated leaf lists, decode failures) is logged at WARN and cached as
+ * unusable — queries fall back to the always-correct generic pipeline. Unexpected transient
+ * failures (a session closing mid-read, I/O errors) are logged and NOT cached, so the next query
+ * retries.
  *
  * <p>
  * Resource lifecycle: {@link #invalidateUnder(String)} drops all cached state for a
@@ -86,9 +87,8 @@ import java.util.concurrent.atomic.LongAdder;
  * decode-cache engine behind that method; the decode cache is the projection family's one
  * structural extra over the other index types, needed because the canonical descriptor/segment
  * persistence form is not the assembled scan form (the others scan their pages as stored, so the
- * buffer manager suffices). The vectorized
- * executor's committed fast path calls the cached front-end here directly so a cache hit costs no
- * transaction open.
+ * buffer manager suffices). The vectorized executor's committed fast path calls the cached
+ * front-end here directly so a cache hit costs no transaction open.
  *
  */
 public final class ProjectionIndexCatalog {

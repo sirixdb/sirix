@@ -25,10 +25,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * each destined for its own CoW-versioned segment slot, addressed from a
  * {@link RowGroupDescriptor}. The slot keeps a small payload in its HOT value and spills a larger
  * payload to an {@link io.sirix.page.OverflowPage}; descriptor bytes never duplicate segment bytes.
- * Per-segment encodings use the package-local primitives in
- * {@link ProjectionIndexRowGroupCodec} (delta/FOR record keys, FOR bit-packed numerics, packed
- * dict-ids, and marker-byte presence). That helper owns no persisted row-group envelope; this class
- * owns the one supported format, in which
+ * Per-segment encodings use the package-local primitives in {@link ProjectionIndexRowGroupCodec}
+ * (delta/FOR record keys, FOR bit-packed numerics, packed dict-ids, and marker-byte presence). That
+ * helper owns no persisted row-group envelope; this class owns the one supported format, in which
  *
  * <ul>
  * <li>a query reading column {@code c} fetches {@code BODY(c)} (+ {@code DICT(c)} for string
@@ -492,8 +491,8 @@ public final class ProjectionIndexColumnSegmentCodec {
   /**
    * Replace several columns' descriptor entries in one merge and one set of output arrays.
    * Replacements must be sorted by strictly ascending owning column. The output bitmap is cleared and
-   * receives only columns whose complete descriptor entry set (including pruning mirrors) changed.
-   * No carried segment bytes are fetched or copied.
+   * receives only columns whose complete descriptor entry set (including pruning mirrors) changed. No
+   * carried segment bytes are fetched or copied.
    */
   static byte[] spliceColumns(final byte[] priorDescriptor, final EncodedColumn[] replacements,
       final int replacementCount, final long[] actuallyChangedColumnWords) {
@@ -557,8 +556,12 @@ public final class ProjectionIndexColumnSegmentCodec {
     int priorIndex = 0;
     int out = 0;
     for (int region = 0; region < 2; region++) {
-      final int lowerBound = region == 0 ? 0 : DICT_HASH_SEGMENT_BASE;
-      final int upperBound = region == 0 ? DICT_HASH_SEGMENT_BASE : Integer.MAX_VALUE;
+      final int lowerBound = region == 0
+          ? 0
+          : DICT_HASH_SEGMENT_BASE;
+      final int upperBound = region == 0
+          ? DICT_HASH_SEGMENT_BASE
+          : Integer.MAX_VALUE;
       int replacementIndex = 0;
       int replacementSegmentIndex = 0;
       while (true) {
@@ -571,8 +574,7 @@ public final class ProjectionIndexColumnSegmentCodec {
               && replacementIds[replacementSegmentIndex] < lowerBound) {
             replacementSegmentIndex++;
           }
-          if (replacementSegmentIndex < replacementIds.length
-              && replacementIds[replacementSegmentIndex] < upperBound) {
+          if (replacementSegmentIndex < replacementIds.length && replacementIds[replacementSegmentIndex] < upperBound) {
             replacementId = replacementIds[replacementSegmentIndex];
             break;
           }
@@ -643,7 +645,8 @@ public final class ProjectionIndexColumnSegmentCodec {
     for (int replacementIndex = 0; replacementIndex < replacementIds.length; replacementIndex++) {
       final int priorEntry = RowGroupDescriptor.entryIndexOf(priorDescriptor, replacementIds[replacementIndex]);
       if (priorEntry < 0
-          || RowGroupDescriptor.entryByteLen(priorDescriptor, priorEntry) != replacement.segments()[replacementIndex].length
+          || RowGroupDescriptor.entryByteLen(priorDescriptor,
+              priorEntry) != replacement.segments()[replacementIndex].length
           || RowGroupDescriptor.entryContentHash(priorDescriptor,
               priorEntry) != replacement.contentHashes()[replacementIndex]
           || RowGroupDescriptor.entryColFlags(priorDescriptor, priorEntry) != replacement.entryFlags()[replacementIndex]
@@ -653,11 +656,21 @@ public final class ProjectionIndexColumnSegmentCodec {
       }
     }
     final int column = replacement.column();
-    int priorOwned = RowGroupDescriptor.entryIndexOf(priorDescriptor, bodyColumnSegmentId(column)) >= 0 ? 1 : 0;
-    priorOwned += RowGroupDescriptor.entryIndexOf(priorDescriptor, dictColumnSegmentId(column)) >= 0 ? 1 : 0;
-    priorOwned += RowGroupDescriptor.entryIndexOf(priorDescriptor, setCountsColumnSegmentId(column)) >= 0 ? 1 : 0;
-    priorOwned += RowGroupDescriptor.entryIndexOf(priorDescriptor, bloomColumnSegmentId(column)) >= 0 ? 1 : 0;
-    priorOwned += RowGroupDescriptor.entryIndexOf(priorDescriptor, dictHashColumnSegmentId(column)) >= 0 ? 1 : 0;
+    int priorOwned = RowGroupDescriptor.entryIndexOf(priorDescriptor, bodyColumnSegmentId(column)) >= 0
+        ? 1
+        : 0;
+    priorOwned += RowGroupDescriptor.entryIndexOf(priorDescriptor, dictColumnSegmentId(column)) >= 0
+        ? 1
+        : 0;
+    priorOwned += RowGroupDescriptor.entryIndexOf(priorDescriptor, setCountsColumnSegmentId(column)) >= 0
+        ? 1
+        : 0;
+    priorOwned += RowGroupDescriptor.entryIndexOf(priorDescriptor, bloomColumnSegmentId(column)) >= 0
+        ? 1
+        : 0;
+    priorOwned += RowGroupDescriptor.entryIndexOf(priorDescriptor, dictHashColumnSegmentId(column)) >= 0
+        ? 1
+        : 0;
     return priorOwned != replacementIds.length;
   }
 
@@ -683,8 +696,8 @@ public final class ProjectionIndexColumnSegmentCodec {
   private static void validateEncodedColumn(final EncodedColumn encoded) {
     final int count = encoded.columnSegmentIds().length;
     if (count == 0 || encoded.segments().length != count || encoded.contentHashes().length != count
-        || encoded.entryFlags().length != count
-        || encoded.entryMins().length != count || encoded.entryMaxs().length != count) {
+        || encoded.entryFlags().length != count || encoded.entryMins().length != count
+        || encoded.entryMaxs().length != count) {
       throw new IllegalArgumentException("encoded column arrays are not aligned");
     }
     int previous = -1;
@@ -819,8 +832,8 @@ public final class ProjectionIndexColumnSegmentCodec {
         ProjectionIndexRowGroupCodec.encodePresence(body, page.presenceColumnBits(c), rowCount);
         switch (kinds[c]) {
           case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+              ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
             ProjectionIndexRowGroupCodec.encodeForBitPacked(body, page.numericColumn(c), rowCount);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
             ProjectionIndexRowGroupCodec.encodeForBitPackedDouble(body, page.numericColumn(c), rowCount);
@@ -966,8 +979,8 @@ public final class ProjectionIndexColumnSegmentCodec {
    * <p>
    * The hash is {@link ProjectionIndexByteScan#fnv1a64} over the entry's PLAIN UTF-8 bytes — the same
    * function, over the same bytes, that a reader would apply to the decoded DICT entry. Identity is
-   * therefore bit-for-bit identical whether a fold reads this optional acceleration segment or
-   * hashes decoded dictionary entries.
+   * therefore bit-for-bit identical whether a fold reads this optional acceleration segment or hashes
+   * decoded dictionary entries.
    */
   private static byte[] encodeDictHashesPayload(final ProjectionIndexRowGroupPage page, final int column) {
     final int dictSize = page.stringDictionarySize(column);
@@ -1395,8 +1408,8 @@ public final class ProjectionIndexColumnSegmentCodec {
       switch (kinds[c]) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           numericCols[c] = ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(body, rowCount);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
           booleanCols[c] = ProjectionIndexRowGroupCodec.decodeBooleanWords(body, presWords);
@@ -1477,8 +1490,8 @@ public final class ProjectionIndexColumnSegmentCodec {
         size += switch (kinds[c]) {
           case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
               ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+              ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
             rowCount * 8;
           case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> presWords * 8;
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> dictionaryByteSize(dicts[c]) + rowCount * 4;
@@ -1559,8 +1572,8 @@ public final class ProjectionIndexColumnSegmentCodec {
         switch (kinds[c]) {
           case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
               ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+              ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
             putLongsBulk(bb, numericCols[c], rowCount);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> putLongsBulk(bb, booleanCols[c], presWords);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -1618,8 +1631,9 @@ public final class ProjectionIndexColumnSegmentCodec {
 
   /**
    * {@link #decodeBodySlice(byte[], byte[], int)} taking the presence and numeric value arrays from
-   * {@code pool} when one is given — the windowed accesses' recycling seam. The decoders overwrite every
-   * word of both arrays, so a recycled array is indistinguishable from a fresh one to the slice.
+   * {@code pool} when one is given — the windowed accesses' recycling seam. The decoders overwrite
+   * every word of both arrays, so a recycled array is indistinguishable from a fresh one to the
+   * slice.
    */
   static ProjectionColumnStore.ColumnSlice decodeBodySlice(final byte[] descriptor, final byte[] bodyColumnSegment,
       final int col, final @Nullable SliceArrayPool pool) {
@@ -2035,8 +2049,8 @@ public final class ProjectionIndexColumnSegmentCodec {
    * they fetch a segment, turning a stale mirror into attributed corruption rather than a wrong
    * answer.
    */
-  private static void verifyDescriptorMirror(final byte[] descriptor, final byte[] segment,
-      final int columnSegmentId, final int entry) {
+  private static void verifyDescriptorMirror(final byte[] descriptor, final byte[] segment, final int columnSegmentId,
+      final int entry) {
     if (columnSegmentId == keysColumnSegmentId()) {
       final int minimum = SEGMENT_HEADER_BYTES + 2 * Long.BYTES;
       if (segment.length < minimum) {
@@ -2046,9 +2060,9 @@ public final class ProjectionIndexColumnSegmentCodec {
       final long last = ProjectionIndexRowGroupCodec.getLongLE(segment, SEGMENT_HEADER_BYTES + Long.BYTES);
       if (first != RowGroupDescriptor.firstRecordKey(descriptor)
           || last != RowGroupDescriptor.lastRecordKey(descriptor)) {
-        throw new IllegalStateException("KEYS fences [" + first + ", " + last
-            + "] do not match descriptor fences [" + RowGroupDescriptor.firstRecordKey(descriptor) + ", "
-            + RowGroupDescriptor.lastRecordKey(descriptor) + "]");
+        throw new IllegalStateException("KEYS fences [" + first + ", " + last + "] do not match descriptor fences ["
+            + RowGroupDescriptor.firstRecordKey(descriptor) + ", " + RowGroupDescriptor.lastRecordKey(descriptor)
+            + "]");
       }
       return;
     }
@@ -2061,8 +2075,7 @@ public final class ProjectionIndexColumnSegmentCodec {
     final byte flags = segment[SEGMENT_HEADER_BYTES];
     if (flags != RowGroupDescriptor.entryColFlags(descriptor, entry)) {
       throw new IllegalStateException("BODY flags " + (flags & 0xFF) + " do not match descriptor flags "
-          + (RowGroupDescriptor.entryColFlags(descriptor, entry) & 0xFF) + " for columnSegmentId="
-          + columnSegmentId);
+          + (RowGroupDescriptor.entryColFlags(descriptor, entry) & 0xFF) + " for columnSegmentId=" + columnSegmentId);
     }
     if (RowGroupDescriptor.rowCount(descriptor) == 0) {
       return;
@@ -2075,9 +2088,9 @@ public final class ProjectionIndexColumnSegmentCodec {
     final long max = ProjectionIndexRowGroupCodec.getLongLE(segment, SEGMENT_HEADER_BYTES + 1 + Long.BYTES);
     if (min != RowGroupDescriptor.entryMin(descriptor, entry)
         || max != RowGroupDescriptor.entryMax(descriptor, entry)) {
-      throw new IllegalStateException("BODY zone map [" + min + ", " + max
-          + "] does not match descriptor zone map [" + RowGroupDescriptor.entryMin(descriptor, entry) + ", "
-          + RowGroupDescriptor.entryMax(descriptor, entry) + "] for columnSegmentId=" + columnSegmentId);
+      throw new IllegalStateException("BODY zone map [" + min + ", " + max + "] does not match descriptor zone map ["
+          + RowGroupDescriptor.entryMin(descriptor, entry) + ", " + RowGroupDescriptor.entryMax(descriptor, entry)
+          + "] for columnSegmentId=" + columnSegmentId);
     }
   }
 
@@ -2276,8 +2289,8 @@ public final class ProjectionIndexColumnSegmentCodec {
    *
    * <p>
    * Tied to the segment-slot inline cap, not chosen freely: past it the segment spills to a page —
-   * and a page fetch is exactly what this segment exists to avoid. A column whose values do
-   * not fit is better served by the scanning path, so nothing is written and the reader falls back.
+   * and a page fetch is exactly what this segment exists to avoid. A column whose values do not fit
+   * is better served by the scanning path, so nothing is written and the reader falls back.
    */
   private static final int MAX_SET_COUNTS_PAYLOAD_BYTES =
       ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES - SEGMENT_HEADER_BYTES;

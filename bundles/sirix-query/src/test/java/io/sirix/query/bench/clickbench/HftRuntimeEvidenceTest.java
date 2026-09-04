@@ -70,8 +70,8 @@ final class HftRuntimeEvidenceTest {
     final Path second = standaloneIdentityDirectory("identity-two", "two");
     final String classpath = classes + File.pathSeparator + first + File.pathSeparator + second;
 
-    final IllegalStateException error = assertThrows(IllegalStateException.class,
-        () -> HftRuntimeEvidence.buildIdentitySource(classes, classpath));
+    final IllegalStateException error =
+        assertThrows(IllegalStateException.class, () -> HftRuntimeEvidence.buildIdentitySource(classes, classpath));
     assertTrue(error.getMessage().contains("multiple standalone HFT build identities"));
   }
 
@@ -82,8 +82,8 @@ final class HftRuntimeEvidenceTest {
     writeIdentity(dependencyClasses, "hidden-identity");
     final String classpath = classes + File.pathSeparator + dependencyClasses;
 
-    final IllegalStateException error = assertThrows(IllegalStateException.class,
-        () -> HftRuntimeEvidence.buildIdentitySource(classes, classpath));
+    final IllegalStateException error =
+        assertThrows(IllegalStateException.class, () -> HftRuntimeEvidence.buildIdentitySource(classes, classpath));
     assertTrue(error.getMessage().contains("standalone classpath directory"));
   }
 
@@ -104,8 +104,8 @@ final class HftRuntimeEvidenceTest {
     final Path identityDirectory = standaloneIdentityDirectory("identity", "standalone-identity");
     final String classpath = otherClasses + File.pathSeparator + identityDirectory;
 
-    final IllegalStateException error = assertThrows(IllegalStateException.class,
-        () -> HftRuntimeEvidence.buildIdentitySource(classes, classpath));
+    final IllegalStateException error =
+        assertThrows(IllegalStateException.class, () -> HftRuntimeEvidence.buildIdentitySource(classes, classpath));
     assertTrue(error.getMessage().contains("main class is outside the effective runtime classpath"));
   }
 
@@ -116,8 +116,8 @@ final class HftRuntimeEvidenceTest {
     final Path identityLink = Files.createSymbolicLink(temporaryDirectory.resolve("identity-link"), identityDirectory);
     final String classpath = classes + File.pathSeparator + identityLink;
 
-    final IllegalStateException error = assertThrows(IllegalStateException.class,
-        () -> HftRuntimeEvidence.buildIdentitySource(classes, classpath));
+    final IllegalStateException error =
+        assertThrows(IllegalStateException.class, () -> HftRuntimeEvidence.buildIdentitySource(classes, classpath));
     assertTrue(error.getMessage().contains("classpath entries must not be symbolic links"));
   }
 
@@ -146,8 +146,8 @@ final class HftRuntimeEvidenceTest {
   }
 
   private static void assertOversizedIdentityRejected(final Path codeSource, final String classpath) {
-    final IllegalStateException error = assertThrows(IllegalStateException.class,
-        () -> HftRuntimeEvidence.buildIdentitySource(codeSource, classpath));
+    final IllegalStateException error =
+        assertThrows(IllegalStateException.class, () -> HftRuntimeEvidence.buildIdentitySource(codeSource, classpath));
     assertTrue(error.getMessage().contains("identity exceeds"));
   }
 

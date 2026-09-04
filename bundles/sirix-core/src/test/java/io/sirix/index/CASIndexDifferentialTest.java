@@ -224,14 +224,11 @@ final class CASIndexDifferentialTest {
           for (final boolean incMin : new boolean[] {true, false}) {
             for (final boolean incMax : new boolean[] {true, false}) {
               // The two one-sided shapes jn:valid-at issues...
-              checked +=
-                  assertChronological(controller, rtx, def, paths, probe, null, incMin, incMax, instants);
-              checked +=
-                  assertChronological(controller, rtx, def, paths, null, probe, incMin, incMax, instants);
+              checked += assertChronological(controller, rtx, def, paths, probe, null, incMin, incMax, instants);
+              checked += assertChronological(controller, rtx, def, paths, null, probe, incMin, incMax, instants);
               // ...and every two-sided window over the probe set.
               for (final String other : probes) {
-                checked +=
-                    assertChronological(controller, rtx, def, paths, probe, other, incMin, incMax, instants);
+                checked += assertChronological(controller, rtx, def, paths, probe, other, incMin, incMax, instants);
               }
             }
           }
@@ -292,10 +289,10 @@ final class CASIndexDifferentialTest {
   }
 
   /**
-   * Exercises the one persisted CAS implementation through incremental insert, value replacement
-   * and delete maintenance, then reopens every historical revision. The expected values come from
-   * a descendant scan of that revision, not from any index structure; explicit state assertions
-   * keep a coincident document/index mutation bug from becoming a false positive.
+   * Exercises the one persisted CAS implementation through incremental insert, value replacement and
+   * delete maintenance, then reopens every historical revision. The expected values come from a
+   * descendant scan of that revision, not from any index structure; explicit state assertions keep a
+   * coincident document/index mutation bug from becoming a false positive.
    */
   @ParameterizedTest(name = "incremental CAS maintenance with {0}")
   @EnumSource(VersioningType.class)
@@ -515,9 +512,11 @@ final class CASIndexDifferentialTest {
     assertEquals(expected, values(rtx, rangeHits(controller, rtx, def, path, min, max, incMin, incMax)),
         "range " + (incMin
             ? "["
-            : "(") + q(min) + "," + q(max) + (incMax
+            : "(") + q(min) + "," + q(max)
+            + (incMax
                 ? "]"
-                : ")") + " in revision " + rtx.getRevisionNumber());
+                : ")")
+            + " in revision " + rtx.getRevisionNumber());
   }
 
   private static List<String> scanNamedStringValues(final JsonNodeReadOnlyTrx rtx, final String fieldName) {
@@ -540,8 +539,7 @@ final class CASIndexDifferentialTest {
     }
   }
 
-  private static long namedStringNodeKey(final JsonNodeReadOnlyTrx rtx, final String fieldName,
-      final String value) {
+  private static long namedStringNodeKey(final JsonNodeReadOnlyTrx rtx, final String fieldName, final String value) {
     final long restoreNodeKey = rtx.getNodeKey();
     try {
       rtx.moveToDocumentRoot();
@@ -566,8 +564,7 @@ final class CASIndexDifferentialTest {
       final Axis descendants = new DescendantAxis(rtx);
       while (descendants.hasNext()) {
         descendants.nextLong();
-        if (rtx.getKind() == kind && rtx.getName() != null
-            && fieldName.equals(rtx.getName().getLocalName())) {
+        if (rtx.getKind() == kind && rtx.getName() != null && fieldName.equals(rtx.getName().getLocalName())) {
           return rtx.getNodeKey();
         }
       }

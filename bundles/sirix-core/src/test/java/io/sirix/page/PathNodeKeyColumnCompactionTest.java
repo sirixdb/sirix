@@ -34,18 +34,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Witness for the compact pathNodeKey column.
  *
  * <p>
- * The column's random-access layout spends four bytes on every dictionary key — whose spread across a
- * page is usually under a hundred — and one byte on every slot's dictionary id, on a sequence that in
- * record-shaped data walks the same field order for every record and is therefore a handful of
- * constant-stride runs. Both are re-derivable, and both are measured rather than assumed: the encoder
- * keeps the compact form only where it comes out smaller, and a reader expands it back to the
- * random-access layout once per page so every per-slot lookup stays the single popcount it was.
+ * The column's random-access layout spends four bytes on every dictionary key — whose spread across
+ * a page is usually under a hundred — and one byte on every slot's dictionary id, on a sequence
+ * that in record-shaped data walks the same field order for every record and is therefore a handful
+ * of constant-stride runs. Both are re-derivable, and both are measured rather than assumed: the
+ * encoder keeps the compact form only where it comes out smaller, and a reader expands it back to
+ * the random-access layout once per page so every per-slot lookup stays the single popcount it was.
  *
  * <p>
  * The compaction also made the column pay for itself on pages where it previously did not, which is
  * why the participation rule is witnessed here too: a slot whose pathNodeKey is the non-positive
- * "no path summary" sentinel must stay inline, because the reader's only way back reports -1 for both
- * "absent" and "stored -1".
+ * "no path summary" sentinel must stay inline, because the reader's only way back reports -1 for
+ * both "absent" and "stored -1".
  */
 @DisplayName("Compact pathNodeKey column")
 final class PathNodeKeyColumnCompactionTest {
@@ -209,8 +209,8 @@ final class PathNodeKeyColumnCompactionTest {
     final int dictBytes = numUnique * dictWidth;
     assertEquals(keys, numUnique, "every key on this fixture is distinct");
     final int dictCompressed = lz77Size(compactBuffer, 7, dictBytes);
-    assertTrue(dictCompressed * 8 < dictBytes, "a delta dictionary must compress at least eightfold — "
-        + dictCompressed + " of " + dictBytes + " bytes; the offset form came out LARGER than its input");
+    assertTrue(dictCompressed * 8 < dictBytes, "a delta dictionary must compress at least eightfold — " + dictCompressed
+        + " of " + dictBytes + " bytes; the offset form came out LARGER than its input");
 
     // And it still expands to exactly the keys it was built from.
     final byte[] expanded = new byte[legacyLength];
@@ -339,8 +339,7 @@ final class PathNodeKeyColumnCompactionTest {
 
   private void fillRecordShaped(final KeyValueLeafPage page) {
     for (int i = 0; i < RECORD_SHAPED_SLOTS; i++) {
-      writeNumber(page, i, 200 + (i % RECORD_SHAPED_FIELDS), 900 + (i % RECORD_SHAPED_FIELDS),
-          Integer.valueOf(i * 3));
+      writeNumber(page, i, 200 + (i % RECORD_SHAPED_FIELDS), 900 + (i % RECORD_SHAPED_FIELDS), Integer.valueOf(i * 3));
     }
   }
 
@@ -349,8 +348,8 @@ final class PathNodeKeyColumnCompactionTest {
   }
 
   private KeyValueLeafPage newPage(final ResourceConfiguration config) {
-    return new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1,
-        arena.allocate(MemorySegmentAllocator.SIXTYFOUR_KB), null);
+    return new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, arena.allocate(MemorySegmentAllocator.SIXTYFOUR_KB),
+        null);
   }
 
   private static KeyValueLeafPage roundTrip(final ResourceConfiguration config, final KeyValueLeafPage page) {

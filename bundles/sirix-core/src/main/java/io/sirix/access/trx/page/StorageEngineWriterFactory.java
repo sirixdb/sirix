@@ -85,9 +85,9 @@ public final class StorageEngineWriterFactory {
    */
   public StorageEngineWriter createStorageEngineWriter(
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession,
-      final UberPage uberPage, final Writer writer, final int trxId,
-      final int representRevision, final int lastStoredRevision,
-      final int lastCommitedRevision, final boolean isBoundToNodeTrx, final BufferManager bufferManager) {
+      final UberPage uberPage, final Writer writer, final int trxId, final int representRevision,
+      final int lastStoredRevision, final int lastCommitedRevision, final boolean isBoundToNodeTrx,
+      final BufferManager bufferManager) {
     final ResourceConfiguration resourceConfig = resourceSession.getResourceConfig();
     final boolean usePathSummary = resourceConfig.withPathSummary;
     // Use representRevision + 1 because that's the NEW revision being created.
@@ -97,7 +97,7 @@ public final class StorageEngineWriterFactory {
     final IndexController<?, ?> indexController = resourceSession.getWtxIndexController(newRevisionNumber);
 
     // The prospective-revision controller is cached and may still contain catalogue mutations from
-    // a transaction that is now rolling back.  This factory is the authoritative persisted-state
+    // a transaction that is now rolling back. This factory is the authoritative persisted-state
     // rebind point: start empty, then replace it with exactly lastStoredRevision's catalogue below.
     indexController.getIndexes().reset();
 
@@ -115,7 +115,8 @@ public final class StorageEngineWriterFactory {
     final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
     final TransactionIntentLog log = logFactory.createTrxIntentLog(bufferManager, resourceConfig);
 
-    // Create revision tree if needed. Note: This must happen before the storage engine reader is created.
+    // Create revision tree if needed. Note: This must happen before the storage engine reader is
+    // created.
     if (uberPage.isBootstrap()) {
       uberPage.createRevisionTree(log);
     }
@@ -128,8 +129,8 @@ public final class StorageEngineWriterFactory {
     final RevisionRootPage lastCommitedRoot = storageEngineReader.loadRevRoot(lastCommitedRevision);
     // Use temporary KeyedTrieWriter to prepare revision root page.
     final var tempKeyedTrieWriter = new KeyedTrieWriter();
-    final RevisionRootPage newRevisionRootPage =
-        tempKeyedTrieWriter.preparePreviousRevisionRootPage(uberPage, storageEngineReader, log, representRevision, lastStoredRevision);
+    final RevisionRootPage newRevisionRootPage = tempKeyedTrieWriter.preparePreviousRevisionRootPage(uberPage,
+        storageEngineReader, log, representRevision, lastStoredRevision);
     newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
     newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
     if (resourceConfig.storeNodeHistory()) {
@@ -187,14 +188,14 @@ public final class StorageEngineWriterFactory {
         log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
       }
 
-      final var revisionRootPageReference =
-          new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
+      final var revisionRootPageReference = new PageReference().setDatabaseId(storageEngineReader.getDatabaseId())
+                                                               .setResourceId(storageEngineReader.getResourceId());
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
       uberPage.setRevisionRootPageReference(revisionRootPageReference);
       uberPage.setRevisionRootPage(newRevisionRootPage);
     }
 
-    return new NodeStorageEngineWriter(writer, log, newRevisionRootPage, storageEngineReader, indexController, representRevision,
-        isBoundToNodeTrx);
+    return new NodeStorageEngineWriter(writer, log, newRevisionRootPage, storageEngineReader, indexController,
+        representRevision, isBoundToNodeTrx);
   }
 }

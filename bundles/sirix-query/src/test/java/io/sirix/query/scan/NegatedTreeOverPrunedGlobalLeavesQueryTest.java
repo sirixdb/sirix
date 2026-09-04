@@ -27,24 +27,24 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Regression witness for ClickBench q22 on the 100M build whose SearchPhrase column is STRING_GLOBAL
- * (2026-09-03). Three levers met on one leaf: the global column's {@code != ""} became zone-prunable
- * (a whole leaf of empty phrases is a collapsed zone), the WHERE carries a {@code not(contains(URL))}
- * so the predicate is a TREE with a NOT — which disarms the tree evaluator's "every operand pruned ⇒
- * no rows" shortcut — and the combined fit refused residency, so the windowed access handed the
- * kernel the zero-length pruned sentinel for the group column too. The exact evaluation produced an
- * all-zero mask but reported the leaf's row count, and the kernel read the group presence word of an
- * empty array before testing the mask: an {@code ArrayIndexOutOfBoundsException} that fell to the
- * generic pipeline for 571 s.
+ * Regression witness for ClickBench q22 on the 100M build whose SearchPhrase column is
+ * STRING_GLOBAL (2026-09-03). Three levers met on one leaf: the global column's {@code != ""}
+ * became zone-prunable (a whole leaf of empty phrases is a collapsed zone), the WHERE carries a
+ * {@code not(contains(URL))} so the predicate is a TREE with a NOT — which disarms the tree
+ * evaluator's "every operand pruned ⇒ no rows" shortcut — and the combined fit refused residency,
+ * so the windowed access handed the kernel the zero-length pruned sentinel for the group column
+ * too. The exact evaluation produced an all-zero mask but reported the leaf's row count, and the
+ * kernel read the group presence word of an empty array before testing the mask: an
+ * {@code ArrayIndexOutOfBoundsException} that fell to the generic pipeline for 571 s.
  *
  * <p>
  * The fixture makes every one of those conditions hold at 200 leaves: even leaves are all-empty
  * phrases (dropped by the NE zone), the query is q22's WHERE verbatim over its key and its count /
  * count-distinct aggregates (the string extrema are orthogonal to the seam and need a rank-ordered
  * dictionary to serve), three string columns are global, and a one-byte fill budget forces the
- * windowed route. The witnesses assert the preconditions
- * (global columns built, leaves actually pruned, windowed route engaged) and that the arm SERVED under
- * strict serving, beside the answer's equality with the interpreter's.
+ * windowed route. The witnesses assert the preconditions (global columns built, leaves actually
+ * pruned, windowed route engaged) and that the arm SERVED under strict serving, beside the answer's
+ * equality with the interpreter's.
  */
 final class NegatedTreeOverPrunedGlobalLeavesQueryTest {
   private static final String DB = "negated-tree-pruned-db";
@@ -88,8 +88,15 @@ final class NegatedTreeOverPrunedGlobalLeavesQueryTest {
       final String url = i % 5 == 0
           ? "http://mail.google.com/" + (i % 4)
           : "http://example.org/" + (i % 11);
-      sb.append("{\"phrase\":\"").append(phrase).append("\",\"title\":\"").append(title)
-        .append("\",\"url\":\"").append(url).append("\",\"uid\":").append(i % 101).append('}');
+      sb.append("{\"phrase\":\"")
+        .append(phrase)
+        .append("\",\"title\":\"")
+        .append(title)
+        .append("\",\"url\":\"")
+        .append(url)
+        .append("\",\"uid\":")
+        .append(i % 101)
+        .append('}');
     }
     sb.append(']');
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
@@ -137,10 +144,8 @@ final class NegatedTreeOverPrunedGlobalLeavesQueryTest {
   void aNegatedTreeOverKeepMaskedLeavesIsServedWindowed() throws Exception {
     final String query = "subsequence(\nfor $h in " + DOC + "\n"
         + "where contains($h.title, \"Google\") and not(contains($h.url, \".google.\")) and $h.phrase != \"\"\n"
-        + "let $g0 := $h.phrase\ngroup by $g0\n"
-        + "let $f0 := count($h)\nlet $f1 := count(distinct-values($h.uid))\n"
-        + "order by $f0 descending\n"
-        + "return {\"phrase\": $g0, \"c\": $f0, \"u\": $f1}, 1, 10)";
+        + "let $g0 := $h.phrase\ngroup by $g0\n" + "let $f0 := count($h)\nlet $f1 := count(distinct-values($h.uid))\n"
+        + "order by $f0 descending\n" + "return {\"phrase\": $g0, \"c\": $f0, \"u\": $f1}, 1, 10)";
     final String generic = run(query, false);
     assertTrue(generic.contains("\"c\":"), "the interpreter answered nothing: " + generic);
 

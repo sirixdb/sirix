@@ -91,9 +91,9 @@ public final class PageSectionDiag {
 
   /**
    * Section ids for the post-codec attribution. The body is staged as one contiguous buffer and
-   * compressed as one blob, so what any single section costs on disk is not observable from the wire —
-   * only the total is. These lanes are that total taken apart: each staged section compressed ON ITS
-   * OWN with the codec the page elected, which is an upper bound for its share (the whole body is
+   * compressed as one blob, so what any single section costs on disk is not observable from the wire
+   * — only the total is. These lanes are that total taken apart: each staged section compressed ON
+   * ITS OWN with the codec the page elected, which is an upper bound for its share (the whole body is
    * always at least as compressible as its parts, because the codec sees cross-section repetition
    * too). The gap between the sum and the real body is that cross-section gain, and it is reported.
    */
@@ -129,7 +129,9 @@ public final class PageSectionDiag {
   /** Post-codec section: the heap bytes of fused {@code OBJECT_NAMED_*} records alone. */
   public static final int SECTION_HEAP_FUSED = 10;
 
-  /** Post-codec section: the heap bytes of structural {@code OBJECT} / {@code ARRAY} records alone. */
+  /**
+   * Post-codec section: the heap bytes of structural {@code OBJECT} / {@code ARRAY} records alone.
+   */
   public static final int SECTION_HEAP_STRUCTURAL = 11;
 
   /** Post-codec section: the heap bytes of every other record kind. */
@@ -138,9 +140,9 @@ public final class PageSectionDiag {
   /** Number of post-codec section lanes. */
   public static final int SECTION_COUNT = 13;
 
-  private static final String[] SECTION_NAMES = {"compactDir", "templates+slotIds", "zeroHashBitmap",
-      "parentKeyColumn", "rightSibColumn", "leftSibColumn", "pathNodeKeyColumn", "valueElision", "nameKeyElision",
-      "heap", "heap:fused", "heap:structural", "heap:other"};
+  private static final String[] SECTION_NAMES =
+      {"compactDir", "templates+slotIds", "zeroHashBitmap", "parentKeyColumn", "rightSibColumn", "leftSibColumn",
+          "pathNodeKeyColumn", "valueElision", "nameKeyElision", "heap", "heap:fused", "heap:structural", "heap:other"};
 
   private static final LongAdder[] SECTION_RAW_BYTES = newAdders(SECTION_COUNT);
   private static final LongAdder[] SECTION_ENCODED_BYTES = newAdders(SECTION_COUNT);
@@ -286,7 +288,9 @@ public final class PageSectionDiag {
   /** The page took the inline body path because it holds no populated slot. */
   public static final int INLINE_REASON_EMPTY_PAGE = 0;
 
-  /** The page took the inline body path because offset-table template dedup aborted (> 255 templates). */
+  /**
+   * The page took the inline body path because offset-table template dedup aborted (> 255 templates).
+   */
   public static final int INLINE_REASON_TEMPLATE_DEDUP_ABORTED = 1;
 
   /** The page took the inline body path because a record was shorter than kindId + templateId. */
@@ -321,7 +325,9 @@ public final class PageSectionDiag {
   // descriptor histogram — whether the cap is missed by one record or by many.
   // ==================================================================================
 
-  /** Pages that reached the string-region decision inside the region build (the histogram's total). */
+  /**
+   * Pages that reached the string-region decision inside the region build (the histogram's total).
+   */
   private static final LongAdder REGION_BUILD_PAGES = new LongAdder();
 
   /** Pages that staged strings but wrote no string region because of an overflow descriptor. */
@@ -336,7 +342,9 @@ public final class PageSectionDiag {
   /** Pages that did write a string region. */
   private static final LongAdder STRING_REGION_WRITTEN_PAGES = new LongAdder();
 
-  /** Overflow descriptors per page, bucketed 0 / 1 / 2-3 / 4+. Sums to {@link #REGION_BUILD_PAGES}. */
+  /**
+   * Overflow descriptors per page, bucketed 0 / 1 / 2-3 / 4+. Sums to {@link #REGION_BUILD_PAGES}.
+   */
   private static final LongAdder[] OVERFLOW_DESCRIPTOR_HISTOGRAM = newAdders(4);
 
   // ==================================================================================
@@ -392,7 +400,10 @@ public final class PageSectionDiag {
 
   private static final int REFUSAL_CARRIER_STATE_COUNT = 3;
 
-  /** Refused snapshot copies by the carrier state observed on the copy, per {@code REFUSAL_CARRIERS_*}. */
+  /**
+   * Refused snapshot copies by the carrier state observed on the copy, per
+   * {@code REFUSAL_CARRIERS_*}.
+   */
   private static final LongAdder[] REFUSAL_CARRIER_STATE = newAdders(REFUSAL_CARRIER_STATE_COUNT);
 
   /** Snapshot entries that reached the pre-serializer already carrying the refusal mark. */
@@ -495,10 +506,10 @@ public final class PageSectionDiag {
    * Tags are nameKeys or pathNodeKeys; both are small dense ints, so a direct array indexes them.
    *
    * <p>
-   * ZERO when the sub-gate is off, which is what keeps the table from being ALLOCATED in a
-   * production JVM. The recording branch already folds away — both gates are {@code static final} —
-   * but a table sized from a constant would still be built at class initialisation, and "off" has to
-   * mean no footprint, not merely no per-call work. With no slots every tag routes to the overflow
+   * ZERO when the sub-gate is off, which is what keeps the table from being ALLOCATED in a production
+   * JVM. The recording branch already folds away — both gates are {@code static final} — but a table
+   * sized from a constant would still be built at class initialisation, and "off" has to mean no
+   * footprint, not merely no per-call work. With no slots every tag routes to the overflow
    * accumulator, which nothing under the gate ever reaches.
    * </p>
    */
@@ -510,8 +521,8 @@ public final class PageSectionDiag {
   private static final int STRING_TAG_KINDS = 2;
 
   /**
-   * Per-tag accumulators, allocated on first sight so a run pays only for the tags it meets. A tag
-   * at or beyond {@link #STRING_TAG_SLOTS} lands in the overflow accumulator rather than growing the
+   * Per-tag accumulators, allocated on first sight so a run pays only for the tags it meets. A tag at
+   * or beyond {@link #STRING_TAG_SLOTS} lands in the overflow accumulator rather than growing the
    * table — the census stays bounded, and the report says how much it could not attribute.
    */
   private static final AtomicReferenceArray<StringTagStats> STRING_TAG_STATS =
@@ -520,7 +531,9 @@ public final class PageSectionDiag {
   /** Bytes belonging to tags the table could not address. */
   private static final StringTagStats STRING_TAG_OVERFLOW = new StringTagStats(-1, -1);
 
-  /** Region bytes that belong to no tag: the encoding kind, the tag directory, the suppressed list. */
+  /**
+   * Region bytes that belong to no tag: the encoding kind, the tag directory, the suppressed list.
+   */
   private static final LongAdder STRING_REGION_FRAMING_BYTES = new LongAdder();
 
   /** Id-lane bytes as the ENCODER rounded them, per region — one rounding each, summed here. */
@@ -567,9 +580,9 @@ public final class PageSectionDiag {
 
     /**
      * This tag's bytes expressed in BITS, because the id lane is packed across tags and the region
-     * rounds it to bytes exactly ONCE, at the end. Rounding each tag up on its own over-counts by up
-     * to seven bits per tag — which is precisely what the census-identity line caught the first time
-     * this report ran, so the identity is checked in bits and converted once, like the encoder does.
+     * rounds it to bytes exactly ONCE, at the end. Rounding each tag up on its own over-counts by up to
+     * seven bits per tag — which is precisely what the census-identity line caught the first time this
+     * report ran, so the identity is checked in bits and converted once, like the encoder does.
      */
     private long rawBits() {
       return (dictLengthBytes.sum() + dictValueBytes.sum()) * 8L + idLaneBits.sum();
@@ -584,7 +597,9 @@ public final class PageSectionDiag {
   // region's raw bulk survives compression (it does, at 64-bit hash entropy) or evaporates.
   // ==================================================================================
 
-  /** Bytes actually written for each region kind, framing included, per {@link RegionTable}'s ordinal. */
+  /**
+   * Bytes actually written for each region kind, framing included, per {@link RegionTable}'s ordinal.
+   */
   private static final LongAdder[] REGION_WRITTEN_BYTES_BY_KIND = newAdders(RegionTable.KIND_COUNT);
 
   /** Regions written of each kind. */
@@ -629,8 +644,8 @@ public final class PageSectionDiag {
    * Record one node kind's contribution to a single page's staged heap.
    *
    * <p>
-   * Called once per (page, distinct node kind), never per slot: the caller folds its slots into
-   * stack locals first, so a 1,024-slot page pays at most one call per kind present.
+   * Called once per (page, distinct node kind), never per slot: the caller folds its slots into stack
+   * locals first, so a 1,024-slot page pays at most one call per kind present.
    *
    * @param nodeKindId the record's node-kind id as it appears in the compact directory
    * @param slots populated slots of that kind on this page
@@ -772,9 +787,9 @@ public final class PageSectionDiag {
    *
    * <p>
    * Called once per retained tag per encoded region, from inside the encoder's own per-tag loop, so
-   * the dictionary figures are measured write positions rather than a formula that can drift from
-   * the layout. The id lane is reported in BITS because it is bit-packed ACROSS tags: a tag's share
-   * of the packed array is exact in bits and only becomes approximate if rounded to bytes per tag.
+   * the dictionary figures are measured write positions rather than a formula that can drift from the
+   * layout. The id lane is reported in BITS because it is bit-packed ACROSS tags: a tag's share of
+   * the packed array is exact in bits and only becomes approximate if rounded to bytes per tag.
    * </p>
    *
    * @param tagKind {@code 0} for a nameKey tag, {@code 1} for a pathNodeKey tag
@@ -786,9 +801,8 @@ public final class PageSectionDiag {
    * @param idLaneBits bits this tag occupies in the leaf's packed id lane, at the page-wide width
    * @param forIdLaneBits bits it would occupy at its OWN width — the FOR-packed alternative
    */
-  public static void recordStringRegionTag(final int tagKind, final int tag, final long values,
-      final long distinct, final long dictLengthBytes, final long dictValueBytes, final long idLaneBits,
-      final long forIdLaneBits) {
+  public static void recordStringRegionTag(final int tagKind, final int tag, final long values, final long distinct,
+      final long dictLengthBytes, final long dictValueBytes, final long idLaneBits, final long forIdLaneBits) {
     final StringTagStats stats = stringTagStats(tagKind, tag);
     stats.pages.increment();
     stats.values.add(values);
@@ -900,8 +914,8 @@ public final class PageSectionDiag {
   // ─────────────────────────────────── U6 recording API
 
   /**
-   * Open a new flush epoch. Called once per snapshot flush by the flush driver, so a repeat encode
-   * of the same page key can be attributed to redundancy inside one epoch or to a leaf that survives
+   * Open a new flush epoch. Called once per snapshot flush by the flush driver, so a repeat encode of
+   * the same page key can be attributed to redundancy inside one epoch or to a leaf that survives
    * from epoch to epoch.
    */
   public static void noteFlushEpoch() {
@@ -932,7 +946,9 @@ public final class PageSectionDiag {
     noteRepeatEncode(slot, pageKey);
   }
 
-  /** Ledger one encode of {@code (slot, pageKey)} and classify it as first / same-epoch / cross-epoch. */
+  /**
+   * Ledger one encode of {@code (slot, pageKey)} and classify it as first / same-epoch / cross-epoch.
+   */
   private static void noteRepeatEncode(final int slot, final long pageKey) {
     final int epoch = flushEpoch;
     final long ledgerKey = pageKey * INDEX_TYPE_SLOTS + slot;
@@ -1143,8 +1159,8 @@ public final class PageSectionDiag {
             : "  <<< CENSUS INCOMPLETE — the encoder layout moved and this table under-attributes");
     System.out.printf(
         "[PageSectionDiag]   region as WRITTEN: raw=%,d B -> written=%,d B (ratio %.3f)."
-            + " Every raw figure below scales by that ratio to reach the file.%n", rawRegion, writtenRegion,
-        writtenRatio);
+            + " Every raw figure below scales by that ratio to reach the file.%n",
+        rawRegion, writtenRegion, writtenRatio);
     System.out.printf(
         "[PageSectionDiag]   id lane, per-tag basis (unrounded bits; differs from the census lane figure"
             + " by the per-region rounding): pageWideWidth=%,d B  perTagWidth(FOR)=%,d B  saving=%,d B (%.1f%%)%n",
@@ -1168,9 +1184,9 @@ public final class PageSectionDiag {
               ? "name"
               : (stats.tagKind == 1
                   ? "path"
-                  : "over"), stats.tag, raw, pct(raw, censusBytes), stats.pages.sum(), values,
-          stats.distinct.sum(), stats.dictValueBytes.sum(), stats.dictLengthBytes.sum(), tagIdLane, tagForLane,
-          perRecord(raw, values));
+                  : "over"),
+          stats.tag, raw, pct(raw, censusBytes), stats.pages.sum(), values, stats.distinct.sum(),
+          stats.dictValueBytes.sum(), stats.dictLengthBytes.sum(), tagIdLane, tagForLane, perRecord(raw, values));
     }
   }
 
@@ -1219,8 +1235,9 @@ public final class PageSectionDiag {
               + "  cacheServes=%,d  wall=%.2f s  bytes=%,d  snapshotPromoted=%,d  snapshotDeferred=%,d%n",
           indexTypeName(slot), encodes, writes, writes == 0
               ? 0.0d
-              : (double) encodes / writes, serves, FULL_ENCODE_NANOS_BY_INDEX_TYPE[slot].sum() / 1e9,
-          FULL_ENCODE_BYTES_BY_INDEX_TYPE[slot].sum(), promoted, deferred);
+              : (double) encodes / writes,
+          serves, FULL_ENCODE_NANOS_BY_INDEX_TYPE[slot].sum() / 1e9, FULL_ENCODE_BYTES_BY_INDEX_TYPE[slot].sum(),
+          promoted, deferred);
     }
 
     long discardedEncodes = 0;
@@ -1239,8 +1256,7 @@ public final class PageSectionDiag {
     System.out.printf(
         "[PageSectionDiag]   refusal carrier state: resolved=%,d  pendingSideWrites=%,d  unresolved=%,d"
             + "  markedArrivals=%,d%n",
-        REFUSAL_CARRIER_STATE[REFUSAL_CARRIERS_RESOLVED].sum(),
-        REFUSAL_CARRIER_STATE[REFUSAL_CARRIERS_PENDING].sum(),
+        REFUSAL_CARRIER_STATE[REFUSAL_CARRIERS_RESOLVED].sum(), REFUSAL_CARRIER_STATE[REFUSAL_CARRIERS_PENDING].sum(),
         REFUSAL_CARRIER_STATE[REFUSAL_CARRIERS_UNRESOLVED].sum(), MARKED_ARRIVALS.sum());
 
     // The repeat ledger: distinct page identities against the encodes spent on them.
@@ -1340,12 +1356,13 @@ public final class PageSectionDiag {
   }
 
   /**
-   * Record one encoded body: {@code compactDir} and {@code templatePool} PRE-compression, {@code bodyOnWire}
-   * the whole body blob as written (it contains the directory, the templates and the heap, compressed
-   * together), {@code stagingBytes} the whole pre-compression staged body ({@code 0} when unknown). The
-   * report derives the raw heap as staging minus directory minus templates and the compression ratio as
-   * wire over staging — the earlier report added the pre-compression directory and templates to the
-   * on-wire body and called the sum "encoded body", double counting them.
+   * Record one encoded body: {@code compactDir} and {@code templatePool} PRE-compression,
+   * {@code bodyOnWire} the whole body blob as written (it contains the directory, the templates and
+   * the heap, compressed together), {@code stagingBytes} the whole pre-compression staged body
+   * ({@code 0} when unknown). The report derives the raw heap as staging minus directory minus
+   * templates and the compression ratio as wire over staging — the earlier report added the
+   * pre-compression directory and templates to the on-wire body and called the sum "encoded body",
+   * double counting them.
    */
   public static void recordEncodedBody(final long compactDir, final long templatePool, final long bodyOnWire,
       final long stagingBytes) {
@@ -1533,16 +1550,17 @@ public final class PageSectionDiag {
     System.out.printf(
         "[PageSectionDiag] encodedBody on wire=%,d B; pre-compression staging=%,d B = compactDir %,d (%.1f%%)"
             + " + templatePool+slotIds %,d (%.1f%%) + heap %,d (%.1f%%); BODY wire/staging=%.3f  <<< this ratio is the encoded BODY only. It does NOT apply to any region: each region prints its own measured raw->written ratio below.%n",
-        wire, staging, cd, pct(cd, staging), tp, pct(tp, staging), rawHeap, pct(rawHeap, staging),
-        staging == 0 ? 0.0 : wire / (double) staging);
+        wire, staging, cd, pct(cd, staging), tp, pct(tp, staging), rawHeap, pct(rawHeap, staging), staging == 0
+            ? 0.0
+            : wire / (double) staging);
     if (records > 0) {
       System.out.printf(
           "[PageSectionDiag] per record (%,d records over %,d serializations; re-serialized pages count again):"
               + " page %.2f B, headerBitmap %.2f, body on wire %.2f (pre-compression: dir %.2f, templates %.2f,"
               + " heap %.2f), regionTable %.2f, overlong %.2f, fsst %.2f%n",
-          records, pages, total / (double) records, hb / (double) records, eb / (double) records,
-          cd / (double) records, tp / (double) records, rawHeap / (double) records, rt / (double) records,
-          ov / (double) records, fsst / (double) records);
+          records, pages, total / (double) records, hb / (double) records, eb / (double) records, cd / (double) records,
+          tp / (double) records, rawHeap / (double) records, rt / (double) records, ov / (double) records,
+          fsst / (double) records);
     }
     final long hePages = HASH_ELISION_PAGES.sum();
     final long heBytes = HASH_ELISION_BYTES_SAVED.sum();
@@ -1623,12 +1641,12 @@ public final class PageSectionDiag {
         }
         System.out.printf(
             "[PageSectionDiag]   %-18s raw=%,d (%.2f B/record)  alone=%,d (%.2f B/record)  ratio=%.3f%s%n",
-            SECTION_NAMES[section], raw, perRecord(raw, recordsSeen), encoded, perRecord(encoded, recordsSeen),
-            raw == 0
+            SECTION_NAMES[section], raw, perRecord(raw, recordsSeen), encoded, perRecord(encoded, recordsSeen), raw == 0
                 ? 0.0
-                : (double) encoded / raw, section >= SECTION_HEAP_FUSED
-                    ? "  (part of heap)"
-                    : "");
+                : (double) encoded / raw,
+            section >= SECTION_HEAP_FUSED
+                ? "  (part of heap)"
+                : "");
       }
       System.out.printf(
           "[PageSectionDiag]   sections alone sum=%,d (%.2f B/record)  actual body=%,d (%.2f B/record)"
@@ -1721,9 +1739,10 @@ public final class PageSectionDiag {
       inlinePagesTotal += INLINE_BODY_PAGES_BY_INDEX_TYPE[slot].sum();
     }
     if (encodedPagesTotal + inlinePagesTotal > 0) {
-      System.out.printf("[PageSectionDiag] body path: encoded=%,d pages  inline=%,d pages (%.1f%%)"
-          + "  [emptyPage=%,d  templateDedupAborted=%,d  shortRecord=%,d]%n", encodedPagesTotal, inlinePagesTotal,
-          pct(inlinePagesTotal, encodedPagesTotal + inlinePagesTotal),
+      System.out.printf(
+          "[PageSectionDiag] body path: encoded=%,d pages  inline=%,d pages (%.1f%%)"
+              + "  [emptyPage=%,d  templateDedupAborted=%,d  shortRecord=%,d]%n",
+          encodedPagesTotal, inlinePagesTotal, pct(inlinePagesTotal, encodedPagesTotal + inlinePagesTotal),
           INLINE_BODY_PAGES_BY_REASON[INLINE_REASON_EMPTY_PAGE].sum(),
           INLINE_BODY_PAGES_BY_REASON[INLINE_REASON_TEMPLATE_DEDUP_ABORTED].sum(),
           INLINE_BODY_PAGES_BY_REASON[INLINE_REASON_SHORT_RECORD].sum());

@@ -45,24 +45,21 @@ final class HOTProjectionPropagationFallbackTest {
     final HOTLeafPage physicallyFirst = leaf(10, key(0x20), rawDescriptor);
     final HOTLeafPage rebuiltSlot = leaf(11, key(0x10), tombstone);
     final PageReference rebuiltSlotRef = durableReference(rebuiltSlot, 111);
-    final PageReference rootRef = durableReference(HOTIndirectPage.createSpanNode(12, 1, 0,
-        1L << (63 - 2), new int[] {0, 1},
-        new PageReference[] {durableReference(physicallyFirst, 110), rebuiltSlotRef}, 1), 112);
+    final PageReference rootRef = durableReference(HOTIndirectPage.createSpanNode(12, 1, 0, 1L << (63 - 2),
+        new int[] {0, 1}, new PageReference[] {durableReference(physicallyFirst, 110), rebuiltSlotRef}, 1), 112);
     final WriterFixture fixture = writerFixture(rootRef);
     final long failuresBefore = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
 
     try {
       final HOTIndirectPage root = (HOTIndirectPage) fixture.resolve(rootRef);
       final AbstractHOTIndexWriter.LeafNavigationResult route = new AbstractHOTIndexWriter.LeafNavigationResult(
-          rebuiltSlot, rebuiltSlotRef,
-          new HOTIndirectPage[] {root}, new PageReference[] {rootRef}, new int[] {1}, 1);
+          rebuiltSlot, rebuiltSlotRef, new HOTIndirectPage[] {root}, new PageReference[] {rootRef}, new int[] {1}, 1);
 
-      final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> fixture.writer.propagateForTest(route, key(0x10)));
+      final IllegalStateException failure =
+          assertThrows(IllegalStateException.class, () -> fixture.writer.propagateForTest(route, key(0x10)));
 
       assertTrue(failure.getMessage().contains("crossed a sibling boundary"), failure.getMessage());
-      assertEquals(failuresBefore + 1,
-          AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get());
+      assertEquals(failuresBefore + 1, AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get());
       final Map<Integer, byte[]> values = new LinkedHashMap<>();
       collect(fixture.resolve(rootRef), fixture, values);
       assertEquals(2, values.size(), "the already-published trigger key must not be appended a second time");
@@ -84,17 +81,16 @@ final class HOTProjectionPropagationFallbackTest {
     final PageReference rebuiltSlotRef = durableReference(rebuiltSlot, 120);
     final PageReference unresolvedTallSibling = new PageReference();
     unresolvedTallSibling.setKey(121);
-    final PageReference rootRef = durableReference(HOTIndirectPage.createSpanNode(22, 1, 0,
-        1L << (63 - 2), new int[] {0, 1},
-        new PageReference[] {rebuiltSlotRef, unresolvedTallSibling}, 2), 122);
+    final PageReference rootRef = durableReference(HOTIndirectPage.createSpanNode(22, 1, 0, 1L << (63 - 2),
+        new int[] {0, 1}, new PageReference[] {rebuiltSlotRef, unresolvedTallSibling}, 2), 122);
     final WriterFixture fixture = writerFixture(rootRef);
     final HOTIndirectPage root = (HOTIndirectPage) fixture.resolve(rootRef);
     final AbstractHOTIndexWriter.LeafNavigationResult route = new AbstractHOTIndexWriter.LeafNavigationResult(
         rebuiltSlot, rebuiltSlotRef, new HOTIndirectPage[] {root}, new PageReference[] {rootRef}, new int[] {0}, 1);
 
     try {
-      final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> fixture.writer.propagateForTest(route, key(0x10)));
+      final IllegalStateException failure =
+          assertThrows(IllegalStateException.class, () -> fixture.writer.propagateForTest(route, key(0x10)));
 
       assertTrue(failure.getMessage().contains("cannot resolve child 1"), failure.getMessage());
       assertSame(root, rootRef.getPage(), "no stale-low ancestor may be published on an unresolved height");
@@ -156,8 +152,8 @@ final class HOTProjectionPropagationFallbackTest {
     when(storageEngineWriter.getRevisionNumber()).thenReturn(2);
     when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(revisionRootPage);
     when(storageEngineWriter.getProjectionIndexPage(revisionRootPage)).thenReturn(projectionIndexPage);
-    when(storageEngineWriter.<ProjectionIndexPage>prepareSecondaryIndexPage(IndexType.PROJECTION))
-        .thenReturn(projectionIndexPage);
+    when(storageEngineWriter.<ProjectionIndexPage>prepareSecondaryIndexPage(IndexType.PROJECTION)).thenReturn(
+        projectionIndexPage);
     when(projectionIndexPage.incrementAndGetMaxHotPageKey(0)).thenAnswer(invocation -> pageKeys.getAndIncrement());
     when(log.get(any(PageReference.class))).thenAnswer(invocation -> logged.get(invocation.getArgument(0)));
     when(storageEngineWriter.loadHOTPage(any(PageReference.class))).thenAnswer(invocation -> {
@@ -203,7 +199,7 @@ final class HOTProjectionPropagationFallbackTest {
   }
 
   private record WriterFixture(StorageEngineWriter storageEngineWriter, TestIndexWriter writer,
-                               Map<PageReference, PageContainer> logged) {
+      Map<PageReference, PageContainer> logged) {
     private Page resolve(final PageReference reference) {
       final PageContainer container = logged.get(reference);
       if (container != null) {
@@ -226,8 +222,7 @@ final class HOTProjectionPropagationFallbackTest {
       rootReference = root;
     }
 
-    private void propagateForTest(final AbstractHOTIndexWriter.LeafNavigationResult route,
-        final byte[] triggerKey) {
+    private void propagateForTest(final AbstractHOTIndexWriter.LeafNavigationResult route, final byte[] triggerKey) {
       try {
         final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("propagateStructuralSpliceUpSpine",
             AbstractHOTIndexWriter.LeafNavigationResult.class, int.class, byte[].class);

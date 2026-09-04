@@ -17,8 +17,8 @@ import java.util.Arrays;
  *
  * The obvious design hands the page its transaction's resolver and lets value re-injection call it
  * during chunk expansion. A call-graph walk killed it. Expansion is reached from four places that
- * have <em>no reader on the stack at all</em> — the writer's copy-on-write {@code deepCopy()} on the
- * flush lane, the two commit-time FSST passes, and the static versioning combine — so there is
+ * have <em>no reader on the stack at all</em> — the writer's copy-on-write {@code deepCopy()} on
+ * the flush lane, the two commit-time FSST passes, and the static versioning combine — so there is
  * nothing to parameterize and no reader to find. Worse, {@code LazyChunkedBody} holds
  * {@code synchronized(page)} across the injector, so a resolver call inside expansion would be an
  * unbounded trie descent under a page monitor with uncontrolled lock order, which is precisely what
@@ -45,7 +45,8 @@ import java.util.Arrays;
  *
  * A leaf holds about six distinct values per converted tag, so this is a handful of byte arrays per
  * page — against the ~512 copies the expanded heap materialises for the same values anyway. It adds
- * roughly 1 % to what an expanded page already costs, and only for pages that actually use the lane.
+ * roughly 1 % to what an expanded page already costs, and only for pages that actually use the
+ * lane.
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
@@ -55,9 +56,9 @@ public final class ResolvedGlobalStrings {
   private static final int NOT_GLOBAL = Integer.MIN_VALUE;
 
   /**
-   * The table of a page that has no global tags at all. Distinct from {@code null}, which means
-   * "not resolved yet" — the difference between the two is what makes the refusal in
-   * {@code PageKind} a statement about wiring rather than about content.
+   * The table of a page that has no global tags at all. Distinct from {@code null}, which means "not
+   * resolved yet" — the difference between the two is what makes the refusal in {@code PageKind} a
+   * statement about wiring rather than about content.
    */
   public static final ResolvedGlobalStrings NONE = new ResolvedGlobalStrings(new int[0], new byte[0][][], new int[0][]);
 
@@ -107,8 +108,8 @@ public final class ResolvedGlobalStrings {
    * <b>Ascending is worth 5.6×.</b> A dictionary point read costs 417 ns at a random id and 75 ns at
    * a sequential one, because the cost is block residency rather than lookup depth. A leaf holds
    * about six distinct values per tag, so the ordering is an insertion sort over a handful of ints.
-   * It is a performance property with a measurement behind it: resolving on demand, or in slot
-   * order, or in parallel returns exactly the same values and loses the 5.6× with no test failing.
+   * It is a performance property with a measurement behind it: resolving on demand, or in slot order,
+   * or in parallel returns exactly the same values and loses the 5.6× with no test failing.
    * </p>
    *
    * <p>
@@ -202,9 +203,9 @@ public final class ResolvedGlobalStrings {
    * <p>
    * {@code expectedTagValue} is not decoration. The table is indexed by the tag's position in the
    * page's parsed header, and a position is only meaningful for the payload it was parsed from — so
-   * the tag's VALUE is carried alongside and compared. Any re-encode that shifts positions turns
-   * into a loud failure here instead of a silent read of another tag's dictionary. One int compare
-   * per elided slot.
+   * the tag's VALUE is carried alongside and compared. Any re-encode that shifts positions turns into
+   * a loud failure here instead of a silent read of another tag's dictionary. One int compare per
+   * elided slot.
    * </p>
    *
    * @param tagIndex the tag's local index in the page's string-region header
@@ -224,7 +225,8 @@ public final class ResolvedGlobalStrings {
       throw new IllegalStateException("string-region tag index " + tagIndex + " carries tag " + expectedTagValue
           + " but the resolved table holds " + (tagValues[tagIndex] == NOT_GLOBAL
               ? "no global tag"
-              : "tag " + tagValues[tagIndex]) + " there — the region was re-encoded after it was resolved");
+              : "tag " + tagValues[tagIndex])
+          + " there — the region was re-encoded after it was resolved");
     }
     final byte[][] forTag = values[tagIndex];
     if (forTag == null) {

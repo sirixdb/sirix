@@ -16,16 +16,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * A pass budget is a group COUNT, and it used to be derived by dividing a heap share by a flat 128
  * bytes whatever the query's stripe was. That figure is right for a stripe of eight lanes and wrong
- * for every other: {@code GROUP BY x ORDER BY count(*)} occupies THREE lanes, so it was charged 2.67x
- * what it costs and split into up to 2.67x the passes its memory required — and every surplus pass is
- * a full rescan of the table.
+ * for every other: {@code GROUP BY x ORDER BY count(*)} occupies THREE lanes, so it was charged
+ * 2.67x what it costs and split into up to 2.67x the passes its memory required — and every surplus
+ * pass is a full rescan of the table.
  * </p>
  *
  * <p>
- * The property these tests pin is the SAFETY of the correction, not merely its arithmetic: the stride
- * may only ever lower the charge. A wide stripe genuinely costs more than 128 bytes, and charging it
- * honestly would hand a working plan more passes than it takes today, so the honest figure is clamped
- * away for wide shapes and applied only where it helps.
+ * The property these tests pin is the SAFETY of the correction, not merely its arithmetic: the
+ * stride may only ever lower the charge. A wide stripe genuinely costs more than 128 bytes, and
+ * charging it honestly would hand a working plan more passes than it takes today, so the honest
+ * figure is clamped away for wide shapes and applied only where it helps.
  * </p>
  */
 final class GroupStrideBudgetTest {
@@ -82,9 +82,8 @@ final class GroupStrideBudgetTest {
     final long flat = GroupTableSpill.groupBudgetFor(8L * GIB, 8L * GIB);
     for (int stride = 1; stride <= 64; stride++) {
       final long strided = GroupTableSpill.groupBudgetFor(8L * GIB, 8L * GIB, stride);
-      assertTrue(strided >= flat,
-          "stride " + stride + " planned " + strided + " groups against the flat " + flat + ": a shape "
-              + "charged MORE than before would take more passes than it takes today");
+      assertTrue(strided >= flat, "stride " + stride + " planned " + strided + " groups against the flat " + flat
+          + ": a shape " + "charged MORE than before would take more passes than it takes today");
     }
   }
 

@@ -35,10 +35,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Structural-splice propagation stress test.
  *
  * <p>
- * Structural propagation re-encodes each ancestor in place when a frontier splice changes the subtree's
- * height or leftmost firstKey. On the {@link Direction1HitRateProbe} canary the 21 rebuilds per run
- * happen to preserve both, so the propagation walks the spine but never re-encodes -- the loop body
- * is unexercised.
+ * Structural propagation re-encodes each ancestor in place when a frontier splice changes the
+ * subtree's height or leftmost firstKey. On the {@link Direction1HitRateProbe} canary the 21
+ * rebuilds per run happen to preserve both, so the propagation walks the spine but never re-encodes
+ * -- the loop body is unexercised.
  *
  * <p>
  * This test runs a much harder workload than the canary (50 revs × 2000 entries with mixed
@@ -67,8 +67,7 @@ final class HOTRebuildPropagationStressTest {
   @Timeout(value = 120, unit = TimeUnit.SECONDS)
   void rebuildPropagationUnderHeavyMutation() throws IOException {
     final long heightReencodesBefore = AbstractHOTIndexWriter.STRUCTURAL_HEIGHT_REENCODE.get();
-    final long preflightFailuresBefore =
-        AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
+    final long preflightFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
     final long validationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get();
 
     final int entriesPerRev = 2_000;
@@ -116,10 +115,9 @@ final class HOTRebuildPropagationStressTest {
       }
     }
 
-    final long heightReencodes =
-        AbstractHOTIndexWriter.STRUCTURAL_HEIGHT_REENCODE.get() - heightReencodesBefore;
-    final long preflightFailures = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get()
-        - preflightFailuresBefore;
+    final long heightReencodes = AbstractHOTIndexWriter.STRUCTURAL_HEIGHT_REENCODE.get() - heightReencodesBefore;
+    final long preflightFailures =
+        AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get() - preflightFailuresBefore;
     final long validationFailures =
         AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get() - validationFailuresBefore;
 

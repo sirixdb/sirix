@@ -185,14 +185,13 @@ public final class HOTIncrementalInsert {
    * A reference key encodes its owner as {@code (ownerSlot << 16) | subId}
    * ({@code HOTLeafPage#overflowPageRefKey}), and the owner's stored key bytes are
    * {@link PathKeySerializer}'s encoding of {@code ownerSlot} — the same derivation
-   * {@code HOTLeafPage#moveOverflowPageRefsAfterSplit} and
-   * canonical writer-side subtree rerouting use. The owning slot is an entry of
-   * {@code source}, hence of the union, hence of exactly one half — the one selected by the owner
-   * key's {@code splitBit} (the union's partition predicate); the other half is probed as a backstop.
-   * Residency is decided by {@link HOTLeafPage#findEntry}, never by a routed descent: the reference
-   * must sit on the page that PHYSICALLY holds the slot, exactly as
-   * {@code moveOverflowPageRefsAfterSplit} decides it. A reference whose owner is in neither half is
-   * data loss and fails loudly.
+   * {@code HOTLeafPage#moveOverflowPageRefsAfterSplit} and canonical writer-side subtree rerouting
+   * use. The owning slot is an entry of {@code source}, hence of the union, hence of exactly one half
+   * — the one selected by the owner key's {@code splitBit} (the union's partition predicate); the
+   * other half is probed as a backstop. Residency is decided by {@link HOTLeafPage#findEntry}, never
+   * by a routed descent: the reference must sit on the page that PHYSICALLY holds the slot, exactly
+   * as {@code moveOverflowPageRefsAfterSplit} decides it. A reference whose owner is in neither half
+   * is data loss and fails loudly.
    *
    * <p>
    * References are <em>copied</em>, not moved: {@code source} is abandoned by the splice, and the
@@ -902,12 +901,12 @@ public final class HOTIncrementalInsert {
   }
 
   /**
-   * Materialize one exact complete flattened-BiNode child range as its own compressed subtree.
-   * Only the parent block's reference/partial arrays are copied; descendant pages and entries stay
+   * Materialize one exact complete flattened-BiNode child range as its own compressed subtree. Only
+   * the parent block's reference/partial arrays are copied; descendant pages and entries stay
    * untouched. This is the extraction half of a bounded reference-only frontier splice.
    */
-  static PageReference compressChildRange(final HOTIndirectPage node, final int fromInclusive,
-      final int toExclusive, final int revision, final LongSupplier pageKeyAllocator) {
+  static PageReference compressChildRange(final HOTIndirectPage node, final int fromInclusive, final int toExclusive,
+      final int revision, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
     final int childCount = node.getNumChildren();
@@ -930,20 +929,22 @@ public final class HOTIncrementalInsert {
   /**
    * Re-encode a contiguous child slice while replacing (or removing) exactly one child.
    *
-   * <p>The replacement inherits the removed child's sparse partial. A persistent split of that child
-   * only narrows its key range inside the same parent region, so retaining the sparse-path position is
-   * exact. A {@code null} replacement removes the child; {@code null} is returned only when that makes
-   * the requested slice empty. The source node and all retained descendants remain untouched.</p>
+   * <p>
+   * The replacement inherits the removed child's sparse partial. A persistent split of that child
+   * only narrows its key range inside the same parent region, so retaining the sparse-path position
+   * is exact. A {@code null} replacement removes the child; {@code null} is returned only when that
+   * makes the requested slice empty. The source node and all retained descendants remain untouched.
+   * </p>
    */
-  static @Nullable PageReference compressChildSliceReplacing(final HOTIndirectPage node,
-      final int fromInclusive, final int toExclusive, final int replacedChildIndex,
-      final @Nullable PageReference replacement, final int revision, final LongSupplier pageKeyAllocator) {
+  static @Nullable PageReference compressChildSliceReplacing(final HOTIndirectPage node, final int fromInclusive,
+      final int toExclusive, final int replacedChildIndex, final @Nullable PageReference replacement,
+      final int revision, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
     Objects.checkFromToIndex(fromInclusive, toExclusive, node.getNumChildren());
     if (replacedChildIndex < fromInclusive || replacedChildIndex >= toExclusive) {
-      throw new IndexOutOfBoundsException("replacement child " + replacedChildIndex + " is outside slice ["
-          + fromInclusive + ", " + toExclusive + ')');
+      throw new IndexOutOfBoundsException(
+          "replacement child " + replacedChildIndex + " is outside slice [" + fromInclusive + ", " + toExclusive + ')');
     }
 
     final int outputCount = toExclusive - fromInclusive - (replacement == null
@@ -987,10 +988,10 @@ public final class HOTIncrementalInsert {
    *
    * <p>
    * <b>Purity.</b> Allocates only new pages; never mutates {@code node}. Each merge replaces two leaf
-   * pages with one. Original collapsed-child references are appended to {@code droppedLeavesOut}
-   * so the caller can release their off-heap slots. A speculative merged leaf consumed by a later
-   * merge is closed here instead: it has no transaction-log identity and therefore cannot be retired
-   * by {@code releaseOrphanedHOTLeaves}. Leaves carrying side references are deliberately not merged;
+   * pages with one. Original collapsed-child references are appended to {@code droppedLeavesOut} so
+   * the caller can release their off-heap slots. A speculative merged leaf consumed by a later merge
+   * is closed here instead: it has no transaction-log identity and therefore cannot be retired by
+   * {@code releaseOrphanedHOTLeaves}. Leaves carrying side references are deliberately not merged;
    * copying only their key/value slots would orphan the separately owned projection segment pages.
    *
    * @param droppedLeavesOut sink for every leaf reference this consolidation merged away
@@ -1019,8 +1020,8 @@ public final class HOTIncrementalInsert {
           final PageReference rightRef = current.getChildReference(i + 1);
           if (!pairs[i] || !(leftRef.getPage() instanceof HOTLeafPage left)
               || !(rightRef.getPage() instanceof HOTLeafPage right)
-              || left.getEntryCount() + right.getEntryCount() > targetMaxEntries
-              || left.segmentRefCount() != 0 || right.segmentRefCount() != 0) {
+              || left.getEntryCount() + right.getEntryCount() > targetMaxEntries || left.segmentRefCount() != 0
+              || right.segmentRefCount() != 0) {
             continue;
           }
           final HOTLeafPage mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
@@ -1053,10 +1054,10 @@ public final class HOTIncrementalInsert {
           ownedSpeculativeRefs[ownedSpeculativeCount] = mergedLeafRef;
           ownedSpeculativeLeaves[ownedSpeculativeCount++] = mergedLeaf;
           pendingSpeculativeLeaf = null;
-          retireConsolidationInput(leftRef, droppedOriginalLeaves, ownedSpeculativeRefs,
-              ownedSpeculativeLeaves, ownedSpeculativeCount);
-          retireConsolidationInput(rightRef, droppedOriginalLeaves, ownedSpeculativeRefs,
-              ownedSpeculativeLeaves, ownedSpeculativeCount);
+          retireConsolidationInput(leftRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
+              ownedSpeculativeCount);
+          retireConsolidationInput(rightRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
+              ownedSpeculativeCount);
           current = next;
           merged = true;
           break;
@@ -1804,9 +1805,8 @@ public final class HOTIncrementalInsert {
    * Allocation-free form used by one transaction-confined writer. All result fields are replaced on
    * every invocation; callers must copy the primitive fields they need before recursively inserting.
    */
-  static void analyzeDescentInto(final HOTIndirectPage[] pathNodes, final int[] pathChildIndices,
-      final int pathDepth, final HOTLeafPage leaf, final byte[] key, final int keyLen,
-      final DescentScratch scratch) {
+  static void analyzeDescentInto(final HOTIndirectPage[] pathNodes, final int[] pathChildIndices, final int pathDepth,
+      final HOTLeafPage leaf, final byte[] key, final int keyLen, final DescentScratch scratch) {
     Objects.requireNonNull(pathNodes, "pathNodes");
     Objects.requireNonNull(pathChildIndices, "pathChildIndices");
     Objects.requireNonNull(leaf, "leaf");
@@ -2147,10 +2147,12 @@ public final class HOTIncrementalInsert {
   /**
    * Exact structural height of a resolved HOT page.
    *
-   * <p>A null swizzle is not a leaf. Treating it as height zero publishes a stale-low parent when a
+   * <p>
+   * A null swizzle is not a leaf. Treating it as height zero publishes a stale-low parent when a
    * durable/TIL-only child is the unique tallest child of a split half. The orchestration layer must
    * resolve every direct child before invoking a height-sensitive primitive; this method enforces
-   * that contract fail-closed.</p>
+   * that contract fail-closed.
+   * </p>
    */
   private static int heightOf(final @Nullable Page page) {
     if (page == null) {

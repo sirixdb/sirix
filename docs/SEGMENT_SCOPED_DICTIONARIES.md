@@ -318,19 +318,25 @@ measured 100M database delta was 10.84 GB on those three plus SearchPhrase. Two 
 |---|---|---|---|---|
 | global dictionary (today) | **52.49 GB** measured | required | yes | +1.29 ln |
 | segment dicts @ 1 M rows | 53.84 GB projected | **none** | **no** | unmeasured |
-| + temporal encoding (−3.82) | **≈ 50.0 GB** | none | no | unmeasured |
+| ~~+ temporal encoding (−3.82)~~ | ~~**≈ 50.0 GB**~~ | none | no | **overturned: the lever measured ~0** |
 
-**Giving up the pre-pass costs ~1.35 GB.** The generic route reaches the ~50 GB target with the temporal
-encoding; the pre-pass route does not reach it at all (52.49 GB, and its two remaining levers are refused
-or unreachable — see below).
+**Giving up the pre-pass costs ~1.35 GB.** The last row is struck because the temporal encoding was
+subsequently built and measured at ~0 on the shipping route (see the lever list below), so the generic
+route does NOT reach ~50 GB that way; the pre-pass route reached it by overflow compression instead
+(52.49 → 49.70 GB).
 
 ## Levers this supersedes or rules out
 
-- **Overflow compression** (−4.8 GB at 100M by size) — **refused**, re-measured 2026-09-03: the full
-  43-query leg on the two 1M arms is hot sum 1.308 → 2.377 s (**+81.7 %**), q17 +190 %, q18 12×. The
-  `lz77` native-decode fix did not make it free.
+- **Overflow compression** (−4.8 GB at 100M by size) — refused HERE on the 1M arms (2026-09-03: full
+  43-query leg hot sum 1.308 → 2.377 s, **+81.7 %**, q17 +190 %, q18 12×; the `lz77` native-decode fix
+  did not make it free), then **accepted and made the default** when the same leg was run at 100M and
+  came out −2.244 ln FASTER. The 1M refusal above is a fact about small databases only; the current
+  verdict and both measurements live on `PageKind.OVERFLOW_PAYLOAD_COMPRESSION_ENABLED`.
 - **OriginalURL** (−1.87 GB) — unreachable: `PROJECTED_COLUMNS` derives from the columns the QUERIES
   reference and no query reads it, so no dictionary is built for it. Storage compression is currently
   coupled to the query projection, which is itself worth fixing.
-- **Temporal encoding** (−3.82 GB) — still live, and orthogonal: the projection already stores those
-  columns as epochs, but the record pages hold text and `NodeKind` has no temporal kind.
+- **Temporal encoding** (−3.82 GB) — **built and measured; the −3.82 was wrong.** It is a raw-text share,
+  not a saving: the lever is worth −10.59 MB at 1M and **~0 at 100M** on the shipping route, and it ships
+  off. `ROADMAP_TO_30GB.md`, *"The temporal sub-lever, MEASURED"*, owns the figures and the pricing rule
+  they establish. Every `−3.82` in this document is therefore an estimate that measurement overturned,
+  including the ≈ 50.0 GB row above.

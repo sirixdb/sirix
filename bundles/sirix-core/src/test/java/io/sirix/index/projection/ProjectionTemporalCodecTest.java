@@ -85,8 +85,10 @@ final class ProjectionTemporalCodecTest {
     assertEquals(ProjectionTemporalCodec.daysFromCivil(2000, 2, 29),
         ProjectionTemporalCodec.parseDateDays(utf8("2000-02-29"), 0, 10));
     // 1900 and 2013 are NOT leap years — Feb 29 must be refused, not silently rolled to March 1.
-    assertEquals(ProjectionTemporalCodec.NOT_CANONICAL, ProjectionTemporalCodec.parseDateDays(utf8("1900-02-29"), 0, 10));
-    assertEquals(ProjectionTemporalCodec.NOT_CANONICAL, ProjectionTemporalCodec.parseDateDays(utf8("2013-02-29"), 0, 10));
+    assertEquals(ProjectionTemporalCodec.NOT_CANONICAL,
+        ProjectionTemporalCodec.parseDateDays(utf8("1900-02-29"), 0, 10));
+    assertEquals(ProjectionTemporalCodec.NOT_CANONICAL,
+        ProjectionTemporalCodec.parseDateDays(utf8("2013-02-29"), 0, 10));
   }
 
   @Test
@@ -107,8 +109,7 @@ final class ProjectionTemporalCodecTest {
           ProjectionTemporalCodec.parseDateDays(utf8(bad), 0, bad.length()), "date parser accepted '" + bad + "'");
     }
     // The build error names the column, the declared shape and the offending text.
-    final String message =
-        ProjectionTemporalCodec.notCanonical(TS, 7, utf8("2013-7-15"), 0, 9).getMessage();
+    final String message = ProjectionTemporalCodec.notCanonical(TS, 7, utf8("2013-7-15"), 0, 9).getMessage();
     assertTrue(message.contains("column 7"), message);
     assertTrue(message.contains("YYYY-MM-DDTHH:MM:SS"), message);
     assertTrue(message.contains("2013-7-15"), message);
@@ -195,8 +196,8 @@ final class ProjectionTemporalCodecTest {
     assertEquals(ProjectionTemporalCodec.BOUND_DECLINE,
         ProjectionTemporalCodec.boundsForLiteral(DT, utf8("2013-07-15T00:00:00"), 0, 19, out));
     // And a non-temporal kind is never given a bound at all.
-    assertEquals(ProjectionTemporalCodec.BOUND_DECLINE, ProjectionTemporalCodec
-        .boundsForLiteral(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, utf8("2013-07-15"), 0, 10, out));
+    assertEquals(ProjectionTemporalCodec.BOUND_DECLINE, ProjectionTemporalCodec.boundsForLiteral(
+        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, utf8("2013-07-15"), 0, 10, out));
   }
 
   @Test

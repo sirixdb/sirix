@@ -85,8 +85,8 @@ final class SecondaryContainerLazyCowTest {
           assertNoSecondaryContainerInLog(writer);
 
           for (final IndexType type : secondaryIndexTypes()) {
-            final Page historicalPage = readContainer(writer.getStorageEngineReader(),
-                writer.getActualRevisionRootPage(), type);
+            final Page historicalPage =
+                readContainer(writer.getStorageEngineReader(), writer.getActualRevisionRootPage(), type);
             historicalPages[type.ordinal()] = historicalPage;
             assertEquals(0L, maxHotPageKey(historicalPage, type));
 
@@ -124,8 +124,8 @@ final class SecondaryContainerLazyCowTest {
           final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
           assertNoSecondaryContainerInLog(writer);
           for (final IndexType type : new IndexType[] {IndexType.PROJECTION, IndexType.VALIDTIME}) {
-            final Page historicalPage = readContainer(writer.getStorageEngineReader(),
-                writer.getActualRevisionRootPage(), type);
+            final Page historicalPage =
+                readContainer(writer.getStorageEngineReader(), writer.getActualRevisionRootPage(), type);
             final Page privatePage = writer.prepareSecondaryIndexPage(type);
             assertNotSame(historicalPage, privatePage);
             assertEquals(2L, incrementAndGetMaxHotPageKey(privatePage, type));
@@ -171,8 +171,8 @@ final class SecondaryContainerLazyCowTest {
     }
   }
 
-  private static void assertRevisionCounter(final JsonResourceSession session, final int revision,
-      final IndexType type, final long expected) {
+  private static void assertRevisionCounter(final JsonResourceSession session, final int revision, final IndexType type,
+      final long expected) {
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       final StorageEngineReader reader = rtx.getStorageEngineReader();
       final Page page = readContainer(reader, reader.getActualRevisionRootPage(), type);

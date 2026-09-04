@@ -154,12 +154,12 @@ final class GlobalValueDictionaryRadix {
    * <p>
    * A rank-ordered dictionary does not need one: "which id holds this value" is a binary search over
    * the reverse index, which is already sorted by value because ids were minted in collation order.
-   * Skipping it is not a minor saving — the forward index measured 64.7 B/entry at D = 275K and
-   * 173 B/entry at D = 2.62M, because each bounded append writes a fresh set of forward radix nodes
-   * at new keys and copy-on-write retains every one of them. The caller is responsible for the
-   * ordering claim; {@code ValueDictionaryHeaderNode} refuses a zero forward root on any dictionary
-   * that is not fully ordered, so a wrong claim fails loudly at the header rather than silently
-   * producing a dictionary nothing can probe.
+   * Skipping it is not a minor saving — the forward index measured 64.7 B/entry at D = 275K and 173
+   * B/entry at D = 2.62M, because each bounded append writes a fresh set of forward radix nodes at
+   * new keys and copy-on-write retains every one of them. The caller is responsible for the ordering
+   * claim; {@code ValueDictionaryHeaderNode} refuses a zero forward root on any dictionary that is
+   * not fully ordered, so a wrong claim fails loudly at the header rather than silently producing a
+   * dictionary nothing can probe.
    * </p>
    *
    * @param buildForwardIndex {@code false} only for a rank-ordered build
@@ -201,14 +201,19 @@ final class GlobalValueDictionaryRadix {
     recordCount = Math.addExact(recordCount, forwardRadixPlan.nodeCount());
     recordCount = Math.addExact(recordCount, Math.addExact(reverseRadixPlan.leafCount(), reverseRadixPlan.nodeCount()));
 
-    additions.ensureAppendWorkspaceFitsBudget(Math.addExact(
-        estimateWorkspaceBytes(recordCount, additionsByPrimary, forwardRadixPlan, reverseRadixPlan, additions),
-        // A tail extension COPIES the old run's bytes and offsets into the replacement, so those
-        // bytes are live in this append's workspace even though they are not new values.
-        reversePlan.extendsTail()
-            ? Math.addExact((long) reversePlan.tailPrefixBytes.length,
-                (long) reversePlan.tailPrefixOffsets.length * Integer.BYTES)
-            : 0L));
+    additions.ensureAppendWorkspaceFitsBudget(Math
+                                                  .addExact(
+                                                      estimateWorkspaceBytes(recordCount, additionsByPrimary,
+                                                          forwardRadixPlan, reverseRadixPlan, additions),
+                                                      // A tail extension COPIES the old run's bytes and offsets into
+                                                      // the replacement, so those
+                                                      // bytes are live in this append's workspace even though they are
+                                                      // not new values.
+                                                      reversePlan.extendsTail()
+                                                          ? Math.addExact((long) reversePlan.tailPrefixBytes.length,
+                                                              (long) reversePlan.tailPrefixOffsets.length
+                                                                  * Integer.BYTES)
+                                                          : 0L));
     final long reserved = Math.multiplyExact(recordCount, RECORD_STRIDE);
     final long runStart = namePage.reserveProjectionValueDictionaryKeys(databaseType, reserved);
     final KeyCursor cursor = new KeyCursor(runStart, recordCount);
@@ -701,8 +706,8 @@ final class GlobalValueDictionaryRadix {
   }
 
   /**
-   * Reverse lookup for a revision-bound {@link GlobalValueDictionary.ReadView}, allocating nothing
-   * of its own.
+   * Reverse lookup for a revision-bound {@link GlobalValueDictionary.ReadView}, allocating nothing of
+   * its own.
    *
    * <p>
    * The general {@link #entryResult} path exists to report PROBE UNITS for the HFT telemetry the
@@ -929,8 +934,8 @@ final class GlobalValueDictionaryRadix {
    * <p>
    * NOTE: for a PACKED id this still materialises an entry node over a copied slice. That is a
    * correctness bridge, not the end state — {@link GlobalValueDictionary.ReadView} is what must
-   * ultimately hold the block's backing array, offset and length and compare in place. Until it
-   * does, no claim of per-id allocation freedom is made for packed ids.
+   * ultimately hold the block's backing array, offset and length and compare in place. Until it does,
+   * no claim of per-id allocation freedom is made for packed ids.
    */
   private static ValueDictionaryEntryNode resolveEntry(final ValueDictionaryValueBucketNode values, final int id,
       final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {

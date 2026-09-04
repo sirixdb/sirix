@@ -27,27 +27,33 @@ import java.time.Instant;
 /**
  * Incremental maintainer for a valid-time interval index.
  *
- * <p>The listener receives one primitive change event per valid-time value-node
+ * <p>
+ * The listener receives one primitive change event per valid-time value-node
  * ({@code INSERT}/{@code DELETE}, with the field's local name and its string value). On the first
  * event for a record it reads that record's transaction-current bounds without moving the node
  * cursor. For a DELETE notification this is the still-persisted old interval; for an INSERT it
  * excludes the just-inserted node and thereby reconstructs the interval that preceded the insert.
  * The original interval is retained until the record's event burst ends, so a value replacement's
- * DELETE/INSERT pair becomes one old-delete/new-insert pair rather than two transient rewrites.</p>
+ * DELETE/INSERT pair becomes one old-delete/new-insert pair rather than two transient rewrites.
+ * </p>
  *
  * <h2>Bounded coalescing</h2>
- * <p>JSON mutation and shred notifications for one record are contiguous. When the containing
- * object key changes, the preceding record is reconciled and its state is retired. The final record
- * is reconciled before commit or asynchronous page flush. This bounds listener memory to one small
+ * <p>
+ * JSON mutation and shred notifications for one record are contiguous. When the containing object
+ * key changes, the preceding record is reconciled and its state is retired. The final record is
+ * reconciled before commit or asynchronous page flush. This bounds listener memory to one small
  * state object even for a 100M-record load; a non-contiguous revisit remains correct because the
  * earlier interval has already been published and the later burst re-seeds from the current record.
- * No document cursor is moved and no full index rebuild is involved.</p>
+ * No document cursor is moved and no full index rebuild is involved.
+ * </p>
  *
  * <h2>Object-key resolution</h2>
- * <p>A valid-time value-node's containing record is its first ancestor that plays the OBJECT role:
+ * <p>
+ * A valid-time value-node's containing record is its first ancestor that plays the OBJECT role:
  * either a plain {@link NodeKind#OBJECT} or a fused {@link NodeKind#OBJECT_NAMED_OBJECT}. The
  * parent-aware primitive notification normally makes this one record load; the compatibility
- * overload walks from the value node. Neither path moves the transaction cursor.</p>
+ * overload walks from the value node. Neither path moves the transaction cursor.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -57,13 +63,16 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   /** One contiguous record mutation's original registration and transaction-current bounds. */
   private static final class State {
-    @Nullable Instant from;
-    @Nullable Instant to;
+    @Nullable
+    Instant from;
+    @Nullable
+    Instant to;
     long fromNodeKey = NO_OBJECT;
     long toNodeKey = NO_OBJECT;
     long fromFieldCount;
     long toFieldCount;
-    @Nullable Interval registered;
+    @Nullable
+    Interval registered;
   }
 
   private final StorageEngineWriter storageEngineWriter;
@@ -98,12 +107,12 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
   /**
    * Process a primitive change event for a (possible) valid-time value-node.
    *
-   * @param type     INSERT or DELETE
-   * @param nodeKey  the value-node's key
+   * @param type INSERT or DELETE
+   * @param nodeKey the value-node's key
    * @param nodeKind the value-node's kind
    * @param pathNodeKey the value-node's path-class record (unused here)
-   * @param name     the field's local name (may be {@code null} — then the event is ignored)
-   * @param value    the field's string value (may be {@code null})
+   * @param name the field's local name (may be {@code null} — then the event is ignored)
+   * @param value the field's string value (may be {@code null})
    */
   @Override
   public void listen(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
@@ -127,7 +136,9 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     }
 
     final boolean stringNode = nodeKind == NodeKind.OBJECT_NAMED_STRING || nodeKind == NodeKind.STRING_VALUE;
-    final String local = name == null ? null : name.getLocalName();
+    final String local = name == null
+        ? null
+        : name.getLocalName();
     final boolean isFrom = stringNode && validFromField.equals(local);
     final boolean isTo = stringNode && validToField.equals(local);
 
@@ -135,8 +146,8 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     // the first valid-time field callback. Seed on the first fused named DELETE of each object while
     // that direct child is still alive. Non-valid fields do not alter the state; they merely provide
     // the earliest safe snapshot point. The common INSERT path remains restricted to the two bounds.
-    final boolean deletionSeed = type == IndexController.ChangeType.DELETE && name != null
-        && nodeKind.isFusedObjectNamed();
+    final boolean deletionSeed =
+        type == IndexController.ChangeType.DELETE && name != null && nodeKind.isFusedObjectNamed();
     if (!isFrom && !isTo && !deletionSeed) {
       return;
     }
@@ -163,8 +174,13 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     if (objectKey != activeObjectKey || !active) {
       reconcileActiveObject();
       try {
-        seedState(objectKey, type == IndexController.ChangeType.INSERT ? nodeKey : NO_OBJECT,
-            type == IndexController.ChangeType.DELETE ? nodeKey : NO_OBJECT, state);
+        seedState(objectKey, type == IndexController.ChangeType.INSERT
+            ? nodeKey
+            : NO_OBJECT,
+            type == IndexController.ChangeType.DELETE
+                ? nodeKey
+                : NO_OBJECT,
+            state);
       } catch (final RuntimeException | Error failure) {
         // INSERT follows linkage of the new record; a subtree DELETE may follow removal of earlier
         // post-order siblings. In either case a failed seed can occur after document publication and
@@ -206,15 +222,21 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
       return;
     }
 
-    final Instant instant = ValidTimeIntervalIndexWriter.parseInstant(value == null ? null : value.stringValue());
+    final Instant instant = ValidTimeIntervalIndexWriter.parseInstant(value == null
+        ? null
+        : value.stringValue());
     if (isFrom) {
       state.fromFieldCount = 1;
       state.from = instant;
-      state.fromNodeKey = instant == null ? NO_OBJECT : nodeKey;
+      state.fromNodeKey = instant == null
+          ? NO_OBJECT
+          : nodeKey;
     } else {
       state.toFieldCount = 1;
       state.to = instant;
-      state.toNodeKey = instant == null ? NO_OBJECT : nodeKey;
+      state.toNodeKey = instant == null
+          ? NO_OBJECT
+          : nodeKey;
     }
   }
 
@@ -396,9 +418,8 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
       return;
     }
     if (movedNodeKey != structuralNodeKey) {
-      final IllegalStateException failure = new IllegalStateException(
-          "Valid-time structural change ended for node " + movedNodeKey + " while node " + structuralNodeKey
-              + " was active");
+      final IllegalStateException failure = new IllegalStateException("Valid-time structural change ended for node "
+          + movedNodeKey + " while node " + structuralNodeKey + " was active");
       markRollbackOnly(failure);
       throw failure;
     }
@@ -560,6 +581,8 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   private @Nullable ImmutableNode loadNode(final long key) {
     final DataRecord record = storageEngineWriter.getRecord(key, IndexType.DOCUMENT, 0);
-    return record instanceof ImmutableNode node ? node : null;
+    return record instanceof ImmutableNode node
+        ? node
+        : null;
   }
 }

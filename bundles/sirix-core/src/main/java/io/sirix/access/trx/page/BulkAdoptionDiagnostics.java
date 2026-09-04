@@ -13,9 +13,9 @@ import java.util.concurrent.atomic.LongAdder;
  *
  * <p>
  * The writer class itself is package-private; this holder is what a loader outside the package can
- * print. {@code unstaged > 0} means the backend cannot stage immutable pages before the root and every
- * leaf holding a carrier stays pinned until commit; {@code pinnedAfterDeferralCap > 0} means the epoch
- * ordering that publishes staged carriers before re-promotion has regressed.
+ * print. {@code unstaged > 0} means the backend cannot stage immutable pages before the root and
+ * every leaf holding a carrier stays pinned until commit; {@code pinnedAfterDeferralCap > 0} means
+ * the epoch ordering that publishes staged carriers before re-promotion has regressed.
  * </p>
  */
 public final class BulkAdoptionDiagnostics {
@@ -86,9 +86,9 @@ public final class BulkAdoptionDiagnostics {
   }
 
   /**
-   * Background pre-serializations that ran to completion and were then thrown away because the
-   * encode had minted overflow carriers with no durable key. Each one is a full body encode — region
-   * build and codec included — whose bytes never reach the file.
+   * Background pre-serializations that ran to completion and were then thrown away because the encode
+   * had minted overflow carriers with no durable key. Each one is a full body encode — region build
+   * and codec included — whose bytes never reach the file.
    */
   public static long kvlEncodesDiscardedForUnresolvedCarriers() {
     return KVL_ENCODES_DISCARDED_FOR_UNRESOLVED_CARRIERS.sum();
@@ -96,9 +96,8 @@ public final class BulkAdoptionDiagnostics {
 
   /**
    * Pre-serializations the flush lane declined to start because this page had already been refused
-   * for unresolved carriers. The counterpart to
-   * {@link #kvlEncodesDiscardedForUnresolvedCarriers()}: encodes that did NOT happen. Zero with
-   * {@code -Dsirix.flush.skipRefusedOverflowLeaves=false}.
+   * for unresolved carriers. The counterpart to {@link #kvlEncodesDiscardedForUnresolvedCarriers()}:
+   * encodes that did NOT happen. Zero with {@code -Dsirix.flush.skipRefusedOverflowLeaves=false}.
    */
   public static long kvlEncodesSkippedForUnresolvedCarriers() {
     return KVL_ENCODES_SKIPPED_FOR_UNRESOLVED_CARRIERS.sum();

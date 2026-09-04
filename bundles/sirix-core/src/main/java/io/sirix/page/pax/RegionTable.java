@@ -1076,13 +1076,13 @@ public final class RegionTable implements AutoCloseable {
    * Add {@link #KIND_NUMBER_ZONEMAP} to any request for {@link #KIND_NUMBER}.
    *
    * <p>
-   * The number column's per-tag directory — the tag ids, their counts and their bounds — is stored
-   * in the zone map rather than a second time inside the values (see
-   * {@code NumberRegion.ENC_PER_TAG_FOR_EXTERNAL}). That makes the summary part of how the values
-   * are READ, not merely a way to avoid reading them, so a request for the values is a request for
-   * both. Enforced here rather than at each call site because a caller that forgot would not get a
-   * wrong answer — it would silently lose columnar serving for the page, which is the kind of
-   * regression nothing fails on.
+   * The number column's per-tag directory — the tag ids, their counts and their bounds — is stored in
+   * the zone map rather than a second time inside the values (see
+   * {@code NumberRegion.ENC_PER_TAG_FOR_EXTERNAL}). That makes the summary part of how the values are
+   * READ, not merely a way to avoid reading them, so a request for the values is a request for both.
+   * Enforced here rather than at each call site because a caller that forgot would not get a wrong
+   * answer — it would silently lose columnar serving for the page, which is the kind of regression
+   * nothing fails on.
    *
    * <p>
    * The summary is small (a few hundred bytes on a wide page, and the first region in write order),

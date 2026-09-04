@@ -31,7 +31,8 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>
  * Placement in {@link RevisionRootPage} matches the CAS/PATH/NAME pattern: one sibling reference
- * offset, populated on fresh revisions via {@link RevisionRootPage#getProjectionIndexPageReference()}.
+ * offset, populated on fresh revisions via
+ * {@link RevisionRootPage#getProjectionIndexPageReference()}.
  */
 public final class ProjectionIndexPage extends AbstractForwardingPage {
 
@@ -53,8 +54,8 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
    * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}: the
    * underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so mutations
    * to a child reference (key, pageFragments, swizzled page) cannot bleed back into the historical
-   * revision's view through cache aliasing. The allocator map is duplicated to decouple
-   * writer-side mutations from the prior-revision's instance.
+   * revision's view through cache aliasing. The allocator map is duplicated to decouple writer-side
+   * mutations from the prior-revision's instance.
    */
   public ProjectionIndexPage(final ProjectionIndexPage other) {
     final Page otherDelegate = other.delegate;
@@ -93,20 +94,21 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
       case ReferencesPage4 references -> references.referenceAtOffset(index);
       case BitmapReferencesPage references -> references.referenceAtOffset(index);
       case FullReferencesPage references -> references.referenceAt(index);
-      default -> throw new IllegalStateException(
-          "Unknown ProjectionIndexPage delegate type: " + delegate.getClass().getName());
+      default ->
+        throw new IllegalStateException("Unknown ProjectionIndexPage delegate type: " + delegate.getClass().getName());
     };
   }
 
   /**
    * Return the first projection-index number whose physical tree has never been initialized.
    *
-   * <p>A catalog entry is not an allocation witness: dropping an index removes its catalog
-   * definition while its versioned tree and bookkeeping entries remain reserved for historical
-   * revisions. Conversely, a read-side structural placeholder is not an initialized tree and must
-   * not burn an id. Either persisted bookkeeping or a non-virgin root reference is the physical
-   * initialization witness. The lookup is non-mutating and allocation-free on the normal sparse and
-   * full paths.</p>
+   * <p>
+   * A catalog entry is not an allocation witness: dropping an index removes its catalog definition
+   * while its versioned tree and bookkeeping entries remain reserved for historical revisions.
+   * Conversely, a read-side structural placeholder is not an initialized tree and must not burn an
+   * id. Either persisted bookkeeping or a non-virgin root reference is the physical initialization
+   * witness. The lookup is non-mutating and allocation-free on the normal sparse and full paths.
+   * </p>
    *
    * @return the first physically unallocated projection-index number
    * @throws IllegalStateException if all projection-index reference slots are allocated
@@ -118,7 +120,9 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
   /**
    * Return the first uninitialized physical projection-tree id at or after {@code fromInclusive}.
    *
-   * <p>The scan is read-only: neither sparse nor full delegates gain placeholder references.</p>
+   * <p>
+   * The scan is read-only: neither sparse nor full delegates gain placeholder references.
+   * </p>
    *
    * @param fromInclusive first physical id to inspect
    * @return the first uninitialized id
@@ -131,9 +135,8 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
         return index;
       }
     }
-    throw new IllegalStateException(
-        "Projection index reference space exhausted: all " + Constants.INP_REFERENCE_COUNT
-            + " physical tree ids are initialized");
+    throw new IllegalStateException("Projection index reference space exhausted: all " + Constants.INP_REFERENCE_COUNT
+        + " physical tree ids are initialized");
   }
 
   /**
@@ -236,8 +239,7 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
     for (final Int2LongMap.Entry entry : allocatorMap.int2LongEntrySet()) {
       checkIndex(entry.getIntKey());
       if (entry.getLongValue() < 0L) {
-        throw new IllegalArgumentException(
-            "Negative projection HOT page-key high-water mark: " + entry.getLongValue());
+        throw new IllegalArgumentException("Negative projection HOT page-key high-water mark: " + entry.getLongValue());
       }
     }
     return allocatorMap;

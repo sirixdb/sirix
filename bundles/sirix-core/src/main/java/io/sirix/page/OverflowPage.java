@@ -231,7 +231,9 @@ public final class OverflowPage implements Page {
 
   /** First byte of this payload inside {@link #payloadSegmentForSerializer()}. */
   long payloadOffsetForSerializer() {
-    return heapData != null ? 0L : nativeOffset;
+    return heapData != null
+        ? 0L
+        : nativeOffset;
   }
 
   private void ensureNativeViewOpen() {

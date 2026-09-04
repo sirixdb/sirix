@@ -81,14 +81,11 @@ final class HOTPageKeyMetadataSerializationTest {
 
   @Test
   void nameIndexesCoexistWithEveryReservedJsonAndXmlSlot() {
-    assertNamePageSlotCoexistence(IndexDef.DbType.JSON,
-        NamePage.JSON_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET);
-    assertNamePageSlotCoexistence(IndexDef.DbType.XML,
-        NamePage.XML_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET);
+    assertNamePageSlotCoexistence(IndexDef.DbType.JSON, NamePage.JSON_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET);
+    assertNamePageSlotCoexistence(IndexDef.DbType.XML, NamePage.XML_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET);
   }
 
-  private static void assertNamePageSlotCoexistence(final IndexDef.DbType dbType,
-      final int highestReservedSlot) {
+  private static void assertNamePageSlotCoexistence(final IndexDef.DbType dbType, final int highestReservedSlot) {
     final int nameIndexSlot = IndexDefs.createNameIdxDef(0, dbType).getID();
     assertEquals(highestReservedSlot + 1, nameIndexSlot,
         "the first secondary NAME slot must immediately follow the reserved dictionary run");

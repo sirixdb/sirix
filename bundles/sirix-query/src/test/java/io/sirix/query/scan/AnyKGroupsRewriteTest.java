@@ -68,9 +68,13 @@ public final class AnyKGroupsRewriteTest {
       if (i > 0) {
         sb.append(',');
       }
-      sb.append("{\"region\":").append(i / ROWS_PER_REGION)
-          .append(",\"tag\":\"").append(TAGS[i % TAGS.length])
-          .append("\",\"amount\":").append(i % 13).append('}');
+      sb.append("{\"region\":")
+        .append(i / ROWS_PER_REGION)
+        .append(",\"tag\":\"")
+        .append(TAGS[i % TAGS.length])
+        .append("\",\"amount\":")
+        .append(i % 13)
+        .append('}');
     }
     sb.append(']');
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
@@ -109,7 +113,8 @@ public final class AnyKGroupsRewriteTest {
     // so the rewritten pass must have pruned (almost) every other leaf of the 63. A predicate that
     // admits more rows than the chosen groups still answers correctly — and prunes nothing.
     final long pruned = ProjectionColumnScan.treeLeavesPrunedCount() - prunedBefore;
-    assertTrue(pruned >= 55, "the rewritten pass must prune the leaves the chosen groups cannot touch: pruned=" + pruned);
+    assertTrue(pruned >= 55,
+        "the rewritten pass must prune the leaves the chosen groups cannot touch: pruned=" + pruned);
     final Matcher m = GROUP_LINE.matcher(out);
     final Set<String> groups = new HashSet<>();
     final Set<String> tags = Set.of(TAGS);
@@ -178,8 +183,8 @@ public final class AnyKGroupsRewriteTest {
     }
     assertEquals(10, seen.size(), out);
     // Ties on the count resolve by (region, tag) ascending: regions 0 and 1, tags alphabetical.
-    assertEquals(List.of("0/alpha", "0/beta", "0/delta", "0/epsilon", "0/gamma",
-        "1/alpha", "1/beta", "1/delta", "1/epsilon", "1/gamma"), seen);
+    assertEquals(List.of("0/alpha", "0/beta", "0/delta", "0/epsilon", "0/gamma", "1/alpha", "1/beta", "1/delta",
+        "1/epsilon", "1/gamma"), seen);
   }
 
   private static void assertTagGroups(final String out, final int expectedGroups) {

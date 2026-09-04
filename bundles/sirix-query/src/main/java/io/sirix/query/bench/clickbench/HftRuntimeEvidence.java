@@ -269,7 +269,9 @@ public final class HftRuntimeEvidence {
     if (!codeSourcePresent) {
       throw new IllegalStateException("the executable main class is outside the effective runtime classpath");
     }
-    return standaloneIdentity == null ? null : boundedBuildIdentitySource(Files.newInputStream(standaloneIdentity));
+    return standaloneIdentity == null
+        ? null
+        : boundedBuildIdentitySource(Files.newInputStream(standaloneIdentity));
   }
 
   private static boolean isStandaloneIdentityDirectory(final Path directory, final Path identity) throws IOException {
@@ -333,8 +335,7 @@ public final class HftRuntimeEvidence {
     try (source) {
       final byte[] identity = source.readNBytes(MAX_BUILD_IDENTITY_BYTES + 1);
       if (identity.length > MAX_BUILD_IDENTITY_BYTES) {
-        throw new IllegalStateException(
-            "HFT build identity exceeds " + MAX_BUILD_IDENTITY_BYTES + " bytes");
+        throw new IllegalStateException("HFT build identity exceeds " + MAX_BUILD_IDENTITY_BYTES + " bytes");
       }
       return new ByteArrayInputStream(identity);
     }

@@ -64,8 +64,8 @@ public final class XmlSecondaryIndexDeleteReinsertTest {
     final XmlIndexController indexController =
         holder.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
 
-    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse(PATH)), 0,
-        IndexDef.DbType.XML);
+    final IndexDef idxDef =
+        IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(Path.parse(PATH)), 0, IndexDef.DbType.XML);
 
     indexController.createIndexes(Set.of(idxDef), wtx);
 

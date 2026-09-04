@@ -119,8 +119,8 @@ public final class StringRegion {
    * what is already there rather than arrays of their own;</li>
    * <li>a tag's length table has a width of its own — one, two or four bytes, signed, so the sign
    * still carries the FSST flag and a length stays a single O(1) read;</li>
-   * <li>a tag whose values are ALL DISTINCT takes the plain lane: its values are stored in slot
-   * order and its rank IS its dictionary id, so it writes no dict ids at all. All-distinct is a
+   * <li>a tag whose values are ALL DISTINCT takes the plain lane: its values are stored in slot order
+   * and its rank IS its dictionary id, so it writes no dict ids at all. All-distinct is a
    * precondition, not a heuristic — rank and id must stay a bijection or an equality count over a
    * duplicated value would answer for one of its occurrences.</li>
    * </ul>
@@ -200,9 +200,9 @@ public final class StringRegion {
    *
    * <p>
    * Reading a region that is already on the page never consults this. Every value is read from the
-   * tag flags the region itself carries, so a page written WITH temporal tags stays readable when
-   * the switch goes off, and a page written without them is unaffected when it goes on. That is
-   * what makes the switch safe to flip on a database that already exists.
+   * tag flags the region itself carries, so a page written WITH temporal tags stays readable when the
+   * switch goes off, and a page written without them is unaffected when it goes on. That is what
+   * makes the switch safe to flip on a database that already exists.
    * </p>
    *
    * <h2>What is NOT: a region that has to be REBUILT</h2>
@@ -212,10 +212,10 @@ public final class StringRegion {
    * {@code KeyValueLeafPage.getStringRegionHeader()} falls back to re-deriving the region from the
    * slotted page when none was persisted — a versioning-reconstructed or merged page starts with an
    * empty region table — and that derive runs a fresh {@link Encoder} and INSTALLS the result into
-   * the page's region table, where {@code getStringRegionPayload()} then finds it. A rebuilt
-   * region's layout therefore follows the CURRENT setting rather than what the writer chose: on a
-   * JVM whose switch disagrees with the writer's, such a page can acquire a temporal tag it never
-   * had on disk, or lose one it did.
+   * the page's region table, where {@code getStringRegionPayload()} then finds it. A rebuilt region's
+   * layout therefore follows the CURRENT setting rather than what the writer chose: on a JVM whose
+   * switch disagrees with the writer's, such a page can acquire a temporal tag it never had on disk,
+   * or lose one it did.
    * </p>
    *
    * <p>
@@ -239,10 +239,10 @@ public final class StringRegion {
    * Bits per global id, DERIVED from the dictionary's entry count rather than stored.
    *
    * <p>
-   * Ids run {@code 1..entryCount}, so the count fixes the width exactly and a stored width could
-   * only ever disagree with it. That is the same discipline {@code valueBitWidth} already follows —
-   * derived from the dictionaries it addresses — and it is why the anchor pays for itself twice:
-   * it makes resolution a function of the page AND it sizes the lane.
+   * Ids run {@code 1..entryCount}, so the count fixes the width exactly and a stored width could only
+   * ever disagree with it. That is the same discipline {@code valueBitWidth} already follows —
+   * derived from the dictionaries it addresses — and it is why the anchor pays for itself twice: it
+   * makes resolution a function of the page AND it sizes the lane.
    * </p>
    *
    * <p>
@@ -253,7 +253,9 @@ public final class StringRegion {
    * </p>
    */
   static int globalIdBits(final int dictionaryEntryCount) {
-    return dictionaryEntryCount <= 0 ? 1 : 32 - Integer.numberOfLeadingZeros(dictionaryEntryCount);
+    return dictionaryEntryCount <= 0
+        ? 1
+        : 32 - Integer.numberOfLeadingZeros(dictionaryEntryCount);
   }
 
   /**
@@ -262,8 +264,7 @@ public final class StringRegion {
    * <p>
    * The supported route for a tag {@link Header#tagGlobal} marks. Callers pair it with a
    * {@link GlobalStringDictionaries} to reach the bytes, and should batch a tag's ids and resolve
-   * them ASCENDING -- a dictionary point read is 417 ns at a random id and 75 ns at a sequential
-   * one.
+   * them ASCENDING -- a dictionary point read is 417 ns at a random id and 75 ns at a sequential one.
    * </p>
    */
   public static int globalIdAt(final MemorySegment payload, final Header h, final int tag, final int dictId) {
@@ -275,7 +276,9 @@ public final class StringRegion {
       throw new IndexOutOfBoundsException("dict id " + dictId + " outside tag " + tag + "'s " + n + " entries");
     }
     final int bits = globalIdBits(h.tagDictionaryEntryCount[tag]);
-    final long mask = bits == 32 ? 0xFFFFFFFFL : ((1L << bits) - 1L);
+    final long mask = bits == 32
+        ? 0xFFFFFFFFL
+        : ((1L << bits) - 1L);
     final long bitOff = (long) dictId * bits;
     final int byteOff = h.tagStringDictOffset[tag] + (int) (bitOff >>> 3);
     return (int) ((readUpToLongLE(payload, byteOff) >>> (int) (bitOff & 7L)) & mask);
@@ -343,12 +346,12 @@ public final class StringRegion {
    * as the complete number of that tag's values on the page — so the tag's values stay in the record
    * heap and the tag is named here instead. Its ABSENCE from {@link Header#parentDict} is what every
    * existing reader already handles (it declines and walks the records); the list turns that decline
-   * from an accident into a statement, and lets a reader tell "no such field here" from "the field
-   * is here, ask the records".
+   * from an accident into a statement, and lets a reader tell "no such field here" from "the field is
+   * here, ask the records".
    *
    * <p>
-   * Costs nothing when empty: the list is written only when {@link Header#parentDictSize} carries
-   * its sign bit, so a page with no oversized string encodes byte-for-byte as before.
+   * Costs nothing when empty: the list is written only when {@link Header#parentDictSize} carries its
+   * sign bit, so a page with no oversized string encodes byte-for-byte as before.
    *
    * @return whether {@code tag}'s values are on the page but out of this region
    */
@@ -401,29 +404,29 @@ public final class StringRegion {
     public boolean[] tagPlainLane;
 
     /**
-     * For each tag: whether its per-tag dictionary holds global dictionary IDS instead of value
-     * bytes — the trie lane.
+     * For each tag: whether its per-tag dictionary holds global dictionary IDS instead of value bytes —
+     * the trie lane.
      *
      * <p>
-     * Signalled on the wire by a NEGATIVE {@code tagStringDictSize}, whose magnitude is the entry
-     * count as always. The sign bit is free here and the field is already read per tag, so the
-     * layout stays self-describing: a reader learns a tag is global at the same moment it learns
-     * how many entries it has, and {@code parentDictSize} already carries a sign bit for the
-     * suppressed-tag list, so the idiom is the format's own.
+     * Signalled on the wire by a NEGATIVE {@code tagStringDictSize}, whose magnitude is the entry count
+     * as always. The sign bit is free here and the field is already read per tag, so the layout stays
+     * self-describing: a reader learns a tag is global at the same moment it learns how many entries it
+     * has, and {@code parentDictSize} already carries a sign bit for the suppressed-tag list, so the
+     * idiom is the format's own.
      * </p>
      *
      * <p>
-     * A global tag's entries are {@code int[|n|]} ids and NO bytes, so
-     * {@link #tagStringBytesOffset} is the end of the id table and every byte-reading accessor must
-     * check this first. They refuse rather than read: an id table read as a length table produces
-     * plausible garbage, and this format has already paid once for a decoder that guessed.
+     * A global tag's entries are {@code int[|n|]} ids and NO bytes, so {@link #tagStringBytesOffset} is
+     * the end of the id table and every byte-reading accessor must check this first. They refuse rather
+     * than read: an id table read as a length table produces plausible garbage, and this format has
+     * already paid once for a decoder that guessed.
      * </p>
      */
     public boolean[] tagGlobal;
 
     /**
-     * For each tag: its dictionary is stored as PACKED TIMESTAMPS rather than text (the temporal
-     * lane). Mutually exclusive with {@link #tagGlobal} — a tag is one lane or the other.
+     * For each tag: its dictionary is stored as PACKED TIMESTAMPS rather than text (the temporal lane).
+     * Mutually exclusive with {@link #tagGlobal} — a tag is one lane or the other.
      *
      * <p>
      * Like a global tag, a temporal tag carries NO value bytes; unlike it, resolving one needs no
@@ -447,12 +450,12 @@ public final class StringRegion {
      * For each global tag: the node key of the dictionary its ids were encoded against.
      *
      * <p>
-     * The page NAMES its dictionary, exactly as an FSST page names its symbol table, and for the
-     * same reason: resolution has to be a pure function of the page. It is not otherwise — a
-     * dictionary is a function of (resource, generation), a rank rebuild REASSIGNS every id, and a
-     * copy-on-write leaf written against one generation stays reachable after the next. Resolving
-     * such a leaf against "the current dictionary" returns plausible wrong values for a page nobody
-     * touched, which is the same shape as a verdict keyed without its cardinality.
+     * The page NAMES its dictionary, exactly as an FSST page names its symbol table, and for the same
+     * reason: resolution has to be a pure function of the page. It is not otherwise — a dictionary is a
+     * function of (resource, generation), a rank rebuild REASSIGNS every id, and a copy-on-write leaf
+     * written against one generation stays reachable after the next. Resolving such a leaf against "the
+     * current dictionary" returns plausible wrong values for a page nobody touched, which is the same
+     * shape as a verdict keyed without its cardinality.
      * </p>
      */
     public long[] tagDictionaryKey;
@@ -463,11 +466,11 @@ public final class StringRegion {
      * <p>
      * What it proves and what it does not, stated because a resolver has to know the difference. A
      * rank-ordered dictionary only ever APPENDS in collation order, so ids {@code 1..n} keep their
-     * values as it grows: a current count at least this one means every id this page stores is
-     * still the value it was. A SMALLER count is a different dictionary under a reused key, and the
-     * resolver must refuse rather than resolve. It does not prove the absence of a rebuild that
-     * happens to land on the same key with at least as many entries — that case is closed by the
-     * key changing on rebuild, and the count is the second line, not the first.
+     * values as it grows: a current count at least this one means every id this page stores is still
+     * the value it was. A SMALLER count is a different dictionary under a reused key, and the resolver
+     * must refuse rather than resolve. It does not prove the absence of a rebuild that happens to land
+     * on the same key with at least as many entries — that case is closed by the key changing on
+     * rebuild, and the count is the second line, not the first.
      * </p>
      */
     public int[] tagDictionaryEntryCount;
@@ -477,18 +480,17 @@ public final class StringRegion {
      *
      * <p>
      * The lane exists for a reason that has nothing to do with reading a value: the derived
-     * value-elision plan reconstructs each elided slot's width from the region's stored string
-     * LENGTH, so without lengths a converted page cannot be SERIALIZED at all — the plan-and-verify
-     * pass refuses it. §6.4 of the design struck a length table as unnecessary and was right about
-     * its original motivation and wrong about this one.
+     * value-elision plan reconstructs each elided slot's width from the region's stored string LENGTH,
+     * so without lengths a converted page cannot be SERIALIZED at all — the plan-and-verify pass
+     * refuses it. §6.4 of the design struck a length table as unnecessary and was right about its
+     * original motivation and wrong about this one.
      * </p>
      *
      * <p>
-     * It is affordable because a leaf is only about ten ClickBench rows: measured over 4,000 leaves,
-     * a tag holds 9.7 values and 1.0-5.7 DISTINCT, maximum ever 10. So this is roughly six length
-     * fields per tag per leaf — about 1 % of the ~1.1 KB of value bytes the lane removes from the
-     * same leaf. A per-VALUE length table would have been a different proposition; this is per
-     * DICTIONARY ENTRY.
+     * It is affordable because a leaf is only about ten ClickBench rows: measured over 4,000 leaves, a
+     * tag holds 9.7 values and 1.0-5.7 DISTINCT, maximum ever 10. So this is roughly six length fields
+     * per tag per leaf — about 1 % of the ~1.1 KB of value bytes the lane removes from the same leaf. A
+     * per-VALUE length table would have been a different proposition; this is per DICTIONARY ENTRY.
      * </p>
      */
     public byte[] tagGlobalLengthWidth;
@@ -496,9 +498,9 @@ public final class StringRegion {
     /** For each global tag: payload offset of its length lane, which follows the packed id table. */
     public int[] tagGlobalLengthOffset;
     /**
-     * For each tag: index of its first value within the packed dict-id lane. Equals
-     * {@link #tagStart} whenever no tag took the plain lane, which is every page of the dictionary
-     * layout; a plain tag contributes nothing to the lane and its entry is not meaningful.
+     * For each tag: index of its first value within the packed dict-id lane. Equals {@link #tagStart}
+     * whenever no tag took the plain lane, which is every page of the dictionary layout; a plain tag
+     * contributes nothing to the lane and its entry is not meaningful.
      */
     public int[] tagIdLaneStart;
     /**
@@ -596,7 +598,9 @@ public final class StringRegion {
         final int signed = tagStringDictSize[t];
         // NEGATIVE size = the trie lane: |n| global dictionary ids, no value bytes at all.
         final boolean global = signed < 0;
-        final int n = global ? -signed : signed;
+        final int n = global
+            ? -signed
+            : signed;
         tagGlobal[t] = global;
         tagStringDictSize[t] = n;
         if (global) {
@@ -636,9 +640,8 @@ public final class StringRegion {
     }
 
     /**
-     * Parse the {@link #ENC_VARINT_FRAMED} layout into exactly the fields the dictionary layout
-     * fills, deriving {@code count}, {@code tagStart} and {@code valueBitWidth} rather than reading
-     * them.
+     * Parse the {@link #ENC_VARINT_FRAMED} layout into exactly the fields the dictionary layout fills,
+     * deriving {@code count}, {@code tagStart} and {@code valueBitWidth} rather than reading them.
      */
     private Header parseVarintFramed(final MemorySegment payload) {
       long pos = 1;
@@ -652,8 +655,8 @@ public final class StringRegion {
       final long suppressed = VarInt.readUnsigned(payload, pos);
       pos += VarInt.sizeOfUnsigned(suppressed);
       if (tags < 0L || tags > Integer.MAX_VALUE || suppressed < 0L || suppressed > Integer.MAX_VALUE) {
-        throw new IllegalArgumentException("string region declares " + tags + " tags and " + suppressed
-            + " suppressed tags");
+        throw new IllegalArgumentException(
+            "string region declares " + tags + " tags and " + suppressed + " suppressed tags");
       }
       parentDictSize = (int) tags;
       suppressedTagCount = (int) suppressed;
@@ -765,8 +768,8 @@ public final class StringRegion {
           final long lengthWidthCode = VarInt.readUnsigned(payload, pos);
           pos += VarInt.sizeOfUnsigned(lengthWidthCode);
           if (lengthWidthCode >= LENGTH_WIDTHS.length) {
-            throw new IllegalArgumentException("string region tag " + t + " declares global length width code "
-                + lengthWidthCode);
+            throw new IllegalArgumentException(
+                "string region tag " + t + " declares global length width code " + lengthWidthCode);
           }
           tagGlobalLengthWidth[t] = (byte) LENGTH_WIDTHS[(int) lengthWidthCode];
         } else {
@@ -907,8 +910,8 @@ public final class StringRegion {
     }
 
     /**
-     * The tag whose value range contains {@code index}, or {@code -1} when it is out of range.
-     * Binary search over {@link #tagStart}, which is ascending by construction.
+     * The tag whose value range contains {@code index}, or {@code -1} when it is out of range. Binary
+     * search over {@link #tagStart}, which is ascending by construction.
      */
     public int tagOfIndex(final int index) {
       if (index < 0 || index >= count || parentDictSize == 0) {
@@ -1149,9 +1152,9 @@ public final class StringRegion {
    * <p>
    * The trie lane stores global ids and the temporal lane stores packed numbers. Neither has an
    * offset into the payload to hand back, so {@code decodeStringOffset} refuses both rather than
-   * returning a plausible one. That refusal is the LAST line of defence, not the first: a caller
-   * that walks a tag's dictionary reading bytes has to ask before it walks, and take whichever
-   * slower route it already has for a tag it cannot read this way.
+   * returning a plausible one. That refusal is the LAST line of defence, not the first: a caller that
+   * walks a tag's dictionary reading bytes has to ask before it walks, and take whichever slower
+   * route it already has for a tag it cannot read this way.
    * </p>
    *
    * <p>
@@ -1187,8 +1190,8 @@ public final class StringRegion {
     if (h.tagTemporal[tag]) {
       // Packed numbers, not bytes -- the same refusal for the same reason. There is no offset to
       // return: the value is rendered by TemporalTextCodec, never read from the page.
-      throw new IllegalStateException("string region tag " + tag
-          + " stores packed timestamps; render via StringRegion.temporalValueAt");
+      throw new IllegalStateException(
+          "string region tag " + tag + " stores packed timestamps; render via StringRegion.temporalValueAt");
     }
     final int dictStart = h.tagStringDictOffset[tag];
     final int width = h.tagLengthWidth[tag];
@@ -1358,7 +1361,9 @@ public final class StringRegion {
       if (h.tagPlainLane[tag]) {
         // Rank IS the id and the tag's values are all distinct, so the id occurs at most once.
         final int rank = dictId - (start - h.tagStart[tag]);
-        return rank >= 0 && rank < n ? 1 : 0;
+        return rank >= 0 && rank < n
+            ? 1
+            : 0;
       }
       laneStart = laneIndexOf(h, tag, start);
     }
@@ -1607,8 +1612,8 @@ public final class StringRegion {
      * Resolver for tags whose values live in a resource-wide dictionary, or {@code null}.
      *
      * <p>
-     * Supplied by whoever holds the writing context; the encoder itself cannot reach a dictionary
-     * for the same reason the decoder cannot. When absent every tag encodes its bytes, which is the
+     * Supplied by whoever holds the writing context; the encoder itself cannot reach a dictionary for
+     * the same reason the decoder cannot. When absent every tag encodes its bytes, which is the
      * behaviour that existed before the lane.
      * </p>
      */
@@ -1627,13 +1632,13 @@ public final class StringRegion {
      * Per retained tag: the dictionary anchor SNAPSHOTTED once, at resolution.
      *
      * <p>
-     * Not a convenience. The entry count fixes three things that must agree exactly — the bit width
-     * the ids are packed at, the width the parser DERIVES from the count it reads, and the count
-     * written into the header — and they are computed in three different passes over the tag. A live
-     * dictionary is a moving target between them: {@code buildRegionTable} runs on the flush lane's
-     * parallel threads while the load is still interning, so a count that grew mid-encode would pack
-     * ids at one width and declare another. The parser would then read every id of that tag shifted,
-     * with no failure anywhere — the exact silent corruption the anchor exists to prevent.
+     * Not a convenience. The entry count fixes three things that must agree exactly — the bit width the
+     * ids are packed at, the width the parser DERIVES from the count it reads, and the count written
+     * into the header — and they are computed in three different passes over the tag. A live dictionary
+     * is a moving target between them: {@code buildRegionTable} runs on the flush lane's parallel
+     * threads while the load is still interning, so a count that grew mid-encode would pack ids at one
+     * width and declare another. The parser would then read every id of that tag shifted, with no
+     * failure anywhere — the exact silent corruption the anchor exists to prevent.
      * </p>
      */
     private int[] globalEntryCount = new int[4];
@@ -1672,10 +1677,10 @@ public final class StringRegion {
      * Install the dictionary resolver, or {@code null} to encode every tag as bytes.
      *
      * <p>
-     * A tag converts ALL OF ITS ENTRIES or none. A single value the dictionary does not hold makes
-     * the whole tag fall back to bytes rather than mint an id: the dictionary is complete before the
-     * load starts, so a miss means the writer and the pre-pass disagree about the value set, and an
-     * id no reader can resolve is a worse outcome than the bytes it replaced.
+     * A tag converts ALL OF ITS ENTRIES or none. A single value the dictionary does not hold makes the
+     * whole tag fall back to bytes rather than mint an id: the dictionary is complete before the load
+     * starts, so a miss means the writer and the pre-pass disagree about the value set, and an id no
+     * reader can resolve is a worse outcome than the bytes it replaced.
      * </p>
      */
     public void setDictionaries(final @Nullable GlobalStringDictionaries resolver) {
@@ -1720,11 +1725,10 @@ public final class StringRegion {
      * Declare that {@code parentNameKey}'s values live on the page but must not enter this region.
      *
      * <p>
-     * Idempotent, and independent of ordering: values already added under the tag are dropped at
-     * encode time, and values added afterwards are dropped too. The tag itself is remembered and
-     * written to the suppressed-tag list, so a reader can tell it from a tag the page never held.
-     * Adding no value at all is a legal use — an oversized string is the tag's only occurrence on
-     * many pages.
+     * Idempotent, and independent of ordering: values already added under the tag are dropped at encode
+     * time, and values added afterwards are dropped too. The tag itself is remembered and written to
+     * the suppressed-tag list, so a reader can tell it from a tag the page never held. Adding no value
+     * at all is a legal use — an oversized string is the tag's only occurrence on many pages.
      */
     public void suppressTag(final int parentNameKey) {
       final int tag = getOrCreateTag(parentNameKey);
@@ -2000,8 +2004,8 @@ public final class StringRegion {
      *
      * @param tagKind semantic interpretation of the tag dictionary
      * @param elementsStaged whether array-element staging ran for this page
-     * @return exact logical length of the encoded payload, or zero when no value survives — nothing
-     *         was added, or every added value's tag is suppressed
+     * @return exact logical length of the encoded payload, or zero when no value survives — nothing was
+     *         added, or every added value's tag is suppressed
      */
     public int encodeInto(final byte tagKind, final boolean elementsStaged) {
       encodedLength = 0;
@@ -2124,9 +2128,8 @@ public final class StringRegion {
           // [DIAG] Measured write positions, not a formula — an attribution derived from the layout
           // twice can disagree with itself; this one cannot.
           final int values = tagDictIds[t].size();
-          PageSectionDiag.recordStringRegionTag(tagKind, tagOrder.getInt(t), values, sz,
-              tagValueBase - tagLengthBase, pos - tagValueBase, (long) values * bitWidth,
-              (long) values * forWidth(sz));
+          PageSectionDiag.recordStringRegionTag(tagKind, tagOrder.getInt(t), values, sz, tagValueBase - tagLengthBase,
+              pos - tagValueBase, (long) values * bitWidth, (long) values * forWidth(sz));
         }
       }
       if (PageSectionDiag.STRING_TAG_DIAG) {
@@ -2158,18 +2161,18 @@ public final class StringRegion {
      * Serialize the {@link #ENC_VARINT_FRAMED} layout.
      *
      * <p>
-     * The lane decision is per tag and is not a heuristic: a tag goes plain exactly when its
-     * dictionary has one entry per value, i.e. its values are all distinct. Then dropping the ids
-     * costs nothing to look up — rank IS the id — and saves every one of them. A tag with even one
-     * repeat keeps the dictionary, because rank and id would no longer be a bijection and an
-     * equality count would answer for one occurrence of a value instead of all of them.
+     * The lane decision is per tag and is not a heuristic: a tag goes plain exactly when its dictionary
+     * has one entry per value, i.e. its values are all distinct. Then dropping the ids costs nothing to
+     * look up — rank IS the id — and saves every one of them. A tag with even one repeat keeps the
+     * dictionary, because rank and id would no longer be a bijection and an equality count would answer
+     * for one occurrence of a value instead of all of them.
      *
      * @param retained tag ids that survive suppression, in write order
      * @param ps number of retained tags
      * @param count total values across retained tags
      */
-    private int encodeVarintFramed(final byte tagKind, final boolean elementsStaged, final int[] retained,
-        final int ps, final int count) {
+    private int encodeVarintFramed(final byte tagKind, final boolean elementsStaged, final int[] retained, final int ps,
+        final int count) {
       // Per-tag decisions first: they size the header, the length tables and the id lane.
       final boolean[] plain = plainScratch(ps);
       final byte[] widths = lengthWidthScratch(ps);
@@ -2345,12 +2348,13 @@ public final class StringRegion {
           pos += packedBytes;
           if (PageSectionDiag.STRING_TAG_DIAG) {
             final int valuesForDiag = tagDictIds[t].size();
-            PageSectionDiag.recordStringRegionTag(tagKind, tagOrder.getInt(t), valuesForDiag, sz,
-                packedBytes, 0, plain[r]
+            PageSectionDiag.recordStringRegionTag(tagKind, tagOrder.getInt(t), valuesForDiag, sz, packedBytes, 0,
+                plain[r]
                     ? 0L
-                    : (long) valuesForDiag * bitWidth, plain[r]
-                        ? 0L
-                        : (long) valuesForDiag * forWidth(sz));
+                    : (long) valuesForDiag * bitWidth,
+                plain[r]
+                    ? 0L
+                    : (long) valuesForDiag * forWidth(sz));
           }
           continue;
         }
@@ -2395,12 +2399,13 @@ public final class StringRegion {
           // A PLAIN tag stores no ids at all — its values ARE its dictionary — so it contributes
           // nothing to either lane figure. Counting it would invent a lane that is not there.
           final int values = tagDictIds[t].size();
-          PageSectionDiag.recordStringRegionTag(tagKind, tagOrder.getInt(t), values, sz,
-              tagValueBase - tagLengthBase, pos - tagValueBase, plain[r]
+          PageSectionDiag.recordStringRegionTag(tagKind, tagOrder.getInt(t), values, sz, tagValueBase - tagLengthBase,
+              pos - tagValueBase, plain[r]
                   ? 0L
-                  : (long) values * bitWidth, plain[r]
-                      ? 0L
-                      : (long) values * forWidth(sz));
+                  : (long) values * bitWidth,
+              plain[r]
+                  ? 0L
+                  : (long) values * forWidth(sz));
         }
       }
       if (PageSectionDiag.STRING_TAG_DIAG) {
@@ -2457,10 +2462,10 @@ public final class StringRegion {
      * Meta word for a TEMPORAL tag: width code {@link #GLOBAL_WIDTH_CODE} AND the plain bit.
      *
      * <p>
-     * That combination was unreachable and the parser refused it as malformed, exactly as width code
-     * 3 itself was unreachable before the trie lane took it. Taking it costs no new field and no
-     * format version: "plain" means a value's RANK is its id, which is a claim about bytes a global
-     * tag does not carry, so no honest encoder could ever have written the pair.
+     * That combination was unreachable and the parser refused it as malformed, exactly as width code 3
+     * itself was unreachable before the trie lane took it. Taking it costs no new field and no format
+     * version: "plain" means a value's RANK is its id, which is a claim about bytes a global tag does
+     * not carry, so no honest encoder could ever have written the pair.
      * </p>
      */
     private static long temporalTagMeta(final int dictSize) {
@@ -2472,11 +2477,10 @@ public final class StringRegion {
      * PLAIN-lane flag above it.
      *
      * <p>
-     * The plain flag has to live here because the meta word's bit 0 -- where every other tag carries
-     * it -- is what MARKS this tag temporal. A temporal tag still needs the flag: its values are
-     * usually all distinct, which is exactly the plain case, and a plain tag stores no id lane at all.
-     * Losing the distinction would cost an id lane per tag per leaf, or invent one the writer never
-     * wrote.
+     * The plain flag has to live here because the meta word's bit 0 -- where every other tag carries it
+     * -- is what MARKS this tag temporal. A temporal tag still needs the flag: its values are usually
+     * all distinct, which is exactly the plain case, and a plain tag stores no id lane at all. Losing
+     * the distinction would cost an id lane per tag per leaf, or invent one the writer never wrote.
      * </p>
      */
     private static long temporalFormField(final int form, final boolean plain) {
@@ -2489,18 +2493,17 @@ public final class StringRegion {
      * Resolve a tag's whole dictionary to global ids, or report that it cannot be.
      *
      * <p>
-     * ALL OR NOTHING: one absent value, or one FSST-encoded entry whose bytes are not the value,
-     * and the tag keeps its bytes. Resolving entry by entry and converting the ones that succeed
-     * would put a tag on disk that is half ids and half bytes with nothing on the wire to say which
-     * is which.
+     * ALL OR NOTHING: one absent value, or one FSST-encoded entry whose bytes are not the value, and
+     * the tag keeps its bytes. Resolving entry by entry and converting the ones that succeed would put
+     * a tag on disk that is half ids and half bytes with nothing on the wire to say which is which.
      * </p>
      */
     /**
      * Whether this tag's WHOLE dictionary is fixed timestamp text, and if so its encoded values.
      *
      * <p>
-     * ALL OR NOTHING, for {@link #resolveGlobalIds}'s own reason: a tag half packed and half bytes
-     * has nothing on the wire to say which half an entry is in. One entry that is FSST-encoded (whose
+     * ALL OR NOTHING, for {@link #resolveGlobalIds}'s own reason: a tag half packed and half bytes has
+     * nothing on the wire to say which half an entry is in. One entry that is FSST-encoded (whose
      * stored bytes are not its value) or that {@link TemporalTextCodec} refuses, and the tag keeps its
      * bytes exactly as before.
      * </p>
@@ -2649,8 +2652,8 @@ public final class StringRegion {
      *
      * <p>
      * Positive lengths only — a global tag has no FSST-encoded entry — but the field is read back
-     * SIGNED, so the thresholds are the signed ones. A fused record is capped at 1,023 bytes, so two
-     * is the realistic answer and four is there for a cap that moves.
+     * SIGNED, so the thresholds are the signed ones. A fused record is capped at 1,023 bytes, so two is
+     * the realistic answer and four is there for a cap that moves.
      * </p>
      */
     private int globalLengthWidthCode(final int t, final int sz) {
@@ -2687,7 +2690,8 @@ public final class StringRegion {
               : 2);
       return (plain
           ? 0L
-          : (long) dictSize << 3) | ((long) widthCode << 1) | (plain
+          : (long) dictSize << 3) | ((long) widthCode << 1)
+          | (plain
               ? 1L
               : 0L);
     }
@@ -2861,9 +2865,8 @@ public final class StringRegion {
   }
 
   /**
-   * One signed length field read out of an encoder-side {@code byte[]} rather than a payload
-   * segment, for the sketch, which is built over the encoder's scratch before the region is
-   * installed.
+   * One signed length field read out of an encoder-side {@code byte[]} rather than a payload segment,
+   * for the sketch, which is built over the encoder's scratch before the region is installed.
    */
   static int readLengthFieldFromArray(final byte[] payload, final int offset, final int width) {
     return switch (width) {

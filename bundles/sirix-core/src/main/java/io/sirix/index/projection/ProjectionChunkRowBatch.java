@@ -125,8 +125,8 @@ public final class ProjectionChunkRowBatch {
         // The temporal kinds hold an epoch per row: the long lane, allocated exactly as for a
         // numeric column, and no string arena at all.
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           longLanes[column] = new long[expectedRows];
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
             ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> {

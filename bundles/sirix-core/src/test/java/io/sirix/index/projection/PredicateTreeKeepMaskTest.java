@@ -27,8 +27,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The predicate TREE's keep mask: every leaf predicate's zone / fingerprint evidence gathered on its
- * own and combined by the program — AND intersects, OR unites, NOT keeps every leaf — so an
+ * The predicate TREE's keep mask: every leaf predicate's zone / fingerprint evidence gathered on
+ * its own and combined by the program — AND intersects, OR unites, NOT keeps every leaf — so an
  * OR-bearing WHERE over a sorted key prunes exactly like the flat conjunction would. A tree used to
  * be filled FULL (q40 at 100M: one {@code IN} made the whole WHERE a tree and every leaf of every
  * column was fetched). The masked tree fill must answer byte-identically to the full one while
@@ -59,7 +59,8 @@ final class PredicateTreeKeepMaskTest {
       for (int r = 0; r < ROWS; r++) {
         page.appendRow(recordKey++, new long[] {leaf * 1_000L + r, leaf % 4, 0L}, new boolean[] {false, false, false},
             new String[] {null, null, "t-" + leaf + "-" + r}, new boolean[] {true, true, true},
-            new boolean[] {false, false, false}, new boolean[] {false, false, false}, new boolean[] {false, false, false});
+            new boolean[] {false, false, false}, new boolean[] {false, false, false},
+            new boolean[] {false, false, false});
       }
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
           ProjectionIndexColumnSegmentCodec.encode(page.serialize());
@@ -91,7 +92,10 @@ final class PredicateTreeKeepMaskTest {
 
   private static final ColumnPredicate[] NO_PREDICATES = new ColumnPredicate[0];
 
-  /** {@code col0 in leaf L}'s zone: {@code col0 >= L*1000} — a lower bound alone already isolates the leaves at or above L. */
+  /**
+   * {@code col0 in leaf L}'s zone: {@code col0 >= L*1000} — a lower bound alone already isolates the
+   * leaves at or above L.
+   */
   private static ColumnPredicate keyAtLeast(final int leaf) {
     return ColumnPredicate.numeric(0, Op.GE, leaf * 1_000L);
   }
@@ -121,36 +125,43 @@ final class PredicateTreeKeepMaskTest {
   void programCombinesLeafEvidence() {
     final Fixture f = buildFixture();
     // (key >= 6000) OR (key < 1000): leaves 6, 7 and 0.
-    final PredicateTree or = PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6), keyBelow(1)},
-        new byte[] {0, 1, PredicateTree.OP_OR});
+    final PredicateTree or =
+        PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6), keyBelow(1)}, new byte[] {0, 1, PredicateTree.OP_OR});
     assertArrayEquals(mask(0, 6, 7), ProjectionColumnScan.predicateKeepMask(f.store(), NO_PREDICATES, or, f.fetcher()),
         "OR unites each operand's own leaf set");
     // (key >= 6000) AND (class = 3): leaves {6, 7} ∩ {3, 7} = {7}.
-    final PredicateTree and = PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6), classIs(3)},
-        new byte[] {0, 1, PredicateTree.OP_AND});
+    final PredicateTree and =
+        PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6), classIs(3)}, new byte[] {0, 1, PredicateTree.OP_AND});
     assertArrayEquals(mask(7), ProjectionColumnScan.predicateKeepMask(f.store(), NO_PREDICATES, and, f.fetcher()),
         "AND intersects");
     // (key >= 6000 AND class = 3) OR (key < 1000): {7} ∪ {0}.
     final PredicateTree nested = PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6), classIs(3), keyBelow(1)},
         new byte[] {0, 1, PredicateTree.OP_AND, 2, PredicateTree.OP_OR});
-    assertArrayEquals(mask(0, 7),
-        ProjectionColumnScan.predicateKeepMask(f.store(), NO_PREDICATES, nested, f.fetcher()), "nested program");
+    assertArrayEquals(mask(0, 7), ProjectionColumnScan.predicateKeepMask(f.store(), NO_PREDICATES, nested, f.fetcher()),
+        "nested program");
     // An operand no leaf can satisfy prunes everything under AND ...
-    final PredicateTree empty = PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6), classIs(0)},
-        new byte[] {0, 1, PredicateTree.OP_AND});
+    final PredicateTree empty =
+        PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6), classIs(0)}, new byte[] {0, 1, PredicateTree.OP_AND});
     assertEquals(0, kept(ProjectionColumnScan.predicateKeepMask(f.store(), NO_PREDICATES, empty, f.fetcher())),
         "{6,7} ∩ {0,4} is empty — a non-null all-zero mask, not 'nothing pruned'");
-    // ... and an operand WITHOUT evidence (a CONTAINS literal has no prune rule) keeps every leaf under OR.
-    final PredicateTree unknownOr = PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6),
-        ColumnPredicate.stringContains(2, "t-".getBytes(StandardCharsets.UTF_8))}, new byte[] {0, 1, PredicateTree.OP_OR});
+    // ... and an operand WITHOUT evidence (a CONTAINS literal has no prune rule) keeps every leaf under
+    // OR.
+    final PredicateTree unknownOr = PredicateTree.of(
+        new ColumnPredicate[] {keyAtLeast(6), ColumnPredicate.stringContains(2, "t-".getBytes(StandardCharsets.UTF_8))},
+        new byte[] {0, 1, PredicateTree.OP_OR});
     assertNull(ProjectionColumnScan.predicateKeepMask(f.store(), NO_PREDICATES, unknownOr, f.fetcher()),
         "no leaf is proven empty when one OR operand has no evidence");
-    // NOT keeps everything: the operand's evidence says where the operand cannot match, nothing about its negation.
-    final PredicateTree not = PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6)}, new byte[] {0, PredicateTree.OP_NOT});
-    assertNull(ProjectionColumnScan.predicateKeepMask(f.store(), NO_PREDICATES, not, f.fetcher()), "NOT prunes nothing");
-    // A string-equality leaf brings fingerprint evidence: (class = 1) OR (title = "t-3-7") ⊇ {1, 5} ∪ {3}.
-    final PredicateTree bloomOr = PredicateTree.of(new ColumnPredicate[] {classIs(1),
-        ColumnPredicate.stringEq(2, "t-3-7".getBytes(StandardCharsets.UTF_8))}, new byte[] {0, 1, PredicateTree.OP_OR});
+    // NOT keeps everything: the operand's evidence says where the operand cannot match, nothing about
+    // its negation.
+    final PredicateTree not =
+        PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6)}, new byte[] {0, PredicateTree.OP_NOT});
+    assertNull(ProjectionColumnScan.predicateKeepMask(f.store(), NO_PREDICATES, not, f.fetcher()),
+        "NOT prunes nothing");
+    // A string-equality leaf brings fingerprint evidence: (class = 1) OR (title = "t-3-7") ⊇ {1, 5} ∪
+    // {3}.
+    final PredicateTree bloomOr = PredicateTree.of(
+        new ColumnPredicate[] {classIs(1), ColumnPredicate.stringEq(2, "t-3-7".getBytes(StandardCharsets.UTF_8))},
+        new byte[] {0, 1, PredicateTree.OP_OR});
     final long[] bloom = ProjectionColumnScan.predicateKeepMask(f.store(), NO_PREDICATES, bloomOr, f.fetcher());
     assertTrue(bloom != null && (bloom[0] & mask(1, 3, 5)[0]) == mask(1, 3, 5)[0], "the true home leaves survive");
     assertTrue(kept(bloom) < LEAVES, "leaves the fingerprint rejects are dropped");
@@ -178,7 +189,8 @@ final class PredicateTreeKeepMaskTest {
     final PredicateTree tree = PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6), classIs(3), keyBelow(1)},
         new byte[] {0, 1, PredicateTree.OP_AND, 2, PredicateTree.OP_OR});
     final Fixture full = buildFixture();
-    final ColumnSlice[][] fullCols = ProjectionColumnScan.resolveTreeColumnsShared(full.store(), tree, full.fetcher(), null);
+    final ColumnSlice[][] fullCols =
+        ProjectionColumnScan.resolveTreeColumnsShared(full.store(), tree, full.fetcher(), null);
     final Fixture masked = buildFixture();
     final long[] keep = ProjectionColumnScan.predicateKeepMask(masked.store(), NO_PREDICATES, tree, masked.fetcher());
     final ColumnSlice[][] maskedCols =
@@ -194,7 +206,8 @@ final class PredicateTreeKeepMaskTest {
     }
     assertEquals(2 * ROWS, fullRows, "ground truth: leaf 7 and leaf 0");
     assertEquals(fullRows, maskedRows);
-    // The full fill fetched every leaf's BODY of both numeric columns (16 segments); the masked one only
+    // The full fill fetched every leaf's BODY of both numeric columns (16 segments); the masked one
+    // only
     // the two surviving leaves' (4) — anything in between means the mask never reached the fill.
     assertEquals(2 * LEAVES, full.fetchedSegments().get(), "full fill: one BODY per leaf per tree column");
     assertEquals(2 * 2, masked.fetchedSegments().get(), "masked fill: the surviving leaves only");

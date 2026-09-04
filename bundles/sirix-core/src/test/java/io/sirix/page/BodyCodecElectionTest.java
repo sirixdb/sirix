@@ -104,7 +104,7 @@ final class BodyCodecElectionTest {
   @Test
   @DisplayName("a probe page re-elects from evidence: a record page after a reset is LZ77 under both rules")
   void probePageElectsFromEvidence() {
-    for (final boolean stickyOnly : new boolean[] { false, true }) {
+    for (final boolean stickyOnly : new boolean[] {false, true}) {
       PageKind.CODEC_BAKEOFF_STICKY_ONLY = stickyOnly;
       PageKind.resetStickyCodecElectionForCurrentThread();
       final long lz77Before = PageSectionDiag.codecPages(CODEC_LZ77);
@@ -114,7 +114,9 @@ final class BodyCodecElectionTest {
     }
   }
 
-  /** Serialize a fresh record page with {@code codec} elected on this thread; returns the wire bytes. */
+  /**
+   * Serialize a fresh record page with {@code codec} elected on this thread; returns the wire bytes.
+   */
   private long serializeRecordPageAfterElecting(final int codec) {
     PageKind.electBodyCodecForTesting(codec);
     return serializeRecordPage();
@@ -140,18 +142,17 @@ final class BodyCodecElectionTest {
 
   private static void writeNumber(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
       final long value) {
-    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L, value, HASH_FN, (byte[]) null);
+    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L,
+        value, HASH_FN, (byte[]) null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slotOf(nodeKey));
   }
 
   private static void writeString(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
       final String value) {
-    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L,
+    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L,
         value.getBytes(StandardCharsets.UTF_8), HASH_FN, (byte[]) null, false, null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slotOf(nodeKey));

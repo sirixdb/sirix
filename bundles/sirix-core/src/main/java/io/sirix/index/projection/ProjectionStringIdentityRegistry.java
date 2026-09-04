@@ -15,12 +15,11 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  *
  * <h2>Why a fingerprint pair is not an identity</h2>
  *
- * A composite group's string components are carried in
- * {@link CompositeGroupIdentity} lanes as an FNV-1a primary paired with an xxh3 secondary. That pair
- * is an excellent DISCRIMINATOR — it separates different strings essentially always — but it is not
- * an identity, and the failure mode is the nastiest kind: if two distinct strings share BOTH
- * fingerprints, their identity lanes are equal, so
- * {@link NumericGroupAggTable#acquireExact} finds a match, never walks on, and never sets
+ * A composite group's string components are carried in {@link CompositeGroupIdentity} lanes as an
+ * FNV-1a primary paired with an xxh3 secondary. That pair is an excellent DISCRIMINATOR — it
+ * separates different strings essentially always — but it is not an identity, and the failure mode
+ * is the nastiest kind: if two distinct strings share BOTH fingerprints, their identity lanes are
+ * equal, so {@link NumericGroupAggTable#acquireExact} finds a match, never walks on, and never sets
  * {@link NumericGroupAggTable#hasProbeKeyCollision()}. The two groups merge in total silence. A
  * probabilistic bound is not a database semantic.
  *
@@ -49,17 +48,17 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * scan spent a third of its wall time parked here. So a slot is WRITE-ONCE and PUBLISHED by a
  * release store of its canonical bytes: a reader probes the current table without any lock and
  * returns {@code true} on a byte-equal hit, which is the only outcome the hot path ever produces.
- * Everything else — an unseen fingerprint, a byte mismatch — falls through to the synchronized path,
- * which re-probes under the monitor and is the sole writer (insert, collision latch, growth). A grow
- * builds a NEW table and publishes it; the old one is never mutated again, so a reader holding it can
- * at worst miss a later insert and take the locked path, never read a torn slot. Kill switch:
- * {@code -Dsirix.projection.compositeIdentity.lockFreeProbe=false} sends every proof through the
- * monitor; witness: {@link #lockedProves()} counts the proofs that took it.
+ * Everything else — an unseen fingerprint, a byte mismatch — falls through to the synchronized
+ * path, which re-probes under the monitor and is the sole writer (insert, collision latch, growth).
+ * A grow builds a NEW table and publishes it; the old one is never mutated again, so a reader
+ * holding it can at worst miss a later insert and take the locked path, never read a torn slot.
+ * Kill switch: {@code -Dsirix.projection.compositeIdentity.lockFreeProbe=false} sends every proof
+ * through the monitor; witness: {@link #lockedProves()} counts the proofs that took it.
  *
  * <h2>Conservative by construction</h2>
  *
- * Canonical bytes are bounded by {@link #DEFAULT_MAX_CANONICAL_BYTES}. Exceeding the budget does not
- * silently stop checking: it latches {@link #unproven()}, which declines exactly as a collision
+ * Canonical bytes are bounded by {@link #DEFAULT_MAX_CANONICAL_BYTES}. Exceeding the budget does
+ * not silently stop checking: it latches {@link #unproven()}, which declines exactly as a collision
  * does. Anything this class cannot PROVE, it refuses.
  *
  * <h2>Proving a column once</h2>
@@ -86,10 +85,10 @@ public final class ProjectionStringIdentityRegistry {
 
   /**
    * Canonical-byte budget before the registry declines rather than stops proving:
-   * {@code -Dsirix.projection.compositeIdentityMaxBytes}, else an eighth of the heap clamped to
-   * [32 MiB, 1 GiB]. The registry retains one canonical copy of every distinct string a surviving
-   * group key names — the answer's own vocabulary — so the bound scales with the JVM the query runs
-   * in rather than being a fixed number a large corpus outgrows.
+   * {@code -Dsirix.projection.compositeIdentityMaxBytes}, else an eighth of the heap clamped to [32
+   * MiB, 1 GiB]. The registry retains one canonical copy of every distinct string a surviving group
+   * key names — the answer's own vocabulary — so the bound scales with the JVM the query runs in
+   * rather than being a fixed number a large corpus outgrows.
    */
   public static final long DEFAULT_MAX_CANONICAL_BYTES = defaultMaxCanonicalBytes();
 
@@ -228,7 +227,10 @@ public final class ProjectionStringIdentityRegistry {
   private final AtomicReferenceArray<Table> tables;
 
   private long canonicalBytes;
-  /** Proofs that took the monitor: first sightings, mismatches and every call while the fast path is off. */
+  /**
+   * Proofs that took the monitor: first sightings, mismatches and every call while the fast path is
+   * off.
+   */
   private long lockedProves;
   private volatile boolean collision;
   private volatile boolean unproven;
@@ -238,7 +240,10 @@ public final class ProjectionStringIdentityRegistry {
    * kernel that reads the field once sees a consistent snapshot without a lock.
    */
   private volatile boolean[] preProven;
-  /** Whether a kernel must prove EVERY dictionary entry in its dictionary pass (full-coverage scans only). */
+  /**
+   * Whether a kernel must prove EVERY dictionary entry in its dictionary pass (full-coverage scans
+   * only).
+   */
   private volatile boolean proveEveryEntry;
 
   /**
@@ -270,8 +275,8 @@ public final class ProjectionStringIdentityRegistry {
 
   /**
    * The fingerprint every scan-built registry uses. Only a test ever replaces it: two strings that
-   * collide in BOTH real functions cannot be constructed, so forcing the collision is the only way
-   * to execute the byte-equality path and the decline that follows it. Production never calls the
+   * collide in BOTH real functions cannot be constructed, so forcing the collision is the only way to
+   * execute the byte-equality path and the decline that follows it. Production never calls the
    * setter, and the field is read once per registry rather than per value.
    */
   private static volatile Fingerprint installedFingerprint = DEFAULT_FINGERPRINT;
@@ -296,7 +301,9 @@ public final class ProjectionStringIdentityRegistry {
     this(components, installedFingerprint, DEFAULT_MAX_CANONICAL_BYTES);
   }
 
-  /** Production fingerprint functions with a caller-chosen budget (the executor's documented knob). */
+  /**
+   * Production fingerprint functions with a caller-chosen budget (the executor's documented knob).
+   */
   public ProjectionStringIdentityRegistry(final int components, final long maxCanonicalBytes) {
     this(components, installedFingerprint, maxCanonicalBytes);
   }
@@ -354,9 +361,9 @@ public final class ProjectionStringIdentityRegistry {
   }
 
   /**
-   * Mark {@code component} pre-proven: every value it can meet is known to be pairwise distinct
-   * under {@link #fingerprint()}. Set by the executor from a column memo before the workers start,
-   * or after a full-coverage pass completed with {@link #identityProven()}; never by a kernel.
+   * Mark {@code component} pre-proven: every value it can meet is known to be pairwise distinct under
+   * {@link #fingerprint()}. Set by the executor from a column memo before the workers start, or after
+   * a full-coverage pass completed with {@link #identityProven()}; never by a kernel.
    *
    * @param component the key component ordinal
    */
@@ -405,8 +412,8 @@ public final class ProjectionStringIdentityRegistry {
    * @return {@code true} when the fingerprint provably denotes this value, {@code false} when the
    *         scan must decline
    */
-  public boolean prove(final int component, final long laneA, final long laneB, final byte[] utf8,
-      final int off, final int len) {
+  public boolean prove(final int component, final long laneA, final long laneB, final byte[] utf8, final int off,
+      final int len) {
     if (component < 0 || component >= components) {
       throw new IllegalArgumentException("component " + component + " out of range");
     }
@@ -444,8 +451,8 @@ public final class ProjectionStringIdentityRegistry {
   }
 
   /** The authoritative path: re-probes under the monitor, inserts, latches a collision, grows. */
-  private synchronized boolean proveLocked(final int component, final long laneA, final long laneB,
-      final byte[] utf8, final int off, final int len) {
+  private synchronized boolean proveLocked(final int component, final long laneA, final long laneB, final byte[] utf8,
+      final int off, final int len) {
     lockedProves++;
     if (collision || unproven) {
       return false;
@@ -489,12 +496,18 @@ public final class ProjectionStringIdentityRegistry {
     return true;
   }
 
-  /** Proofs that took the monitor so far; a repeated value must not add to this while the fast path is on. */
+  /**
+   * Proofs that took the monitor so far; a repeated value must not add to this while the fast path is
+   * on.
+   */
   public synchronized long lockedProves() {
     return lockedProves;
   }
 
-  /** Builds the doubled table beside the old one and publishes it; the old table is never written again. */
+  /**
+   * Builds the doubled table beside the old one and publishes it; the old table is never written
+   * again.
+   */
   private void grow(final int component, final Table old) {
     final int oldCapacity = old.mask + 1;
     if (oldCapacity >= MAX_COMPONENT_CAPACITY) {
@@ -528,11 +541,11 @@ public final class ProjectionStringIdentityRegistry {
    * A worker's bounded, unsynchronised front cache for {@link #prove}.
    *
    * <p>
-   * The same string recurs in most leaves' dictionaries, so without this the shared registry would
-   * be entered once per dictionary entry per leaf — millions of monitor acquisitions across 20
-   * workers. A hit here still compares the canonical BYTES, so the cache can only ever skip work
-   * that was already proven; it can never turn an unproven pair into a proven one. Direct-mapped
-   * with a fixed slot count, so it adds a constant, small footprint per worker.
+   * The same string recurs in most leaves' dictionaries, so without this the shared registry would be
+   * entered once per dictionary entry per leaf — millions of monitor acquisitions across 20 workers.
+   * A hit here still compares the canonical BYTES, so the cache can only ever skip work that was
+   * already proven; it can never turn an unproven pair into a proven one. Direct-mapped with a fixed
+   * slot count, so it adds a constant, small footprint per worker.
    */
   public static final class LocalProofCache {
 
@@ -540,9 +553,9 @@ public final class ProjectionStringIdentityRegistry {
     private static final int SLOT_MASK = SLOTS - 1;
 
     /**
-     * Bytes each slot can hold INLINE. Group-key strings are overwhelmingly shorter than this; a
-     * longer value simply is not cached and pays the shared registry every time, which costs a
-     * monitor but never an allocation.
+     * Bytes each slot can hold INLINE. Group-key strings are overwhelmingly shorter than this; a longer
+     * value simply is not cached and pays the shared registry every time, which costs a monitor but
+     * never an allocation.
      */
     private static final int INLINE_CAPACITY = 64;
 
@@ -580,13 +593,13 @@ public final class ProjectionStringIdentityRegistry {
      * <p>
      * Allocation-free after construction: canonical bytes live in a fixed arena and an eviction
      * OVERWRITES its slot rather than allocating a replacement. A high-cardinality scan therefore
-     * thrashes this cache without producing a single byte of garbage — it degrades into registry
-     * calls, not into GC pressure.
+     * thrashes this cache without producing a single byte of garbage — it degrades into registry calls,
+     * not into GC pressure.
      *
      * <p>
      * A hit still re-reads the registry's terminal state, so once any worker has disproved identity
-     * every other worker stops at its very next value instead of running to the end of its leaf
-     * range and relying on the post-join check.
+     * every other worker stops at its very next value instead of running to the end of its leaf range
+     * and relying on the post-join check.
      *
      * @return {@code false} when the scan must decline
      */

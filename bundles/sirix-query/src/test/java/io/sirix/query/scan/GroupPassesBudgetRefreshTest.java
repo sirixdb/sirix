@@ -17,9 +17,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The need-based budget refresh of a hash-range pass plan: a plan asks the collector for a fresh
  * budget only when the ceiling a clean heap yields would plan fewer passes, once per plan, and
- * re-plans on the fit alone when the refresh widened the budget. The collector itself is behind a seam
- * ({@link SirixVectorizedExecutor.GroupPasses#setBudgetRefreshForTesting}): a forced collection
- * inside a unit test would measure the test JVM, not the plan.
+ * re-plans on the fit alone when the refresh widened the budget. The collector itself is behind a
+ * seam ({@link SirixVectorizedExecutor.GroupPasses#setBudgetRefreshForTesting}): a forced
+ * collection inside a unit test would measure the test JVM, not the plan.
  */
 final class GroupPassesBudgetRefreshTest {
 
@@ -42,7 +42,8 @@ final class GroupPassesBudgetRefreshTest {
     assertFalse(SirixVectorizedExecutor.GroupPasses.refreshWorthIt(5_000L, 1_000L, 900L, PARTITIONS));
     // A shape that fits one pass at the collapsed budget already: one pass either way.
     assertFalse(SirixVectorizedExecutor.GroupPasses.refreshWorthIt(1_000L, 2_000L, 10_000L, PARTITIONS));
-    // 5,000 groups at 1,000 plan six passes (six partitions hold 938); at 1,050 still six — no pass saved.
+    // 5,000 groups at 1,000 plan six passes (six partitions hold 938); at 1,050 still six — no pass
+    // saved.
     assertFalse(SirixVectorizedExecutor.GroupPasses.refreshWorthIt(5_000L, 1_000L, 1_050L, PARTITIONS));
     // At 1,100 seven partitions hold 1,094: five passes — one pass saved is worth a fifth of a second.
     assertTrue(SirixVectorizedExecutor.GroupPasses.refreshWorthIt(5_000L, 1_000L, 1_100L, PARTITIONS));
@@ -70,8 +71,8 @@ final class GroupPassesBudgetRefreshTest {
 
     // The pass aborted having seen 2,500 groups (all in never-flushed worker tables) over half the
     // leaves: 5,000 estimated. Six passes at 1,000; ONE at the 10,000 a clean heap yields.
-    final GroupTableSpill first = new GroupTableSpill(PARTITIONS, SHIFT, () -> new NumericGroupAggTable(1, 1 << 8),
-        0, PARTITIONS, 1_000L);
+    final GroupTableSpill first =
+        new GroupTableSpill(PARTITIONS, SHIFT, () -> new NumericGroupAggTable(1, 1 << 8), 0, PARTITIONS, 1_000L);
     first.noteLeavesScanned(50);
     first.noteAbandonedLocal(2_500);
     plan.restart(first, 100);
@@ -90,8 +91,8 @@ final class GroupPassesBudgetRefreshTest {
       collections.incrementAndGet();
       return 100_000L;
     });
-    final GroupTableSpill second = new GroupTableSpill(PARTITIONS, SHIFT, () -> new NumericGroupAggTable(1, 1 << 8),
-        0, PARTITIONS, 10_000L);
+    final GroupTableSpill second =
+        new GroupTableSpill(PARTITIONS, SHIFT, () -> new NumericGroupAggTable(1, 1 << 8), 0, PARTITIONS, 10_000L);
     second.noteLeavesScanned(50);
     second.noteAbandonedLocal(10_000);
     plan.restart(second, 100);
@@ -115,8 +116,8 @@ final class GroupPassesBudgetRefreshTest {
     final long refreshesBefore = SirixVectorizedExecutor.GroupPasses.budgetRefreshCount();
     final SirixVectorizedExecutor.GroupPasses plan =
         new SirixVectorizedExecutor.GroupPasses(handle, FINGERPRINT, 1_000L, PARTITIONS);
-    final GroupTableSpill spill = new GroupTableSpill(PARTITIONS, SHIFT, () -> new NumericGroupAggTable(1, 1 << 8),
-        0, PARTITIONS, 1_000L);
+    final GroupTableSpill spill =
+        new GroupTableSpill(PARTITIONS, SHIFT, () -> new NumericGroupAggTable(1, 1 << 8), 0, PARTITIONS, 1_000L);
     spill.noteLeavesScanned(50);
     spill.noteAbandonedLocal(2_500);
     plan.restart(spill, 100);
@@ -128,8 +129,8 @@ final class GroupPassesBudgetRefreshTest {
     assertEquals(1_000L, plan.passBudget());
     // A second abort doubles the floor: the estimate barely grew (6,000 → still six by the fit), so
     // the floor of twelve decides — an estimate that keeps falling short cannot cost a scan per pass.
-    final GroupTableSpill again = new GroupTableSpill(PARTITIONS, SHIFT, () -> new NumericGroupAggTable(1, 1 << 8),
-        0, 6, 1_000L);
+    final GroupTableSpill again =
+        new GroupTableSpill(PARTITIONS, SHIFT, () -> new NumericGroupAggTable(1, 1 << 8), 0, 6, 1_000L);
     again.noteLeavesScanned(100);
     again.noteAbandonedLocal(1_125);
     assertEquals(6_000L, again.estimatedTotalGroups(100));
@@ -192,8 +193,8 @@ final class GroupPassesBudgetRefreshTest {
     assertTrue(plan.passBudget() > 1_500L && plan.passBudget() < 1_900L, "pass budget: " + plan.passBudget());
     // The seeded pass set aborted at a spill that saw 1,800 groups in its half over every leaf:
     // 3,600 estimated, four passes at 1,000 (eight partitions hold 900), above the floor of three.
-    final GroupTableSpill spill = new GroupTableSpill(PARTITIONS, SHIFT, () -> new NumericGroupAggTable(1, 1 << 8),
-        0, 16, 1_000L);
+    final GroupTableSpill spill =
+        new GroupTableSpill(PARTITIONS, SHIFT, () -> new NumericGroupAggTable(1, 1 << 8), 0, 16, 1_000L);
     spill.noteLeavesScanned(100);
     spill.noteAbandonedLocal(1_800);
     plan.restart(spill, 100);
@@ -203,7 +204,9 @@ final class GroupPassesBudgetRefreshTest {
     // that just aborted, so the memo records the smallest count forcing four passes at the tolerant
     // budget of 1,100 instead: three passes hold eleven partitions, 1,100 × 32 / 11 + 1 = 3,201.
     for (int partition = 0; partition < PARTITIONS; partition++) {
-      plan.notePartition(partition, partition < 24 ? 94 : 93);
+      plan.notePartition(partition, partition < 24
+          ? 94
+          : 93);
     }
     plan.complete();
     final ProjectionIndexRegistry.Handle.CompletedGroupScan memo = handle.completedGroupScanFor(FINGERPRINT);

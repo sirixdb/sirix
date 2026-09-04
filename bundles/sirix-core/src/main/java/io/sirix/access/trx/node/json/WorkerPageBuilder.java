@@ -328,12 +328,10 @@ final class WorkerPageBuilder implements BulkRecordSink {
       indexTuples.onNameEntry(nameKey, nodeKey);
     }
     final KeyValueLeafPage kvl = currentPage;
-    final long absOffset =
-        kvl.prepareHeapForDirectWriteOrOverflow(scratchNamedObjectNode.estimateSerializedSize(), 0);
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(scratchNamedObjectNode.estimateSerializedSize(), 0);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
       kvl.setRecord(new ObjectNamedObjectNode(nodeKey, parentKey, NULL_KEY, leftSibKey, NULL_KEY, NULL_KEY, nameKey,
-          pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, hashFunction,
-          (SirixDeweyID) null));
+          pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, hashFunction, (SirixDeweyID) null));
       return nodeKey;
     }
     final int recordBytes = ObjectNamedObjectNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
@@ -357,12 +355,10 @@ final class WorkerPageBuilder implements BulkRecordSink {
       indexTuples.onNameEntry(nameKey, nodeKey);
     }
     final KeyValueLeafPage kvl = currentPage;
-    final long absOffset =
-        kvl.prepareHeapForDirectWriteOrOverflow(scratchNamedArrayNode.estimateSerializedSize(), 0);
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(scratchNamedArrayNode.estimateSerializedSize(), 0);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
       kvl.setRecord(new ObjectNamedArrayNode(nodeKey, parentKey, NULL_KEY, leftSibKey, NULL_KEY, NULL_KEY, nameKey,
-          pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, hashFunction,
-          (SirixDeweyID) null));
+          pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, hashFunction, (SirixDeweyID) null));
       return nodeKey;
     }
     final int recordBytes = ObjectNamedArrayNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
@@ -616,8 +612,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
       indexTuples.onCasBoolean(pathNodeKey, nodeKey, value);
     }
     final KeyValueLeafPage kvl = currentPage;
-    final long absOffset =
-        kvl.prepareHeapForDirectWriteOrOverflow(scratchNamedBooleanNode.estimateSerializedSize(), 0);
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(scratchNamedBooleanNode.estimateSerializedSize(), 0);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
       kvl.setRecord(new ObjectNamedBooleanNode(nodeKey, parentKey, rightSibKey, leftSibKey, nameKey, pathNodeKey,
           Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, hashFunction, (SirixDeweyID) null));
@@ -661,8 +656,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
       indexTuples.onNameEntry(nameKey, nodeKey);
     }
     final KeyValueLeafPage kvl = currentPage;
-    final long absOffset =
-        kvl.prepareHeapForDirectWriteOrOverflow(scratchNamedNullNode.estimateSerializedSize(), 0);
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(scratchNamedNullNode.estimateSerializedSize(), 0);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
       kvl.setRecord(new ObjectNamedNullNode(nodeKey, parentKey, rightSibKey, leftSibKey, nameKey, pathNodeKey,
           Constants.NULL_REVISION_NUMBER, revisionNumber, 0, hashFunction, (SirixDeweyID) null));

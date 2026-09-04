@@ -229,8 +229,7 @@ final class ProjectionSideReferenceVersioningMatrixTest {
           unchangedBlob, changingSegmentId, unchangedSegmentId);
       assertTrue(revision3.changingSegmentOffset() >= 0,
           "rollback must preserve the committed referenced column segment");
-      assertTrue(revision3.changedBlobOffset() >= 0,
-          "rollback must preserve the committed referenced blob");
+      assertTrue(revision3.changedBlobOffset() >= 0, "rollback must preserve the committed referenced blob");
       assertTrue(revision3.unchangedBlobOffset() >= 0,
           "rollback must preserve the committed side reference deleted only in the aborted revision");
     }

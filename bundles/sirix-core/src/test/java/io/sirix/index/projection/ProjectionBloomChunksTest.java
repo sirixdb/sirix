@@ -421,7 +421,8 @@ final class ProjectionBloomChunksTest {
         }
         evidence[0].pruneMany(new long[] {hashes[0]}, new long[][] {narrowed}, rowGroupCount, delegate, 0, 5);
         for (int leaf = 0; leaf < rowGroupCount; leaf++) {
-          final boolean inChunk = leaf >= ProjectionBloomChunks.CHUNK_LEAVES && leaf < 2 * ProjectionBloomChunks.CHUNK_LEAVES;
+          final boolean inChunk =
+              leaf >= ProjectionBloomChunks.CHUNK_LEAVES && leaf < 2 * ProjectionBloomChunks.CHUNK_LEAVES;
           final boolean bit = (narrowed[leaf >>> 6] & 1L << (leaf & 63)) != 0;
           assertTrue(inChunk || !bit, "leaf " + leaf + " outside the narrowed chunk must stay dropped");
           assertTrue(!(inChunk && leaf % 37 == 0) || bit, "home leaf " + leaf + " inside the chunk survives");
@@ -495,8 +496,8 @@ final class ProjectionBloomChunksTest {
         final ProjectionBloomChunks.ColumnEvidence[] logical =
             ProjectionBloomChunks.reorder(physical, new int[] {1, 3, 2});
         final long hash = ProjectionIndexColumnSegmentCodec.bloomHash("second".getBytes(StandardCharsets.UTF_8));
-        final long[] keep = prune(logical[0], 3, hash,
-            ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber()));
+        final long[] keep =
+            prune(logical[0], 3, hash, ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber()));
 
         assertDropped(keep, 0, "the physical first leaf is logical first");
         assertDropped(keep, 1, "the inserted physical third leaf is logical second");
@@ -642,8 +643,7 @@ final class ProjectionBloomChunksTest {
   }
 
   private static ProjectionIndexColumnSegmentCodec.EncodedRowGroup emptyEncodedRowGroup() {
-    return ProjectionIndexColumnSegmentCodec.encode(
-        new ProjectionIndexRowGroupPage(COLUMN_KINDS.clone()).serialize());
+    return ProjectionIndexColumnSegmentCodec.encode(new ProjectionIndexRowGroupPage(COLUMN_KINDS.clone()).serialize());
   }
 
   private static void appendChunk(final ProjectionBloomChunks.Writer writer,

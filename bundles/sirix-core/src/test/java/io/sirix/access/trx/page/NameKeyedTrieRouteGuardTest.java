@@ -96,51 +96,43 @@ final class NameKeyedTrieRouteGuardTest {
         final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         final DataRecord record = new FsstSymbolTableNode(1L, new byte[] {1});
 
-        assertThrows(IllegalArgumentException.class,
-            () -> writer.getRecord(1L, IndexType.NAME, secondaryNameIndex));
+        assertThrows(IllegalArgumentException.class, () -> writer.getRecord(1L, IndexType.NAME, secondaryNameIndex));
         assertThrows(IllegalArgumentException.class,
             () -> writer.createRecord(record, IndexType.NAME, secondaryNameIndex));
         assertThrows(IllegalArgumentException.class,
             () -> writer.prepareRecordForModification(1L, IndexType.NAME, secondaryNameIndex));
         assertThrows(IllegalArgumentException.class,
             () -> writer.persistRecord(record, IndexType.NAME, secondaryNameIndex));
-        assertThrows(IllegalArgumentException.class,
-            () -> writer.removeRecord(1L, IndexType.NAME, secondaryNameIndex));
+        assertThrows(IllegalArgumentException.class, () -> writer.removeRecord(1L, IndexType.NAME, secondaryNameIndex));
         assertThrows(IllegalArgumentException.class,
             () -> writer.getModifiedPageForRead(0L, IndexType.NAME, secondaryNameIndex));
         assertThrows(IllegalArgumentException.class,
             () -> writer.getLeafPageReference(0L, secondaryNameIndex, IndexType.NAME));
-        assertThrows(IllegalArgumentException.class,
-            () -> writer.getCurrentMaxIndirectPageTreeLevel(IndexType.NAME, secondaryNameIndex,
-                writer.getActualRevisionRootPage()));
-        assertThrows(IllegalArgumentException.class,
-            () -> writer.getReferenceToLeafOfSubtree(new PageReference(), 0L, secondaryNameIndex, IndexType.NAME,
-                writer.getActualRevisionRootPage()));
+        assertThrows(IllegalArgumentException.class, () -> writer.getCurrentMaxIndirectPageTreeLevel(IndexType.NAME,
+            secondaryNameIndex, writer.getActualRevisionRootPage()));
+        assertThrows(IllegalArgumentException.class, () -> writer.getReferenceToLeafOfSubtree(new PageReference(), 0L,
+            secondaryNameIndex, IndexType.NAME, writer.getActualRevisionRootPage()));
       }
 
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
           JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         final NodeStorageEngineReader reader = (NodeStorageEngineReader) rtx.getStorageEngineReader();
 
-        assertThrows(IllegalArgumentException.class,
-            () -> reader.getRecord(1L, IndexType.NAME, secondaryNameIndex));
+        assertThrows(IllegalArgumentException.class, () -> reader.getRecord(1L, IndexType.NAME, secondaryNameIndex));
         assertThrows(IllegalArgumentException.class,
             () -> reader.lookupSlotOrCached(1L, IndexType.NAME, secondaryNameIndex));
         assertThrows(IllegalArgumentException.class,
             () -> reader.lookupSlotWithGuard(1L, IndexType.NAME, secondaryNameIndex));
-        assertThrows(IllegalArgumentException.class,
-            () -> reader.getRecordPage(
-                new IndexLogKey(IndexType.NAME, 0L, secondaryNameIndex, reader.getRevisionNumber())));
+        assertThrows(IllegalArgumentException.class, () -> reader.getRecordPage(
+            new IndexLogKey(IndexType.NAME, 0L, secondaryNameIndex, reader.getRevisionNumber())));
         assertThrows(IllegalArgumentException.class,
             () -> reader.getLeafPageReference(0L, secondaryNameIndex, IndexType.NAME));
         assertThrows(IllegalArgumentException.class,
             () -> reader.getPageReference(reader.getActualRevisionRootPage(), IndexType.NAME, secondaryNameIndex));
-        assertThrows(IllegalArgumentException.class,
-            () -> reader.getCurrentMaxIndirectPageTreeLevel(IndexType.NAME, secondaryNameIndex,
-                reader.getActualRevisionRootPage()));
-        assertThrows(IllegalArgumentException.class,
-            () -> reader.getReferenceToLeafOfSubtree(new PageReference(), 0L, secondaryNameIndex, IndexType.NAME,
-                reader.getActualRevisionRootPage()));
+        assertThrows(IllegalArgumentException.class, () -> reader.getCurrentMaxIndirectPageTreeLevel(IndexType.NAME,
+            secondaryNameIndex, reader.getActualRevisionRootPage()));
+        assertThrows(IllegalArgumentException.class, () -> reader.getReferenceToLeafOfSubtree(new PageReference(), 0L,
+            secondaryNameIndex, IndexType.NAME, reader.getActualRevisionRootPage()));
       }
     }
   }

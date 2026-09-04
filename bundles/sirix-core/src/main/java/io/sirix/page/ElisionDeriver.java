@@ -25,19 +25,19 @@ import java.util.Arrays;
  * carries:
  *
  * <ul>
- * <li><b>which slots</b> — a bitmap over the populated slots, or a single flag when every slot whose
- * compact-directory kind is a fused primitive was elided;</li>
- * <li><b>the region index</b> — a region stores its values grouped by tag and slot-ascending within a
- * tag, so the <i>k</i>-th elided slot of tag {@code T} sits at {@code tagStart[T] + k}. The tag is the
- * slot's pathNodeKey or nameKey (whichever the region's {@code tagKind} says), read from the page's
- * pathNodeKey column or its {@link ObjectKeyNameKeyRegion} — never from the record heap, which is not
- * expanded yet when the derivation runs;</li>
+ * <li><b>which slots</b> — a bitmap over the populated slots, or a single flag when every slot
+ * whose compact-directory kind is a fused primitive was elided;</li>
+ * <li><b>the region index</b> — a region stores its values grouped by tag and slot-ascending within
+ * a tag, so the <i>k</i>-th elided slot of tag {@code T} sits at {@code tagStart[T] + k}. The tag
+ * is the slot's pathNodeKey or nameKey (whichever the region's {@code tagKind} says), read from the
+ * page's pathNodeKey column or its {@link ObjectKeyNameKeyRegion} — never from the record heap,
+ * which is not expanded yet when the derivation runs;</li>
  * <li><b>the type byte</b> — {@code 0} for a boolean and for a raw string, and for a number the
- * subtype the writer picks by range: {@code Integer} inside int range, {@code Long} outside it
- * (see {@code NodeKind.serializeNumber} and the bulk scanner's number classification);</li>
- * <li><b>the width</b> — the exact byte count the injection pass writes back: one type byte plus the
- * value's signed varint for a number, one flag byte plus a length varint plus the dictionary entry
- * for a string, one byte for a boolean;</li>
+ * subtype the writer picks by range: {@code Integer} inside int range, {@code Long} outside it (see
+ * {@code NodeKind.serializeNumber} and the bulk scanner's number classification);</li>
+ * <li><b>the width</b> — the exact byte count the injection pass writes back: one type byte plus
+ * the value's signed varint for a number, one flag byte plus a length varint plus the dictionary
+ * entry for a string, one byte for a boolean;</li>
  * <li><b>the name-key width</b> — the canonical signed-varint width of the nameKey the page's
  * {@link ObjectKeyNameKeyRegion} holds for that slot.</li>
  * </ul>
@@ -45,11 +45,12 @@ import java.util.Arrays;
  * <p>
  * A derivation that is merely usually right would corrupt pages. So the writer runs <em>this same
  * code</em> over the page it is about to emit and compares every derived field against the value it
- * actually holds; each disagreement becomes one entry in a sparse exception list keyed by the slot's
- * ordinal among the elided slots. On the fixtures and on bulk-loaded data those lists are empty, and
- * the whole section is one flag byte. Where they are not — a page whose pathNodeKey column did not
- * pay for itself, a {@code Long}-boxed value inside int range, a string region whose tag also holds
- * array elements — the exception restores the exact original and the page still round-trips.
+ * actually holds; each disagreement becomes one entry in a sparse exception list keyed by the
+ * slot's ordinal among the elided slots. On the fixtures and on bulk-loaded data those lists are
+ * empty, and the whole section is one flag byte. Where they are not — a page whose pathNodeKey
+ * column did not pay for itself, a {@code Long}-boxed value inside int range, a string region whose
+ * tag also holds array elements — the exception restores the exact original and the page still
+ * round-trips.
  *
  * <p>
  * Reader and writer share one instance shape and one code path, so the two cannot drift: an
@@ -77,17 +78,18 @@ final class ElisionDeriver {
    * An original-heap-width exception list follows.
    *
    * <p>
-   * <b>Empty on every page this writer can produce, and that is a property rather than an accident.</b>
-   * Once the type byte and the region value are settled, the width is a pure function of them: one
-   * type byte plus {@code DeltaVarIntCodec}'s deterministic signed varint for a number, one flag byte
-   * plus a length varint plus the dictionary entry for a string, one byte for a boolean. For a
-   * deviation to exist the record heap would have to disagree with the region about the value it
-   * holds — which is corruption, not a shape, and the injection pass already refuses it: it recomputes
-   * the width as it writes and throws on a mismatch rather than laying bytes down at the recorded one.
+   * <b>Empty on every page this writer can produce, and that is a property rather than an
+   * accident.</b> Once the type byte and the region value are settled, the width is a pure function
+   * of them: one type byte plus {@code DeltaVarIntCodec}'s deterministic signed varint for a number,
+   * one flag byte plus a length varint plus the dictionary entry for a string, one byte for a
+   * boolean. For a deviation to exist the record heap would have to disagree with the region about
+   * the value it holds — which is corruption, not a shape, and the injection pass already refuses it:
+   * it recomputes the width as it writes and throws on a mismatch rather than laying bytes down at
+   * the recorded one.
    *
    * <p>
-   * The list is implemented, sized and parsed all the same. It costs nothing while empty, it keeps the
-   * three derived fields symmetric, and the day a heap encoder stops being canonical — a padded
+   * The list is implemented, sized and parsed all the same. It costs nothing while empty, it keeps
+   * the three derived fields symmetric, and the day a heap encoder stops being canonical — a padded
    * payload, a second varint flavour — the format already has the room. What it is NOT is a witnessed
    * path: there is no fixture in the suite that populates it, because fabricating one would mean
    * reaching past the encoder through a seam and pinning a page no writer can emit.
@@ -111,9 +113,9 @@ final class ElisionDeriver {
    *
    * <p>
    * This is the mutation the exception lists exist for — "assume predicted". A fixture that carries a
-   * genuine deviation must fail loudly under it, and the witness that it does is what proves the lists
-   * are load-bearing rather than decorative. Never set outside a test; the writer reads it once per
-   * page.
+   * genuine deviation must fail loudly under it, and the witness that it does is what proves the
+   * lists are load-bearing rather than decorative. Never set outside a test; the writer reads it once
+   * per page.
    */
   static boolean ASSUME_PREDICTED_FOR_TESTING;
 
@@ -318,8 +320,8 @@ final class ElisionDeriver {
    *
    * <p>
    * Must be called for every elided slot in ascending slot order and for that slot's kind, on both
-   * the writer and the reader: the rank counters are the derivation's only state, and skipping a
-   * slot on one side shifts every later slot of the same tag on that side alone.
+   * the writer and the reader: the rank counters are the derivation's only state, and skipping a slot
+   * on one side shifts every later slot of the same tag on that side alone.
    *
    * @param slot the elided slot
    * @param kindId the slot's node kind id, as the compact directory carries it
@@ -407,8 +409,8 @@ final class ElisionDeriver {
    *
    * <p>
    * The reader has laid nothing out yet when this runs, so a bad index has to be refused here rather
-   * than mis-injected later: an index outside the region's value count, or a string index no tag range
-   * contains, throws instead of returning a plausible width.
+   * than mis-injected later: an index outside the region's value count, or a string index no tag
+   * range contains, throws instead of returning a plausible width.
    *
    * @param slot the elided slot, for diagnostics
    * @param kindId the slot's node kind id
@@ -455,8 +457,8 @@ final class ElisionDeriver {
       final int dictId = StringRegion.decodeDictIdAt(stringPayload, stringHeader, absIdx);
       final int length = StringRegion.decodeStringLength(stringPayload, stringHeader, tagId, dictId);
       if (length < 0) {
-        throw new SirixIOException("value elision: STRING entry " + absIdx + " at slot " + slot + " has length "
-            + length);
+        throw new SirixIOException(
+            "value elision: STRING entry " + absIdx + " at slot " + slot + " has length " + length);
       }
       derivedType = 0;
       derivedWidth = 1 + DeltaVarIntCodec.computeSignedEncodedWidth(length) + length;
@@ -474,13 +476,13 @@ final class ElisionDeriver {
       derivedWidth = 1;
       return;
     }
-    throw new SirixIOException("value elision names slot " + slot + ", whose kind " + kindId
-        + " has no fused-primitive payload");
+    throw new SirixIOException(
+        "value elision names slot " + slot + ", whose kind " + kindId + " has no fused-primitive payload");
   }
 
   /**
-   * The canonical signed-varint width of the nameKey the page's name-key region holds for {@code slot}
-   * — what the name-key elision section used to spell out per elided slot.
+   * The canonical signed-varint width of the nameKey the page's name-key region holds for
+   * {@code slot} — what the name-key elision section used to spell out per elided slot.
    */
   int nameKeyWidthForSlot(final int slot) {
     if (nameKeyPayload == null) {
@@ -490,8 +492,9 @@ final class ElisionDeriver {
   }
 
   /**
-   * The tag whose half-open value range {@code [tagStart, tagStart + tagCount)} contains {@code absIdx},
-   * or -1. Linear over the tag dictionary, and only ever reached for an exception entry.
+   * The tag whose half-open value range {@code [tagStart, tagStart + tagCount)} contains
+   * {@code absIdx}, or -1. Linear over the tag dictionary, and only ever reached for an exception
+   * entry.
    */
   private static int tagIdForAbsoluteIndex(final int[] tagStart, final int[] tagCount, final int dictSize,
       final int absIdx) {
@@ -584,8 +587,8 @@ final class ElisionDeriver {
   }
 
   /**
-   * Plan the derived name-key-elision section: one flag byte plus an exception per slot whose stripped
-   * width is not the canonical varint width of the nameKey the region holds for it.
+   * Plan the derived name-key-elision section: one flag byte plus an exception per slot whose
+   * stripped width is not the canonical varint width of the nameKey the region holds for it.
    *
    * @param populatedCount number of populated entries
    * @param slotBits per-entry slot id
@@ -869,8 +872,9 @@ final class ElisionDeriver {
    *
    * <p>
    * Walks the populated entries in ascending order, decides membership from the bitmap — or from the
-   * compact-directory kind when the page flagged every candidate elided — derives each member's region
-   * index, type byte and heap width, and overrides each with an exception where the page carries one.
+   * compact-directory kind when the page flagged every candidate elided — derives each member's
+   * region index, type byte and heap width, and overrides each with an exception where the page
+   * carries one.
    *
    * @param headerBitmapSeg the page's 160-byte header + slot bitmap, walked to map entry to slot
    * @param populatedCount number of populated entries
@@ -988,8 +992,8 @@ final class ElisionDeriver {
       ordinal++;
     }
     if (cursor < nameKeyExceptions.count) {
-      throw new SirixIOException("name-key elision: the section carries exceptions for ordinals past its " + ordinal
-          + " elided slots");
+      throw new SirixIOException(
+          "name-key elision: the section carries exceptions for ordinals past its " + ordinal + " elided slots");
     }
     return ordinal;
   }

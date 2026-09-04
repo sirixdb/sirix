@@ -40,8 +40,8 @@ public final class Indexes implements Materializable {
   private final Set<IndexDef> indexes;
 
   /**
-   * Tracks whether index definitions have been mutated since last serialization.
-   * Used to skip redundant index XML writes during intermediate auto-commits.
+   * Tracks whether index definitions have been mutated since last serialization. Used to skip
+   * redundant index XML writes during intermediate auto-commits.
    */
   private volatile boolean dirty;
 
@@ -83,8 +83,8 @@ public final class Indexes implements Materializable {
     }
 
     // A controller is cached by prospective write revision and can therefore be reused after a
-    // rollback.  Parse into a detached set first, then replace the cache entry's catalogue in one
-    // cold-path publication.  Additive initialization would retain definitions created only in the
+    // rollback. Parse into a detached set first, then replace the cache entry's catalogue in one
+    // cold-path publication. Additive initialization would retain definitions created only in the
     // aborted transaction and rebind listeners for index trees that were rolled back.
     final Set<IndexDef> restoredIndexes = new HashSet<>();
     try (Stream<? extends Node<?>> children = root.getChildren()) {
@@ -163,9 +163,11 @@ public final class Indexes implements Materializable {
    * Removes an index definition by ID. Thread-safe: CopyOnWriteArraySet handles concurrent
    * modifications.
    *
-   * <p><b>Note:</b> index IDs are only unique WITHIN a type (each {@code create-*-index} numbers its
-   * own type from 0), so this removes EVERY definition with the given id across ALL types. To drop a
-   * specific index, prefer {@link #removeIndex(IndexDef)} which matches on (id, type).</p>
+   * <p>
+   * <b>Note:</b> index IDs are only unique WITHIN a type (each {@code create-*-index} numbers its own
+   * type from 0), so this removes EVERY definition with the given id across ALL types. To drop a
+   * specific index, prefer {@link #removeIndex(IndexDef)} which matches on (id, type).
+   * </p>
    */
   public void removeIndex(final int indexID) {
     checkArgument(indexID >= 0, "indexID must be >= 0!");
@@ -250,20 +252,18 @@ public final class Indexes implements Materializable {
   }
 
   /**
-   * Find a PROJECTION index by its shape: record-set root path, ordered
-   * field paths, and — when {@code fieldTypesOrNull} is given — ordered
-   * declared types. Path comparison uses the parsed paths' canonical form,
-   * matching the identity rule of {@code jn:create-projection-index} (sits
-   * beside {@link #findPathIndex}/{@link #findCASIndex}/{@link #findNameIndex}
-   * as the projection family's finder).
+   * Find a PROJECTION index by its shape: record-set root path, ordered field paths, and — when
+   * {@code fieldTypesOrNull} is given — ordered declared types. Path comparison uses the parsed
+   * paths' canonical form, matching the identity rule of {@code jn:create-projection-index} (sits
+   * beside {@link #findPathIndex}/{@link #findCASIndex}/{@link #findNameIndex} as the projection
+   * family's finder).
    */
-  public Optional<IndexDef> findProjectionIndex(final Path<QNm> rootPath,
-      final List<Path<QNm>> fieldPaths, final List<Type> fieldTypesOrNull) {
+  public Optional<IndexDef> findProjectionIndex(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
+      final List<Type> fieldTypesOrNull) {
     requireNonNull(rootPath);
     requireNonNull(fieldPaths);
     final String rootCanonical = rootPath.toString();
-    outer:
-    for (final IndexDef index : indexes) {
+    outer: for (final IndexDef index : indexes) {
       if (!index.isProjectionIndex()) {
         continue;
       }

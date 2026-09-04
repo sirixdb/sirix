@@ -49,8 +49,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * happened — the empty-enumeration mistake. Each case therefore asserts the counter for the
  * mechanism it is actually about, BEFORE its absence assertion: merge cases assert
  * {@code multiFragmentMerges > 0}, eviction cases assert {@code carryForwardRotations > 0}, and the
- * split case asserts an indirect projection root. "A merge ran" is NOT a witness that an
- * eviction ran, and the two are different code paths.
+ * split case asserts an indirect projection root. "A merge ran" is NOT a witness that an eviction
+ * ran, and the two are different code paths.
  *
  * <h2>Window arithmetic, so the commit counts are not folklore</h2>
  *
@@ -222,9 +222,9 @@ final class HOTTombstoneEvictionTest {
   private static String counters() {
     return "single=" + VersioningType.singleFragmentReads() + " merges=" + VersioningType.multiFragmentMerges()
         + " walked=" + VersioningType.fragmentsWalked() + " shortCircuit=" + VersioningType.completeDumpShortCircuits()
-        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast()
-        + " carryFwdRotations=" + VersioningType.carryForwardRotations()
-        + " carryFwdReemitted=" + VersioningType.carryForwardEntriesReemitted();
+        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast() + " carryFwdRotations="
+        + VersioningType.carryForwardRotations() + " carryFwdReemitted="
+        + VersioningType.carryForwardEntriesReemitted();
   }
 
   // ---------------------------------------------------------------- fixture

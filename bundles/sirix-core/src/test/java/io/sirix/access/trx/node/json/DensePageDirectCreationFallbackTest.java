@@ -54,9 +54,8 @@ final class DensePageDirectCreationFallbackTest {
 
   @BeforeEach
   void setUp() {
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder("dense-json-factory-fallback")
-                                                              .useDeweyIDs(true)
-                                                              .build();
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder("dense-json-factory-fallback").useDeweyIDs(true).build();
     page = new KeyValueLeafPage(0, IndexType.DOCUMENT, config, REVISION, null, null);
     saturatePageHeap(page);
     factory = newFactory(page, FIRST_FREE_NODE_KEY);
@@ -73,10 +72,10 @@ final class DensePageDirectCreationFallbackTest {
     }).when(writer).allocateForDocumentCreation();
     when(writer.getAllocKvl()).thenReturn(targetPage);
     when(writer.getAllocNodeKey()).thenAnswer(invocation -> allocatedNodeKey[0]);
-    when(writer.getAllocSlotOffset()).thenAnswer(invocation -> (int) (allocatedNodeKey[0]
-        & (Constants.NDP_NODE_COUNT - 1)));
-    when(writer.createNameKey(anyString(), any(NodeKind.class))).thenAnswer(invocation ->
-        invocation.getArgument(0, String.class).hashCode());
+    when(writer.getAllocSlotOffset()).thenAnswer(
+        invocation -> (int) (allocatedNodeKey[0] & (Constants.NDP_NODE_COUNT - 1)));
+    when(writer.createNameKey(anyString(), any(NodeKind.class))).thenAnswer(
+        invocation -> invocation.getArgument(0, String.class).hashCode());
     return new JsonNodeFactoryImpl(LongHashFunction.xx3(), writer);
   }
 
@@ -145,8 +144,7 @@ final class DensePageDirectCreationFallbackTest {
     assertInstanceOf(Long.class, namedLong.getValue());
     assertEquals(Long.MIN_VALUE, namedLong.getValue());
 
-    final ObjectNamedNullNode namedNull =
-        factory.createJsonObjectNamedNullNode(111, 112, 113, 114, "null", deweyId);
+    final ObjectNamedNullNode namedNull = factory.createJsonObjectNamedNullNode(111, 112, 113, 114, "null", deweyId);
     assertPending(namedNull);
     assertNamedCreationState(namedNull, 111, 112, 113, 114, "null", deweyId);
 
@@ -167,8 +165,7 @@ final class DensePageDirectCreationFallbackTest {
 
   @Test
   void oversizedBoxedNumbersDivertBeforeWritingIntoAFreshPageHeap() {
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder("large-number-factory-fallback")
-                                                              .build();
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("large-number-factory-fallback").build();
     final KeyValueLeafPage freshPage = new KeyValueLeafPage(0, IndexType.DOCUMENT, config, REVISION, null, null);
     try {
       final JsonNodeFactoryImpl freshFactory = newFactory(freshPage, 1);
@@ -239,8 +236,8 @@ final class DensePageDirectCreationFallbackTest {
       page.completeDirectWrite(NodeKind.STRING_VALUE.getId(), slot, slot, 500, null);
       slot++;
     }
-    final int remaining = (int) (page.getSlottedPage().byteSize() - PageLayout.HEAP_START
-        - PageLayout.getHeapEnd(page.getSlottedPage()));
+    final int remaining =
+        (int) (page.getSlottedPage().byteSize() - PageLayout.HEAP_START - PageLayout.getHeapEnd(page.getSlottedPage()));
     final int finalRecordBytes = remaining - PageLayout.DEWEY_ID_TRAILER_SIZE;
     if (finalRecordBytes >= 0) {
       final long offset = page.prepareHeapForDirectWriteOrOverflow(finalRecordBytes, 0);
@@ -248,7 +245,6 @@ final class DensePageDirectCreationFallbackTest {
       page.completeDirectWrite(NodeKind.STRING_VALUE.getId(), slot, slot, finalRecordBytes, null);
     }
     assertEquals(KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY, page.getSlottedPage().byteSize());
-    assertEquals(KeyValueLeafPage.DIRECT_WRITE_OVERFLOW,
-        page.prepareHeapForDirectWriteOrOverflow(1, 0));
+    assertEquals(KeyValueLeafPage.DIRECT_WRITE_OVERFLOW, page.prepareHeapForDirectWriteOrOverflow(1, 0));
   }
 }

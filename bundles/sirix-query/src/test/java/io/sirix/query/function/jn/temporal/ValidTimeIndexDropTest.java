@@ -50,9 +50,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * HARD GATE for {@code jn:drop-valid-time-index}: the drop must persist across a commit, after which
- * the index is no longer maintained/used at the new revision (jn:valid-at falls back, the optimizer
- * stops rewriting), while time-travel at the pre-drop revision still uses the index.
+ * HARD GATE for {@code jn:drop-valid-time-index}: the drop must persist across a commit, after
+ * which the index is no longer maintained/used at the new revision (jn:valid-at falls back, the
+ * optimizer stops rewriting), while time-travel at the pre-drop revision still uses the index.
  *
  * @author Johannes Lichtenberger
  */
@@ -97,10 +97,9 @@ public final class ValidTimeIndexDropTest {
     // rev1: data. rev2: create VALIDTIME index (the PRE-DROP revision we time-travel back to).
     final int preDropRevision;
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
-      database.createResource(ResourceConfiguration.newBuilder(RES)
-          .validTimePaths(VALID_FROM, VALID_TO).buildPathSummary(true).build());
-      try (JsonResourceSession session = database.beginResourceSession(RES);
-          JsonNodeTrx wtx = session.beginNodeTrx()) {
+      database.createResource(
+          ResourceConfiguration.newBuilder(RES).validTimePaths(VALID_FROM, VALID_TO).buildPathSummary(true).build());
+      try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
@@ -109,8 +108,8 @@ public final class ValidTimeIndexDropTest {
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
         JsonResourceSession session = database.beginResourceSession(RES)) {
       preDropRevision = session.getMostRecentRevisionNumber();
-      assertEquals(1, session.getRtxIndexController(preDropRevision).getIndexes()
-              .getNrOfIndexDefsWithType(IndexType.VALIDTIME),
+      assertEquals(1,
+          session.getRtxIndexController(preDropRevision).getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME),
           "the pre-drop revision must have exactly one VALIDTIME index");
     }
 
@@ -127,8 +126,7 @@ public final class ValidTimeIndexDropTest {
         final Instant t = UNIVERSAL;
         assertNotNull(ValidTimeIntervalIndex.tryIndexScan(collection.getDocument(RES), t, validTimeConfig),
             "interval index must be usable before the drop");
-        assertTrue(optimizedContainsScanFunction(store, flwor(t)),
-            "optimizer must rewrite before the drop");
+        assertTrue(optimizedContainsScanFunction(store, flwor(t)), "optimizer must rewrite before the drop");
       }
     }
 
@@ -137,9 +135,8 @@ public final class ValidTimeIndexDropTest {
       store.lookup(DB);
       try (var ctx = SirixQueryContext.createWithJsonStore(store);
           var chain = SirixCompileChain.createWithJsonStore(store)) {
-        final Sequence r = new Query(chain,
-            "let $doc := jn:doc('" + DB + "','" + RES + "') "
-                + "let $d := jn:drop-valid-time-index($doc) return sdb:commit($doc)").evaluate(ctx);
+        final Sequence r = new Query(chain, "let $doc := jn:doc('" + DB + "','" + RES + "') "
+            + "let $d := jn:drop-valid-time-index($doc) return sdb:commit($doc)").evaluate(ctx);
         assertNotNull(r, "drop query must return a result");
       }
     }
@@ -151,8 +148,8 @@ public final class ValidTimeIndexDropTest {
         JsonResourceSession session = database.beginResourceSession(RES)) {
       postDropRevision = session.getMostRecentRevisionNumber();
       assertTrue(postDropRevision > preDropRevision, "drop+commit must create a new revision");
-      assertEquals(0, session.getRtxIndexController(postDropRevision).getIndexes()
-              .getNrOfIndexDefsWithType(IndexType.VALIDTIME),
+      assertEquals(0,
+          session.getRtxIndexController(postDropRevision).getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME),
           "the catalog at the new revision must have 0 VALIDTIME index defs");
     }
 
@@ -196,9 +193,8 @@ public final class ValidTimeIndexDropTest {
         JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // array
-      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"id\": " + newId + ", \"" + VALID_FROM + "\": \"" + newFrom + "\", \"" + VALID_TO + "\": \"" + newTo + "\"}"),
-          JsonNodeTrx.Commit.NO);
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"id\": " + newId + ", \"" + VALID_FROM + "\": \""
+          + newFrom + "\", \"" + VALID_TO + "\": \"" + newTo + "\"}"), JsonNodeTrx.Commit.NO);
       wtx.commit(); // must not try to maintain the dropped index -> no error
     }
     Databases.getGlobalBufferManager().clearAllCaches();
@@ -219,8 +215,8 @@ public final class ValidTimeIndexDropTest {
     // ---- TIME-TRAVEL: at the PRE-DROP revision the VALIDTIME index still exists and works. ----
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
         JsonResourceSession session = database.beginResourceSession(RES)) {
-      assertEquals(1, session.getRtxIndexController(preDropRevision).getIndexes()
-              .getNrOfIndexDefsWithType(IndexType.VALIDTIME),
+      assertEquals(1,
+          session.getRtxIndexController(preDropRevision).getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME),
           "time-travel: the pre-drop revision must STILL have the VALIDTIME index");
     }
     try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
@@ -251,10 +247,9 @@ public final class ValidTimeIndexDropTest {
     final var dbPath = sirixPath.resolve(DB);
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
-      database.createResource(ResourceConfiguration.newBuilder(RES)
-          .validTimePaths(VALID_FROM, VALID_TO).buildPathSummary(true).build());
-      try (JsonResourceSession session = database.beginResourceSession(RES);
-          JsonNodeTrx wtx = session.beginNodeTrx()) {
+      database.createResource(
+          ResourceConfiguration.newBuilder(RES).validTimePaths(VALID_FROM, VALID_TO).buildPathSummary(true).build());
+      try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
@@ -265,9 +260,10 @@ public final class ValidTimeIndexDropTest {
       store.lookup(DB);
       try (var ctx = SirixQueryContext.createWithJsonStore(store);
           var chain = SirixCompileChain.createWithJsonStore(store)) {
-        new Query(chain, "let $doc := jn:doc('" + DB + "','" + RES + "') "
-            + "let $cas := jn:create-cas-index($doc, 'xs:string', '/[]/" + VALID_FROM + "') "
-            + "let $vt := jn:create-valid-time-index($doc) return sdb:commit($doc)").evaluate(ctx);
+        new Query(chain,
+            "let $doc := jn:doc('" + DB + "','" + RES + "') "
+                + "let $cas := jn:create-cas-index($doc, 'xs:string', '/[]/" + VALID_FROM + "') "
+                + "let $vt := jn:create-valid-time-index($doc) return sdb:commit($doc)").evaluate(ctx);
       }
     }
     Databases.getGlobalBufferManager().clearAllCaches();
@@ -307,10 +303,10 @@ public final class ValidTimeIndexDropTest {
               "jn:valid-at must still equal brute force after dropping VALIDTIME (CAS-narrowing fallback) at t=" + t);
         }
         // The surviving CAS index returns the record whose validFrom == records.get(0).validFrom().
-        final String casScan = "let $doc := jn:doc('" + DB + "','" + RES + "') "
-            + "let $n := jn:find-cas-index($doc, 'xs:string', '/[]/" + VALID_FROM + "') "
-            + "for $node in jn:scan-cas-index($doc, $n, '" + records.get(0).validFrom() + "', '==', '/[]/" + VALID_FROM + "') "
-            + "return sdb:nodekey($node)";
+        final String casScan =
+            "let $doc := jn:doc('" + DB + "','" + RES + "') " + "let $n := jn:find-cas-index($doc, 'xs:string', '/[]/"
+                + VALID_FROM + "') " + "for $node in jn:scan-cas-index($doc, $n, '" + records.get(0).validFrom()
+                + "', '==', '/[]/" + VALID_FROM + "') " + "return sdb:nodekey($node)";
         final Sequence casResult = new Query(chain, casScan).evaluate(ctx);
         int casHits = 0;
         if (casResult != null) {
@@ -332,8 +328,8 @@ public final class ValidTimeIndexDropTest {
 
   private String flwor(final Instant t) {
     final String lit = "xs:dateTime('" + t + "')";
-    return "for $x in jn:doc('" + DB + "','" + RES + "')[] "
-        + "where xs:dateTime($x.validFrom) <= " + lit + " and " + lit + " <= xs:dateTime($x.validTo) return $x";
+    return "for $x in jn:doc('" + DB + "','" + RES + "')[] " + "where xs:dateTime($x.validFrom) <= " + lit + " and "
+        + lit + " <= xs:dateTime($x.validTo) return $x";
   }
 
   private static boolean optimizedContainsScanFunction(final BasicJsonDBStore store, final String query) {
@@ -387,8 +383,8 @@ public final class ValidTimeIndexDropTest {
     int id = 0;
     final long maxFromOffsetDays = ChronoUnit.DAYS.between(base, UNIVERSAL);
     for (int i = 0; i < 130; i++) {
-      final Instant from = base.plus(rnd.nextInt((int) maxFromOffsetDays), ChronoUnit.DAYS)
-                               .plusSeconds(rnd.nextInt(86_400));
+      final Instant from =
+          base.plus(rnd.nextInt((int) maxFromOffsetDays), ChronoUnit.DAYS).plusSeconds(rnd.nextInt(86_400));
       final Instant to = (i % 6 == 0)
           ? Instant.parse("2999-12-31T23:59:59Z")
           : UNIVERSAL.plus(1 + rnd.nextInt(800), ChronoUnit.DAYS).plusSeconds(rnd.nextInt(86_400));
@@ -410,9 +406,17 @@ public final class ValidTimeIndexDropTest {
       if (i > 0) {
         sb.append(",");
       }
-      sb.append("{\"id\": ").append(r.id())
-        .append(", \"").append(VALID_FROM).append("\": \"").append(r.validFrom())
-        .append("\", \"").append(VALID_TO).append("\": \"").append(r.validTo()).append("\"}");
+      sb.append("{\"id\": ")
+        .append(r.id())
+        .append(", \"")
+        .append(VALID_FROM)
+        .append("\": \"")
+        .append(r.validFrom())
+        .append("\", \"")
+        .append(VALID_TO)
+        .append("\": \"")
+        .append(r.validTo())
+        .append("\"}");
     }
     sb.append("]");
     return sb.toString();
@@ -451,8 +455,7 @@ public final class ValidTimeIndexDropTest {
 
   private static Set<Integer> idsFromValidAt(final SirixCompileChain chain, final SirixQueryContext ctx,
       final Instant t) {
-    return idsFromObjectQuery(chain, ctx,
-        "jn:valid-at('" + DB + "', '" + RES + "', xs:dateTime('" + t + "'))");
+    return idsFromObjectQuery(chain, ctx, "jn:valid-at('" + DB + "', '" + RES + "', xs:dateTime('" + t + "'))");
   }
 
   private static Set<Integer> idsFromObjectQuery(final SirixCompileChain chain, final SirixQueryContext ctx,

@@ -16,13 +16,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link IndexDef#hasSameDefinition(IndexDef)} is the guard that refuses to re-bind a catalogue slot
- * to a definition with a different meaning. The catalogue persists every path as
+ * {@link IndexDef#hasSameDefinition(IndexDef)} is the guard that refuses to re-bind a catalogue
+ * slot to a definition with a different meaning. The catalogue persists every path as
  * {@link Path#toString()} and parses it back on load, so the guard MUST accept a definition's own
  * persisted copy — for every spelling the parser accepts, not only the ones whose internal step
  * representation happens to survive {@code parse(toString())}. A relative JSON name such as
- * {@code foo} parses with a CHILD step, prints as {@code ./foo} and re-parses as CHILD_OBJECT_FIELD:
- * {@link Path#equals(Object)} calls those different, the persisted form is identical.
+ * {@code foo} parses with a CHILD step, prints as {@code ./foo} and re-parses as
+ * CHILD_OBJECT_FIELD: {@link Path#equals(Object)} calls those different, the persisted form is
+ * identical.
  */
 final class IndexDefPersistedDefinitionTest {
 
@@ -64,7 +65,8 @@ final class IndexDefPersistedDefinitionTest {
   void absolutePathsSurvivePersistence() {
     final IndexDef jsonPath = IndexDefs.createPathIdxDef(Set.of(json("/a/[]/b"), json("//c")), 1, IndexDef.DbType.JSON);
     assertTrue(jsonPath.hasSameDefinition(roundTrip(jsonPath)));
-    final IndexDef xmlCas = IndexDefs.createCASIdxDef(false, Type.STR, Set.of(xml("/a/b"), xml("//c/@d")), 2, IndexDef.DbType.XML);
+    final IndexDef xmlCas =
+        IndexDefs.createCASIdxDef(false, Type.STR, Set.of(xml("/a/b"), xml("//c/@d")), 2, IndexDef.DbType.XML);
     assertTrue(xmlCas.hasSameDefinition(roundTrip(xmlCas)));
     final IndexDef xmlPath = IndexDefs.createPathIdxDef(Set.of(xml("/a/b")), 3, IndexDef.DbType.XML);
     assertTrue(xmlPath.hasSameDefinition(roundTrip(xmlPath)));
@@ -95,7 +97,8 @@ final class IndexDefPersistedDefinitionTest {
     final IndexDef otherFields = IndexDefs.createProjectionIdxDef(json("/[]"), List.of(json("/[]/other")),
         List.of(Type.LON), 4, IndexDef.DbType.JSON);
     assertFalse(fields.hasSameDefinition(otherFields));
-    // The persisted spelling is the identity: two spellings that print identically ARE the same definition.
+    // The persisted spelling is the identity: two spellings that print identically ARE the same
+    // definition.
     final IndexDef relative = IndexDefs.createPathIdxDef(Set.of(json("foo")), 5, IndexDef.DbType.JSON);
     final IndexDef dotted = IndexDefs.createPathIdxDef(Set.of(json("./foo")), 5, IndexDef.DbType.JSON);
     assertTrue(relative.hasSameDefinition(dotted));

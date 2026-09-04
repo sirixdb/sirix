@@ -21,15 +21,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The string region's TEMPORAL lane: a tag whose whole dictionary is fixed timestamp text is stored as
- * packed numbers rather than text.
+ * The string region's TEMPORAL lane: a tag whose whole dictionary is fixed timestamp text is stored
+ * as packed numbers rather than text.
  *
  * <p>
- * The lane rides an encoding that was previously refused as malformed — width code 3 (the trie lane)
- * together with the plain bit — so the first thing these tests pin is that a page written with the lane
- * reads back EXACTLY the values that went in, and the second is that a tag the lane cannot take keeps
- * its bytes untouched. A silently canonicalised timestamp is the failure this whole design exists to
- * prevent, so the round trip is asserted on the bytes, never on a parsed value.
+ * The lane rides an encoding that was previously refused as malformed — width code 3 (the trie
+ * lane) together with the plain bit — so the first thing these tests pin is that a page written
+ * with the lane reads back EXACTLY the values that went in, and the second is that a tag the lane
+ * cannot take keeps its bytes untouched. A silently canonicalised timestamp is the failure this
+ * whole design exists to prevent, so the round trip is asserted on the bytes, never on a parsed
+ * value.
  * </p>
  */
 @DisplayName("string region, temporal lane")
@@ -55,9 +56,9 @@ final class StringRegionTemporalLaneTest {
    *
    * <p>
    * Rendered through {@link #canonical} because {@code LocalDateTime.toString()} OMITS a zero seconds
-   * field — so a naive helper produces a 16-byte value for every whole minute, which the codec rightly
-   * refuses, which takes the whole tag off the lane. The corpus this lane exists for writes all
-   * nineteen bytes always.
+   * field — so a naive helper produces a 16-byte value for every whole minute, which the codec
+   * rightly refuses, which takes the whole tag off the lane. The corpus this lane exists for writes
+   * all nineteen bytes always.
    * </p>
    */
   private static String timestamp(final int row) {
@@ -164,8 +165,7 @@ final class StringRegionTemporalLaneTest {
   void theLaneShrinksTheRegion() {
     final int withoutLane = encodePage(false, false).length;
     final int withLane = encodePage(true, false).length;
-    assertTrue(withLane < withoutLane,
-        "temporal lane must shrink the region: " + withLane + " vs " + withoutLane);
+    assertTrue(withLane < withoutLane, "temporal lane must shrink the region: " + withLane + " vs " + withoutLane);
     // 12 datetimes at 19 bytes + 12 dates at 10 bytes is 348 bytes of text, and the packed lanes plus
     // their headers are a small fraction of that. Assert a real fraction so a lane that merely stopped
     // writing SOME bytes cannot pass.
@@ -192,8 +192,7 @@ final class StringRegionTemporalLaneTest {
     }
     final StringRegion.Header header = parse(region);
     final int ts = tagIndexOf(header, TS_TAG);
-    assertFalse(header.tagTemporal[ts],
-        "all or nothing: one refused value must keep the whole tag on its bytes");
+    assertFalse(header.tagTemporal[ts], "all or nothing: one refused value must keep the whole tag on its bytes");
   }
 
   @Test
@@ -253,11 +252,12 @@ final class StringRegionTemporalLaneTest {
     }
   }
 
-  /** The single offset at which {@code needle} occurs in {@code haystack}; fails if it is not unique. */
+  /**
+   * The single offset at which {@code needle} occurs in {@code haystack}; fails if it is not unique.
+   */
   private static int soleOccurrence(final byte[] haystack, final byte[] needle) {
     int found = -1;
-    outer:
-    for (int i = 0; i + needle.length <= haystack.length; i++) {
+    outer: for (int i = 0; i + needle.length <= haystack.length; i++) {
       for (int j = 0; j < needle.length; j++) {
         if (haystack[i + j] != needle[j]) {
           continue outer;
@@ -332,10 +332,10 @@ final class StringRegionTemporalLaneTest {
       final int rows = 1 + rnd.nextInt(20);
       final long base = rnd.nextInt(2_000_000_000);
       final long spread = switch (trial % 4) {
-        case 0 -> 0L;              // every value identical: bit width 0
-        case 1 -> 60L;             // a leaf's worth of seconds
-        case 2 -> 86_400L;         // a day
-        default -> 400_000_000L;   // far apart: a wide lane
+        case 0 -> 0L; // every value identical: bit width 0
+        case 1 -> 60L; // a leaf's worth of seconds
+        case 2 -> 86_400L; // a day
+        default -> 400_000_000L; // far apart: a wide lane
       };
       final String[] texts = new String[rows];
       StringRegion.setTemporalLaneEnabled(true);

@@ -6,15 +6,15 @@ package io.sirix.page.pax;
 import java.util.Objects;
 
 /**
- * A BIJECTIVE codec for the two fixed timestamp texts a record corpus stores by the hundred million:
- * {@code "YYYY-MM-DD"} and {@code "YYYY-MM-DD HH:MM:SS"}.
+ * A BIJECTIVE codec for the two fixed timestamp texts a record corpus stores by the hundred
+ * million: {@code "YYYY-MM-DD"} and {@code "YYYY-MM-DD HH:MM:SS"}.
  *
  * <p>
- * Three columns of a ClickBench-shaped corpus (LocalEventTime, EventTime, ClientEventTime) are 17.6 %
- * of the string region measured at 19.31 GB written at 100M — 19 bytes of text plus a length per value,
- * for a quantity that is an integer. Stored as a day or second count they are four bytes and, being
- * near-sorted within a leaf, delta-pack to far less. Nothing about the encoding is corpus-specific: it
- * accepts exactly the two ISO-8601 profiles above and refuses everything else.
+ * Three columns of a ClickBench-shaped corpus (LocalEventTime, EventTime, ClientEventTime) are 17.6
+ * % of the string region measured at 19.31 GB written at 100M — 19 bytes of text plus a length per
+ * value, for a quantity that is an integer. Stored as a day or second count they are four bytes
+ * and, being near-sorted within a leaf, delta-pack to far less. Nothing about the encoding is
+ * corpus-specific: it accepts exactly the two ISO-8601 profiles above and refuses everything else.
  * </p>
  *
  * <h2>Why refusal is the interesting half</h2>
@@ -23,17 +23,17 @@ import java.util.Objects;
  * input: {@code "2013-7-5"}, {@code "2013-07-15T12:34:56"}, a trailing space, or a second field of
  * {@code 60} all parse under a lenient reading and render back as something else. This codec is
  * therefore defined by its canonical form and REFUSES any byte sequence it could not reproduce
- * exactly — every accepted encoding satisfies {@code decode(encode(s)) == s} BY CONSTRUCTION, not by
- * hope. Callers must treat {@link #REFUSED} as "store the text", which is always correct and never
- * worse than today.
+ * exactly — every accepted encoding satisfies {@code decode(encode(s)) == s} BY CONSTRUCTION, not
+ * by hope. Callers must treat {@link #REFUSED} as "store the text", which is always correct and
+ * never worse than today.
  *
  * <h2>Shape</h2>
  *
  * Encoding returns a primitive and touches no allocation: a {@code long} of days (DATE) or seconds
- * (DATETIME) since 1970-01-01, signed, so a lane of them is monotone within a leaf and packs under the
- * existing frame-of-reference machinery. The FORM is a property of the tag, not of the value — a column
- * is all dates or all datetimes — so it is decided once per tag by {@link #formOf} and never stored
- * per value.
+ * (DATETIME) since 1970-01-01, signed, so a lane of them is monotone within a leaf and packs under
+ * the existing frame-of-reference machinery. The FORM is a property of the tag, not of the value —
+ * a column is all dates or all datetimes — so it is decided once per tag by {@link #formOf} and
+ * never stored per value.
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
@@ -79,9 +79,9 @@ public final class TemporalTextCodec {
   }
 
   /**
-   * The form {@code length} could encode, by length alone — a cheap pre-filter that lets a caller skip
-   * the byte inspection for values that cannot possibly qualify. A positive answer is NOT acceptance;
-   * only {@link #encode} accepts.
+   * The form {@code length} could encode, by length alone — a cheap pre-filter that lets a caller
+   * skip the byte inspection for values that cannot possibly qualify. A positive answer is NOT
+   * acceptance; only {@link #encode} accepts.
    *
    * @param length candidate text length in bytes
    * @return {@link #FORM_DATE}, {@link #FORM_DATETIME} or {@link #FORM_REFUSED}
@@ -132,10 +132,10 @@ public final class TemporalTextCodec {
 
   /**
    * Encode {@code len} bytes at {@code off} under {@code form}, or {@link #REFUSED} when they are not
-   * EXACTLY that form in canonical shape: ASCII digits in every digit position, {@code '-'} separators,
-   * a single {@code ' '} before the time, zero-padded fields, a calendar-valid date (leap years
-   * included) and {@code 00:00:00}..{@code 23:59:59}. A leading {@code '+'}, a {@code 'T'} separator,
-   * a {@code 60} second and a year outside {@code 0000}..{@code 9999} are all refused.
+   * EXACTLY that form in canonical shape: ASCII digits in every digit position, {@code '-'}
+   * separators, a single {@code ' '} before the time, zero-padded fields, a calendar-valid date (leap
+   * years included) and {@code 00:00:00}..{@code 23:59:59}. A leading {@code '+'}, a {@code 'T'}
+   * separator, a {@code 60} second and a year outside {@code 0000}..{@code 9999} are all refused.
    *
    * @param src the buffer
    * @param off offset of the first byte

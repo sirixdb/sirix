@@ -229,13 +229,11 @@ class HOTLeafPageSplitTest {
       pageA.put("b3".getBytes(), "v3".getBytes());
       HOTLeafPage rightA = new HOTLeafPage(2L, 1, IndexType.PATH);
       byte[] newKeyA = "a0".getBytes();
-      final int[] sideA = new int[]{-9};
-      boolean okA = pageA.splitToWithInsert(rightA, newKeyA, newKeyA.length,
-          "vn".getBytes(), 2, sideA);
+      final int[] sideA = new int[] {-9};
+      boolean okA = pageA.splitToWithInsert(rightA, newKeyA, newKeyA.length, "vn".getBytes(), 2, sideA);
       assertTrue(okA, "Split+insert should succeed");
       assertEquals(0, sideA[0], "New key 'a0' is smaller — must land in LEFT (this)");
-      assertEquals("a0", new String(pageA.getFirstKey()),
-          "Left half's first key is the new key (smallest)");
+      assertEquals("a0", new String(pageA.getFirstKey()), "Left half's first key is the new key (smallest)");
 
       // Case B: new key has β=1 → moved to `target` (RIGHT).
       HOTLeafPage pageB = new HOTLeafPage(3L, 1, IndexType.PATH);
@@ -244,30 +242,27 @@ class HOTLeafPageSplitTest {
       pageB.put("aaa3".getBytes(), "v3".getBytes());
       HOTLeafPage rightB = new HOTLeafPage(4L, 1, IndexType.PATH);
       byte[] newKeyB = "zzz9".getBytes();
-      final int[] sideB = new int[]{-9};
-      boolean okB = pageB.splitToWithInsert(rightB, newKeyB, newKeyB.length,
-          "vn".getBytes(), 2, sideB);
+      final int[] sideB = new int[] {-9};
+      boolean okB = pageB.splitToWithInsert(rightB, newKeyB, newKeyB.length, "vn".getBytes(), 2, sideB);
       assertTrue(okB, "Split+insert should succeed");
       assertEquals(1, sideB[0], "New key 'zzz9' is largest — must land in RIGHT (target)");
-      assertEquals("zzz9", new String(rightB.getFirstKey()),
-          "Right half's first key is the new key (alone)");
+      assertEquals("zzz9", new String(rightB.getFirstKey()), "Right half's first key is the new key (alone)");
 
       // Case C: null newSideOut is accepted (backward-compat path).
       HOTLeafPage pageC = new HOTLeafPage(5L, 1, IndexType.PATH);
       pageC.put("k1".getBytes(), "v1".getBytes());
       pageC.put("k2".getBytes(), "v2".getBytes());
       HOTLeafPage rightC = new HOTLeafPage(6L, 1, IndexType.PATH);
-      assertTrue(pageC.splitToWithInsert(rightC, "k3".getBytes(), 2,
-          "v3".getBytes(), 2, null), "null newSideOut must work");
+      assertTrue(pageC.splitToWithInsert(rightC, "k3".getBytes(), 2, "v3".getBytes(), 2, null),
+          "null newSideOut must work");
 
       // Case D: failure path leaves newSideOut untouched.
       HOTLeafPage pageD = new HOTLeafPage(7L, 1, IndexType.PATH);
       byte[] dup = "same".getBytes();
       pageD.put(dup, "v1".getBytes());
       HOTLeafPage rightD = new HOTLeafPage(8L, 1, IndexType.PATH);
-      final int[] sideD = new int[]{-7};
-      boolean okD = pageD.splitToWithInsert(rightD, dup, dup.length,
-          "v2".getBytes(), 2, sideD);
+      final int[] sideD = new int[] {-7};
+      boolean okD = pageD.splitToWithInsert(rightD, dup, dup.length, "v2".getBytes(), 2, sideD);
       assertFalse(okD, "Single-key split with duplicate should fail (msdb=-1)");
       assertEquals(-7, sideD[0], "newSideOut sentinel preserved on failure");
     }

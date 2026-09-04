@@ -26,12 +26,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The windowed access's slice recycling ({@link SliceArrayPool}): a windowed group-by pass decoded every
- * leaf of every column into fresh arrays that died two windows later (3.2 GB per pass per column set at
- * 100M), so a recycling access hands an evicted slice's presence and value arrays to the next window's
- * decode. These tests pin the three things that make that safe: the answers are unchanged, every reused
- * array is fully overwritten (an all-missing leaf after a present one, FOR width 0 after wide values),
- * and a leaf whose length does not match a pooled array gets its own.
+ * The windowed access's slice recycling ({@link SliceArrayPool}): a windowed group-by pass decoded
+ * every leaf of every column into fresh arrays that died two windows later (3.2 GB per pass per
+ * column set at 100M), so a recycling access hands an evicted slice's presence and value arrays to
+ * the next window's decode. These tests pin the three things that make that safe: the answers are
+ * unchanged, every reused array is fully overwritten (an all-missing leaf after a present one, FOR
+ * width 0 after wide values), and a leaf whose length does not match a pooled array gets its own.
  */
 final class WindowedSliceRecyclingTest {
 

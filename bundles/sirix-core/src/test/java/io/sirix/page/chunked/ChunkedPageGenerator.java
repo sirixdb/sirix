@@ -45,7 +45,9 @@ final class ChunkedPageGenerator {
   /** Fixed page key; the node keys derived from it are what the structural columns delta against. */
   static final long PAGE_KEY = 3L;
 
-  /** Opaque raw-record marker; {@code setSlot} publishes directory kind 0, which disables templates. */
+  /**
+   * Opaque raw-record marker; {@code setSlot} publishes directory kind 0, which disables templates.
+   */
   private static final byte UNKNOWN_KIND_ID = 100;
 
   /** One value larger than the sweep's 64-byte chunk target while remaining an inline record. */

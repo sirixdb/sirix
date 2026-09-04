@@ -47,7 +47,9 @@ final class GlobalValueDictionaryLengthTableTest {
   /** Enough ids to span many reverse buckets (256 ids each), so ranges cross bucket boundaries. */
   private static final int ENTRIES = 5_000;
 
-  /** Two-byte code points enough to exceed a value block — the value then SPILLS to its own record. */
+  /**
+   * Two-byte code points enough to exceed a value block — the value then SPILLS to its own record.
+   */
   private static final int SPILL_REPEATS = ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES / 2 + 1;
 
   @BeforeEach
@@ -163,7 +165,8 @@ final class GlobalValueDictionaryLengthTableTest {
         assertThrows(IllegalArgumentException.class,
             () -> whole.fillLengthTable(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES, 1, ENTRIES + 1, scratch));
         assertThrows(IllegalArgumentException.class,
-            () -> whole.fillLengthTable(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES, 1, ENTRIES, new int[ENTRIES]));
+            () -> whole.fillLengthTable(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES, 1, ENTRIES,
+                new int[ENTRIES]));
       }
     }
   }

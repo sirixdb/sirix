@@ -42,43 +42,32 @@ final class SirixArraySizeTest {
           final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
         SirixArraySize.resetStoredArraySizesServedForTests();
 
-        assertEquals(3L, result(chain, context,
-            "let $hits := jn:doc('size-db','records') return count($hits[])"));
+        assertEquals(3L, result(chain, context, "let $hits := jn:doc('size-db','records') return count($hits[])"));
         final long storedServingCount = SirixArraySize.storedArraySizesServedCount();
-        assertTrue(storedServingCount > 0L,
-            "the rewritten count must execute the stored-array accessor");
+        assertTrue(storedServingCount > 0L, "the rewritten count must execute the stored-array accessor");
 
         assertEquals(3L, result(chain, context, "count(for $record in [1,2,3][] return $record)"));
         assertEquals(storedServingCount, SirixArraySize.storedArraySizesServedCount(),
             "an in-memory literal must not masquerade as storage-native serving evidence");
 
-        assertEquals(5L, result(chain, context,
-            "let $arrays := ([1,2], [3,4,5]) return count($arrays[])"),
+        assertEquals(5L, result(chain, context, "let $arrays := ([1,2], [3,4,5]) return count($arrays[])"),
             "the rewrite must retain general sequence-of-arrays semantics");
-        assertEquals(5L, result(genericChain, context,
-            "let $arrays := ([1,2], [3,4,5]) return count($arrays[])"));
+        assertEquals(5L, result(genericChain, context, "let $arrays := ([1,2], [3,4,5]) return count($arrays[])"));
         assertEquals(storedServingCount, SirixArraySize.storedArraySizesServedCount(),
             "a sequence of in-memory arrays must not emit storage-native evidence");
 
-        assertEquals(3L, result(chain, context,
-            "let $items := ([1,2], 9, [3]) return count($items[])"),
+        assertEquals(3L, result(chain, context, "let $items := ([1,2], 9, [3]) return count($items[])"),
             "the rewrite must mirror sequence unboxing by skipping non-array members");
-        assertEquals(3L, result(genericChain, context,
-            "let $items := ([1,2], 9, [3]) return count($items[])"));
-        assertEquals(0L, result(chain, context,
-            "let $arrays := ([], [1,2]) return count($arrays[])"));
-        assertEquals(0L, result(genericChain, context,
-            "let $arrays := ([], [1,2]) return count($arrays[])"));
-        assertEquals(1L, result(chain, context,
-            "let $arrays := ([1], [], [2]) return count($arrays[])"));
-        assertEquals(1L, result(genericChain, context,
-            "let $arrays := ([1], [], [2]) return count($arrays[])"));
+        assertEquals(3L, result(genericChain, context, "let $items := ([1,2], 9, [3]) return count($items[])"));
+        assertEquals(0L, result(chain, context, "let $arrays := ([], [1,2]) return count($arrays[])"));
+        assertEquals(0L, result(genericChain, context, "let $arrays := ([], [1,2]) return count($arrays[])"));
+        assertEquals(1L, result(chain, context, "let $arrays := ([1], [], [2]) return count($arrays[])"));
+        assertEquals(1L, result(genericChain, context, "let $arrays := ([1], [], [2]) return count($arrays[])"));
         assertEquals(0L, result(chain, context, "count(()[])"));
         assertEquals(storedServingCount, SirixArraySize.storedArraySizesServedCount(),
             "empty and mixed in-memory inputs must not emit storage-native evidence");
 
-        final QueryException typeError = assertThrows(QueryException.class,
-            () -> result(chain, context, "count(1[])"));
+        final QueryException typeError = assertThrows(QueryException.class, () -> result(chain, context, "count(1[])"));
         assertEquals(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE, typeError.getCode(),
             "a lone non-array item must retain ArrayAccessExpr's XPTY0004 behavior");
         assertSameTypeError(chain, genericChain, context, "count(([1,2],[3])[])");
@@ -95,10 +84,8 @@ final class SirixArraySizeTest {
 
   private static void assertSameTypeError(final CompileChain optimized, final CompileChain generic,
       final SirixQueryContext context, final String query) {
-    final QueryException optimizedError = assertThrows(QueryException.class,
-        () -> result(optimized, context, query));
-    final QueryException genericError = assertThrows(QueryException.class,
-        () -> result(generic, context, query));
+    final QueryException optimizedError = assertThrows(QueryException.class, () -> result(optimized, context, query));
+    final QueryException genericError = assertThrows(QueryException.class, () -> result(generic, context, query));
     assertEquals(genericError.getCode(), optimizedError.getCode());
   }
 }

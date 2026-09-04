@@ -57,9 +57,8 @@ public final class SecondaryIndexFreshAllocationTest extends AbstractJsonTest {
 
   private static Map<IndexType, Integer> latestIds() {
     final Map<IndexType, Integer> ids = new EnumMap<>(IndexType.class);
-    try (Database<JsonResourceSession> database =
-             Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+        JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       final var controller = session.getRtxIndexController(session.getMostRecentRevisionNumber());
       for (final IndexDef indexDef : controller.getIndexes().getIndexDefs()) {
         if (TYPES.contains(indexDef.getType())) {
@@ -73,16 +72,15 @@ public final class SecondaryIndexFreshAllocationTest extends AbstractJsonTest {
   }
 
   private static void dropAllSecondaryIndexes() {
-    try (Database<JsonResourceSession> database =
-             Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         JsonNodeTrx wtx = session.beginNodeTrx()) {
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+        JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        JsonNodeTrx wtx = session.beginNodeTrx()) {
       final var controller = session.getWtxIndexController(wtx.getRevisionNumber());
       final Set<IndexDef> toDrop = controller.getIndexes()
-          .getIndexDefs()
-          .stream()
-          .filter(indexDef -> TYPES.contains(indexDef.getType()))
-          .collect(Collectors.toUnmodifiableSet());
+                                             .getIndexDefs()
+                                             .stream()
+                                             .filter(indexDef -> TYPES.contains(indexDef.getType()))
+                                             .collect(Collectors.toUnmodifiableSet());
       assertEquals(3, toDrop.size());
       controller.dropIndexes(toDrop, wtx);
       wtx.commit();

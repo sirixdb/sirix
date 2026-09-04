@@ -54,8 +54,7 @@ final class ParallelBulkBoundaryMergeOverflowTest {
 
   @Test
   void saturatedBoundaryMergePublishesCompleteFusedSideCarrier() throws ReflectiveOperationException {
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder("parallel-boundary-overflow")
-                                                              .build();
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("parallel-boundary-overflow").build();
     final KeyValueLeafPage target = new KeyValueLeafPage(0, IndexType.DOCUMENT, config, REVISION, null, null);
     final KeyValueLeafPage source = new KeyValueLeafPage(0, IndexType.DOCUMENT, config, REVISION, null, null);
     KeyValueLeafPage roundTripped = null;
@@ -67,8 +66,8 @@ final class ParallelBulkBoundaryMergeOverflowTest {
       assertTrue(remaining < sourceBytes, "fixture must force copySlotFromPage's overflow branch");
       assertEquals(KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY, target.getSlottedPage().byteSize());
 
-      final Method merge = ParallelBulkJsonImporter.class.getDeclaredMethod("mergeInto", KeyValueLeafPage.class,
-          KeyValueLeafPage.class);
+      final Method merge =
+          ParallelBulkJsonImporter.class.getDeclaredMethod("mergeInto", KeyValueLeafPage.class, KeyValueLeafPage.class);
       merge.setAccessible(true);
       merge.invoke(null, target, source);
 
@@ -93,9 +92,9 @@ final class ParallelBulkBoundaryMergeOverflowTest {
     final ObjectNamedBooleanNode scratch = new ObjectNamedBooleanNode(0, HASH_FUNCTION);
     final long offset = source.prepareHeapForDirectWriteOrOverflow(scratch.estimateSerializedSize(), 0);
     assertFalse(offset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW);
-    final int recordBytes = ObjectNamedBooleanNode.writeNewRecord(source.getSlottedPage(), offset,
-        scratch.getHeapOffsets(), NODE_KEY, PARENT_KEY, RIGHT_SIBLING_KEY, LEFT_SIBLING_KEY, NAME_KEY, PATH_NODE_KEY,
-        1, REVISION, HASH, true);
+    final int recordBytes =
+        ObjectNamedBooleanNode.writeNewRecord(source.getSlottedPage(), offset, scratch.getHeapOffsets(), NODE_KEY,
+            PARENT_KEY, RIGHT_SIBLING_KEY, LEFT_SIBLING_KEY, NAME_KEY, PATH_NODE_KEY, 1, REVISION, HASH, true);
     source.completeDirectWrite(NodeKind.OBJECT_NAMED_BOOLEAN.getId(), NODE_KEY, SOURCE_SLOT, recordBytes, null);
     return recordBytes;
   }
@@ -117,8 +116,8 @@ final class ParallelBulkBoundaryMergeOverflowTest {
       if (offset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
         break;
       }
-      final int written = StringNode.writeNewRecord(page.getSlottedPage(), offset, stringScratch.getHeapOffsets(),
-          slot, NULL_KEY, NULL_KEY, NULL_KEY, Constants.NULL_REVISION_NUMBER, REVISION, value, 0, value.length, false);
+      final int written = StringNode.writeNewRecord(page.getSlottedPage(), offset, stringScratch.getHeapOffsets(), slot,
+          NULL_KEY, NULL_KEY, NULL_KEY, Constants.NULL_REVISION_NUMBER, REVISION, value, 0, value.length, false);
       assertEquals(bytes, written);
       page.completeDirectWrite(NodeKind.STRING_VALUE.getId(), slot, slot, written, null);
       slot++;
@@ -154,8 +153,8 @@ final class ParallelBulkBoundaryMergeOverflowTest {
   private static void assertOverflowValue(final ResourceConfiguration config, final KeyValueLeafPage page) {
     final PageReference reference = page.getPageReference(NODE_KEY);
     final OverflowPage overflow = assertInstanceOf(OverflowPage.class, reference.getPage());
-    final DataRecord decoded = config.recordPersister.deserialize(new ByteArrayBytesIn(overflow.getDataBytes()),
-        NODE_KEY, null, config);
+    final DataRecord decoded =
+        config.recordPersister.deserialize(new ByteArrayBytesIn(overflow.getDataBytes()), NODE_KEY, null, config);
     final ObjectNamedBooleanNode node = assertInstanceOf(ObjectNamedBooleanNode.class, decoded);
     assertEquals(PARENT_KEY, node.getParentKey());
     assertEquals(RIGHT_SIBLING_KEY, node.getRightSiblingKey());

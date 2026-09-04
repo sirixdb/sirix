@@ -228,6 +228,20 @@ fail-fast lookups, never ordinals.
   region cannot hold, each tag encoded PLAIN, ALP, ALP-RD or exact-decimal — see
   `page/pax/DoubleRegion` for that region's wire format and what each encoding means for a
   comparison), overflow pointers, optional FSST symbol table.
+- **String-region tag forms (two optional lanes, both OFF by default).** A tag's dictionary is
+  normally text plus a length lane whose width is a two-bit code (1/2/4 bytes). The spare code 3 —
+  unreachable before, since only three widths exist — now selects a lane instead of a width, and the
+  plain-tag bit says which: code 3 alone is the TRIE lane (the dictionary holds global ids into a
+  resource-wide dictionary, and the tag stores no value bytes; armed by
+  `-Dsirix.projection.trieLane=true` at load), and code 3 WITH the plain bit is the TEMPORAL lane
+  (`-Dsirix.page.temporalLane=true`; a tag whose whole dictionary is `"YYYY-MM-DD"` or
+  `"YYYY-MM-DD HH:MM:SS"` is stored as frame-of-reference-packed day/second counts via
+  `page/pax/TemporalTextCodec`, which refuses anything it could not render back byte-identically).
+  Decoding either lane is unconditional, so a page written with one stays readable after the switch
+  is turned off. Compatibility is one-directional exactly as for the flags byte: a build predating a
+  lane meets an unknown width code and throws, rather than reading an id or timestamp lane as
+  lengths. `StringRegion.temporalLaneEnabled()` documents the one read path — a region REBUILT from
+  the slotted page — that re-encodes under the current setting rather than the writer's.
 - **Node records**: structural keys as zigzag varint deltas against the own node key
   (`DeltaVarIntCodec`), varint revisions, fixed 8-byte rolling hash (elided page-wide when all
   zero), typed number payloads (Double/Float fixed, Int/Long zigzag varint).

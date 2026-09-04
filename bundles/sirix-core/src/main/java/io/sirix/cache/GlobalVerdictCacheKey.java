@@ -21,6 +21,6 @@ package io.sirix.cache;
  * @param op the predicate operator's name
  * @param literalHex the literal's UTF-8 bytes, hex-encoded so the key has value equality
  */
-public record GlobalVerdictCacheKey(long databaseId, long resourceId, int revision, long headerNodeKey,
-    int entryCount, String op, String literalHex) {
+public record GlobalVerdictCacheKey(long databaseId, long resourceId, int revision, long headerNodeKey, int entryCount,
+    String op, String literalHex) {
 }

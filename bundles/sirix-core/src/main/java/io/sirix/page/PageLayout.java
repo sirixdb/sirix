@@ -194,9 +194,9 @@ public final class PageLayout {
     // class load: a stale separately-compiled Constants is exactly the case a compile-time-only
     // check would miss.
     if (PageConstants.MAX_RECORD_SIZE > MAX_COMPACT_DIR_DATA_LENGTH) {
-      throw new IllegalStateException("MAX_RECORD_SIZE=" + PageConstants.MAX_RECORD_SIZE
-          + " exceeds the compact directory's " + COMPACT_DIR_DATA_BITS + "-bit length field (max "
-          + MAX_COMPACT_DIR_DATA_LENGTH + ")");
+      throw new IllegalStateException(
+          "MAX_RECORD_SIZE=" + PageConstants.MAX_RECORD_SIZE + " exceeds the compact directory's "
+              + COMPACT_DIR_DATA_BITS + "-bit length field (max " + MAX_COMPACT_DIR_DATA_LENGTH + ")");
     }
   }
 
@@ -213,8 +213,7 @@ public final class PageLayout {
    * boundary instead of truncating a committed page.
    */
   public static int packCompactDirEntry(final int dataLength, final int nodeKindId) {
-    if (dataLength < 0 || dataLength > PageConstants.MAX_RECORD_SIZE
-        || dataLength > MAX_COMPACT_DIR_DATA_LENGTH) {
+    if (dataLength < 0 || dataLength > PageConstants.MAX_RECORD_SIZE || dataLength > MAX_COMPACT_DIR_DATA_LENGTH) {
       final int maxInlineLength = Math.min(PageConstants.MAX_RECORD_SIZE, MAX_COMPACT_DIR_DATA_LENGTH);
       throw new IllegalArgumentException(
           "compact-directory dataLength must be in [0," + maxInlineLength + "]: " + dataLength);
@@ -235,9 +234,11 @@ public final class PageLayout {
   /**
    * Whether an ID is legal in a persisted slotted-page directory.
    *
-   * <p>Zero is the generic/raw-record sentinel. Every nonzero ID must describe a flyweight record
-   * that {@link FlyweightNodeFactory} can bind; merely fitting in six bits, or merely being assigned
-   * to some non-flyweight {@code NodeKind}, is not sufficient.</p>
+   * <p>
+   * Zero is the generic/raw-record sentinel. Every nonzero ID must describe a flyweight record that
+   * {@link FlyweightNodeFactory} can bind; merely fitting in six bits, or merely being assigned to
+   * some non-flyweight {@code NodeKind}, is not sufficient.
+   * </p>
    */
   public static boolean isPersistedSlottedNodeKindId(final int nodeKindId) {
     return nodeKindId == 0 || nodeKindId > 0 && nodeKindId <= MAX_COMPACT_DIR_NODE_KIND_ID
@@ -283,11 +284,9 @@ public final class PageLayout {
       throw new IllegalArgumentException("compact-directory word is outside the unsigned-short range: " + packed);
     }
     final int dataLength = unpackDataLength(packed);
-    if (dataLength < 0 || dataLength > MAX_COMPACT_DIR_DATA_LENGTH
-        || dataLength > PageConstants.MAX_RECORD_SIZE) {
-      throw new IllegalArgumentException(
-          "compact-directory dataLength is outside [0," + Math.min(MAX_COMPACT_DIR_DATA_LENGTH,
-              PageConstants.MAX_RECORD_SIZE) + "]: " + dataLength);
+    if (dataLength < 0 || dataLength > MAX_COMPACT_DIR_DATA_LENGTH || dataLength > PageConstants.MAX_RECORD_SIZE) {
+      throw new IllegalArgumentException("compact-directory dataLength is outside [0,"
+          + Math.min(MAX_COMPACT_DIR_DATA_LENGTH, PageConstants.MAX_RECORD_SIZE) + "]: " + dataLength);
     }
     final int nodeKindId = unpackNodeKindId(packed);
     if (!isPersistedSlottedNodeKindId(nodeKindId)) {

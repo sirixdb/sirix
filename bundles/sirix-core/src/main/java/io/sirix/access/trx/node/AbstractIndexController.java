@@ -307,10 +307,12 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
    * Validate definitions before the standard document-index creation path mutates either the
    * catalogue or an index tree.
    *
-   * <p>Vector embeddings are caller-supplied data, not a value Sirix can reconstruct from a generic
+   * <p>
+   * Vector embeddings are caller-supplied data, not a value Sirix can reconstruct from a generic
    * document-node change. They therefore have a separate explicit lifecycle through
    * {@link VectorIndex}; accepting a VECTOR definition here used to catalogue an empty HNSW index and
-   * bind a listener whose methods were deliberate no-ops.</p>
+   * bind a listener whose methods were deliberate no-ops.
+   * </p>
    *
    * @param indexDefs definitions requested through {@link #createIndexes(Set, NodeTrx)}
    * @param nodeWriteTrx transaction whose physical index slots are validated
@@ -359,12 +361,12 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       final boolean physicalIdWasInitialized = switch (indexType) {
         case PATH -> storageEngineWriter.getPathPage(revisionRoot).isIndexInitialized(indexDef.getID());
         case CAS -> storageEngineWriter.getCASPage(revisionRoot).isIndexInitialized(indexDef.getID());
-        case NAME -> storageEngineWriter.getNamePage(revisionRoot)
-            .isSecondaryNameIndexInitialized(databaseType(storageEngineWriter), indexDef.getID());
-        case PROJECTION -> storageEngineWriter.getProjectionIndexPage(revisionRoot)
-            .isIndexInitialized(indexDef.getID());
-        case VALIDTIME -> storageEngineWriter.getValidTimeIndexPage(revisionRoot)
-            .isIndexInitialized(indexDef.getID());
+        case NAME ->
+          storageEngineWriter.getNamePage(revisionRoot)
+                             .isSecondaryNameIndexInitialized(databaseType(storageEngineWriter), indexDef.getID());
+        case PROJECTION ->
+          storageEngineWriter.getProjectionIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
+        case VALIDTIME -> storageEngineWriter.getValidTimeIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
         default -> false;
       };
       if (physicalIdWasInitialized) {
@@ -415,8 +417,10 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Validate resource-specific index lifecycles before a definition can reach the catalogue.
    *
-   * <p>VALIDTIME is JSON-only and requires an explicit resource configuration. JSON overrides this
-   * hook to validate that configuration; every other controller rejects the definition.</p>
+   * <p>
+   * VALIDTIME is JSON-only and requires an explicit resource configuration. JSON overrides this hook
+   * to validate that configuration; every other controller rejects the definition.
+   * </p>
    */
   protected void validateSupportedIndexLifecycles(final Set<IndexDef> indexDefs, final W nodeWriteTrx) {
     for (final IndexDef indexDef : indexDefs) {
@@ -430,9 +434,11 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Create the projection index's incremental change listener.
    *
-   * <p>Every concrete resource controller must implement this lifecycle explicitly. There is no
+   * <p>
+   * Every concrete resource controller must implement this lifecycle explicitly. There is no
    * nullable/no-maintenance fallback: cataloguing a projection without a listener would leave the
-   * persisted index silently stale after the next document mutation.</p>
+   * persisted index silently stale after the next document mutation.
+   * </p>
    *
    * @param nodeWriteTrx the write transaction
    * @param indexDef the projection-index definition
@@ -536,8 +542,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   /**
    * Create a valid-time interval index listener. Unsupported controllers reject the definition in
-   * {@link #validateSupportedIndexLifecycles(Set, NodeTrx)} before this method can be reached;
-   * JSON overrides both lifecycle methods.
+   * {@link #validateSupportedIndexLifecycles(Set, NodeTrx)} before this method can be reached; JSON
+   * overrides both lifecycle methods.
    *
    * @param nodeWriteTrx the write transaction
    * @param indexDef the (VALIDTIME) index definition
@@ -554,7 +560,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     listenerSnapshot = NO_CHANGE_LISTENERS;
     primitiveListenerSnapshot = NO_PRIMITIVE_LISTENERS;
     // A rollback/revert may have reloaded this cached controller's catalogue before listener
-    // rebinding.  Derive the fast-path flags from that authoritative catalogue so an aborted index
+    // rebinding. Derive the fast-path flags from that authoritative catalogue so an aborted index
     // definition cannot keep document notifications enabled for a listener that no longer exists.
     refreshIndexCapabilities();
     // Wtx handle cache entries are bound to listener instances — clearing

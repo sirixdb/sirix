@@ -30,20 +30,16 @@ final class ProjectionCommittedSlotCorruptionTest {
   void everyCommittedSlotReaderFailsClosedOnAStableUnreadableValue() {
     assertUnreadableValueRejected(17L,
         (reader, slotKey) -> ProjectionIndexHOTStorage.readColumnSegmentSlot(reader, 0, slotKey));
-    assertUnreadableValueRejected(-17L,
-        (reader, slotKey) -> ProjectionIndexHOTStorage.readRawSlot(reader, 0, slotKey));
-    assertUnreadableValueRejected(0L,
-        (reader, slotKey) -> ProjectionIndexHOTStorage.readBlob(reader, 0, slotKey));
+    assertUnreadableValueRejected(-17L, (reader, slotKey) -> ProjectionIndexHOTStorage.readRawSlot(reader, 0, slotKey));
+    assertUnreadableValueRejected(0L, (reader, slotKey) -> ProjectionIndexHOTStorage.readBlob(reader, 0, slotKey));
   }
 
   @Test
   void everyCommittedSlotReaderStillTreatsAValidZeroLengthValueAsATombstone() {
     assertValidTombstoneIsAbsent(17L,
         (reader, slotKey) -> ProjectionIndexHOTStorage.readColumnSegmentSlot(reader, 0, slotKey));
-    assertValidTombstoneIsAbsent(-17L,
-        (reader, slotKey) -> ProjectionIndexHOTStorage.readRawSlot(reader, 0, slotKey));
-    assertValidTombstoneIsAbsent(0L,
-        (reader, slotKey) -> ProjectionIndexHOTStorage.readBlob(reader, 0, slotKey));
+    assertValidTombstoneIsAbsent(-17L, (reader, slotKey) -> ProjectionIndexHOTStorage.readRawSlot(reader, 0, slotKey));
+    assertValidTombstoneIsAbsent(0L, (reader, slotKey) -> ProjectionIndexHOTStorage.readBlob(reader, 0, slotKey));
   }
 
   private static void assertUnreadableValueRejected(final long slotKey, final CommittedSlotRead read) {
@@ -71,8 +67,8 @@ final class ProjectionCommittedSlotCorruptionTest {
       MemorySegment.copy(key, 0, packedEntry, ValueLayout.JAVA_BYTE, 2, key.length);
       packedEntry.set(LE.SHORT, 10, (short) declaredValueLength);
 
-      final HOTLeafPage leaf = new HOTLeafPage(1, 1, IndexType.PROJECTION, packedEntry, null,
-          new int[] {0}, 1, 12, new byte[0], 0);
+      final HOTLeafPage leaf =
+          new HOTLeafPage(1, 1, IndexType.PROJECTION, packedEntry, null, new int[] {0}, 1, 12, new byte[0], 0);
       final ProjectionIndexPage projectionPage = new ProjectionIndexPage();
       final PageReference rootReference = projectionPage.getOrCreateReference(0);
       rootReference.setPage(leaf);

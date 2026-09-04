@@ -40,8 +40,7 @@ final class HOTSharedMutationRouteTest {
 
   private static final String RESOURCE = "shared-hot-mutation-route";
   private static final int PATH_INDEX_NUMBER = 0;
-  private static final int NAME_INDEX_NUMBER =
-      IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON).getID();
+  private static final int NAME_INDEX_NUMBER = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON).getID();
   private static final QNm NAME_KEY = new QNm("shared-name");
   private static final QNm GROWTH_NAME_KEY = new QNm("representation-boundary-name");
   private static final long PATH_KEY = 42L;
@@ -117,8 +116,7 @@ final class HOTSharedMutationRouteTest {
 
       // Force the re-add to start from a cold, independently committed tombstone revision.
       Databases.getGlobalBufferManager().clearAllCaches();
-      assertRevision(databasePath, revisions[2], new long[] {(1L << 16) + 3L},
-          new long[] {(2L << 16) + 3L}, 1_001L);
+      assertRevision(databasePath, revisions[2], new long[] {(1L << 16) + 3L}, new long[] {(2L << 16) + 3L}, 1_001L);
 
       revisions[3] = commitMutation(databasePath, (wtx, nameWriter, pathWriter) -> {
         nameWriter.indexNodeKey(NAME_KEY, 9L);
@@ -149,20 +147,19 @@ final class HOTSharedMutationRouteTest {
 
       assertRevision(databasePath, revisions[0], new long[] {1L, 2L, (1L << 16) + 3L},
           new long[] {11L, 12L, (2L << 16) + 3L}, 1_000L);
-      assertRevision(databasePath, revisions[1], new long[] {1L, (1L << 16) + 3L},
-          new long[] {11L, (2L << 16) + 3L}, 1_001L);
-      assertRevision(databasePath, revisions[2], new long[] {(1L << 16) + 3L},
-          new long[] {(2L << 16) + 3L}, 1_001L);
-      assertRevision(databasePath, revisions[3], new long[] {9L, (1L << 16) + 3L},
-          new long[] {19L, (2L << 16) + 3L}, 1_001L);
+      assertRevision(databasePath, revisions[1], new long[] {1L, (1L << 16) + 3L}, new long[] {11L, (2L << 16) + 3L},
+          1_001L);
+      assertRevision(databasePath, revisions[2], new long[] {(1L << 16) + 3L}, new long[] {(2L << 16) + 3L}, 1_001L);
+      assertRevision(databasePath, revisions[3], new long[] {9L, (1L << 16) + 3L}, new long[] {19L, (2L << 16) + 3L},
+          1_001L);
       assertRevision(databasePath, revisions[4], new long[] {9L, 20L, (1L << 16) + 3L},
           new long[] {19L, 29L, (2L << 16) + 3L}, 1_001L);
-      assertRevision(databasePath, revisions[5], new long[] {20L, (1L << 16) + 3L},
-          new long[] {29L, (2L << 16) + 3L}, 1_001L);
+      assertRevision(databasePath, revisions[5], new long[] {20L, (1L << 16) + 3L}, new long[] {29L, (2L << 16) + 3L},
+          1_001L);
       assertRevision(databasePath, revisions[6], new long[] {20L, 30L, (1L << 16) + 3L},
           new long[] {29L, 39L, (2L << 16) + 3L}, 1_001L);
-      assertRevision(databasePath, revisions[7], new long[] {30L, (1L << 16) + 3L},
-          new long[] {39L, (2L << 16) + 3L}, 1_001L);
+      assertRevision(databasePath, revisions[7], new long[] {30L, (1L << 16) + 3L}, new long[] {39L, (2L << 16) + 3L},
+          1_001L);
     } finally {
       Databases.getGlobalBufferManager().clearAllCaches();
       Databases.removeDatabase(databasePath);
@@ -207,8 +204,8 @@ final class HOTSharedMutationRouteTest {
 
   @Test
   void malformedPostingFailsClosedAndPoisonsTheTransaction() throws IOException {
-    final byte[] unsortedPacked = NodeReferencesSerializer.serialize(NodeReferences.ofSortedArray(new long[] {10L,
-        30L}));
+    final byte[] unsortedPacked =
+        NodeReferencesSerializer.serialize(NodeReferences.ofSortedArray(new long[] {10L, 30L}));
     for (int i = 0; i < Long.BYTES; i++) {
       final byte first = unsortedPacked[2 + i];
       unsortedPacked[2 + i] = unsortedPacked[2 + Long.BYTES + i];
@@ -218,8 +215,7 @@ final class HOTSharedMutationRouteTest {
     assertMalformedPostingPoisonsTransaction(new byte[] {(byte) 0xFE, 0x55}, "tombstone-with-trailing-bytes");
     assertMalformedPostingPoisonsTransaction(unsortedPacked, "unsorted-packed");
     assertMalformedPostingPoisonsTransaction(
-        NodeReferencesSerializer.serialize(NodeReferences.ofSortedArray(new long[] {1L << 16})),
-        "out-of-range-packed");
+        NodeReferencesSerializer.serialize(NodeReferences.ofSortedArray(new long[] {1L << 16})), "out-of-range-packed");
 
     final NodeReferences outOfRangeRoaring = new NodeReferences();
     for (long bit16 = 0; bit16 <= 64; bit16++) {
@@ -247,8 +243,7 @@ final class HOTSharedMutationRouteTest {
         writer.indexNodeKey(NAME_KEY, 7L);
 
         final byte[] compositeBuffer = new byte[512];
-        final int compositeLength =
-            NameKeySerializer.INSTANCE.serializeWithChunkIdx(NAME_KEY, 0, compositeBuffer, 0);
+        final int compositeLength = NameKeySerializer.INSTANCE.serializeWithChunkIdx(NAME_KEY, 0, compositeBuffer, 0);
         final byte[] compositeKey = Arrays.copyOf(compositeBuffer, compositeLength);
         final HOTLeafPage leaf = writer.acquireLeafForRead(compositeKey);
         assertNotNull(leaf);

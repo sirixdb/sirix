@@ -34,12 +34,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * overflow descriptor causes, and the region table's post-envelope bytes.
  *
  * <p>
- * <b>Assert-and-provide.</b> Every one of these counters sits behind {@code -Dsirix.pageSectionDiag},
- * a static-final gate read at class initialisation so the branches fold away in production. A test
- * therefore cannot switch it on for itself: with the gate off every counter reads zero, and a zero
- * from a disabled instrument is indistinguishable from a zero from a healthy one. So the suite
- * ASSERTS the gate is on and {@code bundles/sirix-core/build.gradle} provides it — the same contract
- * the HOT merge-diagnostic suites use.
+ * <b>Assert-and-provide.</b> Every one of these counters sits behind
+ * {@code -Dsirix.pageSectionDiag}, a static-final gate read at class initialisation so the branches
+ * fold away in production. A test therefore cannot switch it on for itself: with the gate off every
+ * counter reads zero, and a zero from a disabled instrument is indistinguishable from a zero from a
+ * healthy one. So the suite ASSERTS the gate is on and {@code bundles/sirix-core/build.gradle}
+ * provides it — the same contract the HOT merge-diagnostic suites use.
  *
  * <p>
  * The counters are process-cumulative, so every assertion is on a BEFORE/AFTER delta around one
@@ -127,8 +127,9 @@ final class PageSectionDiagCountersTest {
     final long elisionMeta = after.valueElisionMetaBytes - before.valueElisionMetaBytes;
     assertEquals(1, elidedPages, "value elision activates on a page of elidable fused primitives");
     assertTrue(elisionMeta > 0, "an active value elision always stages its section: got " + elisionMeta + " B");
-    assertEquals(0, after.inlineValueSlotsForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID)
-        - before.inlineValueSlotsForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID),
+    assertEquals(0,
+        after.inlineValueSlotsForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID)
+            - before.inlineValueSlotsForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID),
         "with elision active every fused number's payload leaves the heap, so none counts as inline");
 
     // --- the region table, as written ---
@@ -139,9 +140,9 @@ final class PageSectionDiagCountersTest {
    * Re-recorded for per-tag string-region completeness.
    *
    * <p>
-   * This page used to lose its string region outright, and this counter is what measured that. It
-   * now keeps it: only the oversized field's tag leaves, so the counter reads zero suppressions and
-   * one written region. The old reading is still reachable and still asserted — see
+   * This page used to lose its string region outright, and this counter is what measured that. It now
+   * keeps it: only the oversized field's tag leaves, so the counter reads zero suppressions and one
+   * written region. The old reading is still reachable and still asserted — see
    * {@link #theKillSwitchRestoresTheWholePageSuppression()} — which is what makes this pair the
    * before/after the plan's T1-d lever is judged on.
    */
@@ -156,7 +157,8 @@ final class PageSectionDiagCountersTest {
     assertEquals(1, after.regionBuildPages - before.regionBuildPages, "one page reached the string-region decision");
     assertEquals(0, after.stringRegionSuppressedPages - before.stringRegionSuppressedPages,
         "the descriptor costs its own tag, not the page's region");
-    assertEquals(1, after.regionWrittenCount[RegionTable.KIND_STRING] - before.regionWrittenCount[RegionTable.KIND_STRING],
+    assertEquals(1,
+        after.regionWrittenCount[RegionTable.KIND_STRING] - before.regionWrittenCount[RegionTable.KIND_STRING],
         "and the region is written, with every other field's strings in it");
     assertEquals(0, after.stringRegionSuppressedValues - before.stringRegionSuppressedValues,
         "no value is stranded by a suppression that did not happen");
@@ -166,8 +168,9 @@ final class PageSectionDiagCountersTest {
 
     // The four complete fields' payloads left the heap for the region; only the descriptor slot's
     // own payload — a reference, which no column can hold — stays inline.
-    assertEquals(1, after.inlineValueSlotsForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID)
-        - before.inlineValueSlotsForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID),
+    assertEquals(1,
+        after.inlineValueSlotsForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID)
+            - before.inlineValueSlotsForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID),
         "exactly the overflow descriptor keeps its payload inline");
   }
 
@@ -191,8 +194,9 @@ final class PageSectionDiagCountersTest {
           "their stored bytes stay in the record heap and must be counted");
 
       // Nothing was elided out of those strings, because there is no region to put them back from.
-      assertTrue(after.inlineValueBytesForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID)
-          - before.inlineValueBytesForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) > 0,
+      assertTrue(
+          after.inlineValueBytesForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID)
+              - before.inlineValueBytesForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) > 0,
           "a page that lost its string region keeps every string's payload inline in the heap");
     } finally {
       PageKind.STRING_REGION_PER_TAG_COMPLETENESS = before_;
@@ -249,15 +253,14 @@ final class PageSectionDiagCountersTest {
         - before.postCodecRawFor(PageSectionDiag.SECTION_COMPACT_DIR);
     assertEquals((long) expectedRecords * PageLayout.COMPACT_DIR_ENTRY_SIZE, dirRaw,
         "the compact directory's raw size is two bytes per populated slot");
-    final long heapRaw = after.postCodecRawFor(PageSectionDiag.SECTION_HEAP)
-        - before.postCodecRawFor(PageSectionDiag.SECTION_HEAP);
+    final long heapRaw =
+        after.postCodecRawFor(PageSectionDiag.SECTION_HEAP) - before.postCodecRawFor(PageSectionDiag.SECTION_HEAP);
     assertTrue(heapRaw > 0, "the heap must be charged");
     final long fusedRaw = after.postCodecRawFor(PageSectionDiag.SECTION_HEAP_FUSED)
         - before.postCodecRawFor(PageSectionDiag.SECTION_HEAP_FUSED);
     assertEquals(heapRaw, fusedRaw, "this fixture holds only fused records, so the whole heap is that class");
     assertEquals(0, after.postCodecRawFor(PageSectionDiag.SECTION_HEAP_STRUCTURAL)
-        - before.postCodecRawFor(PageSectionDiag.SECTION_HEAP_STRUCTURAL),
-        "and none of it is structural");
+        - before.postCodecRawFor(PageSectionDiag.SECTION_HEAP_STRUCTURAL), "and none of it is structural");
 
     // The load-bearing property: a section compressed ALONE cannot beat the same bytes compressed as
     // part of the whole body, because the codec also sees repetition across sections. If the sum ever
@@ -265,17 +268,15 @@ final class PageSectionDiagCountersTest {
     final long sectionSum = after.postCodecSectionSum - before.postCodecSectionSum;
     final long actualBody = after.postCodecActualBody - before.postCodecActualBody;
     assertTrue(actualBody > 0, "the body must have been written");
-    assertTrue(sectionSum >= actualBody,
-        "the sections compressed on their own must sum to at least the real body — " + sectionSum + " vs "
-            + actualBody);
+    assertTrue(sectionSum >= actualBody, "the sections compressed on their own must sum to at least the real body — "
+        + sectionSum + " vs " + actualBody);
     // And the sum is exactly the whole-section lanes, with the per-kind heap lanes left out — they are
     // PARTS of the heap lane, and counting a record's bytes twice would make the attribution lie.
     long wholeSectionEncoded = 0;
     for (int section = 0; section <= PageSectionDiag.SECTION_HEAP; section++) {
       wholeSectionEncoded += after.postCodecEncodedFor(section) - before.postCodecEncodedFor(section);
     }
-    assertEquals(wholeSectionEncoded, sectionSum,
-        "the reported sum must be the whole-section lanes and nothing else");
+    assertEquals(wholeSectionEncoded, sectionSum, "the reported sum must be the whole-section lanes and nothing else");
     final long fusedEncoded = after.postCodecEncodedFor(PageSectionDiag.SECTION_HEAP_FUSED)
         - before.postCodecEncodedFor(PageSectionDiag.SECTION_HEAP_FUSED);
     assertTrue(fusedEncoded > 0, "the fused-record lane must be charged, and separately from the sum");
@@ -391,18 +392,17 @@ final class PageSectionDiagCountersTest {
 
   private static void writeNumber(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
       final long value) {
-    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L, value, HASH_FN, (byte[]) null);
+    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L,
+        value, HASH_FN, (byte[]) null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slotOf(nodeKey));
   }
 
   private static void writeString(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
       final String value) {
-    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L,
+    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L,
         value.getBytes(StandardCharsets.UTF_8), HASH_FN, (byte[]) null, false, null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slotOf(nodeKey));
@@ -410,9 +410,9 @@ final class PageSectionDiagCountersTest {
 
   private static void writeBoolean(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
       final boolean value) {
-    final ObjectNamedBooleanNode node = new ObjectNamedBooleanNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L, value, HASH_FN, (byte[]) null);
+    final ObjectNamedBooleanNode node = new ObjectNamedBooleanNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L,
+        value, HASH_FN, (byte[]) null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slotOf(nodeKey));
   }

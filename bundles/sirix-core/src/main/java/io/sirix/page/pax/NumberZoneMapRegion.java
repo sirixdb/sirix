@@ -87,15 +87,15 @@ public final class NumberZoneMapRegion {
   public static final byte VERSION_V1 = 1;
 
   /**
-   * Varint wire format. The same four numbers per tag — tag value, count, minimum, and the maximum
-   * as a spread above the minimum — written as LEB128 deltas instead of fixed 24 bytes. A page-wide
+   * Varint wire format. The same four numbers per tag — tag value, count, minimum, and the maximum as
+   * a spread above the minimum — written as LEB128 deltas instead of fixed 24 bytes. A page-wide
    * bound is no longer written at all: it is the fold of the per-tag bounds.
    *
    * <p>
-   * This is the same information the {@link NumberRegion#ENC_PER_TAG_FOR} header carries, in the
-   * same order, because the two are the same summary: the per-tag frame of reference IS the zone
-   * map. It stays a region of its own only so a predicate can rule a page out without decompressing
-   * the values it would otherwise have to reach through.
+   * This is the same information the {@link NumberRegion#ENC_PER_TAG_FOR} header carries, in the same
+   * order, because the two are the same summary: the per-tag frame of reference IS the zone map. It
+   * stays a region of its own only so a predicate can rule a page out without decompressing the
+   * values it would otherwise have to reach through.
    */
   public static final byte VERSION_V2 = 2;
 
@@ -276,9 +276,9 @@ public final class NumberZoneMapRegion {
    *
    * <p>
    * This is the read side of {@link NumberRegion#ENC_PER_TAG_FOR_EXTERNAL}: the summary IS that
-   * region's header, so the number region's parse reads it here rather than from a second copy of
-   * its own. Written into the target's arrays directly — no intermediate header, no allocation on a
-   * parse path that runs once per page.
+   * region's header, so the number region's parse reads it here rather than from a second copy of its
+   * own. Written into the target's arrays directly — no intermediate header, no allocation on a parse
+   * path that runs once per page.
    *
    * <p>
    * Unlike {@link Header#parseInto} this does not decline: a value region that says its directory is
@@ -335,8 +335,7 @@ public final class NumberZoneMapRegion {
         final long declaredValues = VarInt.readUnsigned(payload, position);
         position += VarInt.sizeOfUnsigned(declaredValues);
         if (declaredValues < 0L || declaredValues > Integer.MAX_VALUE - running) {
-          throw new IllegalArgumentException("external directory tag " + i + " declares " + declaredValues
-              + " values");
+          throw new IllegalArgumentException("external directory tag " + i + " declares " + declaredValues + " values");
         }
         values = (int) declaredValues;
         min = VarInt.readSigned(payload, position);

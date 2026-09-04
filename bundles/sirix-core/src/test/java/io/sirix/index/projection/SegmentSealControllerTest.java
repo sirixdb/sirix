@@ -14,8 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * When a segment's dictionary may be sealed. The rule has to be conservative in one direction only:
- * sealing a segment that can still receive a value loses that value from the dictionary its own page
- * points at, while sealing late costs residency and nothing else.
+ * sealing a segment that can still receive a value loses that value from the dictionary its own
+ * page points at, while sealing late costs residency and nothing else.
  */
 final class SegmentSealControllerTest {
 

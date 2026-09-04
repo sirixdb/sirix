@@ -110,8 +110,15 @@ public final class CompositeGroupKeyCollisionDifferentialTest {
     if (id > 0) {
       sb.append(',');
     }
-    sb.append("{\"id\":").append(id).append(",\"ca\":").append(ca).append(",\"cb\":").append(cb).append(",\"amount\":")
-      .append(amount).append('}');
+    sb.append("{\"id\":")
+      .append(id)
+      .append(",\"ca\":")
+      .append(ca)
+      .append(",\"cb\":")
+      .append(cb)
+      .append(",\"amount\":")
+      .append(amount)
+      .append('}');
   }
 
   @AfterEach
@@ -134,24 +141,21 @@ public final class CompositeGroupKeyCollisionDifferentialTest {
   @DisplayName("colliding composite groups keep their own counts through the served route")
   void collidingCompositeGroupsDoNotMergeTheirCounts() throws Exception {
     assertServedDifferential("subsequence(for $u in " + SRC + " let $a := $u.ca, $b := $u.cb group by $a, $b "
-        + "let $c := count($u) order by $c descending "
-        + "return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 500)");
+        + "let $c := count($u) order by $c descending " + "return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 500)");
   }
 
   @Test
   @DisplayName("colliding composite groups keep their own sums through the served route")
   void collidingCompositeGroupsDoNotMergeTheirSums() throws Exception {
     assertServedDifferential("subsequence(for $u in " + SRC + " let $a := $u.ca, $b := $u.cb group by $a, $b "
-        + "let $s := sum($u.amount) order by $s descending "
-        + "return {\"a\": $a, \"b\": $b, \"s\": $s}, 1, 500)");
+        + "let $s := sum($u.amount) order by $s descending " + "return {\"a\": $a, \"b\": $b, \"s\": $s}, 1, 500)");
   }
 
   @Test
   @DisplayName("the colliding pair survives a narrow top-K window that only the true counts can order")
   void collidingPairSurvivesTopKWindow() throws Exception {
     assertServedDifferential("subsequence(for $u in " + SRC + " let $a := $u.ca, $b := $u.cb group by $a, $b "
-        + "let $c := count($u) order by $c descending "
-        + "return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 3)");
+        + "let $c := count($u) order by $c descending " + "return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 3)");
   }
 
   @Test
@@ -160,16 +164,14 @@ public final class CompositeGroupKeyCollisionDifferentialTest {
     // Top-2 by count: the two colliding tuples are the ONLY groups with counts above 1, so a
     // merged pair would surface as one group of 8 instead of 5 then 3.
     final String query = "subsequence(for $u in " + SRC + " let $a := $u.ca, $b := $u.cb group by $a, $b "
-        + "let $c := count($u) order by $c descending "
-        + "return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 2)";
+        + "let $c := count($u) order by $c descending " + "return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 2)";
     final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
     final String served = run(query, true);
     assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedBefore,
         "query was NOT served by the group-aggregate route: " + query);
     assertTrue(served.contains("\"c\":" + A_ROWS), "group A lost its own count: " + served);
     assertTrue(served.contains("\"c\":" + B_ROWS), "group B lost its own count: " + served);
-    assertFalse(served.contains("\"c\":" + (A_ROWS + B_ROWS)),
-        "the colliding groups fused into one: " + served);
+    assertFalse(served.contains("\"c\":" + (A_ROWS + B_ROWS)), "the colliding groups fused into one: " + served);
     assertEquals(run(query, false), served);
   }
 

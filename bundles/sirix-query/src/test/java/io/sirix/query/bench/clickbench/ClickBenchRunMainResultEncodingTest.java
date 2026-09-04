@@ -23,14 +23,7 @@ final class ClickBenchRunMainResultEncodingTest {
 
   @Test
   void finiteDoublesRetainEveryBinary64Bit() {
-    final double[] values = {
-        1920.0001,
-        1920.0008,
-        Math.nextUp(1.0),
-        Double.MIN_VALUE,
-        Double.MAX_VALUE,
-        -0.0
-    };
+    final double[] values = {1920.0001, 1920.0008, Math.nextUp(1.0), Double.MIN_VALUE, Double.MAX_VALUE, -0.0};
 
     for (final double value : values) {
       final JsonElement encoded = ClickBenchRunMain.canonicalCell(new JsonPrimitive(value));
@@ -67,8 +60,7 @@ final class ClickBenchRunMainResultEncodingTest {
   }
 
   @Test
-  void reusedRunInvalidatesOnlySelectedFinalAndPartialResults(@TempDir final Path temporaryDirectory)
-      throws Exception {
+  void reusedRunInvalidatesOnlySelectedFinalAndPartialResults(@TempDir final Path temporaryDirectory) throws Exception {
     ClickBenchRunMain.prepareDumpDirectory(temporaryDirectory);
     final Path selected = temporaryDirectory.resolve("q00.jsonl");
     final Path selectedPartial = temporaryDirectory.resolve("q00.jsonl.partial");

@@ -8,8 +8,8 @@ import io.sirix.node.interfaces.DataRecord;
 import java.util.Arrays;
 
 /**
- * Directory of one reverse value bucket: which packed sub-blocks and which spilled records cover its
- * 256-id range.
+ * Directory of one reverse value bucket: which packed sub-blocks and which spilled records cover
+ * its 256-id range.
  *
  * <h2>Sparse, not a per-id lane</h2>
  *
@@ -69,9 +69,9 @@ public final class ValueDictionaryValueBucketNode implements DataRecord {
    * ADOPTS every array — the caller must not retain or mutate them.
    *
    * <p>
-   * For the codec and the writer, which build these arrays for this record and drop them
-   * immediately. A public constructor that silently adopted would be an ambiguous contract, so the
-   * copying constructor stays the default and taking ownership is an explicit, named choice.
+   * For the codec and the writer, which build these arrays for this record and drop them immediately.
+   * A public constructor that silently adopted would be an ambiguous contract, so the copying
+   * constructor stays the default and taking ownership is an explicit, named choice.
    */
   public static ValueDictionaryValueBucketNode takeOwnership(final long nodeKey, final int firstId, final int count,
       final int[] blockFirstIds, final int[] blockCounts, final long[] blockKeys, final int[] spillIds,
@@ -97,8 +97,7 @@ public final class ValueDictionaryValueBucketNode implements DataRecord {
     int b = 0;
     int s = 0;
     while (b < blockFirstIds.length || s < spillIds.length) {
-      final boolean takeBlock = s == spillIds.length
-          || (b < blockFirstIds.length && blockFirstIds[b] <= spillIds[s]);
+      final boolean takeBlock = s == spillIds.length || (b < blockFirstIds.length && blockFirstIds[b] <= spillIds[s]);
       if (takeBlock) {
         if (blockKeys[b] <= 0 || blockCounts[b] <= 0 || blockFirstIds[b] != expected) {
           throw new IllegalArgumentException(

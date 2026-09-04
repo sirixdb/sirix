@@ -30,29 +30,28 @@ import it.unimi.dsi.fastutil.HashCommon;
  * {@link ProjectionIndexByteScan#newGroupAggAcc}'s, unchanged by the interleave, which is why
  * {@link #acquire} hands back an encoded accumulator handle. Callers resolve it once through
  * {@link #storageAtAccBase} and {@link #offsetAtAccBase}; the resulting array and offset have the
- * same block layout as a STANDALONE {@code long[]} (the missing-key and constant-group
- * accumulators keep that standalone shape). From a handle, the key is one load BELOW the resolved
- * offset ({@link #keyAtAccBase}) and the aux lane one {@code slotWidth} ABOVE it
- * ({@link #auxAtAccBase}).
+ * same block layout as a STANDALONE {@code long[]} (the missing-key and constant-group accumulators
+ * keep that standalone shape). From a handle, the key is one load BELOW the resolved offset
+ * ({@link #keyAtAccBase}) and the aux lane one {@code slotWidth} ABOVE it ({@link #auxAtAccBase}).
  *
  * <h2>Non-humongous storage</h2>
  *
  * The logical open-addressed table is physically split into at-most-128-KiB {@code long[]} chunks,
  * allocated lazily on the first insertion into their bucket range. A low-cardinality group-by can
  * therefore retain a high-cardinality logical sizing hint (and never rehash if it turns out dense)
- * without zeroing or later scanning the untouched ranges.
- * Hashing, probing, load factor and rehash order are unchanged: a probe still walks the same logical
- * bucket sequence, and a stripe never crosses a chunk boundary. The fixed chunk ceiling is below
- * G1's 2-MiB humongous threshold with the canonical 4-MiB regions, including array-header and
- * alignment margin. High-cardinality scans retain their full up-front capacity (and therefore avoid
- * incremental rehashing); only the physical allocation changes.
+ * without zeroing or later scanning the untouched ranges. Hashing, probing, load factor and rehash
+ * order are unchanged: a probe still walks the same logical bucket sequence, and a stripe never
+ * crosses a chunk boundary. The fixed chunk ceiling is below G1's 2-MiB humongous threshold with
+ * the canonical 4-MiB regions, including array-header and alignment margin. High-cardinality scans
+ * retain their full up-front capacity (and therefore avoid incremental rehashing); only the
+ * physical allocation changes.
  *
  * <p>
  * Chunks may come from a {@link LongChunkPool} attached before the first insertion
  * ({@link #attachChunkPool}): a rehash hands its old chunks back, and {@link #release} hands back
  * every chunk of a table that is done — so a grouped scan whose worker tables flush and whose
- * partition tables grow many times per pass promotes each chunk into the old generation ONCE instead
- * of copying a fresh generation of them through every young pause.
+ * partition tables grow many times per pass promotes each chunk into the old generation ONCE
+ * instead of copying a fresh generation of them through every young pause.
  *
  * <p>
  * This replaces {@code Long2ObjectOpenHashMap<long[]>} in the high-cardinality group-by kernel: no
@@ -77,7 +76,9 @@ public final class NumericGroupAggTable {
   /** Spine of a {@link #release released} table: no chunk, so any probe fails loudly. */
   private static final long[][] RELEASED_STORAGE = new long[0][];
 
-  /** The partition index's entry for a partition holding no key (see {@link #buildPartitionIndex}). */
+  /**
+   * The partition index's entry for a partition holding no key (see {@link #buildPartitionIndex}).
+   */
   private static final int[] NO_HANDLES = new int[0];
 
   /**
@@ -120,9 +121,9 @@ public final class NumericGroupAggTable {
    * <p>
    * With {@code idWidth > 0} the key lane degrades to a PROBE hash and the identity lanes decide
    * membership, so two distinct groups may legitimately share a key. Every structural invariant the
-   * table relies on already tolerates that: {@link #rehash} re-homes each stripe into the first
-   * EMPTY bucket rather than deduplicating, and {@link #buildPartitionIndex} partitions on the key,
-   * so same-key groups always meet inside one merge partition where identity can separate them.
+   * table relies on already tolerates that: {@link #rehash} re-homes each stripe into the first EMPTY
+   * bucket rather than deduplicating, and {@link #buildPartitionIndex} partitions on the key, so
+   * same-key groups always meet inside one merge partition where identity can separate them.
    */
   private final int idWidth;
   /** Lane distance from a stripe's accumulator base to its first identity lane. */
@@ -136,15 +137,17 @@ public final class NumericGroupAggTable {
   private int mask;
   private int size;
   private int growAt;
-  /** Times {@link #rehash} ran — zero for a table hinted at its final count (see {@link #rehashes}). */
+  /**
+   * Times {@link #rehash} ran — zero for a table hinted at its final count (see {@link #rehashes}).
+   */
   private int rehashes;
   private boolean hasZeroKey;
   /**
    * Set the moment {@link #acquireExact} walks past a bucket whose key matches but whose identity
-   * does not — i.e. the moment two genuinely different groups are proven to share a probe hash.
-   * The table itself keeps them apart regardless; the flag exists for the side structures that are
-   * still keyed by the probe hash alone (the per-group COUNT(DISTINCT) sets), which have no way to
-   * tell the two apart and must decline rather than merge them.
+   * does not — i.e. the moment two genuinely different groups are proven to share a probe hash. The
+   * table itself keeps them apart regardless; the flag exists for the side structures that are still
+   * keyed by the probe hash alone (the per-group COUNT(DISTINCT) sets), which have no way to tell the
+   * two apart and must decline rather than merge them.
    */
   private boolean probeKeyCollision;
   private final long[] zeroSlot;
@@ -185,10 +188,10 @@ public final class NumericGroupAggTable {
   }
 
   /**
-   * @param idWidth identity lanes per group; {@code 0} keeps the key lane as the whole identity.
-   *        A positive width turns the key lane into a probe hash and makes membership decided by an
-   *        EXACT comparison of the identity lanes, which is what a composite group-by needs: its
-   *        key hash folds several components into 64 bits, and that fold is invertible enough to be
+   * @param idWidth identity lanes per group; {@code 0} keeps the key lane as the whole identity. A
+   *        positive width turns the key lane into a probe hash and makes membership decided by an
+   *        EXACT comparison of the identity lanes, which is what a composite group-by needs: its key
+   *        hash folds several components into 64 bits, and that fold is invertible enough to be
    *        solved for a collision in closed form rather than searched for.
    */
   public NumericGroupAggTable(final int aggColumns, final int expectedEntries, final boolean withAux,
@@ -232,9 +235,9 @@ public final class NumericGroupAggTable {
    * <p>
    * Public and static because the SIZING of a grouped pass is decided before any table exists: the
    * per-pass group budget divides a heap share by the bytes a group actually costs, and a planner
-   * that guessed a width instead of asking would plan passes for a stripe the query does not have.
-   * A {@code count(*)} group-by occupies three lanes; two aggregate columns over a composite key
-   * occupy thirteen.
+   * that guessed a width instead of asking would plan passes for a stripe the query does not have. A
+   * {@code count(*)} group-by occupies three lanes; two aggregate columns over a composite key occupy
+   * thirteen.
    * </p>
    *
    * @param aggColumns aggregate columns per group
@@ -256,14 +259,16 @@ public final class NumericGroupAggTable {
   }
 
   /**
-   * THE bucket capacity a sizing hint buys: the power of two at or above 4/3 × {@code expectedEntries}
-   * (the table grows at 3/4 load), floored at 16 — before the per-stride array-length clamp. Public so a
-   * planner that derives a hint ({@link GroupTableSpill#sharedTableHint}) sees the same boundary the
-   * constructor applies: a hint one past 3/4 × 2^k costs a table twice the size of one at it, and with
-   * hashed placement every chunk of that capacity is touched, so the doubling is paid in full.
+   * THE bucket capacity a sizing hint buys: the power of two at or above 4/3 ×
+   * {@code expectedEntries} (the table grows at 3/4 load), floored at 16 — before the per-stride
+   * array-length clamp. Public so a planner that derives a hint
+   * ({@link GroupTableSpill#sharedTableHint}) sees the same boundary the constructor applies: a hint
+   * one past 3/4 × 2^k costs a table twice the size of one at it, and with hashed placement every
+   * chunk of that capacity is touched, so the doubling is paid in full.
    */
   public static int capacityFor(final int expectedEntries) {
-    final int cap = (int) (Long.highestOneBit(Math.max(16, Math.min(MAX_CAPACITY, (long) expectedEntries * 4 / 3)) - 1) << 1);
+    final int cap =
+        (int) (Long.highestOneBit(Math.max(16, Math.min(MAX_CAPACITY, (long) expectedEntries * 4 / 3)) - 1) << 1);
     return cap < 16
         ? 16
         : cap;
@@ -335,7 +340,8 @@ public final class NumericGroupAggTable {
 
   /**
    * Lanes per backing array of any table with {@code stride} lanes per group once its capacity has
-   * reached the chunk ceiling — the one length a {@link LongChunkPool} shared by such tables recycles.
+   * reached the chunk ceiling — the one length a {@link LongChunkPool} shared by such tables
+   * recycles.
    */
   public static int fullChunkLanes(final int stride) {
     if (stride <= 0 || stride > MAX_STORAGE_CHUNK_LANES) {
@@ -366,10 +372,10 @@ public final class NumericGroupAggTable {
 
   /**
    * Hand every backing array back to the attached pool (or to the collector) and leave the table
-   * without storage. The counters ({@link #size}, {@link #hasZeroKey}, the zero group's slot) survive;
-   * probing or walking the table afterwards is a contract violation and fails on the empty spine.
-   * A caller that still points INTO the storage — a top-k selector holding accumulator references —
-   * must copy what it keeps before this call.
+   * without storage. The counters ({@link #size}, {@link #hasZeroKey}, the zero group's slot)
+   * survive; probing or walking the table afterwards is a contract violation and fails on the empty
+   * spine. A caller that still points INTO the storage — a top-k selector holding accumulator
+   * references — must copy what it keeps before this call.
    */
   public void release() {
     final long[][] chunks = storage;
@@ -461,8 +467,8 @@ public final class NumericGroupAggTable {
    *
    * @param probeHash the group's probe hash as the kernel computed it ({@code 0} remapped internally)
    * @return the encoded accumulator handle
-   * @throws IllegalStateException if the table holds no group under that key, or if a collision
-   *         makes the key ambiguous
+   * @throws IllegalStateException if the table holds no group under that key, or if a collision makes
+   *         the key ambiguous
    */
   public int handleOfProbeKey(final long probeHash) {
     if (probeKeyCollision) {
@@ -581,11 +587,11 @@ public final class NumericGroupAggTable {
    * both its backing array and its chunk-local offset AFTER the call.
    */
   /**
-   * Restrict this table to the groups whose partition ({@link #partitionOf} under {@code shift}) lies in
-   * {@code [lo, hi)}: every other key acquires {@link #DISCARD_HANDLE}. A hash-range pass of a group-by
-   * scans the whole input P times and keeps 1/P of the groups per pass, so memory is bounded at any
-   * cardinality; the partitioning is the post-scan merge's own, so a partition's groups complete
-   * within one pass.
+   * Restrict this table to the groups whose partition ({@link #partitionOf} under {@code shift}) lies
+   * in {@code [lo, hi)}: every other key acquires {@link #DISCARD_HANDLE}. A hash-range pass of a
+   * group-by scans the whole input P times and keeps 1/P of the groups per pass, so memory is bounded
+   * at any cardinality; the partitioning is the post-scan merge's own, so a partition's groups
+   * complete within one pass.
    */
   public void setPassRange(final int shift, final int lo, final int hi) {
     if (shift < 0 || shift > 64) {
@@ -661,8 +667,8 @@ public final class NumericGroupAggTable {
    *
    * <p>
    * {@code probeHash} only chooses the probe chain: a bucket whose key lane matches but whose
-   * identity lanes do not is a collision, and the probe simply walks on, so the two tuples occupy
-   * two buckets and never fold into one another. That is the whole difference from
+   * identity lanes do not is a collision, and the probe simply walks on, so the two tuples occupy two
+   * buckets and never fold into one another. That is the whole difference from
    * {@link #acquire(long, long)}, which treats a key match as proof of group identity.
    *
    * <p>
@@ -944,8 +950,7 @@ public final class NumericGroupAggTable {
         // single worker kept apart cannot be folded together by the merge that reunites them.
         final int dstHandle = into.idWidth == 0
             ? into.acquire(srcTable[srcBase - 1], srcTable[srcBase + 1])
-            : into.acquireExact(srcTable[srcBase - 1], srcTable[srcBase + 1], srcTable,
-                srcBase + into.idOffsetFromAcc);
+            : into.acquireExact(srcTable[srcBase - 1], srcTable[srcBase + 1], srcTable, srcBase + into.idOffsetFromAcc);
         // AFTER the acquire: growth swaps the storage out from under any earlier resolution.
         final long[] dstTable = into.storageAtAccBase(dstHandle);
         final int dstBase = into.offsetAtAccBase(dstHandle);
@@ -1091,10 +1096,9 @@ public final class NumericGroupAggTable {
   private static void requireMergeable(final NumericGroupAggTable src, final NumericGroupAggTable into) {
     if (src.slotWidth != into.slotWidth || src.withAux != into.withAux || src.sumExactMask != into.sumExactMask
         || src.idWidth != into.idWidth) {
-      throw new IllegalStateException(
-          "incompatible group tables: slotWidth " + src.slotWidth + "/" + into.slotWidth + ", aux " + src.withAux + "/"
-              + into.withAux + ", sumExactMask " + src.sumExactMask + "/" + into.sumExactMask + ", idWidth "
-              + src.idWidth + "/" + into.idWidth);
+      throw new IllegalStateException("incompatible group tables: slotWidth " + src.slotWidth + "/" + into.slotWidth
+          + ", aux " + src.withAux + "/" + into.withAux + ", sumExactMask " + src.sumExactMask + "/" + into.sumExactMask
+          + ", idWidth " + src.idWidth + "/" + into.idWidth);
     }
   }
 

@@ -69,8 +69,8 @@ final class NamePageReservedSlotCoexistenceIntegrationTest {
         final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
         try {
           assertEquals(1, dictionary.intern(GLOBAL_VALUE, 0, GLOBAL_VALUE.length));
-          dictionaryHeaderKey = dictionary.flush(namePage, DatabaseType.JSON, storageEngineWriter,
-              storageEngineWriter.getLog());
+          dictionaryHeaderKey =
+              dictionary.flush(namePage, DatabaseType.JSON, storageEngineWriter, storageEngineWriter.getLog());
         } finally {
           dictionary.release();
         }
@@ -90,8 +90,7 @@ final class NamePageReservedSlotCoexistenceIntegrationTest {
           JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         final var storageEngineReader = rtx.getStorageEngineReader();
         final NamePage namePage = storageEngineReader.getNamePage(storageEngineReader.getActualRevisionRootPage());
-        assertArrayEquals(FSST_TABLE,
-            namePage.getFsstSymbolTable(fsstTableId, DatabaseType.JSON, storageEngineReader));
+        assertArrayEquals(FSST_TABLE, namePage.getFsstSymbolTable(fsstTableId, DatabaseType.JSON, storageEngineReader));
         assertEquals(new String(GLOBAL_VALUE, StandardCharsets.UTF_8),
             GlobalValueDictionary.value(dictionaryHeaderKey, 1, storageEngineReader));
         assertEquals(persistedHotPageKey, namePage.getMaxHotPageKey(nameIndex.getID()));
@@ -100,8 +99,7 @@ final class NamePageReservedSlotCoexistenceIntegrationTest {
             "cold allocation probing must reserve the committed physical NAME tree");
 
         final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
-        final IndexDef persistedNameIndex =
-            indexController.getIndexes().getIndexDef(nameIndex.getID(), IndexType.NAME);
+        final IndexDef persistedNameIndex = indexController.getIndexes().getIndexDef(nameIndex.getID(), IndexType.NAME);
         assertNotNull(persistedNameIndex);
         final var references = indexController.openNameIndex(storageEngineReader, persistedNameIndex,
             indexController.createNameFilter(Set.of(name(UNIQUE_NAME_COUNT - 1))));
@@ -114,8 +112,7 @@ final class NamePageReservedSlotCoexistenceIntegrationTest {
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         final var storageEngineWriter = wtx.getStorageEngineWriter();
         final NamePage namePage = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
-        assertEquals(Math.addExact(persistedHotPageKey, 1L),
-            namePage.incrementAndGetMaxHotPageKey(nameIndex.getID()),
+        assertEquals(Math.addExact(persistedHotPageKey, 1L), namePage.incrementAndGetMaxHotPageKey(nameIndex.getID()),
             "the sparse physical NAME id resumed from the wrong page-key high-water mark");
         wtx.rollback();
       }

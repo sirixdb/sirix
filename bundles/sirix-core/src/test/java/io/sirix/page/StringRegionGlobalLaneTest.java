@@ -65,7 +65,9 @@ final class StringRegionGlobalLaneTest {
     public byte @Nullable [] valueOf(final int t, final long dictionaryKey, final int recordedEntryCount,
         final int id) {
       // The real shape: the anchor check is part of resolving, not a thing the caller remembers.
-      return t == tag && accepts(t, dictionaryKey, recordedEntryCount) ? values.get(id) : null;
+      return t == tag && accepts(t, dictionaryKey, recordedEntryCount)
+          ? values.get(id)
+          : null;
     }
 
     /** Live entry count, separate from the recorded one so a shrink is constructible. */
@@ -79,7 +81,9 @@ final class StringRegionGlobalLaneTest {
       if (t != tag || dictionaryKey != dictionaryKey(t)) {
         return false;
       }
-      final int live = liveEntryCount < 0 ? dictionaryEntryCount(t) : liveEntryCount;
+      final int live = liveEntryCount < 0
+          ? dictionaryEntryCount(t)
+          : liveEntryCount;
       return live >= recordedEntryCount;
     }
 
@@ -236,12 +240,11 @@ final class StringRegionGlobalLaneTest {
         return 1; // fewer entries than the ids this tag stores
       }
     };
-    final RuntimeException refusal = assertThrows(RuntimeException.class,
-        () -> parse(encode(lying, CONVERTED_TAG, "alpha", "beta", "beta")),
-        "a tag whose dictionary is too small for its own ids must be refused");
-    assertTrue(refusal instanceof IllegalStateException,
-        "expected the ENCODE-time density refusal, got " + refusal.getClass().getSimpleName() + ": "
-            + refusal.getMessage());
+    final RuntimeException refusal =
+        assertThrows(RuntimeException.class, () -> parse(encode(lying, CONVERTED_TAG, "alpha", "beta", "beta")),
+            "a tag whose dictionary is too small for its own ids must be refused");
+    assertTrue(refusal instanceof IllegalStateException, "expected the ENCODE-time density refusal, got "
+        + refusal.getClass().getSimpleName() + ": " + refusal.getMessage());
   }
 
   @Test
@@ -259,7 +262,11 @@ final class StringRegionGlobalLaneTest {
       @Override
       public int idOf(final int t, final byte[] value, final int offset, final int length) {
         final String v = new String(value, offset, length, StandardCharsets.UTF_8);
-        return "alpha".equals(v) ? 500 : ("beta".equals(v) ? 900 : ID_ABSENT);
+        return "alpha".equals(v)
+            ? 500
+            : ("beta".equals(v)
+                ? 900
+                : ID_ABSENT);
       }
     };
     final MemorySegment payload = encode(wide, CONVERTED_TAG, "alpha", "beta", "beta");
@@ -345,8 +352,8 @@ final class StringRegionGlobalLaneTest {
         return 5000;
       }
     };
-    final IllegalStateException refusal = assertThrows(IllegalStateException.class,
-        () -> encode(sparse, CONVERTED_TAG, "alpha", "beta", "beta"));
+    final IllegalStateException refusal =
+        assertThrows(IllegalStateException.class, () -> encode(sparse, CONVERTED_TAG, "alpha", "beta", "beta"));
     assertTrue(refusal.getMessage().contains("dense"),
         "the refusal must name the invariant it is defending, got: " + refusal.getMessage());
   }

@@ -34,36 +34,43 @@ import java.util.TreeMap;
 /**
  * Storage-cost decomposition benchmark: answers <b>"where do the bytes of one tiny commit go?"</b>
  *
- * <p>Builds a resource with N single-number-field-update commits (the workload behind the
- * "10k commits = 15.9 MB &asymp; 1.6 KB/commit for an 8-byte logical change" number), then walks the
- * data file <i>structurally</i> — every record is {@code [align-pad][u32 len][payload]} starting at
+ * <p>
+ * Builds a resource with N single-number-field-update commits (the workload behind the "10k commits
+ * = 15.9 MB &asymp; 1.6 KB/commit for an 8-byte logical change" number), then walks the data file
+ * <i>structurally</i> — every record is {@code [align-pad][u32 len][payload]} starting at
  * {@link IOStorage#DATA_REGION_START} — decodes each payload's page-kind header (and, for
  * {@code KeyValueLeafPage}, the index type + slotted-page header), and attributes every byte of
  * file growth to a (page kind, commit) pair using the revision-root offsets recorded in the
  * {@code sirix.revisions} file. Diff files ({@code update-operations/}) and the revisions file
  * itself are accounted separately.
  *
- * <p>This is deliberately a <i>reader-side</i> ground truth (it measures what is actually ON DISK,
+ * <p>
+ * This is deliberately a <i>reader-side</i> ground truth (it measures what is actually ON DISK,
  * including the 4-byte length headers and 8-byte alignment padding the writer adds around each
  * page). Cross-check against the writer-side profiler with {@code -Dsirix.storage.profile=true}
  * ({@code io.sirix.io.file.StorageProfile} — payload bytes only, so this walker should report
  * slightly more per kind).
  *
- * <p>Feature-isolation knobs (system properties), mirroring {@link LargeHistoryBenchMain}:
+ * <p>
+ * Feature-isolation knobs (system properties), mirroring {@link LargeHistoryBenchMain}:
  * <ul>
- *   <li>{@code -Dbench.label=...} — tag printed into every CSV line</li>
- *   <li>{@code -Dbench.storeDiffs=true|false} (default true)</li>
- *   <li>{@code -Dbench.hashKind=ROLLING|POSTORDER|NONE} (default ROLLING)</li>
- *   <li>{@code -Dbench.buildPathSummary=true|false} (default true)</li>
- *   <li>{@code -Dbench.storeNodeHistory=true|false} (default true)</li>
- *   <li>{@code -Dbench.storeChildCount=true|false} (default true)</li>
- *   <li>{@code -Dbench.versioning=SLIDING_SNAPSHOT|FULL|INCREMENTAL|DIFFERENTIAL} (default SLIDING_SNAPSHOT)</li>
- *   <li>{@code -Dbench.revisionsToRestore=N} (default 3)</li>
+ * <li>{@code -Dbench.label=...} — tag printed into every CSV line</li>
+ * <li>{@code -Dbench.storeDiffs=true|false} (default true)</li>
+ * <li>{@code -Dbench.hashKind=ROLLING|POSTORDER|NONE} (default ROLLING)</li>
+ * <li>{@code -Dbench.buildPathSummary=true|false} (default true)</li>
+ * <li>{@code -Dbench.storeNodeHistory=true|false} (default true)</li>
+ * <li>{@code -Dbench.storeChildCount=true|false} (default true)</li>
+ * <li>{@code -Dbench.versioning=SLIDING_SNAPSHOT|FULL|INCREMENTAL|DIFFERENTIAL} (default
+ * SLIDING_SNAPSHOT)</li>
+ * <li>{@code -Dbench.revisionsToRestore=N} (default 3)</li>
  * </ul>
  *
- * <p>Usage: {@code StorageCostBenchMain [numCommits=1000] [workDir=<tmp>]}
+ * <p>
+ * Usage: {@code StorageCostBenchMain [numCommits=1000] [workDir=<tmp>]}
  *
- * <p>Compile/run without gradle:
+ * <p>
+ * Compile/run without gradle:
+ * 
  * <pre>
  *   javac --enable-preview --release 25 --add-modules jdk.incubator.vector \
  *     -cp "$(cat /tmp/sirix-test-cp.txt)" -d /tmp/wave5-a/classes \
@@ -102,18 +109,19 @@ public final class StorageCostBenchMain {
 
   /** One structurally-walked data-file record: [pad][u32 len][payload]. */
   private record Rec(long offset, int payloadLen, int grossLen, String group, int commit,
-                     // KVLP extras (-1 when not a KVLP)
-                     long recordPageKey, int pageRevision, int populated, int onDiskHeapSize,
-                     int bodyCompressedLen, int bodyCodec, int prefixLen, int tailLen,
-                     // reference-page extras (-1 when not parsed)
-                     int refCount, int fragKeyCount, int delegateBytes) {
+      // KVLP extras (-1 when not a KVLP)
+      long recordPageKey, int pageRevision, int populated, int onDiskHeapSize, int bodyCompressedLen, int bodyCodec,
+      int prefixLen, int tailLen,
+      // reference-page extras (-1 when not parsed)
+      int refCount, int fragKeyCount, int delegateBytes) {
   }
 
-  private StorageCostBenchMain() {
-  }
+  private StorageCostBenchMain() {}
 
   public static void main(final String[] args) throws Exception {
-    final int numCommits = args.length > 0 ? Integer.parseInt(args[0]) : 1_000;
+    final int numCommits = args.length > 0
+        ? Integer.parseInt(args[0])
+        : 1_000;
     final Path dbPath = (args.length > 1
         ? Paths.get(args[1])
         : Files.createTempDirectory("sirix-storagecost-")).resolve("db");
@@ -130,12 +138,11 @@ public final class StorageCostBenchMain {
     final int revisionsToRestore = Integer.getInteger("bench.revisionsToRestore", 3);
 
     System.out.printf(Locale.ROOT,
-                      "# StorageCostBench label=%s commits=%d dbPath=%s%n"
-                          + "# knobs: storeDiffs=%s hashKind=%s buildPathSummary=%s storeNodeHistory=%s "
-                          + "storeChildCount=%s versioning=%s revisionsToRestore=%d compression=%s%n",
-                      label, numCommits, dbPath, storeDiffs, hashKind, buildPathSummary, storeNodeHistory,
-                      storeChildCount, versioning, revisionsToRestore,
-                      System.getProperty("sirix.compression", "none"));
+        "# StorageCostBench label=%s commits=%d dbPath=%s%n"
+            + "# knobs: storeDiffs=%s hashKind=%s buildPathSummary=%s storeNodeHistory=%s "
+            + "storeChildCount=%s versioning=%s revisionsToRestore=%d compression=%s%n",
+        label, numCommits, dbPath, storeDiffs, hashKind, buildPathSummary, storeNodeHistory, storeChildCount,
+        versioning, revisionsToRestore, System.getProperty("sirix.compression", "none"));
 
     // ---------------------------------------------------------------- build phase
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
@@ -157,9 +164,9 @@ public final class StorageCostBenchMain {
         try (final var wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(INITIAL_DOC));
           wtx.moveToDocumentRoot();
-          wtx.moveToFirstChild();   // object
-          wtx.moveToFirstChild();   // object key "counter"
-          wtx.moveToFirstChild();   // number value
+          wtx.moveToFirstChild(); // object
+          wtx.moveToFirstChild(); // object key "counter"
+          wtx.moveToFirstChild(); // number value
           final long counterNodeKey = wtx.getNodeKey();
           for (int i = 2; i <= numCommits; i++) {
             wtx.moveTo(counterNodeKey);
@@ -168,8 +175,8 @@ public final class StorageCostBenchMain {
           }
         }
         if (session.getMostRecentRevisionNumber() != numCommits) {
-          throw new IllegalStateException("expected revision " + numCommits + ", got "
-                                              + session.getMostRecentRevisionNumber());
+          throw new IllegalStateException(
+              "expected revision " + numCommits + ", got " + session.getMostRecentRevisionNumber());
         }
       }
     }
@@ -207,20 +214,19 @@ public final class StorageCostBenchMain {
     final long totalLogical = dataSize + revisionsSize + diffBytes + otherBytes;
 
     System.out.printf(Locale.ROOT,
-                      "# build: %d commits in %.1fs (%.2f ms/commit)%n"
-                          + "# files: data=%d B revisions=%d B diffs=%d B (%d files, 4KiB-rounded=%d B) other=%d B "
-                          + "total=%d B (%.2f MB) => %.1f B/commit logical%n",
-                      numCommits, buildSeconds, buildSeconds * 1000 / numCommits,
-                      dataSize, revisionsSize, diffBytes, diffFiles, diffBytesBlockRounded, otherBytes,
-                      totalLogical, totalLogical / (1024.0 * 1024.0), (double) totalLogical / numCommits);
+        "# build: %d commits in %.1fs (%.2f ms/commit)%n"
+            + "# files: data=%d B revisions=%d B diffs=%d B (%d files, 4KiB-rounded=%d B) other=%d B "
+            + "total=%d B (%.2f MB) => %.1f B/commit logical%n",
+        numCommits, buildSeconds, buildSeconds * 1000 / numCommits, dataSize, revisionsSize, diffBytes, diffFiles,
+        diffBytesBlockRounded, otherBytes, totalLogical, totalLogical / (1024.0 * 1024.0),
+        (double) totalLogical / numCommits);
 
     // ---------------------------------------------------------------- revision-root offsets
     // sirix.revisions layout: 4 KiB superblock, then one 32-byte record per revision
     // (u64 offset, u64 timestamp, u64 checksum, u64 reserved — little endian).
     final long[] revRootOffset = new long[numCommits + 1];
     try (final FileChannel ch = FileChannel.open(revisionsFile, StandardOpenOption.READ)) {
-      final ByteBuffer buf = ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE)
-                                       .order(ByteOrder.LITTLE_ENDIAN);
+      final ByteBuffer buf = ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
       for (int rev = 0; rev <= numCommits; rev++) {
         buf.clear();
         int read = 0;
@@ -306,9 +312,8 @@ public final class StorageCostBenchMain {
       walkedGross += v[2];
     }
     final long accounted = IOStorage.DATA_REGION_START + walkedGross;
-    System.out.printf(Locale.ROOT,
-                      "# data-file accounting: header+beacons=%d + walked=%d = %d (file=%d, delta=%d)%n",
-                      IOStorage.DATA_REGION_START, walkedGross, accounted, dataSize, dataSize - accounted);
+    System.out.printf(Locale.ROOT, "# data-file accounting: header+beacons=%d + walked=%d = %d (file=%d, delta=%d)%n",
+        IOStorage.DATA_REGION_START, walkedGross, accounted, dataSize, dataSize - accounted);
 
     // ---------------------------------------------------------------- report: global table
     System.out.println();
@@ -317,7 +322,7 @@ public final class StorageCostBenchMain {
 
     System.out.println();
     System.out.printf(Locale.ROOT, "=== STEADY-STATE commits (%d..%d, %d commits): per-commit average ===%n",
-                      steadyStart, numCommits, steadyCommits);
+        steadyStart, numCommits, steadyCommits);
     long steadyGross = 0;
     for (final long[] v : steadyByGroup.values()) {
       steadyGross += v[2];
@@ -325,20 +330,24 @@ public final class StorageCostBenchMain {
     printGroupTable(steadyByGroup, steadyCommits, steadyGross);
 
     // Non-page per-commit costs.
-    final double diffPerCommit = storeDiffs && numCommits > 1 ? (double) diffBytes / diffFiles : 0;
+    final double diffPerCommit = storeDiffs && numCommits > 1
+        ? (double) diffBytes / diffFiles
+        : 0;
     System.out.println();
     System.out.printf(Locale.ROOT, "non-page per-commit costs:%n");
     System.out.printf(Locale.ROOT, "  revisions-file record              %8.1f B/commit%n",
-                      (double) IOStorage.REVISIONS_FILE_RECORD_SIZE);
-    System.out.printf(Locale.ROOT, "  diff file (update-operations)      %8.1f B/commit logical "
-                          + "(%d files, %.1f B avg, 4KiB-block cost %.0f B/commit)%n",
-                      diffPerCommit, diffFiles, diffPerCommit,
-                      storeDiffs && diffFiles > 0 ? (double) diffBytesBlockRounded / diffFiles : 0.0);
+        (double) IOStorage.REVISIONS_FILE_RECORD_SIZE);
+    System.out.printf(Locale.ROOT,
+        "  diff file (update-operations)      %8.1f B/commit logical "
+            + "(%d files, %.1f B avg, 4KiB-block cost %.0f B/commit)%n",
+        diffPerCommit, diffFiles, diffPerCommit, storeDiffs && diffFiles > 0
+            ? (double) diffBytesBlockRounded / diffFiles
+            : 0.0);
     final double steadyPageBytes = (double) steadyGross / steadyCommits;
     System.out.printf(Locale.ROOT,
-                      "TOTAL steady-state: %.1f B/commit pages + %d B revisions + %.1f B diff = %.1f B/commit%n",
-                      steadyPageBytes, IOStorage.REVISIONS_FILE_RECORD_SIZE, diffPerCommit,
-                      steadyPageBytes + IOStorage.REVISIONS_FILE_RECORD_SIZE + diffPerCommit);
+        "TOTAL steady-state: %.1f B/commit pages + %d B revisions + %.1f B diff = %.1f B/commit%n", steadyPageBytes,
+        IOStorage.REVISIONS_FILE_RECORD_SIZE, diffPerCommit,
+        steadyPageBytes + IOStorage.REVISIONS_FILE_RECORD_SIZE + diffPerCommit);
 
     // per-commit distribution
     final long[] sorted = new long[steadyCommits];
@@ -346,31 +355,28 @@ public final class StorageCostBenchMain {
       sorted[c - steadyStart] = grossPerCommit[c];
     }
     java.util.Arrays.sort(sorted);
-    System.out.printf(Locale.ROOT,
-                      "steady per-commit page bytes: min=%d p50=%d p90=%d max=%d  (pages/commit p50=%d)%n",
-                      sorted[0], sorted[steadyCommits / 2], sorted[(int) (steadyCommits * 0.9)],
-                      sorted[steadyCommits - 1], medianPages(pagesPerCommit, steadyStart, numCommits));
+    System.out.printf(Locale.ROOT, "steady per-commit page bytes: min=%d p50=%d p90=%d max=%d  (pages/commit p50=%d)%n",
+        sorted[0], sorted[steadyCommits / 2], sorted[(int) (steadyCommits * 0.9)], sorted[steadyCommits - 1],
+        medianPages(pagesPerCommit, steadyStart, numCommits));
 
     // ---------------------------------------------------------------- example commits, full detail
     System.out.println();
-    System.out.printf(Locale.ROOT, "=== record-level detail: last 3 commits (%d..%d) ===%n",
-                      numCommits - 2, numCommits);
+    System.out.printf(Locale.ROOT, "=== record-level detail: last 3 commits (%d..%d) ===%n", numCommits - 2,
+        numCommits);
     System.out.printf(Locale.ROOT, "%-8s %-34s %9s %9s  %s%n", "commit", "page", "payload", "gross", "detail");
     for (final Rec r : recs) {
       if (r.commit >= numCommits - 2) {
         final StringBuilder detail = new StringBuilder();
         if (r.recordPageKey >= 0) {
           detail.append(String.format(Locale.ROOT,
-                                      "rpk=%d pageRev=%d slots=%d heap=%dB prefix=%dB body=%dB tail=%dB codec=%d",
-                                      r.recordPageKey, r.pageRevision, r.populated, r.onDiskHeapSize,
-                                      r.prefixLen, r.bodyCompressedLen, r.tailLen, r.bodyCodec));
+              "rpk=%d pageRev=%d slots=%d heap=%dB prefix=%dB body=%dB tail=%dB codec=%d", r.recordPageKey,
+              r.pageRevision, r.populated, r.onDiskHeapSize, r.prefixLen, r.bodyCompressedLen, r.tailLen, r.bodyCodec));
         }
         if (r.refCount >= 0) {
-          detail.append(String.format(Locale.ROOT, "refs=%d fragKeys=%d delegateBytes=%d",
-                                      r.refCount, r.fragKeyCount, r.delegateBytes));
+          detail.append(String.format(Locale.ROOT, "refs=%d fragKeys=%d delegateBytes=%d", r.refCount, r.fragKeyCount,
+              r.delegateBytes));
         }
-        System.out.printf(Locale.ROOT, "%-8d %-34s %9d %9d  %s%n",
-                          r.commit, r.group, r.payloadLen, r.grossLen, detail);
+        System.out.printf(Locale.ROOT, "%-8d %-34s %9d %9d  %s%n", r.commit, r.group, r.payloadLen, r.grossLen, detail);
       }
     }
 
@@ -378,16 +384,16 @@ public final class StorageCostBenchMain {
     System.out.println();
     for (final var e : steadyByGroup.entrySet()) {
       final long[] v = e.getValue();
-      System.out.printf(Locale.ROOT, "CSVKIND,%s,%s,pages_per_commit=%.3f,payload_b_per_commit=%.1f,gross_b_per_commit=%.1f%n",
-                        label, e.getKey(), (double) v[0] / steadyCommits, (double) v[1] / steadyCommits,
-                        (double) v[2] / steadyCommits);
+      System.out.printf(Locale.ROOT,
+          "CSVKIND,%s,%s,pages_per_commit=%.3f,payload_b_per_commit=%.1f,gross_b_per_commit=%.1f%n", label, e.getKey(),
+          (double) v[0] / steadyCommits, (double) v[1] / steadyCommits, (double) v[2] / steadyCommits);
     }
     System.out.printf(Locale.ROOT,
-                      "CSVTOTAL,%s,commits=%d,data_b=%d,revisions_b=%d,diff_b=%d,diff_files=%d,other_b=%d,"
-                          + "total_b=%d,b_per_commit=%.1f,steady_page_b_per_commit=%.1f,steady_total_b_per_commit=%.1f%n",
-                      label, numCommits, dataSize, revisionsSize, diffBytes, diffFiles, otherBytes, totalLogical,
-                      (double) totalLogical / numCommits, steadyPageBytes,
-                      steadyPageBytes + IOStorage.REVISIONS_FILE_RECORD_SIZE + diffPerCommit);
+        "CSVTOTAL,%s,commits=%d,data_b=%d,revisions_b=%d,diff_b=%d,diff_files=%d,other_b=%d,"
+            + "total_b=%d,b_per_commit=%.1f,steady_page_b_per_commit=%.1f,steady_total_b_per_commit=%.1f%n",
+        label, numCommits, dataSize, revisionsSize, diffBytes, diffFiles, otherBytes, totalLogical,
+        (double) totalLogical / numCommits, steadyPageBytes,
+        steadyPageBytes + IOStorage.REVISIONS_FILE_RECORD_SIZE + diffPerCommit);
 
     // Writer-side cross-check (populated when -Dsirix.storage.profile=true).
     io.sirix.io.file.StorageProfile.dump();
@@ -404,7 +410,8 @@ public final class StorageCostBenchMain {
     final BytesIn<?> in = Bytes.wrapForRead(payload);
     final int kindId = in.readByte() & 0xFF;
     final String kindName = kindId < KIND_NAMES.length && KIND_NAMES[kindId] != null
-        ? KIND_NAMES[kindId] : ("UnknownKind" + kindId);
+        ? KIND_NAMES[kindId]
+        : ("UnknownKind" + kindId);
 
     long recordPageKey = -1;
     int pageRevision = -1;
@@ -431,10 +438,10 @@ public final class StorageCostBenchMain {
           onDiskHeapSize = in.readInt();
           final int templateCount = in.readByte() & 0xFF;
           if (templateCount == 0) {
-            in.readInt();             // templatePoolBytes (unused on this path)
+            in.readInt(); // templatePoolBytes (unused on this path)
           } else {
-            in.readByte();            // structuralFlags
-            in.readInt();             // templatePoolBytes
+            in.readByte(); // structuralFlags
+            in.readInt(); // templatePoolBytes
           }
           bodyCompressedLen = in.readInt();
           bodyCodec = in.readByte() & 0xFF;
@@ -476,14 +483,13 @@ public final class StorageCostBenchMain {
     } catch (final RuntimeException e) {
       group = group + "(parse-error)";
     }
-    return new Rec(offset, len, gross, group, commit, recordPageKey, pageRevision, populated,
-                   onDiskHeapSize, bodyCompressedLen, bodyCodec, prefixLen, tailLen,
-                   refCount, fragKeyCount, delegateBytes);
+    return new Rec(offset, len, gross, group, commit, recordPageKey, pageRevision, populated, onDiskHeapSize,
+        bodyCompressedLen, bodyCodec, prefixLen, tailLen, refCount, fragKeyCount, delegateBytes);
   }
 
   /**
-   * Parse a references-page delegate (SerializationType.DATA wire format), returning
-   * {refCount, totalFragmentKeys} and leaving the cursor after the delegate.
+   * Parse a references-page delegate (SerializationType.DATA wire format), returning {refCount,
+   * totalFragmentKeys} and leaving the cursor after the delegate.
    */
   private static int[] parseDelegate(final BytesIn<?> in, final int delegateType) {
     int refs = 0;
@@ -526,14 +532,14 @@ public final class StorageCostBenchMain {
       }
       default -> throw new IllegalStateException("unknown delegate type " + delegateType);
     }
-    return new int[] { refs, frags };
+    return new int[] {refs, frags};
   }
 
   /** [u8 fragCount][fragCount × (u32 revision + u64 key)][u64 key][u8 hashPresent][8B hash?] */
   private static int parseRefFragmentsAndHash(final BytesIn<?> in) {
     final int fragCount = in.readByte() & 0xFF;
     in.skip(fragCount * 12L);
-    in.readLong();                        // current key
+    in.readLong(); // current key
     final int hasHash = in.readByte() & 0xFF;
     if (hasHash != 0) {
       in.skip(8);
@@ -556,21 +562,19 @@ public final class StorageCostBenchMain {
   }
 
   private static void printGroupTable(final Map<String, long[]> byGroup, final int commits, final long totalGross) {
-    System.out.printf(Locale.ROOT, "%-34s %8s %12s %12s %10s %12s %7s  %s%n",
-                      "page kind", "pages", "payload B", "gross B", "B/page", "B/commit", "share",
-                      "kvlp prefix/body/tail per page");
+    System.out.printf(Locale.ROOT, "%-34s %8s %12s %12s %10s %12s %7s  %s%n", "page kind", "pages", "payload B",
+        "gross B", "B/page", "B/commit", "share", "kvlp prefix/body/tail per page");
     for (final var e : byGroup.entrySet()) {
       final long[] v = e.getValue();
       final String split = v[3] + v[4] + v[5] > 0
           ? String.format(Locale.ROOT, "%.0f/%.0f/%.0f", (double) v[3] / v[0], (double) v[4] / v[0],
-                          (double) v[5] / v[0])
+              (double) v[5] / v[0])
           : "";
-      System.out.printf(Locale.ROOT, "%-34s %8d %12d %12d %10.1f %12.1f %6.1f%%  %s%n",
-                        e.getKey(), v[0], v[1], v[2], (double) v[2] / v[0], (double) v[2] / commits,
-                        100.0 * v[2] / totalGross, split);
+      System.out.printf(Locale.ROOT, "%-34s %8d %12d %12d %10.1f %12.1f %6.1f%%  %s%n", e.getKey(), v[0], v[1], v[2],
+          (double) v[2] / v[0], (double) v[2] / commits, 100.0 * v[2] / totalGross, split);
     }
-    System.out.printf(Locale.ROOT, "%-34s %8s %12s %12d %10s %12.1f %7s%n",
-                      "TOTAL", "", "", totalGross, "", (double) totalGross / commits, "100%");
+    System.out.printf(Locale.ROOT, "%-34s %8s %12s %12d %10s %12.1f %7s%n", "TOTAL", "", "", totalGross, "",
+        (double) totalGross / commits, "100%");
   }
 
   private static long medianPages(final long[] pagesPerCommit, final int from, final int to) {

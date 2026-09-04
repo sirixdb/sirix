@@ -16,8 +16,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The chunk recycler's contract: a given chunk comes back zeroed and IDENTICAL on the next take, only
- * its own length is accepted, the cap drops rather than grows, and a drain leaves nothing to measure.
+ * The chunk recycler's contract: a given chunk comes back zeroed and IDENTICAL on the next take,
+ * only its own length is accepted, the cap drops rather than grows, and a drain leaves nothing to
+ * measure.
  */
 final class LongChunkPoolTest {
 
@@ -135,7 +136,8 @@ final class LongChunkPoolTest {
       final LongChunkPool a = LongChunkPool.shared(1024, 100);
       assertEquals(3, a.maxChunks(), "the per-pool cap is the ceiling's share of this chunk length");
       final LongChunkPool b = LongChunkPool.shared(512, 100);
-      // A is drained but still a live pool object: give it the whole ceiling, then B's give must be refused
+      // A is drained but still a live pool object: give it the whole ceiling, then B's give must be
+      // refused
       // by the GLOBAL bound although B itself is empty and under its own cap.
       assertTrue(a.give(new long[1024]));
       assertTrue(a.give(new long[1024]));

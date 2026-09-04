@@ -40,9 +40,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * agreed rule is that only the still-open tail is ever rewritten.
  *
  * <p>
- * These tests pin the rule from both sides: the run count stays bounded as revisions accumulate, and
- * every completed run keeps the key it was first written under, so older revisions keep reading the
- * records they always addressed.
+ * These tests pin the rule from both sides: the run count stays bounded as revisions accumulate,
+ * and every completed run keeps the key it was first written under, so older revisions keep reading
+ * the records they always addressed.
  */
 final class GlobalValueDictionaryTailCowTest {
 
@@ -147,9 +147,8 @@ final class GlobalValueDictionaryTailCowTest {
       // BOUNDED: without tail COW this is one run per revision. With it, a run closes only when the
       // block fills, so the count is governed by byte capacity, not by revision count.
       final int finalRuns = runCounts.get(runCounts.size() - 1);
-      assertTrue(finalRuns < REVISIONS / 4,
-          "directory grew " + finalRuns + " runs over " + REVISIONS
-              + " one-value revisions — the open tail is not being extended");
+      assertTrue(finalRuns < REVISIONS / 4, "directory grew " + finalRuns + " runs over " + REVISIONS
+          + " one-value revisions — the open tail is not being extended");
 
       // HISTORY: every revision still resolves every id it knew, through its own header.
       for (int revision = 1; revision <= REVISIONS; revision++) {

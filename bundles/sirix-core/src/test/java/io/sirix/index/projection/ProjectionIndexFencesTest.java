@@ -86,7 +86,8 @@ final class ProjectionIndexFencesTest {
   /**
    * Test-only linear locator for fixtures that mutate fences directly. Production callers locate the
    * document position while resolving the changed JSON node and pass that position into the mutation;
-   * keeping this scan here prevents a hidden O(n) compatibility route from entering the production API.
+   * keeping this scan here prevents a hidden O(n) compatibility route from entering the production
+   * API.
    */
   private static ProjectionIndexFences.DocumentPosition positionAfterForTest(
       final ProjectionIndexFences.Accessor fences, final int afterSlot) {
@@ -389,8 +390,7 @@ final class ProjectionIndexFencesTest {
         assertEquals(4, newSlot);
         fences.set(newSlot, baseRanges[0][0] + 500L, baseRanges[1][0]);
 
-        assertThrows(IllegalStateException.class,
-            () -> fences.linkAfter(1, newSlot, fences.documentTailPosition()));
+        assertThrows(IllegalStateException.class, () -> fences.linkAfter(1, newSlot, fences.documentTailPosition()));
         assertEquals(2, fences.next(1), "failed splice must preserve the corrupt source edge");
         assertEquals(0, fences.previous(2));
         assertEquals(0, fences.ownerBase(newSlot), "failed splice must not assign an owner");
@@ -437,8 +437,7 @@ final class ProjectionIndexFencesTest {
         assertEquals(4, newSlot, "slot 4 is the free-list head, leaving corrupt successor 3 recycled");
         fences.set(newSlot, 20L, 29L);
 
-        assertThrows(IllegalStateException.class,
-            () -> fences.linkAfter(1, newSlot, fences.documentTailPosition()));
+        assertThrows(IllegalStateException.class, () -> fences.linkAfter(1, newSlot, fences.documentTailPosition()));
         assertFalse(fences.isLivePhysicalSlot(3));
         assertEquals(3, fences.next(1), "failed splice must preserve the corrupt recycled edge");
         assertEquals(1, fences.previous(2));

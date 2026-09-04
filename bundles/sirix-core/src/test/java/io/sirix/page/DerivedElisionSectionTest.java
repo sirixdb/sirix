@@ -44,19 +44,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Witness for the derived value- and name-key-elision sections.
  *
  * <p>
- * Both sections used to spell out, per elided slot, a slot gap, a type byte, the original heap width
- * and the value's absolute index in its PAX region — four to five bytes each, measured at 3.65 B per
- * record on a 1M-row load, roughly twice the heap bytes the elision itself removed. Every field is a
- * function of what the page already carries, so the sections now hold membership and the exceptions
- * to the derivation only. See {@link ElisionDeriver}.
+ * Both sections used to spell out, per elided slot, a slot gap, a type byte, the original heap
+ * width and the value's absolute index in its PAX region — four to five bytes each, measured at
+ * 3.65 B per record on a 1M-row load, roughly twice the heap bytes the elision itself removed.
+ * Every field is a function of what the page already carries, so the sections now hold membership
+ * and the exceptions to the derivation only. See {@link ElisionDeriver}.
  *
  * <p>
- * The assertions below are of three kinds. <em>Bytes</em>: what the section costs, before and after,
- * on the same fixture. <em>Round trip</em>: the derived reader must rebuild the byte-identical heap
- * the per-slot reader rebuilds — compared frame to frame, so a fixture whose values cannot be decoded
- * without a symbol table is covered as fully as one whose can. <em>Mutation</em>: each exception list
- * is proven load-bearing by {@link ElisionDeriver#ASSUME_PREDICTED_FOR_TESTING}, which stages none of
- * them; a fixture carrying a genuine deviation must then corrupt or fail, and does.
+ * The assertions below are of three kinds. <em>Bytes</em>: what the section costs, before and
+ * after, on the same fixture. <em>Round trip</em>: the derived reader must rebuild the
+ * byte-identical heap the per-slot reader rebuilds — compared frame to frame, so a fixture whose
+ * values cannot be decoded without a symbol table is covered as fully as one whose can.
+ * <em>Mutation</em>: each exception list is proven load-bearing by
+ * {@link ElisionDeriver#ASSUME_PREDICTED_FOR_TESTING}, which stages none of them; a fixture
+ * carrying a genuine deviation must then corrupt or fail, and does.
  */
 @DisplayName("Derived elision sections")
 final class DerivedElisionSectionTest {
@@ -205,8 +206,8 @@ final class DerivedElisionSectionTest {
       // reason that the lever never engaged.
       assertNotEquals(hex(tupleWire), hex(derivedWire),
           fixture + ": the derived form must actually change the bytes, or the frame comparison is vacuous");
-      assertTrue(derivedWire.length < tupleWire.length, fixture
-          + ": the derived form must be the smaller of the two — " + derivedWire.length + " vs " + tupleWire.length);
+      assertTrue(derivedWire.length < tupleWire.length, fixture + ": the derived form must be the smaller of the two — "
+          + derivedWire.length + " vs " + tupleWire.length);
       final byte[] tupleFrame = frameOfRoundTrip(config, fixture, false);
       final byte[] derivedFrame = frameOfRoundTrip(config, fixture, true);
       assertArrayEqualsWithFixture(fixture, tupleFrame, derivedFrame);
@@ -290,8 +291,7 @@ final class DerivedElisionSectionTest {
 
       final BytesIn<?> recordSource = Bytes.elasticOffHeapByteBuffer().write(wire).bytesForRead();
       recordSource.readByte();
-      back = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, recordSource,
-          SerializationType.DATA);
+      back = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, recordSource, SerializationType.DATA);
 
       final BytesIn<?> regionSource = Bytes.elasticOffHeapByteBuffer().write(wire).bytesForRead();
       regionSource.readByte();
@@ -460,7 +460,8 @@ final class DerivedElisionSectionTest {
    * classpath — and hashing the same serialization there. A hex pin taken from the new encoder would
    * only prove it agrees with itself.
    */
-  private static final String REFERENCE_MIXED_PAGE_SHA256 = "3b69ca017411b159958ae3e1f21aa8c398dc316a7f6dc0f0f41261bfcccb48e6";
+  private static final String REFERENCE_MIXED_PAGE_SHA256 =
+      "3b69ca017411b159958ae3e1f21aa8c398dc316a7f6dc0f0f41261bfcccb48e6";
 
   // ────────────────────────────────────────────────────────────── fixtures
 
@@ -631,8 +632,8 @@ final class DerivedElisionSectionTest {
   }
 
   private KeyValueLeafPage newPage(final ResourceConfiguration config) {
-    return new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1,
-        arena.allocate(MemorySegmentAllocator.SIXTYFOUR_KB), null);
+    return new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, arena.allocate(MemorySegmentAllocator.SIXTYFOUR_KB),
+        null);
   }
 
   private static byte[] serialize(final ResourceConfiguration config, final KeyValueLeafPage page) {

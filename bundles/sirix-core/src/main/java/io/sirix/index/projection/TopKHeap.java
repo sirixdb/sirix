@@ -9,16 +9,18 @@ import java.util.Objects;
 
 /**
  * The {@code k} best rows of a bounded sorted scan under its total order — per-key direction, then
- * document rank — kept as a max-heap whose root is the WORST kept row, so a candidate enters exactly
- * when it beats the root. Self-contained: string keys are held as their materialized bytes, so no
- * comparison reaches back into a leaf's dictionary (the previous heap packed {@code (leaf, dictId)}
- * refs and resolved both operands' entries through the leaf access on EVERY comparison — which tied
- * the heap to a resident or windowed column and made a merge of two heaps impossible). Bytes are
- * copied once, on ACCEPT; the compare path reads them in place from the candidate's slice.
+ * document rank — kept as a max-heap whose root is the WORST kept row, so a candidate enters
+ * exactly when it beats the root. Self-contained: string keys are held as their materialized bytes,
+ * so no comparison reaches back into a leaf's dictionary (the previous heap packed
+ * {@code (leaf, dictId)} refs and resolved both operands' entries through the leaf access on EVERY
+ * comparison — which tied the heap to a resident or windowed column and made a merge of two heaps
+ * impossible). Bytes are copied once, on ACCEPT; the compare path reads them in place from the
+ * candidate's slice.
  *
  * <p>
- * Two heaps with the same shape MERGE exactly ({@link #mergeFrom}): the top-k of a union is the top-k
- * of the union of the parts' top-k's, so a scan can select per worker and combine. Not thread-safe.
+ * Two heaps with the same shape MERGE exactly ({@link #mergeFrom}): the top-k of a union is the
+ * top-k of the union of the parts' top-k's, so a scan can select per worker and combine. Not
+ * thread-safe.
  * </p>
  */
 final class TopKHeap {
@@ -43,9 +45,15 @@ final class TopKHeap {
    * hold ids — and rebound per evaluating thread by {@link #bindViews}: a view is single-threaded.
    */
   private GlobalValueDictionary.ReadView[] globalViews;
-  /** Row-major {@code k * keyCount}: the long of a numeric key, the id of a global one; unused for string kinds. */
+  /**
+   * Row-major {@code k * keyCount}: the long of a numeric key, the id of a global one; unused for
+   * string kinds.
+   */
   private final long[] tuple;
-  /** Row-major {@code k * keyCount}: the bytes of a string key; {@code null} rows when no key is a string. */
+  /**
+   * Row-major {@code k * keyCount}: the bytes of a string key; {@code null} rows when no key is a
+   * string.
+   */
   private final byte @Nullable [] @Nullable [] strKey;
   private final long[] recordKey;
   private final long[] rank;
@@ -76,7 +84,9 @@ final class TopKHeap {
     this.rank = new long[k];
   }
 
-  /** Compare global keys through {@code views} from now on: the views of the thread about to offer. */
+  /**
+   * Compare global keys through {@code views} from now on: the views of the thread about to offer.
+   */
   void bindViews(final GlobalValueDictionary.ReadView[] views) {
     this.globalViews = Objects.requireNonNull(views, "views must not be null");
   }
@@ -98,8 +108,8 @@ final class TopKHeap {
   }
 
   /**
-   * Offer row {@code rowIdx} of the leaf whose sort-column slices are {@code leafSort} (aligned to the
-   * keys). Enters when the heap is not yet full or the row beats the worst kept one.
+   * Offer row {@code rowIdx} of the leaf whose sort-column slices are {@code leafSort} (aligned to
+   * the keys). Enters when the heap is not yet full or the row beats the worst kept one.
    *
    * @return whether the row was kept
    */

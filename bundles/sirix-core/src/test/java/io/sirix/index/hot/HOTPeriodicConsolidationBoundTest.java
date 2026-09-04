@@ -43,12 +43,11 @@ final class HOTPeriodicConsolidationBoundTest {
 
   /*
    * A power-of-two dense set with exactly two full leaf pages below every root slot. The canonical
-   * bulk tree therefore has a full 32-way root, 32 independent height-one child blocks and 64
-   * leaves. Updating key zero CoWs one of those child blocks; the other 31 are off-route witnesses
-   * that the 4,096th put must not copy or log the whole trie.
+   * bulk tree therefore has a full 32-way root, 32 independent height-one child blocks and 64 leaves.
+   * Updating key zero CoWs one of those child blocks; the other 31 are off-route witnesses that the
+   * 4,096th put must not copy or log the whole trie.
    */
-  private static final int DATASET_SIZE =
-      HOTIndirectPage.MAX_NODE_ENTRIES * HOTLeafPage.MAX_ENTRIES * 2;
+  private static final int DATASET_SIZE = HOTIndirectPage.MAX_NODE_ENTRIES * HOTLeafPage.MAX_ENTRIES * 2;
   private static final long TARGET_KEY = 0L;
   private static final long TARGET_NODE_KEY = 0L;
 
@@ -137,8 +136,7 @@ final class HOTPeriodicConsolidationBoundTest {
       assertEquals(DATASET_SIZE, result.storedKeyCount(), "bulk fixture must retain every composite key");
       assertEquals(2, result.observedHeight(), "fixture must contain a root, child blocks and leaves");
 
-      final PageReference rootReference =
-          HOTInvariantValidator.resolveRootRef(reader, IndexType.PATH, INDEX_NUMBER);
+      final PageReference rootReference = HOTInvariantValidator.resolveRootRef(reader, IndexType.PATH, INDEX_NUMBER);
       assertNotNull(rootReference, "committed PATH index root must exist");
       final HOTIndirectPage root = assertInstanceOf(HOTIndirectPage.class, reader.loadHOTPage(rootReference));
       assertEquals(HOTIndirectPage.MAX_NODE_ENTRIES, root.getNumChildren(),
@@ -149,17 +147,17 @@ final class HOTPeriodicConsolidationBoundTest {
       }
 
       final byte[] targetCompositeKey = new byte[HOTLongKeySerializer.CHUNKED_SERIALIZED_SIZE];
-      PathKeySerializer.INSTANCE.serializeWithChunkIdx(TARGET_KEY, (int) (TARGET_NODE_KEY >>> 16),
-          targetCompositeKey, 0);
+      PathKeySerializer.INSTANCE.serializeWithChunkIdx(TARGET_KEY, (int) (TARGET_NODE_KEY >>> 16), targetCompositeKey,
+          0);
       final int targetParentIndex = root.findChildIndex(targetCompositeKey);
       assertTrue(targetParentIndex >= 0, "target key must route to a root child");
-      final HOTIndirectPage targetParent = assertInstanceOf(HOTIndirectPage.class,
-          reader.loadHOTPage(root.getChildReference(targetParentIndex)));
+      final HOTIndirectPage targetParent =
+          assertInstanceOf(HOTIndirectPage.class, reader.loadHOTPage(root.getChildReference(targetParentIndex)));
       assertEquals(2, targetParent.getNumChildren(), "target route must end in the expected two-leaf block");
-      final HOTLeafPage left = assertInstanceOf(HOTLeafPage.class,
-          reader.loadHOTPage(targetParent.getChildReference(0)));
-      final HOTLeafPage right = assertInstanceOf(HOTLeafPage.class,
-          reader.loadHOTPage(targetParent.getChildReference(1)));
+      final HOTLeafPage left =
+          assertInstanceOf(HOTLeafPage.class, reader.loadHOTPage(targetParent.getChildReference(0)));
+      final HOTLeafPage right =
+          assertInstanceOf(HOTLeafPage.class, reader.loadHOTPage(targetParent.getChildReference(1)));
       assertTrue(left.getEntryCount() + right.getEntryCount() > CONSOLIDATION_TARGET,
           "the cadence must be a no-merge attempt, isolating transaction-log growth from leaf replacement");
     }

@@ -183,8 +183,7 @@ public final class GlobalValueDictionaryStoreTest {
         assertEquals("2013-07-14T20:38", view.materializeIsoMinuteSubstring(1, 1, 16));
         assertTrue(view.compareIds(3, 2) < 0, "comparison must follow UTF-16, not first-seen or UTF-8 order");
         assertEquals(Integer.signum("\uD801\uDC00".compareTo("\uFF01")), Integer.signum(view.compareIds(3, 2)));
-        assertEquals(Long.MIN_VALUE, view.xsIntegerOfSubstring(2, 1, 1),
-            "a non-ASCII cast transform must fail closed");
+        assertEquals(Long.MIN_VALUE, view.xsIntegerOfSubstring(2, 1, 1), "a non-ASCII cast transform must fail closed");
         assertEquals(Long.MIN_VALUE, view.xsIntegerOfSubstring(4, 1, 20),
             "an out-of-range integer must decline instead of wrapping");
       }

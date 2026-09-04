@@ -18,9 +18,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * Every assertion here is stated as a pair — the identity that must be found and the neighbouring
- * identity that must NOT be — because the table's whole value rests on it distinguishing leaves that
- * differ in one component. A table that answered {@code true} for everything would remove the same
- * encodes and silently stop the async flush from ever writing a leaf again.
+ * identity that must NOT be — because the table's whole value rests on it distinguishing leaves
+ * that differ in one component. A table that answered {@code true} for everything would remove the
+ * same encodes and silently stop the async flush from ever writing a leaf again.
  * </p>
  */
 final class RefusedOverflowLeafTableTest {
@@ -59,8 +59,7 @@ final class RefusedOverflowLeafTableTest {
     for (final IndexType type : IndexType.values()) {
       final long pageKey = 7_000L + type.getID();
       table.note(pageKey, type.getID(), 0L);
-      assertTrue(table.shouldSkip(pageKey, type.getID(), 0L, WIDE_BOUND),
-          "identity for " + type + " must round-trip");
+      assertTrue(table.shouldSkip(pageKey, type.getID(), 0L, WIDE_BOUND), "identity for " + type + " must round-trip");
     }
     for (final IndexType type : IndexType.values()) {
       assertTrue(table.shouldSkip(7_000L + type.getID(), type.getID(), 0L, WIDE_BOUND),
@@ -128,8 +127,7 @@ final class RefusedOverflowLeafTableTest {
     final RefusedOverflowLeafTable table = new RefusedOverflowLeafTable(SMALL_SLOTS);
     assertFalse(table.shouldSkip(0L, 0, 0L, WIDE_BOUND));
     table.note(0L, 0, 0L);
-    assertTrue(table.shouldSkip(0L, 0, 0L, WIDE_BOUND),
-        "the empty sentinel must not swallow the all-zero identity");
+    assertTrue(table.shouldSkip(0L, 0, 0L, WIDE_BOUND), "the empty sentinel must not swallow the all-zero identity");
   }
 
   @Test

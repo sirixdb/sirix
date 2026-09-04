@@ -10,18 +10,24 @@ import java.util.Arrays;
  * Cold, page-owned storage for scan-visible slot images that could not be placed in the slotted
  * page's bump heap.
  *
- * <p>The common page pays one nullable reference in {@link KeyValueLeafPage}; all metadata and
- * native payload storage are allocated only after the first capacity spill. Images are packed into
+ * <p>
+ * The common page pays one nullable reference in {@link KeyValueLeafPage}; all metadata and native
+ * payload storage are allocated only after the first capacity spill. Images are packed into
  * allocator-owned native chunks. A slot image never crosses a chunk boundary, which keeps every
- * accessor to one segment plus one offset and avoids a heap {@code byte[][]}.</p>
+ * accessor to one segment plus one offset and avoids a heap {@code byte[][]}.
+ * </p>
  *
- * <p>Mutation is a two-step prepare/publish operation. {@link #prepare(int, MemorySegment, int)}
+ * <p>
+ * Mutation is a two-step prepare/publish operation. {@link #prepare(int, MemorySegment, int)}
  * copies into unpublished space and can therefore allocate or compact without changing the logical
- * slot. {@link #publish(int, long)} only changes fixed metadata and cannot allocate. No flyweight is
- * ever bound to this storage, so compaction cannot invalidate a bound node.</p>
+ * slot. {@link #publish(int, long)} only changes fixed metadata and cannot allocate. No flyweight
+ * is ever bound to this storage, so compaction cannot invalidate a bound node.
+ * </p>
  *
- * <p>This class follows {@link KeyValueLeafPage}'s single-writer mutation contract. Published pages
- * may be read concurrently, but a page must not be mutated concurrently with a scan.</p>
+ * <p>
+ * This class follows {@link KeyValueLeafPage}'s single-writer mutation contract. Published pages
+ * may be read concurrently, but a page must not be mutated concurrently with a scan.
+ * </p>
  */
 final class OverflowSlotSidecar implements AutoCloseable {
 
@@ -103,8 +109,7 @@ final class OverflowSlotSidecar implements AutoCloseable {
       return null;
     }
     final int location = locations[slot];
-    return chunks[location >>> LOCATION_OFFSET_BITS].asSlice(location & LOCATION_OFFSET_MASK,
-        lengths[slot] & 0xFFFF);
+    return chunks[location >>> LOCATION_OFFSET_BITS].asSlice(location & LOCATION_OFFSET_MASK, lengths[slot] & 0xFFFF);
   }
 
   MemorySegment segment(final int slot) {
@@ -338,8 +343,7 @@ final class OverflowSlotSidecar implements AutoCloseable {
             replacementUsed = Arrays.copyOf(replacementUsed, replacementCount << 1);
           }
           final int remainingLiveBytes = liveBytes - packedBytes;
-          final int requestedBytes = Math.max(INITIAL_CHUNK_BYTES,
-              Math.min(nextChunkSize, remainingLiveBytes));
+          final int requestedBytes = Math.max(INITIAL_CHUNK_BYTES, Math.min(nextChunkSize, remainingLiveBytes));
           final MemorySegment chunk = allocator.allocate(requestedBytes);
           replacementChunks[replacementCount++] = chunk;
           replacementRetained += chunk.byteSize();

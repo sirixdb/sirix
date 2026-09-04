@@ -20,8 +20,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * Unit tests for HOT Option B Phase 5 helpers (constancy-aware insertion).
  *
- * <p>Tests are unit-level: construct a {@link HOTLeafPage} directly in memory, call the helper,
- * and assert the result. No full database round-trip is needed.
+ * <p>
+ * Tests are unit-level: construct a {@link HOTLeafPage} directly in memory, call the helper, and
+ * assert the result. No full database round-trip is needed.
  */
 @DisplayName("HOT Option B Phase 5")
 class HOTOptionBPhase5Test {
@@ -60,9 +61,9 @@ class HOTOptionBPhase5Test {
     @DisplayName("setAncestorOwnedBits stores + retrieves")
     void setAndGet() {
       final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
-      leaf.setAncestorOwnedBits(new int[]{ 1, 5, 80 }, new byte[]{ 0, 1, 1 });
-      assertArrayEquals(new int[]{ 1, 5, 80 }, leaf.getAncestorOwnedBits());
-      assertArrayEquals(new byte[]{ 0, 1, 1 }, leaf.getAncestorOwnedValues());
+      leaf.setAncestorOwnedBits(new int[] {1, 5, 80}, new byte[] {0, 1, 1});
+      assertArrayEquals(new int[] {1, 5, 80}, leaf.getAncestorOwnedBits());
+      assertArrayEquals(new byte[] {0, 1, 1}, leaf.getAncestorOwnedValues());
     }
 
     @Test
@@ -70,7 +71,7 @@ class HOTOptionBPhase5Test {
     void checkMatching() {
       final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
       // Owned: bit 0 = 1 (MSB of byte 0), bit 7 = 1 (LSB of byte 0).
-      leaf.setAncestorOwnedBits(new int[]{ 0, 7 }, new byte[]{ 1, 1 });
+      leaf.setAncestorOwnedBits(new int[] {0, 7}, new byte[] {1, 1});
       // Key 0x81 = 10000001 → bit 0 = 1, bit 7 = 1. Matches.
       assertEquals(-1, leaf.checkOwnedBitsAgainstKey(hexBytes("81")));
     }
@@ -79,7 +80,7 @@ class HOTOptionBPhase5Test {
     @DisplayName("checkOwnedBitsAgainstKey returns first offending bit")
     void checkOffending() {
       final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
-      leaf.setAncestorOwnedBits(new int[]{ 0, 7 }, new byte[]{ 1, 1 });
+      leaf.setAncestorOwnedBits(new int[] {0, 7}, new byte[] {1, 1});
       // Key 0x80 = 10000000 → bit 0 = 1, bit 7 = 0. Bit 7 offends.
       assertEquals(7, leaf.checkOwnedBitsAgainstKey(hexBytes("80")));
     }
@@ -88,16 +89,15 @@ class HOTOptionBPhase5Test {
     @DisplayName("setAncestorOwnedBits rejects unsorted input")
     void rejectsUnsorted() {
       final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
-      assertThrows(IllegalArgumentException.class, () ->
-          leaf.setAncestorOwnedBits(new int[]{ 5, 2 }, new byte[]{ 0, 1 }));
+      assertThrows(IllegalArgumentException.class,
+          () -> leaf.setAncestorOwnedBits(new int[] {5, 2}, new byte[] {0, 1}));
     }
 
     @Test
     @DisplayName("setAncestorOwnedBits rejects mismatched lengths")
     void rejectsMismatchedLengths() {
       final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
-      assertThrows(IllegalArgumentException.class, () ->
-          leaf.setAncestorOwnedBits(new int[]{ 5 }, new byte[]{ 0, 1 }));
+      assertThrows(IllegalArgumentException.class, () -> leaf.setAncestorOwnedBits(new int[] {5}, new byte[] {0, 1}));
     }
 
     @Test
@@ -113,7 +113,7 @@ class HOTOptionBPhase5Test {
     void strictMergeCompliant() {
       final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
       // Owned: byte 0 bit 0 must be 1.
-      leaf.setAncestorOwnedBits(new int[]{ 0 }, new byte[]{ 1 });
+      leaf.setAncestorOwnedBits(new int[] {0}, new byte[] {1});
       final byte[] key = hexBytes("8000abcd");
       final byte[] value = hexBytes("01020304");
       assertEquals(1, leaf.mergeWithNodeRefsStrict(key, key.length, value, value.length));
@@ -123,7 +123,7 @@ class HOTOptionBPhase5Test {
     @DisplayName("Phase 7b — mergeWithNodeRefsStrict rejects offending key")
     void strictMergeOffending() {
       final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
-      leaf.setAncestorOwnedBits(new int[]{ 0 }, new byte[]{ 1 });
+      leaf.setAncestorOwnedBits(new int[] {0}, new byte[] {1});
       // Key 0x00... has bit 0 = 0, owned says 1 → offending at absBit 0.
       final byte[] key = hexBytes("0000abcd");
       final byte[] value = hexBytes("01020304");

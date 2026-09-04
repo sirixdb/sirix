@@ -225,17 +225,17 @@ public final class BufferManagerImpl implements BufferManager {
   // Memoized HOT point-lookup answers. Sized independently of the page caches: entries are a key
   // plus a bounded long[], so this is kilobytes where the page caches are megabytes.
   /**
-   * Verdict-cache budget. A verdict is one bit per dictionary id, so this is tens of kilobytes at
-   * a million distinct values and a few megabytes at a hundred million; the bound is in BYTES so
-   * the second scale cannot quietly cost hundreds of megabytes the way a count bound would.
+   * Verdict-cache budget. A verdict is one bit per dictionary id, so this is tens of kilobytes at a
+   * million distinct values and a few megabytes at a hundred million; the bound is in BYTES so the
+   * second scale cannot quietly cost hundreds of megabytes the way a count bound would.
    */
   private static final long GLOBAL_VERDICT_CACHE_BYTES =
       Long.getLong("sirix.projection.globalDict.verdictCacheBytes", 64L << 20);
 
   /**
-   * Decoded dictionary bytes retained across transactions. Sized to hold a mid-cardinality
-   * column's blocks outright; above that it degrades to the hit rate its weight supports,
-   * which is the point of metering it rather than sizing it from the dictionary.
+   * Decoded dictionary bytes retained across transactions. Sized to hold a mid-cardinality column's
+   * blocks outright; above that it degrades to the hit rate its weight supports, which is the point
+   * of metering it rather than sizing it from the dictionary.
    */
   private static final long GLOBAL_DICTIONARY_RECORD_CACHE_BYTES =
       Long.getLong("sirix.projection.globalDict.recordCacheBytes", 256L << 20);
@@ -414,8 +414,8 @@ public final class BufferManagerImpl implements BufferManager {
    * All three are keyed by {@code (databaseId, resourceId, ...)}, so a resource recreated with the
    * same ids would otherwise be served its predecessor's answers -- the pollution
    * {@code clearCachesForResource}'s own comment exists to prevent. The marker is the worst of the
-   * three: surviving alone it reports "already warm" over caches that were just swept, and the
-   * warmer never runs again for that resource.
+   * three: surviving alone it reports "already warm" over caches that were just swept, and the warmer
+   * never runs again for that resource.
    * </p>
    */
   private void clearDictionaryCachesForResource(final long databaseId, final long resourceId) {
