@@ -117,7 +117,26 @@ public final class SegmentSealController {
    * not offered before. Each segment is offered exactly once; the caller owns its seal from then on.
    */
   public synchronized IntList takeSealable() {
-    return take(highWaterMark - 1);
+    return takeSealable(0);
+  }
+
+  /**
+   * Sealable segments, keeping {@code slack} more of them live below the high-water mark.
+   *
+   * <p>
+   * The slack exists for one race, and it is cheap insurance against it. The document writer decides
+   * a segment is finished by ADOPTING a page into a higher one; a consumer that derives from the same
+   * row stream — the projection, whose leaf is cut the moment a row's segment differs — mints into
+   * the old segment a moment LATER, when that leaf flushes. Sealing at the high-water mark alone
+   * would let a commit land in between and refuse a mint that was always going to arrive. One
+   * segment of slack costs one segment's values in memory and removes the window entirely.
+   * </p>
+   */
+  public synchronized IntList takeSealable(final int slack) {
+    if (slack < 0) {
+      throw new IllegalArgumentException("slack must not be negative: " + slack);
+    }
+    return take(highWaterMark - 1 - slack);
   }
 
   /**

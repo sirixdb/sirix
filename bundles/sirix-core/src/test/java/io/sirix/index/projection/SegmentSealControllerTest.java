@@ -247,4 +247,46 @@ final class SegmentSealControllerTest {
     assertFalse(controller.isSealed(2));
     assertEquals(2, controller.sealedCount());
   }
+
+  @Test
+  @DisplayName("slack keeps one more segment live: the consumer that mints a moment later still can")
+  void slackKeepsASegmentLive() {
+    // The race the slack exists for: the writer declares segment 0 finished by adopting into 1, but
+    // the projection's leaf of segment-0 rows flushes just afterwards and mints into 0. Sealing at
+    // the high-water mark alone would refuse a mint that was always going to arrive.
+    final SegmentSealController controller = new SegmentSealController();
+    controller.adopted(0, 10L);
+    controller.encoded(0, 10L);
+    controller.adopted(1, 20L);
+    controller.encoded(1, 20L);
+    controller.adopted(2, 30L);
+
+    assertEquals(IntList.of(0, 1), controller.takeSealable(0), "no slack seals everything below the mark");
+
+    final SegmentSealController withSlack = new SegmentSealController();
+    withSlack.adopted(0, 10L);
+    withSlack.encoded(0, 10L);
+    withSlack.adopted(1, 20L);
+    withSlack.encoded(1, 20L);
+    withSlack.adopted(2, 30L);
+    assertEquals(IntList.of(0), withSlack.takeSealable(1), "one segment of slack holds segment 1 back");
+    assertFalse(withSlack.isSealed(1), "and it stays mintable");
+  }
+
+  @Test
+  @DisplayName("an incremental seal leaves the drain a consistent tail, not a contradiction")
+  void incrementalSealThenDrain() {
+    // What a 100M load does: seal what is finished at each commit, then drain the rest at the end.
+    // A segment taken by the incremental pass must not be offered again, and must not make the
+    // final fence complain about pages it already accounted for.
+    final SegmentSealController controller = new SegmentSealController();
+    for (int segment = 0; segment < 4; segment++) {
+      controller.adopted(segment, 100L + segment);
+      controller.encoded(segment, 100L + segment);
+    }
+    assertEquals(IntList.of(0, 1), controller.takeSealable(1), "segments 2 and 3 stay live");
+    final IntList tail = controller.drainAfterFence();
+    assertEquals(IntList.of(2, 3), tail, "the drain takes exactly what the incremental pass left");
+    assertEquals(4, controller.sealedCount(), "and every segment is sealed exactly once");
+  }
 }

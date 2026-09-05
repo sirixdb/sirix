@@ -81,9 +81,21 @@ public final class SegmentBoundaries {
   /** First page key adopted into the open segment, {@code -1} while it has none. Adopter only. */
   private volatile long firstAdoptedInOpen = -1L;
 
-  /** Boundaries closing at the production budget and span cap. */
+  /**
+   * Boundaries closing at the production budget and span cap.
+   *
+   * <p>
+   * Both are overridable by system property — {@code sirix.segmentDict.budgetBytes} and
+   * {@code sirix.segmentDict.maxLeaves} — for one reason: the behaviour that only appears with MANY
+   * segments (the incremental seal, and the cross-segment resolution every packed cell depends on) is
+   * otherwise reachable only by a 100M load, where one iteration costs half an hour. Lowering the
+   * budget makes the same branches run in a 25-second 1M load. The defaults are the production
+   * constants and nothing reads the properties unless they are set.
+   * </p>
+   */
   public SegmentBoundaries() {
-    this(SEGMENT_DICTIONARY_BUDGET_BYTES, SEGMENT_MAX_LEAVES);
+    this(Long.getLong("sirix.segmentDict.budgetBytes", SEGMENT_DICTIONARY_BUDGET_BYTES),
+        Long.getLong("sirix.segmentDict.maxLeaves", SEGMENT_MAX_LEAVES));
   }
 
   /**

@@ -334,7 +334,39 @@ public final class ProjectionBulkLoad {
     this.segmentDictionaryLane = lane;
     this.trieLaneWriter = storageEngineWriter;
     builder.setSegmentScopedDictionaries(lane.dictionaries());
+    armIncrementalSegmentSeal(storageEngineWriter, lane);
   }
+
+  /**
+   * Seal finished segments at EVERY commit, not just the last one.
+   *
+   * <p>
+   * Without this a load holds every segment's values until it finishes, which is affordable at 1M
+   * (two segments) and is not at 100M: measured, the load died with {@code OutOfMemoryError} at
+   * 33 GB written on a 10 GB heap, with roughly forty-five segments live at about 230 MiB each. A
+   * segment below the high-water mark can take no further page, so its dictionary is already final
+   * and the memory is pure waste.
+   * </p>
+   *
+   * <p>
+   * The listener is installed for the COMMIT SEAM and left installed: it persists across commits, and
+   * {@link #armSegmentSeal} replaces it at the end with the one that seals the tail and publishes the
+   * anchors. It writes no directory — that names every segment and is written once, when the last
+   * seal knows them all.
+   * </p>
+   */
+  private void armIncrementalSegmentSeal(final StorageEngineWriter storageEngineWriter,
+      final SegmentDictionaryLane lane) {
+    storageEngineWriter.installEncodePassCompleteListener(() -> {
+      final ProjectionIndexMetadata.SegmentAnchor[] sealed = lane.sealCompleted(storageEngineWriter);
+      if (sealed.length > 0) {
+        incrementallySealed += sealed.length;
+      }
+    });
+  }
+
+  /** {@code (segment, column)} dictionaries sealed mid-load; the lane's only evidence it kept up. */
+  private int incrementallySealed;
 
   /** Internal publication-injected form used by focused storage-failure coverage. */
   static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,

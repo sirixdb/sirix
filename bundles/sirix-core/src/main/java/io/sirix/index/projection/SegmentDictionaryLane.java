@@ -203,8 +203,65 @@ public final class SegmentDictionaryLane {
    */
   public SegmentAnchor[] sealAll(final StorageEngineWriter storageEngineWriter) {
     requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
+    final List<SegmentAnchor> tail = sealSegments(storageEngineWriter, sealController.drainAfterFence());
+    // EVERY anchor, not just this pass's. The incremental seals wrote their dictionaries during
+    // earlier commits and recorded them here; returning only the tail would publish metadata naming
+    // a handful of segments and leave every page of the rest resolving against nothing.
+    final List<SegmentAnchor> sealed = new ArrayList<>(allSealed);
+    sealed.addAll(tail);
+    if (!sealed.isEmpty()) {
+      writeDirectory(storageEngineWriter);
+    }
+    LOGGER.debug("segment dictionary lane sealed {} (segment, column) dictionaries ({} incrementally)", sealed.size(),
+        allSealed.size());
+    return sealed.toArray(new SegmentAnchor[0]);
+  }
+
+  /**
+   * Seal every segment the writer has FINISHED with, and release what they held.
+   *
+   * <p>
+   * The incremental regime a 100M load needs. Holding every segment's values to the end costs one
+   * budget per segment — about 64 MiB of value bytes plus its hash maps — and at a hundred segments
+   * that is the whole heap: measured, a 100M load died with {@code OutOfMemoryError} at 33 GB
+   * written with roughly forty-five segments live. A segment below the high-water mark can take no
+   * further page (the boundaries never go back), so its dictionary is already final; writing it here
+   * and dropping the maps turns an O(segments) heap cost into an O(1) one.
+   * </p>
+   *
+   * <p>
+   * Call at the COMMIT SEAM and nowhere else, for the reason {@link #sealAll} gives: a page encoded
+   * after its segment's seal would mint into a dictionary nothing will persist. One segment of slack
+   * covers the consumer that derives from the same rows and mints a moment later — see
+   * {@link SegmentSealController#takeSealable(int)}.
+   * </p>
+   *
+   * @return the anchors sealed by this pass, empty when nothing was ready
+   */
+  public SegmentAnchor[] sealCompleted(final StorageEngineWriter storageEngineWriter) {
+    requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
+    final IntList ready = sealController.takeSealable(SEAL_SLACK_SEGMENTS);
+    if (ready.isEmpty()) {
+      return NO_ANCHORS;
+    }
+    final List<SegmentAnchor> sealed = sealSegments(storageEngineWriter, ready);
+    allSealed.addAll(sealed);
+    // NOT the directory: it names every segment's first page and is written once, by the seal that
+    // finishes the load. Rewriting it per commit would persist a table that is still growing.
+    LOGGER.debug("segment dictionary lane sealed {} (segment, column) dictionaries incrementally", sealed.size());
+    return sealed.toArray(new SegmentAnchor[0]);
+  }
+
+  /** Segments kept live below the high-water mark; see {@link SegmentSealController#takeSealable(int)}. */
+  private static final int SEAL_SLACK_SEGMENTS = 1;
+
+  private static final SegmentAnchor[] NO_ANCHORS = new SegmentAnchor[0];
+
+  /** Anchors sealed by the incremental passes; {@link #sealAll} publishes these beside its own. */
+  private final List<SegmentAnchor> allSealed = new ArrayList<>();
+
+  private List<SegmentAnchor> sealSegments(final StorageEngineWriter storageEngineWriter, final IntList segments) {
     final List<SegmentAnchor> sealed = new ArrayList<>();
-    final IntList segments = sealController.drainAfterFence();
     for (int i = 0; i < segments.size(); i++) {
       final int segment = segments.getInt(i);
       int written = 0;
@@ -240,11 +297,7 @@ public final class SegmentDictionaryLane {
       }
       dictionaries.release(segment);
     }
-    if (!sealed.isEmpty()) {
-      writeDirectory(storageEngineWriter);
-    }
-    LOGGER.debug("segment dictionary lane sealed {} (segment, column) dictionaries", sealed.size());
-    return sealed.toArray(new SegmentAnchor[0]);
+    return sealed;
   }
 
   /**
