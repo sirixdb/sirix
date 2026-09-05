@@ -86,14 +86,73 @@ public final class ProjectionIndexScan {
     /** Ids covered by {@link #globalIdVerdict}: valid ids are {@code 1 .. globalIdVerdictCount}. */
     public final int globalIdVerdictCount;
 
+    /**
+     * For a SEGMENT-SCOPED column: the packed cell that equals the literal, per segment, or
+     * {@link #SEGMENT_LITERAL_ABSENT} where that segment's dictionary provably lacks the value.
+     * {@code null} for every other predicate.
+     *
+     * <p>
+     * A segment-scoped column stores {@code (segment << 32) | id} cells, so one literal has a
+     * DIFFERENT id in every segment and no single {@code longLit} can express {@code = lit}. What
+     * makes it cheap anyway is that a row group never straddles a segment: every cell in a leaf shares
+     * its high bits, so the whole leaf is answered against ONE of these entries, chosen once from any
+     * present cell. The per-row work stays a single integer compare.
+     * </p>
+     */
+    public final long @Nullable [] segmentLiteralCells;
+
+    /** No cell in this segment can equal the literal: {@code EQ} is false, {@code NE} true, for the leaf. */
+    public static final long SEGMENT_LITERAL_ABSENT = Long.MIN_VALUE;
+
     public ColumnPredicate(final int column, final Op op, final long longLit, final long highLit, final boolean boolLit,
         final byte[] stringLitBytes) {
       this(column, op, longLit, highLit, boolLit, stringLitBytes, null, 0);
     }
 
+    /**
+     * {@code = lit} or {@code != lit} over a segment-scoped column, resolved per segment.
+     *
+     * @param op {@link Op#EQ} or {@link Op#NE}; nothing else is a question about one id
+     * @param literalCells the packed cell equal to the literal in each segment, or
+     *        {@link #SEGMENT_LITERAL_ABSENT}
+     */
+    public static ColumnPredicate segmentScopedEquality(final int column, final Op op, final long[] literalCells) {
+      if (op != Op.EQ && op != Op.NE) {
+        throw new IllegalArgumentException("a segment-scoped literal answers EQ and NE only, not " + op);
+      }
+      if (literalCells == null || literalCells.length == 0) {
+        throw new IllegalArgumentException("literalCells must name at least one segment");
+      }
+      return new ColumnPredicate(column, op, 0L, 0L, false, null, null, 0, literalCells);
+    }
+
+    /**
+     * The literal this predicate compares against inside the leaf {@code anyCellInLeaf} belongs to.
+     *
+     * @return the packed target cell, or {@link #SEGMENT_LITERAL_ABSENT} when that segment cannot
+     *         hold the value; {@link #longLit} for an ordinary predicate
+     */
+    public long literalForLeaf(final long anyCellInLeaf) {
+      final long[] cells = segmentLiteralCells;
+      if (cells == null) {
+        return longLit;
+      }
+      final int segment = ProjectionIndexRowGroupPage.segmentOfCell(anyCellInLeaf);
+      return segment >= 0 && segment < cells.length
+          ? cells[segment]
+          : SEGMENT_LITERAL_ABSENT;
+    }
+
     private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
         final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
         final int globalIdVerdictCount) {
+      this(column, op, longLit, highLit, boolLit, stringLitBytes, globalIdVerdict, globalIdVerdictCount, null);
+    }
+
+    private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
+        final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
+        final int globalIdVerdictCount, final long @Nullable [] segmentLiteralCells) {
+      this.segmentLiteralCells = segmentLiteralCells;
       this.column = column;
       this.op = op;
       this.longLit = longLit;

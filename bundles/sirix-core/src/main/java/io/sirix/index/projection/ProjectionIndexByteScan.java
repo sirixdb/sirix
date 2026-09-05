@@ -5791,6 +5791,22 @@ public final class ProjectionIndexByteScan {
     if (p.stringLitBytes != null) {
       return false;
     }
+    if (p.segmentLiteralCells != null) {
+      // A segment-scoped column's zone holds packed (segment, id) CELLS. A leaf never straddles a
+      // segment, so min names the leaf's segment exactly, and the literal it must be compared
+      // against is that segment's own cell -- not p.longLit, which such a predicate never sets.
+      if (min > max) {
+        return false; // no present value: the caller's own emptiness rule decides
+      }
+      final long target = p.literalForLeaf(min);
+      if (target == ProjectionIndexScan.ColumnPredicate.SEGMENT_LITERAL_ABSENT) {
+        // The value is provably not in this segment's dictionary: nothing here can equal it.
+        return p.op == ProjectionIndexScan.Op.EQ;
+      }
+      return p.op == ProjectionIndexScan.Op.EQ
+          ? target < min || target > max
+          : min == max && min == target;
+    }
     return switch (p.op) {
       case GT -> max <= p.longLit;
       case LT -> min >= p.longLit;

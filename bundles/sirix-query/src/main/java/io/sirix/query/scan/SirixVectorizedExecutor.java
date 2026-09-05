@@ -3170,6 +3170,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return cdStringDict && a == cdBlock && !store.columnFilled(column);
   }
 
+  /** Whether any predicate resolves its literal per segment, and so needs the sliced route. */
+  private static boolean anySegmentScopedPredicate(final ProjectionIndexScan.ColumnPredicate @Nullable [] preds) {
+    if (preds == null) {
+      return false;
+    }
+    for (final ProjectionIndexScan.ColumnPredicate p : preds) {
+      if (p != null && p.segmentLiteralCells != null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private static boolean predsSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
@@ -8307,6 +8320,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // A global string column stores ids in the long lane. It is NOT numericColumn: a numeric
       // comparison against an id is meaningless, and every arithmetic site must keep declining it.
       final boolean globalStringColumn = columnKindByte == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+      final boolean segmentScopedColumn = ProjectionIndexRowGroupPage.isSegmentScopedIdKind(columnKindByte);
       // A declared temporal column is a STRING to the query and a long in storage. It answers the
       // ORDERING and EQUALITY string questions — through the literal-to-bound rewrite below, which is
       // exact — and refuses the rest: containment is a question about the text's bytes, not about a
@@ -8325,7 +8339,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // string question a resource-wide dictionary answers exactly, because the id IS the
           // identity, so `= lit` becomes an integer compare after one probe.
           if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn
-              && !temporalColumn) {
+              && !temporalColumn && !segmentScopedColumn) {
             return null;
           }
         }
@@ -8335,7 +8349,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // the elements, so its negation is "no element equals lit", which is a different question
           // from "the value differs". The kernels enforce the same rule and would throw.
           if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn
-              && !temporalColumn) {
+              && !temporalColumn && !segmentScopedColumn) {
             return null;
           }
         }
@@ -8468,7 +8482,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               ? temporalPredicate(columnKindByte, column, ProjectionIndexScan.Op.EQ, cp.strLiteralBytes[cp.strIdx[n]])
               : globalStringColumn
                   ? globalStringPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]], true)
-                  : ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
+                  : segmentScopedColumn
+                      ? segmentScopedLiteralPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]],
+                          ProjectionIndexScan.Op.EQ)
+                      : ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
           if (pred == null) {
             return null;
           }
@@ -8478,7 +8495,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               ? temporalPredicate(columnKindByte, column, ProjectionIndexScan.Op.NE, cp.strLiteralBytes[cp.strIdx[n]])
               : globalStringColumn
                   ? globalStringPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]], false)
-                  : ProjectionIndexScan.ColumnPredicate.stringNe(column, cp.strLiteralBytes[cp.strIdx[n]]);
+                  : segmentScopedColumn
+                      ? segmentScopedLiteralPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]],
+                          ProjectionIndexScan.Op.NE)
+                      : ProjectionIndexScan.ColumnPredicate.stringNe(column, cp.strLiteralBytes[cp.strIdx[n]]);
           if (pred == null) {
             return null;
           }
@@ -8699,6 +8719,71 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           + " ms=" + (System.nanoTime() - t0) / 1_000_000L);
     }
     return verdict;
+  }
+
+  /**
+   * Turn {@code = lit} / {@code != lit} over a SEGMENT-SCOPED column into the per-segment integer
+   * predicate the kernels run.
+   *
+   * <p>
+   * The same trade the global kind makes, priced per segment: the literal is probed ONCE in each
+   * segment's dictionary — a handful of probes, not a sweep of every distinct value — and each answer
+   * becomes the packed cell that equals it there. A leaf then answers with one integer compare
+   * against its own segment's entry, chosen once for the whole leaf because a row group never
+   * straddles a segment.
+   * </p>
+   *
+   * <p>
+   * The three probe answers stay distinct, exactly as they must for the global kind:
+   * <ul>
+   * <li><b>A real id</b> — the cell {@code (segment, id)}; an ordinary integer compare.</li>
+   * <li><b>{@code ID_ABSENT}</b> — that segment provably lacks the value, so {@code EQ} matches
+   * nothing there and {@code NE} matches every PRESENT row. Recorded as
+   * {@link ProjectionIndexScan.ColumnPredicate#SEGMENT_LITERAL_ABSENT} rather than as some
+   * unmatchable number, because "no row here" and "compare against this" are different questions to
+   * the zone map.</li>
+   * <li><b>{@code ID_UNKNOWN}</b> — the dictionary could not be read: decline the whole predicate.
+   * Reading "cannot say" as "not there" would silently drop every matching row of that segment.</li>
+   * </ul>
+   *
+   * @return the predicate, or {@code null} to decline
+   */
+  private ProjectionIndexScan.@Nullable ColumnPredicate segmentScopedLiteralPredicate(
+      final ProjectionIndexRegistry.Handle handle, final int column, final byte @Nullable [] literalUtf8,
+      final ProjectionIndexScan.Op op) {
+    if (literalUtf8 == null) {
+      return null;
+    }
+    final int segments = handle.segmentDictionarySegmentCount();
+    if (segments <= 0) {
+      return null;
+    }
+    final StorageEngineReader reader = workerTrx().getStorageEngineReader();
+    final long[] cells = new long[segments];
+    for (int segment = 0; segment < segments; segment++) {
+      final long headerKey = handle.segmentDictionaryHeaderKey(segment, column);
+      if (headerKey <= 0L) {
+        // No dictionary sealed for this (segment, column): its rows kept their bytes, so no cell of
+        // this segment can be compared against ids at all.
+        cells[segment] = ProjectionIndexScan.ColumnPredicate.SEGMENT_LITERAL_ABSENT;
+        continue;
+      }
+      final GlobalValueDictionary.ReadView view = GlobalValueDictionary.readView(headerKey, reader);
+      if (view == null) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] segment " + segment + " dictionary unreadable for a literal on column " + column);
+        }
+        return null;
+      }
+      final int id = view.probe(literalUtf8, 0, literalUtf8.length);
+      if (id == GlobalValueDictionary.ID_UNKNOWN) {
+        return null;
+      }
+      cells[segment] = id == GlobalValueDictionary.ID_ABSENT
+          ? ProjectionIndexScan.ColumnPredicate.SEGMENT_LITERAL_ABSENT
+          : ProjectionIndexRowGroupPage.packSegmentCell(segment, id);
+    }
+    return ProjectionIndexScan.ColumnPredicate.segmentScopedEquality(column, op, cells);
   }
 
   private ProjectionIndexScan.ColumnPredicate globalStringPredicate(final ProjectionIndexRegistry.Handle handle,
@@ -14786,8 +14871,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // not a preference for it but the only seam at which (segment, id) cells become value ids, so
       // demoting it does not cost 2x -- it declines the whole serve. Measured on q16 at 1M: 0.380 s
       // sliced against 412.748 s on the generic pipeline the decline falls back to.
+      // A segment-scoped PREDICATE has the same claim on the sliced route as a segment-scoped key:
+      // its literal is chosen per leaf from that leaf's own cells, which only a slice exposes. The
+      // whole-leaf byte kernels have no arm for the kind at all and would refuse the page.
+      final boolean segmentScopedPredicate = anySegmentScopedPredicate(preds);
       final boolean slicedKinds = GROUP_SLICED_ENABLED && !wholeLeafOnly && groupStore != null
-          && (!handle.payloadsMaterialized() || hasSegmentComponent) && (tree == null
+          && (!handle.payloadsMaterialized() || hasSegmentComponent || segmentScopedPredicate) && (tree == null
               ? predsSliceable(groupStore, preds)
               : treeSliceableKind(groupStore, tree))
           && allColumnsSliceableKind(groupStore, groupCols) && allColumnsSliceableKind(groupStore, aggColsFlat);

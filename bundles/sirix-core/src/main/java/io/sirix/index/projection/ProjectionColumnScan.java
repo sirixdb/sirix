@@ -1790,6 +1790,19 @@ public final class ProjectionColumnScan {
           default -> throw new IllegalStateException(
               "String-global column " + p.column + " cannot serve op " + p.op + " by verdict");
         }
+      } else if (ProjectionIndexRowGroupPage.isSegmentScopedIdKind(columnKind)) {
+        // A segment-scoped column answers EQ/NE from a per-segment literal chosen once per leaf. It
+        // must NOT still be carrying string bytes: that would mean the literal was never resolved to
+        // ids, and comparing bytes against cells answers a different question with a plausible
+        // number. Every other op needs a per-value verdict, which this kind has no form for yet.
+        if (p.segmentLiteralCells == null) {
+          throw new IllegalStateException("column " + p.column + " is segment-scoped, but the " + p.op
+              + " predicate carries no per-segment literal — it was never resolved to ids");
+        }
+        if (p.op != ProjectionIndexScan.Op.EQ && p.op != ProjectionIndexScan.Op.NE) {
+          throw new IllegalStateException(
+              "segment-scoped column " + p.column + " cannot serve op " + p.op + " from a literal");
+        }
       } else if (p.stringLitBytes != null) {
         throw new IllegalStateException("String literal against non-string column " + p.column);
       }
@@ -2247,6 +2260,38 @@ public final class ProjectionColumnScan {
     return rows;
   }
 
+  /** Sentinel for a leaf with no present value at all. */
+  private static final long NO_PRESENT_VALUE = Long.MIN_VALUE;
+
+  private static int stride(final int rowCount) {
+    return (rowCount + 63) >>> 6;
+  }
+
+  private static void clearMask(final long[] mask, final int words) {
+    for (int w = 0; w < words; w++) {
+      mask[w] = 0L;
+    }
+  }
+
+  /**
+   * Any value of a PRESENT row — used only to read a leaf's segment off one of its cells, which every
+   * cell in the leaf agrees on.
+   */
+  private static long firstPresentValue(final long[] values, final long[] presence, final int rowCount) {
+    final int words = stride(rowCount);
+    for (int w = 0; w < words; w++) {
+      long bits = presence[w];
+      while (bits != 0L) {
+        final int row = (w << 6) + Long.numberOfTrailingZeros(bits);
+        if (row < rowCount) {
+          return values[row];
+        }
+        bits &= bits - 1L;
+      }
+    }
+    return NO_PRESENT_VALUE;
+  }
+
   /** Single zone-skip authority: the byte kernel's table (iter07-range-fusion-analysis.md). */
   private static boolean zoneSkip(final ColumnPredicate p, final long min, final long max) {
     return ProjectionIndexByteScan.zoneSkip(p, min, max);
@@ -2292,7 +2337,32 @@ public final class ProjectionColumnScan {
       }
       return;
     }
-    final long lit = p.longLit;
+    long lit = p.longLit;
+    if (p.segmentLiteralCells != null) {
+      // SEGMENT-SCOPED literal: the lane holds (segment, id) cells and the literal has a different
+      // id in every segment. A leaf never straddles a segment, so ONE present cell names the segment
+      // for the whole leaf and the row loop below stays a plain integer compare.
+      final long anyCell = firstPresentValue(values, presence, rowCount);
+      if (anyCell == NO_PRESENT_VALUE) {
+        clearMask(mask, stride(rowCount));
+        return; // nothing present: missing ⇒ false, for EQ and NE alike
+      }
+      final long target = p.literalForLeaf(anyCell);
+      if (target == ProjectionIndexScan.ColumnPredicate.SEGMENT_LITERAL_ABSENT) {
+        // This segment's dictionary provably lacks the value: EQ matches nothing, NE matches every
+        // PRESENT row — the presence AND is what keeps a missing cell from satisfying `!= x`.
+        final int words = stride(rowCount);
+        if (p.op == ProjectionIndexScan.Op.EQ) {
+          clearMask(mask, words);
+        } else {
+          for (int w = 0; w < words; w++) {
+            mask[w] &= presence[w];
+          }
+        }
+        return;
+      }
+      lit = target;
+    }
     final long high = p.highLit;
     for (int w = 0; w < stride; w++) {
       final long m = mask[w] & presence[w];
