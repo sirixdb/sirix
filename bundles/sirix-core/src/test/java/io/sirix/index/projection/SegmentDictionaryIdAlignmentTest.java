@@ -48,8 +48,9 @@ final class SegmentDictionaryIdAlignmentTest {
   @Test
   @DisplayName("interning a segment's values in id order reproduces exactly the ids the pages recorded")
   void theTwoIdSpacesAgree() {
-    final SegmentScopedDictionaries segments = new SegmentScopedDictionaries(1024, tags());
-    final GlobalStringDictionaries page = segments.viewFor(0);
+    final SegmentScopedDictionaries segments =
+        new SegmentScopedDictionaries(new SegmentBoundaries(Long.MAX_VALUE, 1024), tags());
+    final GlobalStringDictionaries page = segments.adopt(0);
     // Values arrive in a realistic shape: repeats interleaved, several pages of one segment.
     final List<String> arriving =
         List.of("http://c", "http://a", "http://c", "http://b", "http://a", "http://d", "http://b");
@@ -143,9 +144,10 @@ final class SegmentDictionaryIdAlignmentTest {
   @Test
   @DisplayName("segments seal independently, so each dictionary's ids start at 1 again")
   void eachSegmentStartsAtOne() {
-    final SegmentScopedDictionaries segments = new SegmentScopedDictionaries(1024, tags());
-    final GlobalStringDictionaries first = segments.viewFor(0);
-    final GlobalStringDictionaries second = segments.viewFor(1024);
+    final SegmentScopedDictionaries segments =
+        new SegmentScopedDictionaries(new SegmentBoundaries(Long.MAX_VALUE, 1024), tags());
+    final GlobalStringDictionaries first = segments.adopt(0);
+    final GlobalStringDictionaries second = segments.adopt(1024);
     for (final String value : List.of("x", "y")) {
       final byte[] bytes = utf8(value);
       first.idOf(URL_TAG, bytes, 0, bytes.length);
@@ -153,7 +155,7 @@ final class SegmentDictionaryIdAlignmentTest {
     final byte[] z = utf8("z");
     second.idOf(URL_TAG, z, 0, z.length);
 
-    for (long segment = 0; segment <= 1; segment++) {
+    for (int segment = 0; segment <= 1; segment++) {
       final GlobalValueDictionaryWriter generation = new GlobalValueDictionaryWriter(0, 1L << 20);
       try {
         int expected = 0;

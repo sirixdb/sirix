@@ -42,7 +42,12 @@ final class SegmentScopedRoundTripTest {
 
   private static final int TITLE_TAG = 9;
 
+  /** A segment per 1024 adopted keys and no byte budget, so a page's segment is arithmetic here. */
   private static final long LEAVES_PER_SEGMENT = 1024;
+
+  private static SegmentScopedDictionaries writer() {
+    return new SegmentScopedDictionaries(new SegmentBoundaries(Long.MAX_VALUE, LEAVES_PER_SEGMENT), tags());
+  }
 
   private static Int2IntMap tags() {
     final Int2IntOpenHashMap map = new Int2IntOpenHashMap();
@@ -86,7 +91,7 @@ final class SegmentScopedRoundTripTest {
 
   private static Encoded encode(final SegmentScopedDictionaries dictionaries, final long recordPageKey, final int tag,
       final String... valuesOnPage) {
-    final GlobalStringDictionaries view = dictionaries.viewFor(recordPageKey);
+    final GlobalStringDictionaries view = dictionaries.adopt(recordPageKey);
     final int[] ids = new int[valuesOnPage.length];
     for (int i = 0; i < valuesOnPage.length; i++) {
       final byte[] bytes = utf8(valuesOnPage[i]);
@@ -100,7 +105,7 @@ final class SegmentScopedRoundTripTest {
   @Test
   @DisplayName("mint, seal, resolve: every page's ids come back as the exact bytes it wrote")
   void roundTripThroughSegments() {
-    final SegmentScopedDictionaries writer = new SegmentScopedDictionaries(LEAVES_PER_SEGMENT, tags());
+    final SegmentScopedDictionaries writer = writer();
     // Two pages of segment 0, one of segment 1 — the same value in both segments on purpose.
     final Encoded page0 = encode(writer, 0, URL_TAG, "http://a", "http://b");
     final Encoded page1 = encode(writer, 900, URL_TAG, "http://b", "http://c");
@@ -115,7 +120,7 @@ final class SegmentScopedRoundTripTest {
 
     final FakeStore store = new FakeStore();
     final SegmentDictionaryAnchors anchors = new SegmentDictionaryAnchors();
-    for (long segment = 0; segment <= 1; segment++) {
+    for (int segment = 0; segment <= 1; segment++) {
       final int count = writer.entryCount(segment, 0);
       anchors.seal(segment, 0, store.commit(writer.valuesOf(segment, 0)), count);
     }
@@ -142,7 +147,7 @@ final class SegmentScopedRoundTripTest {
   @Test
   @DisplayName("a page never resolves against a NEIGHBOUR's dictionary, even when the id exists there")
   void aPageNeverResolvesAgainstAnotherSegment() {
-    final SegmentScopedDictionaries writer = new SegmentScopedDictionaries(LEAVES_PER_SEGMENT, tags());
+    final SegmentScopedDictionaries writer = writer();
     final Encoded inZero = encode(writer, 0, URL_TAG, "zero-only");
     final Encoded inOne = encode(writer, 1024, URL_TAG, "one-only");
     assertEquals(inZero.ids()[0], inOne.ids()[0], "both are id 1 in their own segment — the collision that matters");
@@ -162,7 +167,7 @@ final class SegmentScopedRoundTripTest {
   @Test
   @DisplayName("an UNSEALED segment refuses: its pages are durable, its dictionary is not")
   void anUnsealedSegmentRefuses() {
-    final SegmentScopedDictionaries writer = new SegmentScopedDictionaries(LEAVES_PER_SEGMENT, tags());
+    final SegmentScopedDictionaries writer = writer();
     final Encoded page = encode(writer, 0, URL_TAG, "http://a");
     final FakeStore store = new FakeStore();
     final SegmentDictionaryAnchors anchors = new SegmentDictionaryAnchors();
@@ -180,7 +185,7 @@ final class SegmentScopedRoundTripTest {
   @Test
   @DisplayName("an id past what the page recorded is refused, and so is a segment holding fewer entries than it saw")
   void idsAndCountsAreBounded() {
-    final SegmentScopedDictionaries writer = new SegmentScopedDictionaries(LEAVES_PER_SEGMENT, tags());
+    final SegmentScopedDictionaries writer = writer();
     final Encoded page = encode(writer, 0, URL_TAG, "http://a", "http://b");
     final FakeStore store = new FakeStore();
     final SegmentDictionaryAnchors anchors = new SegmentDictionaryAnchors();
@@ -218,7 +223,7 @@ final class SegmentScopedRoundTripTest {
   @Test
   @DisplayName("two columns of one segment seal separately and resolve separately")
   void columnsSealSeparately() {
-    final SegmentScopedDictionaries writer = new SegmentScopedDictionaries(LEAVES_PER_SEGMENT, tags());
+    final SegmentScopedDictionaries writer = writer();
     final Encoded urls = encode(writer, 0, URL_TAG, "u1", "u2");
     final Encoded titles = encode(writer, 0, TITLE_TAG, "t1");
     final FakeStore store = new FakeStore();

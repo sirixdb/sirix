@@ -2582,6 +2582,20 @@ public final class StringRegion {
       if (dictionaryKey <= 0L) {
         return false; // 0 is the "this tag has no dictionary" sentinel, for every lane
       }
+      // BEFORE the first probe, because a probe can MINT. An FSST-encoded entry's stored bytes are
+      // not its value, so it cannot be looked up without decoding and the encoder holds no symbol
+      // table — one such entry abandons the whole tag. Discovered mid-loop, it would leave the
+      // entries before it minted into a segment dictionary that no page then references: values
+      // written at the seal and counted in the anchor for nothing. The scan is one pass over a
+      // boolean array against a loop that hashes every value.
+      final boolean[] compressed = tagCompressed[t];
+      final int[] lengths = tagLengths[t];
+      final int maxValueBytes = resolver.maxValueBytes();
+      for (int i = 0; i < sz; i++) {
+        if (compressed[i] || lengths[i] > maxValueBytes) {
+          return false;
+        }
+      }
       globalDictionaryKey[r] = dictionaryKey;
       int maxId = 0;
       int[] ids = globalIds[r];
@@ -2590,11 +2604,6 @@ public final class StringRegion {
         globalIds[r] = ids;
       }
       for (int i = 0; i < sz; i++) {
-        if (tagCompressed[t][i]) {
-          // An FSST-encoded entry's stored bytes are not its value, so it cannot be looked up
-          // without decoding, and the encoder holds no symbol table.
-          return false;
-        }
         final int len = tagLengths[t][i];
         if (globalProbeScratch.length < len) {
           globalProbeScratch = new byte[Math.max(len, globalProbeScratch.length << 1)];

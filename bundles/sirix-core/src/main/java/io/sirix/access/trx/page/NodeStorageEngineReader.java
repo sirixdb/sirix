@@ -58,8 +58,8 @@ import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import io.sirix.index.projection.SegmentDictionaryAnchors;
 import io.sirix.index.projection.SegmentScopedReadDictionaries;
+import io.sirix.index.projection.TagColumnMap;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
-import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongIterator;
@@ -1197,8 +1197,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return null;
     }
     SegmentDictionaryAnchors anchors = null;
-    final Int2IntMap columnByTag = new Int2IntOpenHashMap();
+    Int2IntMap columnByTag = null;
     PathSummaryReader pathSummary = null;
+    int servedIndexId = -1;
     for (final IndexDef indexDef : indexController.getIndexes().getIndexDefs()) {
       if (!indexDef.isProjectionIndex()) {
         continue;
@@ -1212,31 +1213,47 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       if (segmentAnchors == null || segmentAnchors.length == 0) {
         continue;
       }
+      if (anchors != null) {
+        // An anchor is keyed by (segment, column) and a column number is an index's OWN — column 0
+        // of two indexes names two different dictionaries, and a page records only (segment + 1), so
+        // nothing on the page says which index stamped it. Merging the two would resolve one index's
+        // ids against the other's dictionary: plausible bytes of the right shape. Serving neither is
+        // the loud answer — a page with ids then fails to resolve instead of resolving wrongly. One
+        // index carries segment dictionaries per resource until the anchor is keyed by index as
+        // well, which is the writer's shape too: ProjectionBulkLoad binds ONE lane per writer.
+        LOGGER.warn("projection indexes {} and {} both carry segment dictionaries; neither is served, because a page"
+            + " records only its segment and the two cannot be told apart", servedIndexId, indexDef.getID());
+        return null;
+      }
+      servedIndexId = indexDef.getID();
       if (pathSummary == null) {
         pathSummary = PathSummaryReader.getInstance(this, resourceSession);
       }
+      // The same conflict rule the writer applied when it stamped the ids, over the same claims —
+      // THIS index's field paths, per column — so every id-encoded tag on a page has exactly the
+      // column here that minted it there.
+      final TagColumnMap claims = new TagColumnMap(16);
       final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
       for (int column = 0; column < fieldPaths.size(); column++) {
-        addTagColumnsForColumn(columnByTag, pathSummary, fieldPaths.get(column), column);
+        claimTagsForColumn(claims, pathSummary, fieldPaths.get(column), column);
       }
-      if (anchors == null) {
-        anchors = new SegmentDictionaryAnchors();
-      }
+      columnByTag = claims.build();
+      anchors = new SegmentDictionaryAnchors();
       for (final ProjectionIndexMetadata.SegmentAnchor anchor : segmentAnchors) {
         anchors.seal(anchor.segment(), anchor.column(), anchor.headerKey(), anchor.sealedEntryCount());
       }
     }
-    return anchors == null || columnByTag.isEmpty()
-        ? null
-        : new SegmentScopedReadDictionaries(this, columnByTag, anchors);
+    if (anchors == null || columnByTag == null || columnByTag.isEmpty()) {
+      return null;
+    }
+    return new SegmentScopedReadDictionaries(this, columnByTag, anchors);
   }
 
   /**
-   * Map every path class of {@code fieldPath} to {@code column}. A tag two columns both claim is
-   * dropped rather than pointed at one of them: there is no right answer, and resolving against the
-   * wrong column returns values that are plausible and wrong.
+   * Claim every path class of {@code fieldPath} for {@code column}. The conflict rule — a tag two
+   * columns claim is withheld, for good — is {@link TagColumnMap}'s, shared with the writer.
    */
-  private void addTagColumnsForColumn(final Int2IntMap columnByTag, final PathSummaryReader pathSummary,
+  private void claimTagsForColumn(final TagColumnMap claims, final PathSummaryReader pathSummary,
       final Path<QNm> fieldPath, final int column) {
     final LongSet pathClasses;
     try {
@@ -1247,17 +1264,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return;
     }
     for (final LongIterator keys = pathClasses.iterator(); keys.hasNext();) {
-      final long pathNodeKey = keys.nextLong();
-      if (pathNodeKey <= 0L || pathNodeKey > Integer.MAX_VALUE) {
-        continue;
-      }
-      final int tag = (int) pathNodeKey;
-      final int previous = columnByTag.getOrDefault(tag, -1);
-      if (previous == -1) {
-        columnByTag.put(tag, column);
-      } else if (previous != column) {
-        columnByTag.remove(tag);
-      }
+      claims.claim(keys.nextLong(), column);
     }
   }
 

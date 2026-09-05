@@ -381,6 +381,10 @@ public final class ProjectionBulkLoad {
     }
     segmentDictionaryLane = null;
     lane.release(storageEngineWriter);
+    // And drop the builder's reference: on a load that throws before the seal, every unsealed
+    // segment's values — up to the byte budget EACH — would otherwise stay reachable through the
+    // builder for as long as it lives.
+    builder.setSegmentScopedDictionaries(null);
   }
 
   /**

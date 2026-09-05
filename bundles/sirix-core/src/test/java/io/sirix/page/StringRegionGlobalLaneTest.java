@@ -3,6 +3,7 @@ package io.sirix.page;
 import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.page.pax.StringRegion;
 import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.MemorySegment;
@@ -363,5 +364,91 @@ final class StringRegionGlobalLaneTest {
     final StringRegion.Header header = parse(payload);
     final int tag = StringRegion.lookupTag(header, CONVERTED_TAG);
     assertThrows(IllegalStateException.class, () -> StringRegion.globalIdAt(payload, header, tag, 0));
+  }
+
+  /** A dictionary that MINTS: every probe it has not seen before becomes an entry, as the lane does. */
+  private static final class MintingDictionary implements GlobalStringDictionaries {
+    private final Map<String, Integer> ids = new HashMap<>();
+    private final int tag;
+    private final int maxValueBytes;
+    private int probes;
+
+    MintingDictionary(final int tag, final int maxValueBytes) {
+      this.tag = tag;
+      this.maxValueBytes = maxValueBytes;
+    }
+
+    @Override
+    public boolean hasDictionary(final int t) {
+      return t == tag;
+    }
+
+    @Override
+    public int maxValueBytes() {
+      return maxValueBytes;
+    }
+
+    @Override
+    public int idOf(final int t, final byte[] value, final int offset, final int length) {
+      if (t != tag) {
+        return ID_ABSENT;
+      }
+      probes++;
+      if (length > maxValueBytes) {
+        return ID_ABSENT; // what the segment lane answers for a value its seal could not persist
+      }
+      return ids.computeIfAbsent(new String(value, offset, length, StandardCharsets.UTF_8), v -> ids.size() + 1);
+    }
+
+    @Override
+    public byte @Nullable [] valueOf(final int t, final long dictionaryKey, final int recordedEntryCount,
+        final int id) {
+      return null;
+    }
+
+    @Override
+    public boolean accepts(final int t, final long dictionaryKey, final int recordedEntryCount) {
+      return false;
+    }
+
+    @Override
+    public long dictionaryKey(final int t) {
+      return t == tag
+          ? 42L
+          : 0L;
+    }
+
+    @Override
+    public int dictionaryEntryCount(final int t) {
+      return ids.size();
+    }
+  }
+
+  @Test
+  @DisplayName("a tag holding an over-long value is left as bytes WITHOUT probing: a probe into a minting"
+      + " dictionary is an entry nothing would reference")
+  void anOverlongValueStopsTheRunBeforeItMints() {
+    final MintingDictionary dict = new MintingDictionary(CONVERTED_TAG, 8);
+    // "alpha" and "beta" would convert on their own; the ninth byte of the last value is what makes
+    // the whole tag keep its bytes. Discovered mid-probe, the first two would already be entries.
+    final MemorySegment payload = encode(dict, CONVERTED_TAG, "alpha", "beta", "beta", "123456789");
+    final StringRegion.Header header = parse(payload);
+    final int tag = StringRegion.lookupTag(header, CONVERTED_TAG);
+    assertFalse(header.tagGlobal[tag], "one over-long value keeps the whole tag on bytes");
+    assertEquals(0, dict.probes, "and the encoder must not have probed at all");
+    assertEquals(0, dict.dictionaryEntryCount(CONVERTED_TAG), "so the dictionary minted nothing");
+  }
+
+  @Test
+  @DisplayName("a tag whose values all fit converts, and mints exactly its distinct values")
+  void valuesWithinTheLimitStillConvert() {
+    final MintingDictionary dict = new MintingDictionary(CONVERTED_TAG, 8);
+    final MemorySegment payload = encode(dict, CONVERTED_TAG, "alpha", "beta", "beta");
+    final StringRegion.Header header = parse(payload);
+    final int tag = StringRegion.lookupTag(header, CONVERTED_TAG);
+    assertTrue(header.tagGlobal[tag], "every value fits, so the tag converts");
+    assertEquals(2, dict.dictionaryEntryCount(CONVERTED_TAG), "and the mints are its distinct values");
+    assertEquals(1, StringRegion.globalIdAt(payload, header, tag, 0));
+    assertEquals(2, StringRegion.globalIdAt(payload, header, tag, 1));
   }
 }

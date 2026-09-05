@@ -3,179 +3,198 @@
  */
 package io.sirix.index.projection;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
+import it.unimi.dsi.fastutil.ints.IntLists;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+
+import java.util.Arrays;
 
 /**
- * Decides WHEN a segment's dictionary may be sealed: when its last page has been ENCODED, and no
- * later page can still be minted into it.
+ * Decides WHEN a segment's dictionary may be sealed: once every page adopted into the segment has
+ * been encoded, and the segment is no longer the one being filled.
+ *
+ * <h2>Why a set of page keys, not a counter</h2>
+ *
+ * The writer tells this controller two things per page — {@code adopted(segment, pageKey)} when a
+ * page is given its segment view, and {@code encoded(segment, pageKey)} each time the page's bytes
+ * are produced. Neither arrives exactly once per page: a page written in two flush epochs is encoded
+ * twice; a copy-on-write copy re-adopted through the same factory is adopted twice; and the two can
+ * interleave arbitrarily because the flush pool runs concurrently with adoption. A counter that
+ * increments on adopt and decrements on encode reads every duplicate as a real event and either
+ * seals a segment early (an extra encode) or never (an extra adopt). A SET of outstanding page keys
+ * makes both notifications idempotent: a page is outstanding while its key is in the set, whatever
+ * the number of times either side spoke.
  *
  * <p>
- * This is the condition {@code docs/SEGMENT_SCOPED_DICTIONARIES.md} names as the pipeline's, not
- * the dictionary's. It cannot be a row count. Record pages are encoded on the async flush pool, so
- * the writer passing a segment's last row says nothing about whether that segment's pages have been
- * encoded — a page adopted in segment N can still be sitting in the flush queue while the writer
- * fills N + 2, and a value minted from it after N was sealed would be lost from the dictionary its
- * own page points at.
+ * A segment's set holds only the pages the flush pool has not caught up with, and it is dropped the
+ * moment the segment is offered. Its worst case is a segment whose every page is still in flight —
+ * {@link SegmentBoundaries#SEGMENT_MAX_LEAVES} keys, about a megabyte of longs against that
+ * segment's 64 MiB of values.
  * </p>
  *
- * <p>
- * Nor can sealing simply wait for the commit: the values of every segment would then be resident at
- * once, which at the measured shape is 4.85 GB for one ClickBench column. Sealing has to happen as
- * the load runs, which is exactly why it needs a condition rather than a moment.
- * </p>
+ * <h2>The high-water segment</h2>
  *
- * <h2>The condition</h2>
+ * The segment currently adopting pages is never offered for sealing even when it happens to have no
+ * outstanding page: its next adoption would land a page in a sealed dictionary. It is held back
+ * until a HIGHER segment adopts a page (the boundaries never go back), or until the load ends and
+ * {@link #drain} sweeps the tail.
  *
- * A segment is sealable when both hold:
- * <ol>
- * <li><b>nothing outstanding</b> — every page adopted into it has since been encoded, and</li>
- * <li><b>nothing to come</b> — a page of a LATER segment has already been adopted.</li>
- * </ol>
+ * <h2>Threading</h2>
  *
- * The second clause is what makes the first safe. Record pages are adopted in ascending key order
- * during a bulk load, so a later segment's page proves the writer has moved on; without it, a
- * segment that momentarily has no page in flight — between two adoptions — would be sealed while
- * still growing. Anything the load never sealed is caught by {@link #drain()} at commit, so the
- * rule may be conservative but must never be eager.
- *
- * <p>
- * A resource that inserts out of key order (not a bulk load) simply seals fewer segments early and
- * more at commit, which costs residency, never correctness.
- * </p>
- *
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * Adoption is the writer thread; encoding is the flush pool; sealing is whichever thread runs the
+ * commit. Every method synchronises on this instance. The critical sections are a hash-set update
+ * each, taken once per page rather than per value, so the lock is nowhere near the hot path.
  */
 public final class SegmentSealController {
 
-  /** Segment to pages adopted but not yet encoded. */
-  private final ConcurrentHashMap<Long, AtomicInteger> outstanding = new ConcurrentHashMap<>();
+  private static final LongOpenHashSet[] NO_SEGMENTS = new LongOpenHashSet[0];
+  private static final boolean[] NO_FLAGS = new boolean[0];
 
-  /** Segments that have been handed out for sealing, so none is sealed twice. */
-  private final ConcurrentHashMap<Long, Boolean> sealed = new ConcurrentHashMap<>();
-
-  /** The highest segment any page has been adopted into. */
-  private final AtomicLong highWaterMark = new AtomicLong(-1L);
+  /** Outstanding page keys per segment at index {@code segment}; {@code null} for a segment never adopted into. */
+  private LongOpenHashSet[] outstanding = NO_SEGMENTS;
+  /** Whether the segment at index {@code segment} has been offered by a take-method. */
+  private boolean[] sealed = NO_FLAGS;
+  /** Highest segment that has adopted a page; {@code -1} before the first. */
+  private int highWaterMark = -1;
 
   /**
-   * A page was created for {@code segment} and will be encoded later. Called where the page's
-   * resolver is installed — on the writer side, in key order.
+   * A page was given its segment view. Idempotent: re-adopting an outstanding page (a copy-on-write
+   * copy through the same factory) changes nothing.
+   *
+   * @throws IllegalStateException if the segment was already offered for sealing — its dictionary
+   *         may be persisted and released, and a page encoded against it would mint into nothing
    */
-  public void adopted(final long segment) {
-    requireNonNegative(segment);
-    if (sealed.containsKey(segment)) {
-      throw new IllegalStateException("segment " + segment + " was sealed and cannot adopt another page");
+  public synchronized void adopted(final int segment, final long pageKey) {
+    requireNonNegative(segment, "segment");
+    requireNonNegative(pageKey, "pageKey");
+    if (segment < sealed.length && sealed[segment]) {
+      throw new IllegalStateException("page " + pageKey + " adopted into segment " + segment
+          + ", which was already sealed");
     }
-    outstanding.computeIfAbsent(segment, ignored -> new AtomicInteger()).incrementAndGet();
-    highWaterMark.accumulateAndGet(segment, Math::max);
+    ensureCapacity(segment);
+    LongOpenHashSet pages = outstanding[segment];
+    if (pages == null) {
+      pages = new LongOpenHashSet();
+      outstanding[segment] = pages;
+    }
+    pages.add(pageKey);
+    if (segment > highWaterMark) {
+      highWaterMark = segment;
+    }
   }
 
   /**
-   * A page of {@code segment} has finished encoding — call after the flush window carrying it has
-   * been joined, which is the point at which its values are certainly minted.
+   * A page's bytes were produced. Idempotent: a second encode of the same page (a later flush epoch)
+   * finds nothing outstanding and changes nothing.
+   *
+   * @return whether the page was outstanding until now
    */
-  public void encoded(final long segment) {
-    requireNonNegative(segment);
-    final AtomicInteger pending = outstanding.get(segment);
-    if (pending == null || pending.get() <= 0) {
-      throw new IllegalStateException("segment " + segment + " has no page outstanding to complete");
+  public synchronized boolean encoded(final int segment, final long pageKey) {
+    requireNonNegative(segment, "segment");
+    requireNonNegative(pageKey, "pageKey");
+    if (segment >= outstanding.length) {
+      return false;
     }
-    pending.decrementAndGet();
+    final LongOpenHashSet pages = outstanding[segment];
+    return pages != null && pages.remove(pageKey);
   }
 
-  /** Pages adopted into {@code segment} that have not been encoded yet (test observability). */
-  public int outstandingIn(final long segment) {
-    final AtomicInteger pending = outstanding.get(segment);
-    return pending == null
+  /** Pages adopted into {@code segment} whose bytes have not been produced since. */
+  public synchronized int outstandingIn(final int segment) {
+    requireNonNegative(segment, "segment");
+    if (segment >= outstanding.length) {
+      return 0;
+    }
+    final LongOpenHashSet pages = outstanding[segment];
+    return pages == null
         ? 0
-        : pending.get();
+        : pages.size();
   }
 
   /**
-   * Segments that may be sealed NOW, marked as sealed by this call so a later one does not offer them
-   * again. Both clauses of the condition are applied here; a caller that wants everything regardless
-   * calls {@link #drain()}.
+   * Segments that may be sealed now: adopted into, nothing outstanding, below the high-water mark, and
+   * not offered before. Each segment is offered exactly once; the caller owns its seal from then on.
    */
-  public List<Long> takeSealable() {
-    final long mark = highWaterMark.get();
-    final List<Long> ready = new ArrayList<>();
-    for (final var entry : outstanding.entrySet()) {
-      final long segment = entry.getKey();
-      if (segment < mark && entry.getValue().get() == 0 && sealed.putIfAbsent(segment, Boolean.TRUE) == null) {
-        ready.add(segment);
-      }
-    }
-    return ready;
+  public synchronized IntList takeSealable() {
+    return take(highWaterMark - 1);
   }
 
   /**
-   * Every segment not yet sealed, marked sealed — the commit-time sweep. After this the controller
-   * holds no unsealed segment, and a page adopted afterwards is a defect rather than a late arrival.
-   *
-   * @throws IllegalStateException if any page is still outstanding: sealing then would drop the
-   *         values that page is about to mint, and the caller must fence the flush pool first
+   * At the end of a load, when no page can be adopted any more: every unsealed segment with nothing
+   * outstanding, the high-water segment included.
    */
-  public List<Long> drain() {
-    final List<Long> ready = new ArrayList<>();
-    for (final var entry : outstanding.entrySet()) {
-      final long segment = entry.getKey();
-      final int pending = entry.getValue().get();
-      if (pending != 0) {
-        throw new IllegalStateException(
-            "segment " + segment + " still has " + pending + " page(s) encoding; fence the flush pool before draining");
-      }
-      if (sealed.putIfAbsent(segment, Boolean.TRUE) == null) {
-        ready.add(segment);
-      }
-    }
-    return ready;
+  public synchronized IntList drain() {
+    return take(highWaterMark);
   }
 
   /**
-   * Every unsealed segment, marked sealed, WITHOUT the outstanding-page check — for a caller that has
-   * already fenced the flush pool.
-   *
-   * <p>
-   * {@link #drain} refuses while a page is outstanding because sealing then would drop the values
-   * that page is about to mint. After a fence that cannot happen: no page is encoding, so a residual
-   * count means only that the page was encoded through a path the encode listener does not observe
-   * (the listener is hooked to the windowed flush's sequential pass; a page promoted to the intent
-   * log, or written synchronously, never reaches it). Those pages HAVE minted their values — the
-   * fence guarantees it — so their segments are sealable, and the counter is stale rather than wrong.
-   * </p>
-   *
-   * <p>
-   * This is the direction the design chose deliberately: a MISSED notification must be safe, a
-   * spurious one must not be. Use this only where the fence is the caller's own guarantee.
-   * </p>
+   * After the caller has fenced the flush pool — every adopted page has been encoded — every unsealed
+   * segment. A segment with a page still outstanding here is a contract violation: a page the pool
+   * never encoded would be written without its dictionary being sealed against it.
    */
-  public List<Long> drainAfterFence() {
-    final List<Long> ready = new ArrayList<>();
-    for (final var entry : outstanding.entrySet()) {
-      final long segment = entry.getKey();
-      if (sealed.putIfAbsent(segment, Boolean.TRUE) == null) {
-        ready.add(segment);
+  public synchronized IntList drainAfterFence() {
+    for (int segment = 0; segment <= highWaterMark; segment++) {
+      final LongOpenHashSet pages = outstanding[segment];
+      if (pages != null && !pages.isEmpty()) {
+        throw new IllegalStateException("segment " + segment + " has " + pages.size()
+            + " page(s) adopted but never encoded after the flush fence");
       }
     }
-    return ready;
+    return take(highWaterMark);
   }
 
-  /** Whether {@code segment} has already been handed out for sealing. */
-  public boolean isSealed(final long segment) {
-    return sealed.containsKey(segment);
+  /** Whether {@code segment} has been offered for sealing. */
+  public synchronized boolean isSealed(final int segment) {
+    requireNonNegative(segment, "segment");
+    return segment < sealed.length && sealed[segment];
   }
 
-  /** Segments handed out for sealing so far (test observability). */
-  public int sealedCount() {
-    return sealed.size();
+  /** Segments offered so far. */
+  public synchronized int sealedCount() {
+    int count = 0;
+    for (final boolean flag : sealed) {
+      if (flag) {
+        count++;
+      }
+    }
+    return count;
   }
 
-  private static void requireNonNegative(final long segment) {
-    if (segment < 0) {
-      throw new IllegalArgumentException("segment must not be negative: " + segment);
+  private IntList take(final int highestCandidate) {
+    if (highestCandidate < 0) {
+      return IntLists.EMPTY_LIST;
+    }
+    IntArrayList sealable = null;
+    for (int segment = 0; segment <= highestCandidate; segment++) {
+      final LongOpenHashSet pages = outstanding[segment];
+      if (pages == null || sealed[segment] || !pages.isEmpty()) {
+        continue;
+      }
+      sealed[segment] = true;
+      outstanding[segment] = null; // the set is spent; a re-adoption is refused by the flag
+      if (sealable == null) {
+        sealable = new IntArrayList();
+      }
+      sealable.add(segment);
+    }
+    return sealable == null
+        ? IntLists.EMPTY_LIST
+        : sealable;
+  }
+
+  private void ensureCapacity(final int segment) {
+    if (segment < outstanding.length) {
+      return;
+    }
+    final int capacity = Math.max(segment + 1, Math.max(4, outstanding.length << 1));
+    outstanding = Arrays.copyOf(outstanding, capacity);
+    sealed = Arrays.copyOf(sealed, capacity);
+  }
+
+  private static void requireNonNegative(final long value, final String name) {
+    if (value < 0) {
+      throw new IllegalArgumentException(name + " must not be negative: " + value);
     }
   }
 }

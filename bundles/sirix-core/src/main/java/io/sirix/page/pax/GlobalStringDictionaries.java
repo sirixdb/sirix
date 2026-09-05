@@ -46,13 +46,30 @@ public interface GlobalStringDictionaries {
    * Whether this tag's values are stored as dictionary ids rather than bytes.
    *
    * <p>
-   * Asked once per tag per page, never per value: a tag is converted or it is not, and the answer
-   * cannot change within a revision.
+   * Asked once per tag per page, never per value, and asked FIRST: it opens the tag's encode run,
+   * and a resolver whose mapping can change during a load (one that mints as pages are encoded)
+   * fixes the run's answers here. A caller that reaches for {@link #dictionaryKey},
+   * {@link #idOf} or {@link #dictionaryEntryCount} without asking this first may get answers from
+   * either side of a change.
    * </p>
    *
    * @param tag the region's tag — a path node key under the pathNodeKey-tagged layout
    */
   boolean hasDictionary(int tag);
+
+  /**
+   * The longest value this resolver can hold, in bytes; longer values are never converted.
+   *
+   * <p>
+   * Asked once per tag per page, so that a caller can leave a tag holding an over-long value as
+   * bytes BEFORE it probes: a resolver that MINTS turns a probe into an entry, and entries minted
+   * for a tag that then keeps its bytes are stored for nothing. The default is no limit, which is
+   * what a prebuilt dictionary has — it either holds a value or it does not.
+   * </p>
+   */
+  default int maxValueBytes() {
+    return Integer.MAX_VALUE;
+  }
 
   /**
    * Bind to the dictionary a PAGE names, or refuse — the temporal-validity check.

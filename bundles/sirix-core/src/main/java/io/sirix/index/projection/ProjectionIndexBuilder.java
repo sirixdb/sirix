@@ -16,7 +16,6 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.index.IndexDef;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
-import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -1493,15 +1492,14 @@ public final class ProjectionIndexBuilder {
     }
     final long[] pathClasses = extractor.fieldPcrKeysRef();
     final int[] columns = extractor.fieldPcrColumnsRef();
-    final Int2IntMap tags = new Int2IntOpenHashMap(pathClasses.length);
+    // The reader builds ITS map through the same rule from the same claims, so a tag two columns
+    // claim is withheld here exactly as it is there: the writer never stamps ids the reader would
+    // have no column to resolve them against.
+    final TagColumnMap claims = new TagColumnMap(pathClasses.length);
     for (int i = 0; i < pathClasses.length && i < columns.length; i++) {
-      final long pathClass = pathClasses[i];
-      // String-region tags are ints; a path node key outside that range cannot be one, so it cannot
-      // name a page this map has to answer for.
-      if (pathClass > 0L && pathClass <= Integer.MAX_VALUE) {
-        tags.put((int) pathClass, columns[i]);
-      }
+      claims.claim(pathClasses[i], columns[i]);
     }
+    final Int2IntMap tags = claims.build();
     if (dictionaries != null) {
       dictionaries.publishTags(tags);
     }
