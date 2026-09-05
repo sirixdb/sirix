@@ -1774,7 +1774,7 @@ public final class ProjectionIndexRowGroupPage {
    * @param dictionary the resource-wide dictionary to resolve against
    */
   void convertStringDictColumnToGlobal(final int c, final GlobalValueDictionaryEncoder dictionary) {
-    convertStringDictColumn(c, dictionary, COLUMN_KIND_STRING_GLOBAL);
+    convertStringDictColumn(c, dictionary, COLUMN_KIND_STRING_GLOBAL, -1);
   }
 
   /**
@@ -1791,12 +1791,46 @@ public final class ProjectionIndexRowGroupPage {
    * @param c the column to convert
    * @param dictionary this leaf's segment's dictionary for this column
    */
-  void convertStringDictColumnToSegment(final int c, final GlobalValueDictionaryEncoder dictionary) {
-    convertStringDictColumn(c, dictionary, COLUMN_KIND_STRING_SEGMENT);
+  void convertStringDictColumnToSegment(final int c, final GlobalValueDictionaryEncoder dictionary,
+      final int segment) {
+    if (segment < 0) {
+      throw new IllegalArgumentException("segment must not be negative: " + segment);
+    }
+    convertStringDictColumn(c, dictionary, COLUMN_KIND_STRING_SEGMENT, segment);
+  }
+
+  /**
+   * A segment-scoped cell: the segment in the high 32 bits, the dictionary id in the low 32.
+   *
+   * <p>
+   * The id alone does not identify a value — the same id names different values in different
+   * segments — so a resolver handed one cell and nothing else could not answer. Carrying the segment
+   * IN the cell means every site that resolves, compares or materialises a cell needs no extra
+   * argument threaded to it, which is the difference between one adapter and a hundred call sites.
+   * </p>
+   *
+   * <p>
+   * It costs nothing on disk. A row group never straddles a segment boundary, so every cell in a leaf
+   * carries the SAME high bits, and the lane is FOR-packed against the leaf's own minimum — the
+   * deltas, and therefore the packed width, are exactly what they were for a bare id.
+   * </p>
+   */
+  public static long packSegmentCell(final int segment, final int id) {
+    return ((long) segment << 32) | (id & 0xFFFFFFFFL);
+  }
+
+  /** The segment of a {@link #packSegmentCell packed} cell. */
+  public static int segmentOfCell(final long cell) {
+    return (int) (cell >>> 32);
+  }
+
+  /** The dictionary id of a {@link #packSegmentCell packed} cell. */
+  public static int idOfCell(final long cell) {
+    return (int) cell;
   }
 
   private void convertStringDictColumn(final int c, final GlobalValueDictionaryEncoder dictionary,
-      final byte targetKind) {
+      final byte targetKind, final int segment) {
     checkColumn(c);
     if (columnKinds[c] != COLUMN_KIND_STRING_DICT) {
       throw new IllegalStateException("column " + c + " is kind " + columnKinds[c] + ", not STRING_DICT");
@@ -1826,8 +1860,11 @@ public final class ProjectionIndexRowGroupPage {
         long global = localToGlobal[local];
         if (global == 0L) {
           final byte[] bytes = stringDictionaryEntryBacking(c, local);
-          global =
+          final int interned =
               dictionary.intern(bytes, stringDictionaryEntryOffset(c, local), stringDictionaryEntryLength(c, local));
+          global = segment < 0
+              ? interned
+              : packSegmentCell(segment, interned);
           localToGlobal[local] = global;
         }
         converted[row] = global;

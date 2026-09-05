@@ -240,6 +240,47 @@ public final class GlobalValueDictionary {
    * @return a readable view, or {@code null} when the dictionary is absent, incomplete, or changed
    *         revision while the view was being opened
    */
+  /**
+   * A view over the per-segment dictionaries of ONE segment-scoped column, resolving the packed
+   * {@code (segment, id)} cells such a column stores.
+   *
+   * <p>
+   * Every consumer that resolves a CELL — materialising a value, taking a substring of one — works
+   * through this untouched, because the cell says which dictionary it belongs to. Consumers indexed
+   * by ID SPACE do not: a verdict bitset or a length table over a range assumes a dense id space, and
+   * packed cells are not one. Those refuse; see {@link ReadView#isSegmentUnion}.
+   * </p>
+   *
+   * @param headerKeysBySegment the dictionary anchor per segment, {@code 0} where the segment sealed
+   *        none for this column
+   * @return the union, or {@code null} when no segment has a readable dictionary
+   */
+  public static @Nullable ReadView segmentUnionReadView(final long[] headerKeysBySegment,
+      final StorageEngineReader reader) {
+    Objects.requireNonNull(headerKeysBySegment, "headerKeysBySegment must not be null");
+    Objects.requireNonNull(reader, "reader must not be null");
+    final ReadView[] perSegment = new ReadView[headerKeysBySegment.length];
+    boolean any = false;
+    for (int segment = 0; segment < headerKeysBySegment.length; segment++) {
+      final long headerKey = headerKeysBySegment[segment];
+      if (headerKey <= 0L) {
+        continue;
+      }
+      final ReadView view = readView(headerKey, reader);
+      if (view == null) {
+        // One unreadable segment makes the whole column unresolvable: a cell of that segment has no
+        // other dictionary it could legally take, so answering for the rest would serve some rows and
+        // silently drop others.
+        return null;
+      }
+      perSegment[segment] = view;
+      any = true;
+    }
+    return any
+        ? new ReadView(perSegment, reader.getRevisionNumber())
+        : null;
+  }
+
   public static @Nullable ReadView readView(final long headerNodeKey, final StorageEngineReader reader) {
     Objects.requireNonNull(reader, "reader must not be null");
     final int revision = reader.getRevisionNumber();
@@ -410,9 +451,9 @@ public final class GlobalValueDictionary {
     private final long forwardRootKey;
     private final int entryCount;
     private final int revision;
-    private final NamePage namePage;
-    private final DatabaseType databaseType;
-    private final StorageEngineReader reader;
+    private final @Nullable NamePage namePage;
+    private final @Nullable DatabaseType databaseType;
+    private final @Nullable StorageEngineReader reader;
     /**
      * Per-id SLICE cache, keyed by the id a caller passes (a MINT under a rank table): the backing
      * array a value lives in, plus its offset and length. No entry node and no copied {@code byte[]}
@@ -501,8 +542,42 @@ public final class GlobalValueDictionary {
     private int locatedLength;
     private @Nullable ValueDictionaryEntryNode locatedSpill;
 
+    /**
+     * The per-segment views this one is a union of, or {@code null} for an ordinary single-dictionary
+     * view.
+     *
+     * <p>
+     * A SEGMENT-scoped column has one dictionary per segment, and a cell carries its segment in the
+     * high 32 bits ({@link ProjectionIndexRowGroupPage#packSegmentCell}). A union view unpacks the
+     * cell and delegates, so every consumer that resolves a CELL keeps working untouched. What it
+     * cannot do is anything indexed by ID SPACE — a verdict bitset, a length table over a range —
+     * because packed cells are not a dense id space; those refuse rather than answer, and the callers
+     * that would use them already decline a column that is not resource-wide.
+     * </p>
+     */
+    private final ReadView @Nullable [] perSegment;
+
+    /** A union over one dictionary per segment; index is the segment, {@code null} where none. */
+    private ReadView(final ReadView @Nullable [] perSegment, final int revision) {
+      this.perSegment = perSegment;
+      this.revision = revision;
+      this.headerNodeKey = 0L;
+      this.reverseRootKey = 0L;
+      this.forwardRootKey = 0L;
+      this.entryCount = 0;
+      this.blockIndexKey = 0L;
+      this.fullyOrdered = false;
+      this.storageOrdered = false;
+      this.rankTableKey = 0L;
+      this.orderedPrefixCount = 0;
+      this.namePage = null;
+      this.databaseType = null;
+      this.reader = null;
+    }
+
     private ReadView(final long headerNodeKey, final ValueDictionaryHeaderNode header, final int revision,
         final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
+      this.perSegment = null;
       this.blockIndexKey = header.getBlockIndexKey();
       this.fullyOrdered = header.idsAreCollationOrdered();
       this.storageOrdered = header.isFullyOrdered();
@@ -624,7 +699,35 @@ public final class GlobalValueDictionary {
      * point of the id lanes is that rows stay integers. Packed ids decode straight off their slice;
      * spilled ids go through the record's defensive copy, which is fine at winner cardinality.
      */
+    /**
+     * The view holding the dictionary a packed cell names.
+     *
+     * @throws IllegalStateException if the cell names a segment this index sealed nothing in — a cell
+     *         that cannot be resolved is refused, never resolved against a neighbour's dictionary
+     */
+    private ReadView segmentViewOf(final int cell) {
+      final ReadView[] segments = perSegment;
+      final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
+      final ReadView view = segment >= 0 && segment < segments.length
+          ? segments[segment]
+          : null;
+      if (view == null) {
+        throw new IllegalStateException("cell names segment " + segment + ", which sealed no dictionary for this"
+            + " column; its rows keep their bytes and must not be resolved against another segment's ids");
+      }
+      return view;
+    }
+
+    /** Whether this view resolves packed {@code (segment, id)} cells rather than bare ids. */
+    public boolean isSegmentUnion() {
+      return perSegment != null;
+    }
+
     public String valueAsString(final int id) {
+      final ReadView[] segments = perSegment;
+      if (segments != null) {
+        return segmentViewOf(id).valueAsString(ProjectionIndexRowGroupPage.idOfCell(id));
+      }
       final int slot = sliceSlot(id);
       final ValueDictionaryEntryNode spill = cachedSpills[slot];
       if (spill != null) {
@@ -1075,16 +1178,25 @@ public final class GlobalValueDictionary {
 
     /** Allocation-free {@code xs:integer(substring(value, start, length))}. */
     public long xsIntegerOfSubstring(final int id, final int start, final int length) {
+      if (perSegment != null) {
+        return segmentViewOf(id).xsIntegerOfSubstring(ProjectionIndexRowGroupPage.idOfCell(id), start, length);
+      }
       return transformed(id, start, length, (byte) 1);
     }
 
     /** Allocation-free order-preserving pack of a 16-byte ISO-minute substring. */
     public long packIsoMinuteSubstring(final int id, final int start, final int length) {
+      if (perSegment != null) {
+        return segmentViewOf(id).packIsoMinuteSubstring(ProjectionIndexRowGroupPage.idOfCell(id), start, length);
+      }
       return transformed(id, start, length, (byte) 2);
     }
 
     /** Materialise a validated ISO-minute substring for one emitted winner. */
     public String materializeIsoMinuteSubstring(final int id, final int start, final int length) {
+      if (perSegment != null) {
+        return segmentViewOf(id).materializeIsoMinuteSubstring(ProjectionIndexRowGroupPage.idOfCell(id), start, length);
+      }
       // The ONE place a value becomes a String: an emitted winner. Validated on exactly the terms
       // packIsoMinuteSubstring uses, so an inadmissible substring is refused here as it is there.
       final int slot = sliceSlot(id);

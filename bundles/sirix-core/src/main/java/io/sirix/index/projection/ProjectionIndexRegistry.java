@@ -9,6 +9,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 
 import io.sirix.api.StorageEngineReader;
+import io.sirix.settings.Constants;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -183,6 +184,106 @@ public final class ProjectionIndexRegistry {
     /** Attach the per-column dictionary anchors; called once, at construction, by the catalog. */
     public void setValueDictionaryHeaderKeys(final long @Nullable [] keys) {
       this.valueDictionaryHeaderKeys = keys;
+    }
+
+    /**
+     * Per-{@code (segment, column)} dictionary anchors, packed by {@code segment * columns + column}
+     * — a segment-scoped string column has ONE of these per segment, where a resource-wide one has a
+     * single anchor for the whole column.
+     */
+    private long @Nullable [] segmentDictionaryHeaderKeys;
+
+    private int segmentDictionaryColumns;
+
+    private int segmentDictionarySegments;
+
+    /**
+     * Attach the segment-scoped dictionary anchors; called once, at construction, by the catalog.
+     *
+     * <p>
+     * Flattened at attach time rather than searched per lookup: a scan asks per LEAF, so the lookup
+     * is on the hot path and the table is tiny — segments times columns, both small.
+     * </p>
+     */
+    public void setSegmentDictionaryAnchors(final ProjectionIndexMetadata.SegmentAnchor @Nullable [] anchors,
+        final int columns) {
+      if (anchors == null || anchors.length == 0 || columns <= 0) {
+        this.segmentDictionaryHeaderKeys = null;
+        this.segmentDictionaryColumns = 0;
+        this.segmentDictionarySegments = 0;
+        return;
+      }
+      long highestSegment = 0;
+      for (final ProjectionIndexMetadata.SegmentAnchor anchor : anchors) {
+        highestSegment = Math.max(highestSegment, anchor.segment());
+      }
+      final int segments = Math.toIntExact(highestSegment + 1);
+      final long[] table = new long[Math.multiplyExact(segments, columns)];
+      for (final ProjectionIndexMetadata.SegmentAnchor anchor : anchors) {
+        if (anchor.column() >= 0 && anchor.column() < columns) {
+          table[Math.toIntExact(anchor.segment()) * columns + anchor.column()] = anchor.headerKey();
+        }
+      }
+      this.segmentDictionaryHeaderKeys = table;
+      this.segmentDictionaryColumns = columns;
+      this.segmentDictionarySegments = segments;
+    }
+
+    /**
+     * The dictionary anchor {@code col}'s values live in for rows of {@code segment}, or {@code 0}
+     * when that pair sealed nothing — which a caller must read as "these rows keep their bytes", never
+     * as an invitation to try another segment's dictionary.
+     */
+    public long segmentDictionaryHeaderKey(final int segment, final int col) {
+      final long[] table = segmentDictionaryHeaderKeys;
+      if (table == null || segment < 0 || segment >= segmentDictionarySegments || col < 0
+          || col >= segmentDictionaryColumns) {
+        return 0L;
+      }
+      return table[segment * segmentDictionaryColumns + col];
+    }
+
+    /** Segments this index sealed a dictionary in; {@code 0} when it has no segment-scoped column. */
+    public int segmentDictionarySegmentCount() {
+      return segmentDictionarySegments;
+    }
+
+    /** First DOCUMENT page key of every segment, ascending from 0; {@code null} without a lane. */
+    private long @Nullable [] segmentStarts;
+
+    /** Attach the segment boundaries; called once, at construction, by the catalog. */
+    public void setSegmentStarts(final long @Nullable [] starts) {
+      this.segmentStarts = starts;
+    }
+
+    /**
+     * The segment a row group belongs to, from the first record key its descriptor carries.
+     *
+     * <p>
+     * A row group never straddles a boundary — the builder cuts there — so one key decides for every
+     * row in it. This is the whole reason the segment is not a field of the descriptor: it is already
+     * implied by a key the descriptor has to carry anyway.
+     * </p>
+     *
+     * @return the segment, or {@code -1} when this index has no segment-scoped column
+     */
+    public int segmentOfRowGroup(final long firstRecordKey) {
+      final long[] starts = segmentStarts;
+      if (starts == null || starts.length == 0 || firstRecordKey < 0) {
+        return -1;
+      }
+      final long pageKey = firstRecordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+      int low = 0;
+      int high = starts.length - 1;
+      while (low < high) {
+        final int mid = (low + high + 1) >>> 1;
+        if (starts[mid] <= pageKey) {
+          low = mid;
+        } else {
+          high = mid - 1;
+        }
+      }
+      return low;
     }
 
     /**

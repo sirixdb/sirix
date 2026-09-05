@@ -9,6 +9,10 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.page.NamePage;
+import io.sirix.node.interfaces.DataRecord;
+import io.sirix.node.SegmentDictionaryDirectoryNode;
+import io.sirix.access.DatabaseType;
 import org.jspecify.annotations.Nullable;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.ResourceSession;
@@ -651,10 +655,42 @@ public final class ProjectionIndexCatalog {
     // …as do the per-column value dictionary anchors, without which a global string column can
     // only be scanned, never probed: resolving a predicate literal to an id needs the anchor.
     handle.setValueDictionaryHeaderKeys(metadata.valueDictionaryHeaderKeys());
+    // …and the SEGMENT-scoped ones, which a column has instead of the single anchor above when its
+    // dictionary is one per segment rather than one per resource.
+    handle.setSegmentDictionaryAnchors(metadata.segmentAnchors(), metadata.columnKinds().length);
+    handle.setSegmentStarts(readSegmentStarts(reader, metadata));
     // …and so do the declared column paths, which is what keeps a NESTED column from answering a
     // top-level deref of the same trailing name (Handle#columnOf).
     handle.setFieldChains(metadata.fieldChains());
     return handle;
+  }
+
+  /**
+   * Where each segment begins, from the directory record — the boundaries a reader needs to say which
+   * segment a row group's ids belong to.
+   *
+   * <p>
+   * Read once per handle, and only when the index actually has segment-scoped columns: the anchors
+   * say whether it does, so an index without them pays nothing. {@code null} when there is no
+   * directory, which is every store the segment lane never wrote.
+   * </p>
+   */
+  private static long @Nullable [] readSegmentStarts(final StorageEngineReader reader,
+      final ProjectionIndexMetadata metadata) {
+    final ProjectionIndexMetadata.SegmentAnchor[] anchors = metadata.segmentAnchors();
+    if (anchors == null || anchors.length == 0) {
+      return null;
+    }
+    final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
+    final DatabaseType databaseType = GlobalValueDictionary.databaseTypeOf(reader);
+    if (!namePage.hasProjectionValueDictionary(databaseType)) {
+      return null;
+    }
+    final DataRecord record = namePage.getProjectionValueDictionaryRecord(SegmentDictionaryDirectoryNode.DIRECTORY_KEY,
+        databaseType, reader);
+    return record instanceof SegmentDictionaryDirectoryNode directory
+        ? directory.segmentStarts()
+        : null;
   }
 
   /**
@@ -1083,6 +1119,10 @@ public final class ProjectionIndexCatalog {
     // them a global column's ids have nothing to resolve against, and every route that would consume
     // them declines — silently, and only on whichever hydrate path a given store happens to take.
     handle.setValueDictionaryHeaderKeys(metadata.valueDictionaryHeaderKeys());
+    // …and the SEGMENT-scoped ones, which a column has instead of the single anchor above when its
+    // dictionary is one per segment rather than one per resource.
+    handle.setSegmentDictionaryAnchors(metadata.segmentAnchors(), metadata.columnKinds().length);
+    handle.setSegmentStarts(readSegmentStarts(reader, metadata));
     return handle;
   }
 

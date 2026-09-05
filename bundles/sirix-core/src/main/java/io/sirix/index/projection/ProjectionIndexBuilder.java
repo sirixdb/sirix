@@ -1845,7 +1845,7 @@ public final class ProjectionIndexBuilder {
     final byte[] kinds = extractor.columnKindsRef();
     for (int column = 0; column < kinds.length; column++) {
       if (leaf.columnKind(column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-        leaf.convertStringDictColumnToSegment(column, new SegmentColumnEncoder(segments, segment, column));
+        leaf.convertStringDictColumnToSegment(column, new SegmentColumnEncoder(segments, segment, column), segment);
         segmentColumns[column] = true;
       }
     }
