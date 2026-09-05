@@ -61,4 +61,17 @@ final class SegmentUnionReadViewTest {
     assertEquals(275_493L, last - first, "the span of a leaf's cells is the span of its ids");
     assertTrue(last - first < (1L << 32), "and it never reaches into the segment's bits");
   }
+
+  @Test
+  @DisplayName("a cell must be resolved at LONG width: an int drops the segment and reads segment 0")
+  void aCellDoesNotSurviveAnInt() {
+    // The bug this pins: valueAsString((int) cell) compiles, is invisible while a resource has one
+    // segment, and silently resolves every cell against segment 0 the moment it has two.
+    final long inSeven = ProjectionIndexRowGroupPage.packSegmentCell(7, 42);
+    assertEquals(7, ProjectionIndexRowGroupPage.segmentOfCell(inSeven));
+    assertEquals(0, ProjectionIndexRowGroupPage.segmentOfCell((int) inSeven),
+        "narrowed to an int, the cell claims segment 0");
+    assertEquals(42, ProjectionIndexRowGroupPage.idOfCell((int) inSeven),
+        "while its id survives — which is exactly why the truncation reads as a plausible value");
+  }
 }

@@ -60,6 +60,7 @@ import io.sirix.index.projection.GroupTableSpill;
 import io.sirix.index.projection.LongChunkPool;
 import io.sirix.index.projection.WindowedSliceArrays;
 import io.sirix.index.projection.ProjectionIndexRegistry;
+import io.sirix.index.projection.SegmentGroupCanonicaliser;
 import io.sirix.index.projection.ProjectionIndexScan;
 import io.sirix.index.projection.ProjectionResidencyScope;
 import io.sirix.index.projection.SharedDistinctHash128Set;
@@ -14446,6 +14447,29 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             globalSingleKey = true;
             anyNumericComponent = true;
           }
+        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT) {
+          // A segment-scoped cell is (segment, id), which is a PRE-AGGREGATION key rather than a
+          // group identity: one value living in two segments carries a different cell in each. The
+          // single-key kernel may serve it only because numericGroupAggregate canonicalises the lane
+          // to VALUE ids before aggregating, which puts the merge on the correct side of the top-K's
+          // pruning. Everything that does not get that treatment must stay shut:
+          //   - a COMPOSITE component would reach kernels that have no canonicalisation, and would
+          //     split a value across segments inside a tuple — silently, with plausible numbers;
+          //   - every key TRANSFORM operates on the VALUE, and a canonical id is not the value.
+          // The `!anyKeyTransform` guard at the call site is not enough on its own: a transformed
+          // single key falls through to the COMPOSITE arm instead, so refuse here rather than there.
+          if (keyCount != 1) {
+            return declineGroupAgg("segment-scoped composite group key not servable");
+          }
+          if (keyShifted || keySubstring || keyConditional || keyDivided || keyStringified
+              || (keyRegexPattern != null && keyRegexPattern.length == 1 && keyRegexPattern[0] != null)) {
+            return declineGroupAgg("segment-scoped group key with a transform not servable");
+          }
+          if (handle.segmentDictionarySegmentCount() <= 0) {
+            return declineGroupAgg("segment-scoped group key has no sealed dictionary at this revision");
+          }
+          numericSingleKey = true;
+          anyNumericComponent = true;
         } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           return declineGroupAgg("group key column kind not servable");
         }
@@ -17317,6 +17341,33 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final int rowGroupCount = slicedStore != null
         ? slicedStore.rowGroupCount()
         : rowGroupPayloads.size();
+    // SEGMENT-SCOPED KEY: the lane holds (segment, id) cells, so the kernel would group a value that
+    // lives in two segments as two groups — and a top-K prunes before anything could merge them
+    // again. Canonicalising each leaf's lane to VALUE ids first makes the kernel's groups the real
+    // groups, at one dictionary resolve per distinct cell for the whole query.
+    final SegmentGroupCanonicaliser segmentKeys;
+    if (handle != null
+        && ProjectionIndexRowGroupPage.isSegmentScopedIdKind(handle.columnKindOf(groupCol))) {
+      final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, groupCol);
+      if (unionView == null) {
+        return declineGroupAgg("segment-scoped group key has no readable dictionary at this revision");
+      }
+      if (slicedStore == null) {
+        // Without the sliced arm the group lane is read from the payload bytes and never passes
+        // through a ColumnSlice, so there is no seam at which cells could become values.
+        return declineGroupAgg("segment-scoped group key needs the sliced arm");
+      }
+      if (orderPlan != null && orderPlan.ordersOnKey()) {
+        // A canonical id is issued in ARRIVAL order, so comparing two of them says nothing about how
+        // their values collate. A resource-wide dictionary id can serve this because its id space IS
+        // the collation order (the rank table); a per-query canonical id has no such property, and
+        // sorting on it would return the right rows in the wrong order.
+        return declineGroupAgg("segment-scoped group key cannot order on the key lane");
+      }
+      segmentKeys = new SegmentGroupCanonicaliser(unionView, handle.segmentDictionarySegmentCount());
+    } else {
+      segmentKeys = null;
+    }
     if (orderPlan != null) {
       // High-cardinality shape, ordered + capped: flat per-worker tables (no boxed accumulator
       // per group), a hash-PARTITIONED parallel merge (no thread ever folds the full group
@@ -17366,7 +17417,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         slicedTreeCols = predTree != null
             ? resolveTreeCols(slicedStore, predTree, fetcher)
             : null;
-        slicedGroupCol = slicedStore.column(groupCol, fetcher);
+        slicedGroupCol = canonicaliseGroupKeys(segmentKeys, slicedStore.column(groupCol, fetcher));
+        if (slicedGroupCol == null) {
+          return declineGroupAgg("a segment-scoped group key has no value in this revision");
+        }
         slicedAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
         for (int a = 0; a < aggCols.length; a++) {
           final int expected =
@@ -17474,9 +17528,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                     : predTree != null
                         ? wsl.treeColumns(predTree, sub, subEnd)
                         : null;
-                final ProjectionColumnStore.ColumnSlice[] groupColNow = wsl != null
-                    ? wsl.column(groupCol, sub, subEnd)
-                    : slicedGroupCol;
+                final ProjectionColumnStore.ColumnSlice[] groupColNow = requireResolvedGroupKeys(segmentKeys,
+                    wsl != null
+                        ? canonicaliseGroupKeys(segmentKeys, wsl.column(groupCol, sub, subEnd))
+                        : slicedGroupCol);
                 final ProjectionColumnStore.ColumnSlice[][] aggColsNow = wsl != null
                     ? wsl.columns(aggCols, sub, subEnd)
                     : slicedAggCols;
@@ -17648,7 +17703,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           : ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
       return emitNumericGroupWinners(partSelectors, missingMergedFinal, orderPlan, limit, slotWidth, having, keyNames,
           funcs, aggFields, outNames, distinctFields, cdBase, globalKeyDictionary, slicedStore != null, cdBlockIdx >= 0,
-          keyDisplay, rankStringViews);
+          keyDisplay, rankStringViews, segmentKeys);
     }
     @SuppressWarnings("unchecked")
     final Long2ObjectOpenHashMap<long[]>[] perThread = new Long2ObjectOpenHashMap[eff];
@@ -17671,7 +17726,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (slicedStore != null && !windowedSlices) {
       final ProjectionColumnStore.ColumnSegmentFetcher legFetcher = columnFetcher();
       legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, legFetcher);
-      legGroupCol = slicedStore.column(groupCol, legFetcher);
+      legGroupCol = canonicaliseGroupKeys(segmentKeys, slicedStore.column(groupCol, legFetcher));
+      if (legGroupCol == null) {
+        return declineGroupAgg("a segment-scoped group key has no value in this revision");
+      }
       legAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
       for (int a = 0; a < aggCols.length; a++) {
         if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
@@ -17703,7 +17761,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               continue; // every leaf dropped by the keep mask: nothing to fetch or fold
             }
             ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds,
-                wsl.predicateColumns(preds, sub, subEnd), null, null, wsl.column(groupCol, sub, subEnd),
+                wsl.predicateColumns(preds, sub, subEnd), null, null,
+                requireResolvedGroupKeys(segmentKeys,
+                    canonicaliseGroupKeys(segmentKeys, wsl.column(groupCol, sub, subEnd))),
                 wsl.columns(aggCols, sub, subEnd), null, sub, subEnd, localT, missing, -1, null, null, null, false,
                 null);
             wsl.release(sub, subEnd);
@@ -17743,7 +17803,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // Every group is emitted here, so every id is reverse-mapped — in ONE batch, which is what
     // turns N random record reads into a walk over the dictionary's pages in id order.
     final String[] legacyKeyStrings;
-    if (globalKeyDictionary > 0L) {
+    if (segmentKeys != null) {
+      legacyKeyStrings = new String[ordered.size()];
+      for (int i = 0; i < legacyKeyStrings.length; i++) {
+        legacyKeyStrings[i] = segmentKeys.valueOf((int) ordered.get(i).getLongKey());
+        if (legacyKeyStrings[i] == null) {
+          return declineGroupAgg("a segment-scoped group key has no value in this revision (legacy arm)");
+        }
+      }
+    } else if (globalKeyDictionary > 0L) {
       final int[] ids = new int[ordered.size()];
       for (int i = 0; i < ids.length; i++) {
         ids[i] = (int) ordered.get(i).getLongKey();
@@ -17973,8 +18041,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final ServedGroups served = emitNumericGroupWinners(partSelectors, missingMerged, orderPlan, limit, slotWidth,
         having, keyNames, funcs, aggFields, outNames, distinctFields, -1, globalKeyDictionary, true, false,
         // The dense arm exists for global dictionary ids and is entered only with one; a temporal
-        // key never reaches it, so it has no text of its own to render.
-        ProjectionTemporalCodec.DISPLAY_NONE, rankStringViews);
+        // key never reaches it, so it has no text of its own to render — and a segment-scoped key
+        // cannot arrive here either, because its dictionary header key is 0 and the arm's gate
+        // demands a positive one.
+        ProjectionTemporalCodec.DISPLAY_NONE, rankStringViews, null);
     if (served != null) {
       GROUP_DENSE_SERVED.increment();
     }
@@ -18036,7 +18106,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final GroupOrderPlan orderPlan, final long limit, final int slotWidth, final long[] having,
       final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
       final ArrayList<String> distinctFields, final int cdBase, final long globalKeyDictionary, final boolean sliced,
-      final boolean cdServed, final byte keyDisplay, final GlobalValueDictionary.ReadView[] rankStringViews) {
+      final boolean cdServed, final byte keyDisplay, final GlobalValueDictionary.ReadView[] rankStringViews,
+      final @Nullable SegmentGroupCanonicaliser segmentKeys) {
     int winnerCount = missingMerged[0] > 0
         ? 1
         : 0;
@@ -18075,7 +18146,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     finalSel.sortInPlace();
     final String[] keyStrings;
-    if (globalKeyDictionary > 0L) {
+    if (segmentKeys != null) {
+      // The kernel grouped on canonical VALUE ids, so a winner's value is the one the canonicaliser
+      // already resolved when it first saw the value — no dictionary read here at all.
+      keyStrings = new String[finalSel.size()];
+      for (int i = 0; i < finalSel.size(); i++) {
+        if (!finalSel.hasKeyAt(i)) {
+          continue; // the missing-key group renders no key
+        }
+        keyStrings[i] = segmentKeys.valueOf((int) finalSel.keyLongAt(i));
+        if (keyStrings[i] == null) {
+          return declineGroupAgg("a winning segment-scoped group key has no value in this revision");
+        }
+      }
+    } else if (globalKeyDictionary > 0L) {
       final int[] winnerIds = new int[finalSel.size()];
       for (int i = 0; i < finalSel.size(); i++) {
         winnerIds[i] = (int) finalSel.keyLongAt(i);
@@ -18246,6 +18330,39 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * @return the view, or {@code null} when the column is not segment-scoped or a segment's dictionary
    *         is unreadable — in which case the caller declines rather than serving some rows
    */
+  /**
+   * The group lane a kernel should aggregate: unchanged when the key is not segment-scoped, otherwise
+   * the same slices with their {@code (segment, id)} cells replaced by canonical VALUE ids.
+   *
+   * @return {@code null} when a present cell has no value in this revision — the caller declines
+   */
+  private static ProjectionColumnStore.ColumnSlice @Nullable [] canonicaliseGroupKeys(
+      final @Nullable SegmentGroupCanonicaliser canonicaliser,
+      final ProjectionColumnStore.ColumnSlice @Nullable [] slices) {
+    return canonicaliser == null
+        ? slices
+        : canonicaliser.canonicalise(slices);
+  }
+
+  /**
+   * The same lane, refusing a null.
+   *
+   * <p>
+   * Used where canonicalisation happens inside the parallel pass and there is no decline to return.
+   * A cell with no value there is not a servability question but a page whose ids its own dictionary
+   * cannot decode, so it must be loud rather than folded into some group.
+   * </p>
+   */
+  private static ProjectionColumnStore.ColumnSlice @Nullable [] requireResolvedGroupKeys(
+      final @Nullable SegmentGroupCanonicaliser canonicaliser,
+      final ProjectionColumnStore.ColumnSlice @Nullable [] slices) {
+    if (canonicaliser != null && slices == null) {
+      throw new IllegalStateException("a segment-scoped group key reached the kernel uncanonicalised "
+          + "or has no value in this revision");
+    }
+    return slices;
+  }
+
   private GlobalValueDictionary.@Nullable ReadView segmentUnionView(final ProjectionIndexRegistry.Handle handle,
       final int column) {
     final int segments = handle.segmentDictionarySegmentCount();
@@ -18281,7 +18398,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     for (int i = 0; i < cells.length; i++) {
       final String value;
       try {
-        value = view.valueAsString((int) cells[i]);
+        value = view.valueOfCell(cells[i]);
       } catch (final RuntimeException unresolvable) {
         if (PROJ_DIAG) {
           System.err.println("[proj] segment group key " + cells[i] + " has no value in this revision — declining");

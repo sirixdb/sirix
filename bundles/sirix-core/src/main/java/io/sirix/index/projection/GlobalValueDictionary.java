@@ -705,7 +705,7 @@ public final class GlobalValueDictionary {
      * @throws IllegalStateException if the cell names a segment this index sealed nothing in — a cell
      *         that cannot be resolved is refused, never resolved against a neighbour's dictionary
      */
-    private ReadView segmentViewOf(final int cell) {
+    private ReadView segmentViewOf(final long cell) {
       final ReadView[] segments = perSegment;
       final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
       final ReadView view = segment >= 0 && segment < segments.length
@@ -723,10 +723,29 @@ public final class GlobalValueDictionary {
       return perSegment != null;
     }
 
+    /**
+     * The value a packed {@code (segment, id)} CELL names — the long-width entry point a
+     * segment-scoped column needs.
+     *
+     * <p>
+     * A cell does not fit in an {@code int}: the segment lives in its high 32 bits, so
+     * {@code valueAsString((int) cell)} would silently truncate the segment away and resolve every
+     * cell against segment 0. That is invisible while a resource has one segment and wrong the moment
+     * it has two, which is why the packed path has its own signature rather than sharing the id one.
+     * </p>
+     */
+    public @Nullable String valueOfCell(final long cell) {
+      if (perSegment == null) {
+        return valueAsString((int) cell);
+      }
+      return segmentViewOf(cell).valueAsString(ProjectionIndexRowGroupPage.idOfCell(cell));
+    }
+
     public String valueAsString(final int id) {
       final ReadView[] segments = perSegment;
       if (segments != null) {
-        return segmentViewOf(id).valueAsString(ProjectionIndexRowGroupPage.idOfCell(id));
+        // An int cannot carry a cell's segment; a union view must be asked through valueOfCell.
+        throw new IllegalStateException("this view resolves packed (segment, id) cells; call valueOfCell(long)");
       }
       final int slot = sliceSlot(id);
       final ValueDictionaryEntryNode spill = cachedSpills[slot];
@@ -1179,7 +1198,10 @@ public final class GlobalValueDictionary {
     /** Allocation-free {@code xs:integer(substring(value, start, length))}. */
     public long xsIntegerOfSubstring(final int id, final int start, final int length) {
       if (perSegment != null) {
-        return segmentViewOf(id).xsIntegerOfSubstring(ProjectionIndexRowGroupPage.idOfCell(id), start, length);
+        // Same width problem as valueAsString: a cell's segment does not survive an int. No caller
+        // needs a substring of a segment-scoped column yet, and a truncating one would read segment
+        // 0's dictionary for every cell.
+        throw new IllegalStateException("this view resolves packed (segment, id) cells; xsIntegerOfSubstring has no cell form");
       }
       return transformed(id, start, length, (byte) 1);
     }
@@ -1187,7 +1209,10 @@ public final class GlobalValueDictionary {
     /** Allocation-free order-preserving pack of a 16-byte ISO-minute substring. */
     public long packIsoMinuteSubstring(final int id, final int start, final int length) {
       if (perSegment != null) {
-        return segmentViewOf(id).packIsoMinuteSubstring(ProjectionIndexRowGroupPage.idOfCell(id), start, length);
+        // Same width problem as valueAsString: a cell's segment does not survive an int. No caller
+        // needs a substring of a segment-scoped column yet, and a truncating one would read segment
+        // 0's dictionary for every cell.
+        throw new IllegalStateException("this view resolves packed (segment, id) cells; packIsoMinuteSubstring has no cell form");
       }
       return transformed(id, start, length, (byte) 2);
     }
@@ -1195,7 +1220,10 @@ public final class GlobalValueDictionary {
     /** Materialise a validated ISO-minute substring for one emitted winner. */
     public String materializeIsoMinuteSubstring(final int id, final int start, final int length) {
       if (perSegment != null) {
-        return segmentViewOf(id).materializeIsoMinuteSubstring(ProjectionIndexRowGroupPage.idOfCell(id), start, length);
+        // Same width problem as valueAsString: a cell's segment does not survive an int. No caller
+        // needs a substring of a segment-scoped column yet, and a truncating one would read segment
+        // 0's dictionary for every cell.
+        throw new IllegalStateException("this view resolves packed (segment, id) cells; materializeIsoMinuteSubstring has no cell form");
       }
       // The ONE place a value becomes a String: an emitted winner. Validated on exactly the terms
       // packIsoMinuteSubstring uses, so an inadmissible substring is refused here as it is there.

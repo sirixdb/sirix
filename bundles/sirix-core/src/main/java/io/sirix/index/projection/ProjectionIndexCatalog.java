@@ -658,11 +658,45 @@ public final class ProjectionIndexCatalog {
     // …and the SEGMENT-scoped ones, which a column has instead of the single anchor above when its
     // dictionary is one per segment rather than one per resource.
     handle.setSegmentDictionaryAnchors(metadata.segmentAnchors(), metadata.columnKinds().length);
+    reportSegmentLane(handle, metadata);
     handle.setSegmentStarts(readSegmentStarts(reader, metadata));
     // …and so do the declared column paths, which is what keeps a NESTED column from answering a
     // top-level deref of the same trailing name (Handle#columnOf).
     handle.setFieldChains(metadata.fieldChains());
     return handle;
+  }
+
+  /**
+   * Report the segment lane's shape when diagnostics are on.
+   *
+   * <p>
+   * The segment COUNT is the fact that decides whether a packed-cell code path has actually been
+   * exercised: with one segment every cell's high 32 bits are zero, so a resolver that drops them
+   * still returns the right value and a width bug stays invisible. Printing it means a run's own
+   * output says whether it was a test of the packed path or only of segment 0.
+   * </p>
+   */
+  private static void reportSegmentLane(final ProjectionIndexRegistry.Handle handle,
+      final ProjectionIndexMetadata metadata) {
+    if (!DIAG) {
+      return;
+    }
+    final int segments = handle.segmentDictionarySegmentCount();
+    if (segments == 0) {
+      return;
+    }
+    int segmentScopedColumns = 0;
+    for (final byte kind : metadata.columnKinds()) {
+      if (ProjectionIndexRowGroupPage.isSegmentScopedIdKind(kind)) {
+        segmentScopedColumns++;
+      }
+    }
+    System.err.println("[cat] segment lane: " + segments + " segment(s), " + segmentScopedColumns
+        + " segment-scoped column(s)"
+        + (segments == 1
+            ? " — ONE segment: packed cells all carry segment 0, so this run does not exercise the"
+                + " multi-segment resolver"
+            : ""));
   }
 
   /**
@@ -1122,6 +1156,7 @@ public final class ProjectionIndexCatalog {
     // …and the SEGMENT-scoped ones, which a column has instead of the single anchor above when its
     // dictionary is one per segment rather than one per resource.
     handle.setSegmentDictionaryAnchors(metadata.segmentAnchors(), metadata.columnKinds().length);
+    reportSegmentLane(handle, metadata);
     handle.setSegmentStarts(readSegmentStarts(reader, metadata));
     return handle;
   }
