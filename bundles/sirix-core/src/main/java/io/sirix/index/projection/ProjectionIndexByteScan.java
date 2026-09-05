@@ -5791,6 +5791,9 @@ public final class ProjectionIndexByteScan {
     if (p.stringLitBytes != null) {
       return false;
     }
+    if (p.segmentCellVerdicts != null) {
+      return false; // a cell range says nothing about a per-value verdict
+    }
     if (p.segmentLiteralCells != null) {
       // A segment-scoped column's zone holds packed (segment, id) CELLS. A leaf never straddles a
       // segment, so min names the leaf's segment exactly, and the literal it must be compared

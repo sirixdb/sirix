@@ -1795,13 +1795,16 @@ public final class ProjectionColumnScan {
         // must NOT still be carrying string bytes: that would mean the literal was never resolved to
         // ids, and comparing bytes against cells answers a different question with a plausible
         // number. Every other op needs a per-value verdict, which this kind has no form for yet.
-        if (p.segmentLiteralCells == null) {
-          throw new IllegalStateException("column " + p.column + " is segment-scoped, but the " + p.op
-              + " predicate carries no per-segment literal — it was never resolved to ids");
-        }
-        if (p.op != ProjectionIndexScan.Op.EQ && p.op != ProjectionIndexScan.Op.NE) {
-          throw new IllegalStateException(
-              "segment-scoped column " + p.column + " cannot serve op " + p.op + " from a literal");
+        if (p.segmentCellVerdicts == null) {
+          if (p.segmentLiteralCells == null) {
+            throw new IllegalStateException("column " + p.column + " is segment-scoped, but the " + p.op
+                + " predicate carries neither a per-segment literal nor a per-cell verdict — it was never"
+                + " resolved against the dictionaries");
+          }
+          if (p.op != ProjectionIndexScan.Op.EQ && p.op != ProjectionIndexScan.Op.NE) {
+            throw new IllegalStateException(
+                "segment-scoped column " + p.column + " cannot serve op " + p.op + " from a literal");
+          }
         }
       } else if (p.stringLitBytes != null) {
         throw new IllegalStateException("String literal against non-string column " + p.column);
@@ -2330,6 +2333,29 @@ public final class ProjectionColumnScan {
           }
           final long id = values[rowIdx];
           if (id >= 1 && id <= idCount && (verdict[(int) (id >>> 6)] & 1L << (id & 63)) != 0L) {
+            out |= 1L << bit;
+          }
+        }
+        mask[w] = out;
+      }
+      return;
+    }
+    final SegmentCellVerdicts cellVerdicts = p.segmentCellVerdicts;
+    if (cellVerdicts != null) {
+      // Per-VALUE string op over a segment-scoped column: the memo settles each distinct cell once,
+      // so this loop is a pair of array reads per row like the global verdict arm above.
+      for (int w = 0; w < stride(rowCount); w++) {
+        long candidates = mask[w] & presence[w];
+        long out = 0L;
+        final int rowBase = w << 6;
+        while (candidates != 0L) {
+          final int bit = Long.numberOfTrailingZeros(candidates);
+          candidates &= candidates - 1L;
+          final int rowIdx = rowBase + bit;
+          if (rowIdx >= rowCount) {
+            break;
+          }
+          if (cellVerdicts.matches(values[rowIdx])) {
             out |= 1L << bit;
           }
         }
@@ -3186,9 +3212,12 @@ public final class ProjectionColumnScan {
    * caught by every caller as a decline.
    */
   private static void requireTranslatedLiteral(final ColumnPredicate p, final ColumnSlice slice) {
-    if (p.stringLitBytes != null && slice.numericValues() != null && p.globalIdVerdict == null) {
-      // A VERDICT predicate keeps its literal by design (it also keys the zone-skip exemption);
-      // only a literal with neither an id translation nor a verdict marks a routing defect.
+    if (p.stringLitBytes != null && slice.numericValues() != null && p.globalIdVerdict == null
+        && p.segmentCellVerdicts == null) {
+      // A VERDICT predicate keeps its literal by design (it also keys the zone-skip exemption), and a
+      // SEGMENT-scoped one keeps it because its verdict is filled lazily from that literal rather
+      // than swept up front; only a literal with neither an id translation nor a verdict of either
+      // kind marks a routing defect.
       throw new IllegalStateException("column " + p.column + " stores values in the long lane, but the " + p.op
           + " predicate still carries a string literal — it was never resolved to a dictionary id");
     }

@@ -104,6 +104,18 @@ public final class ProjectionIndexScan {
     /** No cell in this segment can equal the literal: {@code EQ} is false, {@code NE} true, for the leaf. */
     public static final long SEGMENT_LITERAL_ABSENT = Long.MIN_VALUE;
 
+    /**
+     * For a per-VALUE string op (containment, ordering) over a SEGMENT-SCOPED column: the lazily
+     * filled verdict memo the kernels test per row. {@code null} for every other predicate.
+     *
+     * <p>
+     * The segment-scoped twin of {@link #globalIdVerdict}, and lazy rather than swept for the reason
+     * {@link SegmentCellVerdicts} gives: a sealed segment dictionary carries a rank table, so a
+     * position-order sweep would set the right bits at the wrong ids.
+     * </p>
+     */
+    public final @Nullable SegmentCellVerdicts segmentCellVerdicts;
+
     public ColumnPredicate(final int column, final Op op, final long longLit, final long highLit, final boolean boolLit,
         final byte[] stringLitBytes) {
       this(column, op, longLit, highLit, boolLit, stringLitBytes, null, 0);
@@ -116,6 +128,20 @@ public final class ProjectionIndexScan {
      * @param literalCells the packed cell equal to the literal in each segment, or
      *        {@link #SEGMENT_LITERAL_ABSENT}
      */
+    /**
+     * A per-value string predicate over a segment-scoped column, answered from a lazily filled
+     * per-cell memo.
+     *
+     * @param verdicts evaluates and remembers one distinct cell at a time
+     */
+    public static ColumnPredicate segmentCellVerdict(final int column, final Op op, final byte[] literalUtf8,
+        final SegmentCellVerdicts verdicts) {
+      if (verdicts == null) {
+        throw new NullPointerException("verdicts");
+      }
+      return new ColumnPredicate(column, op, 0L, 0L, false, literalUtf8, null, 0, null, verdicts);
+    }
+
     public static ColumnPredicate segmentScopedEquality(final int column, final Op op, final long[] literalCells) {
       if (op != Op.EQ && op != Op.NE) {
         throw new IllegalArgumentException("a segment-scoped literal answers EQ and NE only, not " + op);
@@ -123,7 +149,7 @@ public final class ProjectionIndexScan {
       if (literalCells == null || literalCells.length == 0) {
         throw new IllegalArgumentException("literalCells must name at least one segment");
       }
-      return new ColumnPredicate(column, op, 0L, 0L, false, null, null, 0, literalCells);
+      return new ColumnPredicate(column, op, 0L, 0L, false, null, null, 0, literalCells, null);
     }
 
     /**
@@ -146,13 +172,15 @@ public final class ProjectionIndexScan {
     private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
         final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
         final int globalIdVerdictCount) {
-      this(column, op, longLit, highLit, boolLit, stringLitBytes, globalIdVerdict, globalIdVerdictCount, null);
+      this(column, op, longLit, highLit, boolLit, stringLitBytes, globalIdVerdict, globalIdVerdictCount, null, null);
     }
 
     private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
         final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
-        final int globalIdVerdictCount, final long @Nullable [] segmentLiteralCells) {
+        final int globalIdVerdictCount, final long @Nullable [] segmentLiteralCells,
+        final @Nullable SegmentCellVerdicts segmentCellVerdicts) {
       this.segmentLiteralCells = segmentLiteralCells;
+      this.segmentCellVerdicts = segmentCellVerdicts;
       this.column = column;
       this.op = op;
       this.longLit = longLit;

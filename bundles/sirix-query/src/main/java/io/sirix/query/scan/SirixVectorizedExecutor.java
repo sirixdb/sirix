@@ -60,6 +60,7 @@ import io.sirix.index.projection.GroupTableSpill;
 import io.sirix.index.projection.LongChunkPool;
 import io.sirix.index.projection.WindowedSliceArrays;
 import io.sirix.index.projection.ProjectionIndexRegistry;
+import io.sirix.index.projection.SegmentCellVerdicts;
 import io.sirix.index.projection.SegmentGroupCanonicaliser;
 import io.sirix.index.projection.ProjectionIndexScan;
 import io.sirix.index.projection.ProjectionResidencyScope;
@@ -3176,7 +3177,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return false;
     }
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
-      if (p != null && p.segmentLiteralCells != null) {
+      if (p != null && (p.segmentLiteralCells != null || p.segmentCellVerdicts != null)) {
         return true;
       }
     }
@@ -3211,6 +3212,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL && p.globalIdVerdict != null) {
         // A verdict predicate slices: the evaluator answers each row with one bit test over the id
         // lane; the literal it retains is the zone-skip exemption, not an untranslated leftover.
+      } else if (ProjectionIndexRowGroupPage.isSegmentScopedIdKind(columnKind)
+          && (p.segmentCellVerdicts != null || p.segmentLiteralCells != null)) {
+        // Both segment-scoped forms slice: a per-cell verdict is two array reads per row, and a
+        // per-segment literal is one integer compare against an entry chosen once per leaf. Neither
+        // has a whole-leaf twin, which is why the route is forced rather than merely preferred.
       } else if (p.stringLitBytes != null) {
         return false; // a string literal against a non-string column is the record path's case
       }
@@ -7108,7 +7114,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return null;
     }
     final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
-    final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+    final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle, true);
     if (extracted == null) {
       // Not a pure conjunction — AND/OR trees serve through the fold kernels (stage 6).
       final Long treeCount = tryTreeCount(cp, handle, fetcher);
@@ -8126,8 +8132,25 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * small array stack, no recursion, no boxing. {@code null} signals "unsupported shape; fall back to
    * the generic path".
    */
+  /**
+   * Conjunctive predicates, segment-scoped forms included.
+   *
+   * <p>
+   * Both segment-scoped forms — a per-segment literal and a per-cell verdict — are answered from a
+   * leaf's own cells, which only a ColumnSlice exposes; the whole-leaf byte kernels have no arm for
+   * the kind and refuse the page outright. Every route that builds one therefore has to reach a
+   * sliced kernel, which {@code predsSliceable} already reports and the group arm additionally
+   * FORCES. Passing {@code false} is for a caller that cannot promise that and would rather decline
+   * the predicate — falling back to the generic pipeline, slower but right — than fail on it.
+   * </p>
+   */
   private ProjectionIndexScan.ColumnPredicate[] extractConjunctivePredicates(final CompiledPredicate cp,
       final ProjectionIndexRegistry.Handle handle) {
+    return extractConjunctivePredicates(cp, handle, true);
+  }
+
+  private ProjectionIndexScan.ColumnPredicate[] extractConjunctivePredicates(final CompiledPredicate cp,
+      final ProjectionIndexRegistry.Handle handle, final boolean segmentScopedServable) {
     // Collect leaf node indices via a flat conjunction walk. Stack + out
     // arrays are sized to the full node count — bounded by the predicate's
     // tree size, which is small (tens of nodes max). One allocation per
@@ -8164,7 +8187,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
     final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[predicateLeafCount];
     for (int i = 0; i < predicateLeafCount; i++) {
-      out[i] = convertPredicateLeaf(cp, leaves[i], handle);
+      out[i] = convertPredicateLeaf(cp, leaves[i], handle, segmentScopedServable);
       if (out[i] == null)
         return null;
     }
@@ -8280,6 +8303,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private ProjectionIndexScan.ColumnPredicate convertPredicateLeaf(final CompiledPredicate cp, final int n,
       final ProjectionIndexRegistry.Handle handle) {
+    return convertPredicateLeaf(cp, n, handle, false);
+  }
+
+  private ProjectionIndexScan.ColumnPredicate convertPredicateLeaf(final CompiledPredicate cp, final int n,
+      final ProjectionIndexRegistry.Handle handle, final boolean segmentScopedServable) {
     {
       final byte op = cp.ops[n];
       final int fi = cp.fieldIdx[n];
@@ -8320,7 +8348,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // A global string column stores ids in the long lane. It is NOT numericColumn: a numeric
       // comparison against an id is meaningless, and every arithmetic site must keep declining it.
       final boolean globalStringColumn = columnKindByte == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
-      final boolean segmentScopedColumn = ProjectionIndexRowGroupPage.isSegmentScopedIdKind(columnKindByte);
+      final boolean segmentScopedColumn =
+          segmentScopedServable && ProjectionIndexRowGroupPage.isSegmentScopedIdKind(columnKindByte);
       // A declared temporal column is a STRING to the query and a long in storage. It answers the
       // ORDERING and EQUALITY string questions — through the literal-to-bound rewrite below, which is
       // exact — and refuses the rest: containment is a question about the text's bytes, not about a
@@ -8362,7 +8391,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // rides as a verdict bitset the kernels test per row (globalStringVerdictPredicate) —
           // the same two-phase evaluation the per-leaf dictionaries already run.
           if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn
-              && !(temporalColumn && op == CompiledPredicate.OP_STR_CMP)) {
+              && !segmentScopedColumn && !(temporalColumn && op == CompiledPredicate.OP_STR_CMP)) {
             return null;
           }
         }
@@ -8521,7 +8550,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               ? temporalPredicate(columnKindByte, column, strOp, litBytes)
               : globalStringColumn
                   ? globalStringVerdictPredicate(handle, column, litBytes, strOp)
-                  : new ProjectionIndexScan.ColumnPredicate(column, strOp, 0L, 0L, false, litBytes);
+                  : segmentScopedColumn
+                      ? segmentCellVerdictPredicate(handle, column, litBytes, strOp)
+                      : new ProjectionIndexScan.ColumnPredicate(column, strOp, 0L, 0L, false, litBytes);
           if (pred == null) {
             return null;
           }
@@ -8530,7 +8561,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           pred = globalStringColumn
               ? globalStringVerdictPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]],
                   ProjectionIndexScan.Op.STR_CONTAINS)
-              : ProjectionIndexScan.ColumnPredicate.stringContains(column, cp.strLiteralBytes[cp.strIdx[n]]);
+              : segmentScopedColumn
+                  ? segmentCellVerdictPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]],
+                      ProjectionIndexScan.Op.STR_CONTAINS)
+                  : ProjectionIndexScan.ColumnPredicate.stringContains(column, cp.strLiteralBytes[cp.strIdx[n]]);
           if (pred == null) {
             return null;
           }
@@ -8719,6 +8753,40 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           + " ms=" + (System.nanoTime() - t0) / 1_000_000L);
     }
     return verdict;
+  }
+
+  /**
+   * A per-VALUE string predicate (containment, ordering) over a SEGMENT-SCOPED column, answered from
+   * a lazily filled per-cell verdict.
+   *
+   * <p>
+   * The global kind sweeps its whole dictionary up front; this kind cannot, because a sealed segment
+   * dictionary carries a rank table and a position-order sweep would set the right bits at the wrong
+   * ids. Evaluating per referenced cell is both correct under a rank table — it addresses an id — and
+   * cheaper, since a segment's dictionary is shared with fields this column never holds.
+   * </p>
+   *
+   * @return the predicate, or {@code null} to decline
+   */
+  private ProjectionIndexScan.@Nullable ColumnPredicate segmentCellVerdictPredicate(
+      final ProjectionIndexRegistry.Handle handle, final int column, final byte @Nullable [] literalUtf8,
+      final ProjectionIndexScan.Op op) {
+    if (literalUtf8 == null) {
+      return null;
+    }
+    final int segments = handle.segmentDictionarySegmentCount();
+    if (segments <= 0) {
+      return null;
+    }
+    final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, column);
+    if (unionView == null) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] segment dictionaries unreadable for a verdict predicate on column " + column);
+      }
+      return null;
+    }
+    return ProjectionIndexScan.ColumnPredicate.segmentCellVerdict(column, op, literalUtf8,
+        new SegmentCellVerdicts(unionView, op, literalUtf8, segments));
   }
 
   /**
@@ -14823,7 +14891,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
           return declineGroupAgg("predicate fields not covered by the projection");
         }
-        final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+        // The only caller that can promise slices for a segment-scoped form: the arm below turns the
+        // slice route on whenever one is present, rather than treating slicing as a preference.
+        final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle, true);
         if (extracted != null) {
           preds = fuseRangePredicates(extracted);
         } else {

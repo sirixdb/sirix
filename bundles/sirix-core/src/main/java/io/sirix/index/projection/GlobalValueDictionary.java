@@ -756,6 +756,47 @@ public final class GlobalValueDictionary {
       return segmentView.valueAsString(id);
     }
 
+    /**
+     * Whether the value a packed CELL names satisfies {@code op} against {@code literalUtf8},
+     * evaluated on the stored BYTES — no {@link String} is built.
+     *
+     * <p>
+     * The per-value half of a two-phase string predicate on a segment-scoped column, and the reason
+     * such a column needs no dictionary-wide sweep: a caller memoises this per {@code (segment, id)},
+     * so the byte work is paid once per distinct value the column actually REFERENCES, which is at
+     * most — and usually far less than — the dictionary's size. It is also indifferent to a rank
+     * table, because it addresses an id rather than a storage position.
+     * </p>
+     *
+     * @return the verdict, or {@code null} when the cell names no entry of its segment
+     */
+    public @Nullable Boolean cellMatchesStringOp(final long cell, final ProjectionIndexScan.Op op,
+        final byte[] literalUtf8, final boolean literalHasSupplementary) {
+      Objects.requireNonNull(op, "op must not be null");
+      Objects.requireNonNull(literalUtf8, "literalUtf8 must not be null");
+      final ReadView view;
+      final int id;
+      if (perSegment == null) {
+        view = this;
+        id = (int) cell;
+      } else {
+        view = segmentViewOf(cell);
+        id = ProjectionIndexRowGroupPage.idOfCell(cell);
+      }
+      if (id < 1 || id > view.entryCount()) {
+        return null;
+      }
+      final int slot = view.sliceSlot(id);
+      final ValueDictionaryEntryNode spill = view.cachedSpills[slot];
+      if (spill != null) {
+        final byte[] bytes = spill.getValue();
+        return ProjectionIndexScan.stringDictEntryMatches(bytes, 0, bytes.length, op, literalUtf8,
+            literalHasSupplementary);
+      }
+      return ProjectionIndexScan.stringDictEntryMatches(view.cachedBacking[slot], view.cachedOffsets[slot],
+          view.cachedLengths[slot], op, literalUtf8, literalHasSupplementary);
+    }
+
     public String valueAsString(final int id) {
       final ReadView[] segments = perSegment;
       if (segments != null) {
