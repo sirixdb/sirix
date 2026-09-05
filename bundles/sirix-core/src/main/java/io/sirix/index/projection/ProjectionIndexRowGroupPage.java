@@ -1133,8 +1133,8 @@ public final class ProjectionIndexRowGroupPage {
         switch (columnKinds[c]) {
           // STRING_GLOBAL rides the numeric lane: its cells are dictionary ids, stored and packed
           // exactly like any other integer column; the temporal kinds ride it as epochs.
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL, COLUMN_KIND_TIMESTAMP,
-              COLUMN_KIND_DATE ->
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
+              COLUMN_KIND_STRING_SEGMENT, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE ->
             numericCols[c] = new long[MAX_ROWS];
           case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
           case COLUMN_KIND_STRING_DICT -> {
@@ -2290,8 +2290,8 @@ public final class ProjectionIndexRowGroupPage {
         page.columnMin[c] = bb.getLong();
         page.columnMax[c] = bb.getLong();
         switch (kinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL, COLUMN_KIND_TIMESTAMP,
-              COLUMN_KIND_DATE -> {
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
+              COLUMN_KIND_STRING_SEGMENT, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE -> {
             final long[] col = page.numericCols[c];
             for (int i = 0; i < rowCount; i++)
               col[i] = bb.getLong();
@@ -2437,8 +2437,8 @@ public final class ProjectionIndexRowGroupPage {
       colHdr.putLong(columnMax[c]);
       baos.write(colHdr.array(), 0, colHdr.position());
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL, COLUMN_KIND_TIMESTAMP,
-            COLUMN_KIND_DATE ->
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
+            COLUMN_KIND_STRING_SEGMENT, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE ->
           writeLongs(baos, numericCols[c], rowCount);
         case COLUMN_KIND_BOOLEAN -> writeLongs(baos, booleanCols[c], (rowCount + 63) >>> 6);
         case COLUMN_KIND_STRING_DICT -> {

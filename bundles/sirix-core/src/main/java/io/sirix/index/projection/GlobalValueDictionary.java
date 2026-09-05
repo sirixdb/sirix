@@ -95,6 +95,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class GlobalValueDictionary {
 
   private static final boolean HFT_TELEMETRY_ENABLED = Boolean.getBoolean("sirix.hft.telemetry");
+
+  /** Shares the projection's diagnostics switch, so one flag explains a whole route. */
+  private static final boolean PROJ_DIAG = Boolean.getBoolean("sirix.projDiag");
   private static final AtomicInteger HFT_MAX_PROBE_UNITS = new AtomicInteger();
   private static final LongHashFunction SECONDARY_HASH = LongHashFunction.xx3();
 
@@ -738,7 +741,19 @@ public final class GlobalValueDictionary {
       if (perSegment == null) {
         return valueAsString((int) cell);
       }
-      return segmentViewOf(cell).valueAsString(ProjectionIndexRowGroupPage.idOfCell(cell));
+      final ReadView segmentView = segmentViewOf(cell);
+      final int id = ProjectionIndexRowGroupPage.idOfCell(cell);
+      if (id < 1 || id > segmentView.entryCount()) {
+        // An id its own segment's dictionary does not contain. Resolving it anyway would return
+        // whatever entry the index happens to land on -- a real value, belonging to another row --
+        // so the only safe answer is "cannot resolve", which makes the caller decline.
+        if (PROJ_DIAG) {
+          System.err.println("[segdict] cell names segment " + ProjectionIndexRowGroupPage.segmentOfCell(cell)
+              + " id " + id + ", but that dictionary holds " + segmentView.entryCount() + " entries");
+        }
+        return null;
+      }
+      return segmentView.valueAsString(id);
     }
 
     public String valueAsString(final int id) {

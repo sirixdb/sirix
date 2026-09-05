@@ -17455,6 +17455,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     } else {
       segmentKeys = null;
     }
+    if (PROJ_DIAG) {
+      System.err.println("[proj] numericGroupAggregate col=" + groupCol + " kind="
+          + (handle == null
+              ? -1
+              : handle.columnKindOf(groupCol))
+          + " canonicalising=" + (segmentKeys != null) + " sliced=" + (slicedStore != null)
+          + " windowed=" + windowedSlices);
+    }
     if (orderPlan != null) {
       // High-cardinality shape, ordered + capped: flat per-worker tables (no boxed accumulator
       // per group), a hash-PARTITIONED parallel merge (no thread ever folds the full group

@@ -691,6 +691,19 @@ public final class ProjectionIndexCatalog {
         segmentScopedColumns++;
       }
     }
+    final byte[] kinds = metadata.columnKinds();
+    for (int col = 0; col < kinds.length; col++) {
+      if (!ProjectionIndexRowGroupPage.isSegmentScopedIdKind(kinds[col])) {
+        continue;
+      }
+      final StringBuilder anchors = new StringBuilder(64);
+      for (int segment = 0; segment < segments; segment++) {
+        anchors.append(segment == 0
+            ? ""
+            : " ").append('s').append(segment).append('=').append(handle.segmentDictionaryHeaderKey(segment, col));
+      }
+      System.err.println("[cat]   col " + col + " anchors: " + anchors);
+    }
     System.err.println("[cat] segment lane: " + segments + " segment(s), " + segmentScopedColumns
         + " segment-scoped column(s)"
         + (segments == 1

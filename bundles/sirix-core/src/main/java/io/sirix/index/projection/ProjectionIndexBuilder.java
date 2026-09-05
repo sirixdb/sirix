@@ -113,6 +113,10 @@ public final class ProjectionIndexBuilder {
   /** The document segment every row of the current group belongs to. */
   private int currentLeafSegment = NO_SEGMENT;
 
+  /** Write-side segment-lane trace; the stamp a leaf gets is not visible in any other output. */
+  private static final boolean SEGMENT_BUILD_DIAG = Boolean.getBoolean("sirix.segBuildDiag");
+  private int lastDiagSegment = -2;
+
   /** Columns the segment lane converted in at least one leaf; the kinds it publishes at the end. */
   private boolean[] segmentColumns = new boolean[0];
 
@@ -2224,6 +2228,14 @@ public final class ProjectionIndexBuilder {
       // string values go into its own segment's dictionary, which the document pages of that segment
       // are filling anyway and the seal writes once. Nothing is buffered and nothing is sampled,
       // because there is no decision left to make.
+      if (SEGMENT_BUILD_DIAG) {
+        final int stampedBefore = lastDiagSegment;
+        if (segment != stampedBefore || leavesEmitted % 200 == 0) {
+          lastDiagSegment = segment;
+          System.err.println("[segbuild] leaf=" + leavesEmitted + " stampSegment=" + segment + " segmentsKnown="
+              + segments.boundaries().segmentCount() + " firstRecordKey=" + currentLeaf.firstRecordKey());
+        }
+      }
       convertSegmentColumns(currentLeaf, segments, segment);
       leafSink.accept(currentLeaf);
       // NOT reused, for the reason the injected path gives: the conversion tore down this page's

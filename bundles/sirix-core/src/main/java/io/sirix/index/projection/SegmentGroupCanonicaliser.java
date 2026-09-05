@@ -122,8 +122,12 @@ public final class SegmentGroupCanonicaliser {
       }
       final long[] cells = slice.numericValues();
       if (cells == null) {
-        out[i] = slice;
-        continue;
+        // A segment-scoped column IS a long lane, so a slice without one cannot be canonicalised.
+        // Passing it through would be far worse than declining: its raw cells would then group
+        // BESIDE canonical ids from the leaves that were canonicalised, and a segment-0 cell is a
+        // small integer — exactly the space canonical ids occupy. Unrelated values would silently
+        // land in the same group.
+        return null;
       }
       final int rows = slice.rowCount();
       final long[] presence = slice.presenceWords();
