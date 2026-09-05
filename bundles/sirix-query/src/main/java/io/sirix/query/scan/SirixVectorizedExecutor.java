@@ -14423,6 +14423,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       boolean numericSingleKey = false;
       boolean anyNumericComponent = false;
       boolean globalRegexKey = false;
+      // A REGEX over a segment-scoped key needs no dictionary sweep and no hashing: the canonicaliser
+      // resolves each distinct cell once anyway, so applying the transform inside its resolver makes
+      // the canonical id name the TRANSFORMED string. The group identity is then exact rather than a
+      // 64-bit hash of it, and the winner's key is already the value the query asked for.
+      boolean segmentRegexKey = false;
       long globalRegexHeaderKey = 0L;
       // The single key is a global string column: it rides the NUMERIC arm (its cells are dense
       // ids in the long lane) but is a STRING to the query, so it may neither be ordered on in
@@ -14674,10 +14679,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           //   - every key TRANSFORM operates on the VALUE, and a canonical id is not the value.
           // The `!anyKeyTransform` guard at the call site is not enough on its own: a transformed
           // single key falls through to the COMPOSITE arm instead, so refuse here rather than there.
-          if (keyShifted || keySubstring || keyConditional || keyDivided || keyStringified
-              || (keyRegexPattern != null && keyRegexPattern.length == 1 && keyRegexPattern[0] != null)) {
+          final boolean segmentRegex =
+              keyRegexPattern != null && keyRegexPattern.length == 1 && keyRegexPattern[0] != null;
+          if (keyShifted || keySubstring || keyConditional || keyDivided || keyStringified) {
             return declineGroupAgg("segment-scoped group key with a transform not servable");
           }
+          if (segmentRegex && keyCount != 1) {
+            return declineGroupAgg("segment-scoped regex key is single-key only");
+          }
+          segmentRegexKey = segmentRegex;
           if (handle.segmentDictionarySegmentCount() <= 0) {
             return declineGroupAgg("segment-scoped group key has no sealed dictionary at this revision");
           }
@@ -14714,9 +14724,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       Pattern keyRegex = null;
       String keyRegexReplacement = null;
       if (keyRegexPattern != null && keyRegexPattern.length == keyCount && keyRegexPattern[0] != null) {
-        if (keyCount != 1 || numericSingleKey
+        if (keyCount != 1
+            || (numericSingleKey && !segmentRegexKey)
             || (handle.columnKindOf(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-                && !globalRegexKey)) {
+                && !globalRegexKey && !segmentRegexKey)) {
           return declineGroupAgg("regex key needs a single STRING_DICT or STRING_GLOBAL column");
         }
         try {
@@ -15304,8 +15315,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             globalSingleKey
                 ? handle.valueDictionaryHeaderKey(groupCol)
                 : 0L,
-            sumExactMask, keyDisplays[0], rankStringViews, segmentExtremumCols, segmentLengthCols, handle,
-            groupShapeFingerprint(groupCols, preds, tree, cdBlock));
+            sumExactMask, keyDisplays[0], rankStringViews, segmentExtremumCols, segmentLengthCols,
+            segmentRegexKey
+                ? keyRegex
+                : null,
+            keyRegexReplacement, handle, groupShapeFingerprint(groupCols, preds, tree, cdBlock));
       }
       if (keyCount > 1 || anyKeyTransform) {
         if (orderPlan != null) {
@@ -17677,6 +17691,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int[][] globalLengthTables, final boolean cdStringDict, final long globalKeyDictionary,
       final long sumExactMask, final byte keyDisplay, final ExtremumStrings[] rankStringViews,
       final int @Nullable [] segmentExtremumCols, final int @Nullable [] segmentLengthCols,
+      final @Nullable Pattern segmentKeyRegex, final @Nullable String segmentKeyRegexReplacement,
       final ProjectionIndexRegistry.Handle handle, final long groupShapeFp) {
     final int rowGroupCount = slicedStore != null
         ? slicedStore.rowGroupCount()
@@ -17704,7 +17719,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         // sorting on it would return the right rows in the wrong order.
         return declineGroupAgg("segment-scoped group key cannot order on the key lane");
       }
-      segmentKeys = new SegmentGroupCanonicaliser(unionView, handle.segmentDictionarySegmentCount());
+      // With a regex the resolver answers with the TRANSFORMED value, so the canonical id is the
+      // group's real identity and the winner's key needs no second transform. The resolver runs only
+      // on the memo's slow path, under its monitor, so a Matcher per distinct cell is nowhere near
+      // the row path.
+      final Pattern keyTransform = segmentKeyRegex;
+      final String keyTransformReplacement = segmentKeyRegexReplacement;
+      final SegmentGroupCanonicaliser.CellResolver keyResolver = keyTransform == null
+          ? unionView::valueOfCell
+          : cell -> {
+            final String raw = unionView.valueOfCell(cell);
+            return raw == null
+                ? null
+                : keyTransform.matcher(raw).replaceAll(keyTransformReplacement);
+          };
+      segmentKeys = new SegmentGroupCanonicaliser(keyResolver, handle.segmentDictionarySegmentCount());
     } else {
       segmentKeys = null;
     }
@@ -17779,41 +17808,56 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           return declineGroupAgg("a segment-scoped group key has no value in this revision");
         }
         slicedAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
-        if (anySegmentExtremum) {
-          // SEAL THE OPERAND'S ORDER, then hand the kernel a lane whose integers collate. Two passes
-          // over resident slices: observe() resolves each distinct cell once, sealOrderPreserving()
-          // sorts those values, and canonicalise() rewrites the lane through the ranking. The kernel
-          // below then folds min/max as plain integers and never learns the operand was a string.
+        if (PROJ_DIAG && anySegmentExtremum) {
+          // The two index spaces, printed side by side: a lane that stays unsealed here is the shape
+          // of the defect this loop is easiest to get wrong in.
           for (int a = 0; a < aggCols.length; a++) {
-            final boolean extremum = segmentExtremumCols != null && a < segmentExtremumCols.length
-                && segmentExtremumCols[a] >= 0;
-            final boolean lengths = segmentLengthCols != null && a < segmentLengthCols.length
-                && segmentLengthCols[a] >= 0;
-            if (!extremum && !lengths) {
+            System.err.println("[proj]   aggLane " + a + " col=" + aggCols[a] + " kind="
+                + slicedStore.columnKind(aggCols[a]) + " field=" + distinctFields.get(a) + " lenMode="
+                + (stringLengthModes == null
+                    ? -1
+                    : stringLengthModes[a]));
+          }
+        }
+        if (anySegmentExtremum) {
+          // SEAL EACH SEGMENT-SCOPED OPERAND'S ORDER, then hand the kernel a lane whose integers
+          // collate. Two passes over resident slices: observe() resolves each distinct cell once,
+          // sealOrderPreserving() sorts those values, canonicalise() rewrites the lane through the
+          // ranking. The kernel then folds min/max as plain integers and never learns the operand
+          // was a string.
+          //
+          // TWO INDEX SPACES MEET HERE, and conflating them silently skips a lane: the aggregate
+          // LANES are the distinctFields list (count(*) has no operand and takes no lane), while
+          // segmentExtremumCols and rankStringViews are indexed by FUNC. A length lane is already
+          // lane-indexed because the roster loop that marks it walks distinctFields itself.
+          for (int i = 0; i < funcs.length; i++) {
+            if (segmentExtremumCols == null || i >= segmentExtremumCols.length || segmentExtremumCols[i] < 0) {
               continue;
             }
-            final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, aggCols[a]);
-            if (unionView == null) {
-              return declineGroupAgg("segment-scoped extremum has no readable dictionary at this revision");
+            final int lane = aggFields[i] == null
+                ? -1
+                : distinctFields.indexOf(aggFields[i]);
+            if (lane < 0 || lane >= aggCols.length) {
+              return declineGroupAgg("segment-scoped extremum has no aggregate lane");
             }
-            final SegmentGroupCanonicaliser ranked =
-                new SegmentGroupCanonicaliser(unionView, handle.segmentDictionarySegmentCount());
-            final ProjectionColumnStore.ColumnSlice[] operand = slicedStore.column(aggCols[a], fetcher);
-            if (!ranked.observe(operand)) {
+            final SealedOperand sealed = sealSegmentOperand(handle, slicedStore, aggCols[lane], fetcher);
+            if (sealed == null) {
               return declineGroupAgg("a segment-scoped extremum operand has no value in this revision");
             }
-            ranked.sealOrderPreserving();
-            final ProjectionColumnStore.ColumnSlice[] rankedLane = ranked.canonicalise(operand);
-            if (rankedLane == null) {
-              return declineGroupAgg("a segment-scoped extremum operand has no value in this revision");
+            slicedAggCols[lane] = sealed.lane();
+            rankStringViews[i] = sealed.ranked()::valueOf;
+          }
+          for (int a = 0; a < aggCols.length; a++) {
+            if (segmentLengthCols == null || a >= segmentLengthCols.length || segmentLengthCols[a] < 0
+                || slicedAggCols[a] != null) {
+              continue;
             }
-            slicedAggCols[a] = rankedLane;
-            if (extremum) {
-              rankStringViews[a] = ranked::valueOf;
+            final SealedOperand sealed = sealSegmentOperand(handle, slicedStore, aggCols[a], fetcher);
+            if (sealed == null) {
+              return declineGroupAgg("a segment-scoped string-length operand has no value in this revision");
             }
-            if (lengths) {
-              globalLengthTables[a] = ranked.lengthTable(stringLengthModes[a]);
-            }
+            slicedAggCols[a] = sealed.lane();
+            globalLengthTables[a] = sealed.ranked().lengthTable(stringLengthModes[a]);
           }
         }
         for (int a = 0; a < aggCols.length; a++) {
@@ -18779,6 +18823,34 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return keyCols;
   }
 
+  /** A segment-scoped aggregate operand, ranked into a collation-ordered id space. */
+  private record SealedOperand(SegmentGroupCanonicaliser ranked, ProjectionColumnStore.ColumnSlice[] lane) {}
+
+  /**
+   * Resolve, rank and rewrite one segment-scoped aggregate operand.
+   *
+   * @return the seal and the lane it produced, or {@code null} when a present cell has no value
+   */
+  private @Nullable SealedOperand sealSegmentOperand(final ProjectionIndexRegistry.Handle handle,
+      final ProjectionColumnStore store, final int column,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, column);
+    if (unionView == null) {
+      return null;
+    }
+    final SegmentGroupCanonicaliser ranked =
+        new SegmentGroupCanonicaliser(unionView, handle.segmentDictionarySegmentCount());
+    final ProjectionColumnStore.ColumnSlice[] operand = store.column(column, fetcher);
+    if (!ranked.observe(operand)) {
+      return null;
+    }
+    ranked.sealOrderPreserving();
+    final ProjectionColumnStore.ColumnSlice[] lane = ranked.canonicalise(operand);
+    return lane == null
+        ? null
+        : new SealedOperand(ranked, lane);
+  }
+
   /** Whether any aggregate lane is a min/max over a segment-scoped column. */
   private static boolean anySegmentExtremum(final int @Nullable [] segmentExtremumCols) {
     if (segmentExtremumCols == null) {
@@ -19250,11 +19322,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             return null;
           }
         } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-            || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+            || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+            || ProjectionIndexRowGroupPage.isSegmentScopedIdKind(kind)) {
           // Served by the bounded sliced heap only — the tuple-collect fallbacks below are
-          // long-only, so a string key without that path declines.
+          // long-only, so a string key without that path declines. A SEGMENT-scoped key is a long
+          // lane too, but its order is the VALUES' and not its cells', so the heap compares it
+          // through compareCells rather than as a number.
           if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
               && handle.valueDictionaryHeaderKey(col) <= 0L) {
+            return null;
+          }
+          if (ProjectionIndexRowGroupPage.isSegmentScopedIdKind(kind)
+              && handle.segmentDictionarySegmentCount() <= 0) {
             return null;
           }
           anyStringKey = true;
@@ -19299,6 +19378,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               if (globalSortViews[key] == null) {
                 return null;
               }
+            } else if (ProjectionIndexRowGroupPage.isSegmentScopedIdKind(store.columnKind(cols[key]))) {
+              globalSortViews[key] = segmentUnionView(handle, cols[key]);
+              if (globalSortViews[key] == null) {
+                return null;
+              }
             }
           }
           // Per-thread views for the slabs: a view's slice caches and reader are single-threaded, and
@@ -19307,12 +19391,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               columnFetcher(), globalSortViews, () -> {
                 final GlobalValueDictionary.ReadView[] mine = new GlobalValueDictionary.ReadView[keyCount];
                 for (int key = 0; key < keyCount; key++) {
-                  if (globalSortViews[key] != null) {
-                    mine[key] = GlobalValueDictionary.readView(globalSortViews[key].headerNodeKey(),
-                        workerTrx().getStorageEngineReader());
-                    if (mine[key] == null) {
-                      throw new IllegalStateException("global sort dictionary became unreadable mid-query");
-                    }
+                  if (globalSortViews[key] == null) {
+                    continue;
+                  }
+                  // A union view has no single header node to reopen: it is a view PER SEGMENT, so the
+                  // per-thread copy is rebuilt from the anchors the same way the shared one was.
+                  mine[key] = globalSortViews[key].isSegmentUnion()
+                      ? segmentUnionView(handle, cols[key])
+                      : GlobalValueDictionary.readView(globalSortViews[key].headerNodeKey(),
+                          workerTrx().getStorageEngineReader());
+                  if (mine[key] == null) {
+                    throw new IllegalStateException("sort dictionary became unreadable mid-query");
                   }
                 }
                 return mine;
