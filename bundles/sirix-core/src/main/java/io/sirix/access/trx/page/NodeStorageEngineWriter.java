@@ -200,6 +200,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /** Told each encoded document leaf's key, so a segment-scoped dictionary knows when it may seal. */
   private volatile @Nullable LongConsumer documentPageEncodedListener;
 
+  /** Fired once per commit between the encode pass and the recursive commit; see the interface. */
+  private volatile @Nullable Runnable encodePassCompleteListener;
+
   /**
    * The {@link NamePage} owned by {@link #newRevisionRootPage}, resolved once per active TIL epoch.
    *
@@ -3741,6 +3744,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // by the time their bytes are cached, and the pass below is the last point before that.
       buildRevisionFsstSymbolTable();
       parallelSerializationOfKeyValuePages();
+      // THE SEAM. Above it every page of this revision has produced its bytes, so a dictionary those
+      // pages minted into is complete; below it the page graph is being written, so a record added
+      // then would not be in it. Anything that has to be true of both — a segment dictionary sealed
+      // against the ids its own pages carry — is written here.
+      notifyEncodePassComplete();
 
       final long t1 = timing
           ? System.nanoTime()
@@ -4227,7 +4235,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       for (final var container : logList) {
         final var modified = container.getModified();
         if (modified instanceof KeyValueLeafPage) {
-          prepareFinalCommitKeyValuePage(resourceConfig, modified);
+          prepareAndNoteKeyValuePage(resourceConfig, modified);
         }
       }
     } else {
@@ -4235,8 +4243,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       logList.parallelStream()
              .map(PageContainer::getModified)
              .filter(p -> p instanceof KeyValueLeafPage)
-             .forEach(page -> prepareFinalCommitKeyValuePage(resourceConfig, page));
+             .forEach(page -> prepareAndNoteKeyValuePage(resourceConfig, page));
     }
+  }
+
+  /**
+   * Encode one page for the final commit and report it.
+   *
+   * <p>
+   * ONE site for both the sequential and the parallel sweep, because the report is not optional: every
+   * page still in the log produces its bytes here, and this is the only place that is true of the
+   * pages a commit encodes itself — the snapshot windows speak for the pages they flushed, and a page
+   * they promoted or deferred, or that never entered one, reaches its bytes here and nowhere else. A
+   * branch that prepared without reporting would leave those pages outstanding forever.
+   * </p>
+   */
+  private void prepareAndNoteKeyValuePage(final ResourceConfiguration resourceConfig, final Page page) {
+    prepareFinalCommitKeyValuePage(resourceConfig, page);
+    noteDocumentPageEncoded((KeyValueLeafPage) page);
   }
 
   /**
@@ -4265,7 +4289,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    *         otherwise (including a configured handler that declined an unresolved-overflow page)
    */
   static boolean prepareFinalCommitKeyValuePage(final ResourceConfiguration resourceConfig, final Page page) {
-    if (resourceConfig.byteHandlePipeline.isEmpty()) {
+    // A page that carries a dictionary resolver MINTS while its string region is built, and the
+    // region is built by serializePage — not by the three calls below. Left to the recursive commit,
+    // that page would mint AFTER the seal, into a dictionary already written and released. So a
+    // resolver forces the full encode here, in the pass the seal is allowed to assume has finished;
+    // the bytes are cached on the page, so the recursive commit serves them rather than repeating
+    // the work.
+    if (resourceConfig.byteHandlePipeline.isEmpty() && ((KeyValueLeafPage) page).globalStringDictionaries() == null) {
       final KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
       keyValueLeafPage.ensureSlottedPage();
       keyValueLeafPage.compressStringValues();
@@ -4897,23 +4927,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           // epoch returns the frozen (stale) page while writes go into the copy (#1077).
           storageEngineReader.invalidateMostRecentlyReadRecordPage(indexType, indexNumber);
         }
-        return pageContainer;
+        return attachDocumentStringResolver(pageContainer, recordPageKey, indexType);
       }
 
       if (reference.getKey() == Constants.NULL_ID_LONG) {
         pageContainer = createFreshRecordPage(recordPageKey, indexType, getResourceSession().getResourceConfig(),
             storageEngineReader.getRevisionNumber());
-        if (indexType == IndexType.DOCUMENT) {
-          // Only DOCUMENT pages carry the projected columns' values, and only the MODIFIED half is
-          // ever written to — the complete twin starts empty and is replaced by the combine.
-          ((KeyValueLeafPage) pageContainer.getModified()).setGlobalStringDictionaries(
-              documentStringResolverFor(recordPageKey));
-        }
+        attachDocumentStringResolver(pageContainer, recordPageKey, indexType);
         appendLogRecord(reference, pageContainer);
         return pageContainer;
       } else {
         pageContainer = dereferenceRecordPageForModification(reference);
-        return pageContainer;
+        return attachDocumentStringResolver(pageContainer, recordPageKey, indexType);
       }
     };
 
@@ -5305,6 +5330,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     this.documentPageEncodedListener = listener;
   }
 
+  @Override
+  public void installEncodePassCompleteListener(final @Nullable Runnable listener) {
+    this.encodePassCompleteListener = listener;
+  }
+
+  /**
+   * Tell the seam listener that every page this commit writes has been encoded. Run on the
+   * committing thread, before the recursive commit, so whatever it persists joins this revision.
+   */
+  private void notifyEncodePassComplete() {
+    final Runnable listener = encodePassCompleteListener;
+    if (listener != null) {
+      listener.run();
+    }
+  }
+
   /**
    * Tell the listener a document leaf has been encoded. Called from the sequential pass that follows
    * a flush window's join, which is the first moment the page's values are certainly minted — and
@@ -5317,6 +5358,34 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return;
     }
     listener.accept(page.getPageKey());
+  }
+
+  /**
+   * Give a document leaf the resolver for its key, unless it already carries one.
+   *
+   * <p>
+   * Every route to a modifiable page passes through here, and it has to: a page reaches the writer
+   * three ways — created fresh, taken from the log (copied first when the snapshot froze it), or read
+   * back from the committed revision — and only the first of those used to be offered a resolver. A
+   * page of an EXISTING revision that this transaction modifies took the third route, so the first
+   * document page of every resource (the root nodes, written before any index could be declared over
+   * them) silently kept its bytes while every page created afterwards converted.
+   * </p>
+   *
+   * <p>
+   * Only DOCUMENT pages carry the projected columns' values, and only the MODIFIED half is ever
+   * written to — the complete twin starts empty and is replaced by the combine.
+   * </p>
+   */
+  private PageContainer attachDocumentStringResolver(final PageContainer pageContainer, final long recordPageKey,
+      final IndexType indexType) {
+    if (indexType != IndexType.DOCUMENT) {
+      return pageContainer;
+    }
+    if (pageContainer.getModified() instanceof KeyValueLeafPage page && page.globalStringDictionaries() == null) {
+      page.setGlobalStringDictionaries(documentStringResolverFor(recordPageKey));
+    }
+    return pageContainer;
   }
 
   /**

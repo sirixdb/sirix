@@ -155,6 +155,11 @@ public final class SegmentScopedDictionaries {
     this.columnByTag = requireNonNull(tags, "tags must not be null");
   }
 
+  /** The tag-to-column map as published now; the seal files each dictionary under its own tags. */
+  public Int2IntMap tags() {
+    return columnByTag;
+  }
+
   /** The boundaries this instance decides at adoption and reports at seal. */
   public SegmentBoundaries boundaries() {
     return boundaries;

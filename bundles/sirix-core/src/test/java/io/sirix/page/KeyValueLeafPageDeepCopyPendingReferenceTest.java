@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
+import io.sirix.page.pax.GlobalStringDictionaries;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,58 @@ final class KeyValueLeafPageDeepCopyPendingReferenceTest {
         copy.retire();
       }
       pending.cancelPendingPageWrite();
+      page.retire();
+    }
+  }
+
+  @Test
+  @DisplayName("the deep copy carries the page's dictionary resolver: the copy IS the page")
+  void theDictionaryResolverTravelsWithTheCopy() {
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("deep-copy-resolver").build();
+    final KeyValueLeafPage page = new KeyValueLeafPage(7, IndexType.DOCUMENT, config, REVISION, null, null);
+    final GlobalStringDictionaries resolver = new GlobalStringDictionaries() {
+      @Override
+      public boolean hasDictionary(final int tag) {
+        return true;
+      }
+
+      @Override
+      public boolean accepts(final int tag, final long dictionaryKey, final int recordedEntryCount) {
+        return false;
+      }
+
+      @Override
+      public int idOf(final int tag, final byte[] value, final int offset, final int length) {
+        return ID_ABSENT;
+      }
+
+      @Override
+      public byte[] valueOf(final int tag, final long dictionaryKey, final int recordedEntryCount, final int id) {
+        return null;
+      }
+
+      @Override
+      public long dictionaryKey(final int tag) {
+        return 42L;
+      }
+
+      @Override
+      public int dictionaryEntryCount(final int tag) {
+        return 0;
+      }
+    };
+    page.setGlobalStringDictionaries(resolver);
+    KeyValueLeafPage copy = null;
+    try {
+      copy = page.deepCopy();
+      // The serialization copy is the page the flush lane encodes, and the page the encode-completion
+      // listener speaks for. A copy without the resolver would silently keep its bytes AND never be
+      // reported as encoded, so its segment could never be sealed.
+      assertSame(resolver, copy.globalStringDictionaries(), "the copy must resolve exactly what the page does");
+    } finally {
+      if (copy != null) {
+        copy.retire();
+      }
       page.retire();
     }
   }

@@ -243,6 +243,30 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
+   * Install the listener fired once per commit at the seam between the pass that ENCODES every page
+   * this commit writes and the recursive commit that writes the page graph.
+   *
+   * <p>
+   * It is the only moment at which both halves of "the dictionary is complete" and "the dictionary
+   * is still writable" hold. Before it, a page the commit has yet to encode can still mint a value;
+   * after it, the page graph is being written and a new record would not be part of it. A seal in
+   * {@code beforeCommit} — where a bulk load finishes everything else — is on the wrong side: it
+   * misses the tail pages the commit itself encodes, and their ids would name entries no dictionary
+   * holds.
+   * </p>
+   *
+   * <p>
+   * The listener runs on the committing thread and MAY write: records it persists become part of
+   * this same revision. It is expected to clear itself, because it is armed for one commit.
+   * </p>
+   *
+   * @param listener the seam callback, or {@code null} to stop listening
+   */
+  default void installEncodePassCompleteListener(@Nullable Runnable listener) {
+    // No-op: a writer with nothing to seal has no seam to offer.
+  }
+
+  /**
    * Serialize the heap records a bulk merge left on a LIVE log leaf (the prologue page the importer
    * blits into rather than adopts) and stage every resulting overflow carrier as an immutable side
    * page, exactly as {@link #adoptDocumentLeafPage} does for an adopted leaf — so the background

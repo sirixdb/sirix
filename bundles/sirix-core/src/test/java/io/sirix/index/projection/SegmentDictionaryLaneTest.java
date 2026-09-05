@@ -5,7 +5,11 @@ package io.sirix.index.projection;
 
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.projection.ProjectionIndexMetadata.SegmentAnchor;
+import io.sirix.node.SegmentDictionaryDirectoryNode;
+import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.pax.GlobalStringDictionaries;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.IntIterator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -17,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.function.LongConsumer;
 import java.util.function.LongFunction;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -44,18 +49,37 @@ final class SegmentDictionaryLaneTest {
 
   private @Nullable String savedEnabled;
 
+  private boolean savedChunked;
+
   @BeforeEach
   void armTheLane() {
     savedEnabled = System.getProperty(SegmentDictionaryLane.ENABLED_PROPERTY);
+    // The lane refuses to arm without chunk-framed bodies, because a converted page is readable only
+    // on the lazy route; see theLaneRefusesAMonolithicBody for that guard's own witness.
+    savedChunked = ChunkedBodyConfig.setEnabledForTesting(true);
   }
 
   @AfterEach
   void restoreTheProperty() {
+    ChunkedBodyConfig.setEnabledForTesting(savedChunked);
     if (savedEnabled == null) {
       System.clearProperty(SegmentDictionaryLane.ENABLED_PROPERTY);
     } else {
       System.setProperty(SegmentDictionaryLane.ENABLED_PROPERTY, savedEnabled);
     }
+  }
+
+  @Test
+  @DisplayName("the lane refuses to arm over monolithic bodies: it would write pages nothing can read")
+  void theLaneRefusesAMonolithicBody() {
+    System.setProperty(SegmentDictionaryLane.ENABLED_PROPERTY, "true");
+    ChunkedBodyConfig.setEnabledForTesting(false);
+    final StorageEngineWriter writer = mock(StorageEngineWriter.class);
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> SegmentDictionaryLane.bind(writer, 1));
+    assertTrue(failure.getMessage().contains("chunk-framed"), failure.getMessage());
+    // Refused before anything was written or installed: the load can still run, converting nothing.
+    verifyNoMoreInteractions(writer);
   }
 
   private static SegmentDictionaryLane lane(final int columns) {
@@ -69,19 +93,19 @@ final class SegmentDictionaryLaneTest {
     assertFalse(SegmentDictionaryLane.enabled());
     final StorageEngineWriter writer = mock(StorageEngineWriter.class);
     assertNull(SegmentDictionaryLane.bind(writer, 2), "a load that did not ask for the lane gets none");
+    // Not one call: an unarmed lane neither reserves the directory's keys nor installs a seam, so a
+    // load that did not ask for it cannot tell the lane exists.
     verifyNoMoreInteractions(writer);
 
     System.setProperty(SegmentDictionaryLane.ENABLED_PROPERTY, "true");
     assertTrue(SegmentDictionaryLane.enabled());
-    assertNotNull(SegmentDictionaryLane.bind(writer, 2));
   }
 
   @Test
   @DisplayName("bind installs the resolver factory and the encode listener; release takes both away")
   void bindInstallsBothSeamsAndReleaseRemovesThem() {
-    System.setProperty(SegmentDictionaryLane.ENABLED_PROPERTY, "true");
     final StorageEngineWriter writer = mock(StorageEngineWriter.class);
-    final SegmentDictionaryLane lane = SegmentDictionaryLane.bind(writer, 2);
+    final SegmentDictionaryLane lane = SegmentDictionaryLane.install(writer, 2, new SegmentBoundaries());
     assertNotNull(lane);
 
     @SuppressWarnings("unchecked")
@@ -200,5 +224,57 @@ final class SegmentDictionaryLaneTest {
     claims.claim(7L, 0);
     lane.dictionaries().publishTags(claims.build());
     return 7;
+  }
+
+  @Test
+  @DisplayName("a column fed by several path classes files ALL of them, ascending, whatever order the map yields")
+  void aColumnsTagsAreFiledAscending() {
+    final SegmentDictionaryLane lane = lane(1);
+    lane.adoptPage(0L);
+    // Two field paths resolving onto one column — a descendant step, a repeated field — is exactly
+    // the shape TagColumnMap keeps (one column, so no contest), and BOTH tags must reach the
+    // directory: a tag it does not list is a tag whose pages cannot be resolved. The pair is chosen
+    // so the map yields them DESCENDING, because a lane that files them in map order would then hand
+    // the directory a slot it refuses, and any other pair would pass by luck.
+    final Int2IntMap tags = tagPairYieldingDescendingOrder();
+    final IntIterator keys = tags.keySet().iterator();
+    final int firstYielded = keys.nextInt();
+    final int secondYielded = keys.nextInt();
+    assertTrue(firstYielded > secondYielded, "the fixture must yield the tags descending: " + tags.keySet());
+    lane.dictionaries().publishTags(tags);
+    lane.anchors().seal(0, 0, 4242L, 7);
+
+    final SegmentDictionaryDirectoryNode.SlotTable table = lane.slotTableFor(0, tags);
+    assertEquals(1, table.slotCount(), "one column with a sealed dictionary is one slot");
+    assertArrayEquals(new int[] {secondYielded, firstYielded}, table.tags(0), "the slot's tags are ascending");
+    assertEquals(4242L, table.headerKey(0));
+    assertEquals(7, table.entryCount(0));
+  }
+
+  @Test
+  @DisplayName("a segment with nothing sealed files no slot at all")
+  void anUnsealedSegmentFilesNoSlot() {
+    final SegmentDictionaryLane lane = lane(1);
+    lane.adoptPage(0L);
+    final TagColumnMap claims = new TagColumnMap(1);
+    claims.claim(7L, 0);
+    assertEquals(0, lane.slotTableFor(0, claims.build()).slotCount());
+  }
+
+  /** A one-column tag map whose iteration yields its two tags in DESCENDING order. */
+  private static Int2IntMap tagPairYieldingDescendingOrder() {
+    for (int low = 1; low < 512; low++) {
+      for (int high = low + 1; high < 512; high++) {
+        final TagColumnMap claims = new TagColumnMap(2);
+        claims.claim(low, 0);
+        claims.claim(high, 0);
+        final Int2IntMap candidate = claims.build();
+        final IntIterator keys = candidate.keySet().iterator();
+        if (keys.nextInt() == high && keys.nextInt() == low) {
+          return candidate;
+        }
+      }
+    }
+    throw new AssertionError("no tag pair iterates descending; the fixture cannot be built");
   }
 }

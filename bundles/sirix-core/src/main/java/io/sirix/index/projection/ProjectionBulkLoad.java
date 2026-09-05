@@ -216,6 +216,9 @@ public final class ProjectionBulkLoad {
 
   private boolean finished;
 
+  /** Whether the segment seal is installed on the commit seam and owns the lane's release. */
+  private boolean segmentSealArmed;
+
   /**
    * {@code -Dsirix.projection.bulkDiag=true} prints how every change notification was classified when
    * the load finishes. A load-time build attributes records from notifications alone, so when it
@@ -942,14 +945,19 @@ public final class ProjectionBulkLoad {
       // A bulk load owns the virgin sub-tree it created itself; publication never replaces prior units.
       ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(),
           buildRevision, columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
-      sealSegmentDictionaries(storageEngineWriter);
+      armSegmentSeal(storageEngineWriter);
       builder.publishGlobalDictionaryColumnsBuilt();
     } finally {
       // Before every other release, because it is the one that reports: the probe/hit/absent counters
       // are the lane's only evidence of what it actually did, and the converted-arm gate asserts
       // absent == 0. A finish that failed still frees the snapshot readers.
       releaseTrieLane(storageEngineWriter);
-      releaseSegmentLane(storageEngineWriter);
+      if (!segmentSealArmed) {
+        // Armed, the lane belongs to the commit seam: it still has to serve the pages this commit
+        // encodes and to report them, and the seam's own listener releases it afterwards. Unarmed —
+        // the lane was off, or finish() failed before arming — this is the only release there is.
+        releaseSegmentLane(storageEngineWriter);
+      }
       try {
         bloomChunks.release();
       } finally {
@@ -969,29 +977,55 @@ public final class ProjectionBulkLoad {
   }
 
   /**
-   * Seal every segment dictionary and record where each went, then republish slot 0 with the anchor
-   * table. A no-op when the lane is off.
+   * Arm the seal for the COMMIT SEAM rather than sealing here. A no-op when the lane is off.
    *
    * <p>
-   * Runs AFTER {@code finishPersistWithStreamingFences} has written slot 0, and rewrites it — the
-   * same shape {@code ProjectionRankPass} uses when it turns a column global after the fact. It
-   * cannot run before: the anchors do not exist until the dictionaries are written, and the
-   * dictionaries cannot be written until every page has been encoded. The flush pool is fenced first,
-   * because {@code SegmentSealController.drain} refuses while a page is still encoding — sealing then
-   * would drop the values that page is about to mint.
+   * This method runs inside {@code beforeCommit}, which is the wrong side of the encode pass: the
+   * tail pages of the load — the ones the commit itself serializes — have not been encoded yet, and
+   * they would mint into a dictionary already written. So the seal is installed on
+   * {@link StorageEngineWriter#installEncodePassCompleteListener}, the seam between the encode pass
+   * and the recursive commit, where every page has produced its bytes and the page graph is not yet
+   * written. The listener clears itself and releases the lane, so a load that never commits leaves
+   * the lane to {@code releaseSegmentLane} exactly as before.
    * </p>
    */
-  private void sealSegmentDictionaries(final StorageEngineWriter storageEngineWriter) {
+  private void armSegmentSeal(final StorageEngineWriter storageEngineWriter) {
     final SegmentDictionaryLane lane = segmentDictionaryLane;
     if (lane == null) {
       return;
     }
-    storageEngineWriter.awaitPendingAsyncFlush();
+    // Captured, because finish()'s own cleanup nulls the field before the commit reaches the seam.
+    final ProjectionIndexHOTStorage sealStorage = storage;
+    segmentSealArmed = true;
+    storageEngineWriter.installEncodePassCompleteListener(() -> {
+      storageEngineWriter.installEncodePassCompleteListener(null); // armed for one commit
+      try {
+        sealSegmentDictionaries(storageEngineWriter, lane, sealStorage);
+      } finally {
+        lane.release(storageEngineWriter);
+      }
+    });
+  }
+
+  /**
+   * Seal every segment dictionary and record where each went, then republish slot 0 with the anchor
+   * table.
+   *
+   * <p>
+   * Rewrites the slot {@code finishPersistWithStreamingFences} wrote — the same shape
+   * {@code ProjectionRankPass} uses when it turns a column global after the fact. It cannot run
+   * before: the anchors do not exist until the dictionaries are written, and the dictionaries cannot
+   * be written until every page has been encoded, which is exactly what the seam this runs on
+   * guarantees.
+   * </p>
+   */
+  private void sealSegmentDictionaries(final StorageEngineWriter storageEngineWriter,
+      final SegmentDictionaryLane lane, final ProjectionIndexHOTStorage sealStorage) {
     final ProjectionIndexMetadata.SegmentAnchor[] anchors = lane.sealAll(storageEngineWriter);
     if (anchors.length == 0) {
       return;
     }
-    final byte[] blob = storage.getBlob(0L);
+    final byte[] blob = sealStorage.getBlob(0L);
     final ProjectionIndexMetadata metadata = blob == null
         ? null
         : ProjectionIndexMetadata.parse(blob);
@@ -1001,7 +1035,7 @@ public final class ProjectionBulkLoad {
     final ProjectionIndexMetadata next = new ProjectionIndexMetadata(metadata.rootPath(), metadata.fieldPaths(),
         metadata.fieldNames(), metadata.columnKinds(), metadata.rowGroupCount(), metadata.buildRevision(),
         metadata.setValueRowCounts(), metadata.valueDictionaryHeaderKeys(), anchors);
-    storage.putBlob(0L, next.serialize());
+    sealStorage.putBlob(0L, next.serialize());
   }
 
   /** Rows appended so far — test and diagnostic observability. */

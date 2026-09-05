@@ -13,9 +13,13 @@ import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
+import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
 import org.jspecify.annotations.Nullable;
+
+import java.util.function.LongConsumer;
+import java.util.function.LongFunction;
 
 /**
  * Forwards all methods to the delegate.
@@ -213,6 +217,25 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   @Override
   public PageGuard acquireGuardForNode(final long nodeKey) {
     return delegate().acquireGuardForNode(nodeKey);
+  }
+
+  // The three dictionary-lane seams. Their interface defaults are no-ops, so a decorated writer that
+  // did not forward them would arm nothing and report nothing while looking exactly like success:
+  // pages would keep their bytes, and a seal would find no page to wait for.
+
+  @Override
+  public void installDocumentStringDictionaryFactory(final @Nullable LongFunction<GlobalStringDictionaries> factory) {
+    delegate().installDocumentStringDictionaryFactory(factory);
+  }
+
+  @Override
+  public void installDocumentPageEncodedListener(final @Nullable LongConsumer listener) {
+    delegate().installDocumentPageEncodedListener(listener);
+  }
+
+  @Override
+  public void installEncodePassCompleteListener(final @Nullable Runnable listener) {
+    delegate().installEncodePassCompleteListener(listener);
   }
 
   @Override

@@ -846,6 +846,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Dropping it would leave a copy-on-written page holding FSST-encoded string bytes with no
     // way left to say which symbols they were encoded against.
     copy.fsstSymbolTableId = fsstSymbolTableId;
+    // The dictionary resolver travels too, and for the same reason: it is the PAGE's, chosen from
+    // the page's own key when the page was created, and the copy is that page. A copy without it
+    // encodes its string values as bytes while the original's segment counts on having minted them,
+    // and — because the encode-completion listener only speaks for a page that carries a resolver —
+    // never reports that it was encoded at all, so its segment can never be sealed. Recycling a
+    // frame still drops it, at clearGlobalStringBinding, which is where the "a pooled page must not
+    // hold a transaction's reader" rule belongs.
+    copy.globalStringDictionaries = globalStringDictionaries;
 
     return copy;
   }

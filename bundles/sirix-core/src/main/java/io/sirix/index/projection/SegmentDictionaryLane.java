@@ -5,6 +5,12 @@ package io.sirix.index.projection;
 
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.projection.ProjectionIndexMetadata.SegmentAnchor;
+import io.sirix.access.DatabaseType;
+import io.sirix.node.SegmentDictionaryDirectoryNode;
+import io.sirix.page.ChunkedBodyConfig;
+import io.sirix.page.NamePage;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -23,7 +29,7 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * This is the orchestration {@code docs/SEGMENT_SCOPED_DICTIONARIES.md} describes, over five pieces
  * that are each tested on their own: {@link SegmentScopedDictionaries} (mint, per-PAGE views),
- * {@link SegmentSealController} (when a segment is done), {@link SegmentDictionaryFlusher} (write
+ * {@link SegmentSealController} (when a segment is done), {@link SegmentDictionarySeal} (write
  * one sealed segment through the load's own writer), {@link SegmentDictionaryAnchors} (where each
  * sealed dictionary lives) and the metadata section that persists the last of those. The lane
  * exists so a caller wires three call sites rather than five objects.
@@ -56,7 +62,9 @@ import static java.util.Objects.requireNonNull;
  * <h2>Kill switch</h2>
  *
  * {@code -Dsirix.projection.segmentDict=true} arms the lane; it is OFF by default, so a load that
- * does not ask for it behaves exactly as before and every page keeps its bytes.
+ * does not ask for it behaves exactly as before and every page keeps its bytes. Arming it without
+ * chunk-framed bodies ({@code -Dsirix.chunkedBody.enable=true}) is refused rather than obeyed: the
+ * pages would be written unreadable.
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
@@ -66,9 +74,6 @@ public final class SegmentDictionaryLane {
 
   /** Arms the lane. Off by default: it gates BEHAVIOUR, never a decoder. */
   public static final String ENABLED_PROPERTY = "sirix.projection.segmentDict";
-
-  /** Per-segment admission budget for one column's values; a segment is small by construction. */
-  private static final long SEGMENT_VALUE_BUDGET_BYTES = 256L << 20;
 
   private final SegmentScopedDictionaries dictionaries;
 
@@ -106,10 +111,60 @@ public final class SegmentDictionaryLane {
       return null;
     }
     requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
-    final SegmentDictionaryLane lane = new SegmentDictionaryLane(columns);
+    if (!ChunkedBodyConfig.enabled()) {
+      // A page whose values are dictionary ids can only be expanded where a reader is reachable, and
+      // that is the LAZY route; the lazy route needs a chunk-framed body, and without one the reader
+      // falls back to eager expansion and refuses the page outright. Converting under a monolithic
+      // body writes pages nothing can read back — so the lane refuses to arm instead, here, where the
+      // load has not written anything yet.
+      throw new IllegalStateException("the segment dictionary lane needs chunk-framed record-page bodies"
+          + " (-Dsirix.chunkedBody.enable=true): a converted page is readable only on the lazy route,"
+          + " which a monolithic body cannot serve");
+    }
+    reserveDirectoryKeys(storageEngineWriter);
+    return install(storageEngineWriter, columns, new SegmentBoundaries());
+  }
+
+  /**
+   * The wiring half of {@link #bind}: hand the writer the two seams. Separated so a test can drive
+   * the wiring without a resource behind it — {@link #bind} additionally decides whether the lane may
+   * arm at all and reserves the directory's keys, and both of those need a real writer.
+   */
+  static SegmentDictionaryLane install(final StorageEngineWriter storageEngineWriter, final int columns,
+      final SegmentBoundaries boundaries) {
+    requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
+    final SegmentDictionaryLane lane = new SegmentDictionaryLane(columns, boundaries);
     storageEngineWriter.installDocumentStringDictionaryFactory(lane::adoptPage);
     storageEngineWriter.installDocumentPageEncodedListener(lane::pageEncoded);
     return lane;
+  }
+
+  /**
+   * Take the directory's key range out of circulation, once, before anything can be written.
+   *
+   * <p>
+   * The directory lives at the fixed key {@link SegmentDictionaryDirectoryNode#DIRECTORY_KEY}, which
+   * a reader looks up without being told where it is. Reserving the whole first record page keeps it
+   * alone there — its record is rewritten at every commit, and sharing a page with dictionary entries
+   * would copy those entries on every rewrite — and, more simply, stops the first dictionary the seal
+   * writes from landing on the directory's own key.
+   * </p>
+   *
+   * @throws IllegalStateException if the sub-trie has already handed out keys, so the directory's key
+   *         is not the lane's to take: this resource's dictionaries were written by another lane, and
+   *         a directory written over them would name records that mean something else
+   */
+  private static void reserveDirectoryKeys(final StorageEngineWriter storageEngineWriter) {
+    final NamePage namePage = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
+    final DatabaseType databaseType = GlobalValueDictionary.databaseTypeOf(storageEngineWriter);
+    namePage.createProjectionValueDictionaryTree(databaseType, storageEngineWriter, storageEngineWriter.getLog());
+    final long first =
+        namePage.reserveProjectionValueDictionaryKeys(databaseType, SegmentDictionaryDirectoryNode.RESERVED_KEYS);
+    if (first != SegmentDictionaryDirectoryNode.DIRECTORY_KEY) {
+      throw new IllegalStateException("the segment dictionary directory needs key "
+          + SegmentDictionaryDirectoryNode.DIRECTORY_KEY + ", but this resource's value dictionary already reaches "
+          + (first - 1) + "; one lane per resource writes the directory");
+    }
   }
 
   /**
@@ -159,16 +214,18 @@ public final class SegmentDictionaryLane {
         if (values.length == 0) {
           continue;
         }
-        final long headerKey = SegmentDictionaryFlusher.write(storageEngineWriter, column,
-            Arrays.asList(values).iterator(), SEGMENT_VALUE_BUDGET_BYTES);
-        if (headerKey == SegmentDictionaryAnchors.NO_HEADER_KEY) {
-          // The flusher writes nothing only for an empty stream, and this stream has values: a silent
-          // skip here would leave every page of the segment with ids that resolve to nothing.
+        // The values are stored in COLLATION order with a rank table translating the mints the pages
+        // carry; the ids stay arrival-order mints, which is what makes them permanent.
+        final SegmentDictionarySeal.Sealed dictionary =
+            SegmentDictionarySeal.write(storageEngineWriter, column, values);
+        if (dictionary.wroteNothing()) {
+          // The seal writes nothing only for an empty array, and this one has values: a silent skip
+          // here would leave every page of the segment with ids that resolve to nothing.
           throw new IllegalStateException("segment " + segment + " column " + column + " has " + values.length
               + " values but its dictionary was not written");
         }
-        anchors.seal(segment, column, headerKey, values.length);
-        sealed.add(new SegmentAnchor(segment, column, headerKey, values.length));
+        anchors.seal(segment, column, dictionary.headerKey(), dictionary.entryCount());
+        sealed.add(new SegmentAnchor(segment, column, dictionary.headerKey(), dictionary.entryCount()));
         written++;
       }
       // Every dictionary the segment minted must be one this loop wrote. A dictionary at a column
@@ -181,8 +238,73 @@ public final class SegmentDictionaryLane {
       }
       dictionaries.release(segment);
     }
+    if (!sealed.isEmpty()) {
+      writeDirectory(storageEngineWriter);
+    }
     LOGGER.debug("segment dictionary lane sealed {} (segment, column) dictionaries", sealed.size());
     return sealed.toArray(new SegmentAnchor[0]);
+  }
+
+  /**
+   * Write the directory at its fixed key: where every segment begins, and which dictionary serves
+   * which TAG inside it.
+   *
+   * <p>
+   * The anchors travel in the index metadata as well, but a reader that has to resolve a page's ids
+   * before it knows which projection index it is looking at cannot get there. The directory is that
+   * reader's entry point: one record, at a key it does not have to be told, naming the same
+   * dictionaries by the page's own tag.
+   * </p>
+   */
+  private void writeDirectory(final StorageEngineWriter storageEngineWriter) {
+    final long[] starts = dictionaries.boundaries().starts();
+    final Int2IntMap columnByTag = dictionaries.tags();
+    final SegmentDictionaryDirectoryNode.SlotTable[] tables =
+        new SegmentDictionaryDirectoryNode.SlotTable[starts.length];
+    for (int segment = 0; segment < starts.length; segment++) {
+      tables[segment] = slotTableFor(segment, columnByTag);
+    }
+    final NamePage namePage = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
+    final DatabaseType databaseType = GlobalValueDictionary.databaseTypeOf(storageEngineWriter);
+    namePage.putProjectionValueDictionaryRecord(
+        SegmentDictionaryDirectoryNode.takeOwnership(SegmentDictionaryDirectoryNode.DIRECTORY_KEY, starts, tables),
+        databaseType, storageEngineWriter, storageEngineWriter.getLog());
+  }
+
+  /**
+   * One segment's slot table: a slot per column that sealed a dictionary in it, carrying the tags
+   * that resolve to that column. A column with no dictionary in this segment contributes no slot, so
+   * a segment nothing was sealed in files as {@link SegmentDictionaryDirectoryNode.SlotTable#EMPTY}.
+   */
+  SegmentDictionaryDirectoryNode.SlotTable slotTableFor(final int segment, final Int2IntMap columnByTag) {
+    final IntArrayList slotColumns = new IntArrayList();
+    for (int column = 0; column < columns; column++) {
+      if (anchors.headerKeyOf(segment, column) != SegmentDictionaryAnchors.NO_HEADER_KEY) {
+        slotColumns.add(column);
+      }
+    }
+    if (slotColumns.isEmpty()) {
+      return SegmentDictionaryDirectoryNode.SlotTable.EMPTY;
+    }
+    final int[][] tagsBySlot = new int[slotColumns.size()][];
+    final long[] headerKeys = new long[slotColumns.size()];
+    final int[] entryCounts = new int[slotColumns.size()];
+    for (int slot = 0; slot < slotColumns.size(); slot++) {
+      final int column = slotColumns.getInt(slot);
+      final IntArrayList tags = new IntArrayList();
+      for (final Int2IntMap.Entry entry : columnByTag.int2IntEntrySet()) {
+        if (entry.getIntValue() == column) {
+          tags.add(entry.getIntKey());
+        }
+      }
+      // The node's contract, and the reader's binary search: strictly ascending.
+      final int[] tagArray = tags.toIntArray();
+      Arrays.sort(tagArray);
+      tagsBySlot[slot] = tagArray;
+      headerKeys[slot] = anchors.headerKeyOf(segment, column);
+      entryCounts[slot] = anchors.sealedEntryCountOf(segment, column);
+    }
+    return SegmentDictionaryDirectoryNode.SlotTable.takeOwnership(tagsBySlot, headerKeys, entryCounts);
   }
 
   /**
@@ -195,6 +317,11 @@ public final class SegmentDictionaryLane {
       storageEngineWriter.installDocumentStringDictionaryFactory(null);
       storageEngineWriter.installDocumentPageEncodedListener(null);
     }
+  }
+
+  /** Where each sealed dictionary went (test observability). */
+  SegmentDictionaryAnchors anchors() {
+    return anchors;
   }
 
   /** Sealed {@code (segment, column)} dictionaries (test and diagnostic observability). */
