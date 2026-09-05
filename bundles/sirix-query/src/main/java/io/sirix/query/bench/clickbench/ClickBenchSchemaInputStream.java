@@ -102,6 +102,32 @@ final class ClickBenchSchemaInputStream extends InputStream {
 
     int written = 0;
     while (written < length) {
+      // BULK RUN FIRST. Inside a plain string value every byte passes through untouched until a
+      // backslash, the closing quote or a control byte, and this corpus is mostly long URLs, titles
+      // and referers — so the common case is hundreds of bytes that need no decision at all. Copying
+      // the run costs one arraycopy instead of one readSource call, one normalize dispatch and one
+      // store per byte. It matters because this stream sits on the load's single bottleneck thread:
+      // profiled, ClickBenchSchemaInputStream was 48.9 % of a feeder pinned at 91 % CPU while the
+      // other 19 cores idled at 30 %.
+      if (state == STRING_VALUE && currentKind == STRING && !escaped && inputOffset < inputLimit) {
+        final byte[] source = inputBuffer;
+        final int limit = Math.min(inputLimit, inputOffset + (length - written));
+        int scan = inputOffset;
+        while (scan < limit) {
+          final int value = source[scan] & 0xFF;
+          if (value == '\\' || value == '"' || value < 0x20) {
+            break;
+          }
+          scan++;
+        }
+        final int run = scan - inputOffset;
+        if (run > 0) {
+          System.arraycopy(source, inputOffset, target, offset + written, run);
+          inputOffset += run;
+          written += run;
+          continue;
+        }
+      }
       final int source = readSource();
       if (source < 0) {
         if (state != TRAILING) {

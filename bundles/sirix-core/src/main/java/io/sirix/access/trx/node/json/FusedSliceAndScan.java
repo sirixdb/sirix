@@ -407,6 +407,29 @@ final class FusedSliceAndScan {
   private final @Nullable LongArrayList memberNodes;
 
   // ==== open-addressed byte-hash name table (slots map to STABLE dense ids) ===================
+  /**
+   * Field position within the record being scanned; reset whenever a record starts. Only an index
+   * into {@link #predictedSlotByOrdinal} — nothing depends on it being right, because every guess is
+   * verified against the name's own bytes.
+   */
+  private int fieldOrdinal;
+
+  /**
+   * The name-table slot the field at each position resolved to LAST time. A wrong prediction is a
+   * failed byte compare and the hash path runs as before, so a document whose records do not share a
+   * key order loses one compare per field and nothing else.
+   */
+  private final int[] predictedSlotByOrdinal = newPredictionTable();
+
+  private static int[] newPredictionTable() {
+    final int[] table = new int[PREDICTED_ORDINALS];
+    java.util.Arrays.fill(table, -1);
+    return table;
+  }
+
+  /** Field positions a record may have before predictions stop; beyond it the hash path serves. */
+  private static final int PREDICTED_ORDINALS = 512;
+
   private byte[][] nameBytes = new byte[NAME_TABLE_CAPACITY][];
   private int[] nameIdBySlot = new int[NAME_TABLE_CAPACITY];
   private String[] nameStringById = new String[64];
@@ -743,6 +766,23 @@ final class FusedSliceAndScan {
   /** Name bytes live at {@code chunkBuffer[start .. endExclusive)} (closing quote excluded). */
   private void resolveName(final int start, final int endExclusive) {
     final int len = endExclusive - start;
+    // PREDICT BEFORE HASHING. Records of a collection repeat their key set in the same order — that
+    // is what makes them a collection — so the name resolved at this position in the previous record
+    // is almost always this one. Verifying that guess is a length check and a byte compare over a
+    // short name; missing it costs one extra compare before the hash path below. Hashing every
+    // occurrence instead costs an fnv1a64 over the name's bytes for EVERY field of EVERY record:
+    // profiled on a 100M-row import, 7.1 % of the single feeder thread the whole load waits on.
+    final int ordinal = fieldOrdinal++;
+    if (ordinal < predictedSlotByOrdinal.length) {
+      final int predicted = predictedSlotByOrdinal[ordinal];
+      if (predicted >= 0) {
+        final byte[] existing = nameBytes[predicted];
+        if (existing != null && matches(existing, start, len)) {
+          useName(predicted);
+          return;
+        }
+      }
+    }
     final long hash = chunkBuffer.fnv1a64(start, len);
     int slot = (int) hash & nameMask;
     while (true) {
@@ -756,6 +796,14 @@ final class FusedSliceAndScan {
       }
       slot = (slot + 1) & nameMask;
     }
+    if (ordinal < predictedSlotByOrdinal.length) {
+      predictedSlotByOrdinal[ordinal] = slot; // what to guess at this position next time
+    }
+    useName(slot);
+  }
+
+  /** Everything resolveName does once it knows the slot, whether it guessed or hashed. */
+  private void useName(final int slot) {
     final int nameId = nameIdBySlot[slot];
     if (nameChunkOccurrencesById[nameId]++ == 0) {
       rememberTouched(nameId);
@@ -878,6 +926,12 @@ final class FusedSliceAndScan {
   }
 
   private void push(final PathStep step, final boolean isObject) {
+    if (isObject) {
+      // A fresh object restarts the field positions the prediction table is keyed by. Nested objects
+      // reset it mid-record, which costs accuracy and never correctness: a prediction is only ever a
+      // guess that the name's own bytes then confirm.
+      fieldOrdinal = 0;
+    }
     depth++;
     if (depth == contextStep.length) {
       contextStep = Arrays.copyOf(contextStep, contextStep.length << 1);
