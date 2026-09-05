@@ -12,6 +12,7 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
+import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -163,35 +164,37 @@ public final class SegmentGroupCanonicaliser {
   private int @Nullable [] sortedArrival;
 
   /**
-   * @param view resolver for the packed cells, typically a segment union view
+   * @param views supplier of a view PRIVATE TO THE CALLING THREAD — a
+   *        {@link GlobalValueDictionary.ReadView} holds plain mutable caches, and the resolver runs on
+   *        every scan worker, so a supplier that hands the same view to two of them tears its state
    * @param segments how many segments the resource sealed, so the memo is sized once rather than
    *        grown under contention; a cell above it still resolves, through a grow on the slow path
    */
-  public SegmentGroupCanonicaliser(final GlobalValueDictionary.ReadView view, final int segments) {
-    this(byteResolver(requireNonNull(view, "view must not be null")), segments);
+  public SegmentGroupCanonicaliser(final Supplier<GlobalValueDictionary.ReadView> views, final int segments) {
+    this(byteResolver(requireNonNull(views, "views must not be null")), segments);
   }
 
   /** The untransformed resolver: hashes and compares the dictionary's own bytes, allocating nothing. */
-  private static CellResolver byteResolver(final GlobalValueDictionary.ReadView view) {
+  private static CellResolver byteResolver(final Supplier<GlobalValueDictionary.ReadView> views) {
     return new CellResolver() {
       @Override
       public @Nullable String valueOfCell(final long cell) {
-        return view.valueOfCell(cell); // winners only
+        return views.get().valueOfCell(cell); // winners only
       }
 
       @Override
       public long hashOfCell(final long cell) {
-        return view.cellHash(cell);
+        return views.get().cellHash(cell);
       }
 
       @Override
       public boolean sameValue(final long left, final long right) {
-        return view.compareCells(left, right) == 0;
+        return views.get().compareCells(left, right) == 0;
       }
 
       @Override
       public int compareValues(final long left, final long right) {
-        return view.compareCells(left, right);
+        return views.get().compareCells(left, right);
       }
     };
   }
@@ -568,18 +571,40 @@ public final class SegmentGroupCanonicaliser {
    * Resolve one cell to its canonical id and remember it.
    *
    * <p>
-   * The dictionary read stays UNDER this monitor. {@link GlobalValueDictionary.ReadView} carries plain
-   * mutable caches — a per-id slice cache, a retained bucket and block — so two threads hashing
-   * through one view tear each other's state; the read either fails to parse or, far worse, returns a
-   * hash for a torn slice and puts two different values in one group. Hoisting the hash out of the
-   * lock to unblock the scan was measured and REVERTED for exactly that reason; the way to parallelise
-   * it is a view per worker, not a smaller critical section.
+   * The HASH is taken outside the monitor and only the group bookkeeping runs inside it, which is the
+   * difference between a parallel scan and a serial one: {@code hashOfCell} reads the dictionary — a
+   * page fetch and a block decode — and holding an instance-wide lock across it queues every worker
+   * behind one thread doing I/O.
+   * </p>
+   *
+   * <p>
+   * That is sound ONLY because the resolver reads a view private to the calling thread.
+   * {@link GlobalValueDictionary.ReadView} carries plain mutable caches, so two threads hashing
+   * through one view tear each other's state; the read then either fails to parse or, far worse,
+   * returns a hash for a torn slice and puts two different values in one group. Hoisting the hash out
+   * while the view was still shared was measured and it broke exactly that way — which is why the
+   * constructor takes a supplier and not a view.
+   * </p>
+   *
+   * <p>
+   * Racing workers may hash one cell twice. That costs a repeated read and changes no answer; issuing
+   * the canonical id, which mutates the shared value space, stays under the lock where it belongs.
    * </p>
    */
-  private synchronized int resolveAndMemoise(final long cell, final int segment, final int id) {
+  private int resolveAndMemoise(final long cell, final int segment, final int id) {
     if (segment < 0 || id < 0) {
       return UNRESOLVABLE;
     }
+    long hash;
+    try {
+      hash = resolver.hashOfCell(cell);
+    } catch (final RuntimeException unresolvable) {
+      hash = 0L; // the cell names no entry; 0 is not a hash here, so memoise refuses it below
+    }
+    return memoise(cell, segment, id, hash);
+  }
+
+  private synchronized int memoise(final long cell, final int segment, final int id, final long hash) {
     int[][] tables = memo;
     if (segment >= tables.length) {
       tables = Arrays.copyOf(tables, segment + 1);
@@ -594,21 +619,15 @@ public final class SegmentGroupCanonicaliser {
       table = Arrays.copyOf(table, Math.max(id + 1, table.length << 1));
       tables[segment] = table;
     } else if (table[id] != 0) {
-      return table[id]; // another worker resolved it between the fast-path read and this lock
+      return table[id]; // another worker resolved it while this one was hashing the dictionary
     }
-    final int canonical = issueCanonical(cell);
+    final int canonical = issueCanonical(cell, hash);
     table[id] = canonical;
     memo = tables; // volatile write: publishes both the entry above and any grown array
     return canonical;
   }
 
-  private int issueCanonical(final long cell) {
-    final long hash;
-    try {
-      hash = resolver.hashOfCell(cell);
-    } catch (final RuntimeException unresolvable) {
-      return UNRESOLVABLE;
-    }
+  private int issueCanonical(final long cell, final long hash) {
     if (hash == 0L) {
       return UNRESOLVABLE; // the cell names no entry; 0 is not a hash here
     }

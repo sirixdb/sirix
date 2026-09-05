@@ -12164,8 +12164,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (segments <= 0) {
       return null;
     }
-    final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, column);
-    if (unionView == null) {
+    final Supplier<GlobalValueDictionary.ReadView> unionViews = segmentUnionViewPerThread(handle, column);
+    if (unionViews == null) {
       return null;
     }
     final ProjectionColumnStore.ColumnSlice[] slices;
@@ -12177,7 +12177,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return null;
     }
-    final SegmentGroupCanonicaliser values = new SegmentGroupCanonicaliser(unionView, segments);
+    final SegmentGroupCanonicaliser values = new SegmentGroupCanonicaliser(unionViews, segments);
     if (!values.observe(slices)) {
       return null;
     }
@@ -15381,13 +15381,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               if (!segmentKeyComponents[k]) {
                 continue;
               }
-              final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, groupCols[k]);
-              if (unionView == null) {
+              final Supplier<GlobalValueDictionary.ReadView> unionViews =
+                  segmentUnionViewPerThread(handle, groupCols[k]);
+              if (unionViews == null) {
                 return declineGroupAgg("segment-scoped composite key has no readable dictionary at this revision");
               }
-              segmentEmitViews[k] = unionView;
+              // Emission is single-threaded and runs after the scan, so it keeps ONE view; only the
+              // canonicaliser, which resolves on every worker, needs the per-thread supplier.
+              segmentEmitViews[k] = unionViews.get();
               segmentCanonicalisers[k] =
-                  new SegmentGroupCanonicaliser(unionView, handle.segmentDictionarySegmentCount());
+                  new SegmentGroupCanonicaliser(unionViews, handle.segmentDictionarySegmentCount());
             }
           } else {
             segmentCanonicalisers = null;
@@ -17754,8 +17757,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final SegmentGroupCanonicaliser segmentKeys;
     if (handle != null
         && ProjectionIndexRowGroupPage.isSegmentScopedIdKind(handle.columnKindOf(groupCol))) {
-      final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, groupCol);
-      if (unionView == null) {
+      final Supplier<GlobalValueDictionary.ReadView> unionViews = segmentUnionViewPerThread(handle, groupCol);
+      if (unionViews == null) {
         return declineGroupAgg("segment-scoped group key has no readable dictionary at this revision");
       }
       if (slicedStore == null) {
@@ -17771,15 +17774,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return declineGroupAgg("segment-scoped group key cannot order on the key lane");
       }
       // With a regex the resolver answers with the TRANSFORMED value, so the canonical id is the
-      // group's real identity and the winner's key needs no second transform. The resolver runs only
-      // on the memo's slow path, under its monitor, so a Matcher per distinct cell is nowhere near
-      // the row path.
+      // group's real identity and the winner's key needs no second transform. It resolves only on the
+      // memo's slow path, once per distinct cell, so a Matcher there is nowhere near the row path. It
+      // reads through the PER-THREAD supplier and not a captured view: that slow path runs on every
+      // scan worker, and a shared view's caches tear under it.
       final Pattern keyTransform = segmentKeyRegex;
       final String keyTransformReplacement = segmentKeyRegexReplacement;
       final SegmentGroupCanonicaliser.CellResolver keyResolver = keyTransform == null
-          ? unionView::valueOfCell
+          ? cell -> unionViews.get().valueOfCell(cell)
           : cell -> {
-            final String raw = unionView.valueOfCell(cell);
+            final String raw = unionViews.get().valueOfCell(cell);
             return raw == null
                 ? null
                 : keyTransform.matcher(raw).replaceAll(keyTransformReplacement);
@@ -18890,12 +18894,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private @Nullable SealedOperand sealSegmentOperand(final ProjectionIndexRegistry.Handle handle,
       final ProjectionColumnStore store, final int column,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
-    final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, column);
-    if (unionView == null) {
+    final Supplier<GlobalValueDictionary.ReadView> unionViews = segmentUnionViewPerThread(handle, column);
+    if (unionViews == null) {
       return null;
     }
     final SegmentGroupCanonicaliser ranked =
-        new SegmentGroupCanonicaliser(unionView, handle.segmentDictionarySegmentCount());
+        new SegmentGroupCanonicaliser(unionViews, handle.segmentDictionarySegmentCount());
     final ProjectionColumnStore.ColumnSlice[] operand = store.column(column, fetcher);
     if (!ranked.observe(operand)) {
       return null;
