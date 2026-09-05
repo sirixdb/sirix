@@ -145,6 +145,13 @@ public final class SegmentGroupCanonicaliser {
       long min = Long.MAX_VALUE;
       long max = Long.MIN_VALUE;
       int present = 0;
+      // HOISTED ONCE PER LEAF, not read per row: `memo` is volatile and `laneIdOf` is a call, and a
+      // leaf never straddles a segment, so both answer the same thing for every row of it. What the
+      // row loop keeps is an array read; a cell whose entry is not settled yet — at most one per
+      // distinct cell over the whole query — is the only one that calls back.
+      final int[][] tables = memo;
+      final int[] ranks = rankByArrival;
+      int[] settled = null;
       for (int row = 0; row < rows; row++) {
         // ABSENT ROWS ARE NOT CELLS. A row whose field is missing carries whatever the lane was
         // filled with — resolving that would either invent a group or, far worse, declare the whole
@@ -153,7 +160,23 @@ public final class SegmentGroupCanonicaliser {
         if ((presence[row >>> 6] & 1L << (row & 63)) == 0L) {
           continue;
         }
-        final int id = laneIdOf(cells[row]);
+        final long cell = cells[row];
+        if (settled == null) {
+          final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
+          settled = segment >= 0 && segment < tables.length
+              ? tables[segment]
+              : null;
+          if (settled == null) {
+            settled = NO_SETTLED; // the segment has no table yet; every row takes the slow path
+          }
+        }
+        final int cellId = ProjectionIndexRowGroupPage.idOfCell(cell);
+        final int arrival = cellId >= 0 && cellId < settled.length
+            ? settled[cellId]
+            : 0;
+        final int id = arrival != 0
+            ? rankOf(arrival, ranks)
+            : laneIdOf(cell);
         if (id == UNRESOLVABLE) {
           return null;
         }
@@ -296,6 +319,19 @@ public final class SegmentGroupCanonicaliser {
   /** Whether {@link #sealOrderPreserving} has run, so lane ids are in collation order. */
   public boolean isOrderPreserving() {
     return rankByArrival != null;
+  }
+
+  /** Empty stand-in so the row loop never re-tests for a missing table. */
+  private static final int[] NO_SETTLED = new int[0];
+
+  /** An arrival id as the lane carries it: itself, or its rank once the value space is sealed. */
+  private static int rankOf(final int arrival, final int @Nullable [] ranks) {
+    if (ranks == null) {
+      return arrival;
+    }
+    return arrival > ranks.length
+        ? UNRESOLVABLE
+        : ranks[arrival - 1];
   }
 
   /**

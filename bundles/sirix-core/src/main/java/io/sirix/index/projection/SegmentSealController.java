@@ -169,6 +169,11 @@ public final class SegmentSealController {
     return segment < sealed.length && sealed[segment];
   }
 
+  /** Highest segment that has adopted a page; {@code -1} before the first. */
+  public synchronized int highWaterMark() {
+    return highWaterMark;
+  }
+
   /** Segments offered so far. */
   public synchronized int sealedCount() {
     int count = 0;

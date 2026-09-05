@@ -212,6 +212,17 @@ public final class SegmentDictionaryLane {
     if (!sealed.isEmpty()) {
       writeDirectory(storageEngineWriter);
     }
+    if (SEAL_DIAG) {
+      // What the lane was HOLDING. The heap cost of the whole design in one number, and the only way
+      // to price the 100M shape without paying half an hour for it.
+      long entries = 0;
+      for (final SegmentAnchor anchor : sealed) {
+        entries += anchor.sealedEntryCount();
+      }
+      System.err.println("[seal] final: dictionaries=" + sealed.size() + " entries=" + entries + " heldValueBytes="
+          + heldValueBytes + " heapUsedMB="
+          + (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / (1024 * 1024));
+    }
     LOGGER.debug("segment dictionary lane sealed {} (segment, column) dictionaries ({} incrementally)", sealed.size(),
         allSealed.size());
     return sealed.toArray(new SegmentAnchor[0]);
@@ -242,20 +253,42 @@ public final class SegmentDictionaryLane {
     requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
     final IntList ready = sealController.takeSealable(SEAL_SLACK_SEGMENTS);
     if (ready.isEmpty()) {
+      if (SEAL_DIAG) {
+        final int high = sealController.highWaterMark();
+        final StringBuilder outstanding = new StringBuilder();
+        for (int segment = 0; segment <= high && segment < 8; segment++) {
+          outstanding.append(segment == 0
+              ? ""
+              : " ").append('s').append(segment).append('=').append(sealController.outstandingIn(segment));
+        }
+        System.err.println("[seal] nothing sealable: highWater=" + high + " sealed=" + sealController.sealedCount()
+            + " outstanding[" + outstanding + "]");
+      }
       return NO_ANCHORS;
     }
     final List<SegmentAnchor> sealed = sealSegments(storageEngineWriter, ready);
     allSealed.addAll(sealed);
+    if (SEAL_DIAG) {
+      System.err.println("[seal] incremental: segments=" + ready + " dictionaries=" + sealed.size() + " total="
+          + allSealed.size() + " heapUsedMB="
+          + (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / (1024 * 1024));
+    }
     // NOT the directory: it names every segment's first page and is written once, by the seal that
     // finishes the load. Rewriting it per commit would persist a table that is still growing.
     LOGGER.debug("segment dictionary lane sealed {} (segment, column) dictionaries incrementally", sealed.size());
     return sealed.toArray(new SegmentAnchor[0]);
   }
 
+  /** Reports what each incremental pass sealed and the heap after it; {@code -Dsirix.projDiag}. */
+  private static final boolean SEAL_DIAG = Boolean.getBoolean("sirix.projDiag");
+
   /** Segments kept live below the high-water mark; see {@link SegmentSealController#takeSealable(int)}. */
   private static final int SEAL_SLACK_SEGMENTS = 1;
 
   private static final SegmentAnchor[] NO_ANCHORS = new SegmentAnchor[0];
+
+  /** Value bytes the lane held, summed as the seal reads them; diagnostics only. */
+  private long heldValueBytes;
 
   /** Anchors sealed by the incremental passes; {@link #sealAll} publishes these beside its own. */
   private final List<SegmentAnchor> allSealed = new ArrayList<>();
@@ -272,6 +305,11 @@ public final class SegmentDictionaryLane {
         final byte[][] values = dictionaries.valuesById(segment, column);
         if (values.length == 0) {
           continue;
+        }
+        if (SEAL_DIAG) {
+          for (final byte[] value : values) {
+            heldValueBytes += value.length;
+          }
         }
         // The values are stored in COLLATION order with a rank table translating the mints the pages
         // carry; the ids stay arrival-order mints, which is what makes them permanent.

@@ -334,7 +334,6 @@ public final class ProjectionBulkLoad {
     this.segmentDictionaryLane = lane;
     this.trieLaneWriter = storageEngineWriter;
     builder.setSegmentScopedDictionaries(lane.dictionaries());
-    armIncrementalSegmentSeal(storageEngineWriter, lane);
   }
 
   /**
@@ -349,14 +348,24 @@ public final class ProjectionBulkLoad {
    * </p>
    *
    * <p>
-   * The listener is installed for the COMMIT SEAM and left installed: it persists across commits, and
-   * {@link #armSegmentSeal} replaces it at the end with the one that seals the tail and publishes the
-   * anchors. It writes no directory — that names every segment and is written once, when the last
-   * seal knows them all.
+   * Armed at the start of EVERY intermediate commit, on that commit's own writer. Installing it once
+   * when the lane binds does not work and fails silently: an auto-commit ends the page transaction,
+   * so the writer captured then never reaches another seam and the listener fires zero times —
+   * measured, with 24 segments and 43 commits. {@link #armSegmentSeal} takes the seam over for the
+   * final commit, which seals the tail and publishes the anchors. Neither writes the directory —
+   * that names every segment and is written once, when the last seal knows them all.
    * </p>
    */
-  private void armIncrementalSegmentSeal(final StorageEngineWriter storageEngineWriter,
-      final SegmentDictionaryLane lane) {
+  private void armIncrementalSegmentSeal(final StorageEngineWriter storageEngineWriter) {
+    final SegmentDictionaryLane lane = segmentDictionaryLane;
+    if (SEAL_ARM_DIAG) {
+      System.err.println("[seal] arm attempt: lane=" + (lane != null) + " finalArmed=" + segmentSealArmed
+          + " writer=" + storageEngineWriter.getClass().getSimpleName() + "@"
+          + System.identityHashCode(storageEngineWriter));
+    }
+    if (lane == null || segmentSealArmed) {
+      return; // no lane, or the FINAL seal already owns the seam
+    }
     storageEngineWriter.installEncodePassCompleteListener(() -> {
       final ProjectionIndexMetadata.SegmentAnchor[] sealed = lane.sealCompleted(storageEngineWriter);
       if (sealed.length > 0) {
@@ -367,6 +376,9 @@ public final class ProjectionBulkLoad {
 
   /** {@code (segment, column)} dictionaries sealed mid-load; the lane's only evidence it kept up. */
   private int incrementallySealed;
+
+  /** Reports every attempt to arm the incremental seal; {@code -Dsirix.projDiag}. */
+  private static final boolean SEAL_ARM_DIAG = Boolean.getBoolean("sirix.projDiag");
 
   /** Internal publication-injected form used by focused storage-failure coverage. */
   static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
@@ -695,6 +707,7 @@ public final class ProjectionBulkLoad {
     if (finished) {
       return;
     }
+    armIncrementalSegmentSeal(storageEngineWriter);
     long savedNodeKey = -1L;
     boolean restoreCursor = false;
     Throwable primaryFailure = null;

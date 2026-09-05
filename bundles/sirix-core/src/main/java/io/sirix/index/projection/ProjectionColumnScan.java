@@ -2352,9 +2352,22 @@ public final class ProjectionColumnScan {
     }
     final SegmentCellVerdicts cellVerdicts = p.segmentCellVerdicts;
     if (cellVerdicts != null) {
-      // Per-VALUE string op over a segment-scoped column: the memo settles each distinct cell once,
-      // so this loop is a pair of array reads per row like the global verdict arm above.
-      for (int w = 0; w < stride(rowCount); w++) {
+      // Per-VALUE string op over a segment-scoped column. The memo settles each distinct cell once;
+      // what this loop must not do is ask it per ROW, which costs a volatile read of the memo and a
+      // virtual call every time. A leaf never straddles a segment, so the table is resolved ONCE here
+      // and the row path becomes an array read and a compare — the unsettled entries, at most one per
+      // distinct cell over the whole query, are the only ones that call back.
+      final int words = stride(rowCount);
+      final long anyCell = firstPresentValue(values, presence, rowCount);
+      if (anyCell == NO_PRESENT_VALUE) {
+        clearMask(mask, words);
+        return;
+      }
+      final byte[] settledTable = cellVerdicts.tableForLeaf(anyCell);
+      final int settledLength = settledTable == null
+          ? 0
+          : settledTable.length;
+      for (int w = 0; w < words; w++) {
         long candidates = mask[w] & presence[w];
         long out = 0L;
         final int rowBase = w << 6;
@@ -2365,7 +2378,15 @@ public final class ProjectionColumnScan {
           if (rowIdx >= rowCount) {
             break;
           }
-          if (cellVerdicts.matches(values[rowIdx])) {
+          final long cell = values[rowIdx];
+          final int id = ProjectionIndexRowGroupPage.idOfCell(cell);
+          final byte settled = id >= 0 && id < settledLength
+              ? settledTable[id]
+              : SegmentCellVerdicts.UNSETTLED;
+          final boolean matched = settled != SegmentCellVerdicts.UNSETTLED
+              ? SegmentCellVerdicts.isMatch(settled)
+              : cellVerdicts.matchesSlow(cell);
+          if (matched) {
             out |= 1L << bit;
           }
         }

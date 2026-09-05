@@ -50,8 +50,11 @@ import static java.util.Objects.requireNonNull;
  */
 public final class SegmentCellVerdicts {
 
+  /** Not yet evaluated — a row whose entry reads this must take {@link #matchesSlow}. */
+  public static final byte UNSETTLED = 0;
+
   /** Not yet evaluated. */
-  private static final byte UNKNOWN = 0;
+  private static final byte UNKNOWN = UNSETTLED;
   private static final byte MATCHES = 1;
   private static final byte REJECTS = 2;
   /** The cell names no entry of its segment: it can satisfy no per-value predicate. */
@@ -116,6 +119,37 @@ public final class SegmentCellVerdicts {
   /** The op this verdict answers. */
   public ProjectionIndexScan.Op op() {
     return op;
+  }
+
+  /**
+   * The settled-verdict table for the leaf {@code anyCellInLeaf} belongs to, or {@code null} when the
+   * segment has none yet.
+   *
+   * <p>
+   * The HOT-PATH entry point, and the reason it exists: a row loop that calls {@link #matches} pays a
+   * volatile read of the memo and a virtual call FOR EVERY ROW. A leaf never straddles a segment, so
+   * the table is the same for all of its rows — read it once here, then test rows against the array
+   * directly. A table replaced by a concurrent grow leaves the captured reference stale, which is
+   * benign: its entries read {@link #UNSETTLED} and those rows take {@link #matchesSlow}, whose
+   * answer is identical.
+   * </p>
+   */
+  public byte @Nullable [] tableForLeaf(final long anyCellInLeaf) {
+    final int segment = ProjectionIndexRowGroupPage.segmentOfCell(anyCellInLeaf);
+    final byte[][] tables = memo;
+    return segment >= 0 && segment < tables.length
+        ? tables[segment]
+        : null;
+  }
+
+  /** Whether a settled entry from {@link #tableForLeaf} is a match. */
+  public static boolean isMatch(final byte settled) {
+    return settled == MATCHES;
+  }
+
+  /** The full lookup, for a row whose entry is not settled yet. */
+  public boolean matchesSlow(final long cell) {
+    return matches(cell);
   }
 
   /** Whether the value {@code cell} names satisfies the predicate. An unresolvable cell never does. */

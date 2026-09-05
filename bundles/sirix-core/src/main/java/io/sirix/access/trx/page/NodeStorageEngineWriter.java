@@ -5346,10 +5346,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private void notifyEncodePassComplete() {
     final Runnable listener = encodePassCompleteListener;
+    if (SEAM_DIAG) {
+      System.err.println("[seam] encode pass complete: writer=" + System.identityHashCode(this) + " listener="
+          + (listener != null));
+    }
     if (listener != null) {
       listener.run();
     }
   }
+
+  /** Reports every commit seam and whether anything was listening; {@code -Dsirix.projDiag}. */
+  private static final boolean SEAM_DIAG = Boolean.getBoolean("sirix.projDiag");
 
   /**
    * Tell the listener a document leaf has been encoded. Called from the sequential pass that follows
