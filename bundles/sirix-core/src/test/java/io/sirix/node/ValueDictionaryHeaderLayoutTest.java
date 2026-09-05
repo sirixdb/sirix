@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -145,6 +146,217 @@ final class ValueDictionaryHeaderLayoutTest {
       assertEquals(0L, read.getForwardRootKey());
       assertEquals(99L, read.getReverseRootKey());
       assertEquals(3, read.getGeneration());
+    }
+  }
+
+  /**
+   * The shape a sealed segment dictionary writes: storage in collation order (so the binary-search
+   * probe and the separator array are legal) but ids that are arrival-order MINTS mapped through a
+   * rank table. Every arm that compares ids AS values must ask {@link
+   * ValueDictionaryHeaderNode#idsAreCollationOrdered()}, which is the one predicate the table turns
+   * off; everything {@link ValueDictionaryHeaderNode#isFullyOrdered()} licenses about the STORAGE
+   * stays true.
+   */
+  @Test
+  @DisplayName("A rank table keeps the storage ordered but makes the ids NOT collation-ordered")
+  void rankTableSeparatesStorageOrderFromIdOrder() {
+    final ValueDictionaryHeaderNode tabled =
+        new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 512, 0L, 99L, 1, 512, 300L, 900L);
+    assertTrue(tabled.hasRankTable());
+    assertEquals(900L, tabled.getRankTableKey());
+    assertTrue(tabled.isFullyOrdered(), "the storage IS in collation order");
+    assertFalse(tabled.idsAreCollationOrdered(), "but the ids are mints, so comparing them compares arrival order");
+    assertTrue(tabled.supportsValueProbe(), "binary search over the ordered storage still answers value -> position");
+    assertFalse(tabled.isDecodeOnly());
+    assertTrue(tabled.isDirectoryComplete());
+    assertEquals(300L, tabled.getBlockIndexKey());
+
+    final ValueDictionaryHeaderNode untabled =
+        new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 512, 0L, 99L, 1, 512, 300L, 0L);
+    assertFalse(untabled.hasRankTable());
+    assertTrue(untabled.idsAreCollationOrdered(), "without a table, ids ARE storage positions");
+    assertNotEquals(tabled, untabled, "the table key is part of the header's identity");
+    assertNotEquals(tabled.hashCode(), untabled.hashCode());
+    assertTrue(tabled.toString().contains("900"), tabled.toString());
+  }
+
+  /**
+   * A table translates mints in {@code 1..orderedPrefixCount}; with no prefix there is nothing to
+   * translate, and a forward index would answer a probe with a storage POSITION that the pages do
+   * not carry. Both are refused at construction, so no reader has to guard against them.
+   */
+  @Test
+  @DisplayName("A rank table needs an ordered prefix and excludes a forward index")
+  void rankTableInvariants() {
+    final IllegalArgumentException noPrefix = assertThrows(IllegalArgumentException.class,
+        () -> new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 512, 0L, 99L, 1, 0, 0L, 900L));
+    assertTrue(noPrefix.getMessage().contains("ordered prefix"), noPrefix.getMessage());
+    final IllegalArgumentException withForward = assertThrows(IllegalArgumentException.class,
+        () -> new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 512, 5L, 99L, 1, 512, 0L, 900L));
+    assertTrue(withForward.getMessage().contains("forward index"), withForward.getMessage());
+    assertThrows(IllegalArgumentException.class,
+        () -> new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 512, 0L, 99L, 1, 512, 0L, -1L),
+        "a negative key");
+    assertThrows(IllegalArgumentException.class,
+        () -> new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 512, 0L, 99L, 1, 513, 0L, 900L),
+        "a prefix beyond the entry count");
+    // An ordered prefix with an unordered tail may carry a table (the prefix's mints translate, the
+    // tail's are their own positions); it is legal, not fully ordered, and not probeable as a whole.
+    final ValueDictionaryHeaderNode tailed =
+        new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 600, 0L, 99L, 2, 512, 0L, 900L);
+    assertTrue(tailed.hasRankTable());
+    assertFalse(tailed.isFullyOrdered());
+    assertFalse(tailed.idsAreCollationOrdered());
+    assertFalse(tailed.supportsValueProbe(), "the tail has neither order nor a forward index");
+  }
+
+  @Test
+  @DisplayName("The rank table key round-trips as the third trailer field")
+  void rankTableKeyRoundTrips() {
+    final ValueDictionaryHeaderNode header =
+        new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 512, 0L, 99L, 1, 512, 300L, 900L);
+    try (final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer()) {
+      NodeKind.VALUE_DICTIONARY_HEADER.serialize(bytes, header, null);
+      final byte[] wire = bytes.toByteArray();
+      assertEquals(HEADER_BYTES + TRIPLE_TRAILER_BYTES, wire.length, "the triple is written when anything is set");
+      final ValueDictionaryHeaderNode read =
+          (ValueDictionaryHeaderNode) NodeKind.VALUE_DICTIONARY_HEADER.deserialize(Bytes.wrapForRead(wire), 7L, null,
+              null);
+      assertEquals(header, read);
+      assertEquals(900L, read.getRankTableKey());
+      assertEquals(300L, read.getBlockIndexKey());
+      assertEquals(512, read.getOrderedPrefixCount());
+      assertTrue(read.hasRankTable());
+      assertFalse(read.idsAreCollationOrdered());
+    }
+  }
+
+  /** {@code version, entryCount, forwardRootKey, reverseRootKey, generation}: 4 + 4 + 8 + 8 + 4. */
+  private static final int HEADER_BYTES = 28;
+  /** {@code orderedPrefixCount, blockIndexKey}: 4 + 8 — pinned here, and the codec must agree. */
+  private static final int PAIR_TRAILER_BYTES = 12;
+  /** The pair plus {@code rankTableKey}. */
+  private static final int TRIPLE_TRAILER_BYTES = 20;
+
+  @Test
+  @DisplayName("The trailer lengths the codec accepts are the wire shape this test pins")
+  void trailerConstantsMatchTheWire() {
+    assertEquals(PAIR_TRAILER_BYTES, ValueDictionaryHeaderNode.PAIR_TRAILER_BYTES);
+    assertEquals(TRIPLE_TRAILER_BYTES, ValueDictionaryHeaderNode.TRIPLE_TRAILER_BYTES);
+  }
+
+  /**
+   * A trailer of any other length is corruption, not a shorter or longer header: a lenient reader
+   * that took "12 or more" as the pair and "20 or more" as the triple would read a rank table key out
+   * of whatever followed. One byte too few, one too many, and a bare 4-byte fragment must all refuse,
+   * and the message must name the length it saw and the three it accepts.
+   */
+  @Test
+  @DisplayName("A trailer of 4, 11, 13, 19, 21 or 24 bytes is refused, naming the legal lengths")
+  void illegalTrailerLengthsAreRefused() {
+    for (final int trailer : new int[] {1, 4, 8, 11, 13, 16, 19, 21, 24, 28}) {
+      try (final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer()) {
+        bytes.writeInt(ValueDictionaryHeaderNode.VERSION);
+        bytes.writeInt(512);
+        bytes.writeLong(0L);
+        bytes.writeLong(99L);
+        bytes.writeInt(3);
+        for (int i = 0; i < trailer; i++) {
+          bytes.writeByte((byte) 1);
+        }
+        final byte[] wire = bytes.toByteArray();
+        assertEquals(HEADER_BYTES + trailer, wire.length);
+        final IllegalStateException refused = assertThrows(IllegalStateException.class,
+            () -> NodeKind.VALUE_DICTIONARY_HEADER.deserialize(Bytes.wrapForRead(wire), 7L, null, null),
+            () -> "a trailer of " + trailer + " bytes");
+        assertTrue(refused.getMessage().contains("trailer of " + trailer + " bytes"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("0, 12 and 20"), refused.getMessage());
+      }
+    }
+  }
+
+  /**
+   * Every header written before the rank table existed carries the PAIR — including the 100M
+   * artefact whose rebuild is disk-blocked — and must keep reading as a dictionary WITHOUT a table.
+   * The bytes are written by hand so this pins the wire shape, not merely the current serializer's
+   * agreement with itself.
+   */
+  @Test
+  @DisplayName("A pair-only trailer (every pre-rank-table header) reads with no rank table")
+  void pairOnlyTrailerReadsWithoutARankTable() {
+    try (final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer()) {
+      bytes.writeInt(ValueDictionaryHeaderNode.VERSION);
+      bytes.writeInt(512);
+      bytes.writeLong(0L);
+      bytes.writeLong(99L);
+      bytes.writeInt(3);
+      bytes.writeInt(512);
+      bytes.writeLong(77L);
+      final byte[] wire = bytes.toByteArray();
+      assertEquals(HEADER_BYTES + PAIR_TRAILER_BYTES, wire.length);
+      final ValueDictionaryHeaderNode read =
+          (ValueDictionaryHeaderNode) NodeKind.VALUE_DICTIONARY_HEADER.deserialize(Bytes.wrapForRead(wire), 7L, null,
+              null);
+      assertEquals(512, read.getEntryCount());
+      assertEquals(3, read.getGeneration());
+      assertEquals(512, read.getOrderedPrefixCount());
+      assertEquals(77L, read.getBlockIndexKey());
+      assertEquals(0L, read.getRankTableKey());
+      assertFalse(read.hasRankTable());
+      assertTrue(read.isFullyOrdered());
+      assertTrue(read.idsAreCollationOrdered(), "a rank-pass dictionary's ids ARE its positions");
+      assertTrue(read.supportsValueProbe());
+    }
+  }
+
+  /** A header written before any trailer existed: exactly 28 bytes, every trailer field a zero. */
+  @Test
+  @DisplayName("A trailer-less header reads every trailer field as zero")
+  void trailerLessHeaderReadsZeros() {
+    try (final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer()) {
+      bytes.writeInt(ValueDictionaryHeaderNode.VERSION);
+      bytes.writeInt(512);
+      bytes.writeLong(7L);
+      bytes.writeLong(9L);
+      bytes.writeInt(1);
+      final byte[] wire = bytes.toByteArray();
+      assertEquals(HEADER_BYTES, wire.length);
+      final ValueDictionaryHeaderNode read =
+          (ValueDictionaryHeaderNode) NodeKind.VALUE_DICTIONARY_HEADER.deserialize(Bytes.wrapForRead(wire), 7L, null,
+              null);
+      assertEquals(0, read.getOrderedPrefixCount());
+      assertEquals(0L, read.getBlockIndexKey());
+      assertEquals(0L, read.getRankTableKey());
+      assertFalse(read.hasRankTable());
+      assertFalse(read.isFullyOrdered(), "512 entries, none of them in a proven order");
+      assertTrue(read.supportsValueProbe(), "through its forward index");
+    }
+  }
+
+  /**
+   * A header with nothing to say writes NO trailer, so a streaming dictionary's header is
+   * byte-for-byte what it was before the rank pass or the segment lane existed; one with anything to
+   * say writes the whole triple, never a bare pair.
+   */
+  @Test
+  @DisplayName("An all-zero trailer is omitted; any set field writes the whole triple")
+  void trailerIsAllOrNothing() {
+    try (final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer()) {
+      NodeKind.VALUE_DICTIONARY_HEADER.serialize(bytes,
+          new ValueDictionaryHeaderNode(42L, ValueDictionaryHeaderNode.VERSION, 3, 7L, 9L, 1), null);
+      assertEquals(HEADER_BYTES, bytes.toByteArray().length);
+    }
+    try (final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer()) {
+      NodeKind.VALUE_DICTIONARY_HEADER.serialize(bytes,
+          new ValueDictionaryHeaderNode(42L, ValueDictionaryHeaderNode.VERSION, 3, 0L, 9L, 1, 3), null);
+      final byte[] wire = bytes.toByteArray();
+      assertEquals(HEADER_BYTES + TRIPLE_TRAILER_BYTES, wire.length, "an ordered prefix alone writes the triple");
+      final ValueDictionaryHeaderNode read =
+          (ValueDictionaryHeaderNode) NodeKind.VALUE_DICTIONARY_HEADER.deserialize(Bytes.wrapForRead(wire), 42L, null,
+              null);
+      assertEquals(3, read.getOrderedPrefixCount());
+      assertEquals(0L, read.getBlockIndexKey());
+      assertEquals(0L, read.getRankTableKey());
     }
   }
 }

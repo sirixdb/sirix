@@ -39,6 +39,15 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
   /** Layout version of the namespace; readers reject anything they do not know. */
   public static final int VERSION = 0;
 
+  /**
+   * Byte length of the ordering trailer's PAIR shape {@code (orderedPrefixCount, blockIndexKey)} --
+   * what every header before the rank table carried; the 100M artefact holds only pairs.
+   */
+  public static final int PAIR_TRAILER_BYTES = Integer.BYTES + Long.BYTES;
+
+  /** Byte length of the TRIPLE shape, the pair followed by {@code rankTableKey}. */
+  public static final int TRIPLE_TRAILER_BYTES = PAIR_TRAILER_BYTES + Long.BYTES;
+
   private final long nodeKey;
 
   private final int version;
@@ -73,6 +82,25 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
    * is none. Purely an accelerator: a probe without it is slower, never wrong.
    */
   private final long blockIndexKey;
+
+  /**
+   * Record key of the first {@link ValueDictionaryRankTableNode} of this generation's
+   * {@code mint -> rank} table, or 0 when ids ARE storage positions.
+   *
+   * <p>
+   * Non-zero only for a dictionary sealed from ids that were minted in arrival order and then
+   * stored in collation order (the segment lane's seal): the ids in the pages stay what they were,
+   * and the table says where each one's value went. Under a table {@link #isFullyOrdered()} still
+   * means the STORAGE is ordered (binary-search probe legal, no forward index needed), but id order
+   * is no longer value order — an arm that wants to compare ids as strings must ask
+   * {@link #idsAreCollationOrdered()}. The forward run's records live at {@code rankTableKey + i} for
+   * the {@code i}-th run of {@link ValueDictionaryRankTableNode#ENTRIES_PER_RECORD} mints, the inverse
+   * run ({@code rank -> mint}, for the probe) directly behind it at
+   * {@code rankTableKey + recordCountFor(orderedPrefixCount) + i}; mints above
+   * {@link #orderedPrefixCount} (an appended tail) are their own position.
+   * </p>
+   */
+  private final long rankTableKey;
 
   /** {@code false} for an {@link #unknownLayout(long, int)} carrier this build cannot interpret. */
   private final boolean currentLayout;
@@ -113,9 +141,33 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
   public ValueDictionaryHeaderNode(final long nodeKey, final int version, final int entryCount,
       final long forwardRootKey, final long reverseRootKey, final int generation, final int orderedPrefixCount,
       final long blockIndexKey) {
+    this(nodeKey, version, entryCount, forwardRootKey, reverseRootKey, generation, orderedPrefixCount, blockIndexKey,
+        0L);
+  }
+
+  /**
+   * Constructor carrying the rank table key.
+   *
+   * @param rankTableKey record key of the first rank table record (the {@code mint -> rank} run, the
+   *        inverse run behind it), or 0 when ids are storage positions
+   * @throws IllegalArgumentException as the other constructors, and if a rank table is claimed for a
+   *         dictionary with no ordered prefix or with a forward index (whose answers would be
+   *         positions, not ids)
+   */
+  public ValueDictionaryHeaderNode(final long nodeKey, final int version, final int entryCount,
+      final long forwardRootKey, final long reverseRootKey, final int generation, final int orderedPrefixCount,
+      final long blockIndexKey, final long rankTableKey) {
     if (nodeKey <= 0 || version != VERSION || entryCount < 0 || forwardRootKey < 0 || reverseRootKey < 0
-        || generation < 0 || orderedPrefixCount < 0 || orderedPrefixCount > entryCount || blockIndexKey < 0) {
+        || generation < 0 || orderedPrefixCount < 0 || orderedPrefixCount > entryCount || blockIndexKey < 0
+        || rankTableKey < 0) {
       throw new IllegalArgumentException("invalid value dictionary header");
+    }
+    // A rank table translates ids in 1..orderedPrefixCount, so it needs a prefix to translate; and a
+    // forward index answers a probe with a STORAGE position, which under a table is not the id the
+    // pages carry — the two must never coexist.
+    if (rankTableKey != 0L && (orderedPrefixCount == 0 || forwardRootKey != 0L)) {
+      throw new IllegalArgumentException("invalid value dictionary header: a rank table needs an ordered prefix ("
+          + orderedPrefixCount + ") and excludes a forward index (" + forwardRootKey + ")");
     }
     // The reverse root is what makes a dictionary readable at all, so it keeps the old biconditional.
     if ((entryCount == 0) != (reverseRootKey == 0)) {
@@ -145,6 +197,7 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     this.generation = generation;
     this.orderedPrefixCount = orderedPrefixCount;
     this.blockIndexKey = blockIndexKey;
+    this.rankTableKey = rankTableKey;
     this.currentLayout = true;
   }
 
@@ -157,6 +210,7 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     this.generation = 0;
     this.orderedPrefixCount = 0;
     this.blockIndexKey = 0L;
+    this.rankTableKey = 0L;
     this.currentLayout = false;
   }
 
@@ -216,6 +270,29 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
   /** Ids {@code 1..this} are in collation order of their values; see the field's contract. */
   public int getOrderedPrefixCount() {
     return orderedPrefixCount;
+  }
+
+  /**
+   * Record key of the first rank table record, or 0 when ids are storage positions. The table is two
+   * runs of {@link ValueDictionaryRankTableNode#recordCountFor} records at consecutive keys:
+   * {@code mint -> rank} first, {@code rank -> mint} behind it.
+   */
+  public long getRankTableKey() {
+    return rankTableKey;
+  }
+
+  /** Whether ids must be translated to storage positions before any value is addressed. */
+  public boolean hasRankTable() {
+    return rankTableKey != 0L;
+  }
+
+  /**
+   * Whether comparing two ids as integers compares their values under UTF-16 collation: the storage
+   * is fully ordered AND ids are storage positions. The test an ordering arm must make instead of
+   * {@link #isFullyOrdered()}, which under a rank table is true of the storage but not of the ids.
+   */
+  public boolean idsAreCollationOrdered() {
+    return isFullyOrdered() && rankTableKey == 0L;
   }
 
   /**
@@ -280,7 +357,8 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     result = 31 * result + Long.hashCode(reverseRootKey);
     result = 31 * result + generation;
     result = 31 * result + orderedPrefixCount;
-    return 31 * result + Long.hashCode(blockIndexKey);
+    result = 31 * result + Long.hashCode(blockIndexKey);
+    return 31 * result + Long.hashCode(rankTableKey);
   }
 
   @Override
@@ -288,7 +366,7 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     return obj instanceof ValueDictionaryHeaderNode other && version == other.version && entryCount == other.entryCount
         && forwardRootKey == other.forwardRootKey && reverseRootKey == other.reverseRootKey
         && generation == other.generation && orderedPrefixCount == other.orderedPrefixCount
-        && blockIndexKey == other.blockIndexKey;
+        && blockIndexKey == other.blockIndexKey && rankTableKey == other.rankTableKey;
   }
 
   @Override
@@ -300,6 +378,9 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
                          .add("forwardRootKey", forwardRootKey)
                          .add("reverseRootKey", reverseRootKey)
                          .add("generation", generation)
+                         .add("orderedPrefixCount", orderedPrefixCount)
+                         .add("blockIndexKey", blockIndexKey)
+                         .add("rankTableKey", rankTableKey)
                          .toString();
   }
 

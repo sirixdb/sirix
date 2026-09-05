@@ -12,6 +12,7 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.node.ValueDictionaryBlockIndexNode;
 import io.sirix.node.ValueDictionaryEntryNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
+import io.sirix.node.ValueDictionaryRankTableNode;
 import io.sirix.node.ValueDictionaryValueBlockNode;
 import io.sirix.node.ValueDictionaryValueBucketNode;
 import io.sirix.cache.Cache;
@@ -251,8 +252,7 @@ public final class GlobalValueDictionary {
     if (reader.getRevisionNumber() != revision) {
       return null;
     }
-    return new ReadView(headerNodeKey, header.getReverseRootKey(), header.getEntryCount(), revision, namePage,
-        databaseType, reader, header.getBlockIndexKey(), header.isFullyOrdered());
+    return new ReadView(headerNodeKey, header, revision, namePage, databaseType, reader);
   }
 
   /** Ids per separator-array entry; one reverse bucket, so the partition needs no spill handling. */
@@ -391,20 +391,33 @@ public final class GlobalValueDictionary {
     }
   }
 
-  /** Revision-bound, fixed-memory reverse-dictionary access for scan kernels. */
+  /**
+   * Revision-bound, fixed-memory reverse-dictionary access for scan kernels.
+   *
+   * <p>
+   * A view is ONE kernel's scratch: its slice, bucket, block and rank-table caches are plain arrays
+   * written on every miss with no publication, so a view must be confined to the thread that created
+   * it — one view per worker, never one shared across a parallel fold. The dictionary records behind
+   * it are immutable and shared through the record caches, so views are cheap to create per worker
+   * and there is nothing to gain from sharing one.
+   * </p>
+   */
   public static final class ReadView {
 
     private final long headerNodeKey;
     private final long reverseRootKey;
+    /** Root of the forward hash index, or 0 for a dictionary that is probed by binary search or not at all. */
+    private final long forwardRootKey;
     private final int entryCount;
     private final int revision;
     private final NamePage namePage;
     private final DatabaseType databaseType;
     private final StorageEngineReader reader;
     /**
-     * Per-id SLICE cache: the backing array a value lives in, plus its offset and length. No entry node
-     * and no copied {@code byte[]} — a scan compares far more values than it emits, so a wrapper or a
-     * copy per compared id is precisely the per-row garbage the packed layout removes.
+     * Per-id SLICE cache, keyed by the id a caller passes (a MINT under a rank table): the backing
+     * array a value lives in, plus its offset and length. No entry node and no copied {@code byte[]}
+     * — a scan compares far more values than it emits, so a wrapper or a copy per compared id is
+     * precisely the per-row garbage the packed layout removes.
      */
     private final int[] cachedIds = new int[READ_VIEW_CACHE_SIZE];
     private final byte[][] cachedBacking = new byte[READ_VIEW_CACHE_SIZE][];
@@ -445,20 +458,60 @@ public final class GlobalValueDictionary {
     private long @Nullable [] transformedValues;
 
     /**
-     * Whether EVERY id is in collation order of its value — {@code orderedPrefixCount == entryCount} on
-     * the header, the single test an ordering arm may make. While it holds, id order IS value order, so
-     * id comparisons answer string comparisons with no dictionary touch at all.
+     * Whether EVERY id is in collation order of its value — {@link ValueDictionaryHeaderNode#idsAreCollationOrdered},
+     * the single test an ordering arm may make. While it holds, id order IS value order, so id
+     * comparisons answer string comparisons with no dictionary touch at all.
      */
     private final boolean fullyOrdered;
 
-    private ReadView(final long headerNodeKey, final long reverseRootKey, final int entryCount, final int revision,
-        final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader,
-        final long blockIndexKey, final boolean fullyOrdered) {
-      this.blockIndexKey = blockIndexKey;
-      this.fullyOrdered = fullyOrdered;
+    /**
+     * Whether STORAGE is in collation order — {@link ValueDictionaryHeaderNode#isFullyOrdered}. Weaker
+     * than {@link #fullyOrdered}: behind a rank table the positions are ordered while the ids are not,
+     * so two ids still compare as their positions do, at the price of two table reads.
+     */
+    private final boolean storageOrdered;
+
+    /**
+     * Key of the first {@link ValueDictionaryRankTableNode} record, or {@code 0} when ids ARE storage
+     * positions. Under a table the view's callers speak MINTS (the ids rows carry) and the reverse
+     * radix speaks POSITIONS (collation order); {@link #positionOf} translates on every miss through
+     * the forward run and {@link #mintAtPosition} translates back for the probe through the inverse
+     * run that follows it ({@code rankTableKey + recordCount + i}).
+     */
+    private final long rankTableKey;
+
+    /** Mints the table covers; a mint above it is its own position (an unordered tail appended later). */
+    private final int orderedPrefixCount;
+
+    /**
+     * The table's records, both runs, fetched on first use and then held — REFERENCES into the record
+     * cache, never a per-view copy. A sealed 100M segment dictionary has ~17 records of 16384 entries
+     * per run; one flat {@code int[]} per view would be 1 MB times every worker of every query that
+     * opens it, and an inverse built per view would be the same again per PROBE.
+     */
+    private ValueDictionaryRankTableNode @Nullable [] rankTable;
+
+    /**
+     * Where {@link #locate} leaves the slice of the position it resolved. A scratch, not a cache: the
+     * slice cache above is keyed by MINT and filled from here, while the binary-search probe reads
+     * positions straight off it without touching the cache at all.
+     */
+    private byte @Nullable [] locatedBacking;
+    private int locatedOffset;
+    private int locatedLength;
+    private @Nullable ValueDictionaryEntryNode locatedSpill;
+
+    private ReadView(final long headerNodeKey, final ValueDictionaryHeaderNode header, final int revision,
+        final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
+      this.blockIndexKey = header.getBlockIndexKey();
+      this.fullyOrdered = header.idsAreCollationOrdered();
+      this.storageOrdered = header.isFullyOrdered();
+      this.rankTableKey = header.getRankTableKey();
+      this.orderedPrefixCount = header.getOrderedPrefixCount();
       this.headerNodeKey = headerNodeKey;
-      this.reverseRootKey = reverseRootKey;
-      this.entryCount = entryCount;
+      this.reverseRootKey = header.getReverseRootKey();
+      this.forwardRootKey = header.getForwardRootKey();
+      this.entryCount = header.getEntryCount();
       this.revision = revision;
       this.namePage = namePage;
       this.databaseType = databaseType;
@@ -472,6 +525,16 @@ public final class GlobalValueDictionary {
      */
     public boolean fullyOrdered() {
       return fullyOrdered;
+    }
+
+    /**
+     * Whether a rank table stands between the ids rows carry and storage positions. A verdict arm
+     * must DECLINE such a view before asking ({@link #stringOpVerdict} refuses with an
+     * {@link UnsupportedOperationException} as the backstop): the verdict is built by walking
+     * storage in position order and would otherwise have to be re-indexed by mint.
+     */
+    public boolean hasRankTable() {
+      return rankTableKey != 0L;
     }
 
     /** Dictionary header key this view was opened for. */
@@ -509,7 +572,8 @@ public final class GlobalValueDictionary {
      * the id-range half of {@link #lengthTable(byte)}, so callers holding one view PER WORKER can
      * derive one table over disjoint id ranges in parallel (the view's slice caches are
      * single-threaded; the table's disjoint ranges need no coordination). Ids are walked in order, so
-     * every block of the range is decoded once.
+     * every block of the range is decoded once — while ids are storage positions; behind a rank table
+     * the walk is in mint order, which visits storage at random, so it is correct there and not fast.
      *
      * @param lengthMode {@link ProjectionIndexByteScan#STRING_LENGTH_UTF8_BYTES} or
      *        {@link ProjectionIndexByteScan#STRING_LENGTH_CODE_POINTS}
@@ -600,9 +664,24 @@ public final class GlobalValueDictionary {
         }
         default -> throw new IllegalArgumentException("not a per-value string op: " + op);
       }
+      refuseVerdictUnderRankTable();
       final long[] verdict = newVerdict();
       fillStringOpVerdict(op, literalUtf8, 0, verdictBucketCount(), verdict, 0);
       return verdict;
+    }
+
+    /**
+     * The verdict sweep sets bit {@code position} — it walks storage — while every row carries a
+     * MINT, and the bucket-to-word aliasing the split sweep is built on ({@link VerdictSlice}) does
+     * not survive a permutation between the two. Until the sweep is rebuilt in rank space, a caller
+     * holding a tabled dictionary must take a route that does not depend on the bitset.
+     */
+    private void refuseVerdictUnderRankTable() {
+      if (rankTableKey != 0L) {
+        throw new UnsupportedOperationException("string-op verdicts over value dictionary " + headerNodeKey
+            + " are not served: it maps ids through a rank table (key " + rankTableKey
+            + "), and the sweep sets bits by storage position while rows carry mints");
+      }
     }
 
     /**
@@ -669,6 +748,7 @@ public final class GlobalValueDictionary {
         }
         default -> throw new IllegalArgumentException("not a per-value string op: " + op);
       }
+      refuseVerdictUnderRankTable();
       final int buckets = verdictBucketCount();
       if (bucketLo < 0 || bucketHi > buckets || bucketLo > bucketHi) {
         throw new IllegalArgumentException(
@@ -765,6 +845,11 @@ public final class GlobalValueDictionary {
         // ~54 s of q28's 60 s at 100M, dictionary 10× the record cache).
         return Integer.compare(leftId, rightId);
       }
+      if (storageOrdered) {
+        // Ordered storage behind a rank table: the POSITIONS are in collation order even though the
+        // mints are not, so two table reads answer the comparison and no value is touched.
+        return Integer.compare(positionOf(leftId), positionOf(rightId));
+      }
       // Both slices are resolved BEFORE either is read: the two ids may share a cache slot, and
       // reading through a slot the second resolution has already overwritten would compare the wrong
       // value. Copying the left operand out would fix that too — and reintroduce the per-compare
@@ -789,29 +874,176 @@ public final class GlobalValueDictionary {
     }
 
     /**
-     * Compare the value behind {@code id} to a caller-owned byte range, under the same collation.
+     * Compare the value stored at storage {@code position} to a caller-owned byte range, under the
+     * same collation.
      *
      * <p>
-     * The binary-search probe's inner loop. It exists so that searching an ordered prefix reuses this
-     * view's caches — the bucket, the decoded block and the resolved slice — instead of walking the
-     * reverse radix and decoding a 33 KB block from scratch for every one of its ~18 steps, which is
-     * what the stateless per-id read does and what made the search 39x the hash probe when measured.
-     * Allocation-free by the same construction as {@link #compareIds}.
+     * The binary-search probe's inner loop, which searches STORAGE — the ordered prefix is a range of
+     * positions, and under a rank table those are not the ids rows carry. It exists so that the search
+     * reuses this view's bucket and decoded-block caches instead of walking the reverse radix and
+     * decoding a 33 KB block from scratch for every one of its ~18 steps, which is what the stateless
+     * per-id read does and what made the search 39x the hash probe when measured. It bypasses the
+     * mint-keyed slice cache, whose slots it must not fill with positions. Allocation-free by the same
+     * construction as {@link #compareIds}.
      * </p>
      *
      * @return negative, zero or positive as the stored value orders before, with, or after the range
      */
-    public int compareIdToValue(final int id, final byte[] utf8, final int offset, final int length) {
-      final int slot = sliceSlot(id);
-      final ValueDictionaryEntryNode spill = cachedSpills[slot];
+    int comparePositionToValue(final int position, final byte[] utf8, final int offset, final int length) {
+      ensureRevision();
+      if (position < 1 || position > entryCount) {
+        throw new IllegalStateException("global value dictionary position " + position + " is outside revision "
+            + revision + " cardinality " + entryCount);
+      }
+      locate(position);
+      final ValueDictionaryEntryNode spill = locatedSpill;
       return spill == null
-          ? ValueDictionaryEntryNode.compareUtf16Range(cachedBacking[slot], cachedOffsets[slot], cachedLengths[slot],
-              utf8, offset, length)
+          ? ValueDictionaryEntryNode.compareUtf16Range(locatedBacking, locatedOffset, locatedLength, utf8, offset,
+              length)
           : spill.compareToRange(utf8, offset, length);
     }
 
     /**
-     * The id range that can hold {@code utf8}, narrowed by the separator array when there is one.
+     * Resolve a value to its id through THIS view — the forward direction, a binary search over the
+     * ordered prefix and, for an unordered tail, the forward hash index.
+     *
+     * <p>
+     * The instance form of {@link GlobalValueDictionary#probe(long, byte[], StorageEngineReader)}: a
+     * caller that interns many values (the segment lane probing a sealed generation for a tail, a
+     * point predicate resolved once per segment) holds one view and pays the bucket, block, separator
+     * and rank-table record fetches ONCE across all of them, where the static form pays them per call.
+     * Same answers, same contract: {@link #ID_ABSENT} only when the directory is complete and provably
+     * does not hold the value; a decode-only dictionary answers {@link #ID_UNKNOWN}. A view is opened
+     * only over a complete directory, so completeness needs no re-check here. Under a rank table the
+     * id returned is the MINT the rows carry, translated from the found position by one inverse-run
+     * record read.
+     * </p>
+     *
+     * @param utf8 the value's UTF-8 bytes
+     * @param offset start of the value in {@code utf8}
+     * @param length byte length of the value
+     * @return the id, {@link #ID_ABSENT}, or {@link #ID_UNKNOWN}
+     */
+    public int probe(final byte[] utf8, final int offset, final int length) {
+      Objects.checkFromIndexSize(offset, length, utf8.length);
+      if (entryCount == 0) {
+        // A COMPLETE directory with zero entries provably holds nothing — absence is an answer, not
+        // ignorance.
+        return ID_ABSENT;
+      }
+      // The ordered prefix is probed by BINARY SEARCH over the reverse index, which is sorted by value
+      // because its values were stored in collation order. A dictionary with an unordered tail must
+      // try BOTH: the value may be in either half, and answering ABSENT after searching only the
+      // prefix would be a wrong answer, not a slow one.
+      if (orderedPrefixCount > 0) {
+        final int position = searchOrderedPrefix(this, orderedPrefixCount, utf8, offset, length);
+        if (position != ID_ABSENT) {
+          // The search answers in STORAGE order; the id rows carry is the mint stored there, which is
+          // the position itself unless a rank table stands between the two.
+          return mintAtPosition(position);
+        }
+        if (storageOrdered) {
+          return ID_ABSENT;
+        }
+      }
+      if (forwardRootKey == 0L) {
+        // Two dictionaries omit the forward index. A FULLY ORDERED one answered above, from the binary
+        // search over its sorted reverse index. A DECODE-ONLY one cannot answer at all: it kept no
+        // structure that maps a value to an id, which is the whole reason it is cheap to version.
+        // UNKNOWN, never ABSENT -- absence is a licence to mint a new id, and minting a second id for
+        // a value this dictionary already holds is exactly the silent corruption ids exist to prevent.
+        return ID_UNKNOWN;
+      }
+      final long wanted = valueHash(utf8, offset, length);
+      final long secondary = secondaryValueHash(utf8, offset, length);
+      final GlobalValueDictionaryRadix.ProbeResult result = GlobalValueDictionaryRadix.probe(forwardRootKey,
+          reverseRootKey, entryCount, wanted, secondary, utf8, offset, length, namePage, databaseType, reader);
+      return recordProbeResult(result.id(), result.units());
+    }
+
+    /**
+     * The storage POSITION of {@code id}: the rank the table holds for a covered mint, the id itself
+     * when there is no table or the id lies above the table's prefix (an appended tail is stored in
+     * mint order behind the ordered prefix, so there id and position coincide).
+     *
+     * @throws IllegalStateException if {@code id} is outside {@code 1..entryCount}, or the table
+     *         record is missing, mis-shaped, or holds a rank outside the prefix — a wrong position would
+     *         read the wrong value silently, and an out-of-range id would index a table record that does
+     *         not exist (id 0 lands on record index 262143 through the unsigned shift)
+     */
+    int positionOf(final int id) {
+      if (rankTableKey == 0L) {
+        return id;
+      }
+      if (id < 1 || id > entryCount) {
+        throw new IllegalStateException(
+            "id " + id + " is outside value dictionary " + headerNodeKey + " (" + entryCount + " entries)");
+      }
+      if (id > orderedPrefixCount) {
+        return id;
+      }
+      final int rank =
+          rankTableRecord((id - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT).entryOf(id);
+      if (rank < 1 || rank > orderedPrefixCount) {
+        throw new IllegalStateException("rank table of value dictionary " + headerNodeKey + " maps id " + id
+            + " to position " + rank + ", outside its ordered prefix of " + orderedPrefixCount);
+      }
+      return rank;
+    }
+
+    /**
+     * The id stored at storage {@code position} — the inverse of {@link #positionOf}, for the probe:
+     * the binary search finds a position and the caller wants the id rows carry. One read of the
+     * inverse run's record, cached like the forward run's; no per-view inverse is ever built.
+     *
+     * @throws IllegalStateException if {@code position} is outside {@code 1..entryCount}, or the
+     *         inverse record is missing, mis-shaped, or holds a mint outside the prefix
+     */
+    int mintAtPosition(final int position) {
+      if (rankTableKey == 0L) {
+        return position;
+      }
+      if (position < 1 || position > entryCount) {
+        throw new IllegalStateException(
+            "position " + position + " is outside value dictionary " + headerNodeKey + " (" + entryCount + " entries)");
+      }
+      if (position > orderedPrefixCount) {
+        return position;
+      }
+      final int records = ValueDictionaryRankTableNode.recordCountFor(orderedPrefixCount);
+      final int mint =
+          rankTableRecord(records + ((position - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT))
+              .entryOf(position);
+      if (mint < 1 || mint > orderedPrefixCount) {
+        throw new IllegalStateException("inverse rank table of value dictionary " + headerNodeKey + " maps position "
+            + position + " to id " + mint + ", outside its ordered prefix of " + orderedPrefixCount);
+      }
+      return mint;
+    }
+
+    /**
+     * Record {@code index} of the rank table — the forward run at {@code 0..records-1}, the inverse run
+     * at {@code records..2*records-1} — fetched once per view and validated against its expected shape.
+     */
+    private ValueDictionaryRankTableNode rankTableRecord(final int index) {
+      ValueDictionaryRankTableNode[] table = rankTable;
+      if (table == null) {
+        table = new ValueDictionaryRankTableNode[2 * ValueDictionaryRankTableNode.recordCountFor(orderedPrefixCount)];
+        rankTable = table;
+      }
+      ValueDictionaryRankTableNode record = table[index];
+      if (record == null) {
+        record = loadRankTableRecord(headerNodeKey, rankTableKey, orderedPrefixCount, index, namePage, databaseType,
+            reader);
+        table[index] = record;
+      }
+      return record;
+    }
+
+    /**
+     * The storage POSITION range that can hold {@code utf8}, narrowed by the separator array when there
+     * is one. The separators were cut between positions, so the range is in position space whether or
+     * not a rank table stands between positions and ids.
      *
      * <p>
      * Returns {@code (low << 32) | high} packed, because this is on the probe path and a record here
@@ -819,7 +1051,7 @@ public final class GlobalValueDictionary {
      * is correct and merely slower — the array is an accelerator, never a source of truth.
      * </p>
      */
-    long candidateIdRange(final byte[] utf8, final int offset, final int length, final int boundary) {
+    long candidatePositionRange(final byte[] utf8, final int offset, final int length, final int boundary) {
       if (!blockIndexLoaded) {
         blockIndexLoaded = true;
         if (blockIndexKey != 0L) {
@@ -876,7 +1108,9 @@ public final class GlobalValueDictionary {
      * <p>
      * A packed id yields the sub-block's own backing array with an offset and length — nothing is
      * copied and no record wrapper is built. A spilled id yields its entry record's bytes, which the
-     * record already owns. Either way the cached triple is a VIEW, never a copy.
+     * record already owns. Either way the cached triple is a VIEW, never a copy. The slot is keyed by
+     * the id the caller passed; under a rank table the miss translates it to its storage position
+     * first, so the cache never holds a position under a mint's key or the reverse.
      */
     private int sliceSlot(final int id) {
       ensureRevision();
@@ -888,7 +1122,24 @@ public final class GlobalValueDictionary {
       if (cachedIds[slot] == id && (cachedBacking[slot] != null || cachedSpills[slot] != null)) {
         return slot;
       }
-      final int bucket = (id - 1) >>> 8;
+      locate(positionOf(id));
+      cachedBacking[slot] = locatedBacking;
+      cachedOffsets[slot] = locatedOffset;
+      cachedLengths[slot] = locatedLength;
+      cachedSpills[slot] = locatedSpill;
+      cachedIds[slot] = id;
+      return slot;
+    }
+
+    /**
+     * Resolve storage {@code position} to its slice, into the {@code located*} scratch: the reverse
+     * bucket that covers it (retained direct-mapped), the block within the bucket (likewise), and the
+     * value's offset and length inside the block's packed bytes — or its spill record. This is the
+     * one path from a position to bytes; {@link #sliceSlot} caches its result per id and
+     * {@link #comparePositionToValue} reads it in place.
+     */
+    private void locate(final int position) {
+      final int bucket = (position - 1) >>> 8;
       final int bucketSlot = bucket & (READ_VIEW_BUCKET_SLOTS - 1);
       // Allocated on first MISS, not in the constructor. A view is built per worker and there are
       // many readView call sites per execution, so eager tables were 1.5-3 MB of garbage per
@@ -905,12 +1156,13 @@ public final class GlobalValueDictionary {
       if (bucketNode == null) {
         bucketNode = GlobalValueDictionaryRadix.valueBucketOf(reverseRootKey, bucket, namePage, databaseType, reader);
         if (bucketNode == null) {
-          throw new IllegalStateException("global value dictionary id " + id + " is missing from revision " + revision);
+          throw new IllegalStateException(
+              "global value dictionary position " + position + " is missing from revision " + revision);
         }
         cachedBucketNodes[bucketSlot] = bucketNode;
         cachedBuckets[bucketSlot] = bucket;
       }
-      final long blockKey = bucketNode.blockKeyCovering(id);
+      final long blockKey = bucketNode.blockKeyCovering(position);
       if (blockKey != 0L) {
         final int blockSlot = (int) (blockKey ^ blockKey >>> 32) & (READ_VIEW_BLOCK_SLOTS - 1);
         if (cachedBlockKeys == null) {
@@ -921,24 +1173,23 @@ public final class GlobalValueDictionary {
             ? cachedBlocks[blockSlot]
             : null;
         if (block == null) {
-          block = GlobalValueDictionaryRadix.blockNode(blockKey, id, namePage, databaseType, reader);
+          block = GlobalValueDictionaryRadix.blockNode(blockKey, position, namePage, databaseType, reader);
           cachedBlocks[blockSlot] = block;
           cachedBlockKeys[blockSlot] = blockKey;
         }
-        cachedBacking[slot] = block.rawBytes();
-        cachedOffsets[slot] = block.valueOffset(id);
-        cachedLengths[slot] = block.valueLength(id);
-        cachedSpills[slot] = null;
+        locatedBacking = block.rawBytes();
+        locatedOffset = block.valueOffset(position);
+        locatedLength = block.valueLength(position);
+        locatedSpill = null;
       } else {
-        final long spillKey = bucketNode.spillKeyCovering(id);
+        final long spillKey = bucketNode.spillKeyCovering(position);
         if (spillKey == 0L) {
-          throw new IllegalStateException("global value dictionary id " + id + " is missing from revision " + revision);
+          throw new IllegalStateException(
+              "global value dictionary position " + position + " is missing from revision " + revision);
         }
-        cachedSpills[slot] = GlobalValueDictionaryRadix.spillEntry(spillKey, namePage, databaseType, reader);
-        cachedBacking[slot] = null;
+        locatedSpill = GlobalValueDictionaryRadix.spillEntry(spillKey, namePage, databaseType, reader);
+        locatedBacking = null;
       }
-      cachedIds[slot] = id;
-      return slot;
     }
 
     private long transformed(final int id, final int start, final int length, final byte mode) {
@@ -1222,7 +1473,71 @@ public final class GlobalValueDictionary {
     if (id < 1 || id > header.getEntryCount()) {
       return null;
     }
-    return GlobalValueDictionaryRadix.value(header.getReverseRootKey(), id, namePage, databaseType, reader);
+    return GlobalValueDictionaryRadix.value(header.getReverseRootKey(),
+        storagePosition(header, id, namePage, databaseType, reader), namePage, databaseType, reader);
+  }
+
+  /**
+   * The storage POSITION of a live {@code id} ({@code 1..entryCount}, the caller's precondition). The
+   * reverse radix is addressed by position; behind a rank table that is not the id, so the forward
+   * run's record covering the id is read first -- one record fetch, served from the record cache
+   * after the first -- and its rank is what the radix is asked for.
+   */
+  private static int storagePosition(final ValueDictionaryHeaderNode header, final int id, final NamePage namePage,
+      final DatabaseType databaseType, final StorageEngineReader reader) {
+    final int orderedPrefixCount = header.getOrderedPrefixCount();
+    if (!header.hasRankTable() || id > orderedPrefixCount) {
+      return id;
+    }
+    final int position = loadRankTableRecord(header.getNodeKey(), header.getRankTableKey(), orderedPrefixCount,
+        (id - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT, namePage, databaseType, reader)
+        .entryOf(id);
+    if (position < 1 || position > orderedPrefixCount) {
+      throw new IllegalStateException("rank table of value dictionary " + header.getNodeKey() + " maps id " + id
+          + " to position " + position + ", outside its ordered prefix of " + orderedPrefixCount);
+    }
+    return position;
+  }
+
+  /**
+   * Fetch record {@code index} of a dictionary's rank table and refuse anything but the record the
+   * seal wrote there: the table is TWO runs of {@code recordCountFor(P)} records at arithmetic keys
+   * {@code rankTableKey + index} — the forward run ({@code mint -> rank}) first, the inverse run
+   * ({@code rank -> mint}) behind it — record {@code i} of a run covering keys {@code 1 + i * 16384}
+   * onwards, its size following from the ordered prefix. A record of another shape at that key is
+   * corruption, and translating through it would read wrong values without a trace.
+   */
+  private static ValueDictionaryRankTableNode loadRankTableRecord(final long headerNodeKey, final long rankTableKey,
+      final int orderedPrefixCount, final int index, final NamePage namePage, final DatabaseType databaseType,
+      final StorageEngineReader reader) {
+    final int records = ValueDictionaryRankTableNode.recordCountFor(orderedPrefixCount);
+    if (index < 0 || index >= 2 * records) {
+      throw new IllegalStateException("rank table of value dictionary " + headerNodeKey + " has 2 x " + records
+          + " records, not a record " + index);
+    }
+    final int withinRun = index < records
+        ? index
+        : index - records;
+    final long key = rankTableKey + index;
+    final DataRecord record = namePage.getProjectionValueDictionaryRecord(key, databaseType, reader);
+    if (!(record instanceof ValueDictionaryRankTableNode table)) {
+      throw new IllegalStateException("rank table record " + index + " of value dictionary " + headerNodeKey
+          + " at key " + key + " is " + (record == null
+              ? "missing"
+              : "a " + record.getKind()));
+    }
+    final int expectedFirstKey = 1 + (withinRun << ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT);
+    final int expectedCount = Math.min(ValueDictionaryRankTableNode.ENTRIES_PER_RECORD,
+        orderedPrefixCount - (withinRun << ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT));
+    if (table.firstKey() != expectedFirstKey || table.size() != expectedCount
+        || table.bitsPerEntry() != ValueDictionaryRankTableNode.bitsFor(orderedPrefixCount)) {
+      throw new IllegalStateException("rank table record " + index + " of value dictionary " + headerNodeKey
+          + " at key " + key + " covers keys " + table.firstKey() + "+" + table.size() + " at "
+          + table.bitsPerEntry() + " bits; expected " + expectedFirstKey + "+" + expectedCount + " at "
+          + ValueDictionaryRankTableNode.bitsFor(orderedPrefixCount) + " bits for an ordered prefix of "
+          + orderedPrefixCount);
+    }
+    return table;
   }
 
   /**
@@ -1245,17 +1560,22 @@ public final class GlobalValueDictionary {
    *
    * <p>
    * The winner-materialisation path: a top-k group-by hands over the k ids it is about to return and
-   * gets their strings back. Ids are visited in ascending order so that ids sharing a record page are
-   * resolved consecutively, which is what turns k random reads into far fewer page touches; the
-   * caller's order is restored through the index carried alongside.
+   * gets their strings back. Values are visited in ascending STORAGE POSITION so that values sharing
+   * a record page are resolved consecutively, which is what turns k random reads into far fewer page
+   * touches; the caller's order is restored through the index carried alongside. Without a rank table
+   * the position is the id; behind one the ids are mints in arrival order, so each is translated
+   * first (k forward-run record reads, cached) and the walk is ordered by where the values actually
+   * are, not by the number the rows carry.
    *
    * @param headerNodeKey the dictionary's header key
    * @param ids the ids to resolve; not modified
    * @param reader the reader positioned at the revision wanted
    * @return the values, index-aligned to {@code ids}; an entry is {@code null} when its id is not
-   *         stored in this revision
+   *         stored in this revision (0, negative, or above the entry count), or every entry when the
+   *         header is unreadable
    */
   public static @Nullable String[] values(final long headerNodeKey, final int[] ids, final StorageEngineReader reader) {
+    Objects.requireNonNull(ids, "ids must not be null");
     final String[] out = new String[ids.length];
     if (ids.length == 0) {
       return out;
@@ -1266,13 +1586,25 @@ public final class GlobalValueDictionary {
     }
     final DatabaseType databaseType = databaseTypeOf(reader);
     final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
+    final int entryCount = header.getEntryCount();
+    final int[] positions = new int[ids.length];
     final int[] order = new int[ids.length];
     for (int i = 0; i < ids.length; i++) {
       order[i] = i;
+      final int id = ids[i];
+      // A dead id keeps itself as the sort key: it resolves to null whatever its place in the walk.
+      positions[i] = id < 1 || id > entryCount
+          ? id
+          : storagePosition(header, id, namePage, databaseType, reader);
     }
-    sortIndicesByValue(order, ids);
+    sortIndicesByValue(order, positions);
     for (final int slot : order) {
-      final byte[] bytes = valueBytes(header, ids[slot], namePage, databaseType, reader);
+      final int id = ids[slot];
+      if (id < 1 || id > entryCount) {
+        continue;
+      }
+      final byte[] bytes =
+          GlobalValueDictionaryRadix.value(header.getReverseRootKey(), positions[slot], namePage, databaseType, reader);
       if (bytes != null) {
         out[slot] = new String(bytes, StandardCharsets.UTF_8);
       }
@@ -1331,38 +1663,26 @@ public final class GlobalValueDictionary {
       // the forward-index check and answered UNKNOWN for want of an index it can never need.
       return ID_ABSENT;
     }
-    final DatabaseType databaseType = databaseTypeOf(reader);
-    final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
-    // The ordered prefix is probed by BINARY SEARCH over the reverse index, which is sorted by value
-    // because its ids were minted in collation order. That is what lets a rank-ordered dictionary
-    // carry no forward hash index at all. A dictionary with an unordered tail must try BOTH: the
-    // value may be in either half, and answering ABSENT after searching only the prefix would be a
-    // wrong answer, not a slow one.
-    final int boundary = header.getOrderedPrefixCount();
-    if (boundary > 0) {
-      // ONE view for the whole search: its bucket, block and slice caches are what make the ~18
-      // steps cost far less than 18 independent reads, and they are useless if a view is built per
-      // step. A caller that interns many values should hold a view across them for the same reason.
+    if (header.getOrderedPrefixCount() > 0) {
+      // ONE view for the whole search: its bucket, block, separator and rank-table caches are what
+      // make the ~18 steps cost far less than 18 independent reads, and they are useless if a view is
+      // built per step. The view is still built PER CALL here, which is the one-shot price of this
+      // form; a caller that interns many values holds a view and calls ReadView#probe across them.
       final ReadView view = readView(headerNodeKey, reader);
       if (view == null) {
         return ID_UNKNOWN;
       }
-      final int ordered = searchOrderedPrefix(view, boundary, utf8, offset, length);
-      if (ordered != ID_ABSENT) {
-        return ordered;
-      }
-      if (header.isFullyOrdered()) {
-        return ID_ABSENT;
-      }
+      return view.probe(utf8, offset, length);
     }
     if (header.getForwardRootKey() == 0) {
-      // Two dictionaries omit the forward index. A FULLY ORDERED one answered above, from the binary
-      // search over its sorted reverse index. A DECODE-ONLY one cannot answer at all: it kept no
-      // structure that maps a value to an id, which is the whole reason it is cheap to version.
-      // UNKNOWN, never ABSENT -- absence is a licence to mint a new id, and minting a second id for
-      // a value this dictionary already holds is exactly the silent corruption ids exist to prevent.
+      // No ordered prefix and no forward index: a DECODE-ONLY dictionary, which kept no structure that
+      // maps a value to an id -- the whole reason it is cheap to version. UNKNOWN, never ABSENT:
+      // absence is a licence to mint a new id, and minting a second id for a value this dictionary
+      // already holds is exactly the silent corruption ids exist to prevent.
       return ID_UNKNOWN;
     }
+    final DatabaseType databaseType = databaseTypeOf(reader);
+    final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
     final long wanted = valueHash(utf8, offset, length);
     final long secondary = secondaryValueHash(utf8, offset, length);
     final GlobalValueDictionaryRadix.ProbeResult result =
@@ -1386,6 +1706,16 @@ public final class GlobalValueDictionary {
   public static long buildBlockIndex(final long headerNodeKey, final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineWriter writer, final TransactionIntentLog log) {
     final ValueDictionaryHeaderNode header = header(headerNodeKey, writer);
+    // The separators are cut between storage POSITIONS, and this method reads them through the id
+    // route. That is one and the same lookup only while ids ARE positions, so the seal builds the
+    // index before it writes the rank table -- afterwards the id route would translate mints, and the
+    // header rewrite below (which does not carry the table key) would drop the table. Refuse loudly,
+    // and BEFORE the too-small-to-index return: calling this on a tabled dictionary is a programming
+    // error whatever its size, and a silent 0 for a small one would hide it until the segment grew.
+    if (header != null && header.hasRankTable()) {
+      throw new IllegalStateException("the block index of value dictionary " + headerNodeKey
+          + " must be built before its rank table (key " + header.getRankTableKey() + ") exists");
+    }
     if (header == null || !header.isFullyOrdered() || header.getEntryCount() <= VALUES_PER_INDEXED_RANGE) {
       return 0L;
     }
@@ -1415,13 +1745,109 @@ public final class GlobalValueDictionary {
     for (int i = 0; i < ranges; i++) {
       System.arraycopy(separators[i], 0, packed, offsets[i], separators[i].length);
     }
-    final long indexKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 1L);
-    namePage.putProjectionValueDictionaryRecord(
-        ValueDictionaryBlockIndexNode.takeOwnership(indexKey, firstIds, packed, offsets), databaseType, writer, log);
-    namePage.putProjectionValueDictionaryRecord(new ValueDictionaryHeaderNode(header.getNodeKey(),
-        ValueDictionaryHeaderNode.VERSION, entryCount, header.getForwardRootKey(), header.getReverseRootKey(),
-        header.getGeneration(), header.getOrderedPrefixCount(), indexKey), databaseType, writer, log);
-    return indexKey;
+    // From the reservation on, the intent log is being changed: a failure past this point leaves a
+    // reserved key or an index record without the header that points at it, so the owning
+    // transaction is poisoned exactly as the dictionary writer poisons its own flushes.
+    try {
+      final long indexKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 1L);
+      namePage.putProjectionValueDictionaryRecord(
+          ValueDictionaryBlockIndexNode.takeOwnership(indexKey, firstIds, packed, offsets), databaseType, writer, log);
+      namePage.putProjectionValueDictionaryRecord(new ValueDictionaryHeaderNode(header.getNodeKey(),
+          ValueDictionaryHeaderNode.VERSION, entryCount, header.getForwardRootKey(), header.getReverseRootKey(),
+          header.getGeneration(), header.getOrderedPrefixCount(), indexKey), databaseType, writer, log);
+      return indexKey;
+    } catch (final RuntimeException | Error failure) {
+      GlobalValueDictionaryWriter.poisonOwningTransaction(writer, failure);
+      throw failure;
+    }
+  }
+
+  /**
+   * Attaches a rank table to a dictionary whose ordered prefix was written in collation order under
+   * storage positions, and returns the table's first record key.
+   *
+   * <p>
+   * From here on the ids the pages carry are MINTS: {@code rankByMint[m]} is the storage position of
+   * mint {@code m}, and every read route translates through the table ({@link ReadView#positionOf}).
+   * The seal writes the sorted values first (positions {@code 1..P}), builds the separator array
+   * ({@link #buildBlockIndex}, which refuses to run after this), then calls here with the
+   * permutation it recorded while sorting. Mints above {@code P} (an unordered tail) stay their own
+   * positions. The permutation is persisted in BOTH directions as two runs of
+   * {@link ValueDictionaryRankTableNode#recordCountFor} records at consecutive keys: {@code mint ->
+   * rank} at {@code tableKey + i} (the direction every decode takes) and {@code rank -> mint} at
+   * {@code tableKey + records + i} (the direction the probe takes, once per probe — persisting it
+   * costs the table's bytes again, ≈ 2.5 B per distinct value, and saves an {@code int[P]} inverse
+   * per probing view on the query path). Packed at {@link ValueDictionaryRankTableNode#bitsFor} bits
+   * per entry, {@link ValueDictionaryRankTableNode#ENTRIES_PER_RECORD} entries per record.
+   * </p>
+   *
+   * @param rankByMint the storage position of every mint {@code 1..P}, index 0 unused — a
+   *        permutation of {@code 1..P}, checked here once so that no reader has to
+   * @return the key of the first table record
+   * @throws IllegalArgumentException if the header does not describe an untabled ordered prefix
+   *         without a forward index, or {@code rankByMint} is not a permutation of {@code 1..P}
+   */
+  public static long attachRankTable(final long headerNodeKey, final int[] rankByMint, final NamePage namePage,
+      final DatabaseType databaseType, final StorageEngineWriter writer, final TransactionIntentLog log) {
+    Objects.requireNonNull(rankByMint, "rankByMint must not be null");
+    final ValueDictionaryHeaderNode header = header(headerNodeKey, writer);
+    if (header == null) {
+      throw new IllegalArgumentException("no value dictionary header at key " + headerNodeKey);
+    }
+    final int prefix = header.getOrderedPrefixCount();
+    if (prefix == 0 || header.getForwardRootKey() != 0L || header.hasRankTable()) {
+      throw new IllegalArgumentException("value dictionary " + headerNodeKey
+          + " cannot take a rank table: it needs an ordered prefix, no forward index and no table yet, but is "
+          + header);
+    }
+    if (rankByMint.length != prefix + 1) {
+      throw new IllegalArgumentException("rankByMint covers " + (rankByMint.length - 1) + " mints, the ordered prefix "
+          + prefix);
+    }
+    // A repeated rank would give two mints one value and leave another value unreachable; refused
+    // before a single record is written. The inverse is built in the same pass: a slot already
+    // taken IS the repeated rank.
+    final int[] mintByRank = new int[prefix + 1];
+    for (int mint = 1; mint <= prefix; mint++) {
+      final int rank = rankByMint[mint];
+      if (rank < 1 || rank > prefix) {
+        throw new IllegalArgumentException("mint " + mint + " has rank " + rank + " outside 1.." + prefix);
+      }
+      if (mintByRank[rank] != 0) {
+        throw new IllegalArgumentException("rank " + rank + " is assigned to two mints (the second is " + mint + ")");
+      }
+      mintByRank[rank] = mint;
+    }
+    final int bitsPerEntry = ValueDictionaryRankTableNode.bitsFor(prefix);
+    final int records = ValueDictionaryRankTableNode.recordCountFor(prefix);
+    // Every validation above runs before the first reservation; from here on a failure leaves table
+    // records without a header that points at them, so the owning transaction is poisoned (the
+    // dictionary writer's own contract for its flushes) rather than left committable by a caller
+    // that catches the exception.
+    try {
+      final long tableKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 2L * records);
+      for (int i = 0; i < records; i++) {
+        final int firstKey = 1 + (i << ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT);
+        final int count = Math.min(ValueDictionaryRankTableNode.ENTRIES_PER_RECORD, prefix - (firstKey - 1));
+        namePage.putProjectionValueDictionaryRecord(
+            ValueDictionaryRankTableNode.pack(tableKey + i, firstKey, rankByMint, count, bitsPerEntry), databaseType,
+            writer, log);
+        namePage.putProjectionValueDictionaryRecord(
+            ValueDictionaryRankTableNode.pack(tableKey + records + i, firstKey, mintByRank, count, bitsPerEntry),
+            databaseType, writer, log);
+      }
+      // The forward root is carried over rather than written as the 0 the precondition guarantees: if
+      // that precondition ever loosens, the header's own invariant (a table admits no forward index)
+      // refuses the write instead of silently dropping the index the tail is probed through.
+      namePage.putProjectionValueDictionaryRecord(new ValueDictionaryHeaderNode(header.getNodeKey(),
+          ValueDictionaryHeaderNode.VERSION, header.getEntryCount(), header.getForwardRootKey(),
+          header.getReverseRootKey(), header.getGeneration(), prefix, header.getBlockIndexKey(), tableKey),
+          databaseType, writer, log);
+      return tableKey;
+    } catch (final RuntimeException | Error failure) {
+      GlobalValueDictionaryWriter.poisonOwningTransaction(writer, failure);
+      throw failure;
+    }
   }
 
   /**
@@ -1451,7 +1877,9 @@ public final class GlobalValueDictionary {
   }
 
   /**
-   * Binary search for {@code utf8} over ids {@code 1..boundary}, which are in collation order.
+   * Binary search for {@code utf8} over storage positions {@code 1..boundary}, which are in collation
+   * order. The answer is a POSITION: it equals the id only while the dictionary keeps no rank table,
+   * so the caller translates through {@link ReadView#mintAtPosition}.
    *
    * <p>
    * The comparator MUST be {@link ValueDictionaryEntryNode#compareUtf16Range} and not unsigned byte
@@ -1461,19 +1889,19 @@ public final class GlobalValueDictionary {
    * it was not stored in and answer ABSENT for a value that is present.
    * </p>
    *
-   * @return the id, or {@link #ID_ABSENT} when the prefix provably does not hold the value, or
-   *         {@link #ID_UNKNOWN} when a value could not be read
+   * @return the storage position, or {@link #ID_ABSENT} when the prefix provably does not hold the
+   *         value
    */
   private static int searchOrderedPrefix(final ReadView view, final int boundary, final byte[] utf8, final int offset,
       final int length) {
     // The separator array narrows the search to ONE block before a single value is read; without it
     // the range is the whole prefix and every step decodes a different block.
-    final long range = view.candidateIdRange(utf8, offset, length, boundary);
+    final long range = view.candidatePositionRange(utf8, offset, length, boundary);
     int low = (int) (range >>> 32);
     int high = (int) range;
     while (low <= high) {
       final int mid = (low + high) >>> 1;
-      final int comparison = view.compareIdToValue(mid, utf8, offset, length);
+      final int comparison = view.comparePositionToValue(mid, utf8, offset, length);
       if (comparison == 0) {
         return mid;
       }

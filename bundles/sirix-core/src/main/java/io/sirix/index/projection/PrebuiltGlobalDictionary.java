@@ -74,7 +74,7 @@ final class PrebuiltGlobalDictionary implements GlobalValueDictionaryEncoder {
       throw new IllegalStateException("global projection column " + column
           + " was handed a decode-only dictionary (no forward index); injection needs the encode direction");
     }
-    if (!header.isFullyOrdered()) {
+    if (!header.idsAreCollationOrdered()) {
       throw new IllegalStateException("global projection column " + column + " was handed a dictionary whose ids are "
           + "not all in collation order (" + header.getOrderedPrefixCount() + " of " + header.getEntryCount()
           + "); a prebuilt dictionary is only worth injecting when it is rank-ordered");

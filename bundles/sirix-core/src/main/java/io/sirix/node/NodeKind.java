@@ -1684,34 +1684,41 @@ public enum NodeKind implements DeweyIdSerializer {
       final long forwardRootKey = source.readLong();
       final long reverseRootKey = source.readLong();
       final int generation = source.readInt();
-      // The ordered-prefix boundary is APPENDED and read DEFENSIVELY, which is the whole mechanism
-      // that lets a P2 build read a pre-P2 resource without a version bump. The slot is exactly
-      // sized (PageLayout#allocateHeap allocates precisely `size`; getRecordOnlyLength returns the
-      // record's own byte length), so a header written before this field leaves remaining() == 0
-      // here, and 0 is its semantically correct value: the streaming mint's ids are in intern order,
-      // so its ordered prefix is genuinely empty.
-      // KILL-SWITCH MACHINERY, NOT COMPATIBILITY MACHINERY — and the distinction decides when this
-      // goes away. Reading pre-P2 resources is NOT why it exists: the project has no users and no
-      // installed base, so a layout may change outright and the databases get rebuilt. It exists so
-      // that with -Dsirix.projection.globalDict.rank=false a dictionary the pass never touched is
-      // BYTE-IDENTICAL to what this arm wrote before segment 1, which is what makes "lands disabled"
-      // provable rather than merely asserted. Eliminating the delta beats accounting for it.
-      // EXPIRY: when segment 1 is enabled by default and the kill switch retires, this trailer's
-      // remaining job is gone — collapse it to an unconditional write and read. Do not copy the
-      // pattern onto new fields; nothing else here needs it.
-      // The two fields are read as a PAIR because reading them independently would misparse a zero
-      // prefix count followed by a non-zero index key. That pairing has already earned itself: a
-      // database written one layout earlier declined LOUDLY on the header invariant instead of
-      // silently reporting an intern-ordered dictionary as fully ordered.
-      final boolean hasRankTrailer = source.remaining() >= Integer.BYTES + Long.BYTES;
+      // The ordering trailer is APPENDED and read DEFENSIVELY: the slot is exactly sized
+      // (PageLayout#allocateHeap allocates precisely `size`; getRecordOnlyLength returns the record's
+      // own byte length), so a header written without the trailer leaves remaining() == 0 here and
+      // every trailer field reads as its semantically correct zero -- a streaming mint's ids are in
+      // intern order, so its ordered prefix is genuinely empty, and no table, no separator array.
+      // The trailer has TWO shapes. The pair (orderedPrefixCount, blockIndexKey) is what every
+      // header before the segment lane's rank table carried (the 100M artefact db100m-ovf, whose
+      // rebuild is disk-blocked, holds only pairs); the triple appends the rank table key. A shape
+      // is recognised by its LENGTH, never by a zero value inside it, because reading fields one at a
+      // time would misparse a zero prefix count followed by a non-zero key -- that pairing has
+      // already earned itself once, declining loudly on the header invariant instead of reporting an
+      // intern-ordered dictionary as fully ordered.
+      final long remaining = source.remaining();
+      // Exactly three lengths are legal: none, the pair, the triple. Anything else is a torn or
+      // foreign record image, and reading it by prefix would return a header whose fields came from
+      // the wrong offsets -- refuse instead of interpreting.
+      final boolean hasRankTrailer = remaining == ValueDictionaryHeaderNode.PAIR_TRAILER_BYTES
+          || remaining == ValueDictionaryHeaderNode.TRIPLE_TRAILER_BYTES;
+      if (remaining != 0L && !hasRankTrailer) {
+        throw new IllegalStateException("value dictionary header " + recordID + " carries a trailer of " + remaining
+            + " bytes; legal lengths are 0, " + ValueDictionaryHeaderNode.PAIR_TRAILER_BYTES + " and "
+            + ValueDictionaryHeaderNode.TRIPLE_TRAILER_BYTES);
+      }
+      final boolean hasRankTableKey = remaining == ValueDictionaryHeaderNode.TRIPLE_TRAILER_BYTES;
       final int orderedPrefixCount = hasRankTrailer
           ? source.readInt()
           : 0;
       final long blockIndexKey = hasRankTrailer
           ? source.readLong()
           : 0L;
+      final long rankTableKey = hasRankTableKey
+          ? source.readLong()
+          : 0L;
       return new ValueDictionaryHeaderNode(recordID, version, entryCount, forwardRootKey, reverseRootKey, generation,
-          orderedPrefixCount, blockIndexKey);
+          orderedPrefixCount, blockIndexKey, rankTableKey);
     }
 
     @Override
@@ -1728,14 +1735,14 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeLong(node.getForwardRootKey());
       sink.writeLong(node.getReverseRootKey());
       sink.writeInt(node.getGeneration());
-      // Written UNCONDITIONALLY against a DEFENSIVE read. The asymmetry is deliberate and is what
-      // buys pre-P2 compatibility without a version bump: old readers are gone (this is the only
-      // reader), old data is short and reads as 0.
-      // Emitted only when the dictionary has something to say, so the kill switch's "off" state is
-      // byte-for-byte what this arm wrote before the rank pass existed.
-      if (node.getOrderedPrefixCount() != 0 || node.getBlockIndexKey() != 0L) {
+      // The trailer is written as the TRIPLE whenever the dictionary has something to say and
+      // omitted entirely otherwise, so a header the rank pass and the segment lane never touched is
+      // byte-for-byte what this arm wrote before either existed. Old data is short and reads as 0
+      // (see the deserializer); this is the only reader.
+      if (node.getOrderedPrefixCount() != 0 || node.getBlockIndexKey() != 0L || node.getRankTableKey() != 0L) {
         sink.writeInt(node.getOrderedPrefixCount());
         sink.writeLong(node.getBlockIndexKey());
+        sink.writeLong(node.getRankTableKey());
       }
     }
   },
@@ -2021,6 +2028,145 @@ public enum NodeKind implements DeweyIdSerializer {
       final byte[] separators = node.separatorBytes();
       if (separators.length > 0) {
         sink.write(separators);
+      }
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  VALUE_DICTIONARY_RANK_TABLE((byte) 61) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
+      final int firstKey = source.readInt();
+      final int count = source.readInt();
+      final int bitsPerEntry = source.readByte();
+      if (count <= 0 || count > ValueDictionaryRankTableNode.ENTRIES_PER_RECORD || bitsPerEntry <= 0
+          || bitsPerEntry > ValueDictionaryRankTableNode.MAX_BITS_PER_ENTRY) {
+        throw new IllegalStateException(
+            "invalid value dictionary rank table record: " + count + " entries at " + bitsPerEntry + " bits");
+      }
+      final int words = ValueDictionaryRankTableNode.wordsFor(count, bitsPerEntry);
+      // The word count follows from the two counts, so a record shorter than its own shape is
+      // refused BEFORE the array is sized.
+      if ((long) words * Long.BYTES > source.remaining()) {
+        throw new IllegalStateException("value dictionary rank table record overruns its record");
+      }
+      final long[] packed = new long[words];
+      for (int i = 0; i < words; i++) {
+        packed[i] = source.readLong();
+      }
+      return ValueDictionaryRankTableNode.takeOwnership(recordID, firstKey, count, bitsPerEntry, packed);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ValueDictionaryRankTableNode node = (ValueDictionaryRankTableNode) record;
+      sink.writeInt(node.firstKey());
+      sink.writeInt(node.size());
+      sink.writeByte((byte) node.bitsPerEntry());
+      final long[] words = node.words();
+      for (final long word : words) {
+        sink.writeLong(word);
+      }
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  SEGMENT_DICTIONARY_DIRECTORY((byte) 62) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
+      final int segments = source.readInt();
+      if (segments <= 0 || segments > SegmentDictionaryDirectoryNode.MAX_SEGMENTS) {
+        throw new IllegalStateException("invalid segment dictionary directory segment count " + segments);
+      }
+      // A start and a slot count per segment is the floor of the framing; refuse a claimed count
+      // that cannot fit BEFORE the arrays are sized.
+      if ((long) segments * (Long.BYTES + Integer.BYTES) > source.remaining()) {
+        throw new IllegalStateException("segment dictionary directory overruns its record");
+      }
+      final long[] starts = new long[segments];
+      for (int s = 0; s < segments; s++) {
+        starts[s] = source.readLong();
+      }
+      final SegmentDictionaryDirectoryNode.SlotTable[] tables = new SegmentDictionaryDirectoryNode.SlotTable[segments];
+      for (int s = 0; s < segments; s++) {
+        final int slots = source.readInt();
+        if (slots < 0 || slots > SegmentDictionaryDirectoryNode.MAX_SLOTS_PER_SEGMENT) {
+          throw new IllegalStateException("invalid segment dictionary directory slot count " + slots);
+        }
+        if (slots == 0) {
+          tables[s] = SegmentDictionaryDirectoryNode.SlotTable.EMPTY;
+          continue;
+        }
+        if ((long) slots * (Integer.BYTES + Long.BYTES + Integer.BYTES) > source.remaining()) {
+          throw new IllegalStateException("segment dictionary directory slot table overruns its record");
+        }
+        final int[][] tagsBySlot = new int[slots][];
+        final long[] headerKeys = new long[slots];
+        final int[] entryCounts = new int[slots];
+        for (int slot = 0; slot < slots; slot++) {
+          final int tagCount = source.readInt();
+          if (tagCount < 0 || tagCount > SegmentDictionaryDirectoryNode.MAX_TAGS_PER_SLOT
+              || (long) tagCount * Integer.BYTES > source.remaining()) {
+            throw new IllegalStateException("invalid segment dictionary directory tag count " + tagCount);
+          }
+          final int[] tags = new int[tagCount];
+          for (int i = 0; i < tagCount; i++) {
+            tags[i] = source.readInt();
+          }
+          tagsBySlot[slot] = tags;
+          headerKeys[slot] = source.readLong();
+          entryCounts[slot] = source.readInt();
+        }
+        tables[s] = SegmentDictionaryDirectoryNode.SlotTable.takeOwnership(tagsBySlot, headerKeys, entryCounts);
+      }
+      return SegmentDictionaryDirectoryNode.takeOwnership(recordID, starts, tables);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final SegmentDictionaryDirectoryNode node = (SegmentDictionaryDirectoryNode) record;
+      final int segments = node.segmentCount();
+      sink.writeInt(segments);
+      for (int s = 0; s < segments; s++) {
+        sink.writeLong(node.segmentStart(s));
+      }
+      for (int s = 0; s < segments; s++) {
+        final SegmentDictionaryDirectoryNode.SlotTable table = node.slots(s);
+        final int slots = table.slotCount();
+        sink.writeInt(slots);
+        for (int slot = 0; slot < slots; slot++) {
+          final int[] tags = table.tags(slot);
+          sink.writeInt(tags.length);
+          for (final int tag : tags) {
+            sink.writeInt(tag);
+          }
+          sink.writeLong(table.headerKey(slot));
+          sink.writeInt(table.entryCount(slot));
+        }
       }
     }
 

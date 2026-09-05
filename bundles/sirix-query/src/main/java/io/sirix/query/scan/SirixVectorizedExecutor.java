@@ -8577,6 +8577,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return null;
     }
+    // A verdict is filled by walking STORAGE in position order and is indexed by the ids rows carry;
+    // behind a rank table the two differ (ids are mints), so the sweep would set the wrong bits.
+    // Decline and let the row path decode the values -- the view refuses with an
+    // UnsupportedOperationException as the backstop, and a backstop that fires inside a query is a
+    // failed query, not a slower one.
+    if (view.hasRankTable()) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] global dictionary on column " + column
+            + " carries a rank table; the verdict predicate declines");
+      }
+      return null;
+    }
     // The verdict is a pure function of (dictionary, revision, op, literal) and costs a sweep of
     // every distinct value -- 58 ms on a 275,494-entry URL dictionary, which measured as essentially
     // the whole cost of the substring queries. It is cached on the BUFFER MANAGER rather than on
@@ -14506,7 +14518,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (extremumHeader == null || !extremumHeader.isDirectoryComplete()) {
             return declineGroupAgg("global string extremum has no readable dictionary at this revision");
           }
-          if (extremumHeader.isFullyOrdered()) {
+          // The rank-string lane folds the ID lane with a NUMERIC min/max, so it needs the ids
+          // themselves to be in collation order -- not merely the storage, which a sealed segment
+          // dictionary keeps ordered behind a mint -> rank table. Such a dictionary takes the
+          // deferred route below, which materializes winners instead of folding ids.
+          if (extremumHeader.idsAreCollationOrdered()) {
             rankStringAggHeaderKeys[i] = headerKey;
             if (!rankStringFields.contains(aggFields[i])) {
               rankStringFields.add(aggFields[i]);

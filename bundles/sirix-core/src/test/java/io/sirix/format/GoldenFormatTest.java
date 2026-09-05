@@ -323,7 +323,15 @@ public final class GoldenFormatTest {
           // taken from the free range above 59, NO existing id moved, and the kind only ever appears
           // inside a projection index built by a version that knows it -- so a database written
           // before it existed cannot contain one and still reads unchanged.
-          + "VALUE_DICTIONARY_BLOCK_INDEX=60," + "PROJECTION_INDEX_LEAF=44,VALUE_DICTIONARY_COLLISION=45,"
+          + "VALUE_DICTIONARY_BLOCK_INDEX=60,"
+          // 61: the bit-packed mint -> rank table of a sealed segment dictionary; 62: the segment
+          // dictionary directory at fixed key 1 of the projection value dictionary sub-trie. Same
+          // case as 60 and deliberately so: two ids taken from the free range above 60, NO existing
+          // id moved, and both kinds only ever appear inside a resource written by a version that
+          // knows them -- a database written before they existed cannot contain one and still reads
+          // unchanged (its key 1 holds a rank-pass HEADER, which readers dispatch on by instance).
+          + "VALUE_DICTIONARY_RANK_TABLE=61,SEGMENT_DICTIONARY_DIRECTORY=62,"
+          + "PROJECTION_INDEX_LEAF=44,VALUE_DICTIONARY_COLLISION=45,"
           + "VECTOR_NODE=56,VECTOR_INDEX_METADATA=58,UNKNOWN=22";
 
   @Test

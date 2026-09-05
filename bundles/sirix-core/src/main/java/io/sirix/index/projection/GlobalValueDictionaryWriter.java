@@ -814,8 +814,13 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     }
   }
 
-  /** Preserve the dictionary failure as the transaction's authoritative rollback cause. */
-  private static void poisonOwningTransaction(final StorageEngineWriter storageEngineWriter,
+  /**
+   * Preserve the dictionary failure as the transaction's authoritative rollback cause. Package-private
+   * so that every dictionary write path of the intent log ({@link GlobalValueDictionary#attachRankTable},
+   * {@link GlobalValueDictionary#buildBlockIndex}) poisons the same way: a half-written structure
+   * behind a caught exception would otherwise be committed by a caller that swallowed it.
+   */
+  static void poisonOwningTransaction(final StorageEngineWriter storageEngineWriter,
       final Throwable primaryFailure) {
     try {
       storageEngineWriter.markTransactionRollbackOnly(primaryFailure);
@@ -866,6 +871,14 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     // probe.
     if (!baseHeader.supportsValueProbe() && !decodeOnly) {
       throw new IllegalArgumentException("a decode-only value dictionary can only be extended by a decode-only writer");
+    }
+    // A rank table maps the mints of ONE sealed generation onto its storage positions. An append would
+    // add positions the table does not cover, and the header this writer rewrites carries neither the
+    // table key nor the block index key -- a silent drop, not a refusal. A sealed segment dictionary
+    // grows by re-sealing (slice 4 carries the table through a tail append); until then, refuse.
+    if (baseHeader.hasRankTable()) {
+      throw new IllegalArgumentException("refusing to append to a value dictionary with a rank table at key "
+          + baseHeader.getRankTableKey() + ": a sealed segment dictionary is extended by re-sealing, not by append");
     }
   }
 
