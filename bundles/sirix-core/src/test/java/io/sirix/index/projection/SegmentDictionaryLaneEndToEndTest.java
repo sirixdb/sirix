@@ -198,6 +198,34 @@ final class SegmentDictionaryLaneEndToEndTest {
           }
           assertFalse(rtx.moveToRightSibling(), "no record beyond the last");
         }
+
+        // And again from a WRITE transaction, off a COLD cache. A read-only point lookup takes the
+        // lazy route on its own (no intent log, point lookup), so it never asks whether this
+        // resource's pages may carry dictionary ids; a writer's reads do ask. The cache clear is what
+        // makes the question reachable at all — a page the previous pass already expanded is served
+        // from memory and never deserialized again — and a wrong answer then expands a converted page
+        // eagerly, where no dictionary is reachable and the page is refused outright.
+        Databases.getGlobalBufferManager().clearAllCaches();
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveToDocumentRoot());
+          assertTrue(wtx.moveToFirstChild(), "the record-set array");
+          assertTrue(wtx.moveToFirstChild(), "the first record");
+          for (int record = 0; record < RECORDS; record++) {
+            assertTrue(wtx.moveToFirstChild(), "the record's only key, record " + record);
+            final boolean fused = wtx.getKind() == NodeKind.OBJECT_NAMED_STRING;
+            if (!fused) {
+              assertTrue(wtx.moveToFirstChild(), "the key's string value, record " + record);
+            }
+            assertEquals(codeOf(record), wtx.getValue(), "record " + record + " read through a writer");
+            if (!fused) {
+              assertTrue(wtx.moveToParent());
+            }
+            assertTrue(wtx.moveToParent());
+            if (record + 1 < RECORDS) {
+              assertTrue(wtx.moveToRightSibling(), "record " + (record + 1) + " follows");
+            }
+          }
+        }
       }
     }
   }

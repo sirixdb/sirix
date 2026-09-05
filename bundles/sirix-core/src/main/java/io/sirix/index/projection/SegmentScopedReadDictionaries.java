@@ -4,8 +4,10 @@
 package io.sirix.index.projection;
 
 import io.sirix.api.StorageEngineReader;
+import io.sirix.node.SegmentDictionaryDirectoryNode;
 import io.sirix.page.pax.GlobalStringDictionaries;
-import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jspecify.annotations.Nullable;
 
 import static java.util.Objects.requireNonNull;
@@ -18,9 +20,21 @@ import static java.util.Objects.requireNonNull;
  * {@link TrieLaneDictionaries} is one indirection: a trie-lane page's anchor IS the dictionary's
  * header key, so that resolver hands it straight to {@link GlobalValueDictionary#valueBytes}. A
  * segment-scoped page's anchor is its SEGMENT, because at page-encode time the segment's dictionary
- * had not been written and had no key yet, so this resolver translates through
- * {@link SegmentDictionaryAnchors} first.
+ * had not been written and had no key yet, so this resolver translates through the
+ * {@link SegmentDictionaryDirectoryNode} first.
  * </p>
+ *
+ * <h2>Why the directory and not the index metadata</h2>
+ *
+ * Everything this resolver needs is in ONE record, at a key it does not have to be told: the page's
+ * own tag names a slot, the slot names the dictionary. The alternative — the projection index's
+ * metadata blob plus the path summary — makes the reader ask which index it is looking at before it
+ * can resolve a page's values, which it cannot know from the page; needs a path-summary walk per
+ * transaction to turn field paths back into tags; and keys dictionaries by an index's OWN column
+ * numbering, so two projection indexes on one resource name different dictionaries by the same
+ * {@code (segment, column)} and a page records nothing that tells them apart. The directory is keyed
+ * by tag, which is what the page carries.
+ *
  *
  * <h2>The two refusals, and why both are needed</h2>
  *
@@ -57,36 +71,53 @@ public final class SegmentScopedReadDictionaries implements GlobalStringDictiona
 
   private final StorageEngineReader reader;
 
-  private final Int2IntMap columnByTag;
+  private final SegmentDictionaryDirectoryNode directory;
 
-  private final SegmentDictionaryAnchors anchors;
+  /** Every tag the directory covers in any segment; the answer {@link #hasDictionary} needs. */
+  private final IntSet coveredTags;
 
   private final ValueReader values;
 
-  public SegmentScopedReadDictionaries(final StorageEngineReader reader, final Int2IntMap columnByTag,
-      final SegmentDictionaryAnchors anchors) {
-    this(reader, columnByTag, anchors, GlobalValueDictionary::valueBytes);
+  public SegmentScopedReadDictionaries(final StorageEngineReader reader,
+      final SegmentDictionaryDirectoryNode directory) {
+    this(reader, directory, GlobalValueDictionary::valueBytes);
   }
 
-  SegmentScopedReadDictionaries(final StorageEngineReader reader, final Int2IntMap columnByTag,
-      final SegmentDictionaryAnchors anchors, final ValueReader values) {
+  SegmentScopedReadDictionaries(final StorageEngineReader reader, final SegmentDictionaryDirectoryNode directory,
+      final ValueReader values) {
     this.reader = reader;
-    this.columnByTag = requireNonNull(columnByTag, "columnByTag must not be null");
-    this.anchors = requireNonNull(anchors, "anchors must not be null");
+    this.directory = requireNonNull(directory, "directory must not be null");
     this.values = requireNonNull(values, "values must not be null");
+    this.coveredTags = coveredTagsOf(directory);
+  }
+
+  /**
+   * The union of every segment's tags. A tag is asked about without a segment — the encoder asks once
+   * per tag per page, before the page's anchor is read — so the union is the only honest answer, and
+   * a tag covered in one segment but not another still resolves correctly because {@link #accepts}
+   * looks the tag up in the page's OWN segment.
+   */
+  private static IntSet coveredTagsOf(final SegmentDictionaryDirectoryNode directory) {
+    final IntOpenHashSet tags = new IntOpenHashSet();
+    for (int segment = 0; segment < directory.segmentCount(); segment++) {
+      final SegmentDictionaryDirectoryNode.SlotTable table = directory.slots(segment);
+      for (int slot = 0; slot < table.slotCount(); slot++) {
+        for (final int tag : table.tags(slot)) {
+          tags.add(tag);
+        }
+      }
+    }
+    return tags;
   }
 
   @Override
   public boolean hasDictionary(final int tag) {
-    return columnByTag.containsKey(tag);
+    return coveredTags.contains(tag);
   }
 
   @Override
   public boolean accepts(final int tag, final long dictionaryKey, final int recordedEntryCount) {
-    if (!columnByTag.containsKey(tag) || dictionaryKey <= 0 || recordedEntryCount < 0) {
-      return false;
-    }
-    return anchors.accepts(dictionaryKey - 1, columnByTag.get(tag), recordedEntryCount);
+    return slotFor(tag, dictionaryKey, recordedEntryCount) >= 0;
   }
 
   @Override
@@ -97,14 +128,54 @@ public final class SegmentScopedReadDictionaries implements GlobalStringDictiona
   @Override
   public byte @Nullable [] valueOf(final int tag, final long dictionaryKey, final int recordedEntryCount,
       final int id) {
-    if (id <= 0 || id > recordedEntryCount || !accepts(tag, dictionaryKey, recordedEntryCount)) {
+    if (id <= 0 || id > recordedEntryCount) {
       return null;
     }
-    final long headerKey = anchors.headerKeyOf(dictionaryKey - 1, columnByTag.get(tag));
+    final int slot = slotFor(tag, dictionaryKey, recordedEntryCount);
+    if (slot < 0) {
+      return null;
+    }
+    final long headerKey = directory.headerKey((int) segmentOf(dictionaryKey), slot);
     if (headerKey == SegmentDictionaryAnchors.NO_HEADER_KEY) {
       return null;
     }
     return values.read(headerKey, id, reader);
+  }
+
+  /**
+   * The slot serving {@code tag} in the segment the page anchors to, or {@code -1} when the page
+   * cannot be resolved: an anchor outside the directory (a page whose segment was never sealed — the
+   * pages are durable, the dictionary is not), a tag the segment does not cover, or a sealed count
+   * below what the page recorded.
+   */
+  private int slotFor(final int tag, final long dictionaryKey, final int recordedEntryCount) {
+    if (dictionaryKey <= 0 || recordedEntryCount < 0) {
+      return -1;
+    }
+    final long segment = segmentOf(dictionaryKey);
+    if (segment >= directory.segmentCount()) {
+      return -1;
+    }
+    final SegmentDictionaryDirectoryNode.SlotTable table = directory.slots((int) segment);
+    final int slot = table.slotOfTag(tag);
+    if (slot < 0) {
+      return -1;
+    }
+    return table.entryCount(slot) >= recordedEntryCount
+        ? slot
+        : -1;
+  }
+
+  /** Slots the directory files for {@code segment} (test observability). */
+  int slotCountOf(final int segment) {
+    return segment < directory.segmentCount()
+        ? directory.slots(segment).slotCount()
+        : 0;
+  }
+
+  /** The page's anchor is its segment plus one, because 0 is the "no dictionary" sentinel. */
+  private static long segmentOf(final long dictionaryKey) {
+    return dictionaryKey - 1;
   }
 
   @Override

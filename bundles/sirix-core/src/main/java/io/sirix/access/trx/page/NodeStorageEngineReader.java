@@ -56,6 +56,7 @@ import io.sirix.index.projection.TrieLaneDictionaries;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
+import io.sirix.index.projection.GlobalValueDictionary;
 import io.sirix.index.projection.SegmentDictionaryAnchors;
 import io.sirix.index.projection.SegmentScopedReadDictionaries;
 import io.sirix.index.projection.TagColumnMap;
@@ -71,6 +72,7 @@ import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.index.name.Names;
 import io.sirix.node.NodeKind;
 
+import io.sirix.node.SegmentDictionaryDirectoryNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
@@ -1030,13 +1032,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private StringRegion.@Nullable Header trieLaneHeaderScratch;
 
   /**
-   * Re-entrancy guard for {@link #documentPagesUseTheTrieLane()}: collecting the anchors reads
-   * projection-index and path-summary pages through {@link #loadRecordPage}, and a DOCUMENT read
-   * arriving on this thread while the probe runs must not probe again.
-   */
-  private boolean trieLaneProbeInProgress;
-
-  /**
    * Turn a page's global-tag ids into bytes and leave them on the page.
    *
    * <p>
@@ -1145,27 +1140,40 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * </p>
    */
   /**
-   * Whether this resource's DOCUMENT pages were written with the trie lane, i.e. whether any
-   * projection column persisted a rank-ordered dictionary anchor. The answer is a property of the
-   * revision on disk, not of a JVM flag: a database converted under {@code sirix.projection.trieLane}
-   * must be read lazily by every later JVM whatever its flags say. Cached with the resolver itself,
-   * so after the first DOCUMENT load this is one field read.
+   * Whether this resource's DOCUMENT pages may carry dictionary ids, and must therefore be expanded
+   * on the LAZY route. The answer is a property of the revision on disk, not of a JVM flag: a
+   * database converted under either lane must be read lazily by every later JVM whatever its flags
+   * say.
+   *
+   * <p>
+   * Answered from ONE reference on the name page — does this revision have a projection value
+   * dictionary at all — and deliberately not from the resolver. This runs INSIDE a page lookup, and
+   * building the resolver reads: the trie lane walks the path summary, and the segment lane reads the
+   * directory record through the NAME trie. A record read nested in a document lookup leaves the
+   * outer lookup reading ITS record out of the nested read's state, which surfaces as a dictionary
+   * record handed back for a document node key. The resolver is built where values are actually
+   * resolved ({@link #buildGlobalStringTable}), which is outside any lookup and is where the trie
+   * lane has always read its dictionary records.
+   * </p>
+   *
+   * <p>
+   * Conservative in the safe direction: a resource that has a dictionary but no converted page reads
+   * lazily for nothing, which costs chunk framing on a point lookup. The other error — eager
+   * expansion of a page that does carry ids — is a page that cannot be read at all.
+   * </p>
    */
   private boolean documentPagesUseTheTrieLane() {
-    final GlobalStringDictionaries cached = trieLaneDictionaries;
-    if (cached != null) {
-      return cached != TrieLaneDictionaries.NONE;
+    Boolean cached = documentPagesMayCarryDictionaryIds;
+    if (cached == null) {
+      cached = getNamePage(getActualRevisionRootPage())
+          .hasProjectionValueDictionary(GlobalValueDictionary.databaseTypeOf(this));
+      documentPagesMayCarryDictionaryIds = cached;
     }
-    if (trieLaneProbeInProgress) {
-      return false;
-    }
-    trieLaneProbeInProgress = true;
-    try {
-      return trieLaneDictionaries() != TrieLaneDictionaries.NONE;
-    } finally {
-      trieLaneProbeInProgress = false;
-    }
+    return cached;
   }
+
+  /** Memo for {@link #documentPagesUseTheTrieLane}; one name-page reference check per reader. */
+  private @Nullable Boolean documentPagesMayCarryDictionaryIds;
 
   private GlobalStringDictionaries trieLaneDictionaries() {
     final GlobalStringDictionaries cached = trieLaneDictionaries;
@@ -1187,86 +1195,29 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /**
-   * The SEGMENT-scoped resolver when this revision's projections carry segment anchors, else
-   * {@code null}. Builds the tag-to-column map the same way the per-column anchors are built — from
-   * the path summary — because a page tags with a path class and the anchor table is keyed by column.
+   * The SEGMENT-scoped resolver when this revision holds a segment dictionary directory, else
+   * {@code null}.
    */
   private @Nullable GlobalStringDictionaries segmentLaneDictionaries() {
-    final IndexController<?, ?> indexController = resourceSession.getRtxIndexController(revisionNumber);
-    if (indexController == null) {
+    // ONE record, at a key this reader does not have to be told, keyed by the TAG the page carries.
+    // Everything else a resolver could be built from — which projection index wrote the page, that
+    // index's column numbering, the field paths behind those columns — is knowledge the page does not
+    // carry and the reader would have to reconstruct. Reached only from buildGlobalStringTable, which
+    // is outside any page lookup: this reads a record through the NAME trie, and the lazy gate that
+    // runs inside a lookup deliberately does not.
+    final NamePage namePage = getNamePage(getActualRevisionRootPage());
+    final DatabaseType databaseType = GlobalValueDictionary.databaseTypeOf(this);
+    if (!namePage.hasProjectionValueDictionary(databaseType)) {
       return null;
     }
-    SegmentDictionaryAnchors anchors = null;
-    Int2IntMap columnByTag = null;
-    PathSummaryReader pathSummary = null;
-    int servedIndexId = -1;
-    for (final IndexDef indexDef : indexController.getIndexes().getIndexDefs()) {
-      if (!indexDef.isProjectionIndex()) {
-        continue;
-      }
-      final byte[] blob = ProjectionIndexHOTStorage.readBlob(this, indexDef.getID(), 0L);
-      if (blob == null) {
-        continue;
-      }
-      final ProjectionIndexMetadata.SegmentAnchor[] segmentAnchors =
-          ProjectionIndexMetadata.parse(blob).segmentAnchors();
-      if (segmentAnchors == null || segmentAnchors.length == 0) {
-        continue;
-      }
-      if (anchors != null) {
-        // An anchor is keyed by (segment, column) and a column number is an index's OWN — column 0
-        // of two indexes names two different dictionaries, and a page records only (segment + 1), so
-        // nothing on the page says which index stamped it. Merging the two would resolve one index's
-        // ids against the other's dictionary: plausible bytes of the right shape. Serving neither is
-        // the loud answer — a page with ids then fails to resolve instead of resolving wrongly. One
-        // index carries segment dictionaries per resource until the anchor is keyed by index as
-        // well, which is the writer's shape too: ProjectionBulkLoad binds ONE lane per writer.
-        LOGGER.warn("projection indexes {} and {} both carry segment dictionaries; neither is served, because a page"
-            + " records only its segment and the two cannot be told apart", servedIndexId, indexDef.getID());
-        return null;
-      }
-      servedIndexId = indexDef.getID();
-      if (pathSummary == null) {
-        pathSummary = PathSummaryReader.getInstance(this, resourceSession);
-      }
-      // The same conflict rule the writer applied when it stamped the ids, over the same claims —
-      // THIS index's field paths, per column — so every id-encoded tag on a page has exactly the
-      // column here that minted it there.
-      final TagColumnMap claims = new TagColumnMap(16);
-      final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
-      for (int column = 0; column < fieldPaths.size(); column++) {
-        claimTagsForColumn(claims, pathSummary, fieldPaths.get(column), column);
-      }
-      columnByTag = claims.build();
-      anchors = new SegmentDictionaryAnchors();
-      for (final ProjectionIndexMetadata.SegmentAnchor anchor : segmentAnchors) {
-        anchors.seal(anchor.segment(), anchor.column(), anchor.headerKey(), anchor.sealedEntryCount());
-      }
+    final DataRecord record = namePage.getProjectionValueDictionaryRecord(SegmentDictionaryDirectoryNode.DIRECTORY_KEY,
+        databaseType, this);
+    if (!(record instanceof SegmentDictionaryDirectoryNode directory)) {
+      return null; // no lane ever sealed here — the trie lane's own anchors decide from here on
     }
-    if (anchors == null || columnByTag == null || columnByTag.isEmpty()) {
-      return null;
-    }
-    return new SegmentScopedReadDictionaries(this, columnByTag, anchors);
+    return new SegmentScopedReadDictionaries(this, directory);
   }
 
-  /**
-   * Claim every path class of {@code fieldPath} for {@code column}. The conflict rule — a tag two
-   * columns claim is withheld, for good — is {@link TagColumnMap}'s, shared with the writer.
-   */
-  private void claimTagsForColumn(final TagColumnMap claims, final PathSummaryReader pathSummary,
-      final Path<QNm> fieldPath, final int column) {
-    final LongSet pathClasses;
-    try {
-      pathClasses = pathSummary.getPCRsForPath(fieldPath);
-    } catch (final PathException unresolvable) {
-      LOGGER.debug("segment lane: field path {} does not resolve at revision {}", fieldPath, revisionNumber,
-          unresolvable);
-      return;
-    }
-    for (final LongIterator keys = pathClasses.iterator(); keys.hasNext();) {
-      claims.claim(keys.nextLong(), column);
-    }
-  }
 
   private Int2LongMap collectTrieLaneAnchors() {
     final Int2LongMap anchors = new Int2LongOpenHashMap();

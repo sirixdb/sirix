@@ -3,9 +3,11 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.node.SegmentDictionaryDirectoryNode;
 import io.sirix.page.pax.GlobalStringDictionaries;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -126,12 +128,56 @@ final class SegmentScopedRoundTripTest {
     }
     assertEquals(2, anchors.sealedCount());
 
-    final SegmentScopedReadDictionaries reader =
-        new SegmentScopedReadDictionaries(null, tags(), anchors, (key, id, ignored) -> store.read(key, id));
+    final SegmentScopedReadDictionaries reader = readerOf(anchors, 2, store);
 
     assertResolves(reader, page0, URL_TAG, "http://a", "http://b");
     assertResolves(reader, page1, URL_TAG, "http://b", "http://c");
     assertResolves(reader, page2, URL_TAG, "http://a", "http://z");
+  }
+
+  /**
+   * The directory a seal would have written: one slot per column that sealed a dictionary, carrying
+   * the tags that resolve to it. Built from the same anchors the lane records, so the test drives the
+   * reader through the record the reader really reads.
+   */
+  private static SegmentDictionaryDirectoryNode directoryOf(final SegmentDictionaryAnchors anchors,
+      final int segments) {
+    final long[] starts = new long[segments];
+    for (int segment = 0; segment < segments; segment++) {
+      starts[segment] = (long) segment * LEAVES_PER_SEGMENT;
+    }
+    final SegmentDictionaryDirectoryNode.SlotTable[] tables = new SegmentDictionaryDirectoryNode.SlotTable[segments];
+    for (int segment = 0; segment < segments; segment++) {
+      final IntArrayList columns = new IntArrayList();
+      for (int column = 0; column <= 1; column++) {
+        if (anchors.headerKeyOf(segment, column) != SegmentDictionaryAnchors.NO_HEADER_KEY) {
+          columns.add(column);
+        }
+      }
+      if (columns.isEmpty()) {
+        tables[segment] = SegmentDictionaryDirectoryNode.SlotTable.EMPTY;
+        continue;
+      }
+      final int[][] tagsBySlot = new int[columns.size()][];
+      final long[] headerKeys = new long[columns.size()];
+      final int[] entryCounts = new int[columns.size()];
+      for (int slot = 0; slot < columns.size(); slot++) {
+        final int column = columns.getInt(slot);
+        tagsBySlot[slot] = column == 0
+            ? new int[] {URL_TAG}
+            : new int[] {TITLE_TAG};
+        headerKeys[slot] = anchors.headerKeyOf(segment, column);
+        entryCounts[slot] = anchors.sealedEntryCountOf(segment, column);
+      }
+      tables[segment] = SegmentDictionaryDirectoryNode.SlotTable.takeOwnership(tagsBySlot, headerKeys, entryCounts);
+    }
+    return SegmentDictionaryDirectoryNode.takeOwnership(SegmentDictionaryDirectoryNode.DIRECTORY_KEY, starts, tables);
+  }
+
+  private static SegmentScopedReadDictionaries readerOf(final SegmentDictionaryAnchors anchors, final int segments,
+      final FakeStore store) {
+    return new SegmentScopedReadDictionaries(null, directoryOf(anchors, segments),
+        (key, id, ignored) -> store.read(key, id));
   }
 
   private static void assertResolves(final SegmentScopedReadDictionaries reader, final Encoded page, final int tag,
@@ -156,12 +202,64 @@ final class SegmentScopedRoundTripTest {
     final SegmentDictionaryAnchors anchors = new SegmentDictionaryAnchors();
     anchors.seal(0, 0, store.commit(writer.valuesOf(0, 0)), writer.entryCount(0, 0));
     anchors.seal(1, 0, store.commit(writer.valuesOf(1, 0)), writer.entryCount(1, 0));
-    final SegmentScopedReadDictionaries reader =
-        new SegmentScopedReadDictionaries(null, tags(), anchors, (key, id, ignored) -> store.read(key, id));
+    final SegmentScopedReadDictionaries reader = readerOf(anchors, 2, store);
 
     assertArrayEquals(utf8("zero-only"), reader.valueOf(URL_TAG, inZero.anchor(), inZero.entryCount(), 1));
     assertArrayEquals(utf8("one-only"), reader.valueOf(URL_TAG, inOne.anchor(), inOne.entryCount(), 1),
         "the SAME id in the next segment is a different value, and the anchor is what separates them");
+  }
+
+  @Test
+  @DisplayName("a tag's SLOT is looked up in the page's own segment, which is not the same slot everywhere")
+  void aTagsSlotIsPerSegment() {
+    final SegmentScopedDictionaries writer = writer();
+    // Segment 0 has a title and no url; segment 1 has both. So the title tag sits at slot 0 in one
+    // segment and slot 1 in the other, and a resolver that looked its slot up in the WRONG segment's
+    // table would hand back the url dictionary's key for a title id — plausible bytes, wrong column.
+    final Encoded zeroTitle = encode(writer, 0, TITLE_TAG, "t-zero");
+    final Encoded oneUrl = encode(writer, 1024, URL_TAG, "u-one");
+    final Encoded oneTitle = encode(writer, 1024, TITLE_TAG, "t-one");
+
+    final FakeStore store = new FakeStore();
+    final SegmentDictionaryAnchors anchors = new SegmentDictionaryAnchors();
+    anchors.seal(0, 1, store.commit(writer.valuesOf(0, 1)), writer.entryCount(0, 1));
+    anchors.seal(1, 0, store.commit(writer.valuesOf(1, 0)), writer.entryCount(1, 0));
+    anchors.seal(1, 1, store.commit(writer.valuesOf(1, 1)), writer.entryCount(1, 1));
+    final SegmentScopedReadDictionaries reader = readerOf(anchors, 2, store);
+
+    assertEquals(1, reader.slotCountOf(0), "segment 0 sealed one column");
+    assertEquals(2, reader.slotCountOf(1), "segment 1 sealed two");
+    assertArrayEquals(utf8("t-zero"), reader.valueOf(TITLE_TAG, zeroTitle.anchor(), zeroTitle.entryCount(), 1));
+    assertArrayEquals(utf8("u-one"), reader.valueOf(URL_TAG, oneUrl.anchor(), oneUrl.entryCount(), 1));
+    assertArrayEquals(utf8("t-one"), reader.valueOf(TITLE_TAG, oneTitle.anchor(), oneTitle.entryCount(), 1),
+        "the title tag resolves through segment 1's OWN slot, not segment 0's");
+    assertNull(reader.valueOf(URL_TAG, zeroTitle.anchor(), zeroTitle.entryCount(), 1),
+        "and segment 0 covers no url tag at all");
+  }
+
+  @Test
+  @DisplayName("an id above what the PAGE recorded is refused even when the dictionary holds it")
+  void anIdAboveThePagesOwnCountIsRefused() {
+    final SegmentScopedDictionaries writer = writer();
+    final Encoded page = encode(writer, 0, URL_TAG, "u1", "u2");
+    // The segment goes on to mint a third value AFTER this page was encoded — the ordinary shape,
+    // since other pages of the segment keep minting. The page's own recorded count is 2.
+    final GlobalStringDictionaries later = writer.adopt(1);
+    final byte[] third = utf8("u3");
+    assertEquals(3, later.idOf(URL_TAG, third, 0, third.length));
+
+    final FakeStore store = new FakeStore();
+    final SegmentDictionaryAnchors anchors = new SegmentDictionaryAnchors();
+    anchors.seal(0, 0, store.commit(writer.valuesOf(0, 0)), writer.entryCount(0, 0));
+    final SegmentScopedReadDictionaries reader = readerOf(anchors, 2, store);
+
+    assertEquals(2, page.entryCount(), "the page recorded the count it saw");
+    assertArrayEquals(utf8("u2"), reader.valueOf(URL_TAG, page.anchor(), page.entryCount(), 2));
+    // id 3 IS in the sealed dictionary. It is still refused: the page cannot have written it, so an
+    // id above its own bound means the page and the dictionary disagree about which one this is.
+    assertNotNull(store.read(anchors.headerKeyOf(0, 0), 3), "the fixture must really hold id 3");
+    assertNull(reader.valueOf(URL_TAG, page.anchor(), page.entryCount(), 3),
+        "an id above the page's own recorded count is refused, dictionary or no dictionary");
   }
 
   @Test
@@ -171,15 +269,17 @@ final class SegmentScopedRoundTripTest {
     final Encoded page = encode(writer, 0, URL_TAG, "http://a");
     final FakeStore store = new FakeStore();
     final SegmentDictionaryAnchors anchors = new SegmentDictionaryAnchors();
-    final SegmentScopedReadDictionaries reader =
-        new SegmentScopedReadDictionaries(null, tags(), anchors, (key, id, ignored) -> store.read(key, id));
+    final SegmentScopedReadDictionaries unsealed = readerOf(anchors, 2, store);
 
-    assertTrue(!reader.accepts(URL_TAG, page.anchor(), page.entryCount()));
-    assertNull(reader.valueOf(URL_TAG, page.anchor(), page.entryCount(), page.ids()[0]),
+    assertTrue(!unsealed.accepts(URL_TAG, page.anchor(), page.entryCount()));
+    assertNull(unsealed.valueOf(URL_TAG, page.anchor(), page.entryCount(), page.ids()[0]),
         "a crash between writing the pages and sealing the dictionary must refuse, never guess");
-    // And once sealed, the same page resolves.
+    // And once sealed, the same page resolves — through the directory of the revision that HAS the
+    // seal. A reader holds the directory record of its own revision, so a later seal is a later
+    // revision's directory, never a mutation under a reader that has already answered.
     anchors.seal(0, 0, store.commit(writer.valuesOf(0, 0)), writer.entryCount(0, 0));
-    assertArrayEquals(utf8("http://a"), reader.valueOf(URL_TAG, page.anchor(), page.entryCount(), page.ids()[0]));
+    final SegmentScopedReadDictionaries sealed = readerOf(anchors, 2, store);
+    assertArrayEquals(utf8("http://a"), sealed.valueOf(URL_TAG, page.anchor(), page.entryCount(), page.ids()[0]));
   }
 
   @Test
@@ -190,8 +290,7 @@ final class SegmentScopedRoundTripTest {
     final FakeStore store = new FakeStore();
     final SegmentDictionaryAnchors anchors = new SegmentDictionaryAnchors();
     anchors.seal(0, 0, store.commit(writer.valuesOf(0, 0)), writer.entryCount(0, 0));
-    final SegmentScopedReadDictionaries reader =
-        new SegmentScopedReadDictionaries(null, tags(), anchors, (key, id, ignored) -> store.read(key, id));
+    final SegmentScopedReadDictionaries reader = readerOf(anchors, 2, store);
 
     assertNotNull(reader.valueOf(URL_TAG, 1L, page.entryCount(), 2));
     assertNull(reader.valueOf(URL_TAG, 1L, page.entryCount(), 3), "an id above the page's own count");
@@ -229,13 +328,17 @@ final class SegmentScopedRoundTripTest {
     final FakeStore store = new FakeStore();
     final SegmentDictionaryAnchors anchors = new SegmentDictionaryAnchors();
     anchors.seal(0, 0, store.commit(writer.valuesOf(0, 0)), writer.entryCount(0, 0));
-    final SegmentScopedReadDictionaries reader =
-        new SegmentScopedReadDictionaries(null, tags(), anchors, (key, id, ignored) -> store.read(key, id));
+    final SegmentScopedReadDictionaries urlsOnly = readerOf(anchors, 2, store);
 
-    assertArrayEquals(utf8("u2"), reader.valueOf(URL_TAG, urls.anchor(), urls.entryCount(), 2));
-    assertNull(reader.valueOf(TITLE_TAG, titles.anchor(), titles.entryCount(), 1),
+    assertArrayEquals(utf8("u2"), urlsOnly.valueOf(URL_TAG, urls.anchor(), urls.entryCount(), 2));
+    assertNull(urlsOnly.valueOf(TITLE_TAG, titles.anchor(), titles.entryCount(), 1),
         "the title column of the same segment is not sealed yet, so it refuses");
+    assertTrue(!urlsOnly.hasDictionary(TITLE_TAG), "and the directory does not claim to cover its tag");
+
     anchors.seal(0, 1, store.commit(writer.valuesOf(0, 1)), writer.entryCount(0, 1));
-    assertArrayEquals(utf8("t1"), reader.valueOf(TITLE_TAG, titles.anchor(), titles.entryCount(), 1));
+    final SegmentScopedReadDictionaries both = readerOf(anchors, 2, store);
+    assertArrayEquals(utf8("t1"), both.valueOf(TITLE_TAG, titles.anchor(), titles.entryCount(), 1));
+    assertArrayEquals(utf8("u2"), both.valueOf(URL_TAG, urls.anchor(), urls.entryCount(), 2),
+        "and the column that was already sealed still resolves from its own slot");
   }
 }
