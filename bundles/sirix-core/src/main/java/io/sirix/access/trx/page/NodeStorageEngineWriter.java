@@ -5335,6 +5335,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     this.encodePassCompleteListener = listener;
   }
 
+  @Override
+  public void installLiveDocumentStringReadView(final @Nullable GlobalStringDictionaries live) {
+    storageEngineReader.installLiveLaneDictionaries(live);
+  }
+
   /**
    * Tell the seam listener that every page this commit writes has been encoded. Run on the
    * committing thread, before the recursive commit, so whatever it persists joins this revision.

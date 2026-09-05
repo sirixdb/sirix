@@ -488,7 +488,12 @@ public final class ProjectionIndexMetadata {
 
   /** Whether two column kinds describe the same declared column, ignoring the dictionary choice. */
   private static boolean sameDeclaredShape(final byte persisted, final byte derived) {
-    if (persisted == derived || (persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+    // Either dictionary-id kind is the SAME declared column as the per-leaf dictionary it was
+    // derived from: which dictionary a string column ends up in — per leaf, per segment, or resource
+    // wide — is decided by the load from the data and the flags it ran under, never by the
+    // declaration. A reader deriving the declared shape sees the per-leaf kind and must accept the
+    // store's choice, exactly as it already does for a resource-wide dictionary.
+    if (persisted == derived || (ProjectionIndexRowGroupPage.isDictionaryIdKind(persisted)
         && derived == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT)) {
       return true;
     }

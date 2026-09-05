@@ -260,8 +260,36 @@ public final class ProjectionIndexRowGroupPage {
    */
   public static final byte COLUMN_KIND_DATE = 7;
 
+  /**
+   * A string column whose cells store ids into the SEGMENT dictionary of the segment this row group
+   * lies in — the same dictionary the document pages of that segment minted into, and the same one
+   * the seal writes.
+   *
+   * <p>
+   * {@link #COLUMN_KIND_STRING_GLOBAL} stores the strings once per RESOURCE, which is why it collapses
+   * a column that {@link #COLUMN_KIND_STRING_DICT} would store once per leaf. It pays for that with a
+   * dictionary that is rewritten as it grows and accumulates every dead value of the resource for all
+   * time. This kind keeps the collapse and bounds both: the dictionary is one segment's, its graveyard
+   * is that segment's own churn, and a value update costs zero dictionary bytes because the write path
+   * only appends.
+   *
+   * <p>
+   * <b>Storage is byte-identical to {@link #COLUMN_KIND_NUMERIC_LONG}</b>, the precedent every long-lane
+   * kind follows. What the kind byte buys is the one thing kind 5 can assume and this cannot: an id is
+   * identity only WITHIN its segment. Two segments hand the same id to different values, so a group
+   * identity, a distinct count or an equality against a literal must be per segment and merged across
+   * segments by VALUE — a bitset over the row ids per segment, then one string hash per (segment,
+   * distinct id) for the merge. Nothing may treat these cells the way kind 5's are treated, which is
+   * why the kind is separate rather than a flag on kind 5.
+   *
+   * <p>
+   * The segment itself is not stored: a row group never straddles a boundary (the builder cuts there),
+   * so it is the segment its {@code firstRecordKey} falls in, which the directory answers.
+   */
+  public static final byte COLUMN_KIND_STRING_SEGMENT = 8;
+
   /** The highest kind byte this build understands; readers reject anything above it as corrupt. */
-  public static final byte MAX_COLUMN_KIND = COLUMN_KIND_DATE;
+  public static final byte MAX_COLUMN_KIND = COLUMN_KIND_STRING_SEGMENT;
 
   /** {@code true} for the two numeric kinds, whose storage layout is identical. */
   public static boolean isNumericKind(final byte kind) {
@@ -306,8 +334,31 @@ public final class ProjectionIndexRowGroupPage {
    * it, averaging it or returning it as a minimum are all wrong answers rather than slow ones.
    */
   public static boolean isLongLaneKind(final byte kind) {
-    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE || kind == COLUMN_KIND_STRING_GLOBAL
+    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE || isDictionaryIdKind(kind)
         || isTemporalKind(kind);
+  }
+
+  /**
+   * {@code true} for the two kinds whose cells are DICTIONARY IDS rather than values —
+   * {@link #COLUMN_KIND_STRING_GLOBAL} and {@link #COLUMN_KIND_STRING_SEGMENT}.
+   *
+   * <p>
+   * The predicate for sites that must not treat a cell as a quantity or as its own order. It says
+   * nothing about the SCOPE of the id, which is the difference between the two: a site that resolves
+   * an id to bytes, groups by it or compares it against a literal must additionally ask
+   * {@link #isSegmentScopedIdKind}, because a segment-scoped id means nothing without its segment.
+   */
+  public static boolean isDictionaryIdKind(final byte kind) {
+    return kind == COLUMN_KIND_STRING_GLOBAL || kind == COLUMN_KIND_STRING_SEGMENT;
+  }
+
+  /**
+   * {@code true} when a cell's id is identity only within this row group's segment. Every site that
+   * derives meaning from an id — resolution, grouping, distinct counting, equality against a literal —
+   * must either handle the segment or refuse.
+   */
+  public static boolean isSegmentScopedIdKind(final byte kind) {
+    return kind == COLUMN_KIND_STRING_SEGMENT;
   }
 
   /** Footer magic of the presence tail ("PIX1" little-endian). */
@@ -1723,6 +1774,29 @@ public final class ProjectionIndexRowGroupPage {
    * @param dictionary the resource-wide dictionary to resolve against
    */
   void convertStringDictColumnToGlobal(final int c, final GlobalValueDictionaryEncoder dictionary) {
+    convertStringDictColumn(c, dictionary, COLUMN_KIND_STRING_GLOBAL);
+  }
+
+  /**
+   * Re-encode a {@link #COLUMN_KIND_STRING_DICT} column as {@link #COLUMN_KIND_STRING_SEGMENT},
+   * interning into the dictionary of the segment this row group lies in.
+   *
+   * <p>
+   * Identical to {@link #convertStringDictColumnToGlobal} but for the kind it lands on, because the
+   * work IS identical: intern each of this leaf's distinct entries once and replace the id lane. What
+   * differs is what the resulting ids mean, and that is the kind byte's job to say — see
+   * {@link #COLUMN_KIND_STRING_SEGMENT}.
+   * </p>
+   *
+   * @param c the column to convert
+   * @param dictionary this leaf's segment's dictionary for this column
+   */
+  void convertStringDictColumnToSegment(final int c, final GlobalValueDictionaryEncoder dictionary) {
+    convertStringDictColumn(c, dictionary, COLUMN_KIND_STRING_SEGMENT);
+  }
+
+  private void convertStringDictColumn(final int c, final GlobalValueDictionaryEncoder dictionary,
+      final byte targetKind) {
     checkColumn(c);
     if (columnKinds[c] != COLUMN_KIND_STRING_DICT) {
       throw new IllegalStateException("column " + c + " is kind " + columnKinds[c] + ", not STRING_DICT");
@@ -1767,7 +1841,7 @@ public final class ProjectionIndexRowGroupPage {
       columnMin[c] = min;
       columnMax[c] = max;
     }
-    installGlobalIdLane(c, converted);
+    installGlobalIdLane(c, converted, targetKind);
   }
 
   /**
@@ -1846,6 +1920,10 @@ public final class ProjectionIndexRowGroupPage {
    * </p>
    */
   private void installGlobalIdLane(final int c, final long[] converted) {
+    installGlobalIdLane(c, converted, COLUMN_KIND_STRING_GLOBAL);
+  }
+
+  private void installGlobalIdLane(final int c, final long[] converted, final byte targetKind) {
     numericCols[c] = converted;
     stringDictIdCols[c] = null;
     stringDicts[c] = null;
@@ -1857,7 +1935,7 @@ public final class ProjectionIndexRowGroupPage {
     stringDictHashes[c] = null;
     stringDictHashSlots[c] = null;
     stringDictHashActive[c] = false;
-    columnKinds[c] = COLUMN_KIND_STRING_GLOBAL;
+    columnKinds[c] = targetKind;
   }
 
   private int appendString(final int c, final String value) {

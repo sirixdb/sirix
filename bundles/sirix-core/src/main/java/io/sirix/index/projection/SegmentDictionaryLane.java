@@ -136,6 +136,8 @@ public final class SegmentDictionaryLane {
     final SegmentDictionaryLane lane = new SegmentDictionaryLane(columns, boundaries);
     storageEngineWriter.installDocumentStringDictionaryFactory(lane::adoptPage);
     storageEngineWriter.installDocumentPageEncodedListener(lane::pageEncoded);
+    // The load must be able to read back what it has already written, before any of it is sealed.
+    storageEngineWriter.installLiveDocumentStringReadView(new SegmentLaneReadView(lane.dictionaries));
     return lane;
   }
 
@@ -316,6 +318,7 @@ public final class SegmentDictionaryLane {
     if (storageEngineWriter != null) {
       storageEngineWriter.installDocumentStringDictionaryFactory(null);
       storageEngineWriter.installDocumentPageEncodedListener(null);
+      storageEngineWriter.installLiveDocumentStringReadView(null);
     }
   }
 

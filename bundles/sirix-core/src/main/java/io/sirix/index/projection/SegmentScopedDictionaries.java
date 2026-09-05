@@ -201,6 +201,37 @@ public final class SegmentScopedDictionaries {
     }
   }
 
+  /**
+   * Mint a value directly into {@code (segment, column)} — the PROJECTION side's route, which knows
+   * its column and needs no tag.
+   *
+   * <p>
+   * The same dictionary the document pages of that segment mint into, deliberately: a projection row
+   * and the document node it was extracted from hold the same bytes, so interning them separately
+   * would store every value twice and hand out two id spaces for one set of values. Sharing means the
+   * projection leaf stores ids into a dictionary that is written exactly once, by the seal, for both.
+   * </p>
+   *
+   * @return the value's id, or {@link GlobalStringDictionaries#ID_ABSENT} when it is longer than the
+   *         seal can persist — the caller must then keep the value where it is
+   */
+  public int idIn(final int segment, final int column, final byte[] value, final int offset, final int length) {
+    requireNonNegativeSegment(segment);
+    requireNonNegativeColumn(column);
+    requireNonNull(value, "value must not be null");
+    if (offset < 0 || length < 0 || offset > value.length - length) {
+      throw new IndexOutOfBoundsException("offset " + offset + " length " + length + " over " + value.length);
+    }
+    if (length > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
+      return GlobalStringDictionaries.ID_ABSENT;
+    }
+    final SegmentState state = stateOf(segment);
+    if (state == null) {
+      throw new IllegalStateException("segment " + segment + " has adopted no page; nothing may be minted into it");
+    }
+    return state.column(column).idOf(value, offset, length);
+  }
+
   /** Distinct values minted for {@code column} in {@code segment}; {@code 0} when it has none. */
   public int entryCount(final int segment, final int column) {
     requireNonNegativeSegment(segment);
@@ -242,6 +273,39 @@ public final class SegmentScopedDictionaries {
     return dictionary == null
         ? NO_VALUES
         : dictionary.valuesById();
+  }
+
+  /**
+   * The value id {@code id} names in {@code (segment, column)}, or {@code null} when the segment has
+   * no such dictionary or the id is outside it.
+   *
+   * <p>
+   * The DECODE direction, for the writer's own reads: a page committed before its segment is sealed
+   * carries ids that no persisted dictionary answers for yet, and the writer reads such pages back —
+   * a versioning combine, a cursor moving to a record whose page has left the intent log. The values
+   * are in this instance the whole time; nothing has to be persisted for them to be readable, and
+   * refusing here would make a load unable to read what it just wrote.
+   * </p>
+   *
+   * <p>
+   * The array is the dictionary's own, not a copy: a caller that writes into it corrupts the
+   * dictionary the seal is about to persist.
+   * </p>
+   */
+  public byte @Nullable [] valueAt(final int segment, final int column, final int id) {
+    requireNonNegativeSegment(segment);
+    requireNonNegativeColumn(column);
+    if (id < 1) {
+      return null;
+    }
+    final SegmentState state = stateOf(segment);
+    if (state == null) {
+      return null;
+    }
+    final ColumnDictionary dictionary = state.dictionaryAt(column);
+    return dictionary == null
+        ? null
+        : dictionary.valueAt(id);
   }
 
   /** {@link #valuesById} as the stream a persisting caller reads. */
@@ -632,6 +696,18 @@ public final class SegmentScopedDictionaries {
      */
     int size() {
       return size;
+    }
+
+    /**
+     * The bytes of {@code id}, or {@code null} when the id was never issued or the dictionary has been
+     * released. Read without the lock: a value slot is published before the id that names it, so an id
+     * this dictionary issued has its bytes visible to whoever can name the id.
+     */
+    byte @Nullable [] valueAt(final int id) {
+      final byte[][] values = valueById;
+      return id > values.length
+          ? null
+          : values[id - 1];
     }
 
     /** Slots in the current table (test observability). */

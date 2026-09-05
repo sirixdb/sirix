@@ -1174,8 +1174,12 @@ public final class ProjectionColumnScan {
     // pass's fully-ordered dictionary): then a leaf's smallest present id is its smallest value and
     // the heap's numeric first-key test (ids in the tuple) is the value test. Any other global
     // dictionary leaves every leaf unbounded — visited, never skipped.
-    final boolean boundable = firstKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
-        || (globalSortViews.length > 0 && globalSortViews[0] != null && globalSortViews[0].fullyOrdered());
+    // A SEGMENT-scoped id is never a bound: ids are per-segment mints, so the same id names different
+    // values in different leaves and the smallest id in a leaf is not its smallest value — not even
+    // when that segment's own dictionary is rank-ordered, because the order does not cross segments.
+    final boolean boundable = !ProjectionIndexRowGroupPage.isSegmentScopedIdKind(firstKind)
+        && (firstKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+            || (globalSortViews.length > 0 && globalSortViews[0] != null && globalSortViews[0].fullyOrdered()));
     if (boundable) {
       if (firstKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
         extrema = store.stringValueExtrema(first, fetcher);

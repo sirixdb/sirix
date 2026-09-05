@@ -15,6 +15,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.index.IndexDef;
+import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
@@ -107,6 +108,15 @@ public final class ProjectionIndexBuilder {
 
   /** Segment-scoped encode dictionaries, or {@code null} when that lane is off. */
   private @Nullable SegmentScopedDictionaries segmentScopedDictionaries;
+
+  /** No lane, or a row group that has not taken its first row yet. */
+  private static final int NO_SEGMENT = -1;
+
+  /** The document segment every row of the current group belongs to. */
+  private int currentLeafSegment = NO_SEGMENT;
+
+  /** Columns the segment lane converted in at least one leaf; the kinds it publishes at the end. */
+  private boolean[] segmentColumns = new boolean[0];
 
   /**
    * Resolved pathNodeKeys of the projection root (e.g. {@code $doc[]}). Multi-PCR roots — the same
@@ -1290,6 +1300,7 @@ public final class ProjectionIndexBuilder {
         decideDictionaryKindsAndDrainSample();
       }
       publishInjectedColumnKinds();
+    publishSegmentColumnKinds();
     } finally {
       rtx.moveTo(restoreNodeKey);
     }
@@ -1459,6 +1470,9 @@ public final class ProjectionIndexBuilder {
    */
   public void setSegmentScopedDictionaries(final @Nullable SegmentScopedDictionaries dictionaries) {
     this.segmentScopedDictionaries = dictionaries;
+    if (dictionaries != null && segmentColumns.length < extractor.columnKindsRef().length) {
+      segmentColumns = new boolean[extractor.columnKindsRef().length];
+    }
     publishTrieLaneTags();
   }
 
@@ -1524,7 +1538,7 @@ public final class ProjectionIndexBuilder {
       throw new IllegalStateException("appendRecord() is the streaming builder's entry point; this builder walks");
     }
     final byte[] orderLabelBytes = Objects.requireNonNull(orderLabel, "orderLabel must not be null").toBytes();
-    prepareLeafForOrderLabel(orderLabelBytes, "JSON");
+    prepareLeafForOrderLabel(orderLabelBytes, recordKey, "JSON");
     if (!extractor.extractInto(rtx, recordKey)) {
       return false;
     }
@@ -1541,7 +1555,7 @@ public final class ProjectionIndexBuilder {
       throw new IllegalStateException("appendRecord() is the streaming builder's entry point; this builder walks");
     }
     final byte[] orderLabelBytes = Objects.requireNonNull(orderLabel, "orderLabel must not be null").toBytes();
-    prepareLeafForOrderLabel(orderLabelBytes, "XML");
+    prepareLeafForOrderLabel(orderLabelBytes, recordKey, "XML");
     if (!extractor.extractInto(rtx, recordKey)) {
       return false;
     }
@@ -1577,7 +1591,7 @@ public final class ProjectionIndexBuilder {
       throw new IllegalStateException("appendBatchRow() is the streaming builder's entry point; this builder walks");
     }
     final byte[] orderLabelBytes = Objects.requireNonNull(orderLabel, "orderLabel must not be null").toBytes();
-    prepareLeafForOrderLabel(orderLabelBytes, "JSON");
+    prepareLeafForOrderLabel(orderLabelBytes, recordKey, "JSON");
     extractor.loadRowFromBatch(batch, row);
     appendExtractedRecord(recordKey, orderLabel, orderLabelBytes, "JSON");
   }
@@ -1597,6 +1611,7 @@ public final class ProjectionIndexBuilder {
       decideDictionaryKindsAndDrainSample();
     }
     publishInjectedColumnKinds();
+    publishSegmentColumnKinds();
   }
 
   /**
@@ -1611,6 +1626,24 @@ public final class ProjectionIndexBuilder {
    * which must agree with what every leaf's descriptor now says.
    * </p>
    */
+  /**
+   * Flip the SHARED kinds array for every column the segment lane converted, once every leaf has been
+   * written — the same ordering {@link #publishInjectedColumnKinds} needs and for the same reason: the
+   * extractor reads this array to decide how to BUILD a leaf, and the leaves must keep being built
+   * with per-leaf dictionaries so each one has something to convert.
+   */
+  private void publishSegmentColumnKinds() {
+    if (segmentScopedDictionaries == null) {
+      return;
+    }
+    final byte[] kinds = extractor.columnKindsRef();
+    for (int column = 0; column < kinds.length && column < segmentColumns.length; column++) {
+      if (segmentColumns[column]) {
+        kinds[column] = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT;
+      }
+    }
+  }
+
   private void publishInjectedColumnKinds() {
     final PrebuiltGlobalDictionary[] injected = prebuiltGlobalDictionaries;
     if (injected == null) {
@@ -1796,6 +1829,28 @@ public final class ProjectionIndexBuilder {
   }
 
   /** Convert the injected columns of one finished leaf before it is handed on. */
+  /**
+   * Re-encode this leaf's string columns as ids into ITS segment's dictionary.
+   *
+   * <p>
+   * Every column that is still a per-leaf dictionary is converted — the segment lane makes no
+   * per-column choice, because the thing that made the global-dictionary decision hard (is this
+   * column a handful of labels or millions of identifiers?) does not apply: a segment dictionary
+   * costs nothing extra for a small column, since the document pages of that segment already minted
+   * exactly these values into exactly this dictionary.
+   * </p>
+   */
+  private void convertSegmentColumns(final ProjectionIndexRowGroupPage leaf, final SegmentScopedDictionaries segments,
+      final int segment) {
+    final byte[] kinds = extractor.columnKindsRef();
+    for (int column = 0; column < kinds.length; column++) {
+      if (leaf.columnKind(column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        leaf.convertStringDictColumnToSegment(column, new SegmentColumnEncoder(segments, segment, column));
+        segmentColumns[column] = true;
+      }
+    }
+  }
+
   private void convertInjectedColumns(final ProjectionIndexRowGroupPage leaf) {
     final PrebuiltGlobalDictionary[] injected = prebuiltGlobalDictionaries;
     for (int column = 0; column < injected.length; column++) {
@@ -1843,7 +1898,7 @@ public final class ProjectionIndexBuilder {
   private void extractRow(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
     final SirixDeweyID orderLabel = resolveOrderLabel(recordKey);
     final byte[] orderLabelBytes = orderLabel.toBytes();
-    prepareLeafForOrderLabel(orderLabelBytes, "JSON");
+    prepareLeafForOrderLabel(orderLabelBytes, recordKey, "JSON");
     extractor.extractAt(rtx, recordKey);
     appendExtractedRecord(recordKey, orderLabel, orderLabelBytes, "JSON");
   }
@@ -1851,7 +1906,7 @@ public final class ProjectionIndexBuilder {
   private void extractRow(final XmlNodeReadOnlyTrx rtx, final long recordKey) {
     final SirixDeweyID orderLabel = resolveOrderLabel(recordKey);
     final byte[] orderLabelBytes = orderLabel.toBytes();
-    prepareLeafForOrderLabel(orderLabelBytes, "XML");
+    prepareLeafForOrderLabel(orderLabelBytes, recordKey, "XML");
     extractor.extractAt(rtx, recordKey);
     appendExtractedRecord(recordKey, orderLabel, orderLabelBytes, "XML");
   }
@@ -1910,15 +1965,51 @@ public final class ProjectionIndexBuilder {
         recordKey -> directory.fullLabel(recordKey, nodeLookup, ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
   }
 
-  private void prepareLeafForOrderLabel(final byte[] orderLabel, final String databaseType) {
-    if (!currentLeaf.canAppendOrderLabel(orderLabel)) {
+  private void prepareLeafForOrderLabel(final byte[] orderLabel, final long recordKey, final String databaseType) {
+    if (!currentLeaf.canAppendOrderLabel(orderLabel) || crossesSegmentBoundary(recordKey)) {
       flushCurrentRowGroup();
       currentLeaf = newLeaf();
+      currentLeafSegment = segmentOfRecord(recordKey);
       if (!currentLeaf.canAppendOrderLabel(orderLabel)) {
         throw new IllegalStateException(
             "an empty projection row group rejected one " + databaseType + " record order label");
       }
+    } else if (currentLeafSegment == NO_SEGMENT) {
+      currentLeafSegment = segmentOfRecord(recordKey);
     }
+  }
+
+  /**
+   * Whether {@code recordKey} belongs to a different document segment than the rows already in the
+   * current row group.
+   *
+   * <p>
+   * A row group that straddled a boundary would hold rows whose values live in two different segment
+   * dictionaries, and a leaf carries ONE dictionary anchor — so the ids of half its rows would resolve
+   * against the wrong segment: plausible values, silently wrong. Cutting is nearly free, because a
+   * segment spans far more rows than a row group holds; at 1M rows a segment covers of the order of a
+   * hundred groups, so the cut costs a partial group per segment and nothing else.
+   * </p>
+   *
+   * <p>
+   * A record whose subtree straddles a boundary belongs to the segment of its ROOT key, which is the
+   * key asked about here: the root is what the row is identified by, and every one of its fields is
+   * reachable from it.
+   * </p>
+   */
+  private boolean crossesSegmentBoundary(final long recordKey) {
+    final int segment = segmentOfRecord(recordKey);
+    return segment != NO_SEGMENT && currentLeafSegment != NO_SEGMENT && segment != currentLeafSegment
+        && currentLeaf.getRowCount() > 0;
+  }
+
+  /** The document segment {@code recordKey}'s row belongs to, or {@link #NO_SEGMENT} without a lane. */
+  private int segmentOfRecord(final long recordKey) {
+    final SegmentScopedDictionaries segments = segmentScopedDictionaries;
+    if (segments == null || recordKey < 0) {
+      return NO_SEGMENT;
+    }
+    return segments.segmentOf(recordKey >> Constants.NDP_NODE_COUNT_EXPONENT);
   }
 
   private void appendExtractedRecord(final long recordKey, final SirixDeweyID orderLabel, final byte[] orderLabelBytes,
@@ -2302,8 +2393,27 @@ public final class ProjectionIndexBuilder {
   }
 
   private void flushCurrentRowGroup() {
+    // The marker describes the CURRENT leaf, so it is dropped with it: the next row decides afresh.
+    // Left standing, it would compare a fresh leaf's first row against the segment of a leaf that is
+    // already written, and cut a one-row group for nothing.
+    final int segment = currentLeafSegment;
+    currentLeafSegment = NO_SEGMENT;
     if (currentLeaf.getRowCount() == 0)
       return;
+    final SegmentScopedDictionaries segments = segmentScopedDictionaries;
+    if (segments != null && segment != NO_SEGMENT) {
+      // The segment lane replaces the per-leaf/global decision rather than feeding it: this leaf's
+      // string values go into its own segment's dictionary, which the document pages of that segment
+      // are filling anyway and the seal writes once. Nothing is buffered and nothing is sampled,
+      // because there is no decision left to make.
+      convertSegmentColumns(currentLeaf, segments, segment);
+      leafSink.accept(currentLeaf);
+      // NOT reused, for the reason the injected path gives: the conversion tore down this page's
+      // per-leaf dictionary state and flipped its kinds, and resetForBuilderReuse restores neither.
+      reusableLeaf = null;
+      leavesEmitted++;
+      return;
+    }
     if (sample != null) {
       sample.add(currentLeaf);
       if (sample.size() >= SAMPLE_LEAVES) {

@@ -267,6 +267,22 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
+   * Install the resolver this transaction's own reads use while a lane is still filling its
+   * dictionaries, or {@code null} to remove it.
+   *
+   * <p>
+   * A load commits more than once, and every commit before the last writes pages whose string values
+   * are already ids while the dictionary naming them is sealed only at the final commit. The writer
+   * reads such pages back — a cursor moving to a record whose page has left the intent log, a
+   * versioning combine — and the persisted routes have nothing to answer with yet. The lane's own
+   * in-memory dictionaries do.
+   * </p>
+   */
+  default void installLiveDocumentStringReadView(@Nullable GlobalStringDictionaries live) {
+    // No-op: a writer without a lane has no unsealed dictionary to read from.
+  }
+
+  /**
    * Serialize the heap records a bulk merge left on a LIVE log leaf (the prologue page the importer
    * blits into rather than adopts) and stage every resulting overflow carrier as an immutable side
    * page, exactly as {@link #adoptDocumentLeafPage} does for an adopted leaf — so the background

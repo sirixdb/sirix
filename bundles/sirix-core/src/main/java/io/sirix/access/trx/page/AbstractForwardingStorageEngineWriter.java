@@ -239,5 +239,10 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public void installLiveDocumentStringReadView(final @Nullable GlobalStringDictionaries live) {
+    delegate().installLiveDocumentStringReadView(live);
+  }
+
+  @Override
   protected abstract StorageEngineWriter delegate();
 }

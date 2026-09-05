@@ -130,6 +130,12 @@ final class SegmentDictionaryLaneEndToEndTest {
       db.createResource(resourceConfig());
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx(2048, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          // Read something BEFORE the lane arms. A load does this constantly — the importer reads
+          // pages back as it stitches — and the reader's "may these pages carry dictionary ids"
+          // answer is NO at this moment and YES a line later, because arming the lane is what
+          // creates the dictionary sub-trie. A reader that remembered the no would expand every
+          // converted page eagerly for the rest of the load and refuse the first one it met.
+          assertTrue(wtx.moveToDocumentRoot());
           final JsonIndexController controller = session.getWtxIndexController(wtx.getRevisionNumber());
           controller.createProjectionIndexAtLoadStart(projectionDef(), wtx, RECORDS);
           ParallelBulkJsonImporter.assembleBytes(wtx, new ByteArrayInputStream(corpus()), 1 << 20, 4);

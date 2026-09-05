@@ -1163,19 +1163,52 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * </p>
    */
   private boolean documentPagesUseTheTrieLane() {
-    Boolean cached = documentPagesMayCarryDictionaryIds;
-    if (cached == null) {
-      cached = getNamePage(getActualRevisionRootPage())
-          .hasProjectionValueDictionary(GlobalValueDictionary.databaseTypeOf(this));
-      documentPagesMayCarryDictionaryIds = cached;
+    final Boolean cached = documentPagesMayCarryDictionaryIds;
+    if (cached != null) {
+      return cached;
     }
-    return cached;
+    // While a write transaction is open, YES unconditionally. The dictionary sub-trie of a load in
+    // progress lives in the revision being BUILT, which this reader — the writer's own — does not see
+    // through its committed revision root, so asking the name page would answer no for the whole load
+    // and refuse the first converted page the writer reads back. The cost of the conservative answer
+    // is chunk framing on the writer's own reads; the cost of the wrong one is a load that dies.
+    if (hasTrxIntentLog()) {
+      return true;
+    }
+    final boolean mayCarry = getNamePage(getActualRevisionRootPage())
+        .hasProjectionValueDictionary(GlobalValueDictionary.databaseTypeOf(this));
+    // Cached only here, where the revision is finished and the answer cannot change.
+    documentPagesMayCarryDictionaryIds = mayCarry;
+    return mayCarry;
   }
 
   /** Memo for {@link #documentPagesUseTheTrieLane}; one name-page reference check per reader. */
   private @Nullable Boolean documentPagesMayCarryDictionaryIds;
 
+  /**
+   * A LIVE resolver installed by a lane that is still filling its dictionaries, or {@code null}.
+   *
+   * <p>
+   * Outranks both persisted routes for as long as it is set, and must: a load commits more than once,
+   * and every commit before the last writes pages whose ids name a dictionary that is sealed only at
+   * the final one. Those pages are read back by the writer itself, and the persisted routes have
+   * nothing to answer with yet.
+   * </p>
+   */
+  private volatile @Nullable GlobalStringDictionaries liveLaneDictionaries;
+
+  void installLiveLaneDictionaries(final @Nullable GlobalStringDictionaries live) {
+    this.liveLaneDictionaries = live;
+    // Whatever was memoised described a resource without this lane's dictionaries.
+    this.trieLaneDictionaries = null;
+    this.documentPagesMayCarryDictionaryIds = null;
+  }
+
   private GlobalStringDictionaries trieLaneDictionaries() {
+    final GlobalStringDictionaries live = liveLaneDictionaries;
+    if (live != null) {
+      return live;
+    }
     final GlobalStringDictionaries cached = trieLaneDictionaries;
     if (cached != null) {
       return cached;
@@ -2786,6 +2819,25 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         }
         pages.subList(1, pages.size()).sort(Comparator.comparingInt(KeyValuePage<DataRecord>::getRevision).reversed());
       }
+      // Resolve BEFORE materializing, but ONLY where a resolver can actually answer. The combine
+      // refuses a page whose values are still dictionary ids, and rightly: it runs where no reader is
+      // reachable. This route is not that route — it is the writer reading one of its own pages back,
+      // and it holds a reader — so the resolution happens here, which is what the combine's refusal
+      // asks the write side to do.
+      //
+      // Gated on a LIVE lane, and not on "the page has global tags", because those are different
+      // questions. A live lane holds the values in memory and can always answer. Every other route
+      // answers from something persisted, and during a load that something does not exist yet: a
+      // trie-lane build's anchors live in slot-0 metadata that is a tombstone until the load
+      // finishes, so resolving here would fail on a page that was never going to be resolved on this
+      // path at all. Left alone, such a page reaches the combine's own refusal, exactly as before.
+      if (liveLaneDictionaries != null) {
+        for (final KeyValuePage<DataRecord> fragment : pages) {
+          if (fragment instanceof KeyValueLeafPage kvlPage && kvlPage.hasGlobalStringTags()) {
+            resolveGlobalStrings(kvlPage);
+          }
+        }
+      }
       materializeFragments(pages);
       return new PageFragmentsResult(pages, new ArrayList<>(pageReference.getPageFragments()), pageReference.getKey());
     } catch (final RuntimeException | Error failure) {
@@ -2808,7 +2860,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (copyHash) {
       directReference.copyHashFrom(sourceReference);
     }
-    final Page page = pageReader.read(directReference, resourceConfig);
+    // Lazily whenever this resource's pages may carry dictionary ids. A converted page expanded
+    // eagerly is refused outright — no reader is reachable from deserialization, so its values cannot
+    // be produced — and this route is one of the three a document page arrives through. The gate is
+    // one name-page reference check; see documentPagesUseTheTrieLane.
+    final Page page = documentPagesUseTheTrieLane()
+        ? pageReader.readRecordPageLazily(directReference, resourceConfig)
+        : pageReader.read(directReference, resourceConfig);
     if (!(page instanceof KeyValueLeafPage recordPage)) {
       if (page != null) {
         page.close();
