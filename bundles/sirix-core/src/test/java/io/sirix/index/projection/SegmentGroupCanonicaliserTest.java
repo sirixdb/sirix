@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -188,5 +189,73 @@ final class SegmentGroupCanonicaliserTest {
     assertEquals(1, canonicaliser.size(), "and it must not become a group of its own");
     assertEquals(out[0].numericValues()[0], out[0].min(), "the zone map covers the PRESENT rows only");
     assertEquals(out[0].numericValues()[0], out[0].max());
+  }
+
+  @Test
+  @DisplayName("after the seal a lane's integer order IS the values' collation order")
+  void sealedIdsCollate() {
+    // The primitive MIN() and ORDER BY need: a cell's id is a MINT, so raw ids order by first sight.
+    // Values are deliberately observed in an order that is NOT their collation order.
+    final Map<Long, String> corpus = new HashMap<>();
+    final String[] arrivalOrder = {"pear", "apple", "cherry", "banana"};
+    final long[] cells = new long[arrivalOrder.length];
+    for (int i = 0; i < arrivalOrder.length; i++) {
+      cells[i] = ProjectionIndexRowGroupPage.packSegmentCell(i % 2, i + 1);
+      corpus.put(cells[i], arrivalOrder[i]);
+    }
+    final SegmentGroupCanonicaliser canonicaliser = over(corpus, 2);
+    assertTrue(canonicaliser.observe(new ColumnSlice[] {sliceOf(cells)}), "every cell resolves");
+    assertFalse(canonicaliser.isOrderPreserving());
+    canonicaliser.sealOrderPreserving();
+    assertTrue(canonicaliser.isOrderPreserving());
+
+    final long[] lane = canonicaliser.canonicalise(new ColumnSlice[] {sliceOf(cells)})[0].numericValues();
+    // "apple" < "banana" < "cherry" < "pear": the ids must rank the same way.
+    assertTrue(lane[1] < lane[3], "apple before banana");
+    assertTrue(lane[3] < lane[2], "banana before cherry");
+    assertTrue(lane[2] < lane[0], "cherry before pear");
+    // And the smallest id must invert to the smallest value — what makes an integer MIN correct.
+    long min = Long.MAX_VALUE;
+    for (final long id : lane) {
+      min = Math.min(min, id);
+    }
+    assertEquals("apple", canonicaliser.valueOf((int) min));
+  }
+
+  @Test
+  @DisplayName("a value first seen after the seal declines rather than taking an invented rank")
+  void anUnobservedValueAfterTheSealDeclines() {
+    final long observed = ProjectionIndexRowGroupPage.packSegmentCell(0, 1);
+    final long late = ProjectionIndexRowGroupPage.packSegmentCell(0, 2);
+    final Map<Long, String> corpus = new HashMap<>();
+    corpus.put(observed, "seen");
+    corpus.put(late, "late");
+
+    final SegmentGroupCanonicaliser canonicaliser = over(corpus, 1);
+    assertTrue(canonicaliser.observe(new ColumnSlice[] {sliceOf(observed)}));
+    canonicaliser.sealOrderPreserving();
+
+    assertNull(canonicaliser.canonicalise(new ColumnSlice[] {sliceOf(observed, late)}),
+        "any rank for 'late' would misorder it against everything already ranked");
+  }
+
+  @Test
+  @DisplayName("sealing twice keeps the ids the caller is already carrying")
+  void sealingIsIdempotent() {
+    final long a = ProjectionIndexRowGroupPage.packSegmentCell(0, 1);
+    final long b = ProjectionIndexRowGroupPage.packSegmentCell(0, 2);
+    final Map<Long, String> corpus = new HashMap<>();
+    corpus.put(a, "zulu");
+    corpus.put(b, "alpha");
+
+    final SegmentGroupCanonicaliser canonicaliser = over(corpus, 1);
+    canonicaliser.observe(new ColumnSlice[] {sliceOf(a, b)});
+    canonicaliser.sealOrderPreserving();
+    final long[] first = canonicaliser.canonicalise(new ColumnSlice[] {sliceOf(a, b)})[0].numericValues();
+    canonicaliser.sealOrderPreserving();
+    final long[] second = canonicaliser.canonicalise(new ColumnSlice[] {sliceOf(a, b)})[0].numericValues();
+    assertEquals(first[0], second[0]);
+    assertEquals(first[1], second[1]);
+    assertTrue(second[1] < second[0], "alpha ranks before zulu");
   }
 }

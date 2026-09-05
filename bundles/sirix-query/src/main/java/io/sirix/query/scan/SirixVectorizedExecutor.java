@@ -8144,6 +8144,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * the predicate — falling back to the generic pipeline, slower but right — than fail on it.
    * </p>
    */
+  /**
+   * How a winning EXTREMUM id names its string.
+   *
+   * <p>
+   * Two id spaces reach the same emission. A fully-ordered global dictionary's id IS its collation
+   * rank, so the resolver is the dictionary itself. A segment-scoped column's ids are mints behind a
+   * rank table, so its lane is canonicalised into a sealed collation-ordered space first and the
+   * resolver is that seal. Naming the operation rather than the object is what lets one emission
+   * serve both without knowing which it holds.
+   * </p>
+   */
+  @FunctionalInterface
+  interface ExtremumStrings {
+    /** The string the winning lane id names. */
+    String valueOf(int id);
+  }
+
   private ProjectionIndexScan.ColumnPredicate[] extractConjunctivePredicates(final CompiledPredicate cp,
       final ProjectionIndexRegistry.Handle handle) {
     return extractConjunctivePredicates(cp, handle, true);
@@ -14730,6 +14747,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // the query, and only emission reverse-maps each winning id to its string. Keyed per FUNC
       // (the emission's unit); the field list gates the aggregate-roster kind check below.
       final long[] rankStringAggHeaderKeys = new long[funcs.length];
+      // SEGMENT-scoped extremum lanes, by func index. A segment dictionary's ids are mints behind a
+      // rank table, so folding them would answer with the FIRST-INTERNED value rather than the
+      // smallest — the very trap idsAreCollationOrdered() guards above. Canonicalising the lane into
+      // a sealed, collation-ordered id space removes the distinction: the operand then folds as a
+      // plain numeric lane exactly like a fully-ordered global column, and only emission differs.
+      final int[] segmentExtremumCols = new int[funcs.length];
+      Arrays.fill(segmentExtremumCols, -1);
       final ArrayList<String> rankStringFields = new ArrayList<>(2);
       for (int i = 0; i < funcs.length; i++) {
         deferredLane[i] = -1;
@@ -14779,31 +14803,40 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           deferredGlobalHeaderKeys.add(headerKey);
           anyDeferred = true;
           anyDeferredGlobal = true;
+        } else if (col >= 0 && ProjectionIndexRowGroupPage.isSegmentScopedIdKind(deferredKind)) {
+          if (handle.segmentDictionarySegmentCount() <= 0) {
+            return declineGroupAgg("segment-scoped extremum has no sealed dictionary at this revision");
+          }
+          segmentExtremumCols[i] = col;
+          if (!rankStringFields.contains(aggFields[i])) {
+            rankStringFields.add(aggFields[i]);
+          }
         }
       }
       // A rank-string operand may appear ONLY under exact min/max (and count-distinct, which reads
       // its own block): any other function over the id lane would fold ids as quantities and
       // answer with numbers that were never values. Decline to the interpreter instead.
       for (int i = 0; i < funcs.length; i++) {
-        if (aggFields[i] != null && rankStringAggHeaderKeys[i] == 0L && rankStringFields.contains(aggFields[i])
-            && !"count-distinct".equals(baseFunc(funcs[i]))) {
+        if (aggFields[i] != null && rankStringAggHeaderKeys[i] == 0L && segmentExtremumCols[i] < 0
+            && rankStringFields.contains(aggFields[i]) && !"count-distinct".equals(baseFunc(funcs[i]))) {
           return declineGroupAgg("non-extremum aggregate over a rank-ordered string operand");
         }
       }
-      GlobalValueDictionary.ReadView[] rankStringViewsLocal = null;
+      ExtremumStrings[] rankStringViewsLocal = null;
       if (!rankStringFields.isEmpty()) {
-        rankStringViewsLocal = new GlobalValueDictionary.ReadView[funcs.length];
+        rankStringViewsLocal = new ExtremumStrings[funcs.length];
         for (int i = 0; i < funcs.length; i++) {
           if (rankStringAggHeaderKeys[i] != 0L) {
-            rankStringViewsLocal[i] =
+            final GlobalValueDictionary.ReadView rankView =
                 GlobalValueDictionary.readView(rankStringAggHeaderKeys[i], workerTrx().getStorageEngineReader());
-            if (rankStringViewsLocal[i] == null) {
+            if (rankView == null) {
               return declineGroupAgg("rank-string operand dictionary became unreadable");
             }
+            rankStringViewsLocal[i] = rankView::valueAsString;
           }
         }
       }
-      final GlobalValueDictionary.ReadView[] rankStringViews = rankStringViewsLocal;
+      final ExtremumStrings[] rankStringViews = rankStringViewsLocal;
       // count(distinct-values(f)) entries: ONE distinct operand per query (v1), and its column
       // must NOT enter the value-fold roster below — folding a 64-bit id column through
       // Math.addExact would throw at run time and silently decline a query that annotated.
@@ -14863,8 +14896,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         } else if (rankStringFields.contains(df)) {
           // Rank-string lane: the kind-5 id lane IS the min/max-foldable stat, and ids are ints
           // minted dense by the dictionary, so numericColumnIsIntegral's truncated-double question
-          // cannot arise.
-          if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+          // cannot arise. A SEGMENT-scoped operand joins it only once its lane has been sealed into
+          // a collation-ordered id space, which numericGroupAggregate does before the fold.
+          final byte rankKind = handle.columnKindOf(col);
+          if (rankKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+              && !ProjectionIndexRowGroupPage.isSegmentScopedIdKind(rankKind)) {
             return declineGroupAgg("rank-string operand column is no longer GLOBAL");
           }
         } else if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
@@ -15252,7 +15288,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             globalSingleKey
                 ? handle.valueDictionaryHeaderKey(groupCol)
                 : 0L,
-            sumExactMask, keyDisplays[0], rankStringViews, handle,
+            sumExactMask, keyDisplays[0], rankStringViews, segmentExtremumCols, handle,
             groupShapeFingerprint(groupCols, preds, tree, cdBlock));
       }
       if (keyCount > 1 || anyKeyTransform) {
@@ -17623,8 +17659,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final GroupOrderPlan orderPlan, final long limit, final int cdBlockIdx,
       final ProjectionIndexScan.PredicateTree predTree, final long[] having, final byte[] stringLengthModes,
       final int[][] globalLengthTables, final boolean cdStringDict, final long globalKeyDictionary,
-      final long sumExactMask, final byte keyDisplay, final GlobalValueDictionary.ReadView[] rankStringViews,
-      final ProjectionIndexRegistry.Handle handle, final long groupShapeFp) {
+      final long sumExactMask, final byte keyDisplay, final ExtremumStrings[] rankStringViews,
+      final int @Nullable [] segmentExtremumCols, final ProjectionIndexRegistry.Handle handle,
+      final long groupShapeFp) {
     final int rowGroupCount = slicedStore != null
         ? slicedStore.rowGroupCount()
         : rowGroupPayloads.size();
@@ -17654,6 +17691,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       segmentKeys = new SegmentGroupCanonicaliser(unionView, handle.segmentDictionarySegmentCount());
     } else {
       segmentKeys = null;
+    }
+    final boolean anySegmentExtremum = anySegmentExtremum(segmentExtremumCols);
+    if (anySegmentExtremum && (slicedStore == null || windowedSlices || orderPlan == null)) {
+      // The seal has to see EVERY cell of the operand before it can rank them, so the operand's
+      // slices must all be resident at once. The windowed arm fetches them per sub-chunk and the
+      // byte arm never builds them at all; ranking what happens to be in hand would order each
+      // window against itself.
+      return declineGroupAgg("segment-scoped extremum needs the resident sliced arm");
     }
     if (PROJ_DIAG) {
       System.err.println("[proj] numericGroupAggregate col=" + groupCol + " kind="
@@ -17717,7 +17762,38 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           return declineGroupAgg("a segment-scoped group key has no value in this revision");
         }
         slicedAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
+        if (anySegmentExtremum) {
+          // SEAL THE OPERAND'S ORDER, then hand the kernel a lane whose integers collate. Two passes
+          // over resident slices: observe() resolves each distinct cell once, sealOrderPreserving()
+          // sorts those values, and canonicalise() rewrites the lane through the ranking. The kernel
+          // below then folds min/max as plain integers and never learns the operand was a string.
+          for (int a = 0; a < aggCols.length && a < segmentExtremumCols.length; a++) {
+            if (segmentExtremumCols[a] < 0) {
+              continue;
+            }
+            final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, aggCols[a]);
+            if (unionView == null) {
+              return declineGroupAgg("segment-scoped extremum has no readable dictionary at this revision");
+            }
+            final SegmentGroupCanonicaliser ranked =
+                new SegmentGroupCanonicaliser(unionView, handle.segmentDictionarySegmentCount());
+            final ProjectionColumnStore.ColumnSlice[] operand = slicedStore.column(aggCols[a], fetcher);
+            if (!ranked.observe(operand)) {
+              return declineGroupAgg("a segment-scoped extremum operand has no value in this revision");
+            }
+            ranked.sealOrderPreserving();
+            final ProjectionColumnStore.ColumnSlice[] rankedLane = ranked.canonicalise(operand);
+            if (rankedLane == null) {
+              return declineGroupAgg("a segment-scoped extremum operand has no value in this revision");
+            }
+            slicedAggCols[a] = rankedLane;
+            rankStringViews[a] = ranked::valueOf;
+          }
+        }
         for (int a = 0; a < aggCols.length; a++) {
+          if (slicedAggCols[a] != null) {
+            continue; // already sealed and ranked above
+          }
           final int expected =
               (stringLengthModes != null && stringLengthModes[a] != ProjectionIndexByteScan.STRING_LENGTH_NONE)
                   || (cdStringDict && a == cdBlockIdx)
@@ -18234,7 +18310,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int groupCol, final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
       final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
       final GroupOrderPlan orderPlan, final long limit, final long[] having, final long globalKeyDictionary,
-      final DenseGlobalGroupAggTable dense, final GlobalValueDictionary.ReadView[] rankStringViews) {
+      final DenseGlobalGroupAggTable dense, final ExtremumStrings[] rankStringViews) {
     final int rowGroupCount = store.rowGroupCount();
     // Resolve every column ONCE on the calling thread: the slice arrays are immutable and shared,
     // and letting the fan-out race the first fill would multiply the segment I/O by the worker count.
@@ -18401,7 +18477,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final GroupOrderPlan orderPlan, final long limit, final int slotWidth, final long[] having,
       final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
       final ArrayList<String> distinctFields, final int cdBase, final long globalKeyDictionary, final boolean sliced,
-      final boolean cdServed, final byte keyDisplay, final GlobalValueDictionary.ReadView[] rankStringViews,
+      final boolean cdServed, final byte keyDisplay, final ExtremumStrings[] rankStringViews,
       final @Nullable SegmentGroupCanonicaliser segmentKeys) {
     int winnerCount = missingMerged[0] > 0
         ? 1
@@ -18677,6 +18753,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return keyCols;
   }
 
+  /** Whether any aggregate lane is a min/max over a segment-scoped column. */
+  private static boolean anySegmentExtremum(final int @Nullable [] segmentExtremumCols) {
+    if (segmentExtremumCols == null) {
+      return false;
+    }
+    for (final int col : segmentExtremumCols) {
+      if (col >= 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * The group lane a kernel should aggregate: unchanged when the key is not segment-scoped, otherwise
    * the same slices with their {@code (segment, id)} cells replaced by canonical VALUE ids.
@@ -18810,7 +18899,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static ArrayObject groupAggRecordNumeric(final long groupKey, final boolean hasKey, final long[] acc,
       final String keyName, final String[] funcs, final String[] aggFields, final String[] outNames,
       final ArrayList<String> distinctFields, final int cdBase, final @Nullable String globalKeyValue,
-      final GlobalValueDictionary.ReadView[] rankStringViews) {
+      final ExtremumStrings[] rankStringViews) {
     final QNm[] names = new QNm[1 + funcs.length];
     final Sequence[] vals = new Sequence[1 + funcs.length];
     names[0] = new QNm(keyName);
@@ -20750,7 +20839,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static ArrayObject groupAggRecord(final String groupKey, final long[] acc, final String keyName,
       final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
       final int cdBase, final boolean[] deferredAgg, final String[] deferredVals,
-      final GlobalValueDictionary.ReadView[] rankStringViews) {
+      final ExtremumStrings[] rankStringViews) {
     final QNm[] names = new QNm[1 + funcs.length];
     final Sequence[] vals = new Sequence[1 + funcs.length];
     names[0] = new QNm(keyName);
@@ -20773,7 +20862,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static ArrayObject groupAggRecordComposite(final String[] keyNames, final boolean[] present,
       final boolean[] isLong, final String[] strParts, final long[] longParts, final long[] acc, final String[] funcs,
       final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields, final int cdBase,
-      final byte[] keyDisplays, final GlobalValueDictionary.ReadView[] rankStringViews) {
+      final byte[] keyDisplays, final ExtremumStrings[] rankStringViews) {
     final int k = keyNames.length;
     final QNm[] names = new QNm[k + funcs.length];
     final Sequence[] vals = new Sequence[k + funcs.length];
@@ -20828,7 +20917,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static void fillAggEntries(final QNm[] names, final Sequence[] vals, final int offset, final long[] acc,
       final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
       final int cdBase, final boolean[] deferredAgg, final String[] deferredVals,
-      final GlobalValueDictionary.ReadView[] rankStringViews) {
+      final ExtremumStrings[] rankStringViews) {
     for (int i = 0; i < funcs.length; i++) {
       names[offset + i] = new QNm(outNames[i]);
       if (deferredAgg != null && deferredAgg[i]) {
@@ -20847,7 +20936,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final int base = 2 + 4 * a;
         vals[offset + i] = acc[base] == 0
             ? null
-            : new Str(rankStringViews[i].valueAsString(Math.toIntExact(acc["min".equals(funcs[i])
+            : new Str(rankStringViews[i].valueOf(Math.toIntExact(acc["min".equals(funcs[i])
                 ? base + 2
                 : base + 3])));
         continue;

@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import org.jspecify.annotations.Nullable;
@@ -82,6 +83,15 @@ public final class SegmentGroupCanonicaliser {
   private final ObjectArrayList<String> values = new ObjectArrayList<>();
 
   /**
+   * After {@link #sealOrderPreserving}: {@code rankByArrival[arrivalId - 1]} is the id that lane
+   * consumers see, ordered by VALUE. {@code null} while ids are arrival-ordered.
+   */
+  private int @Nullable [] rankByArrival;
+
+  /** After sealing: {@code sortedValues[rank - 1]} — the inverse of {@link #rankByArrival}. */
+  private String @Nullable [] sortedValues;
+
+  /**
    * @param view resolver for the packed cells, typically a segment union view
    * @param segments how many segments the resource sealed, so the memo is sized once rather than
    *        grown under contention; a cell above it still resolves, through a grow on the slow path
@@ -143,7 +153,7 @@ public final class SegmentGroupCanonicaliser {
         if ((presence[row >>> 6] & 1L << (row & 63)) == 0L) {
           continue;
         }
-        final int id = canonicalOf(cells[row]);
+        final int id = laneIdOf(cells[row]);
         if (id == UNRESOLVABLE) {
           return null;
         }
@@ -207,11 +217,138 @@ public final class SegmentGroupCanonicaliser {
     return true;
   }
 
-  /** The value a canonical id names, or {@code null} when the id was never issued. */
-  public synchronized @Nullable String valueOf(final int canonicalId) {
-    return canonicalId >= 1 && canonicalId <= values.size()
-        ? values.get(canonicalId - 1)
+  /**
+   * Freeze the value space and renumber: from here the canonical ids a lane carries are in COLLATION
+   * order, so an integer {@code min}, {@code max} or sort over that lane answers the question about
+   * the values themselves.
+   *
+   * <p>
+   * The primitive the arrival-order ids cannot supply. A cell's id is a MINT — the dictionary hands
+   * them out in the order values were first seen, and the seal stores by rank behind a rank table —
+   * so comparing two raw cells says nothing about how their values collate. Sorting once, over the
+   * values the column actually REFERENCES rather than the whole dictionary, buys an order for every
+   * later comparison at no per-row cost.
+   * </p>
+   *
+   * <p>
+   * The order is {@link String#compareTo}, which is UTF-16 code-unit order — the same order
+   * {@code ValueDictionaryEntryNode.compareUtf16Range} imposes on the dictionary's own storage, so a
+   * lane ranked here and a dictionary sealed there agree.
+   * </p>
+   *
+   * <p>
+   * Call it only after {@link #observe} has seen every cell the query will group on: once sealed, a
+   * value that was never observed has no rank, and rather than invent one this class reports the cell
+   * as unresolvable so the caller declines.
+   * </p>
+   */
+  public synchronized void sealOrderPreserving() {
+    if (rankByArrival != null) {
+      return; // idempotent: a second seal would renumber ids the caller is already carrying
+    }
+    final int count = values.size();
+    final int[] arrivalByRank = new int[count];
+    for (int i = 0; i < count; i++) {
+      arrivalByRank[i] = i + 1;
+    }
+    IntArrays.quickSort(arrivalByRank, (left, right) -> values.get(left - 1).compareTo(values.get(right - 1)));
+    final int[] ranks = new int[count];
+    final String[] sorted = new String[count];
+    for (int rank = 0; rank < count; rank++) {
+      final int arrival = arrivalByRank[rank];
+      ranks[arrival - 1] = rank + 1;
+      sorted[rank] = values.get(arrival - 1);
+    }
+    sortedValues = sorted;
+    rankByArrival = ranks; // last: a reader that sees this sees both tables
+  }
+
+  /** Whether {@link #sealOrderPreserving} has run, so lane ids are in collation order. */
+  public boolean isOrderPreserving() {
+    return rankByArrival != null;
+  }
+
+  /**
+   * The id a lane carries for {@code cell}: the arrival-order canonical id, or its RANK once the
+   * value space has been sealed in collation order.
+   */
+  private int laneIdOf(final long cell) {
+    final int arrival = canonicalOf(cell);
+    if (arrival == UNRESOLVABLE) {
+      return UNRESOLVABLE;
+    }
+    final int[] ranks = rankByArrival;
+    if (ranks == null) {
+      return arrival;
+    }
+    if (arrival > ranks.length) {
+      // A value first seen AFTER the seal. Its rank would have to be invented, and any choice would
+      // misorder it against everything already ranked, so the pass declines instead.
+      return UNRESOLVABLE;
+    }
+    return ranks[arrival - 1];
+  }
+
+  /** The value a lane id names, or {@code null} when the id was never issued. */
+  public synchronized @Nullable String valueOf(final int laneId) {
+    final String[] sorted = sortedValues;
+    if (sorted != null) {
+      return laneId >= 1 && laneId <= sorted.length
+          ? sorted[laneId - 1]
+          : null;
+    }
+    return laneId >= 1 && laneId <= values.size()
+        ? values.get(laneId - 1)
         : null;
+  }
+
+  /**
+   * A per-id string-length table over this canonicaliser's id space — the segment-scoped twin of the
+   * global dictionary's length table, and indexed exactly the same way, so the kernels need no arm of
+   * their own: they index {@code table[id]} with the id the canonicalised lane already carries.
+   *
+   * @param lengthMode {@link ProjectionIndexByteScan#STRING_LENGTH_UTF8_BYTES} or
+   *        {@link ProjectionIndexByteScan#STRING_LENGTH_CODE_POINTS}
+   * @return {@code table[id]} for {@code id} in {@code 1..size()}; slot 0 is unused, as ids are
+   *         1-based
+   */
+  public synchronized int[] lengthTable(final byte lengthMode) {
+    if (lengthMode != ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES
+        && lengthMode != ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS) {
+      throw new IllegalArgumentException("not a string-length mode: " + lengthMode);
+    }
+    final int count = size();
+    final int[] table = new int[count + 1];
+    for (int id = 1; id <= count; id++) {
+      final String value = valueOf(id);
+      if (value == null) {
+        throw new IllegalStateException("canonical id " + id + " names no value");
+      }
+      table[id] = lengthMode == ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS
+          ? value.codePointCount(0, value.length())
+          : utf8Length(value);
+    }
+    return table;
+  }
+
+  /** UTF-8 byte length without encoding the string — the same count the dictionary stores. */
+  private static int utf8Length(final String value) {
+    int bytes = 0;
+    final int length = value.length();
+    for (int i = 0; i < length; i++) {
+      final char c = value.charAt(i);
+      if (c < 0x80) {
+        bytes++;
+      } else if (c < 0x800) {
+        bytes += 2;
+      } else if (Character.isHighSurrogate(c) && i + 1 < length && Character.isLowSurrogate(value.charAt(i + 1))) {
+        bytes += 4; // one supplementary code point, encoded from the surrogate PAIR
+        i++;
+      } else {
+        bytes += 3;
+      }
+    }
+    return bytes;
   }
 
   /** Distinct values seen so far (test and diagnostic observability). */
