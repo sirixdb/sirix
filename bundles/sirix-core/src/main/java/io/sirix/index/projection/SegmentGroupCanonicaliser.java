@@ -564,6 +564,18 @@ public final class SegmentGroupCanonicaliser {
     return resolveAndMemoise(cell, segment, id);
   }
 
+  /**
+   * Resolve one cell to its canonical id and remember it.
+   *
+   * <p>
+   * The dictionary read stays UNDER this monitor. {@link GlobalValueDictionary.ReadView} carries plain
+   * mutable caches — a per-id slice cache, a retained bucket and block — so two threads hashing
+   * through one view tear each other's state; the read either fails to parse or, far worse, returns a
+   * hash for a torn slice and puts two different values in one group. Hoisting the hash out of the
+   * lock to unblock the scan was measured and REVERTED for exactly that reason; the way to parallelise
+   * it is a view per worker, not a smaller critical section.
+   * </p>
+   */
   private synchronized int resolveAndMemoise(final long cell, final int segment, final int id) {
     if (segment < 0 || id < 0) {
       return UNRESOLVABLE;

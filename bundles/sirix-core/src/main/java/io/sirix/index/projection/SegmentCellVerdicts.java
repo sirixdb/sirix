@@ -6,6 +6,8 @@ package io.sirix.index.projection;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -48,9 +50,20 @@ import static java.util.Objects.requireNonNull;
  * instance's monitor. A stale read of a table entry is benign — {@code byte} writes never tear, so a
  * reader sees either {@link #UNKNOWN} (and takes the idempotent slow path) or a settled verdict.
  *
+ * <p>
+ * The DICTIONARY READ, by contrast, runs outside every lock, and that is only sound because the
+ * constructor takes a {@link Supplier} of views rather than a view: each worker must be handed its
+ * own. A {@link GlobalValueDictionary.ReadView} holds plain mutable caches, so two workers sharing
+ * one tear its state and the parse fails with {@code AssertionError: Type not known}. Sharing a view
+ * and serialising the read behind this monitor is correct but makes the read a scan-wide bottleneck,
+ * because it fetches a page and decodes a block while every other worker waits.
+ * </p>
+ *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class SegmentCellVerdicts {
+
+  private static final boolean PROJ_DIAG = Boolean.getBoolean("sirix.projDiag");
 
   /** Not yet evaluated — a row whose entry reads this must take {@link #matchesSlow}. */
   public static final byte UNSETTLED = 0;
@@ -109,6 +122,8 @@ public final class SegmentCellVerdicts {
   private final Object[] sweepLocks;
   /** {@code sweepState[s]} — guarded by {@code sweepLocks[s]}; see {@link #SWEEP_PENDING}. */
   private final byte[] sweepState;
+  private final AtomicInteger sweeps = new AtomicInteger();
+  private final AtomicInteger refusals = new AtomicInteger();
   private final ProjectionIndexScan.Op op;
   private final byte[] literalUtf8;
   private final boolean literalHasSupplementary;
@@ -118,15 +133,16 @@ public final class SegmentCellVerdicts {
   private volatile byte[] @Nullable [] memo;
 
   /**
-   * @param view resolver for the packed cells, typically a segment union view
+   * @param views supplier of a view PRIVATE TO THE CALLING THREAD — see the threading note above; a
+   *        supplier that hands the same view to two workers will tear its caches
    * @param op a per-value string op ({@code STR_*}, {@code EQ}, {@code NE})
    * @param literalUtf8 the literal's UTF-8 bytes
    * @param segments how many segments the resource sealed, so the memo is sized once
    */
-  public SegmentCellVerdicts(final GlobalValueDictionary.ReadView view, final ProjectionIndexScan.Op op,
-      final byte[] literalUtf8, final int segments) {
-    this(matcherOver(requireNonNull(view, "view must not be null"), op,
-            requireNonNull(literalUtf8, "literalUtf8 must not be null")), sweeperOver(view, op, literalUtf8), op,
+  public SegmentCellVerdicts(final Supplier<GlobalValueDictionary.ReadView> views,
+      final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int segments) {
+    this(matcherOver(requireNonNull(views, "views must not be null"), op,
+            requireNonNull(literalUtf8, "literalUtf8 must not be null")), sweeperOver(views, op, literalUtf8), op,
         literalUtf8, segments);
   }
 
@@ -167,15 +183,15 @@ public final class SegmentCellVerdicts {
     }
   }
 
-  private static SegmentSweeper sweeperOver(final GlobalValueDictionary.ReadView view,
+  private static SegmentSweeper sweeperOver(final Supplier<GlobalValueDictionary.ReadView> views,
       final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
-    return cell -> view.stringOpVerdictByMintOfCell(cell, op, literalUtf8);
+    return cell -> views.get().stringOpVerdictByMintOfCell(cell, op, literalUtf8);
   }
 
-  private static CellMatcher matcherOver(final GlobalValueDictionary.ReadView view, final ProjectionIndexScan.Op op,
-      final byte[] literalUtf8) {
+  private static CellMatcher matcherOver(final Supplier<GlobalValueDictionary.ReadView> views,
+      final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
     final boolean supplementary = ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
-    return cell -> view.cellMatchesStringOp(cell, op, literalUtf8, supplementary);
+    return cell -> views.get().cellMatchesStringOp(cell, op, literalUtf8, supplementary);
   }
 
   /** The op this verdict answers. */
@@ -272,19 +288,50 @@ public final class SegmentCellVerdicts {
         bits = sweep.sweep(cell);
       } catch (final RuntimeException unsweepable) {
         // A segment that sealed no dictionary for this column, or whose directory cannot answer a
-        // sweep, is not an error: its rows keep their bytes and the per-cell path resolves them.
-        sweepState[segment] = SWEEP_REFUSED;
+        // sweep, is not an error: its rows keep their bytes and the per-cell path resolves them. It
+        // IS worth reporting, because a silent refusal looks exactly like a slow query.
+        refuse(segment, unsweepable.getMessage(), unsweepable);
         return null;
       }
       if (bits == null) {
-        sweepState[segment] = SWEEP_REFUSED;
+        refuse(segment, "the sweeper declined this segment");
         return null;
       }
       final byte[] table = expand(bits);
       install(segment, table);
       sweepState[segment] = SWEEP_DONE;
+      sweeps.incrementAndGet();
       return table;
     }
+  }
+
+  /**
+   * Record a refused sweep, reporting the first one under {@code -Dsirix.projDiag}.
+   *
+   * <p>
+   * A refusal costs nothing but correctness-preserving slowness, so it must never throw; but it also
+   * cannot be silent, because a whole run falling back to the per-cell path is indistinguishable from
+   * a query that is simply slow. One line names the segment and the reason.
+   * </p>
+   */
+  private void refuse(final int segment, final @Nullable String reason) {
+    refuse(segment, reason, null);
+  }
+
+  private void refuse(final int segment, final @Nullable String reason, final @Nullable Throwable trace) {
+    sweepState[segment] = SWEEP_REFUSED;
+    if (PROJ_DIAG && refusals.getAndIncrement() == 0) {
+      System.err.println("[proj] segment verdict sweep REFUSED for " + op + ", first at segment " + segment + ": "
+          + reason + " — falling back to one dictionary read per referenced cell");
+      if (trace != null) {
+        trace.printStackTrace(System.err);
+      }
+    }
+  }
+
+  /** Segments settled by a sweep, and segments that refused one — the instrument for a slow run. */
+  public String sweepAudit() {
+    return "swept=" + sweeps.get() + " refused=" + refusals.get();
   }
 
   /**
@@ -334,7 +381,29 @@ public final class SegmentCellVerdicts {
     memo = tables; // volatile write: publishes the table's contents to every reader of the memo
   }
 
-  private synchronized byte evaluatePerCell(final long cell, final int segment, final int id) {
+  /**
+   * Resolve one cell and remember the answer.
+   *
+   * <p>
+   * The dictionary read happens OUTSIDE the monitor; only the install is under it. That split is the
+   * point, and it is only sound because the matcher reads a view PRIVATE TO THE CALLING THREAD.
+   * {@link GlobalValueDictionary.ReadView} carries plain mutable caches — a per-id slice cache, a
+   * retained bucket and block — so two threads reading ONE view tear each other's state and the parse
+   * fails with {@code AssertionError: Type not known}. Hoisting the read out of the lock while the
+   * view was still shared was measured, and it broke exactly that way; the fix is a view per worker,
+   * not a smaller critical section, which is why the constructor takes a supplier and not a view.
+   * </p>
+   *
+   * <p>
+   * Racing threads may evaluate the same cell twice. That costs a repeated read and changes no
+   * answer — {@link #evaluate} is idempotent and free of side effects.
+   * </p>
+   */
+  private byte evaluatePerCell(final long cell, final int segment, final int id) {
+    return memoise(segment, id, evaluate(cell));
+  }
+
+  private synchronized byte memoise(final int segment, final int id, final byte verdict) {
     byte[][] tables = memo;
     if (segment >= tables.length) {
       tables = Arrays.copyOf(tables, segment + 1);
@@ -349,9 +418,8 @@ public final class SegmentCellVerdicts {
       table = Arrays.copyOf(table, Math.max(id + 1, table.length << 1));
       tables[segment] = table;
     } else if (table[id] != UNKNOWN) {
-      return table[id]; // another worker settled it between the fast-path read and this lock
+      return table[id]; // another worker settled it while this one was reading the dictionary
     }
-    final byte verdict = evaluate(cell);
     table[id] = verdict;
     memo = tables; // volatile write: publishes both the entry above and any grown array
     return verdict;

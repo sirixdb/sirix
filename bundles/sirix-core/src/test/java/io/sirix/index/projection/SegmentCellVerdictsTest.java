@@ -72,16 +72,9 @@ final class SegmentCellVerdictsTest {
     assertFalse(verdicts.matches(ProjectionIndexRowGroupPage.packSegmentCell(0, 0)));
   }
 
-  @Test
-  @DisplayName("under the parallel scan the lock-free memo still evaluates each cell once")
-  void concurrentReadersAgree() throws Exception {
-    final int segments = 4;
-    final int ids = 2_000; // past the initial table, so the growth path runs under contention
-    final CountingView view = new CountingView();
-    final SegmentCellVerdicts verdicts =
-        new SegmentCellVerdicts(view, ProjectionIndexScan.Op.STR_CONTAINS, new byte[] {'x'}, segments);
-
-    final int workers = 16;
+  /** Runs {@code workers} threads over every cell of every segment, returning the disagreement count. */
+  private static int hammer(final SegmentCellVerdicts verdicts, final int segments, final int ids, final int workers)
+      throws Exception {
     final CountDownLatch start = new CountDownLatch(1);
     final CountDownLatch done = new CountDownLatch(workers);
     final AtomicInteger disagreements = new AtomicInteger();
@@ -106,11 +99,37 @@ final class SegmentCellVerdictsTest {
     }
     start.countDown();
     assertTrue(done.await(60, TimeUnit.SECONDS), "workers must finish");
-    assertEquals(0, disagreements.get(), "a cell's verdict must not depend on who read it");
-    assertTrue(view.evaluations.get() >= segments * ids, "every distinct cell is evaluated");
-    assertTrue(view.evaluations.get() < segments * ids * 3L,
-        "and a benign race may redo a few, but nowhere near once per reader: "
-            + view.evaluations.get() + " for " + (segments * ids) + " distinct cells across " + workers + " workers");
+    return disagreements.get();
+  }
+
+  @Test
+  @DisplayName("the memo converges: a race may redo a cell, but a settled cell is never read again")
+  void concurrentReadersAgree() throws Exception {
+    final int segments = 4;
+    final int ids = 2_000; // past the initial table, so the growth path runs under contention
+    final CountingView view = new CountingView();
+    final SegmentCellVerdicts verdicts =
+        new SegmentCellVerdicts(view, ProjectionIndexScan.Op.STR_CONTAINS, new byte[] {'x'}, segments);
+    final int workers = 16;
+    final int distinct = segments * ids;
+
+    assertEquals(0, hammer(verdicts, segments, ids, workers), "a cell's verdict must not depend on who read it");
+    final int firstPass = view.evaluations.get();
+    assertTrue(firstPass >= distinct, "every distinct cell is evaluated at least once: " + firstPass);
+    // The read runs OUTSIDE the monitor, so workers that reach an unsettled cell together all
+    // evaluate it. That is the deliberate trade — the read fetches a page and decodes a block, and
+    // serialising it behind one lock is what made a parallel scan run on one core. The redundancy it
+    // buys is bounded by the number of racing workers, never by the number of ROWS.
+    assertTrue(firstPass <= (long) distinct * workers,
+        "redundancy must be bounded by the workers racing, not unbounded: " + firstPass + " for " + distinct
+            + " distinct cells across " + workers + " workers");
+
+    // Convergence is the property that makes the trade sound: once settled, a cell is never read
+    // again, however many workers ask. A memo that failed to publish would show up here as a second
+    // pass that costs as much as the first.
+    assertEquals(0, hammer(verdicts, segments, ids, workers), "a settled memo must still agree");
+    assertEquals(firstPass, view.evaluations.get(),
+        "a fully settled memo must evaluate NOTHING on a second pass over the same cells");
   }
 
   /** {@code (id + segment) % 2 == 0} as a bitset over ids {@code 1..entries}, the sweep's answer. */

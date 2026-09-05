@@ -991,9 +991,25 @@ public final class GlobalValueDictionary {
      *
      * @return bit {@code id} set iff the value under that id satisfies {@code op}
      */
+    /** The numbers any refusal of a bulk route has to name to be actionable. */
+    private String shape() {
+      return "entryCount=" + entryCount + " orderedPrefix=" + orderedPrefixCount + " reverseRoot=" + reverseRootKey
+          + " forwardRoot=" + forwardRootKey + " rankTable=" + hasRankTable() + " storageOrdered=" + storageOrdered;
+    }
+
     public long[] stringOpVerdictByMint(final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
       Objects.requireNonNull(op, "op must not be null");
       Objects.requireNonNull(literalUtf8, "literalUtf8 must not be null");
+      try {
+        return sweepStringOp(op, literalUtf8);
+      } catch (final RuntimeException failed) {
+        // A bulk walk that lands on the wrong record must say WHICH dictionary it was walking; the
+        // shape is the difference between an actionable refusal and a silent slow path.
+        throw new IllegalStateException("sweep failed over " + shape() + ": " + failed, failed);
+      }
+    }
+
+    private long[] sweepStringOp(final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
       final long[] verdict = newVerdict();
       final boolean litHasSupplementary =
           ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
@@ -1002,8 +1018,8 @@ public final class GlobalValueDictionary {
         final ValueDictionaryValueBucketNode bucketNode =
             GlobalValueDictionaryRadix.valueBucketOf(reverseRootKey, bucket, namePage, databaseType, reader);
         if (bucketNode == null) {
-          throw new IllegalStateException("value dictionary bucket " + bucket + " is missing from revision "
-              + revision);
+          throw new IllegalStateException("value dictionary bucket " + bucket + " of " + buckets
+              + " is missing from revision " + revision + " (" + shape() + ")");
         }
         final int blocks = bucketNode.blockCount();
         for (int block = 0; block < blocks; block++) {

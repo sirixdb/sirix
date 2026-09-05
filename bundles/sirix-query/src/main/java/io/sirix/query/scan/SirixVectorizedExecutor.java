@@ -8806,15 +8806,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (segments <= 0) {
       return null;
     }
-    final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, column);
-    if (unionView == null) {
+    final Supplier<GlobalValueDictionary.ReadView> views = segmentUnionViewPerThread(handle, column);
+    if (views == null) {
       if (PROJ_DIAG) {
         System.err.println("[proj] segment dictionaries unreadable for a verdict predicate on column " + column);
       }
       return null;
     }
     return ProjectionIndexScan.ColumnPredicate.segmentCellVerdict(column, op, literalUtf8,
-        new SegmentCellVerdicts(unionView, op, literalUtf8, segments));
+        new SegmentCellVerdicts(views, op, literalUtf8, segments));
   }
 
   /**
@@ -18953,6 +18953,57 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           + "or has no value in this revision");
     }
     return slices;
+  }
+
+  /**
+   * A segment union view PER CALLING THREAD, each over that thread's own reader.
+   *
+   * <p>
+   * {@link GlobalValueDictionary.ReadView} carries plain mutable caches — a per-id slice cache, a
+   * retained bucket and a retained block — so it belongs to ONE thread. {@link #segmentUnionView}
+   * builds a single view over {@code workerTrx()}'s reader and hands it to every worker of a parallel
+   * scan, which forces each consumer to serialise its dictionary reads behind a lock. That lock is
+   * the scan's bottleneck: the read fetches a page and decodes a block, so twenty workers queue
+   * behind one thread doing I/O.
+   * </p>
+   *
+   * <p>
+   * {@code workerTrx()} already resolves to the calling thread's own cursor, so evaluating the
+   * supplier on a worker binds that worker's view to that worker's reader — the same per-thread
+   * shape the scan's scratch buffers already use. The view is built eagerly once here so a resource
+   * that cannot supply one declines at planning time rather than on the first row.
+   * </p>
+   *
+   * @return a supplier of thread-private views, or {@code null} when the column has no segment
+   *         dictionaries in this revision
+   */
+  private @Nullable Supplier<GlobalValueDictionary.ReadView> segmentUnionViewPerThread(
+      final ProjectionIndexRegistry.Handle handle, final int column) {
+    final GlobalValueDictionary.ReadView first = segmentUnionView(handle, column);
+    if (first == null) {
+      return null;
+    }
+    final int segments = handle.segmentDictionarySegmentCount();
+    final long[] headerKeys = new long[segments];
+    for (int segment = 0; segment < segments; segment++) {
+      headerKeys[segment] = handle.segmentDictionaryHeaderKey(segment, column);
+    }
+    final Thread owner = Thread.currentThread();
+    final ThreadLocal<GlobalValueDictionary.ReadView> perThread = ThreadLocal.withInitial(() -> {
+      if (Thread.currentThread() == owner) {
+        return first; // the planning thread reuses the view it already built
+      }
+      final GlobalValueDictionary.ReadView mine =
+          GlobalValueDictionary.segmentUnionReadView(headerKeys, workerTrx().getStorageEngineReader());
+      if (mine == null) {
+        // The eager build above proved the dictionaries are readable in this revision, so a worker
+        // failing to open its own view is a lifecycle fault, not a missing index. Refusing loudly
+        // beats silently sharing one view across threads, which is the tearing this exists to stop.
+        throw new IllegalStateException("segment union view unavailable on scan worker for column " + column);
+      }
+      return mine;
+    });
+    return perThread::get;
   }
 
   private GlobalValueDictionary.@Nullable ReadView segmentUnionView(final ProjectionIndexRegistry.Handle handle,
