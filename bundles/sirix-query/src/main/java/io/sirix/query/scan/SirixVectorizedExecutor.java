@@ -18900,7 +18900,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (!ranked.observe(operand)) {
       return null;
     }
-    ranked.sealOrderPreserving();
+    if (!ranked.sealOrderPreserving()) {
+      return null; // too many distinct values to order; the caller declines to the generic pipeline
+    }
     final ProjectionColumnStore.ColumnSlice[] lane = ranked.canonicalise(operand);
     return lane == null
         ? null

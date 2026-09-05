@@ -770,6 +770,42 @@ public final class GlobalValueDictionary {
      *
      * @return the verdict, or {@code null} when the cell names no entry of its segment
      */
+    /**
+     * A 64-bit content hash of the value a packed CELL names, computed on the STORED BYTES.
+     *
+     * <p>
+     * What a group-by over a segment-scoped column needs and a {@link String} is the wrong way to get:
+     * building one per distinct value costs about 150 bytes and a GC-visible object each, which is
+     * invisible at a million distinct values and is 2.7 GB at eighteen million. Every column store
+     * that dictionary-encodes strings compares and hashes bytes in place for exactly this reason.
+     * </p>
+     *
+     * @return the hash, or 0 when the cell names no entry — a caller must treat 0 as "unresolvable"
+     *         rather than as a hash, since it cannot tell them apart
+     */
+    public long cellHash(final long cell) {
+      final ReadView view;
+      final int id;
+      if (perSegment == null) {
+        view = this;
+        id = (int) cell;
+      } else {
+        view = segmentViewOf(cell);
+        id = ProjectionIndexRowGroupPage.idOfCell(cell);
+      }
+      if (id < 1 || id > view.entryCount()) {
+        return 0L;
+      }
+      final int slot = view.sliceSlot(id);
+      final ValueDictionaryEntryNode spill = view.cachedSpills[slot];
+      if (spill != null) {
+        final byte[] bytes = spill.getValue();
+        return ProjectionIndexByteScan.fnv1a64(bytes, 0, bytes.length);
+      }
+      return ProjectionIndexByteScan.fnv1a64(view.cachedBacking[slot], view.cachedOffsets[slot],
+          view.cachedLengths[slot]);
+    }
+
     public @Nullable Boolean cellMatchesStringOp(final long cell, final ProjectionIndexScan.Op op,
         final byte[] literalUtf8, final boolean literalHasSupplementary) {
       Objects.requireNonNull(op, "op must not be null");

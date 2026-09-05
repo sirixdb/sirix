@@ -5,8 +5,10 @@ package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import it.unimi.dsi.fastutil.ints.IntArrays;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
@@ -65,6 +67,56 @@ public final class SegmentGroupCanonicaliser {
   public interface CellResolver {
     /** The value {@code cell} names, or {@code null} when this revision cannot resolve it. */
     @Nullable String valueOfCell(long cell);
+
+    /**
+     * A content hash of that value, {@code 0} when the cell resolves to nothing.
+     *
+     * <p>
+     * The default builds the String, which is what a TRANSFORMING resolver has to do anyway. A plain
+     * one overrides it to hash the dictionary's stored bytes and allocate nothing — the difference
+     * between 150 bytes per distinct value and none, which at eighteen million values is the
+     * difference between running and an OutOfMemoryError.
+     * </p>
+     */
+    default long hashOfCell(final long cell) {
+      final String value = valueOfCell(cell);
+      if (value == null) {
+        return 0L;
+      }
+      final byte[] utf8 = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+      final long hash = ProjectionIndexByteScan.fnv1a64(utf8, 0, utf8.length);
+      return hash == 0L
+          ? 1L
+          : hash; // 0 is reserved for "unresolvable"
+    }
+
+    /** Whether two cells name the SAME value — the check that keeps a hash collision harmless. */
+    default boolean sameValue(final long left, final long right) {
+      final String a = valueOfCell(left);
+      return a != null && a.equals(valueOfCell(right));
+    }
+
+    /**
+     * Order two cells by the values they name, under the dictionary's collation.
+     *
+     * <p>
+     * The default compares Strings, which is UTF-16 code-unit order — the same order
+     * {@code compareUtf16Range} imposes on the dictionary's storage, so the two agree. A plain
+     * resolver overrides it with {@code compareCells} and touches no String at all.
+     * </p>
+     */
+    default int compareValues(final long left, final long right) {
+      final String a = valueOfCell(left);
+      final String b = valueOfCell(right);
+      if (a == null || b == null) {
+        return a == null
+            ? (b == null
+                ? 0
+                : -1)
+            : 1;
+      }
+      return a.compareTo(b);
+    }
   }
 
   private final CellResolver resolver;
@@ -76,11 +128,30 @@ public final class SegmentGroupCanonicaliser {
   @SuppressWarnings("VolatileArrayField") // the volatile is on the reference, which is what publishes
   private volatile int[] @Nullable [] memo;
 
-  /** Value to canonical id — what actually merges two segments' cells into one group. */
-  private final Object2IntOpenHashMap<String> canonicalByValue = new Object2IntOpenHashMap<>();
+  /**
+   * Content hash of a value to the canonical ids carrying it — what merges two segments' cells into
+   * one group.
+   *
+   * <p>
+   * Keyed by a HASH of the stored bytes rather than by a materialised {@link String}: one String per
+   * distinct value costs about 150 bytes and a GC-visible object, which is nothing at a million
+   * distinct values and 2.7 GB at eighteen million — measured, as an OutOfMemoryError at 100M. The
+   * chain behind each hash keeps the identity EXACT: a hit is confirmed by comparing the two cells'
+   * bytes, so a collision costs one extra compare and never merges two values.
+   * </p>
+   */
+  private final Long2ObjectOpenHashMap<int[]> idsByHash = new Long2ObjectOpenHashMap<>();
 
-  /** Canonical id {@code i} names {@code values.get(i - 1)}; ids are 1-based like dictionary ids. */
-  private final ObjectArrayList<String> values = new ObjectArrayList<>();
+  /**
+   * A cell that carries canonical id {@code i}, at {@code i - 1}. Eight bytes standing in for the
+   * value itself: the bytes stay in the dictionary, and only a WINNER is ever turned into a String.
+   */
+  private final LongArrayList representativeCell = new LongArrayList();
+
+  /** Ids issued for LITERALS, which no cell carries; a conditional key's else branch needs one. */
+  private final Object2IntOpenHashMap<String> canonicalByLiteral = new Object2IntOpenHashMap<>();
+
+  private final Int2ObjectOpenHashMap<String> literalById = new Int2ObjectOpenHashMap<>();
 
   /**
    * After {@link #sealOrderPreserving}: {@code rankByArrival[arrivalId - 1]} is the id that lane
@@ -88,8 +159,8 @@ public final class SegmentGroupCanonicaliser {
    */
   private int @Nullable [] rankByArrival;
 
-  /** After sealing: {@code sortedValues[rank - 1]} — the inverse of {@link #rankByArrival}. */
-  private String @Nullable [] sortedValues;
+  /** After sealing: {@code sortedArrival[rank - 1]} is the arrival id ranked there. */
+  private int @Nullable [] sortedArrival;
 
   /**
    * @param view resolver for the packed cells, typically a segment union view
@@ -97,7 +168,32 @@ public final class SegmentGroupCanonicaliser {
    *        grown under contention; a cell above it still resolves, through a grow on the slow path
    */
   public SegmentGroupCanonicaliser(final GlobalValueDictionary.ReadView view, final int segments) {
-    this(requireNonNull(view, "view must not be null")::valueOfCell, segments);
+    this(byteResolver(requireNonNull(view, "view must not be null")), segments);
+  }
+
+  /** The untransformed resolver: hashes and compares the dictionary's own bytes, allocating nothing. */
+  private static CellResolver byteResolver(final GlobalValueDictionary.ReadView view) {
+    return new CellResolver() {
+      @Override
+      public @Nullable String valueOfCell(final long cell) {
+        return view.valueOfCell(cell); // winners only
+      }
+
+      @Override
+      public long hashOfCell(final long cell) {
+        return view.cellHash(cell);
+      }
+
+      @Override
+      public boolean sameValue(final long left, final long right) {
+        return view.compareCells(left, right) == 0;
+      }
+
+      @Override
+      public int compareValues(final long left, final long right) {
+        return view.compareCells(left, right);
+      }
+    };
   }
 
   /**
@@ -110,7 +206,6 @@ public final class SegmentGroupCanonicaliser {
       throw new IllegalArgumentException("segments must not be negative: " + segments);
     }
     this.memo = new int[Math.max(segments, 1)][];
-    this.canonicalByValue.defaultReturnValue(0);
   }
 
   /**
@@ -265,26 +360,51 @@ public final class SegmentGroupCanonicaliser {
    * as unresolvable so the caller declines.
    * </p>
    */
-  public synchronized void sealOrderPreserving() {
+  public synchronized boolean sealOrderPreserving() {
     if (rankByArrival != null) {
-      return; // idempotent: a second seal would renumber ids the caller is already carrying
+      return true; // idempotent: a second seal would renumber ids the caller is already carrying
     }
-    final int count = values.size();
+    final int count = representativeCell.size();
+    if (count > MAX_ORDERED_VALUES) {
+      // ORDERING IS THE ONE THING THAT DOES NOT SCALE HERE. Grouping, counting and predicate
+      // evaluation are each one pass over the distinct values; a total order is n log n COMPARISONS,
+      // and every comparison reads two dictionary entries. At eighteen million distinct URLs that is
+      // hundreds of millions of reads for one query. Refuse, and let the caller decline to a pipeline
+      // that is slower but finishes — the honest answer until MIN/MAX folds per segment and merges,
+      // which is what a column store with block-local dictionaries actually does.
+      return false;
+    }
+    // Materialise once, sort on that. Comparing through the dictionary instead would pay two reads
+    // per comparison, which measured 2-3x slower on the queries that seal.
+    final String[] byArrival = new String[count];
+    for (int arrival = 1; arrival <= count; arrival++) {
+      byArrival[arrival - 1] = resolver.valueOfCell(representativeCell.getLong(arrival - 1));
+      if (byArrival[arrival - 1] == null) {
+        return false;
+      }
+    }
     final int[] arrivalByRank = new int[count];
     for (int i = 0; i < count; i++) {
       arrivalByRank[i] = i + 1;
     }
-    IntArrays.quickSort(arrivalByRank, (left, right) -> values.get(left - 1).compareTo(values.get(right - 1)));
+    IntArrays.quickSort(arrivalByRank, (left, right) -> byArrival[left - 1].compareTo(byArrival[right - 1]));
     final int[] ranks = new int[count];
-    final String[] sorted = new String[count];
+    final int[] sorted = new int[count];
     for (int rank = 0; rank < count; rank++) {
       final int arrival = arrivalByRank[rank];
       ranks[arrival - 1] = rank + 1;
-      sorted[rank] = values.get(arrival - 1);
+      sorted[rank] = arrival;
     }
-    sortedValues = sorted;
+    sortedArrival = sorted;
     rankByArrival = ranks; // last: a reader that sees this sees both tables
+    return true;
   }
+
+  /**
+   * Distinct values above which {@link #sealOrderPreserving} refuses. Sized so a 1M-shaped column
+   * seals and a 100M-shaped one declines rather than spending minutes or the heap on a total order.
+   */
+  private static final int MAX_ORDERED_VALUES = 2_000_000;
 
   /**
    * The canonical id a LITERAL takes in this value space, minting one if the column never held it.
@@ -300,7 +420,7 @@ public final class SegmentGroupCanonicaliser {
    */
   public synchronized int canonicalOfValue(final String value) {
     requireNonNull(value, "value must not be null");
-    int canonical = canonicalByValue.getInt(value);
+    int canonical = canonicalByLiteral.getInt(value);
     if (canonical != 0) {
       final int[] ranks = rankByArrival;
       return ranks == null
@@ -310,9 +430,11 @@ public final class SegmentGroupCanonicaliser {
     if (rankByArrival != null) {
       throw new IllegalStateException("the value space is sealed; '" + value + "' has no rank");
     }
-    values.add(value);
-    canonical = values.size();
-    canonicalByValue.put(value, canonical);
+    // A literal has no cell of its own; it takes an id past every cell-backed one and is remembered
+    // here rather than in the dictionary, because nothing in the column may hold it.
+    literalById.put(representativeCell.size() + literalById.size() + 1, value);
+    canonical = representativeCell.size() + literalById.size();
+    canonicalByLiteral.put(value, canonical);
     return canonical;
   }
 
@@ -357,14 +479,14 @@ public final class SegmentGroupCanonicaliser {
 
   /** The value a lane id names, or {@code null} when the id was never issued. */
   public synchronized @Nullable String valueOf(final int laneId) {
-    final String[] sorted = sortedValues;
-    if (sorted != null) {
-      return laneId >= 1 && laneId <= sorted.length
-          ? sorted[laneId - 1]
+    final int[] ranked = sortedArrival;
+    if (ranked != null) {
+      return laneId >= 1 && laneId <= ranked.length
+          ? resolver.valueOfCell(representativeCell.getLong(ranked[laneId - 1] - 1))
           : null;
     }
-    return laneId >= 1 && laneId <= values.size()
-        ? values.get(laneId - 1)
+    return laneId >= 1 && laneId <= representativeCell.size()
+        ? resolver.valueOfCell(representativeCell.getLong(laneId - 1))
         : null;
   }
 
@@ -419,7 +541,7 @@ public final class SegmentGroupCanonicaliser {
 
   /** Distinct values seen so far (test and diagnostic observability). */
   public synchronized int size() {
-    return values.size();
+    return representativeCell.size();
   }
 
   /**
@@ -469,21 +591,37 @@ public final class SegmentGroupCanonicaliser {
   }
 
   private int issueCanonical(final long cell) {
-    final String value;
+    final long hash;
     try {
-      value = resolver.valueOfCell(cell);
+      hash = resolver.hashOfCell(cell);
     } catch (final RuntimeException unresolvable) {
       return UNRESOLVABLE;
     }
-    if (value == null) {
-      return UNRESOLVABLE;
+    if (hash == 0L) {
+      return UNRESOLVABLE; // the cell names no entry; 0 is not a hash here
     }
-    int canonical = canonicalByValue.getInt(value);
-    if (canonical == 0) {
-      values.add(value);
-      canonical = values.size();
-      canonicalByValue.put(value, canonical);
+    final int[] existing = idsByHash.get(hash);
+    if (existing != null) {
+      for (final int candidate : existing) {
+        // EXACT, not hash-equal: two values sharing a hash must not share a group, so the bytes
+        // decide. A collision costs one comparison and is otherwise invisible.
+        if (resolver.sameValue(cell, representativeCell.getLong(candidate - 1))) {
+          return candidate;
+        }
+      }
     }
+    representativeCell.add(cell);
+    final int canonical = representativeCell.size();
+    idsByHash.put(hash, existing == null
+        ? new int[] {canonical}
+        : append(existing, canonical));
     return canonical;
   }
+
+  private static int[] append(final int[] chain, final int id) {
+    final int[] grown = Arrays.copyOf(chain, chain.length + 1);
+    grown[chain.length] = id;
+    return grown;
+  }
+
 }
