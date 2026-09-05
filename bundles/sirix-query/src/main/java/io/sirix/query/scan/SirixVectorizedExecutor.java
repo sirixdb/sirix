@@ -17823,9 +17823,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // The two index spaces, printed side by side: a lane that stays unsealed here is the shape
           // of the defect this loop is easiest to get wrong in.
           for (int a = 0; a < aggCols.length; a++) {
+            // aggCols is the FLAT roster: it carries the count-distinct block past the operand
+            // lanes, so it is longer than distinctFields whenever a query has one. Reading the field
+            // name unguarded threw IndexOutOfBounds and killed the serve from inside a diagnostic.
             System.err.println("[proj]   aggLane " + a + " col=" + aggCols[a] + " kind="
-                + slicedStore.columnKind(aggCols[a]) + " field=" + distinctFields.get(a) + " lenMode="
-                + (stringLengthModes == null
+                + slicedStore.columnKind(aggCols[a]) + " field=" + (a < distinctFields.size()
+                    ? distinctFields.get(a)
+                    : "<count-distinct block>")
+                + " lenMode=" + (stringLengthModes == null
                     ? -1
                     : stringLengthModes[a]));
           }
