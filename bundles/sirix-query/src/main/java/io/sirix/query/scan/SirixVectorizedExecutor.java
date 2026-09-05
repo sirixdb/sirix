@@ -14780,8 +14780,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // whole-leaf byte kernels, which stream every column of every row group. The per-leaf
       // dictionary COUNT(DISTINCT) identity fill keeps the resident arrays (no windowed twin yet)
       // and stays on the fit decision.
+      // The promotion below hands hot queries back to the whole-leaf byte kernels once some consumer
+      // has materialized the payloads, because the contiguous scan then beats scattered slice reads
+      // (~2x on hot 1M-row string groupings). A SEGMENT-SCOPED key component is exempt: slices are
+      // not a preference for it but the only seam at which (segment, id) cells become value ids, so
+      // demoting it does not cost 2x -- it declines the whole serve. Measured on q16 at 1M: 0.380 s
+      // sliced against 412.748 s on the generic pipeline the decline falls back to.
       final boolean slicedKinds = GROUP_SLICED_ENABLED && !wholeLeafOnly && groupStore != null
-          && !handle.payloadsMaterialized() && (tree == null
+          && (!handle.payloadsMaterialized() || hasSegmentComponent) && (tree == null
               ? predsSliceable(groupStore, preds)
               : treeSliceableKind(groupStore, tree))
           && allColumnsSliceableKind(groupStore, groupCols) && allColumnsSliceableKind(groupStore, aggColsFlat);
