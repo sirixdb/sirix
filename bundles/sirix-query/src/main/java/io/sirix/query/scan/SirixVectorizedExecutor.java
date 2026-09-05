@@ -3171,6 +3171,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return cdStringDict && a == cdBlock && !store.columnFilled(column);
   }
 
+  /** Whether any leaf of {@code tree} resolves its literal per segment, and so needs the sliced route. */
+  private static boolean anySegmentScopedPredicate(final ProjectionIndexScan.@Nullable PredicateTree tree) {
+    return tree != null && anySegmentScopedPredicate(tree.leaves);
+  }
+
   /** Whether any predicate resolves its literal per segment, and so needs the sliced route. */
   private static boolean anySegmentScopedPredicate(final ProjectionIndexScan.ColumnPredicate @Nullable [] preds) {
     if (preds == null) {
@@ -8318,9 +8323,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * columns). {@code null} = not servable — callers fall back. Shared by the flat conjunctive
    * extractor and the AND/OR tree extractor so the gates can never diverge.
    */
+  /**
+   * A tree leaf, segment-scoped forms included — the AND/OR path's counterpart to the permissive
+   * {@link #extractConjunctivePredicates(CompiledPredicate, ProjectionIndexRegistry.Handle)}. A tree
+   * that carries one is sliceable by the same {@code predsSliceable} check over its leaves, and the
+   * arms that build one force the sliced route.
+   */
   private ProjectionIndexScan.ColumnPredicate convertPredicateLeaf(final CompiledPredicate cp, final int n,
       final ProjectionIndexRegistry.Handle handle) {
-    return convertPredicateLeaf(cp, n, handle, false);
+    return convertPredicateLeaf(cp, n, handle, true);
   }
 
   private ProjectionIndexScan.ColumnPredicate convertPredicateLeaf(final CompiledPredicate cp, final int n,
@@ -15048,7 +15059,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // A segment-scoped PREDICATE has the same claim on the sliced route as a segment-scoped key:
       // its literal is chosen per leaf from that leaf's own cells, which only a slice exposes. The
       // whole-leaf byte kernels have no arm for the kind at all and would refuse the page.
-      final boolean segmentScopedPredicate = anySegmentScopedPredicate(preds);
+      final boolean segmentScopedPredicate = anySegmentScopedPredicate(preds) || anySegmentScopedPredicate(tree);
       final boolean slicedKinds = GROUP_SLICED_ENABLED && !wholeLeafOnly && groupStore != null
           && (!handle.payloadsMaterialized() || hasSegmentComponent || segmentScopedPredicate) && (tree == null
               ? predsSliceable(groupStore, preds)

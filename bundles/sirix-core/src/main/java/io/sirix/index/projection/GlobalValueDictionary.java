@@ -1012,6 +1012,50 @@ public final class GlobalValueDictionary {
     }
 
     /** Compare two ids under the query engine's UTF-16 string collation without materialisation. */
+    /**
+     * Order two packed CELLS by the values they name, under the dictionary's collation.
+     *
+     * <p>
+     * Within one segment this is {@link #compareIds}, which a rank table already answers from two
+     * position reads without touching a value. ACROSS segments neither id space says anything about
+     * the other's, so the values themselves decide — and because the two operands come from different
+     * views, their slice caches cannot alias, which is the hazard {@code compareIds} lifts locals to
+     * avoid. Allocation-free either way: no {@link String} is built.
+     * </p>
+     */
+    public int compareCells(final long leftCell, final long rightCell) {
+      if (leftCell == rightCell) {
+        return 0;
+      }
+      if (perSegment == null) {
+        return compareIds((int) leftCell, (int) rightCell);
+      }
+      final int leftId = ProjectionIndexRowGroupPage.idOfCell(leftCell);
+      final int rightId = ProjectionIndexRowGroupPage.idOfCell(rightCell);
+      final ReadView left = segmentViewOf(leftCell);
+      final ReadView right = segmentViewOf(rightCell);
+      if (left == right) {
+        return left.compareIds(leftId, rightId);
+      }
+      final int leftSlot = left.sliceSlot(leftId);
+      final ValueDictionaryEntryNode leftSpill = left.cachedSpills[leftSlot];
+      final byte[] leftBacking = left.cachedBacking[leftSlot];
+      final int leftOffset = left.cachedOffsets[leftSlot];
+      final int leftLength = left.cachedLengths[leftSlot];
+      final int rightSlot = right.sliceSlot(rightId);
+      final ValueDictionaryEntryNode rightSpill = right.cachedSpills[rightSlot];
+      if (leftSpill == null) {
+        return rightSpill == null
+            ? ValueDictionaryEntryNode.compareUtf16Range(leftBacking, leftOffset, leftLength,
+                right.cachedBacking[rightSlot], right.cachedOffsets[rightSlot], right.cachedLengths[rightSlot])
+            : -rightSpill.compareToRange(leftBacking, leftOffset, leftLength);
+      }
+      return rightSpill == null
+          ? leftSpill.compareToRange(right.cachedBacking[rightSlot], right.cachedOffsets[rightSlot],
+              right.cachedLengths[rightSlot])
+          : leftSpill.compareValueUtf16(rightSpill);
+    }
+
     public int compareIds(final int leftId, final int rightId) {
       if (leftId == rightId) {
         return 0;

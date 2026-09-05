@@ -36,6 +36,14 @@ final class TopKHeap {
   /** Sort-key kind: a resource-wide dictionary id resolved through a revision-bound read view. */
   static final byte KEY_STRING_GLOBAL = 3;
 
+  /**
+   * A SEGMENT-scoped string key: the lane holds packed {@code (segment, id)} cells, so the key is a
+   * LONG and its order comes from {@link GlobalValueDictionary.ReadView#compareCells} rather than an
+   * id comparison. Kept distinct from {@link #KEY_STRING_GLOBAL} for exactly that reason — that arm
+   * narrows the key to an int, which a cell does not survive.
+   */
+  static final byte KEY_STRING_SEGMENT = 4;
+
   private final int k;
   private final int keyCount;
   private final byte[] keyKind;
@@ -229,6 +237,7 @@ final class TopKHeap {
         case KEY_NUMERIC -> cmp = Long.compare(slice.numericValues()[rowIdx], tuple[base + kk]);
         case KEY_STRING_GLOBAL -> cmp = globalViews[kk].compareIds(Math.toIntExact(slice.numericValues()[rowIdx]),
             Math.toIntExact(tuple[base + kk]));
+        case KEY_STRING_SEGMENT -> cmp = globalViews[kk].compareCells(slice.numericValues()[rowIdx], tuple[base + kk]);
         default -> {
           final int id = slice.stringDictIds()[rowIdx];
           final byte[] bytes = slice.dictBytes();
@@ -260,6 +269,7 @@ final class TopKHeap {
         case KEY_NUMERIC -> cmp = Long.compare(ha.tuple[ba + kk], hb.tuple[bb + kk]);
         case KEY_STRING_GLOBAL ->
           cmp = ha.globalViews[kk].compareIds(Math.toIntExact(ha.tuple[ba + kk]), Math.toIntExact(hb.tuple[bb + kk]));
+        case KEY_STRING_SEGMENT -> cmp = ha.globalViews[kk].compareCells(ha.tuple[ba + kk], hb.tuple[bb + kk]);
         default -> {
           final byte[] x = ha.strKey[ba + kk];
           final byte[] y = hb.strKey[bb + kk];

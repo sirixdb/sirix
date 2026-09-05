@@ -843,6 +843,7 @@ public final class ProjectionColumnScan {
               ? TopKHeap.KEY_STRING_BYTES
               : TopKHeap.KEY_STRING_COLLATED;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> TopKHeap.KEY_STRING_GLOBAL;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT -> TopKHeap.KEY_STRING_SEGMENT;
         default -> TopKHeap.KEY_NUMERIC;
       };
     }
@@ -857,6 +858,10 @@ public final class ProjectionColumnScan {
     boolean slabsNeedViews = false;
     for (int kk = 0; kk < keyCount; kk++) {
       slabsNeedViews |= keyKind[kk] == TopKHeap.KEY_STRING_GLOBAL && !globalSortViews[kk].fullyOrdered();
+      // A segment key ALWAYS resolves through per-segment views — a cross-segment comparison reads
+      // both values, and a same-segment one reads that dictionary's rank table — so its state is
+      // single-threaded whatever the segments happen to be ordered like.
+      slabsNeedViews |= keyKind[kk] == TopKHeap.KEY_STRING_SEGMENT;
     }
     final int workers = fetcher.rangedFetchIsConcurrent() && (!slabsNeedViews || slabViews != null)
         ? TOPK_WORKERS
@@ -1741,11 +1746,16 @@ public final class ProjectionColumnScan {
       final byte kind = store.columnKind(sortColumns[k]);
       // A temporal column sorts on its epoch, which IS the text's order — the one property that
       // makes the numeric key exact for it and not for a global dictionary id.
+      // A SEGMENT-scoped column sorts through compareCells, not as a number: its lane holds packed
+      // cells whose integer order is arrival order, so the heap's KEY_STRING_SEGMENT arm asks the
+      // dictionaries instead. Admitted here for the same reason STRING_GLOBAL is — the heap has an
+      // arm for it — and refused everywhere the heap does not.
       if (!ProjectionIndexRowGroupPage.isOrderedLongKind(kind)
           && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-          && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
-        throw new IllegalStateException(
-            "sortColumn " + sortColumns[k] + " is not NUMERIC_LONG, a temporal kind, STRING_DICT, or STRING_GLOBAL");
+          && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+          && !ProjectionIndexRowGroupPage.isSegmentScopedIdKind(kind)) {
+        throw new IllegalStateException("sortColumn " + sortColumns[k]
+            + " is not NUMERIC_LONG, a temporal kind, STRING_DICT, STRING_GLOBAL, or segment-scoped");
       }
     }
   }
