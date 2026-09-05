@@ -299,13 +299,8 @@ public final class ClickBenchLoadMain {
     // every record single-threaded against a file the page cache cannot hold (~3x the whole load's
     // wall time at 100M). It does NOT forbid a pre-pass over the INPUT.
     //
-    // The distinction matters because the trie lane depends on the second: -Dsirix.import.prepassRunner
-    // runs ClickBenchLoadPrepassHook against the freshly created EMPTY resource and commits the
-    // rank-ordered value dictionaries BEFORE the shred begins, so the record-page encoder has ids to
-    // store from row one. That reads the input twice and the resource once, which is the opposite
-    // shape from what this refusal exists to prevent -- and the alternative for the lane is the
-    // streaming dictionary at 1,650 B/entry against the rank pass's 61, which at 100M turns an 11 GB
-    // saving into a 19 GB regression. Do not read this rule as forbidding that.
+    // It does NOT forbid a pre-pass over the INPUT; nothing does one any more, because the
+    // segment-scoped dictionary needs none — it mints as the pages encode and seals at the commit.
     final boolean incrementalProjection =
         Boolean.parseBoolean(System.getProperty("clickbench.projection.incremental", "true"));
     if (projection && !incrementalProjection) {

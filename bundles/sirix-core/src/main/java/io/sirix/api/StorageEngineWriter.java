@@ -178,7 +178,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * <p>
    * <b>The resolver must be safe to call from many threads at once.</b> Region building runs inside
    * the async snapshot window's parallel {@code forEach}, so {@code idOf} is invoked concurrently.
-   * {@code TrieLaneWriteDictionaries} is the intended implementation and is thread-confined for
+   * {@code the trie lane} is the intended implementation and is thread-confined for
    * exactly this reason; a resolver that walks the trie through a reader must never be installed
    * here.
    * </p>

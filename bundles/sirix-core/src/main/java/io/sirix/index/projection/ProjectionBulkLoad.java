@@ -105,36 +105,6 @@ public final class ProjectionBulkLoad {
   /** The record-fed builder; owns the current leaf, the dictionary sample and the dictionaries. */
   private static final Logger LOGGER = LoggerFactory.getLogger(ProjectionBulkLoad.class);
 
-  /**
-   * OFF by default, opt in with {@code -Dsirix.projection.trieLane=true}.
-   *
-   * <p>
-   * <b>Default flipped 2026-09-01 because the lane writes DOCUMENT pages that cannot be read
-   * back.</b> The 1M gate's converted arm fails a subtree serialization with
-   * {@code AssertionError: Type not known} out of {@code deserializeNumber} — a fused NUMBER record's
-   * payload type byte is wrong — while the four arms without the lane serialize byte-identically. It
-   * reproduces with derived elision off too, so it is the lane's own path, and it appears a few pages
-   * in rather than on the first page.
-   * </p>
-   *
-   * <p>
-   * On by default was a footgun in its own right: the lane engages for any load that binds prebuilt
-   * dictionaries, which is the configuration the pre-pass route exists to create. Nothing opts INTO
-   * corruption by accident now.
-   * </p>
-   *
-   * <p>
-   * The switch gates BEHAVIOUR only. Every decoder still reads a converted page, so a database
-   * written by an earlier run stays readable to the extent it ever was.
-   * </p>
-   */
-  private static final boolean TRIE_LANE_ENABLED =
-      Boolean.parseBoolean(System.getProperty("sirix.projection.trieLane", "false"));
-
-  /**
-   * The trie lane's encode-side resolver for this load, or {@code null} when the lane is not bound.
-   */
-  private volatile @Nullable TrieLaneWriteDictionaries trieLaneWriteDictionaries;
 
   /** The segment-scoped dictionary lane, or {@code null} when that lane is switched off. */
   private volatile @Nullable SegmentDictionaryLane segmentDictionaryLane;
@@ -336,46 +306,6 @@ public final class ProjectionBulkLoad {
         DEFAULT_ROW_GROUP_PUBLISHER);
   }
 
-  /**
-   * Bind the trie lane for this load: the record pages and the projection leaves name ONE dictionary
-   * per column.
-   *
-   * <p>
-   * The dictionaries were committed by the pre-import pre-pass into the still-empty resource, so the
-   * revision to read them at is the most recent COMMITTED one — this load's own revision is not
-   * committed yet, and the encode-side probes run on flush threads that must see a fixed structure.
-   * </p>
-   *
-   * <p>
-   * Silent when no prebuilt anchors are configured, which is every load that is not using the lane:
-   * the writer keeps a null resolver and every page stores bytes, exactly as before. A FAILURE to
-   * bind, on the other hand, is not silent — a configured anchor that cannot be read means the pages
-   * would name a dictionary no reader can resolve, and that must stop the load rather than quietly
-   * produce an unconverted one, since the load's whole point in that configuration is the conversion.
-   * </p>
-   */
-  private void bindTrieLane(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
-    if (!TRIE_LANE_ENABLED) {
-      // The lane's ONE kill switch, and it exists so an A/B can isolate it. The prebuilt dictionaries
-      // this binds against are also consumed by the projection index's own build, which converts its
-      // leaves independently and is a large storage effect in its own right -- so a "prebuilt on"
-      // arm moves two levers at once, and without this switch neither can be attributed. It gates
-      // BEHAVIOUR only: pages simply keep their bytes, and every decoder still reads a converted
-      // page written by an earlier run.
-      return;
-    }
-    final TrieLaneWriteDictionaries dictionaries = TrieLaneWriteDictionaries.bindConfigured(
-        storageEngineWriter.getResourceSession(),
-        storageEngineWriter.getResourceSession().getMostRecentRevisionNumber(), indexDef.getProjectionFields().size());
-    if (dictionaries == null) {
-      return;
-    }
-    this.trieLaneWriteDictionaries = dictionaries;
-    this.trieLaneWriter = storageEngineWriter;
-    builder.setTrieLaneWriteDictionaries(dictionaries);
-    storageEngineWriter.installDocumentStringDictionaries(dictionaries);
-  }
-
   /** Stop handing segment views to new pages; the lane's state dies with the load. */
   private void releaseSegmentLane(final @Nullable StorageEngineWriter storageEngineWriter) {
     final SegmentDictionaryLane lane = segmentDictionaryLane;
@@ -404,63 +334,6 @@ public final class ProjectionBulkLoad {
     this.segmentDictionaryLane = lane;
     this.trieLaneWriter = storageEngineWriter;
     builder.setSegmentScopedDictionaries(lane.dictionaries());
-  }
-
-  /**
-   * Release the trie lane's per-thread snapshot readers.
-   *
-   * <p>
-   * Called from the load's terminal paths only. By then the flush executor has drained, which is the
-   * one moment at which no flush thread can still be inside a probe.
-   * </p>
-   */
-  private void releaseTrieLane(final StorageEngineWriter storageEngineWriter) {
-    final TrieLaneWriteDictionaries dictionaries = trieLaneWriteDictionaries;
-    if (dictionaries == null) {
-      return;
-    }
-    trieLaneWriteDictionaries = null;
-    trieLaneWriter = null;
-    if (storageEngineWriter != null) {
-      // Stop handing the resolver to NEW pages first, then DRAIN, then close. That order is the
-      // whole safety argument: a page created after this line carries no resolver and converts
-      // nothing, and awaitPendingAsyncFlush returns only once every page already in flight has been
-      // serialized -- which is the last moment any flush thread can be inside a probe.
-      //
-      // On the ABORT path there is no drain to wait for -- the listener aborts mid-load and the
-      // import keeps flushing -- which is why uninstalling FIRST matters there: it stops new pages
-      // getting the resolver, so the resolver's own in-flight gate has a closing window to wait out
-      // rather than an open-ended stream.
-      //
-      // A loud guarantee beats a counted degrade, but the counter stays as the check on this claim:
-      // if the drain is not what I think it is, closedProbeCount comes back non-zero and the
-      // converted arm's gate fails with a number instead of quietly under-converting the pages that
-      // flushed late. Best-effort inside a finally -- a failure to drain must not mask the failure
-      // that brought us here, and the close below has to happen either way.
-      storageEngineWriter.installDocumentStringDictionaries(null);
-      try {
-        storageEngineWriter.awaitPendingAsyncFlush();
-      } catch (final RuntimeException drainFailure) {
-        LOGGER.warn("trie lane: draining the async flush before releasing the encode-side readers failed; "
-            + "closedProbeCount is the check on whether that mattered", drainFailure);
-      }
-    }
-    // stdout as well as the log, and deliberately: these counters ARE the gate's evidence -- the
-    // converted arm asserts absent == 0 and afterClose == 0 -- and a load run with the root logger at
-    // ERROR would otherwise report a conversion that left no trace of whether it happened. The
-    // pre-pass hook's own [prepass-hook] lines set the precedent for load-time gate output.
-    System.out.printf("[trie-lane] %s%n", dictionaries.describeCounters());
-    LOGGER.info("{}", dictionaries.describeCounters());
-    if (dictionaries.closedProbeCount() > 0) {
-      // Should be unreachable after the drain above. Logged rather than thrown because by here the
-      // pages are already written and refusing changes nothing -- but it is the signal that the
-      // lane under-converted and that the arm's storage number is not the lever's number.
-      LOGGER.warn(
-          "trie lane: {} probes arrived AFTER the lane was released, so late-flushed pages kept "
-              + "their bytes; this arm under-converted and its size is not comparable",
-          dictionaries.closedProbeCount());
-    }
-    dictionaries.close();
   }
 
   /** Internal publication-injected form used by focused storage-failure coverage. */
@@ -497,7 +370,6 @@ public final class ProjectionBulkLoad {
       persistentMutationStarted = true;
       ProjectionStructuralOrderDirectory.open(storage).seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
-      load.bindTrieLane(storageEngineWriter, indexDef);
       load.bindSegmentLane(storageEngineWriter, indexDef);
       return load;
     } catch (final Throwable failure) {
@@ -584,7 +456,6 @@ public final class ProjectionBulkLoad {
     // The lane's per-thread snapshot readers are a resource; an aborted load must free them exactly
     // as it frees the bloom chunks and the summaries. The writer reference is not available here, so
     // only the readers are closed -- the writer's own resolver field dies with the writer.
-    releaseTrieLane(trieLaneWriter);
     releaseSegmentLane(trieLaneWriter);
     try {
       bloomChunks.release();
@@ -951,7 +822,6 @@ public final class ProjectionBulkLoad {
       // Before every other release, because it is the one that reports: the probe/hit/absent counters
       // are the lane's only evidence of what it actually did, and the converted-arm gate asserts
       // absent == 0. A finish that failed still frees the snapshot readers.
-      releaseTrieLane(storageEngineWriter);
       if (!segmentSealArmed) {
         // Armed, the lane belongs to the commit seam: it still has to serve the pages this commit
         // encodes and to report them, and the seam's own listener releases it afterwards. Unarmed —

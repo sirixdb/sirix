@@ -34,8 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * The dictionary store is faked (a header key to a value list), so what is under test is the part
  * this design adds: minting per segment, the anchor translation, and the refusals. Turning a value
- * list into committed dictionary pages is {@link PrePassDictionaryBuilder}'s job and is tested
- * where it lives.
+ * list into committed dictionary pages is the seal's job and is tested where it lives.
  * </p>
  */
 final class SegmentScopedRoundTripTest {
@@ -68,7 +67,7 @@ final class SegmentScopedRoundTripTest {
 
     private long nextHeaderKey = 100;
 
-    /** "Commit" a segment's values, exactly as PrePassDictionaryBuilder would, and return its key. */
+    /** "Commit" a segment's values, exactly as the seal would, and return its key. */
     long commit(final Iterator<byte[]> values) {
       final List<byte[]> stored = new ArrayList<>();
       while (values.hasNext()) {

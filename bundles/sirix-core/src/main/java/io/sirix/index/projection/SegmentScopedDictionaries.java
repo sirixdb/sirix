@@ -22,7 +22,7 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>
  * This is the write half of {@code docs/SEGMENT_DICTIONARY_DESIGN.md}: the answer to the pre-pass.
- * {@link TrieLaneWriteDictionaries} resolves against a dictionary a PRE-PASS already committed, which
+ * the trie lane resolves against a dictionary a PRE-PASS already committed, which
  * is why the corpus must be read twice, why the value set must be closed before the shred, and why an
  * unknown value fails the build. Here a segment's dictionary is built AS its pages are encoded — a
  * value is minted the first time it is seen — so there is no pre-pass, no second read, no closed
@@ -86,7 +86,7 @@ import static java.util.Objects.requireNonNull;
  * <h2>What it deliberately cannot do</h2>
  *
  * The DECODE direction. {@link SegmentView#valueOf} and {@link SegmentView#accepts} always refuse,
- * exactly as {@link TrieLaneWriteDictionaries} does: an encoder never turns an id back into bytes.
+ * exactly as the trie lane does: an encoder never turns an id back into bytes.
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
