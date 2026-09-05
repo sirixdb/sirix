@@ -14754,6 +14754,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // plain numeric lane exactly like a fully-ordered global column, and only emission differs.
       final int[] segmentExtremumCols = new int[funcs.length];
       Arrays.fill(segmentExtremumCols, -1);
+      // Segment-scoped STRING-LENGTH operands, by func index. Same canonicalisation, different
+      // artifact: a length table over the canonical ids, which the kernels index exactly as they
+      // index a global dictionary's — so they need no arm of their own.
+      final int[] segmentLengthCols = new int[funcs.length];
+      Arrays.fill(segmentLengthCols, -1);
       final ArrayList<String> rankStringFields = new ArrayList<>(2);
       for (int i = 0; i < funcs.length; i++) {
         deferredLane[i] = -1;
@@ -14889,6 +14894,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               globalLengthTablesFlat = new int[aggCols.length][];
             }
             globalLengthTablesFlat[i] = globalLengthTable(handle, col, headerKey, lengthMode, lengthView);
+          } else if (ProjectionIndexRowGroupPage.isSegmentScopedIdKind(lengthKind)) {
+            // The table cannot be built here: it is indexed by the ids the canonicalised lane will
+            // carry, and those are not decided until the operand's slices are resident. Mark the
+            // lane; numericGroupAggregate fills the slot once it has sealed the id space.
+            if (handle.segmentDictionarySegmentCount() <= 0) {
+              return declineGroupAgg("segment-scoped string-length operand has no sealed dictionary");
+            }
+            segmentLengthCols[i] = col;
+            if (globalLengthTablesFlat == null) {
+              globalLengthTablesFlat = new int[aggCols.length][];
+            }
           } else if (lengthKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
             return declineGroupAgg("string-length aggregate needs a STRING_DICT or STRING_GLOBAL column");
           }
@@ -15288,7 +15304,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             globalSingleKey
                 ? handle.valueDictionaryHeaderKey(groupCol)
                 : 0L,
-            sumExactMask, keyDisplays[0], rankStringViews, segmentExtremumCols, handle,
+            sumExactMask, keyDisplays[0], rankStringViews, segmentExtremumCols, segmentLengthCols, handle,
             groupShapeFingerprint(groupCols, preds, tree, cdBlock));
       }
       if (keyCount > 1 || anyKeyTransform) {
@@ -17660,8 +17676,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final ProjectionIndexScan.PredicateTree predTree, final long[] having, final byte[] stringLengthModes,
       final int[][] globalLengthTables, final boolean cdStringDict, final long globalKeyDictionary,
       final long sumExactMask, final byte keyDisplay, final ExtremumStrings[] rankStringViews,
-      final int @Nullable [] segmentExtremumCols, final ProjectionIndexRegistry.Handle handle,
-      final long groupShapeFp) {
+      final int @Nullable [] segmentExtremumCols, final int @Nullable [] segmentLengthCols,
+      final ProjectionIndexRegistry.Handle handle, final long groupShapeFp) {
     final int rowGroupCount = slicedStore != null
         ? slicedStore.rowGroupCount()
         : rowGroupPayloads.size();
@@ -17692,7 +17708,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     } else {
       segmentKeys = null;
     }
-    final boolean anySegmentExtremum = anySegmentExtremum(segmentExtremumCols);
+    final boolean anySegmentExtremum =
+        anySegmentExtremum(segmentExtremumCols) || anySegmentExtremum(segmentLengthCols);
     if (anySegmentExtremum && (slicedStore == null || windowedSlices || orderPlan == null)) {
       // The seal has to see EVERY cell of the operand before it can rank them, so the operand's
       // slices must all be resident at once. The windowed arm fetches them per sub-chunk and the
@@ -17767,8 +17784,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // over resident slices: observe() resolves each distinct cell once, sealOrderPreserving()
           // sorts those values, and canonicalise() rewrites the lane through the ranking. The kernel
           // below then folds min/max as plain integers and never learns the operand was a string.
-          for (int a = 0; a < aggCols.length && a < segmentExtremumCols.length; a++) {
-            if (segmentExtremumCols[a] < 0) {
+          for (int a = 0; a < aggCols.length; a++) {
+            final boolean extremum = segmentExtremumCols != null && a < segmentExtremumCols.length
+                && segmentExtremumCols[a] >= 0;
+            final boolean lengths = segmentLengthCols != null && a < segmentLengthCols.length
+                && segmentLengthCols[a] >= 0;
+            if (!extremum && !lengths) {
               continue;
             }
             final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, aggCols[a]);
@@ -17787,7 +17808,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               return declineGroupAgg("a segment-scoped extremum operand has no value in this revision");
             }
             slicedAggCols[a] = rankedLane;
-            rankStringViews[a] = ranked::valueOf;
+            if (extremum) {
+              rankStringViews[a] = ranked::valueOf;
+            }
+            if (lengths) {
+              globalLengthTables[a] = ranked.lengthTable(stringLengthModes[a]);
+            }
           }
         }
         for (int a = 0; a < aggCols.length; a++) {
