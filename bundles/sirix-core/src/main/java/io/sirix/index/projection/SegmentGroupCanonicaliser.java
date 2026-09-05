@@ -168,6 +168,45 @@ public final class SegmentGroupCanonicaliser {
     return out;
   }
 
+  /**
+   * Resolve every present cell of {@code slices} into the value space, WITHOUT building canonical
+   * lanes — {@link #size()} is then the number of distinct values those slices hold.
+   *
+   * <p>
+   * The count-distinct shape: a caller that wants a cardinality has no use for the per-row ids, and
+   * allocating a {@code long[]} per leaf to throw away would be the dominant cost of the answer. The
+   * work that matters — one dictionary read per DISTINCT cell — is identical either way, because both
+   * go through the same memo.
+   * </p>
+   *
+   * @return {@code false} when a present cell has no value in this revision; the caller must decline
+   */
+  public boolean observe(final ColumnSlice @Nullable [] slices) {
+    if (slices == null) {
+      return false;
+    }
+    for (final ColumnSlice slice : slices) {
+      if (slice == null) {
+        continue;
+      }
+      final long[] cells = slice.numericValues();
+      if (cells == null) {
+        return false; // a segment-scoped column IS a long lane; see canonicalise
+      }
+      final long[] presence = slice.presenceWords();
+      final int rows = slice.rowCount();
+      for (int row = 0; row < rows; row++) {
+        if ((presence[row >>> 6] & 1L << (row & 63)) == 0L) {
+          continue; // an absent row holds no value and is not a distinct one
+        }
+        if (canonicalOf(cells[row]) == UNRESOLVABLE) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   /** The value a canonical id names, or {@code null} when the id was never issued. */
   public synchronized @Nullable String valueOf(final int canonicalId) {
     return canonicalId >= 1 && canonicalId <= values.size()

@@ -12124,6 +12124,38 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    *
    * @return the distinct count, or {@code null} when this column is not one it can serve
    */
+  /**
+   * {@code COUNT(DISTINCT segmentScopedColumn)}: the number of distinct VALUES the column's cells
+   * name, not the number of distinct cells.
+   *
+   * @return the count, or {@code null} to decline
+   */
+  private @Nullable Long segmentScopedDistinct(final ProjectionIndexRegistry.Handle handle, final int column,
+      final ProjectionColumnStore store) {
+    final int segments = handle.segmentDictionarySegmentCount();
+    if (segments <= 0) {
+      return null;
+    }
+    final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, column);
+    if (unionView == null) {
+      return null;
+    }
+    final ProjectionColumnStore.ColumnSlice[] slices;
+    try {
+      slices = store.column(column, columnFetcher());
+    } catch (final RuntimeException declined) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] segment-scoped count-distinct declined: " + declined);
+      }
+      return null;
+    }
+    final SegmentGroupCanonicaliser values = new SegmentGroupCanonicaliser(unionView, segments);
+    if (!values.observe(slices)) {
+      return null;
+    }
+    return (long) values.size();
+  }
+
   private @Nullable Long projectionNumericDistinct(final ProjectionIndexRegistry.Handle handle, final int column) {
     final byte distinctKind = handle.rowGroupCount() == 0
         ? -1
@@ -12133,12 +12165,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // distinct values. Without this admission the column fell off the projection entirely — a
     // 6.4 s corpus walk per try at 1M against a sub-second id sweep.
     if (distinctKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-        && distinctKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        && distinctKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+        && !ProjectionIndexRowGroupPage.isSegmentScopedIdKind(distinctKind)) {
       return null;
     }
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     if (store == null) {
       return null; // whole-leaf tier would hydrate every column to read one
+    }
+    if (ProjectionIndexRowGroupPage.isSegmentScopedIdKind(distinctKind)) {
+      // A SEGMENT-scoped column cannot use the arms below. They count distinct LANE VALUES, and a
+      // cell is (segment, id): one value living in two segments carries a different cell in each, so
+      // distinct cells OVER-count distinct values by exactly the cross-segment repeats. The answer is
+      // the size of the value space those cells map into — one dictionary read per DISTINCT cell,
+      // which is the same work the group path already does and never a read per row.
+      return segmentScopedDistinct(handle, column, store);
     }
     final ProjectionColumnStore.ColumnSlice[] slices;
     try {
