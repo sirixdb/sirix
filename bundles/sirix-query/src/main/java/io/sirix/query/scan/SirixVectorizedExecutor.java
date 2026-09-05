@@ -14577,8 +14577,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // else branch is a string literal. A numeric then-branch would emit mixed-type keys and
           // stays declined.
           if ((kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-              && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) || keyShifted || keySubstring) {
-            return declineGroupAgg("conditional key needs an untransformed STRING_DICT or STRING_GLOBAL column");
+              && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+              && !ProjectionIndexRowGroupPage.isSegmentScopedIdKind(kind)) || keyShifted || keySubstring) {
+            return declineGroupAgg(
+                "conditional key needs an untransformed STRING_DICT, STRING_GLOBAL or segment-scoped column");
           }
           for (int j = 0; j < 2; j++) {
             final String cf = keyCondFields[2 * g + j];
@@ -14692,8 +14694,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // single key falls through to the COMPOSITE arm instead, so refuse here rather than there.
           final boolean segmentRegex =
               keyRegexPattern != null && keyRegexPattern.length == 1 && keyRegexPattern[0] != null;
-          if (keyShifted || keySubstring || keyConditional || keyDivided || keyStringified) {
+          if (keyShifted || keySubstring || keyDivided || keyStringified) {
             return declineGroupAgg("segment-scoped group key with a transform not servable");
+          }
+          if (keyConditional && keyCount == 1) {
+            // A conditional needs the composite arm's identity stripes: the single-key numeric arm
+            // folds the lane itself and has nowhere to put the else branch's own identity.
+            return declineGroupAgg("segment-scoped conditional key needs the composite arm");
           }
           if (segmentRegex && keyCount != 1) {
             return declineGroupAgg("segment-scoped regex key is single-key only");
@@ -15345,7 +15352,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final long[] transformDecline = anyKeyTransform || hasGlobalSubstring
               ? new long[1]
               : null;
-          final boolean anyGlobalKeyComponent = hasGlobalSubstring || hasGlobalComposite;
+          final boolean anyGlobalKeyComponent = hasGlobalSubstring || hasGlobalComposite || hasSegmentComponent;
           // SEGMENT-SCOPED COMPONENTS. Their lanes hold (segment, id) cells, which are a
           // pre-aggregation of the real key: the same value in two segments would compete as two
           // groups and could both lose a top-K that the merged group would have won. Each such lane
@@ -15404,6 +15411,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // Interned → that id (a then-row holding the same value merges exactly); absent → the
           // -2 sentinel, below every real id, so the else group can never collide with one.
           long[] globalCondElseIds = null;
+          if (hasSegmentComponent && keyCondCols != null && keyCondElseBytes != null) {
+            for (int g = 0; g < keyCount; g++) {
+              if (keyCondCols[2 * g] < 0 || keyCondElseBytes[g] == null || segmentCanonicalisers[g] == null) {
+                continue;
+              }
+              if (globalCondElseIds == null) {
+                globalCondElseIds = new long[keyCount];
+                Arrays.fill(globalCondElseIds, Long.MIN_VALUE);
+              }
+              // The else literal takes an id in the SAME canonical space the lane now carries, so a
+              // then-row holding that very value lands in the else group rather than beside it.
+              globalCondElseIds[g] = segmentCanonicalisers[g]
+                  .canonicalOfValue(new String(keyCondElseBytes[g], StandardCharsets.UTF_8));
+            }
+          }
           if (hasGlobalComposite && keyCondCols != null && keyCondElseBytes != null) {
             for (int g = 0; g < keyCount; g++) {
               if (keyCondCols[2 * g] >= 0 && keyCondElseBytes[g] != null
@@ -15658,8 +15680,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 if (cdBlock >= 0) {
                   cdBudgets[idx] = new long[] {Long.MAX_VALUE, 0}; // the bitmap arm's range flag only
                 }
-                final GlobalValueDictionary.ReadView[] globalKeyViews =
+                GlobalValueDictionary.ReadView[] globalKeyViews =
                     globalSubstringReadViews(globalSubstringHeaderKeys);
+                if (hasSegmentComponent) {
+                  if (globalKeyViews == null) {
+                    globalKeyViews = new GlobalValueDictionary.ReadView[keyCount];
+                  }
+                  for (int k = 0; k < keyCount; k++) {
+                    if (!segmentKeyComponents[k]) {
+                      continue;
+                    }
+                    globalKeyViews[k] = segmentUnionView(handle, groupCols[k]);
+                    if (globalKeyViews[k] == null) {
+                      transformDecline[0] = 1;
+                      return;
+                    }
+                  }
+                }
                 if (anyGlobalKeyComponent && globalKeyViews == null) {
                   transformDecline[0] = 1;
                   return;
@@ -15946,9 +15983,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final ArrayList<Item> out = new ArrayList<>(finalSel.size());
           GlobalValueDictionary.ReadView[] winnerGlobalKeyViews =
               globalSubstringReadViews(globalSubstringHeaderKeys);
-          if (anyGlobalKeyComponent && winnerGlobalKeyViews == null) {
-            return declineGroupAgg("global substring dictionary became unreadable before winner materialization");
-          }
+          // The segment views are merged in BEFORE the completeness check, not after: a
+          // segment-scoped component counts as a global key component now, so a query whose only such
+          // components are segment-scoped would fail a check its own views were about to satisfy.
           if (segmentEmitViews != null) {
             // A segment-scoped winner resolves its ORIGINAL cell through the union view. The two view
             // sources never claim the same component — a column has one kind — so filling the gaps is
@@ -15962,6 +15999,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 }
               }
             }
+          }
+          if (anyGlobalKeyComponent && winnerGlobalKeyViews == null) {
+            return declineGroupAgg("global substring dictionary became unreadable before winner materialization");
           }
           // Windowed: the winners sit in as many leaves as there are winners (a thousand for an
           // OFFSET 1000), so a one-leaf access paid one synchronous fetch per winner per column —
@@ -18798,7 +18838,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private static byte kernelKeyKind(final byte trueKind) {
     return ProjectionIndexRowGroupPage.isSegmentScopedIdKind(trueKind)
-        ? ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        ? ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
         : trueKind;
   }
 

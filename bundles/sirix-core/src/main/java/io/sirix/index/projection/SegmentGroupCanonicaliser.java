@@ -263,6 +263,36 @@ public final class SegmentGroupCanonicaliser {
     rankByArrival = ranks; // last: a reader that sees this sees both tables
   }
 
+  /**
+   * The canonical id a LITERAL takes in this value space, minting one if the column never held it.
+   *
+   * <p>
+   * What a conditional key needs: {@code CASE WHEN c THEN col ELSE lit END} must put an else-row and
+   * a then-row whose value IS {@code lit} in the SAME group, which only holds if both sides speak one
+   * identity space. Hashing the literal's bytes instead would leave them in two domains and split a
+   * group that the query defines as one.
+   * </p>
+   *
+   * @throws IllegalStateException after {@link #sealOrderPreserving}, where a new value has no rank
+   */
+  public synchronized int canonicalOfValue(final String value) {
+    requireNonNull(value, "value must not be null");
+    int canonical = canonicalByValue.getInt(value);
+    if (canonical != 0) {
+      final int[] ranks = rankByArrival;
+      return ranks == null
+          ? canonical
+          : ranks[canonical - 1];
+    }
+    if (rankByArrival != null) {
+      throw new IllegalStateException("the value space is sealed; '" + value + "' has no rank");
+    }
+    values.add(value);
+    canonical = values.size();
+    canonicalByValue.put(value, canonical);
+    return canonical;
+  }
+
   /** Whether {@link #sealOrderPreserving} has run, so lane ids are in collation order. */
   public boolean isOrderPreserving() {
     return rankByArrival != null;
