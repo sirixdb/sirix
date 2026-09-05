@@ -14218,8 +14218,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // kernel nor emitted as an integer. Both are handled where they arise, below.
       boolean globalSingleKey = false;
       final long[] globalSubstringHeaderKeys = new long[keyCount];
+      // Which components are SEGMENT-SCOPED: their cells are (segment, id) pairs, so their lanes are
+      // canonicalised to value ids before the kernel groups on them, and their winners are rendered
+      // from the ORIGINAL cells rather than from the canonical id.
+      final boolean[] segmentKeyComponents = new boolean[keyCount];
       boolean anyGlobalSubstring = false;
       boolean anyGlobalComposite = false;
+      boolean anySegmentComponent = false;
       // The kernels take ONE substitution-literal array: it is the conditional key's ELSE branch
       // where a condition column is named, and the MISSING-value substitution where none is —
       // which is exactly what `fn:string(<chain>)` needs ("" for an absent field). Merge the two
@@ -14458,9 +14463,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           //   - every key TRANSFORM operates on the VALUE, and a canonical id is not the value.
           // The `!anyKeyTransform` guard at the call site is not enough on its own: a transformed
           // single key falls through to the COMPOSITE arm instead, so refuse here rather than there.
-          if (keyCount != 1) {
-            return declineGroupAgg("segment-scoped composite group key not servable");
-          }
           if (keyShifted || keySubstring || keyConditional || keyDivided || keyStringified
               || (keyRegexPattern != null && keyRegexPattern.length == 1 && keyRegexPattern[0] != null)) {
             return declineGroupAgg("segment-scoped group key with a transform not servable");
@@ -14468,7 +14470,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (handle.segmentDictionarySegmentCount() <= 0) {
             return declineGroupAgg("segment-scoped group key has no sealed dictionary at this revision");
           }
-          numericSingleKey = true;
+          segmentKeyComponents[g] = true;
+          anySegmentComponent = true;
+          if (keyCount == 1) {
+            numericSingleKey = true;
+          }
           anyNumericComponent = true;
         } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           return declineGroupAgg("group key column kind not servable");
@@ -14484,6 +14490,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final long[] keyDivModEff = effKeyDivMod;
       final boolean hasGlobalSubstring = anyGlobalSubstring;
       final boolean hasGlobalComposite = anyGlobalComposite;
+      final boolean hasSegmentComponent = anySegmentComponent;
       final boolean globalRegexGroup = globalRegexKey;
       final long globalRegexGroupHeaderKey = globalRegexHeaderKey;
       final int groupCol = groupCols[0];
@@ -15056,6 +15063,46 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               ? new long[1]
               : null;
           final boolean anyGlobalKeyComponent = hasGlobalSubstring || hasGlobalComposite;
+          // SEGMENT-SCOPED COMPONENTS. Their lanes hold (segment, id) cells, which are a
+          // pre-aggregation of the real key: the same value in two segments would compete as two
+          // groups and could both lose a top-K that the merged group would have won. Each such lane
+          // is canonicalised to value ids before the kernel sees it, and the component is described
+          // to the kernel as the plain long lane it has then become. The winners keep being read
+          // from their ORIGINAL rows, so their text comes from the dictionary and not from a
+          // canonical id.
+          final SegmentGroupCanonicaliser[] segmentCanonicalisers;
+          // The same union views, kept for WINNER emission: a winner's key part is read from its
+          // original row, whose cell is packed and must be resolved at long width.
+          final GlobalValueDictionary.ReadView[] segmentEmitViews;
+          if (hasSegmentComponent) {
+            if (!compositeSlicedArm) {
+              // Without slices the key lanes are read from the payload bytes and never pass through
+              // a ColumnSlice, so there is no seam at which cells could become values.
+              return declineGroupAgg("segment-scoped composite key needs the sliced arm");
+            }
+            if (orderPlan.ordersOnKey()) {
+              // Canonical ids are issued in ARRIVAL order and say nothing about how their values
+              // collate; ordering on such a lane returns the right groups in the wrong order.
+              return declineGroupAgg("segment-scoped composite key cannot order on the key lane");
+            }
+            segmentCanonicalisers = new SegmentGroupCanonicaliser[keyCount];
+            segmentEmitViews = new GlobalValueDictionary.ReadView[keyCount];
+            for (int k = 0; k < keyCount; k++) {
+              if (!segmentKeyComponents[k]) {
+                continue;
+              }
+              final GlobalValueDictionary.ReadView unionView = segmentUnionView(handle, groupCols[k]);
+              if (unionView == null) {
+                return declineGroupAgg("segment-scoped composite key has no readable dictionary at this revision");
+              }
+              segmentEmitViews[k] = unionView;
+              segmentCanonicalisers[k] =
+                  new SegmentGroupCanonicaliser(unionView, handle.segmentDictionarySegmentCount());
+            }
+          } else {
+            segmentCanonicalisers = null;
+            segmentEmitViews = null;
+          }
           // Set when two composite groups are proven to share a probe hash while a per-group
           // COUNT(DISTINCT) set is in play; those sets are keyed by the hash alone and have no way
           // to tell the two groups apart, so the serve declines rather than answering wrongly.
@@ -15110,7 +15157,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final ProjectionColumnStore.ColumnSlice[][] cPredCols;
           final ProjectionColumnStore.ColumnSlice[][] cTreeCols;
           final ProjectionColumnStore.ColumnSlice[][] cKeyCols;
+          // What the KERNEL groups on. Identical to cKeyCols unless a component is segment-scoped, in
+          // which case that component's lane is canonicalised; cKeyCols keeps the ORIGINAL cells,
+          // because that is what a winner's key part is read from.
+          final ProjectionColumnStore.ColumnSlice[][] cKeyColsGroup;
+          // The kinds the KERNEL dispatches on: a canonicalised segment lane is a plain long identity
+          // lane and is described as one, which is what lets the existing composite folding serve it
+          // without a new arm. cKeyKindsTrue keeps the real kinds for winner materialization.
           final byte[] cKeyKinds;
+          final byte[] cKeyKindsTrue;
           final ProjectionColumnStore.ColumnSlice[][] cAggCols;
           final ProjectionColumnStore.ColumnSlice[][] cCondCols;
           // Winner emission reads each winner's key parts from its leaf once; windowed, the winners'
@@ -15124,9 +15179,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 : null;
             cKeyCols = new ProjectionColumnStore.ColumnSlice[keyCount][];
             cKeyKinds = new byte[keyCount];
+            cKeyKindsTrue = new byte[keyCount];
             for (int k = 0; k < keyCount; k++) {
-              cKeyKinds[k] = groupStore.columnKind(groupCols[k]);
+              cKeyKindsTrue[k] = groupStore.columnKind(groupCols[k]);
+              cKeyKinds[k] = kernelKeyKind(cKeyKindsTrue[k]);
               cKeyCols[k] = groupStore.column(groupCols[k], cFetcher);
+            }
+            cKeyColsGroup = canonicaliseCompositeKeys(segmentCanonicalisers, cKeyCols);
+            if (cKeyColsGroup == null) {
+              return declineGroupAgg("a segment-scoped composite key has no value in this revision");
             }
             cAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
             for (int a = 0; a < aggColsFlat.length; a++) {
@@ -15151,13 +15212,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             cPredCols = null;
             cTreeCols = null;
             cKeyCols = null;
+            cKeyColsGroup = null;
             // Windowed: no resident arrays, but the kinds still drive the kernel's component dispatch.
             cKeyKinds = compositeSlicedArm
                 ? new byte[keyCount]
                 : null;
+            cKeyKindsTrue = compositeSlicedArm
+                ? new byte[keyCount]
+                : null;
             if (cKeyKinds != null) {
               for (int k = 0; k < keyCount; k++) {
-                cKeyKinds[k] = groupStore.columnKind(groupCols[k]);
+                cKeyKindsTrue[k] = groupStore.columnKind(groupCols[k]);
+                cKeyKinds[k] = kernelKeyKind(cKeyKindsTrue[k]);
               }
             }
             cAggCols = null;
@@ -15341,8 +15407,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                             ? wsl.treeColumns(tree, sub, subEnd)
                             : null;
                     final ProjectionColumnStore.ColumnSlice[][] keyColsNow = wsl != null
-                        ? wsl.columns(groupCols, sub, subEnd)
-                        : cKeyCols;
+                        ? requireResolvedCompositeKeys(segmentCanonicalisers,
+                            canonicaliseCompositeKeys(segmentCanonicalisers, wsl.columns(groupCols, sub, subEnd)))
+                        : cKeyColsGroup;
                     final ProjectionColumnStore.ColumnSlice[][] aggColsNow = wsl != null
                         ? wsl.columns(aggColsFlat, sub, subEnd)
                         : cAggCols;
@@ -15594,10 +15661,24 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final boolean[] present = new boolean[keyCount];
           final boolean[] isLong = new boolean[keyCount];
           final ArrayList<Item> out = new ArrayList<>(finalSel.size());
-          final GlobalValueDictionary.ReadView[] winnerGlobalKeyViews =
+          GlobalValueDictionary.ReadView[] winnerGlobalKeyViews =
               globalSubstringReadViews(globalSubstringHeaderKeys);
           if (anyGlobalKeyComponent && winnerGlobalKeyViews == null) {
             return declineGroupAgg("global substring dictionary became unreadable before winner materialization");
+          }
+          if (segmentEmitViews != null) {
+            // A segment-scoped winner resolves its ORIGINAL cell through the union view. The two view
+            // sources never claim the same component — a column has one kind — so filling the gaps is
+            // a merge, not an override.
+            if (winnerGlobalKeyViews == null) {
+              winnerGlobalKeyViews = segmentEmitViews;
+            } else {
+              for (int part = 0; part < keyCount; part++) {
+                if (segmentEmitViews[part] != null) {
+                  winnerGlobalKeyViews[part] = segmentEmitViews[part];
+                }
+              }
+            }
           }
           // Windowed: the winners sit in as many leaves as there are winners (a thousand for an
           // OFFSET 1000), so a one-leaf access paid one synchronous fetch per winner per column —
@@ -15653,7 +15734,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             final int leaf = (int) (src >>> 20);
             final int rowIdx = (int) (src & 0xFFFFF);
             if (compositeSlicedArm) {
-              ProjectionColumnGroupScan.readRowKeyPartsSliced(keyColsE, cKeyKinds, condColsE, leaf, rowIdx, strParts,
+              ProjectionColumnGroupScan.readRowKeyPartsSliced(keyColsE, cKeyKindsTrue, condColsE, leaf, rowIdx, strParts,
                   longParts, present, isLong, keyOffsetsEff, keySubstrEff, keyCondCols, keyCondLits, keySubstLit,
                   keyDivModEff, winnerGlobalKeyViews);
             } else {
@@ -18330,6 +18411,58 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * @return the view, or {@code null} when the column is not segment-scoped or a segment's dictionary
    *         is unreadable — in which case the caller declines rather than serving some rows
    */
+  /**
+   * The kind the KERNEL should dispatch a composite component on.
+   *
+   * <p>
+   * A segment-scoped lane is canonicalised to value ids before it reaches a kernel, and what arrives
+   * there is a plain long identity lane — so that is what it is called. Saying "kind 8" instead would
+   * send the component down a per-leaf dictionary arm that a long-lane column has no bytes for.
+   * </p>
+   */
+  private static byte kernelKeyKind(final byte trueKind) {
+    return ProjectionIndexRowGroupPage.isSegmentScopedIdKind(trueKind)
+        ? ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        : trueKind;
+  }
+
+  /**
+   * Every component's lane, with the segment-scoped ones canonicalised to value ids.
+   *
+   * @return the same array when nothing is segment-scoped; {@code null} when a present cell has no
+   *         value in this revision
+   */
+  private static ProjectionColumnStore.ColumnSlice[] @Nullable [] canonicaliseCompositeKeys(
+      final SegmentGroupCanonicaliser @Nullable [] canonicalisers,
+      final ProjectionColumnStore.ColumnSlice[] @Nullable [] keyCols) {
+    if (canonicalisers == null || keyCols == null) {
+      return keyCols;
+    }
+    final ProjectionColumnStore.ColumnSlice[][] out = new ProjectionColumnStore.ColumnSlice[keyCols.length][];
+    for (int k = 0; k < keyCols.length; k++) {
+      if (canonicalisers[k] == null) {
+        out[k] = keyCols[k];
+        continue;
+      }
+      out[k] = canonicalisers[k].canonicalise(keyCols[k]);
+      if (out[k] == null) {
+        return null;
+      }
+    }
+    return out;
+  }
+
+  /** {@link #canonicaliseCompositeKeys} inside the parallel pass, where there is no decline to return. */
+  private static ProjectionColumnStore.ColumnSlice[] @Nullable [] requireResolvedCompositeKeys(
+      final SegmentGroupCanonicaliser @Nullable [] canonicalisers,
+      final ProjectionColumnStore.ColumnSlice[] @Nullable [] keyCols) {
+    if (canonicalisers != null && keyCols == null) {
+      throw new IllegalStateException("a segment-scoped composite key reached the kernel uncanonicalised "
+          + "or has no value in this revision");
+    }
+    return keyCols;
+  }
+
   /**
    * The group lane a kernel should aggregate: unchanged when the key is not segment-scoped, otherwise
    * the same slices with their {@code (segment, id)} cells replaced by canonical VALUE ids.

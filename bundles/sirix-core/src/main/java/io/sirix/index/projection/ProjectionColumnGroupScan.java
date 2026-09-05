@@ -1449,6 +1449,18 @@ public final class ProjectionColumnGroupScan {
         outLongs[k] = ProjectionIndexByteScan.applyDivMod(slice.numericValues()[rowIdx] + (keyOffsets != null
             ? keyOffsets[k]
             : 0L), keyDivMod, k);
+      } else if (ProjectionIndexRowGroupPage.isSegmentScopedIdKind(keyKinds[k])) {
+        // The KERNEL grouped this component on canonical value ids, but a winner is re-read from its
+        // ORIGINAL row, whose lane still holds the packed (segment, id) cell. It must be resolved at
+        // long width: narrowing it to an int would drop the segment and name segment 0's value.
+        if (globalKeyViews == null || globalKeyViews.length != keyCols.length || globalKeyViews[k] == null) {
+          throw new IllegalStateException("segment-scoped composite winner requires a readable dictionary view");
+        }
+        outIsLong[k] = false;
+        outStrings[k] = globalKeyViews[k].valueOfCell(slice.numericValues()[rowIdx]);
+        if (outStrings[k] == null) {
+          throw new IllegalStateException("segment-scoped composite winner has no value in this revision");
+        }
       } else if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
         if (globalKeyViews == null || globalKeyViews.length != keyCols.length || globalKeyViews[k] == null) {
           throw new IllegalStateException("global composite winner requires a readable dictionary view");
