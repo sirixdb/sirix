@@ -1894,12 +1894,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     // A GLOBAL string column reaches this shim too: its cells are dense dictionary ids in the same
     // long lane, so the same kernel groups them and only the emitted KEY differs (below).
-    final boolean globalKey = handle.columnKindOf(groupColumn) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+    final byte groupColumnKind = handle.columnKindOf(groupColumn);
+    final boolean segmentKey = ProjectionIndexRowGroupPage.isSegmentScopedIdKind(groupColumnKind);
+    final boolean globalKey = groupColumnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
     final long globalDictionary = globalKey
         ? handle.valueDictionaryHeaderKey(groupColumn)
         : 0L;
     if (globalKey && globalDictionary <= 0L) {
       return null; // ids with no dictionary to name them — grouping would emit the ids themselves
+    }
+    // A SEGMENT-scoped column groups through the very same kernel: its cells are integers in the same
+    // long lane. What differs is only that two cells can name one value, so the keys are merged after
+    // the kernel rather than emitted as it left them.
+    final GlobalValueDictionary.ReadView segmentView = segmentKey
+        ? segmentUnionView(handle, groupColumn)
+        : null;
+    if (segmentKey && segmentView == null) {
+      return null; // cells with no dictionary to name them
     }
     // Gate 3 — provable integrality. This one gate subsumes every lossy mixture at once,
     // because a NUMERIC_LONG cell sourced from ANY Double/Float is flagged non-integral
@@ -1910,7 +1921,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // A temporal cell is an epoch this build parsed from canonical text — it can no more be a
     // truncated double than a minted id can, and asking would walk the column for nothing.
     final byte temporalDisplay = temporalDisplayOf(handle, groupColumn);
-    if (!globalKey && temporalDisplay == ProjectionTemporalCodec.DISPLAY_NONE
+    if (!globalKey && !segmentKey && temporalDisplay == ProjectionTemporalCodec.DISPLAY_NONE
         && !handle.numericColumnIsIntegral(groupColumn, fetcher)) {
       return null;
     }
@@ -1943,7 +1954,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       n++;
     }
     String[] groupValues = null;
-    if (globalDictionary > 0L) {
+    if (segmentView != null) {
+      final int[] merged = new int[1];
+      groupValues = resolveAndMergeSegmentGroupKeys(segmentView, Arrays.copyOf(groupIds, n), groupCounts, merged);
+      if (groupValues == null) {
+        return null;
+      }
+      n = merged[0];
+    } else if (globalDictionary > 0L) {
       final int[] ids = new int[n];
       for (int i = 0; i < n; i++) {
         ids[i] = (int) groupIds[i];
@@ -7854,7 +7872,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final byte groupKind = handle.columnKindOf(groupColumn);
     if (!ProjectionIndexRowGroupPage.isOrderedLongKind(groupKind)
         && groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-        && groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        && !ProjectionIndexRowGroupPage.isDictionaryIdKind(groupKind)) {
       return null;
     }
     if (groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
@@ -7869,7 +7887,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // iter#07 range fusion — same policy as tryProjectionIndexFastPath.
     final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
     if (ProjectionIndexRowGroupPage.isOrderedLongKind(groupKind)
-        || groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        || ProjectionIndexRowGroupPage.isDictionaryIdKind(groupKind)) {
       return projectionNumericGroupCounts(handle, preds, groupColumn, groupField);
     }
     final long[] missing = new long[1];
@@ -18222,6 +18240,70 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    *         revision, which is a decline: emitting the raw long would type the key {@code xs:integer}
    *         and emitting nothing would drop a group
    */
+  /**
+   * The per-segment dictionaries of one segment-scoped column, as ONE view over packed cells.
+   *
+   * @return the view, or {@code null} when the column is not segment-scoped or a segment's dictionary
+   *         is unreadable — in which case the caller declines rather than serving some rows
+   */
+  private GlobalValueDictionary.@Nullable ReadView segmentUnionView(final ProjectionIndexRegistry.Handle handle,
+      final int column) {
+    final int segments = handle.segmentDictionarySegmentCount();
+    if (segments <= 0) {
+      return null;
+    }
+    final long[] headerKeys = new long[segments];
+    for (int segment = 0; segment < segments; segment++) {
+      headerKeys[segment] = handle.segmentDictionaryHeaderKey(segment, column);
+    }
+    return GlobalValueDictionary.segmentUnionReadView(headerKeys, workerTrx().getStorageEngineReader());
+  }
+
+  /**
+   * Resolve the group keys of a SEGMENT-scoped column and merge the ones that name the same value.
+   *
+   * <p>
+   * Grouping by the packed cell is a valid PRE-aggregation and nothing more: a value that occurs in
+   * two segments carries a different cell in each, so the kernel returns it as two groups. Merging
+   * them is what makes the answer a group-by over values rather than over (segment, value) pairs, and
+   * it costs one resolve and one hash per distinct cell in the RESULT — never per row.
+   * </p>
+   *
+   * @param cells the group keys the kernel produced, packed
+   * @param counts each cell's count, index-aligned; overwritten with the merged counts
+   * @return the merged keys, index-aligned with the first {@code n} entries of {@code counts} as this
+   *         method leaves them, or {@code null} when a cell has no value in this revision
+   */
+  private @Nullable String[] resolveAndMergeSegmentGroupKeys(final GlobalValueDictionary.ReadView view,
+      final long[] cells, final long[] counts, final int[] mergedCount) {
+    final Object2LongOpenHashMap<String> byValue = new Object2LongOpenHashMap<>(cells.length);
+    byValue.defaultReturnValue(0L);
+    for (int i = 0; i < cells.length; i++) {
+      final String value;
+      try {
+        value = view.valueAsString((int) cells[i]);
+      } catch (final RuntimeException unresolvable) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] segment group key " + cells[i] + " has no value in this revision — declining");
+        }
+        return null;
+      }
+      if (value == null) {
+        return null;
+      }
+      byValue.addTo(value, counts[i]);
+    }
+    final String[] keys = new String[byValue.size()];
+    int n = 0;
+    for (final Object2LongMap.Entry<String> entry : byValue.object2LongEntrySet()) {
+      keys[n] = entry.getKey();
+      counts[n] = entry.getLongValue();
+      n++;
+    }
+    mergedCount[0] = n;
+    return keys;
+  }
+
   private @Nullable String[] resolveGlobalGroupKeys(final long headerKey, final int[] ids, final KeyPresence hasKey) {
     final String[] resolved = GlobalValueDictionary.values(headerKey, ids, workerTrx().getStorageEngineReader());
     for (int i = 0; i < ids.length; i++) {

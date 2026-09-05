@@ -339,7 +339,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
             ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
@@ -1633,7 +1634,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
             ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
@@ -3742,7 +3744,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
             ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += (rowCount + 63 >>> 6) * 8;
@@ -4608,7 +4611,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
             ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += (rowCount + 63 >>> 6) * 8;
@@ -5320,7 +5324,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
             ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
@@ -5681,7 +5686,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
             ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
