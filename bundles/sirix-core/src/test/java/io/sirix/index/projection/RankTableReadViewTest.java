@@ -235,6 +235,51 @@ final class RankTableReadViewTest {
         assertThrows(NullPointerException.class, () -> GlobalValueDictionary.values(headerKey, null, reader));
         assertEquals(0, GlobalValueDictionary.values(headerKey, new int[0], reader).length);
 
+        // SWEEP: the sequential verdict route walks STORAGE, one block at a time, and must land each
+        // bit on the MINT that position belongs to. An untranslated sweep sets the bit for the value
+        // at position p at id p — which this permutation makes wrong at both pinned extremes and at
+        // every mint whose rank differs from it.
+        int permuted = 0;
+        for (int mint = 1; mint <= prefix; mint++) {
+          if (rankByMint[mint] != mint) {
+            permuted++;
+          }
+        }
+        assertTrue(permuted > prefix / 2,
+            "the sweep trap is not armed: " + permuted + " of " + prefix + " mints differ from their rank");
+
+        final int oversizedPosition = positionOfOversized(sorted);
+        final int[] sweptMints =
+            {1, 2, prefix / 2, prefix - 1, prefix, mintByRank[oversizedPosition]};
+        for (final int mint : sweptMints) {
+          final byte[] value = sorted.get(rankByMint[mint] - 1);
+          final long[] swept = view.stringOpVerdictByMint(ProjectionIndexScan.Op.EQ, value);
+          // The fixture is strictly ascending, so a value equals exactly one entry: one bit, at its
+          // own mint. This needs no reference implementation of the op to be wrong-sensitive.
+          assertEquals(1, cardinality(swept),
+              () -> "EQ against the value of mint " + mint + " must match exactly one entry");
+          assertTrue(isSet(swept, mint),
+              () -> "EQ set bit " + onlySetBit(swept) + ", but that value is held by mint " + mint);
+        }
+        assertEquals(ValueDictionaryEntryNode.MAX_VALUE_LENGTH, sorted.get(oversizedPosition - 1).length,
+            "the spilled value must still be oversized, or the sweep's spill arm is untested");
+
+        // And a multi-match op, so the walk is exercised across blocks rather than at one entry.
+        final String contained = "value-00000";
+        final long[] containing = view.stringOpVerdictByMint(ProjectionIndexScan.Op.STR_CONTAINS, utf8(contained));
+        int expectedContaining = 0;
+        for (int mint = 1; mint <= prefix; mint++) {
+          final boolean expected =
+              new String(sorted.get(rankByMint[mint] - 1), StandardCharsets.UTF_8).contains(contained);
+          if (expected) {
+            expectedContaining++;
+          }
+          final int m = mint;
+          assertEquals(expected, isSet(containing, mint),
+              () -> "STR_CONTAINS(" + contained + ") disagrees at mint " + m + " (position " + rankByMint[m] + ")");
+        }
+        assertEquals(10, expectedContaining, "the fixture must contain value-000000..value-000009");
+
         // ENCODE: the binary search finds a POSITION; the answer must be the MINT stored there — by
         // the static route, by the view, and by the view over a value embedded in a larger buffer.
         for (int position = 1; position <= prefix; position++) {
@@ -756,6 +801,44 @@ final class RankTableReadViewTest {
 
   private static int compareCollation(final byte[] left, final byte[] right) {
     return ValueDictionaryEntryNode.compareUtf16Range(left, 0, left.length, right, 0, right.length);
+  }
+
+  /** The 1-based storage position of the oversized (spilled) fixture value. */
+  private static int positionOfOversized(final List<byte[]> sorted) {
+    for (int position = 1; position <= sorted.size(); position++) {
+      if (sorted.get(position - 1).length == ValueDictionaryEntryNode.MAX_VALUE_LENGTH) {
+        return position;
+      }
+    }
+    throw new IllegalStateException("the fixture no longer holds an oversized value");
+  }
+
+  private static boolean isSet(final long[] verdict, final int id) {
+    return (verdict[id >>> 6] & 1L << (id & 63)) != 0L;
+  }
+
+  private static int cardinality(final long[] verdict) {
+    int bits = 0;
+    for (final long word : verdict) {
+      bits += Long.bitCount(word);
+    }
+    return bits;
+  }
+
+  /** The single set bit of {@code verdict}, for a failure message; {@code -1} when there is not one. */
+  private static int onlySetBit(final long[] verdict) {
+    int found = -1;
+    for (int word = 0; word < verdict.length; word++) {
+      long remaining = verdict[word];
+      while (remaining != 0L) {
+        if (found >= 0) {
+          return -1;
+        }
+        found = (word << 6) + Long.numberOfTrailingZeros(remaining);
+        remaining &= remaining - 1;
+      }
+    }
+    return found;
   }
 
   private static byte[] utf8(final String value) {

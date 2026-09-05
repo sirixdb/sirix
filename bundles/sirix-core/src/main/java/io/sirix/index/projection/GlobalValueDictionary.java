@@ -721,6 +721,29 @@ public final class GlobalValueDictionary {
       return view;
     }
 
+    /**
+     * Sweep the dictionary of the segment {@code anyCellInSegment} belongs to, returning verdict bits
+     * over the MINT ids that segment's rows carry.
+     *
+     * <p>
+     * The packed-cell entry point to {@link #stringOpVerdictByMint}: a union view holds one dictionary
+     * per segment, and a cell names which. Addressing by cell rather than by segment index keeps the
+     * {@code perSegment} array private and reuses {@link #segmentViewOf}'s refusal — a cell naming a
+     * segment that sealed nothing is refused here too, rather than swept against a neighbour.
+     * </p>
+     *
+     * @param anyCellInSegment any packed cell of the segment to sweep
+     * @param op a per-value string op
+     * @param literalUtf8 the literal's UTF-8 bytes
+     * @return bit {@code id} set iff the value under that id satisfies {@code op}
+     */
+    public long[] stringOpVerdictByMintOfCell(final long anyCellInSegment, final ProjectionIndexScan.Op op,
+        final byte[] literalUtf8) {
+      return perSegment == null
+          ? stringOpVerdictByMint(op, literalUtf8)
+          : segmentViewOf(anyCellInSegment).stringOpVerdictByMint(op, literalUtf8);
+    }
+
     /** Whether this view resolves packed {@code (segment, id)} cells rather than bare ids. */
     public boolean isSegmentUnion() {
       return perSegment != null;
@@ -952,6 +975,75 @@ public final class GlobalValueDictionary {
      * @param wordBase the global verdict word {@code out[0]} stands for, normally {@code 4*bucketLo}
      * @throws IllegalArgumentException if the range is not within the dictionary
      */
+    /**
+     * Evaluate {@code op} against EVERY value of this dictionary in one sequential pass, returning a
+     * verdict bitset indexed by the MINT ids rows carry.
+     *
+     * <p>
+     * The rank-aware twin of {@link #fillStringOpVerdict}, and the reason it has to exist: that one
+     * indexes by storage position and therefore refuses a dictionary with a rank table, which every
+     * sealed segment dictionary has. Refusing pushed the segment lane onto a per-referenced-cell
+     * resolution — a random dictionary read for each distinct value a query touches, measured at 46 s
+     * for one LIKE over 100M rows. Walking storage once is sequential and reads each block's packed
+     * bytes in place; the rank table then says which id each position belongs to, one record lookup
+     * per entry.
+     * </p>
+     *
+     * @return bit {@code id} set iff the value under that id satisfies {@code op}
+     */
+    public long[] stringOpVerdictByMint(final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
+      Objects.requireNonNull(op, "op must not be null");
+      Objects.requireNonNull(literalUtf8, "literalUtf8 must not be null");
+      final long[] verdict = newVerdict();
+      final boolean litHasSupplementary =
+          ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
+      final int buckets = verdictBucketCount();
+      for (int bucket = 0; bucket < buckets; bucket++) {
+        final ValueDictionaryValueBucketNode bucketNode =
+            GlobalValueDictionaryRadix.valueBucketOf(reverseRootKey, bucket, namePage, databaseType, reader);
+        if (bucketNode == null) {
+          throw new IllegalStateException("value dictionary bucket " + bucket + " is missing from revision "
+              + revision);
+        }
+        final int blocks = bucketNode.blockCount();
+        for (int block = 0; block < blocks; block++) {
+          final int blockFirstPosition = bucketNode.blockFirstId(block);
+          final ValueDictionaryValueBlockNode node = GlobalValueDictionaryRadix.blockNode(bucketNode.blockKey(block),
+              blockFirstPosition, namePage, databaseType, reader);
+          if (node == null) {
+            throw new IllegalStateException("value dictionary block " + blockFirstPosition + " is missing from"
+                + " revision " + revision);
+          }
+          final byte[] bytes = node.rawBytes();
+          final int count = node.size();
+          int start = node.offsetAt(0);
+          for (int index = 0; index < count; index++) {
+            final int end = node.offsetAt(index + 1);
+            if (ProjectionIndexScan.stringDictEntryMatches(bytes, start, end - start, op, literalUtf8,
+                litHasSupplementary)) {
+              final int id = mintAtPosition(blockFirstPosition + index);
+              verdict[id >>> 6] |= 1L << (id & 63);
+            }
+            start = end;
+          }
+        }
+        final int spills = bucketNode.spillCount();
+        for (int spill = 0; spill < spills; spill++) {
+          final ValueDictionaryEntryNode entry =
+              GlobalValueDictionaryRadix.spillEntry(bucketNode.spillKeyAt(spill), namePage, databaseType, reader);
+          if (entry == null) {
+            throw new IllegalStateException("value dictionary spill for position " + bucketNode.spillId(spill)
+                + " is missing from revision " + revision);
+          }
+          if (spillMatches(entry, op, literalUtf8)) {
+            final int id = mintAtPosition(bucketNode.spillId(spill));
+            verdict[id >>> 6] |= 1L << (id & 63);
+          }
+        }
+      }
+      return verdict;
+    }
+
     public void fillStringOpVerdict(final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int bucketLo,
         final int bucketHi, final long[] out, final int wordBase) {
       Objects.requireNonNull(op, "op must not be null");
