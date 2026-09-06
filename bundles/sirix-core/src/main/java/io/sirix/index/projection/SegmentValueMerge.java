@@ -5,7 +5,10 @@ package io.sirix.index.projection;
 
 import io.sirix.index.projection.SegmentGroupCanonicaliser.CellResolver;
 import io.sirix.index.projection.SegmentGroupCanonicaliser.SegmentRunner;
+import io.sirix.node.ValueDictionaryEntryNode;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+
+import java.util.Arrays;
 
 import static java.util.Objects.requireNonNull;
 
@@ -32,33 +35,54 @@ import static java.util.Objects.requireNonNull;
  *
  * <h2>Parallelism: range-partition the value space</h2>
  *
- * One merge is serial. Splitting the VALUE space into P ranges by pivots from the longest run, and
- * locating each pivot in every other run by binary search over its positions, gives P independent
- * merges over disjoint value ranges; equal values fall in the same range whatever their segment, so
- * each range deduplicates completely on its own. Ranks are local to a range and offset by a prefix
- * sum of the ranges' distinct counts afterwards.
+ * One merge is serial. Splitting the VALUE space into P ranges by pivots, and locating each pivot in
+ * every run by a search over its positions, gives P independent merges over disjoint value ranges;
+ * equal values fall in the same range whatever their segment, so each range deduplicates completely
+ * on its own. Ranks are local to a range and offset by a prefix sum of the ranges' distinct counts
+ * afterwards.
+ *
+ * <p>
+ * The pivots come from a REGULAR SAMPLE of every run — every {@code stride}-th marked value, so a
+ * run's share of the sample is its share of the cells — gathered, sorted, and cut at equal intervals
+ * (parallel sorting by regular sampling). Pivots taken from one run alone were measured to fail at
+ * 100M: the rows arrive grouped by site, so one segment's URLs are one domain's, and pivots spaced
+ * evenly through the longest run's domain left every other domain in a single range that ran for
+ * 1.9 s of a 2.0 s phase while 181 ranges finished in 70 ms each. A regular sample bounds every
+ * range at about twice the mean, whatever the runs hold.
+ * </p>
  *
  * <p>
  * Phases, each parallel over runs or ranges through the caller's {@link SegmentRunner}:
  * <ol>
  * <li>MARK: turn each run's referenced MINTS into a bitmap over POSITIONS, sparse (one position
  * lookup per mark) or dense (one mint lookup per entry), and allocate its memo table.</li>
- * <li>BOUND: choose P-1 pivots at equal spacing among the longest run's marks; binary-search each
- * pivot's lower bound in every run.</li>
+ * <li>BOUND: sample every run's marks at a regular stride, sort the samples, cut P-1 pivots at equal
+ * intervals; locate each pivot's lower bound in every run by a galloping search from the previous
+ * pivot's bound.</li>
  * <li>MERGE: per range, a loser tree over the runs' marked positions in that range; the winner's
  * rank is issued on a value change and written into the run's table at the winner's mint.</li>
- * <li>OFFSET: add the range's rank base to every table entry the range wrote.</li>
+ * <li>OFFSET: per run, add each range's rank base to the table entries the range wrote.</li>
  * </ol>
- * Reads stay SEQUENTIAL throughout: every run is walked in ascending position, the order its values
- * are stored in, so a decoded block serves every marked value in it before being dropped.
  * </p>
+ *
+ * <h2>Reads: a cursor per run, never the per-cell path</h2>
+ *
+ * Every run is walked in ascending position, the order its values are stored in, through a
+ * {@link SegmentRunCursor} that holds the block and the inverse rank-table record it is in and reads
+ * the next value off them. The heads are compared as the byte slices the cursors hold. Nothing goes
+ * through the read view's per-mint route — that route translates a mint to its position through the
+ * forward table (a random read per call), keeps its slices in a cache keyed by mint (which random
+ * mints thrash into a block re-fetch per compare) and re-checks the reader's revision every time;
+ * measured at 100M on {@code GROUP BY URL} it was three quarters of the merge's CPU while the byte
+ * comparison was a fifth. With cursors a block is decoded once per range it straddles and a compare
+ * is a compare.
  *
  * <p>
  * Everything is built in local arrays and handed back as one {@link Result}; nothing is published to
  * the canonicaliser until the merge has completed, so a refusal or a failure in any phase leaves the
  * value space exactly as it was and the walk path takes over. Refusals are {@link Refused}: a
- * resolver that cannot answer in position space (a TRANSFORMING one never can), a rank table whose
- * two directions disagree, a value that cannot be read.
+ * resolver that cannot answer in position space or hand out a cursor (a TRANSFORMING one never can),
+ * a rank table whose two directions disagree, a value that cannot be read.
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -67,18 +91,23 @@ final class SegmentValueMerge {
 
   /**
    * Marked cells per range the merge aims for. Ranges beyond the worker count balance the tail of
-   * the phase; each range costs one binary search per run to bound.
+   * the phase — the ranges are equal only on the run the pivots came from, so a phase of as many
+   * ranges as workers ends when its slowest one does; each range costs one binary search per run
+   * to bound and one block re-decode per run at its boundary.
    */
-  static final int DEFAULT_RANGE_TARGET = 1 << 19;
+  static final int DEFAULT_RANGE_TARGET = 1 << 17;
 
   /** Ranges the merge never exceeds, whatever the target. */
   static final int MAX_RANGES = 4096;
 
+  /**
+   * Samples the pivot selection draws per range it will cut: a range's size is off its mean by about
+   * the sample's spacing, so this many samples per range bound the error to a sixteenth of a range.
+   */
+  static final int SAMPLES_PER_RANGE = 16;
+
   /** Head state of a run whose range is exhausted. */
   private static final int EXHAUSTED = -1;
-
-  /** "No previous winner" — no packed cell is negative. */
-  private static final long NO_CELL = Long.MIN_VALUE;
 
   /**
    * What a completed merge hands the canonicaliser.
@@ -88,8 +117,12 @@ final class SegmentValueMerge {
    * @param representatives {@code representatives[rank - 1]} = a cell carrying that rank
    * @param ranges how many value ranges the merge ran as
    * @param marked referenced cells over all runs
+   * @param rangeNanos per range, the wall time of its merge — the phase's balance, for the diagnostic
+   * @param rangeCells per range, the marked cells it merged — whether the pivots balanced the work
+   * @param loads records the merge phase's cursors fetched, summed — a block per range it straddles
    */
-  record Result(long[][] positions, int[][] tables, long[] representatives, int ranges, long marked) {
+  record Result(long[][] positions, int[][] tables, long[] representatives, int ranges, long marked,
+      long[] rangeNanos, int[] rangeCells, long loads) {
   }
 
   /** A designed refusal: the merge cannot run over this resolver or this dictionary; walk instead. */
@@ -108,7 +141,7 @@ final class SegmentValueMerge {
   private final int runs;
   private final int rangeTarget;
 
-  /** {@code pack(segment, 1)}: the probe {@link CellResolver#mintAtPosition} addresses a segment by. */
+  /** {@code pack(segment, 1)}: the cell {@link CellResolver#cursorOfSegment} addresses a segment by. */
   private final long[] probes;
 
   // Phase 1.
@@ -123,6 +156,10 @@ final class SegmentValueMerge {
   // Phase 3.
   private final int[] distinctPerRange;
   private final LongArrayList[] representativesPerRange;
+  private final long[] rangeNanos;
+  private final int[] rangeCells;
+  private final long[] rangeLoads;
+  private long marked;
 
   // Phase 4.
   private int[] rankBase;
@@ -144,12 +181,15 @@ final class SegmentValueMerge {
     this.tables = new int[runs][];
     this.distinctPerRange = new int[MAX_RANGES];
     this.representativesPerRange = new LongArrayList[MAX_RANGES];
+    this.rangeNanos = new long[MAX_RANGES];
+    this.rangeCells = new int[MAX_RANGES];
+    this.rangeLoads = new long[MAX_RANGES];
   }
 
   /**
    * Merge the referenced cells of {@code segments} into one collation-ranked value space.
    *
-   * @param resolver answers positions, mints and comparisons; a TRANSFORMING one refuses
+   * @param resolver answers positions, mints, and cursors over the runs; a TRANSFORMING one refuses
    * @param segments the referenced segments, one run each
    * @param marks per run, bit {@code mint} set for every referenced mint {@code <= entryCounts[r]}
    * @param entryCounts per run, the segment dictionary's entry count
@@ -182,6 +222,7 @@ final class SegmentValueMerge {
     if (marked > Integer.MAX_VALUE - 8) {
       throw new Refused(marked + " referenced cells: canonical ids are ints");
     }
+    merge.marked = marked;
     t = merge.phase(phaseNanos, 0, t);
     merge.bound(runner, marked);
     t = merge.phase(phaseNanos, 1, t);
@@ -189,7 +230,12 @@ final class SegmentValueMerge {
     t = merge.phase(phaseNanos, 2, t);
     final long[] representatives = merge.offset(runner);
     merge.phase(phaseNanos, 3, t);
-    return new Result(merge.positions, merge.tables, representatives, merge.ranges, marked);
+    long loads = 0;
+    for (int p = 0; p < merge.ranges; p++) {
+      loads += merge.rangeLoads[p];
+    }
+    return new Result(merge.positions, merge.tables, representatives, merge.ranges, marked,
+        Arrays.copyOf(merge.rangeNanos, merge.ranges), Arrays.copyOf(merge.rangeCells, merge.ranges), loads);
   }
 
   private long phase(final long[] phaseNanos, final int index, final long since) {
@@ -209,9 +255,10 @@ final class SegmentValueMerge {
    *
    * <p>
    * Sparse or dense by the same break-even the storage-order walk uses: below one mark in
-   * {@link SegmentGroupCanonicaliser#SPARSE_WALK_RATIO} entries the marks are located one by one,
-   * otherwise every position is visited once. Both directions of the rank table are involved, and a
-   * mint that lands nowhere or twice means the two disagree — refused, never guessed.
+   * {@link SegmentGroupCanonicaliser#SPARSE_WALK_RATIO} entries the marks are located one by one
+   * through the forward table, otherwise every position's mint is read off the inverse table in
+   * order. Both directions of the rank table are involved, and a mint that lands nowhere or twice
+   * means the two disagree — refused, never guessed.
    * </p>
    */
   private void markPositions(final int r) {
@@ -221,6 +268,7 @@ final class SegmentValueMerge {
     if (entries < 1) {
       throw new Refused("segment " + segment + " has no walkable entries");
     }
+    final SegmentRunCursor cursor = cursorOf(r);
     int markedCount = 0;
     for (final long word : marked) {
       markedCount += Long.bitCount(word);
@@ -247,16 +295,12 @@ final class SegmentValueMerge {
       }
     } else {
       final int mintBits = marked.length << 6;
-      final long probe = probes[r];
       // A marked mint that lands at two positions would rank one value twice and another never; the
       // count below cannot see that when both are marked, so each landing is checked against the
       // mints that landed before it.
       final long[] landedMints = new long[marked.length];
       for (int position = 1; position <= entries; position++) {
-        final int mint = resolver.mintAtPosition(probe, position);
-        if (mint < 1) {
-          throw new Refused("segment " + segment + " answers mint " + mint + " at position " + position);
-        }
+        final int mint = mintAt(r, cursor, position);
         if (mint < mintBits && (marked[mint >>> 6] & (1L << (mint & 63))) != 0L) {
           final long mintBit = 1L << (mint & 63);
           if ((landedMints[mint >>> 6] & mintBit) != 0L) {
@@ -277,86 +321,131 @@ final class SegmentValueMerge {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Phase 2: pivots from the longest run, lower bounds in every run.
+  // Phase 2: pivots from a regular sample of every run, lower bounds in every run.
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * Split the value space into ranges: pivots at equal spacing among the longest run's marks, each
-   * located in every run by a binary search over the run's positions (the whole segment is sorted,
-   * not only its marked entries, so the search runs over all of them and the marks are filtered
-   * afterwards by the bitmap).
+   * Split the value space into ranges. Every run contributes every {@code stride}-th of its marked
+   * values (its cursor walking upward, a block per sample), the samples are sorted, and the pivots
+   * are the samples at equal intervals — so each range holds about the same number of CELLS over
+   * all runs together, not the same number of one run's. Equal pivots (a value many runs sampled)
+   * collapse into one, so the ranges may come out fewer than aimed for. Each pivot is then located in
+   * every run as a lower bound (the whole segment is sorted, not only its marked entries, so the
+   * search runs over all of them and the marks are filtered afterwards by the bitmap).
    */
   private void bound(final SegmentRunner runner, final long marked) {
-    int longest = 0;
-    for (int r = 1; r < runs; r++) {
-      if (markedCounts[r] > markedCounts[longest]) {
-        longest = r;
-      }
+    int longestMarks = 0;
+    for (int r = 0; r < runs; r++) {
+      longestMarks = Math.max(longestMarks, markedCounts[r]);
     }
-    final int longestMarks = markedCounts[longest];
     int count = (int) Math.min(MAX_RANGES, Math.max(1L, marked / rangeTarget));
     count = Math.min(count, Math.max(1, longestMarks)); // a pivot per distinct mark at most
-    ranges = count;
-    bounds = new int[runs][count + 1];
-    for (int r = 0; r < runs; r++) {
-      bounds[r][0] = 1;
-      bounds[r][count] = entryCounts[r] + 1;
-    }
-    if (count == 1) {
+    if (count > 1) {
+      final int stride = (int) Math.max(1L, marked / ((long) count * SAMPLES_PER_RANGE));
+      final byte[][][] samples = new byte[runs][][];
+      runner.forEach(runs, r -> samples[r] = sampleRun(r, stride));
+      int total = 0;
+      for (final byte[][] mine : samples) {
+        total += mine.length;
+      }
+      final byte[][] sorted = new byte[total][];
+      int at = 0;
+      for (final byte[][] mine : samples) {
+        System.arraycopy(mine, 0, sorted, at, mine.length);
+        at += mine.length;
+      }
+      Arrays.sort(sorted, SegmentValueMerge::compareValues);
+      final byte[][] pivots = new byte[count][];
+      int kept = 0;
+      for (int j = 1; j < count && total > 0; j++) {
+        final byte[] pivot = sorted[(int) ((long) j * total / count)];
+        if (kept == 0 || compareValues(pivots[kept], pivot) != 0) {
+          pivots[++kept] = pivot;
+        }
+      }
+      count = kept + 1;
+      ranges = count;
+      allocateBounds();
+      if (count > 1) {
+        runner.forEach(runs, r -> boundRun(r, pivots));
+      }
       return;
     }
-    // Select the marks at indices j * longestMarks / count, j = 1..count-1, in one pass: the
-    // targets are increasing, so a running count over the bitmap meets each in turn.
-    final int[] pivotPositions = new int[count];
-    final long[] pivots = new long[count];
-    final long[] bits = positions[longest];
-    int j = 1;
-    long target = (long) j * longestMarks / count;
-    long seen = 0;
-    outer: for (int w = 0; w < bits.length; w++) {
-      long word = bits[w];
-      final int inWord = Long.bitCount(word);
-      if (seen + inWord <= target) {
-        seen += inWord;
-        continue;
-      }
-      while (word != 0L) {
-        final int position = (w << 6) + Long.numberOfTrailingZeros(word);
-        word &= word - 1;
-        if (seen == target) {
-          pivotPositions[j] = position;
-          pivots[j] = cellAt(longest, position);
-          if (++j == count) {
-            break outer;
-          }
-          target = (long) j * longestMarks / count;
-        }
-        seen++;
-      }
-    }
-    if (j != count) {
-      throw new IllegalStateException("selected " + (j - 1) + " of " + (count - 1) + " pivots");
-    }
-    final int pivotRun = longest;
-    runner.forEach(runs, r -> boundRun(r, pivotRun, pivots, pivotPositions));
+    ranges = 1;
+    allocateBounds();
   }
 
-  /** Lower bound of every pivot in run {@code r}: the first position whose value is not below it. */
-  private void boundRun(final int r, final int pivotRun, final long[] pivots, final int[] pivotPositions) {
-    final int[] bound = bounds[r];
-    if (r == pivotRun) {
-      // The pivots ARE this run's values, so each one's lower bound is its own position.
-      System.arraycopy(pivotPositions, 1, bound, 1, ranges - 1);
-      return;
+  private void allocateBounds() {
+    bounds = new int[runs][ranges + 1];
+    for (int r = 0; r < runs; r++) {
+      bounds[r][0] = 1;
+      bounds[r][ranges] = entryCounts[r] + 1;
     }
+  }
+
+  /**
+   * Run {@code r}'s regular sample: the values of its marks at indices {@code stride/2 + i*stride},
+   * read in position order — the cursor walks upward and a block is decoded once however many
+   * samples it holds.
+   */
+  private byte[][] sampleRun(final int r, final int stride) {
+    final int markedCount = markedCounts[r];
+    final int first = stride >>> 1;
+    if (markedCount <= first) {
+      return new byte[0][];
+    }
+    final byte[][] samples = new byte[(markedCount - first - 1) / stride + 1][];
+    final long[] bits = positions[r];
+    final int limit = entryCounts[r] + 1;
+    final SegmentRunCursor cursor = cursorOf(r);
+    int index = 0; // of the mark about to be visited, among the run's marks
+    int next = first; // index of the next mark to sample
+    int taken = 0;
+    for (int position = nextMarked(bits, 1, limit); position != EXHAUSTED && taken < samples.length;
+        position = nextMarked(bits, position + 1, limit), index++) {
+      if (index == next) {
+        cursor.seek(position);
+        samples[taken++] = cursor.copyValue();
+        next += stride;
+      }
+    }
+    if (taken != samples.length) {
+      throw new IllegalStateException("run " + r + " sampled " + taken + " of " + samples.length);
+    }
+    return samples;
+  }
+
+  /**
+   * Lower bound of every pivot in run {@code r}: the first position whose value is not below it.
+   * Pivots ascend and consecutive ones are near in every run, so each search gallops from the
+   * previous bound (probes at doubling distances, mostly inside the block the cursor already holds)
+   * and then bisects the interval the gallop closed.
+   */
+  private void boundRun(final int r, final byte[][] pivots) {
+    final int[] bound = bounds[r];
     final int entries = entryCounts[r];
+    final SegmentRunCursor cursor = cursorOf(r);
     for (int j = 1; j < ranges; j++) {
-      final long pivot = pivots[j];
-      int lo = bound[j - 1]; // pivots ascend, so no bound lies below the previous one
+      final byte[] pivot = pivots[j];
+      int lo = bound[j - 1];
       int hi = entries + 1;
+      int probe = lo;
+      int step = 1;
+      while (probe < hi) {
+        cursor.seek(probe);
+        if (SegmentRunCursor.compareToRange(cursor, pivot, 0, pivot.length) < 0) {
+          lo = probe + 1;
+          probe = lo + step;
+          step <<= 1;
+        } else {
+          hi = probe;
+          break;
+        }
+      }
       while (lo < hi) {
         final int mid = (lo + hi) >>> 1;
-        if (resolver.compareValues(cellAt(r, mid), pivot) < 0) {
+        cursor.seek(mid);
+        if (SegmentRunCursor.compareToRange(cursor, pivot, 0, pivot.length) < 0) {
           lo = mid + 1;
         } else {
           hi = mid;
@@ -364,6 +453,11 @@ final class SegmentValueMerge {
       }
       bound[j] = lo;
     }
+  }
+
+  /** Collation order of two whole values. */
+  private static int compareValues(final byte[] left, final byte[] right) {
+    return ValueDictionaryEntryNode.compareUtf16Range(left, 0, left.length, right, 0, right.length);
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -376,22 +470,26 @@ final class SegmentValueMerge {
    *
    * <p>
    * A loser tree over the runs costs exactly {@code ceil(log2 runs)} comparisons per winner, each a
-   * byte comparison of two heads through the calling thread's own view. A same-segment tie is
-   * impossible (a dictionary holds each value once), so the equality test against the previous
-   * winner is the only cross-run identity work there is — the hash table, the lock and the confirming
-   * re-read of the per-cell path all disappear.
+   * byte comparison of the two slices the runs' cursors hold. A same-segment tie is impossible (a
+   * dictionary holds each value once), so the equality test against the previous winner — whose
+   * slice is kept in locals, since its cursor has moved on — is the only cross-run identity work
+   * there is: the hash table, the lock and the confirming re-read of the per-cell path all
+   * disappear.
    * </p>
    */
   private void mergeRange(final int p) {
+    final long started = System.nanoTime();
+    final SegmentRunCursor[] cursors = new SegmentRunCursor[runs];
     final int[] headPos = new int[runs];
-    final long[] headCell = new long[runs];
     final int[] limit = new int[runs];
     for (int r = 0; r < runs; r++) {
       limit[r] = bounds[r][p + 1];
       final int first = nextMarked(positions[r], bounds[r][p], limit[r]);
       headPos[r] = first;
       if (first != EXHAUSTED) {
-        headCell[r] = cellAt(r, first);
+        final SegmentRunCursor cursor = cursorOf(r);
+        cursor.seek(first);
+        cursors[r] = cursor;
       }
     }
     // tree[0] is the winner; tree[1..runs-1] hold the loser of each internal match. Leaf r is node
@@ -405,7 +503,7 @@ final class SegmentValueMerge {
       for (int node = runs - 1; node >= 1; node--) {
         final int a = winners[node << 1];
         final int b = winners[(node << 1) + 1];
-        if (before(a, b, headPos, headCell)) {
+        if (before(a, b, headPos, cursors)) {
           winners[node] = a;
           tree[node] = b;
         } else {
@@ -415,30 +513,42 @@ final class SegmentValueMerge {
       }
       tree[0] = winners[1]; // the root's winner; with one run, its only leaf
     }
-    final LongArrayList representatives = new LongArrayList();
+    final LongArrayList representatives = new LongArrayList((int) Math.max(16L, marked / ranges));
     int rank = 0;
-    long lastCell = NO_CELL;
+    int cells = 0;
+    boolean haveLast = false;
+    byte[] lastBacking = null;
+    int lastOffset = 0;
+    int lastLength = 0;
+    ValueDictionaryEntryNode lastSpill = null;
     while (true) {
       final int w = tree[0];
       if (headPos[w] == EXHAUSTED) {
         break; // the tree's winner is exhausted: so is every run
       }
-      final long cell = headCell[w];
-      if (lastCell == NO_CELL || resolver.compareValues(cell, lastCell) != 0) {
+      final SegmentRunCursor head = cursors[w];
+      final int mint = mintAt(w, head, headPos[w]);
+      if (!haveLast || SegmentRunCursor.compare(head.backing, head.offset, head.length, head.spill, lastBacking,
+          lastOffset, lastLength, lastSpill) != 0) {
         rank++;
-        representatives.add(cell);
-        lastCell = cell;
+        representatives.add(ProjectionIndexRowGroupPage.packSegmentCell(segments[w], mint));
+        lastBacking = head.backing;
+        lastOffset = head.offset;
+        lastLength = head.length;
+        lastSpill = head.spill;
+        haveLast = true;
       }
-      tables[w][ProjectionIndexRowGroupPage.idOfCell(cell)] = rank;
+      tables[w][mint] = rank;
+      cells++;
       final int next = nextMarked(positions[w], headPos[w] + 1, limit[w]);
       headPos[w] = next;
       if (next != EXHAUSTED) {
-        headCell[w] = cellAt(w, next);
+        head.seek(next);
       }
       int winner = w;
       for (int node = (w + runs) >>> 1; node >= 1; node >>>= 1) {
         final int loser = tree[node];
-        if (before(loser, winner, headPos, headCell)) {
+        if (before(loser, winner, headPos, cursors)) {
           tree[node] = winner;
           winner = loser;
         }
@@ -447,17 +557,26 @@ final class SegmentValueMerge {
     }
     distinctPerRange[p] = rank;
     representativesPerRange[p] = representatives;
+    rangeCells[p] = cells;
+    long loads = 0;
+    for (final SegmentRunCursor cursor : cursors) {
+      if (cursor != null) {
+        loads += cursor.loads();
+      }
+    }
+    rangeLoads[p] = loads;
+    rangeNanos[p] = System.nanoTime() - started;
   }
 
   /** Whether run {@code a}'s head orders before run {@code b}'s: exhausted heads sink, ties by run. */
-  private boolean before(final int a, final int b, final int[] headPos, final long[] headCell) {
+  private static boolean before(final int a, final int b, final int[] headPos, final SegmentRunCursor[] cursors) {
     if (headPos[a] == EXHAUSTED) {
       return false;
     }
     if (headPos[b] == EXHAUSTED) {
       return true;
     }
-    final int order = resolver.compareValues(headCell[a], headCell[b]);
+    final int order = SegmentRunCursor.compare(cursors[a], cursors[b]);
     return order != 0
         ? order < 0
         : a < b;
@@ -481,25 +600,31 @@ final class SegmentValueMerge {
       representativesPerRange[p] = null; // let the copy be the only one
     }
     if (ranges > 1) {
-      runner.forEach(ranges - 1, i -> offsetRange(i + 1)); // range 0 has base 0
+      runner.forEach(runs, this::offsetRun); // range 0 has base 0, so its entries are already final
     }
     return representatives;
   }
 
-  /** Re-walk range {@code p}'s marked positions, adding its base to the rank stored at each mint. */
-  private void offsetRange(final int p) {
-    final int base = rankBase[p];
-    if (base == 0) {
-      return;
-    }
-    for (int r = 0; r < runs; r++) {
-      final long[] bits = positions[r];
-      final int[] table = tables[r];
-      final long probe = probes[r];
-      final int limit = bounds[r][p + 1];
-      for (int position = nextMarked(bits, bounds[r][p], limit); position != EXHAUSTED;
+  /**
+   * Re-walk run {@code r}'s marked positions above range 0, adding each range's base to the rank
+   * stored at the position's mint. One run per body rather than one range: the walk is then one
+   * ascending pass over the run's inverse table, and the table it updates is the run's own, which
+   * stays cache-resident where a range's body would touch every run's.
+   */
+  private void offsetRun(final int r) {
+    final long[] bits = positions[r];
+    final int[] table = tables[r];
+    final int[] bound = bounds[r];
+    final SegmentRunCursor cursor = cursorOf(r);
+    for (int p = 1; p < ranges; p++) {
+      final int base = rankBase[p];
+      if (base == 0) {
+        continue;
+      }
+      final int limit = bound[p + 1];
+      for (int position = nextMarked(bits, bound[p], limit); position != EXHAUSTED;
           position = nextMarked(bits, position + 1, limit)) {
-        table[mintAt(r, probe, position)] += base;
+        table[mintAt(r, cursor, position)] += base;
       }
     }
   }
@@ -532,14 +657,18 @@ final class SegmentValueMerge {
     }
   }
 
-  /** The cell stored at {@code position} of run {@code r}. */
-  private long cellAt(final int r, final int position) {
-    return ProjectionIndexRowGroupPage.packSegmentCell(segments[r], mintAt(r, probes[r], position));
+  /** A fresh cursor over run {@code r}'s positions, refused when the resolver cannot walk the segment. */
+  private SegmentRunCursor cursorOf(final int r) {
+    final SegmentRunCursor cursor = resolver.cursorOfSegment(probes[r]);
+    if (cursor == null) {
+      throw new Refused("segment " + segments[r] + " offers no cursor over its positions");
+    }
+    return cursor;
   }
 
   /** The mint stored at {@code position} of run {@code r}, refused when it is not one of the run's. */
-  private int mintAt(final int r, final long probe, final int position) {
-    final int mint = resolver.mintAtPosition(probe, position);
+  private int mintAt(final int r, final SegmentRunCursor cursor, final int position) {
+    final int mint = cursor.mintAt(position);
     if (mint < 1 || mint > entryCounts[r]) {
       throw new Refused("segment " + segments[r] + " answers mint " + mint + " at position " + position);
     }

@@ -132,6 +132,20 @@ public final class SegmentGroupCanonicaliser {
     }
 
     /**
+     * A sequential cursor over the storage positions of {@code cell}'s segment, or {@code null} when
+     * this resolver cannot walk it — the merge's reader ({@link SegmentValueMerge}).
+     *
+     * <p>
+     * The default refuses, for the reason {@link #positionOfCell} does: a TRANSFORMING resolver's
+     * values are not the stored ones and do not collate as the positions do. Only the untransformed
+     * byte resolver overrides it.
+     * </p>
+     */
+    default @Nullable SegmentRunCursor cursorOfSegment(final long cell) {
+      return null;
+    }
+
+    /**
      * The length of the value {@code cell} names in {@code lengthMode}'s unit, or {@code -1} when
      * the cell resolves to nothing. The default measures the String; a plain resolver counts the
      * dictionary's stored bytes and allocates nothing.
@@ -282,6 +296,11 @@ public final class SegmentGroupCanonicaliser {
       @Override
       public int mintAtPosition(final long cell, final int position) {
         return views.get().mintAtPositionOfCell(cell, position);
+      }
+
+      @Override
+      public @Nullable SegmentRunCursor cursorOfSegment(final long cell) {
+        return views.get().positionCursorOfCell(cell);
       }
 
       @Override
@@ -736,10 +755,28 @@ public final class SegmentGroupCanonicaliser {
     mergedPositions = result.positions();
     memo = tables; // volatile write, LAST: a reader that sees a table sees the space behind it
     if (PROJ_DIAG) {
+      // The merge phase's balance: a phase of P ranges over W workers ends when its slowest range
+      // does, so the longest range's time against the phase's wall says whether the tail or the
+      // bodies cost the time; the summed range time against the wall is the lanes actually busy.
+      long longestRange = 0;
+      long rangeSum = 0;
+      int longestCells = 0;
+      for (int p = 0; p < result.ranges(); p++) {
+        final long nanos = result.rangeNanos()[p];
+        rangeSum += nanos;
+        if (nanos > longestRange) {
+          longestRange = nanos;
+          longestCells = result.rangeCells()[p];
+        }
+      }
+      final long mergeMillis = phaseNanos[2] / 1_000_000;
       System.err.println("[proj] segment value merge: " + segments.length + " segment(s), " + result.marked()
           + " marked cell(s) -> " + representatives.length + " distinct in " + result.ranges() + " range(s); mark "
-          + phaseNanos[0] / 1_000_000 + " ms, bound " + phaseNanos[1] / 1_000_000 + " ms, merge "
-          + phaseNanos[2] / 1_000_000 + " ms, offset " + phaseNanos[3] / 1_000_000 + " ms");
+          + phaseNanos[0] / 1_000_000 + " ms, bound " + phaseNanos[1] / 1_000_000 + " ms, merge " + mergeMillis
+          + " ms (longest range " + longestRange / 1_000_000 + " ms over " + longestCells + " cells, mean "
+          + result.marked() / result.ranges() + "; sum " + rangeSum / 1_000_000 + " ms = "
+          + String.format("%.1f", mergeMillis == 0 ? 0.0 : rangeSum / 1e6 / mergeMillis) + " lanes, "
+          + result.loads() + " record loads), offset " + phaseNanos[3] / 1_000_000 + " ms");
     }
     return true;
   }

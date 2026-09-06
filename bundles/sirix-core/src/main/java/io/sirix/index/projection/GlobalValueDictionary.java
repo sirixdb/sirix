@@ -800,6 +800,30 @@ public final class GlobalValueDictionary {
       return view.mintAtPosition(position);
     }
 
+    /**
+     * A sequential cursor over the storage positions of the segment {@code anyCell} names, or
+     * {@code null} when that dictionary keeps no collation-ordered storage to walk.
+     *
+     * <p>
+     * The walking counterpart of {@link #mintAtPositionOfCell}: where that answers one position
+     * through this view's per-mint caches, the cursor holds the block and the inverse rank-table
+     * record of the position it is at and moves on only when a seek leaves them — the shape a merge
+     * over every segment at once needs, which reads each block once per range and compares bytes it
+     * already holds ({@link SegmentRunCursor}). The cursor shares this view's rank-table records and
+     * is as thread-private as the view is.
+     * </p>
+     */
+    public @Nullable SegmentRunCursor positionCursorOfCell(final long anyCell) {
+      final ReadView view = perSegment == null
+          ? this
+          : segmentViewOf(anyCell);
+      if (!view.storageOrdered) {
+        return null;
+      }
+      view.ensureRevision();
+      return new PositionCursor(view);
+    }
+
     /** Whether this view resolves packed {@code (segment, id)} cells rather than bare ids. */
     public boolean isSegmentUnion() {
       return perSegment != null;
@@ -1752,6 +1776,122 @@ public final class GlobalValueDictionary {
         throw new IllegalStateException("global value dictionary read view for revision " + revision
             + " cannot serve reader revision " + actualRevision);
       }
+    }
+  }
+
+  /**
+   * {@link SegmentRunCursor} over one dictionary's storage positions, on top of a {@link ReadView}.
+   *
+   * <p>
+   * Holds the reverse bucket, the value block and the inverse rank-table record covering the
+   * position it is at, each replaced only when a seek leaves it. Nothing here is keyed by mint and
+   * nothing is direct-mapped: a walk in position order touches each block once, so a cache would
+   * only be a cache of the block it holds anyway. Rank-table records are the VIEW's, shared with its
+   * other routes; block and bucket records come through the shared dictionary record cache.
+   * </p>
+   */
+  private static final class PositionCursor extends SegmentRunCursor {
+
+    private final ReadView view;
+
+    private final int entries;
+
+    /** Index of the reverse bucket held, {@code -1} before the first seek. */
+    private int bucketIndex = -1;
+
+    private @Nullable ValueDictionaryValueBucketNode bucket;
+
+    /** The block held, covering positions {@code [blockFirst, blockEnd)}; empty until the first seek. */
+    private @Nullable ValueDictionaryValueBlockNode block;
+
+    private int blockFirst;
+
+    private int blockEnd;
+
+    /** The inverse rank-table record held, covering positions {@code [inverseFirst, inverseEnd)}. */
+    private @Nullable ValueDictionaryRankTableNode inverse;
+
+    private int inverseFirst;
+
+    private int inverseEnd;
+
+    private PositionCursor(final ReadView view) {
+      this.view = view;
+      this.entries = view.entryCount;
+    }
+
+    @Override
+    public void seek(final int position) {
+      if (position >= blockFirst && position < blockEnd) {
+        final ValueDictionaryValueBlockNode held = block;
+        backing = held.rawBytes();
+        offset = held.valueOffset(position);
+        length = held.valueLength(position);
+        spill = null;
+        return;
+      }
+      if (position < 1 || position > entries) {
+        throw new IllegalStateException("global value dictionary position " + position + " is outside revision "
+            + view.revision + " cardinality " + entries);
+      }
+      final int bucketOf = (position - 1) >>> 8;
+      ValueDictionaryValueBucketNode bucketNode = bucket;
+      if (bucketNode == null || bucketOf != bucketIndex) {
+        bucketNode = GlobalValueDictionaryRadix.valueBucketOf(view.reverseRootKey, bucketOf, view.namePage,
+            view.databaseType, view.reader);
+        if (bucketNode == null) {
+          throw new IllegalStateException(
+              "global value dictionary position " + position + " is missing from revision " + view.revision);
+        }
+        bucket = bucketNode;
+        bucketIndex = bucketOf;
+        loads++;
+      }
+      final long blockKey = bucketNode.blockKeyCovering(position);
+      if (blockKey != 0L) {
+        final ValueDictionaryValueBlockNode loaded =
+            GlobalValueDictionaryRadix.blockNode(blockKey, position, view.namePage, view.databaseType, view.reader);
+        loads++;
+        block = loaded;
+        blockFirst = loaded.getFirstId();
+        blockEnd = blockFirst + loaded.size();
+        backing = loaded.rawBytes();
+        offset = loaded.valueOffset(position);
+        length = loaded.valueLength(position);
+        spill = null;
+        return;
+      }
+      final long spillKey = bucketNode.spillKeyCovering(position);
+      if (spillKey == 0L) {
+        throw new IllegalStateException(
+            "global value dictionary position " + position + " is missing from revision " + view.revision);
+      }
+      spill = GlobalValueDictionaryRadix.spillEntry(spillKey, view.namePage, view.databaseType, view.reader);
+      loads++;
+      backing = null;
+      offset = 0;
+      length = 0;
+    }
+
+    @Override
+    public int mintAt(final int position) {
+      if (position < 1 || position > entries) {
+        return -1;
+      }
+      if (view.rankTableKey == 0L || position > view.orderedPrefixCount) {
+        return position; // ids ARE positions: no table, or the unordered tail behind the prefix
+      }
+      ValueDictionaryRankTableNode record = inverse;
+      if (record == null || position < inverseFirst || position >= inverseEnd) {
+        final int records = ValueDictionaryRankTableNode.recordCountFor(view.orderedPrefixCount);
+        record = view.rankTableRecord(records
+            + ((position - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT));
+        inverse = record;
+        inverseFirst = record.firstKey();
+        inverseEnd = inverseFirst + record.size();
+        loads++;
+      }
+      return record.entryOf(position);
     }
   }
 

@@ -510,6 +510,139 @@ final class RankTableReadViewTest {
     }
   }
 
+  @Test
+  @DisplayName("a position cursor walks the stored order block by block, answering the table's bytes and mints")
+  void positionCursorWalksTheStoredOrder() {
+    final List<byte[]> sorted = buildSortedValueSet();
+    final int prefix = sorted.size();
+    final int[] rankByMint = shuffledPermutation(prefix, 0xC0FFEEL);
+    final int[] mintByRank = new int[prefix + 1];
+    for (int mint = 1; mint <= prefix; mint++) {
+      mintByRank[rankByMint[mint]] = mint;
+    }
+    final int spilledPosition = positionOfOversized(sorted);
+
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+      final long headerKey;
+      final long hashedKey;
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"k\":\"v\"}"), JsonNodeTrx.Commit.NO);
+        final StorageEngineWriter writer = wtx.getStorageEngineWriter();
+        final NamePage namePage = writer.getNamePage(writer.getActualRevisionRootPage());
+        headerKey = flushRankOrdered(sorted, namePage, writer);
+        GlobalValueDictionary.buildBlockIndex(headerKey, namePage, DatabaseType.JSON, writer, writer.getLog());
+        GlobalValueDictionary.attachRankTable(headerKey, rankByMint, namePage, DatabaseType.JSON, writer,
+            writer.getLog());
+        // A streaming (hashed) dictionary stores in intern order: it has no position space to walk.
+        final GlobalValueDictionaryWriter hashed = new GlobalValueDictionaryWriter();
+        for (final byte[] value : sorted) {
+          hashed.intern(value, 0, value.length);
+        }
+        hashedKey = hashed.flush(namePage, DatabaseType.JSON, writer, writer.getLog());
+        hashed.release();
+        wtx.commit();
+      }
+
+      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final StorageEngineReader reader = rtx.getStorageEngineReader();
+        final GlobalValueDictionary.ReadView view = GlobalValueDictionary.readView(headerKey, reader);
+        assertNotNull(view);
+        final int segment = 2;
+        final GlobalValueDictionary.ReadView union =
+            GlobalValueDictionary.segmentUnionReadView(new long[] {0L, 0L, headerKey}, reader);
+        assertNotNull(union);
+        final GlobalValueDictionary.ReadView hashedView = GlobalValueDictionary.readView(hashedKey, reader);
+        assertNotNull(hashedView);
+        assertNull(hashedView.positionCursorOfCell(1), "a hashed dictionary has no stored order to walk");
+
+        final SegmentRunCursor cursor = view.positionCursorOfCell(1);
+        assertNotNull(cursor);
+        final SegmentRunCursor viaUnion = union.positionCursorOfCell(ProjectionIndexRowGroupPage.packSegmentCell(
+            segment, 7));
+        assertNotNull(viaUnion);
+        assertEquals(0L, cursor.loads(), "a fresh cursor holds nothing");
+
+        // THE WALK: every position in order, on both view shapes, against the fixture's sorted bytes.
+        int spills = 0;
+        for (int position = 1; position <= prefix; position++) {
+          final byte[] stored = sorted.get(position - 1);
+          final String at = "position " + position;
+          cursor.seek(position);
+          viaUnion.seek(position);
+          assertArrayEquals(stored, cursor.copyValue(), at);
+          assertArrayEquals(stored, viaUnion.copyValue(), at + " through the union");
+          assertEquals(0, SegmentRunCursor.compareToRange(cursor, stored, 0, stored.length), at);
+          assertEquals(0, SegmentRunCursor.compare(cursor, viaUnion), at + ": two cursors at one position are equal");
+          if (position > 1) {
+            final byte[] previous = sorted.get(position - 2);
+            assertTrue(SegmentRunCursor.compareToRange(cursor, previous, 0, previous.length) > 0,
+                at + " orders after the position before it");
+          }
+          if (position < prefix) {
+            final byte[] next = sorted.get(position);
+            assertTrue(SegmentRunCursor.compareToRange(cursor, next, 0, next.length) < 0,
+                at + " orders before the position after it");
+          }
+          if (cursor.spill != null) {
+            spills++;
+            assertEquals(spilledPosition, position, "only the oversized value comes off its own record");
+            assertNull(cursor.backing, "a spilled position holds no block slice");
+          } else {
+            assertNotNull(cursor.backing, at + " holds a block slice");
+          }
+          assertEquals(mintByRank[position], cursor.mintAt(position), "mint at " + at);
+          assertEquals(mintByRank[position], viaUnion.mintAt(position), "mint at " + at + " through the union");
+        }
+        assertEquals(1, spills, "the fixture's one oversized value was met as a spill");
+
+        // EACH READ ONCE: an ascending walk fetches every bucket, block and inverse record one time.
+        // The block count is the dictionary's own (at most one per bucket plus one per spill split),
+        // so the bound is what the walk may fetch; a per-seek fetch would be a thousand.
+        final int buckets = (prefix + 255) >>> 8;
+        final int records = ValueDictionaryRankTableNode.recordCountFor(prefix);
+        final long walked = cursor.loads();
+        assertTrue(walked >= buckets + records + 1, "buckets, records and at least one block: " + walked);
+        assertTrue(walked <= 2L * buckets + 2L * spills + records + 1, "each read once: " + walked + " loads for "
+            + prefix + " positions");
+        assertEquals(walked, viaUnion.loads(), "the union's cursor is the segment's cursor");
+
+        // Seeks inside the held block, and mints inside the held record, fetch nothing more.
+        cursor.seek(1);
+        final long held = cursor.loads();
+        cursor.seek(2);
+        cursor.seek(1);
+        cursor.seek(2);
+        cursor.mintAt(1);
+        cursor.mintAt(2);
+        assertEquals(held, cursor.loads(), "a seek inside the held block is a slice, not a fetch");
+        assertArrayEquals(sorted.get(1), cursor.copyValue());
+
+        // The same positions in RANDOM order is what the per-cell route amounts to: a fetch per seek.
+        final SegmentRunCursor random = view.positionCursorOfCell(1);
+        assertNotNull(random);
+        final int[] order = shuffledPermutation(prefix, 0xDEADL);
+        for (int i = 1; i <= prefix; i++) {
+          random.seek(order[i]);
+          assertArrayEquals(sorted.get(order[i] - 1), random.copyValue(), "position " + order[i] + " out of order");
+        }
+        assertTrue(random.loads() > 10 * walked, "random seeks re-fetch: " + random.loads() + " vs " + walked);
+
+        // Outside 1..entries is refused, never a guess.
+        for (final int outside : new int[] {0, -1, prefix + 1, Integer.MAX_VALUE, Integer.MIN_VALUE}) {
+          assertThrows(IllegalStateException.class, () -> cursor.seek(outside), "seek " + outside);
+          assertEquals(-1, cursor.mintAt(outside), "mint at " + outside);
+        }
+        // A cell of a segment that sealed no dictionary has no cursor, and is not resolved elsewhere.
+        for (final int other : new int[] {0, 1, 3, -1}) {
+          assertThrows(IllegalStateException.class,
+              () -> union.positionCursorOfCell(ProjectionIndexRowGroupPage.packSegmentCell(other, 1)),
+              "a cell of segment " + other);
+        }
+      }
+    }
+  }
+
   private static int indexOf(final List<byte[]> sorted, final byte[] value) {
     for (int i = 0; i < sorted.size(); i++) {
       if (Arrays.equals(sorted.get(i), value)) {

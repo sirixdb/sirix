@@ -280,7 +280,7 @@ final class SegmentGroupCanonicaliserTest {
    */
   private record PositionedCorpus(Map<Long, String> values, Map<Long, Integer> positions, long[] cells,
       Map<Long, Integer> mints, Map<Integer, Integer> entries, AtomicInteger reads, AtomicInteger collisions,
-      AtomicInteger positionLookups, AtomicInteger positionWalks)
+      AtomicInteger positionLookups, AtomicInteger positionWalks, AtomicInteger seeks)
       implements SegmentGroupCanonicaliser.CellResolver {
     @Override
     public String valueOfCell(final long cell) {
@@ -322,6 +322,54 @@ final class SegmentGroupCanonicaliserTest {
           ? -1
           : mint;
     }
+
+    @Override
+    public SegmentRunCursor cursorOfSegment(final long cell) {
+      return new CorpusCursor(this, ProjectionIndexRowGroupPage.segmentOfCell(cell));
+    }
+  }
+
+  /**
+   * The run cursor over one segment of a {@link PositionedCorpus}: a seek resolves the position's
+   * mint and then the mint's value through the maps, so a position the corpus forgot is a failed
+   * seek, exactly as a hole in a real dictionary would be. Every seek and every mint read is counted
+   * — {@code mintAt} into the same counter the per-cell {@code mintAtPosition} uses, since both
+   * answer the same question of the inverse table.
+   */
+  private static final class CorpusCursor extends SegmentRunCursor {
+    private final PositionedCorpus corpus;
+    private final int segment;
+
+    private CorpusCursor(final PositionedCorpus corpus, final int segment) {
+      this.corpus = corpus;
+      this.segment = segment;
+    }
+
+    @Override
+    public void seek(final int position) {
+      corpus.seeks().incrementAndGet();
+      final Integer mint = corpus.mints().get(ProjectionIndexRowGroupPage.packSegmentCell(segment, position));
+      final String value = mint == null
+          ? null
+          : corpus.values().get(ProjectionIndexRowGroupPage.packSegmentCell(segment, mint));
+      if (value == null) {
+        throw new IllegalStateException("segment " + segment + " stores no value at position " + position);
+      }
+      backing = value.getBytes(StandardCharsets.UTF_8);
+      offset = 0;
+      length = backing.length;
+      spill = null;
+      loads++;
+    }
+
+    @Override
+    public int mintAt(final int position) {
+      corpus.positionWalks().incrementAndGet();
+      final Integer mint = corpus.mints().get(ProjectionIndexRowGroupPage.packSegmentCell(segment, position));
+      return mint == null
+          ? -1
+          : mint;
+    }
   }
 
   /**
@@ -337,6 +385,20 @@ final class SegmentGroupCanonicaliserTest {
    * the correct canonical space has {@code perSegment} ids however many segments there are.
    */
   private static PositionedCorpus positionedCorpus(final int segments, final int perSegment, final boolean shared) {
+    return positionedCorpus(segments, perSegment, shared, false);
+  }
+
+  /**
+   * The corpus with every segment holding ONE domain of its own — {@code domain-s/value-i} — so the
+   * runs' value ranges are disjoint and sort in segment order, the shape ClickBench's URL column has
+   * at 100M (rows arrive grouped by site).
+   */
+  private static PositionedCorpus clusteredCorpus(final int segments, final int perSegment) {
+    return positionedCorpus(segments, perSegment, false, true);
+  }
+
+  private static PositionedCorpus positionedCorpus(final int segments, final int perSegment, final boolean shared,
+      final boolean clustered) {
     final Map<Long, String> values = new HashMap<>();
     final Map<Long, Integer> positions = new HashMap<>();
     final Map<Long, Integer> mints = new HashMap<>();
@@ -348,9 +410,11 @@ final class SegmentGroupCanonicaliserTest {
       // segment 0 holds value-000, value-004, ...; segment 1 holds value-001, value-005, ...
       final String[] mine = new String[perSegment];
       for (int i = 0; i < perSegment; i++) {
-        mine[i] = String.format("value-%05d", shared
-            ? i
-            : i * segments + segment);
+        mine[i] = clustered
+            ? String.format("domain-%d/value-%05d", segment, i)
+            : String.format("value-%05d", shared
+                ? i
+                : i * segments + segment);
       }
       Arrays.sort(mine);
       for (int i = 0; i < perSegment; i++) {
@@ -364,7 +428,7 @@ final class SegmentGroupCanonicaliserTest {
       entries.put(segment, perSegment);
     }
     return new PositionedCorpus(values, positions, cells, mints, entries, new AtomicInteger(), new AtomicInteger(),
-        new AtomicInteger(), new AtomicInteger());
+        new AtomicInteger(), new AtomicInteger(), new AtomicInteger());
   }
 
   /**
@@ -1011,11 +1075,24 @@ final class SegmentGroupCanonicaliserTest {
 
     assertNotNull(out);
     assertNull(canonicaliser.lastRefusal());
-    // 160 marked cells at 7 per range = 22 ranges, bounded by the longest run's 40 marks; the offset
-    // pass covers every range but the first.
+    // 160 marked cells at 7 per range = 22 ranges, bounded by the longest run's 40 marks: distinct
+    // values throughout, so no two pivots coincide and every aimed-for range is cut. The sample and
+    // the bound phases run per run, and the offset pass re-walks every run (over every range but
+    // the first, whose base is 0).
     final int ranges = Math.min(Math.max(1, segments * perSegment / 7), perSegment);
     assertTrue(ranges > 1, "the corpus must be large enough to partition");
-    assertEquals(List.of(segments, segments, ranges, ranges - 1), counts, "mark, bound, merge, offset");
+    assertEquals(List.of(segments, segments, segments, ranges, segments), counts,
+        "mark, sample, bound, merge, offset");
+    // The reads the merge made: the sample phase seeks at most every mark once, the bound phase
+    // gallops and bisects (at most twice the bits of the run length per pivot per run), and the
+    // merge phase seeks every marked position exactly once.
+    final int sampleSeeksAtMost = segments * perSegment;
+    final int searchSeeksAtMost = segments * (ranges - 1) * 2 * (32 - Integer.numberOfLeadingZeros(perSegment));
+    final int mergeSeeks = segments * perSegment;
+    assertTrue(corpus.seeks().get() >= mergeSeeks + ranges - 1, "every marked position was seeked by the merge");
+    assertTrue(corpus.seeks().get() <= sampleSeeksAtMost + searchSeeksAtMost + mergeSeeks,
+        "no seek beyond the samples, the searches and one per marked position: " + corpus.seeks().get());
+    assertEquals(0, corpus.reads().get(), "the merge reads bytes through its cursors, never a value per cell");
     for (int segment = 0; segment < segments; segment++) {
       final long[] ids = out[segment].numericValues();
       for (int row = 0; row < perSegment; row++) {
@@ -1040,7 +1117,8 @@ final class SegmentGroupCanonicaliserTest {
 
     assertNotNull(out);
     assertNull(canonicaliser.lastRefusal());
-    assertTrue(counts.get(2) > 1, "more than one range ran: " + counts);
+    assertEquals(5, counts.size(), "mark, sample, bound, merge, offset: " + counts);
+    assertTrue(counts.get(3) > 1, "more than one range ran: " + counts);
     assertEquals(perSegment, canonicaliser.size(), "three copies of forty values are forty ranks, across the ranges");
     for (int segment = 1; segment < segments; segment++) {
       assertTrue(Arrays.equals(out[0].numericValues(), out[segment].numericValues()),
@@ -1048,6 +1126,57 @@ final class SegmentGroupCanonicaliserTest {
     }
     for (int row = 1; row < perSegment; row++) {
       assertEquals(out[0].numericValues()[row - 1] - 1, out[0].numericValues()[row], "ranks fall with the rows");
+    }
+  }
+
+  @Test
+  @DisplayName("pivots are sampled from EVERY run: segments that each hold one domain still cut into balanced ranges")
+  void sampledPivotsBalanceClusteredRuns() {
+    final int segments = 4;
+    final int perSegment = 40;
+    final int rangeTarget = 7;
+    final PositionedCorpus corpus = clusteredCorpus(segments, perSegment);
+    final int[] runs = {0, 1, 2, 3};
+    final long[][] marks = new long[segments][];
+    final int[] entries = new int[segments];
+    for (int r = 0; r < segments; r++) {
+      marks[r] = new long[(perSegment >>> 6) + 1];
+      for (int mint = 1; mint <= perSegment; mint++) {
+        marks[r][mint >>> 6] |= 1L << mint;
+      }
+      entries[r] = perSegment;
+    }
+    final List<Integer> counts = new ArrayList<>();
+
+    final SegmentValueMerge.Result result = SegmentValueMerge.merge(corpus, runs, marks, entries, recording(counts),
+        rangeTarget, null);
+
+    // Segment s holds domain s alone and the domains sort in segment order, so pivots read off ONE
+    // run would all fall inside its domain and leave the other three segments — 120 of 160 cells —
+    // to a single range. A regular sample of every run cuts every domain in proportion to its cells.
+    final int aimed = Math.min(segments * perSegment / rangeTarget, perSegment);
+    assertEquals(List.of(segments, segments, segments, result.ranges(), segments), counts,
+        "mark, sample, bound, merge, offset");
+    assertTrue(result.ranges() >= aimed / 2,
+        "the sample cut the space into ranges: " + result.ranges() + " of " + aimed);
+    int total = 0;
+    int largest = 0;
+    for (final int cells : result.rangeCells()) {
+      total += cells;
+      largest = Math.max(largest, cells);
+    }
+    assertEquals(segments * perSegment, total, "every marked cell was merged exactly once");
+    final int mean = (segments * perSegment + result.ranges() - 1) / result.ranges();
+    assertTrue(largest <= 2 * mean, "the largest range holds " + largest + " cells against a mean of " + mean);
+    assertTrue(largest < perSegment, "no range swallowed a whole segment: " + largest);
+    // And the ranks are right: domain s's i-th value is the (s * perSegment + i + 1)-th overall.
+    assertEquals(segments * perSegment, result.representatives().length, "disjoint domains: every cell is distinct");
+    for (int segment = 0; segment < segments; segment++) {
+      for (int position = 1; position <= perSegment; position++) {
+        final int mint = corpus.mints().get(ProjectionIndexRowGroupPage.packSegmentCell(segment, position));
+        assertEquals(segment * perSegment + position, result.tables()[segment][mint],
+            "segment " + segment + " position " + position);
+      }
     }
   }
 
@@ -1213,10 +1342,48 @@ final class SegmentGroupCanonicaliserTest {
     assertEquals(2, sparse.size());
   }
 
+  @Test
+  @DisplayName("a resolver that answers positions but offers no run cursor REFUSES the merge, and the walk answers")
+  void aCursorlessResolverRefusesTheMerge() {
+    final int segments = 2;
+    final int perSegment = 8;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment, true);
+    // Everything the walk needs, forwarded; the cursor left at the interface's refusing default.
+    final SegmentGroupCanonicaliser.CellResolver cursorless = new SegmentGroupCanonicaliser.CellResolver() {
+      @Override
+      public String valueOfCell(final long cell) {
+        return corpus.valueOfCell(cell);
+      }
+
+      @Override
+      public int positionOfCell(final long cell) {
+        return corpus.positionOfCell(cell);
+      }
+
+      @Override
+      public int entryCountOfSegment(final long cell) {
+        return corpus.entryCountOfSegment(cell);
+      }
+
+      @Override
+      public int mintAtPosition(final long cell, final int position) {
+        return corpus.mintAtPosition(cell, position);
+      }
+    };
+    assertRefusedThenWalked(cursorless, corpus, segments, perSegment, "offers no cursor");
+    assertEquals(0, corpus.seeks().get(), "nothing was seeked: there was no cursor to seek");
+  }
+
   /** The merge refuses {@code corpus} with a message naming {@code why}, and the walk still answers. */
   private static void assertRefusedThenWalked(final PositionedCorpus corpus, final int segments,
       final int perSegment, final String why) {
-    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    assertRefusedThenWalked(corpus, corpus, segments, perSegment, why);
+  }
+
+  /** As above, resolving through {@code resolver} over the cells of {@code corpus}. */
+  private static void assertRefusedThenWalked(final SegmentGroupCanonicaliser.CellResolver resolver,
+      final PositionedCorpus corpus, final int segments, final int perSegment, final String why) {
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(resolver, segments);
     final List<Integer> counts = new ArrayList<>();
 
     final ColumnSlice[] out = canonicaliser.canonicaliseColumn(leavesInMintOrder(corpus, segments, perSegment), null,
