@@ -116,8 +116,35 @@ public final class SegmentCellVerdicts {
     long @Nullable [] sweep(long anyCellInSegment);
   }
 
+  /**
+   * Where a segment's table lives BETWEEN queries.
+   *
+   * <p>
+   * A table is a pure function of the segment's dictionary, the op and the literal, and it is a
+   * monotone memo: an unsettled entry is only ever written to the one verdict the dictionary
+   * determines for it, whichever query writes it. So two queries may share ONE array — the second
+   * inherits every entry the first settled and settles more — provided a table is allocated at the
+   * dictionary's full size up front, so no query ever replaces it by growing it. The store hands out
+   * that shared array; a store that answers nothing leaves the memo private to this instance.
+   * </p>
+   */
+  public interface TableStore {
+    /** The shared table for {@code segment}, or {@code null} when the store holds none yet. */
+    byte @Nullable [] load(int segment);
+
+    /**
+     * Ids in {@code segment}'s dictionary — the table is sized {@code entryCount + 1}, ids being
+     * 1-based — or {@code -1} when the segment sealed none for this column.
+     */
+    int entryCount(int segment);
+
+    /** Publish {@code table} as {@code segment}'s shared table, replacing whatever the store held. */
+    void store(int segment, byte[] table);
+  }
+
   private final CellMatcher matcher;
   private final @Nullable SegmentSweeper sweeper;
+  private final @Nullable TableStore store;
   /** One lock per segment, so two workers settle two different segments concurrently. */
   private final Object[] sweepLocks;
   /** {@code sweepState[s]} — guarded by {@code sweepLocks[s]}; see {@link #SWEEP_PENDING}. */
@@ -141,9 +168,23 @@ public final class SegmentCellVerdicts {
    */
   public SegmentCellVerdicts(final Supplier<GlobalValueDictionary.ReadView> views,
       final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int segments) {
+    this(views, op, literalUtf8, segments, null);
+  }
+
+  /**
+   * @param views supplier of a view PRIVATE TO THE CALLING THREAD — see the threading note above; a
+   *        supplier that hands the same view to two workers will tear its caches
+   * @param op a per-value string op ({@code STR_*}, {@code EQ}, {@code NE})
+   * @param literalUtf8 the literal's UTF-8 bytes
+   * @param segments how many segments the resource sealed, so the memo is sized once
+   * @param store where the settled tables persist between queries, or {@code null} to settle afresh
+   */
+  public SegmentCellVerdicts(final Supplier<GlobalValueDictionary.ReadView> views,
+      final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int segments,
+      final @Nullable TableStore store) {
     this(matcherOver(requireNonNull(views, "views must not be null"), op,
             requireNonNull(literalUtf8, "literalUtf8 must not be null")), sweeperOver(views, op, literalUtf8), op,
-        literalUtf8, segments);
+        literalUtf8, segments, store);
   }
 
   /**
@@ -166,8 +207,23 @@ public final class SegmentCellVerdicts {
    */
   public SegmentCellVerdicts(final CellMatcher matcher, final @Nullable SegmentSweeper sweeper,
       final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int segments) {
+    this(matcher, sweeper, op, literalUtf8, segments, null);
+  }
+
+  /**
+   * @param matcher how one cell's value is tested, and the fallback whenever a sweep is refused
+   * @param sweeper how a whole segment is settled at once, or {@code null} for the per-cell path only
+   * @param op the op being answered
+   * @param literalUtf8 the literal, kept for the predicate's own bookkeeping
+   * @param segments how many segments the resource sealed
+   * @param store where the settled tables persist between queries, or {@code null} to settle afresh
+   */
+  public SegmentCellVerdicts(final CellMatcher matcher, final @Nullable SegmentSweeper sweeper,
+      final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int segments,
+      final @Nullable TableStore store) {
     this.matcher = requireNonNull(matcher, "matcher must not be null");
     this.sweeper = sweeper;
+    this.store = store;
     this.op = requireNonNull(op, "op must not be null");
     this.literalUtf8 = requireNonNull(literalUtf8, "literalUtf8 must not be null");
     if (segments < 0) {
@@ -175,7 +231,38 @@ public final class SegmentCellVerdicts {
     }
     this.literalHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
     final int lanes = Math.max(segments, 1);
-    this.memo = new byte[lanes][];
+    final byte[][] tables = new byte[lanes][];
+    if (store != null) {
+      // Adopt every segment's shared table NOW, before the first row: tableForLeaf reads the memo
+      // once per leaf, so a table adopted lazily on a segment's first cell would leave that whole
+      // leaf on the slow path. A segment the store has no table for gets one at the dictionary's
+      // full size, published so the next query settles into the same array; a segment with no
+      // dictionary stays null and falls back to the growing private table.
+      int adopted = 0;
+      int allocated = 0;
+      for (int segment = 0; segment < segments; segment++) {
+        byte[] table = store.load(segment);
+        if (table == null) {
+          final int entries = store.entryCount(segment);
+          if (entries < 0) {
+            continue;
+          }
+          table = new byte[entries + 1];
+          store.store(segment, table);
+          allocated++;
+        } else {
+          adopted++;
+        }
+        tables[segment] = table;
+      }
+      if (PROJ_DIAG) {
+        // The witness that the cross-query share FIRED: a repeated predicate must report every
+        // segment adopted and none allocated. Without it a cold cache and a broken key look alike.
+        System.err.println("[proj] segment verdict tables for " + op + ": " + adopted + " adopted, " + allocated
+            + " allocated, " + (segments - adopted - allocated) + " without dictionary");
+      }
+    }
+    this.memo = tables;
     this.sweepState = new byte[lanes];
     this.sweepLocks = new Object[lanes];
     for (int segment = 0; segment < lanes; segment++) {
@@ -299,6 +386,9 @@ public final class SegmentCellVerdicts {
       }
       final byte[] table = expand(bits);
       install(segment, table);
+      if (store != null) {
+        store.store(segment, table); // fully settled: supersedes whatever partial table was shared
+      }
       sweepState[segment] = SWEEP_DONE;
       sweeps.incrementAndGet();
       return table;

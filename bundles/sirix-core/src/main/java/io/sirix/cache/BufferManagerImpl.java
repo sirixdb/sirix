@@ -233,6 +233,14 @@ public final class BufferManagerImpl implements BufferManager {
       Long.getLong("sirix.projection.globalDict.verdictCacheBytes", 64L << 20);
 
   /**
+   * Segment verdict-table budget. A table is one BYTE per id of one segment dictionary, one table
+   * per {@code (op, literal)}: ~18 MB for an 18M-value column at 100M rows, so the default holds the
+   * handful of distinct string predicates a workload repeats and evicts the rest by weight.
+   */
+  private static final long SEGMENT_VERDICT_CACHE_BYTES =
+      Long.getLong("sirix.projection.segmentDict.verdictCacheBytes", 128L << 20);
+
+  /**
    * Decoded dictionary bytes retained across transactions. Sized to hold a mid-cardinality column's
    * blocks outright; above that it degrades to the hit rate its weight supports, which is the point
    * of metering it rather than sizing it from the dictionary.
@@ -244,6 +252,7 @@ public final class BufferManagerImpl implements BufferManager {
   private final NamesCache namesCache;
   private final PathSummaryCache pathSummaryCache;
   private final GlobalVerdictCache globalVerdictCache;
+  private final SegmentVerdictCache segmentVerdictCache;
   private final GlobalDictionaryRecordCache globalDictionaryRecordCache;
   private final GlobalDictionaryWarmMarkerCache globalDictionaryWarmMarkers;
 
@@ -336,6 +345,7 @@ public final class BufferManagerImpl implements BufferManager {
     namesCache = new NamesCache(maxNamesCacheSize);
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
     globalVerdictCache = new GlobalVerdictCache(GLOBAL_VERDICT_CACHE_BYTES);
+    segmentVerdictCache = new SegmentVerdictCache(SEGMENT_VERDICT_CACHE_BYTES);
     globalDictionaryRecordCache = new GlobalDictionaryRecordCache(GLOBAL_DICTIONARY_RECORD_CACHE_BYTES);
     globalDictionaryWarmMarkers = new GlobalDictionaryWarmMarkerCache();
 
@@ -398,6 +408,11 @@ public final class BufferManagerImpl implements BufferManager {
   }
 
   @Override
+  public SegmentVerdictCache getSegmentVerdictCache() {
+    return segmentVerdictCache;
+  }
+
+  @Override
   public GlobalDictionaryRecordCache getGlobalDictionaryRecordCache() {
     return globalDictionaryRecordCache;
   }
@@ -422,6 +437,9 @@ public final class BufferManagerImpl implements BufferManager {
     globalVerdictCache.asMap()
                       .keySet()
                       .removeIf(key -> key.databaseId() == databaseId && key.resourceId() == resourceId);
+    segmentVerdictCache.asMap()
+                       .keySet()
+                       .removeIf(key -> key.databaseId() == databaseId && key.resourceId() == resourceId);
     globalDictionaryRecordCache.asMap()
                                .keySet()
                                .removeIf(key -> key.databaseId() == databaseId && key.resourceId() == resourceId);
@@ -566,6 +584,7 @@ public final class BufferManagerImpl implements BufferManager {
       revisionRootPageCache.clear();
       namesCache.clear();
       globalVerdictCache.clear();
+      segmentVerdictCache.clear();
       globalDictionaryRecordCache.clear();
       globalDictionaryWarmMarkers.clear();
       pathSummaryCache.clear();

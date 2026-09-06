@@ -37,6 +37,8 @@ public final class EmptyBufferManager implements BufferManager {
 
   private static final EmptyCache<GlobalVerdictCacheKey, long[]> GLOBAL_VERDICT_CACHE = new EmptyCache<>();
 
+  private static final EmptyCache<GlobalVerdictCacheKey, byte[]> SEGMENT_VERDICT_CACHE = new EmptyCache<>();
+
   private static final EmptyCache<GlobalDictionaryRecordCacheKey, DataRecord> GLOBAL_DICT_RECORD_CACHE =
       new EmptyCache<>();
 
@@ -90,6 +92,11 @@ public final class EmptyBufferManager implements BufferManager {
   @Override
   public Cache<GlobalVerdictCacheKey, long[]> getGlobalVerdictCache() {
     return GLOBAL_VERDICT_CACHE;
+  }
+
+  @Override
+  public Cache<GlobalVerdictCacheKey, byte[]> getSegmentVerdictCache() {
+    return SEGMENT_VERDICT_CACHE;
   }
 
   @Override

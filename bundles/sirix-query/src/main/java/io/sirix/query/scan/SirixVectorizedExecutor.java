@@ -53,6 +53,8 @@ import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionDoubleEncoding;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
+import io.sirix.cache.BufferManager;
+import io.sirix.cache.Cache;
 import io.sirix.cache.GlobalVerdictCacheKey;
 import io.sirix.index.projection.GlobalValueDictionary;
 import io.sirix.index.projection.GroupDistinctAccumulator;
@@ -8815,7 +8817,65 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return null;
     }
     return ProjectionIndexScan.ColumnPredicate.segmentCellVerdict(column, op, literalUtf8,
-        new SegmentCellVerdicts(views, op, literalUtf8, segments));
+        new SegmentCellVerdicts(views, op, literalUtf8, segments, segmentVerdictTables(handle, column, views.get(), op,
+            literalUtf8)));
+  }
+
+  /**
+   * The per-segment verdict tables of {@code (column, op, literal)}, shared across queries through
+   * the buffer manager's {@link BufferManager#getSegmentVerdictCache() segment verdict cache}.
+   *
+   * <p>
+   * The same reasons the global kind caches on the buffer manager apply here — the engine builds a
+   * new executor per execution, so nothing held by an executor is ever reused — with one difference
+   * in kind: the segment table is a memo the query keeps settling, not a finished bitset, so it is
+   * shared by reference (see {@link io.sirix.cache.SegmentVerdictCache}). The key is per SEGMENT
+   * dictionary: {@code (database, resource, revision, that segment's header, its entry count, op,
+   * literal)} — the header key because a segment's dictionary is its own node, the revision because
+   * a header node is copied on write and keeps its key across revisions, the entry count as the
+   * global key carries it.
+   * </p>
+   */
+  private SegmentCellVerdicts.TableStore segmentVerdictTables(final ProjectionIndexRegistry.Handle handle,
+      final int column, final GlobalValueDictionary.ReadView union, final ProjectionIndexScan.Op op,
+      final byte[] literalUtf8) {
+    final StorageEngineReader reader = workerTrx().getStorageEngineReader();
+    final Cache<GlobalVerdictCacheKey, byte[]> cache = reader.getBufferManager().getSegmentVerdictCache();
+    final long databaseId = reader.getDatabaseId();
+    final long resourceId = reader.getResourceId();
+    final int revision = union.revision();
+    final String opName = op.name();
+    final String literalHex = HexFormat.of().formatHex(literalUtf8);
+    return new SegmentCellVerdicts.TableStore() {
+      private @Nullable GlobalVerdictCacheKey keyOf(final int segment) {
+        final long headerKey = handle.segmentDictionaryHeaderKey(segment, column);
+        final int entries = union.entryCountOfSegment(segment);
+        return headerKey <= 0L || entries < 0
+            ? null
+            : new GlobalVerdictCacheKey(databaseId, resourceId, revision, headerKey, entries, opName, literalHex);
+      }
+
+      @Override
+      public byte @Nullable [] load(final int segment) {
+        final GlobalVerdictCacheKey key = keyOf(segment);
+        return key == null
+            ? null
+            : cache.get(key);
+      }
+
+      @Override
+      public int entryCount(final int segment) {
+        return union.entryCountOfSegment(segment);
+      }
+
+      @Override
+      public void store(final int segment, final byte[] table) {
+        final GlobalVerdictCacheKey key = keyOf(segment);
+        if (key != null) {
+          cache.put(key, table);
+        }
+      }
+    };
   }
 
   /**

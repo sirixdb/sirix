@@ -806,6 +806,26 @@ public final class GlobalValueDictionary {
     }
 
     /**
+     * Ids readable in the dictionary of segment {@code segment} of a union, or {@code -1} when that
+     * segment sealed none for this column (its rows keep their bytes) or this is not a union.
+     *
+     * <p>
+     * Unlike {@link #segmentEntryCount}, answered whatever the dictionary's storage order: a caller
+     * sizing a per-id table needs the count, not a walkable order.
+     * </p>
+     */
+    public int entryCountOfSegment(final int segment) {
+      final ReadView[] segments = perSegment;
+      if (segments == null || segment < 0 || segment >= segments.length) {
+        return -1;
+      }
+      final ReadView view = segments[segment];
+      return view == null
+          ? -1
+          : view.entryCount;
+    }
+
+    /**
      * The value a packed {@code (segment, id)} CELL names — the long-width entry point a
      * segment-scoped column needs.
      *

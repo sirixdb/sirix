@@ -61,6 +61,12 @@ public interface BufferManager extends AutoCloseable {
   Cache<GlobalVerdictCacheKey, long[]> getGlobalVerdictCache();
 
   /**
+   * Settled-verdict tables for string predicates over SEGMENT-scoped projection dictionaries, shared
+   * across queries — see {@link SegmentVerdictCache} for why the table is handed out uncopied.
+   */
+  Cache<GlobalVerdictCacheKey, byte[]> getSegmentVerdictCache();
+
+  /**
    * Decoded global-dictionary records, retained across transactions.
    *
    * <p>
