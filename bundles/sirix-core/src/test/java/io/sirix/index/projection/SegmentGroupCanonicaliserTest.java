@@ -7,10 +7,16 @@ import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -264,11 +270,26 @@ final class SegmentGroupCanonicaliserTest {
    * within one segment, position order is collation order. Mints are deliberately NOT in that order,
    * so anything that folds on the mint instead of the position is wrong at almost every id.
    */
-  private record PositionedCorpus(Map<Long, String> values, Map<Long, Integer> positions, long[] cells)
+  /**
+   * A dictionary stand-in that also answers in POSITION space, both ways: {@code positions} is
+   * cell -> position, {@code mints} is {@code pack(segment, position)} -> mint, and {@code entries}
+   * is the per-segment entry count — enough for the storage-order walk to run over it. Every read
+   * of a value is counted, so a test can say what a pass cost.
+   */
+  private record PositionedCorpus(Map<Long, String> values, Map<Long, Integer> positions, long[] cells,
+      Map<Long, Integer> mints, Map<Integer, Integer> entries, AtomicInteger reads, AtomicInteger collisions)
       implements SegmentGroupCanonicaliser.CellResolver {
     @Override
     public String valueOfCell(final long cell) {
+      reads.incrementAndGet();
       return values.get(cell);
+    }
+
+    /** Asked only on a hash-chain hit: on a corpus of distinct values, every call is a duplicate landing. */
+    @Override
+    public boolean sameValue(final long left, final long right) {
+      collisions.incrementAndGet();
+      return SegmentGroupCanonicaliser.CellResolver.super.sameValue(left, right);
     }
 
     @Override
@@ -278,6 +299,24 @@ final class SegmentGroupCanonicaliserTest {
           ? SegmentGroupCanonicaliser.NO_POSITION
           : position;
     }
+
+    @Override
+    public int entryCountOfSegment(final long cell) {
+      final Integer count = entries.get(ProjectionIndexRowGroupPage.segmentOfCell(cell));
+      return count == null
+          ? -1
+          : count;
+    }
+
+    @Override
+    public int mintAtPosition(final long cell, final int position) {
+      final Integer mint =
+          mints.get(ProjectionIndexRowGroupPage.packSegmentCell(ProjectionIndexRowGroupPage.segmentOfCell(cell),
+              position));
+      return mint == null
+          ? -1
+          : mint;
+    }
   }
 
   /**
@@ -285,8 +324,18 @@ final class SegmentGroupCanonicaliserTest {
    * run upward, so mint order is the exact reverse of collation order inside every segment.
    */
   private static PositionedCorpus positionedCorpus(final int segments, final int perSegment) {
+    return positionedCorpus(segments, perSegment, false);
+  }
+
+  /**
+   * The same corpus; with {@code shared} every segment holds the SAME {@code perSegment} values, so
+   * the correct canonical space has {@code perSegment} ids however many segments there are.
+   */
+  private static PositionedCorpus positionedCorpus(final int segments, final int perSegment, final boolean shared) {
     final Map<Long, String> values = new HashMap<>();
     final Map<Long, Integer> positions = new HashMap<>();
+    final Map<Long, Integer> mints = new HashMap<>();
+    final Map<Integer, Integer> entries = new HashMap<>();
     final long[] cells = new long[segments * perSegment];
     int at = 0;
     for (int segment = 0; segment < segments; segment++) {
@@ -294,18 +343,183 @@ final class SegmentGroupCanonicaliserTest {
       // segment 0 holds value-000, value-004, ...; segment 1 holds value-001, value-005, ...
       final String[] mine = new String[perSegment];
       for (int i = 0; i < perSegment; i++) {
-        mine[i] = String.format("value-%05d", i * segments + segment);
+        mine[i] = String.format("value-%05d", shared
+            ? i
+            : i * segments + segment);
       }
-      java.util.Arrays.sort(mine);
+      Arrays.sort(mine);
       for (int i = 0; i < perSegment; i++) {
         final int mint = perSegment - i; // downward: mint order is the reverse of position order
         final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, mint);
         values.put(cell, mine[i]);
         positions.put(cell, i + 1); // 1-based, ascending with collation inside this segment
+        mints.put(ProjectionIndexRowGroupPage.packSegmentCell(segment, i + 1), mint);
         cells[at++] = cell;
       }
+      entries.put(segment, perSegment);
     }
-    return new PositionedCorpus(values, positions, cells);
+    return new PositionedCorpus(values, positions, cells, mints, entries, new AtomicInteger(), new AtomicInteger());
+  }
+
+  /**
+   * One leaf per segment — a leaf never straddles a segment, and the row loop leans on that — with
+   * the rows in MINT order, which inside every segment is the reverse of position order.
+   */
+  private static ColumnSlice[] leavesInMintOrder(final PositionedCorpus corpus, final int segments,
+      final int perSegment) {
+    final ColumnSlice[] leaves = new ColumnSlice[segments];
+    for (int segment = 0; segment < segments; segment++) {
+      final long[] rows = new long[perSegment];
+      for (int i = 0; i < perSegment; i++) {
+        rows[i] = corpus.cells()[segment * perSegment + (perSegment - 1 - i)];
+      }
+      leaves[segment] = sliceOf(rows);
+    }
+    return leaves;
+  }
+
+  @Test
+  @DisplayName("the storage-order walk resolves every cell before the row loop, in position order, once")
+  void theStorageOrderWalkResolvesInPositionOrder() {
+    final int segments = 3;
+    final int perSegment = 50;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final List<Integer> walked = new ArrayList<>();
+    final SegmentGroupCanonicaliser.SegmentRunner recording = (count, body) -> {
+      for (int i = 0; i < count; i++) {
+        walked.add(i);
+        body.accept(i);
+      }
+    };
+
+    final ColumnSlice[] out = canonicaliser.canonicalise(leavesInMintOrder(corpus, segments, perSegment), null,
+        recording);
+
+    assertNotNull(out);
+    assertEquals(segments, walked.size(), "the runner must be handed one walk per referenced segment");
+    assertEquals(segments * perSegment, corpus.reads().get(),
+        "every cell is read exactly once — by the walk; the row loop must find all of them memoised");
+    // The witness that the WALK issued the ids and not the row loop: inside a segment the ids rise
+    // with POSITION. The rows run in mint order, the other way, so a row loop would have issued
+    // them rising along the rows; the walk's ids FALL along the rows.
+    for (int segment = 0; segment < segments; segment++) {
+      final long[] ids = out[segment].numericValues();
+      for (int row = 1; row < perSegment; row++) {
+        assertTrue(ids[row] < ids[row - 1], "segment " + segment + ", row " + row
+            + " sits one position BELOW row " + (row - 1) + " and must carry the smaller id");
+      }
+    }
+    // Sealed by the merge, the space is exactly the sort's — the walk changed which thread reads, not the order.
+    assertTrue(canonicaliser.sealByPositionMerge(canonicaliser.size()));
+    for (int rank = 2; rank <= segments * perSegment; rank++) {
+      assertTrue(canonicaliser.valueOf(rank - 1).compareTo(canonicaliser.valueOf(rank)) < 0);
+    }
+
+    // A second pass over the same cells is free: the walk skips memoised mints and the row loop hits.
+    final int readsAfterFirst = corpus.reads().get();
+    assertNotNull(canonicaliser.canonicalise(leavesInMintOrder(corpus, segments, perSegment), null, recording));
+    assertEquals(readsAfterFirst, corpus.reads().get(), "a settled cell must never be read again");
+  }
+
+  @Test
+  @DisplayName("walks on worker threads issue ONE id per value across segments, dense, batch after batch")
+  void walksOnWorkersConvergeToOneIdPerValue() throws Exception {
+    // Every segment holds the same values, so each of the 6 walks meets the others' values in the
+    // hash chain, and 9000 marked mints per segment is more than two batches — the batch flush and
+    // the last partial batch both run. The runner is a real pool: the walks overlap in time.
+    final int segments = 6;
+    final int perSegment = 9_000;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment, true);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ExecutorService pool = Executors.newFixedThreadPool(segments);
+    try {
+      final SegmentGroupCanonicaliser.SegmentRunner onThreads = (count, body) -> {
+        final CountDownLatch start = new CountDownLatch(1);
+        final List<Future<?>> walks = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+          final int walk = i;
+          walks.add(pool.submit(() -> {
+            start.await();
+            body.accept(walk);
+            return null;
+          }));
+        }
+        start.countDown();
+        for (final Future<?> walk : walks) {
+          try {
+            walk.get(30, TimeUnit.SECONDS);
+          } catch (final Exception failure) {
+            throw new IllegalStateException(failure);
+          }
+        }
+      };
+
+      final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
+      assertTrue(canonicaliser.observe(leaves, onThreads));
+
+      assertEquals(perSegment, canonicaliser.size(),
+          "six copies of one value set must canonicalise to ONE id per value, whichever walk got there first");
+      final ColumnSlice[] out = canonicaliser.canonicalise(leaves, null, onThreads);
+      assertNotNull(out);
+      for (int segment = 0; segment < segments; segment++) {
+        final long[] ids = out[segment].numericValues();
+        final long[] cells = leaves[segment].numericValues();
+        for (int row = 0; row < perSegment; row++) {
+          assertTrue(ids[row] >= 1 && ids[row] <= perSegment, "ids must be dense in [1, distinct]; row " + row);
+          assertEquals(corpus.valueOfCell(cells[row]), canonicaliser.valueOf((int) ids[row]),
+              "segment " + segment + " row " + row + " must map to the id of ITS value");
+          assertEquals(out[0].numericValues()[row], ids[row],
+              "the same value in segment 0 and segment " + segment + " must share one id");
+        }
+      }
+    } finally {
+      pool.shutdownNow();
+    }
+  }
+
+  @Test
+  @DisplayName("two passes walking the same segments at once still issue one id per value")
+  void concurrentWalksOverTheSameCellsAgree() throws Exception {
+    // The walk checks the memo outside the lock and lands its batch inside it, so two walks over the
+    // SAME (segment, mint) race: both hash the cell, and the second batch must find the first's id
+    // and keep it. Dropping that check would issue a second id for a value that already has one.
+    final int segments = 2;
+    final int perSegment = 5_000;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] slices = leavesInMintOrder(corpus, segments, perSegment);
+    final int passes = 8;
+    final CountDownLatch start = new CountDownLatch(1);
+    final ExecutorService pool = Executors.newFixedThreadPool(passes);
+    try {
+      final List<Future<Boolean>> results = new ArrayList<>(passes);
+      for (int pass = 0; pass < passes; pass++) {
+        results.add(pool.submit(() -> {
+          start.await();
+          return canonicaliser.observe(slices);
+        }));
+      }
+      start.countDown();
+      for (final Future<Boolean> result : results) {
+        assertTrue(result.get(30, TimeUnit.SECONDS), "every pass resolves every cell");
+      }
+    } finally {
+      pool.shutdownNow();
+    }
+    assertEquals(segments * perSegment, canonicaliser.size(),
+        "eight racing passes over one corpus must still issue exactly one id per distinct value");
+    assertEquals(0, corpus.collisions().get(), "a cell another pass already landed is skipped under the lock, "
+        + "not re-issued through the hash chain — on distinct values the chain must never be consulted");
+    final ColumnSlice[] out = canonicaliser.canonicalise(slices);
+    assertNotNull(out);
+    for (int segment = 0; segment < segments; segment++) {
+      for (int row = 0; row < perSegment; row++) {
+        assertEquals(corpus.valueOfCell(slices[segment].numericValues()[row]),
+            canonicaliser.valueOf((int) out[segment].numericValues()[row]),
+            "segment " + segment + " row " + row + " must map to the id of ITS value");
+      }
+    }
   }
 
   @Test

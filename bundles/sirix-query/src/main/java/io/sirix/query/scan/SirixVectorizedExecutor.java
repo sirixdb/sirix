@@ -12179,7 +12179,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return null;
     }
     final SegmentGroupCanonicaliser values = new SegmentGroupCanonicaliser(unionViews, segments);
-    if (!values.observe(slices)) {
+    if (!values.observe(slices, segmentWalksOnWorkers())) {
       return null;
     }
     return (long) values.size();
@@ -17872,8 +17872,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final long[] groupKeepMask = segmentKeys == null
             ? null
             : ProjectionColumnScan.predicateKeepMask(slicedStore, preds, predTree, fetcher);
-        slicedGroupCol =
-            canonicaliseGroupKeys(segmentKeys, slicedStore.column(groupCol, fetcher), groupKeepMask);
+        slicedGroupCol = canonicaliseGroupKeys(segmentKeys, slicedStore.column(groupCol, fetcher), groupKeepMask,
+            segmentWalksOnWorkers());
         if (slicedGroupCol == null) {
           return declineGroupAgg("a segment-scoped group key has no value in this revision");
         }
@@ -18252,7 +18252,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (slicedStore != null && !windowedSlices) {
       final ProjectionColumnStore.ColumnSegmentFetcher legFetcher = columnFetcher();
       legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, legFetcher);
-      legGroupCol = canonicaliseGroupKeys(segmentKeys, slicedStore.column(groupCol, legFetcher));
+      legGroupCol = canonicaliseGroupKeys(segmentKeys, slicedStore.column(groupCol, legFetcher), null,
+          segmentWalksOnWorkers());
       if (legGroupCol == null) {
         return declineGroupAgg("a segment-scoped group key has no value in this revision");
       }
@@ -18965,17 +18966,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     final SegmentGroupCanonicaliser ranked =
         new SegmentGroupCanonicaliser(unionViews, handle.segmentDictionarySegmentCount());
+    final long t0 = PROJ_DIAG ? System.nanoTime() : 0L;
     final ProjectionColumnStore.ColumnSlice[] operand = store.column(column, fetcher);
+    final long t1 = PROJ_DIAG ? System.nanoTime() : 0L;
     // Three different refusals reach the caller as one decline, and they call for opposite fixes: an
     // unreadable cell is a correctness stop, the ordering bound is a scale limit that names its own
     // remedy, and a failed canonicalise is neither. Say which.
-    if (!ranked.observe(operand)) {
+    final SegmentGroupCanonicaliser.SegmentRunner walks = segmentWalksOnWorkers();
+    if (!ranked.observe(operand, walks)) {
       if (PROJ_DIAG) {
         System.err.println("[proj] segment operand on column " + column + " has a cell with no value in this"
             + " revision");
       }
       return null;
     }
+    final long t2 = PROJ_DIAG ? System.nanoTime() : 0L;
     if (ordered && !ranked.sealOrderPreserving()) {
       if (PROJ_DIAG) {
         System.err.println("[proj] segment operand on column " + column + " REFUSED a total order over "
@@ -18983,9 +18988,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return null; // too many distinct values to order; the caller declines to the generic pipeline
     }
-    final ProjectionColumnStore.ColumnSlice[] lane = ranked.canonicalise(operand);
-    if (lane == null && PROJ_DIAG) {
-      System.err.println("[proj] segment operand on column " + column + " sealed but could not canonicalise");
+    final long t3 = PROJ_DIAG ? System.nanoTime() : 0L;
+    final ProjectionColumnStore.ColumnSlice[] lane = ranked.canonicalise(operand, null, walks);
+    if (PROJ_DIAG) {
+      // The seal is the serial part of every extremum / length query over a segment column; a
+      // phase split says which of its four steps a change moved, and which it did not.
+      System.err.println("[proj] segment operand on column " + column + ": fill " + (t1 - t0) / 1_000_000
+          + " ms, observe " + (t2 - t1) / 1_000_000 + " ms, seal " + (t3 - t2) / 1_000_000 + " ms, canonicalise "
+          + (System.nanoTime() - t3) / 1_000_000 + " ms, " + ranked.size() + " distinct values, ordered="
+          + ordered);
+      if (lane == null) {
+        System.err.println("[proj] segment operand on column " + column + " sealed but could not canonicalise");
+      }
     }
     return lane == null
         ? null
@@ -19021,9 +19035,48 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static ProjectionColumnStore.ColumnSlice @Nullable [] canonicaliseGroupKeys(
       final @Nullable SegmentGroupCanonicaliser canonicaliser,
       final ProjectionColumnStore.ColumnSlice @Nullable [] slices, final long @Nullable [] keep) {
+    return canonicaliseGroupKeys(canonicaliser, slices, keep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+  }
+
+  /** The same, with the per-segment dictionary walks on {@code runner} — the workers, from the planning thread. */
+  private static ProjectionColumnStore.ColumnSlice @Nullable [] canonicaliseGroupKeys(
+      final @Nullable SegmentGroupCanonicaliser canonicaliser,
+      final ProjectionColumnStore.ColumnSlice @Nullable [] slices, final long @Nullable [] keep,
+      final SegmentGroupCanonicaliser.SegmentRunner runner) {
     return canonicaliser == null
         ? slices
-        : canonicaliser.canonicalise(slices, keep);
+        : canonicaliser.canonicalise(slices, keep, runner);
+  }
+
+  /**
+   * The canonicaliser's per-segment dictionary walks on the scan workers.
+   *
+   * <p>
+   * Each walk reads one segment's dictionary in storage order through the calling worker's own view
+   * ({@link #segmentUnionViewPerThread}), so the walks share nothing but the memo's insert lock. The
+   * lanes claim segments from a counter rather than by stride: at 100M the operand seal walks 148
+   * segments of uneven size, and a static partition ends with its slowest lane.
+   * </p>
+   *
+   * <p>
+   * PLANNING THREAD ONLY. {@link #parallel} blocks on the pool, so a runner taken inside a worker
+   * would wait for lanes the pool may have no thread left to run.
+   * </p>
+   */
+  private SegmentGroupCanonicaliser.SegmentRunner segmentWalksOnWorkers() {
+    return (count, body) -> {
+      final int lanes = Math.min(threads, count);
+      if (lanes <= 1) {
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS.forEach(count, body);
+        return;
+      }
+      final AtomicInteger next = new AtomicInteger();
+      parallel(lanes, threadIndex -> {
+        for (int i = next.getAndIncrement(); i < count; i = next.getAndIncrement()) {
+          body.accept(i);
+        }
+      });
+    };
   }
 
   /**

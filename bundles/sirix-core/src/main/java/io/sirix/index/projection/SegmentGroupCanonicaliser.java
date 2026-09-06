@@ -13,7 +13,9 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.function.IntConsumer;
 import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
@@ -91,7 +93,7 @@ public final class SegmentGroupCanonicaliser {
       if (value == null) {
         return 0L;
       }
-      final byte[] utf8 = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+      final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
       final long hash = ProjectionIndexByteScan.fnv1a64(utf8, 0, utf8.length);
       return hash == 0L
           ? 1L
@@ -331,7 +333,47 @@ public final class SegmentGroupCanonicaliser {
     }
   }
 
+  /**
+   * Runs {@code body} once per index in {@code [0, count)}: each index is one referenced segment's
+   * storage-order walk. The walks are independent — each reads through the calling thread's own
+   * view and lands in the memo under its own lock — so a caller with scan workers hands in its pool
+   * and the walks run at once; {@link #SERIAL_SEGMENTS} runs them one after another.
+   */
+  @FunctionalInterface
+  public interface SegmentRunner {
+    void forEach(int count, IntConsumer body);
+  }
+
+  /** The default runner: every walk on the calling thread. */
+  public static final SegmentRunner SERIAL_SEGMENTS = (count, body) -> {
+    for (int i = 0; i < count; i++) {
+      body.accept(i);
+    }
+  };
+
   private void resolveInStorageOrder(final ColumnSlice[] slices, final long @Nullable [] keep) {
+    resolveInStorageOrder(slices, keep, SERIAL_SEGMENTS);
+  }
+
+  /**
+   * Resolve every cell the kept leaves reference BEFORE the row loop, walking each segment's
+   * dictionary in STORAGE order.
+   *
+   * <p>
+   * The row loop asks for cells in row order, and a sealed segment dictionary stores its values in
+   * collation order, so those reads are random over the dictionary: every one is a block decode. The
+   * same cells asked for in position order decode each block once. Marking the referenced mints per
+   * segment costs one bit per entry; the walk then reads only the marked positions' values.
+   * </p>
+   *
+   * <p>
+   * Segments are independent, which is where the parallelism of this pass lives: the operand seal of
+   * a 100M extremum query spent 44 s here on one thread, and the same walk over 148 segments on the
+   * scan workers is bounded by the memo's insert lock, not by the reads.
+   * </p>
+   */
+  private void resolveInStorageOrder(final ColumnSlice[] slices, final long @Nullable [] keep,
+      final SegmentRunner runner) {
     // Referenced mints per segment. A bitmap over the dictionary is ~one bit per entry, so marking
     // is cheaper than collecting the cells: an 18M-entry column costs ~2 MB here against ~150 MB to
     // hold its distinct cells.
@@ -387,25 +429,115 @@ public final class SegmentGroupCanonicaliser {
       report("no present cell in any kept leaf");
       return;
     }
-    int resolved = 0;
+    final int count = markedBySegment.size();
+    final int[] segments = new int[count];
+    final long[][] marks = new long[count][];
+    final int[] entryCounts = new int[count];
+    int n = 0;
     for (final Long2ObjectMap.Entry<long[]> entry : markedBySegment.long2ObjectEntrySet()) {
-      final int segment = (int) entry.getLongKey();
-      final long[] marked = entry.getValue();
-      final int entries = entriesBySegment.get(segment);
-      for (int position = 1; position <= entries; position++) {
-        final long probe = ProjectionIndexRowGroupPage.packSegmentCell(segment, 1);
-        final int mint = resolver.mintAtPosition(probe, position);
-        if (mint >= 1 && mint < marked.length << 6 && (marked[mint >>> 6] & 1L << (mint & 63)) != 0L) {
-          canonicalOf(ProjectionIndexRowGroupPage.packSegmentCell(segment, mint));
-          resolved++;
-        }
-      }
+      segments[n] = (int) entry.getLongKey();
+      marks[n] = entry.getValue();
+      entryCounts[n] = entriesBySegment.get(segments[n]);
+      n++;
     }
+    final int[] resolvedPerSegment = new int[count]; // each walk writes its own slot: no sharing
+    runner.forEach(count, i -> resolvedPerSegment[i] = walkSegment(segments[i], marks[i], entryCounts[i]));
     if (PROJ_DIAG) {
       // A prefetch that silently does nothing is indistinguishable from one that does not help.
-      System.err.println("[proj] storage-order resolve: " + markedBySegment.size() + " segment(s), "
-          + resolved + " cell(s) resolved before the row loop");
+      long resolved = 0;
+      for (final int perSegment : resolvedPerSegment) {
+        resolved += perSegment;
+      }
+      System.err.println("[proj] storage-order resolve: " + count + " segment(s), " + resolved
+          + " cell(s) resolved before the row loop");
     }
+  }
+
+  /** Cells hashed per monitor acquisition by a walk: the lock is taken once per batch, not per cell. */
+  private static final int WALK_BATCH = 4096;
+
+  /**
+   * One segment's storage-order walk: hash every marked, not-yet-memoised mint through the calling
+   * thread's view and land the batch in the memo under one lock.
+   *
+   * <p>
+   * The hashing is the read — a block decode per block, sequential here — and runs outside the
+   * monitor, so walks on different threads overlap their I/O. What the monitor serialises is the
+   * value-space insert, ~100 ns a cell, which is the floor a shared dense id space has.
+   * </p>
+   *
+   * @return how many marked cells the walk resolved
+   */
+  private int walkSegment(final int segment, final long[] marked, final int entries) {
+    final long probe = ProjectionIndexRowGroupPage.packSegmentCell(segment, 1);
+    final int[] ids = new int[WALK_BATCH];
+    final long[] hashes = new long[WALK_BATCH];
+    int filled = 0;
+    int resolved = 0;
+    for (int position = 1; position <= entries; position++) {
+      final int mint = resolver.mintAtPosition(probe, position);
+      if (mint < 1 || mint >= marked.length << 6 || (marked[mint >>> 6] & 1L << (mint & 63)) == 0L) {
+        continue;
+      }
+      final int[][] tables = memo;
+      final int[] table = segment < tables.length
+          ? tables[segment]
+          : null;
+      if (table != null && mint < table.length && table[mint] != 0) {
+        continue; // settled by an earlier pass, or by a racing row loop
+      }
+      final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, mint);
+      long hash;
+      try {
+        hash = resolver.hashOfCell(cell);
+      } catch (final RuntimeException unresolvable) {
+        hash = 0L; // memoised as unresolvable, exactly as the row loop would
+        if (PROJ_DIAG) {
+          lastRefusal = unresolvable.toString();
+        }
+      }
+      ids[filled] = mint;
+      hashes[filled] = hash;
+      if (++filled == WALK_BATCH) {
+        memoiseBatch(segment, ids, hashes, filled);
+        filled = 0;
+      }
+      resolved++;
+    }
+    if (filled > 0) {
+      memoiseBatch(segment, ids, hashes, filled);
+    }
+    return resolved;
+  }
+
+  /** {@link #memoise} for a walk's batch: the monitor is taken once for {@code n} cells. */
+  private synchronized void memoiseBatch(final int segment, final int[] ids, final long[] hashes, final int n) {
+    int[][] tables = memo;
+    if (segment >= tables.length) {
+      tables = Arrays.copyOf(tables, segment + 1);
+    }
+    int maxId = 0;
+    for (int i = 0; i < n; i++) {
+      if (ids[i] > maxId) {
+        maxId = ids[i];
+      }
+    }
+    int[] table = tables[segment];
+    if (table == null) {
+      table = new int[Math.max(maxId + 1, 1024)];
+      tables[segment] = table;
+    } else if (maxId >= table.length) {
+      table = Arrays.copyOf(table, Math.max(maxId + 1, table.length << 1));
+      tables[segment] = table;
+    }
+    for (int i = 0; i < n; i++) {
+      final int id = ids[i];
+      if (table[id] != 0) {
+        continue; // another walk or the row loop got there first
+      }
+      table[id] = issueCanonical(ProjectionIndexRowGroupPage.packSegmentCell(segment, id), hashes[i]);
+    }
+    memo = tables; // volatile write: publishes the entries above and any grown array
   }
 
   /**
@@ -435,10 +567,16 @@ public final class SegmentGroupCanonicaliser {
    */
   public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices,
       final long @Nullable [] keep) {
+    return canonicalise(slices, keep, SERIAL_SEGMENTS);
+  }
+
+  /** The same, with the storage-order prefetch's segment walks run by {@code runner}. */
+  public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices,
+      final long @Nullable [] keep, final SegmentRunner runner) {
     if (slices == null) {
       return null;
     }
-    resolveInStorageOrder(slices, keep);
+    resolveInStorageOrder(slices, keep, requireNonNull(runner, "runner must not be null"));
     final ColumnSlice[] out = new ColumnSlice[slices.length];
     for (int i = 0; i < slices.length; i++) {
       final ColumnSlice slice = slices[i];
@@ -541,9 +679,24 @@ public final class SegmentGroupCanonicaliser {
    * @return {@code false} when a present cell has no value in this revision; the caller must decline
    */
   public boolean observe(final ColumnSlice @Nullable [] slices) {
+    return observe(slices, SERIAL_SEGMENTS);
+  }
+
+  /**
+   * The same, with the storage-order prefetch's segment walks run by {@code runner}.
+   *
+   * <p>
+   * Observing used to be the row loop alone — one random dictionary read per distinct cell, in row
+   * order, on the calling thread: 44 s of a 68 s extremum query at 100M. The prefetch walks each
+   * segment's dictionary once in storage order instead, so the row loop below finds every cell
+   * memoised and reads nothing.
+   * </p>
+   */
+  public boolean observe(final ColumnSlice @Nullable [] slices, final SegmentRunner runner) {
     if (slices == null) {
       return false;
     }
+    resolveInStorageOrder(slices, null, requireNonNull(runner, "runner must not be null"));
     for (final ColumnSlice slice : slices) {
       if (slice == null || slice.rowCount() == 0) {
         continue; // absent, or the pruned sentinel: no rows, no values
