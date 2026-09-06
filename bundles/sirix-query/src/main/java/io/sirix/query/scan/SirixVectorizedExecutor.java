@@ -17912,7 +17912,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 || slicedAggCols[a] != null) {
               continue;
             }
-            final SealedOperand sealed = sealSegmentOperand(handle, slicedStore, aggCols[a], fetcher);
+            // A length lane indexes lengthTable by the canonical id and never compares two of them,
+            // so it needs canonical ids but NOT collating ones.
+            final SealedOperand sealed = sealSegmentOperand(handle, slicedStore, aggCols[a], fetcher, false);
             if (sealed == null) {
               return declineGroupAgg("a segment-scoped string-length operand has no value in this revision");
             }
@@ -18894,6 +18896,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private @Nullable SealedOperand sealSegmentOperand(final ProjectionIndexRegistry.Handle handle,
       final ProjectionColumnStore store, final int column,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    return sealSegmentOperand(handle, store, column, fetcher, true);
+  }
+
+  /**
+   * @param ordered whether the canonical ids must COLLATE — true for min/max, whose kernel folds them
+   *        as plain integers, and false for a string-length lane, which only indexes a table by them.
+   *        Ordering is the one step here that does not scale: it is a total order over every distinct
+   *        value the column holds, which at 100M is over eighteen million URLs. Asking for it where
+   *        the consumer never compares two ids turned a served query into a decline.
+   */
+  private @Nullable SealedOperand sealSegmentOperand(final ProjectionIndexRegistry.Handle handle,
+      final ProjectionColumnStore store, final int column,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final boolean ordered) {
     final Supplier<GlobalValueDictionary.ReadView> unionViews = segmentUnionViewPerThread(handle, column);
     if (unionViews == null) {
       return null;
@@ -18901,13 +18916,27 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final SegmentGroupCanonicaliser ranked =
         new SegmentGroupCanonicaliser(unionViews, handle.segmentDictionarySegmentCount());
     final ProjectionColumnStore.ColumnSlice[] operand = store.column(column, fetcher);
+    // Three different refusals reach the caller as one decline, and they call for opposite fixes: an
+    // unreadable cell is a correctness stop, the ordering bound is a scale limit that names its own
+    // remedy, and a failed canonicalise is neither. Say which.
     if (!ranked.observe(operand)) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] segment operand on column " + column + " has a cell with no value in this"
+            + " revision");
+      }
       return null;
     }
-    if (!ranked.sealOrderPreserving()) {
+    if (ordered && !ranked.sealOrderPreserving()) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] segment operand on column " + column + " REFUSED a total order over "
+            + ranked.size() + " distinct values — min/max must fold per segment and merge instead");
+      }
       return null; // too many distinct values to order; the caller declines to the generic pipeline
     }
     final ProjectionColumnStore.ColumnSlice[] lane = ranked.canonicalise(operand);
+    if (lane == null && PROJ_DIAG) {
+      System.err.println("[proj] segment operand on column " + column + " sealed but could not canonicalise");
+    }
     return lane == null
         ? null
         : new SealedOperand(ranked, lane);
