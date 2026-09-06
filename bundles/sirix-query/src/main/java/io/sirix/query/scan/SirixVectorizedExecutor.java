@@ -14008,9 +14008,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * seen;</li>
    * <li>price every candidate value with ONE evidence walk per key column — a multi-literal
    * fingerprint pass for STRING_DICT ({@link ProjectionColumnStore#applyBloomPruneMany}), zone
-   * stabbing for NUMERIC_LONG and for STRING_GLOBAL, whose long lane holds dictionary ids and whose
-   * zones bound them ({@link ProjectionColumnScan#zoneStabSorted}) — and every candidate group by the
-   * AND of its values' masks;</li>
+   * stabbing for NUMERIC_LONG and for the two dictionary-id kinds, whose long lane holds ids (global)
+   * or packed segment cells and whose zones bound them ({@link ProjectionColumnScan#zoneStabSorted})
+   * — and every candidate group by the AND of its values' masks;</li>
    * <li>take the k groups with the fewest leaves that may hold them (first seen breaks ties) and
    * insist that their union covers at most 1/{@value #ANY_K_UNION_DIVISOR} of the store — otherwise
    * the rewrite would not beat the full pass and the planner returns {@code null}.</li>
@@ -14040,8 +14040,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // A STRING_GLOBAL key is sampled and priced as a NUMERIC key over its ids (same slice lane, same
     // zone stabbing — id containment needs no value order); only the emitted predicate differs: the
     // chosen id is resolved back to its string so the recursive aggregate plans an ordinary equality,
-    // which the planner translates to the very same id.
+    // which the planner translates to the very same id. A STRING_SEGMENT key is the same shape over
+    // packed (segment, id) cells: a leaf never straddles a segment, so its zone names the segment in
+    // its high bits and a cell of another segment stabs nothing there; the chosen cell is resolved
+    // through the segments' union view.
     final boolean[] globalKey = new boolean[keyCount];
+    final boolean[] segmentKey = new boolean[keyCount];
     for (int g = 0; g < keyCount; g++) {
       final int col = handle.columnOf(groupFields[g]);
       final byte kind = col < 0
@@ -14058,6 +14062,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           return null;
         }
         globalKey[g] = true;
+      } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT) {
+        if (handle.segmentDictionarySegmentCount() <= 0) {
+          if (PROJ_DIAG) {
+            System.err.println("[anyK] declined: key " + groupFields[g] + " col=" + col
+                + " is segment-string without segment dictionaries in this revision");
+          }
+          return null;
+        }
+        segmentKey[g] = true;
       } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
         // Only kinds with leaf evidence (a fingerprint or a zone) can be priced.
         if (PROJ_DIAG) {
@@ -14282,6 +14295,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     final List<PredicateNode> groups = new ArrayList<>(k);
     final StorageEngineReader dictReader = workerTrx().getStorageEngineReader();
+    final GlobalValueDictionary.ReadView[] segmentViews = new GlobalValueDictionary.ReadView[keyCount];
+    for (int g = 0; g < keyCount; g++) {
+      if (segmentKey[g]) {
+        segmentViews[g] = segmentUnionView(handle, cols[g]);
+        if (segmentViews[g] == null) {
+          if (PROJ_DIAG) {
+            System.err.println("[anyK] declined: no segment union view for " + groupFields[g]);
+          }
+          return null;
+        }
+      }
+    }
     for (int i = 0; i < k; i++) {
       final long[] cand = candidates.get(order[i]);
       final List<PredicateNode> parts = new ArrayList<>(keyCount);
@@ -14289,6 +14314,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (stringKey[g]) {
           parts.add(new PredicateNode.StrEq(groupFields[g],
               new String(stringValues[g].get((int) cand[g]), StandardCharsets.UTF_8)));
+        } else if (segmentKey[g]) {
+          // The cell came out of a stored row, so its segment's dictionary MUST hold the id; the
+          // view answers null for a cell it cannot resolve, and naming a wrong group would be a
+          // wrong answer — decline instead.
+          final String value = segmentViews[g].valueOfCell(cand[g]);
+          if (value == null) {
+            if (PROJ_DIAG) {
+              System.err.println("[anyK] declined: segment dictionary of " + groupFields[g]
+                  + " has no value for cell " + cand[g]);
+            }
+            return null;
+          }
+          parts.add(new PredicateNode.StrEq(groupFields[g], value));
         } else if (globalKey[g]) {
           // The id came out of a stored cell, so the dictionary MUST know it; a null here is a
           // corrupt dictionary, and naming a wrong group would be a wrong answer — decline instead.
@@ -17929,16 +17967,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (slicedStore != null && !windowedSlices) {
         final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
         slicedPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, fetcher);
+        // ONE keep mask for the arm. The tree's masked views and the predicate-first seal below read
+        // the same zone evidence (a scan carries flat predicates OR a tree, never both, so the tree's
+        // own mask IS the predicates' mask); evaluating it twice was the same rule in two places, and
+        // a witness that counted every pruned leaf twice.
+        final long[] keepMask = predTree != null || segmentKeys != null
+            ? ProjectionColumnScan.predicateKeepMask(slicedStore, preds, predTree, fetcher)
+            : null;
         slicedTreeCols = predTree != null
-            ? resolveTreeCols(slicedStore, predTree, fetcher)
+            ? ProjectionColumnScan.resolveTreeColumnsShared(slicedStore, predTree, fetcher, keepMask)
             : null;
         // PREDICATE-FIRST. Canonicalising is one dictionary read per distinct cell, so over a whole
         // column at 100M it is ~18M random reads; a query whose predicate keeps a handful of rows
         // must not pay for the rows it will discard. The zone maps already know which leaves can
         // produce a row, and the kernel skips the rest before it ever reads a group key.
-        final long[] groupKeepMask = segmentKeys == null
-            ? null
-            : ProjectionColumnScan.predicateKeepMask(slicedStore, preds, predTree, fetcher);
+        final long[] groupKeepMask = segmentKeys == null ? null : keepMask;
         // ... AND AT ROW GRAIN. The leaf mask spares the leaves the zone maps drop, but a selective
         // predicate over an UNSORTED column keeps a few rows in almost every leaf, so it spares
         // almost nothing: q21's LIKE kept ~1 % of the rows and the seal still resolved all 18.3M

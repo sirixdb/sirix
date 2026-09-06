@@ -2072,15 +2072,17 @@ public final class ProjectionColumnScan {
   }
 
   /**
-   * Zone stabbing for MANY values of one long-lane column ({@link #zonePrunableKind}: ordered-long,
-   * or global-string whose values are dictionary ids) in ONE pass over the memoized
-   * {@link ProjectionColumnStore.ZoneIndex}: SET bit {@code leaf} in {@code keeps[j]} when the leaf
-   * MAY hold {@code sortedValues[j]} — its descriptor range covers the value, or the range is unknown
-   * (no evidence is never a proof of absence). Containment needs no value order, so a global column's
-   * ids stab exactly whatever order they were minted in. A leaf whose every cell is missing sets
-   * nothing. Values must be strictly ascending; masks are OR-ed into (callers pass zeroed masks for a
-   * pure answer). Per leaf the work is two binary searches over the values plus the covered span, so
-   * k values cost about one {@link #pruneLeaves} walk rather than k.
+   * Zone stabbing for MANY values of one long-lane column ({@link #zoneStabbableKind}: ordered-long,
+   * global-string whose values are dictionary ids, or segment-string whose values are packed
+   * (segment, id) cells) in ONE pass over the memoized {@link ProjectionColumnStore.ZoneIndex}: SET
+   * bit {@code leaf} in {@code keeps[j]} when the leaf MAY hold {@code sortedValues[j]} — its
+   * descriptor range covers the value, or the range is unknown (no evidence is never a proof of
+   * absence). Containment needs no value order, so a global column's ids stab exactly whatever order
+   * they were minted in, and a segment column's cells stab only the leaves of their own segment (a
+   * leaf never straddles one, so its range carries one segment in the high bits). A leaf whose every
+   * cell is missing sets nothing. Values must be strictly ascending; masks are OR-ed into (callers
+   * pass zeroed masks for a pure answer). Per leaf the work is two binary searches over the values
+   * plus the covered span, so k values cost about one {@link #pruneLeaves} walk rather than k.
    *
    * @return the number of bits set
    */
@@ -2089,9 +2091,9 @@ public final class ProjectionColumnScan {
     if (store == null || sortedValues == null || keeps == null || sortedValues.length != keeps.length) {
       throw new IllegalArgumentException("store, values and masks must pair up");
     }
-    if (!zonePrunableKind(store.columnKind(col))) {
+    if (!zoneStabbableKind(store.columnKind(col))) {
       throw new IllegalArgumentException(
-          "column " + col + " has no long-lane zone (not ordered-long or global-string)");
+          "column " + col + " has no long-lane zone (not ordered-long, global-string or segment-string)");
     }
     final int n = store.leafCount();
     final int words = (n + 63) >>> 6;
@@ -2202,6 +2204,18 @@ public final class ProjectionColumnScan {
   }
 
   /**
+   * Kinds whose descriptor min/max bound a long lane a VALUE can be stabbed into: the
+   * {@link #zonePrunableKind zone-prunable} kinds and {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SEGMENT},
+   * whose cells are packed (segment, id) pairs. Containment of a packed cell in a packed range is
+   * sound for the same reason a global id's is; what the segment kind lacks is a {@code longLit} a
+   * numeric predicate could be tested against, which is why it stays outside {@link #zonePrunableKind}
+   * and prunes through {@link ProjectionIndexScan.ColumnPredicate#segmentLiteralCells} instead.
+   */
+  static boolean zoneStabbableKind(final byte kind) {
+    return zonePrunableKind(kind) || ProjectionIndexRowGroupPage.isSegmentScopedIdKind(kind);
+  }
+
+  /**
    * Clear from {@code keep} every still-kept leaf that predicate {@code p} PROVES contributes no row:
    * descriptor {@code min > max} (no present value), a numeric zone the predicate excludes, or a
    * string-equality fingerprint miss. Returns how many leaves this predicate dropped.
@@ -2210,7 +2224,13 @@ public final class ProjectionColumnScan {
       final ColumnSegmentFetcher fetcher) {
     final int n = store.leafCount();
     final byte kind = store.columnKind(p.column);
-    if (zonePrunableKind(kind) && p.stringLitBytes == null) {
+    // A segment-scoped EQ/NE arrives resolved to one literal cell per segment; its zone holds packed
+    // cells, and zoneSkip compares the leaf's own segment's cell against them. Without this arm the
+    // predicate skipped leaves only AFTER their slices were fetched and decoded, so an equality over
+    // a segment column read the whole column to keep a handful of leaves.
+    final boolean segmentLiteral =
+        ProjectionIndexRowGroupPage.isSegmentScopedIdKind(kind) && p.segmentLiteralCells != null;
+    if ((zonePrunableKind(kind) || segmentLiteral) && p.stringLitBytes == null) {
       // The memoized zone mirrors: built once per column from the descriptors, then every predicate
       // on the column (this query's and the next's) reads leaf-indexed arrays instead of paying a
       // descriptor binary search per leaf.
