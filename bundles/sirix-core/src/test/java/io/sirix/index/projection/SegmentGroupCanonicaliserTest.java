@@ -821,6 +821,49 @@ final class SegmentGroupCanonicaliserTest {
     assertEquals(segments * perSegment, canonicaliser.size());
   }
 
+  /** The same slice with one bit set in its presence word BEYOND the row count — a padding bit. */
+  private static ColumnSlice withPaddingBit(final ColumnSlice slice, final int bit) {
+    final long[] presence = slice.presenceWords().clone();
+    presence[bit >>> 6] |= 1L << (bit & 63);
+    return new ColumnSlice(slice.rowCount(), slice.flags(), slice.min(), slice.max(), presence,
+        slice.numericValues(), null, null, null, null, null);
+  }
+
+  @Test
+  @DisplayName("a presence word's padding bits beyond the row count are not rows, in every loop")
+  void paddingBitsBeyondTheRowCountAreNotRows() {
+    // Three rows in a word of 64: the loops now walk WORDS and pick rows off them with a bit scan,
+    // so a set bit past the row count would name a row the lane does not have. Every loop that
+    // reads a cell by row — the storage-order marking, the row loop, observe — must stop at the
+    // row count, with and without a mask (the mask carries the same padding bit).
+    final int segments = 1;
+    final int perSegment = 3;
+    final int padding = 40;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] leaves = {withPaddingBit(leavesInMintOrder(corpus, segments, perSegment)[0], padding)};
+    final long[][] rowKeep = {rowsKept(perSegment, 0, 2, padding)};
+
+    final ColumnSlice[] masked = canonicaliser.canonicalise(leaves, null, rowKeep,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(masked);
+    assertEquals(2, corpus.reads().get(), "the two kept rows are read; the padding bit reads nothing");
+    assertEquals(2, canonicaliser.size());
+    assertTrue(masked[0].numericValues()[0] >= 1 && masked[0].numericValues()[2] >= 1);
+    assertEquals(0L, masked[0].numericValues()[1], "row 1 was cleared by the mask");
+
+    assertTrue(canonicaliser.observe(leaves, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertEquals(2, canonicaliser.size(), "observe under the padded mask sees the same two values");
+
+    final ColumnSlice[] unmasked = canonicaliser.canonicalise(leaves, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    assertNotNull(unmasked);
+    assertEquals(3, corpus.reads().get(), "without a mask the third row is read, and nothing past it");
+    assertEquals(3, canonicaliser.size());
+    assertTrue(canonicaliser.observe(leaves, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertEquals(3, canonicaliser.size());
+  }
+
   @Test
   @DisplayName("the pruned sentinel passes through a row-masked pass, and a mismatched mask array refuses")
   void rowMasksAndTheSentinel() {

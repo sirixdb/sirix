@@ -400,35 +400,45 @@ public final class SegmentGroupCanonicaliser {
       }
       final long[] presence = slice.presenceWords();
       final int rows = slice.rowCount();
-      for (int row = 0; row < rows; row++) {
-        if ((presence[row >>> 6] & 1L << (row & 63)) == 0L
-            || rowsKept != null && (rowsKept[row >>> 6] & 1L << (row & 63)) == 0L) {
-          continue;
-        }
-        final long cell = cells[row];
-        final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
-        final int mint = ProjectionIndexRowGroupPage.idOfCell(cell);
-        if (segment < 0 || mint < 1) {
-          continue;
-        }
-        if (markedBySegment == null) {
-          markedBySegment = new Long2ObjectOpenHashMap<>();
-          entriesBySegment = new Long2IntOpenHashMap();
-          entriesBySegment.defaultReturnValue(-1);
-        }
-        long[] marked = markedBySegment.get(segment);
-        if (marked == null) {
-          final int entries = resolver.entryCountOfSegment(cell);
-          if (entries <= 0) {
-            report("segment " + segment + " reports entryCount=" + entries + " — not walkable");
-            return; // leave the row loop to resolve
+      // BY WORD, not by row: under a selective predicate almost every leaf the kernel still reads
+      // keeps NO row (its mask is all-zero), and a per-row test over 100M rows to find the ~1000
+      // kept ones was the serial cost of this pass. A word that keeps nothing costs one load.
+      final int words = (rows + 63) >>> 6;
+      for (int w = 0; w < words; w++) {
+        long live = rowsKept == null
+            ? presence[w]
+            : presence[w] & rowsKept[w];
+        while (live != 0L) {
+          final int row = (w << 6) + Long.numberOfTrailingZeros(live);
+          live &= live - 1;
+          if (row >= rows) {
+            break;
           }
-          marked = new long[(entries >> 6) + 2];
-          markedBySegment.put(segment, marked);
-          entriesBySegment.put(segment, entries);
-        }
-        if (mint <= entriesBySegment.get(segment)) {
-          marked[mint >>> 6] |= 1L << (mint & 63);
+          final long cell = cells[row];
+          final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
+          final int mint = ProjectionIndexRowGroupPage.idOfCell(cell);
+          if (segment < 0 || mint < 1) {
+            continue;
+          }
+          if (markedBySegment == null) {
+            markedBySegment = new Long2ObjectOpenHashMap<>();
+            entriesBySegment = new Long2IntOpenHashMap();
+            entriesBySegment.defaultReturnValue(-1);
+          }
+          long[] marked = markedBySegment.get(segment);
+          if (marked == null) {
+            final int entries = resolver.entryCountOfSegment(cell);
+            if (entries <= 0) {
+              report("segment " + segment + " reports entryCount=" + entries + " — not walkable");
+              return; // leave the row loop to resolve
+            }
+            marked = new long[(entries >> 6) + 2];
+            markedBySegment.put(segment, marked);
+            entriesBySegment.put(segment, entries);
+          }
+          if (mint <= entriesBySegment.get(segment)) {
+            marked[mint >>> 6] |= 1L << (mint & 63);
+          }
         }
       }
     }
@@ -707,42 +717,49 @@ public final class SegmentGroupCanonicaliser {
       final int[][] tables = memo;
       final int[] ranks = rankByArrival;
       int[] settled = null;
-      for (int row = 0; row < rows; row++) {
-        // ABSENT ROWS ARE NOT CELLS. A row whose field is missing carries whatever the lane was
-        // filled with — resolving that would either invent a group or, far worse, declare the whole
-        // pass unresolvable and decline a query that is perfectly servable. The kernel reads presence
-        // itself, so an absent row's canonical entry is never looked at.
-        if ((presence[row >>> 6] & 1L << (row & 63)) == 0L) {
-          continue;
-        }
-        final long cell = cells[row];
-        if (settled == null) {
-          final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
-          settled = segment >= 0 && segment < tables.length
-              ? tables[segment]
-              : null;
-          if (settled == null) {
-            settled = NO_SETTLED; // the segment has no table yet; every row takes the slow path
+      // ABSENT ROWS ARE NOT CELLS. A row whose field is missing carries whatever the lane was
+      // filled with — resolving that would either invent a group or, far worse, declare the whole
+      // pass unresolvable and decline a query that is perfectly servable. The kernel reads presence
+      // itself, so an absent row's canonical entry is never looked at. Walked BY WORD: under a
+      // selective predicate most leaves keep nothing, and a word that keeps nothing costs one load.
+      final int words = (rows + 63) >>> 6;
+      for (int w = 0; w < words; w++) {
+        long live = presence[w];
+        while (live != 0L) {
+          final int row = (w << 6) + Long.numberOfTrailingZeros(live);
+          live &= live - 1;
+          if (row >= rows) {
+            break;
           }
-        }
-        final int cellId = ProjectionIndexRowGroupPage.idOfCell(cell);
-        final int arrival = cellId >= 0 && cellId < settled.length
-            ? settled[cellId]
-            : 0;
-        final int id = arrival != 0
-            ? rankOf(arrival, ranks)
-            : laneIdOf(cell);
-        if (id == UNRESOLVABLE) {
-          reportUnresolvable(i, row, cell);
-          return null;
-        }
-        canonical[row] = id;
-        present++;
-        if (id < min) {
-          min = id;
-        }
-        if (id > max) {
-          max = id;
+          final long cell = cells[row];
+          if (settled == null) {
+            final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
+            settled = segment >= 0 && segment < tables.length
+                ? tables[segment]
+                : null;
+            if (settled == null) {
+              settled = NO_SETTLED; // the segment has no table yet; every row takes the slow path
+            }
+          }
+          final int cellId = ProjectionIndexRowGroupPage.idOfCell(cell);
+          final int arrival = cellId >= 0 && cellId < settled.length
+              ? settled[cellId]
+              : 0;
+          final int id = arrival != 0
+              ? rankOf(arrival, ranks)
+              : laneIdOf(cell);
+          if (id == UNRESOLVABLE) {
+            reportUnresolvable(i, row, cell);
+            return null;
+          }
+          canonical[row] = id;
+          present++;
+          if (id < min) {
+            min = id;
+          }
+          if (id > max) {
+            max = id;
+          }
         }
       }
       if (present == 0) {
@@ -833,13 +850,22 @@ public final class SegmentGroupCanonicaliser {
       }
       final long[] presence = slice.presenceWords();
       final int rows = slice.rowCount();
-      for (int row = 0; row < rows; row++) {
-        if ((presence[row >>> 6] & 1L << (row & 63)) == 0L
-            || rowsKept != null && (rowsKept[row >>> 6] & 1L << (row & 63)) == 0L) {
-          continue; // an absent row holds no value and is not a distinct one; a cleared one is not read
-        }
-        if (canonicalOf(cells[row]) == UNRESOLVABLE) {
-          return false;
+      // An absent row holds no value and is not a distinct one; a cleared one is not read. By word,
+      // as in canonicalise: a word that keeps nothing costs one load.
+      final int words = (rows + 63) >>> 6;
+      for (int w = 0; w < words; w++) {
+        long live = rowsKept == null
+            ? presence[w]
+            : presence[w] & rowsKept[w];
+        while (live != 0L) {
+          final int row = (w << 6) + Long.numberOfTrailingZeros(live);
+          live &= live - 1;
+          if (row >= rows) {
+            break;
+          }
+          if (canonicalOf(cells[row]) == UNRESOLVABLE) {
+            return false;
+          }
         }
       }
     }
