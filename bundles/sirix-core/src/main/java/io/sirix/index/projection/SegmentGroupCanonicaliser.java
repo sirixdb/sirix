@@ -352,7 +352,7 @@ public final class SegmentGroupCanonicaliser {
   };
 
   private void resolveInStorageOrder(final ColumnSlice[] slices, final long @Nullable [] keep) {
-    resolveInStorageOrder(slices, keep, SERIAL_SEGMENTS);
+    resolveInStorageOrder(slices, keep, null, SERIAL_SEGMENTS);
   }
 
   /**
@@ -373,7 +373,7 @@ public final class SegmentGroupCanonicaliser {
    * </p>
    */
   private void resolveInStorageOrder(final ColumnSlice[] slices, final long @Nullable [] keep,
-      final SegmentRunner runner) {
+      final long @Nullable [] @Nullable [] rowKeep, final SegmentRunner runner) {
     // Referenced mints per segment. A bitmap over the dictionary is ~one bit per entry, so marking
     // is cheaper than collecting the cells: an 18M-entry column costs ~2 MB here against ~150 MB to
     // hold its distinct cells.
@@ -387,6 +387,12 @@ public final class SegmentGroupCanonicaliser {
       if (slice.rowCount() == 0) {
         continue; // the pruned sentinel: no rows, so nothing to mark
       }
+      final long[] rowsKept = rowKeep == null
+          ? null
+          : rowKeep[i];
+      if (rowKeep != null && rowsKept == null) {
+        continue; // no row of this leaf passes the predicates: none of its cells is ever read
+      }
       final long[] cells = slice.numericValues();
       if (cells == null) {
         report("a slice carries no long lane");
@@ -395,7 +401,8 @@ public final class SegmentGroupCanonicaliser {
       final long[] presence = slice.presenceWords();
       final int rows = slice.rowCount();
       for (int row = 0; row < rows; row++) {
-        if ((presence[row >>> 6] & 1L << (row & 63)) == 0L) {
+        if ((presence[row >>> 6] & 1L << (row & 63)) == 0L
+            || rowsKept != null && (rowsKept[row >>> 6] & 1L << (row & 63)) == 0L) {
           continue;
         }
         final long cell = cells[row];
@@ -469,22 +476,73 @@ public final class SegmentGroupCanonicaliser {
    * @return how many marked cells the walk resolved
    */
   private int walkSegment(final int segment, final long[] marked, final int entries) {
-    final long probe = ProjectionIndexRowGroupPage.packSegmentCell(segment, 1);
-    final int[] ids = new int[WALK_BATCH];
-    final long[] hashes = new long[WALK_BATCH];
-    int filled = 0;
-    int resolved = 0;
-    for (int position = 1; position <= entries; position++) {
-      final int mint = resolver.mintAtPosition(probe, position);
-      if (mint < 1 || mint >= marked.length << 6 || (marked[mint >>> 6] & 1L << (mint & 63)) == 0L) {
-        continue;
+    int markedCount = 0;
+    for (final long word : marked) {
+      markedCount += Long.bitCount(word);
+    }
+    if (markedCount == 0) {
+      return 0;
+    }
+    final WalkBatch batch = new WalkBatch(segment);
+    if ((long) markedCount * SPARSE_WALK_RATIO < entries) {
+      // SPARSE: a selective predicate marked a few hundred cells of a many-million-entry segment.
+      // Visiting every position to find them costs one rank-table lookup per ENTRY; ordering the
+      // marks by position costs one per MARK, and the resolves then run in storage order all the
+      // same. ClickBench q21 at 100M: 760 marks over 97 segments of 18.3M entries.
+      final long[] byPosition = new long[markedCount]; // (position << 32) | mint; sorted = storage order
+      int n = 0;
+      for (int w = 0; w < marked.length; w++) {
+        long word = marked[w];
+        while (word != 0L) {
+          final int mint = (w << 6) + Long.numberOfTrailingZeros(word);
+          word &= word - 1;
+          final int position = resolver.positionOfCell(ProjectionIndexRowGroupPage.packSegmentCell(segment, mint));
+          byPosition[n++] = (long) Math.max(position, 0) << 32 | mint;
+        }
       }
+      Arrays.sort(byPosition, 0, n);
+      for (int i = 0; i < n; i++) {
+        batch.add((int) byPosition[i]);
+      }
+    } else {
+      final long probe = ProjectionIndexRowGroupPage.packSegmentCell(segment, 1);
+      for (int position = 1; position <= entries; position++) {
+        final int mint = resolver.mintAtPosition(probe, position);
+        if (mint < 1 || mint >= marked.length << 6 || (marked[mint >>> 6] & 1L << (mint & 63)) == 0L) {
+          continue;
+        }
+        batch.add(mint);
+      }
+    }
+    return batch.finish();
+  }
+
+  /**
+   * Below one mark in this many entries a segment is walked by its marks, not by its positions:
+   * the break-even of one position lookup plus a sort slot per mark against one lookup per entry.
+   */
+  private static final int SPARSE_WALK_RATIO = 16;
+
+  /** A walk's batch of hashed mints on its way into the memo: the monitor is taken once per batch. */
+  private final class WalkBatch {
+    private final int segment;
+    private final int[] ids = new int[WALK_BATCH];
+    private final long[] hashes = new long[WALK_BATCH];
+    private int filled;
+    private int resolved;
+
+    WalkBatch(final int segment) {
+      this.segment = segment;
+    }
+
+    /** Hash {@code mint} unless it is settled already, and land the batch when it is full. */
+    void add(final int mint) {
       final int[][] tables = memo;
       final int[] table = segment < tables.length
           ? tables[segment]
           : null;
       if (table != null && mint < table.length && table[mint] != 0) {
-        continue; // settled by an earlier pass, or by a racing row loop
+        return; // settled by an earlier pass, or by a racing row loop
       }
       final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, mint);
       long hash;
@@ -504,10 +562,15 @@ public final class SegmentGroupCanonicaliser {
       }
       resolved++;
     }
-    if (filled > 0) {
-      memoiseBatch(segment, ids, hashes, filled);
+
+    /** Land the last partial batch; how many cells the walk resolved. */
+    int finish() {
+      if (filled > 0) {
+        memoiseBatch(segment, ids, hashes, filled);
+        filled = 0;
+      }
+      return resolved;
     }
-    return resolved;
   }
 
   /** {@link #memoise} for a walk's batch: the monitor is taken once for {@code n} cells. */
@@ -567,21 +630,48 @@ public final class SegmentGroupCanonicaliser {
    */
   public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices,
       final long @Nullable [] keep) {
-    return canonicalise(slices, keep, SERIAL_SEGMENTS);
+    return canonicalise(slices, keep, null, SERIAL_SEGMENTS);
   }
 
   /** The same, with the storage-order prefetch's segment walks run by {@code runner}. */
   public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices,
       final long @Nullable [] keep, final SegmentRunner runner) {
+    return canonicalise(slices, keep, null, runner);
+  }
+
+  /**
+   * The same, canonicalising only the ROWS {@code rowKeep} keeps.
+   *
+   * <p>
+   * PREDICATE-FIRST at row grain. {@code rowKeep[leaf]} is the predicates' verdict on the leaf's rows
+   * as the kernel will compute it ({@code ProjectionColumnScan.rowKeepMasks}); {@code null} means no
+   * row of the leaf passes, and such a leaf is left {@code null} here exactly like one the leaf mask
+   * drops. A row the mask clears keeps no cell: its canonical entry stays zero and its presence bit is
+   * cleared in the lane handed out, so nothing downstream can mistake it for a value. The kernel
+   * never reads it anyway — its own mask, the same verdict, clears the row first — but the lane must
+   * not depend on that. {@code rowKeep == null} keeps every row.
+   * </p>
+   */
+  public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices,
+      final long @Nullable [] keep, final long @Nullable [] @Nullable [] rowKeep, final SegmentRunner runner) {
     if (slices == null) {
       return null;
     }
-    resolveInStorageOrder(slices, keep, requireNonNull(runner, "runner must not be null"));
+    if (rowKeep != null && rowKeep.length != slices.length) {
+      throw new IllegalArgumentException(rowKeep.length + " row masks for " + slices.length + " leaves");
+    }
+    resolveInStorageOrder(slices, keep, rowKeep, requireNonNull(runner, "runner must not be null"));
     final ColumnSlice[] out = new ColumnSlice[slices.length];
     for (int i = 0; i < slices.length; i++) {
       final ColumnSlice slice = slices[i];
       if (slice == null || keep != null && (keep[i >>> 6] & 1L << (i & 63)) == 0L) {
         continue;
+      }
+      final long[] rowsKept = rowKeep == null
+          ? null
+          : rowKeep[i];
+      if (rowKeep != null && rowsKept == null && slice.rowCount() != 0) {
+        continue; // no row passes: the kernel skips the leaf before it reads a key from it
       }
       if (slice.rowCount() == 0) {
         // THE PRUNED SENTINEL. A windowed fill hands out a shared rowless slice for every leaf the
@@ -603,7 +693,9 @@ public final class SegmentGroupCanonicaliser {
         return null;
       }
       final int rows = slice.rowCount();
-      final long[] presence = slice.presenceWords();
+      final long[] presence = rowsKept == null
+          ? slice.presenceWords()
+          : presentAndKept(slice.presenceWords(), rowsKept, rows);
       final long[] canonical = new long[cells.length];
       long min = Long.MAX_VALUE;
       long max = Long.MIN_VALUE;
@@ -659,8 +751,21 @@ public final class SegmentGroupCanonicaliser {
       }
       // The zone map must describe what the lane now HOLDS. Carrying the cells' min/max over would
       // let a range prune drop a leaf whose canonical ids are nowhere near them.
-      out[i] = new ColumnSlice(rows, slice.flags(), min, max, slice.presenceWords(), canonical, slice.boolWords(),
+      out[i] = new ColumnSlice(rows, slice.flags(), min, max, presence, canonical, slice.boolWords(),
           slice.stringDictIds(), slice.dictBytes(), slice.dictOffsets(), slice.setCounts(), slice.dictHashes());
+    }
+    return out;
+  }
+
+  /** Presence with every row the mask clears cleared too, over the words {@code rows} span. */
+  private static long[] presentAndKept(final long[] presence, final long[] kept, final int rows) {
+    final int words = (rows + 63) >>> 6;
+    if (kept.length < words) {
+      throw new IllegalArgumentException("a row mask of " + kept.length + " words cannot cover " + rows + " rows");
+    }
+    final long[] out = new long[words];
+    for (int w = 0; w < words; w++) {
+      out[w] = presence[w] & kept[w];
     }
     return out;
   }
@@ -693,13 +798,34 @@ public final class SegmentGroupCanonicaliser {
    * </p>
    */
   public boolean observe(final ColumnSlice @Nullable [] slices, final SegmentRunner runner) {
+    return observe(slices, null, runner);
+  }
+
+  /**
+   * The same, observing only the ROWS {@code rowKeep} keeps — see
+   * {@link #canonicalise(ColumnSlice[], long[], long[][], SegmentRunner)}. The value space then holds
+   * exactly the values of rows that pass, which is what a seal over a filtered operand must order:
+   * a value only failing rows carry is not a candidate for their MIN.
+   */
+  public boolean observe(final ColumnSlice @Nullable [] slices, final long @Nullable [] @Nullable [] rowKeep,
+      final SegmentRunner runner) {
     if (slices == null) {
       return false;
     }
-    resolveInStorageOrder(slices, null, requireNonNull(runner, "runner must not be null"));
-    for (final ColumnSlice slice : slices) {
+    if (rowKeep != null && rowKeep.length != slices.length) {
+      throw new IllegalArgumentException(rowKeep.length + " row masks for " + slices.length + " leaves");
+    }
+    resolveInStorageOrder(slices, null, rowKeep, requireNonNull(runner, "runner must not be null"));
+    for (int i = 0; i < slices.length; i++) {
+      final ColumnSlice slice = slices[i];
       if (slice == null || slice.rowCount() == 0) {
         continue; // absent, or the pruned sentinel: no rows, no values
+      }
+      final long[] rowsKept = rowKeep == null
+          ? null
+          : rowKeep[i];
+      if (rowKeep != null && rowsKept == null) {
+        continue; // no row of the leaf passes: its values are not the query's
       }
       final long[] cells = slice.numericValues();
       if (cells == null) {
@@ -708,8 +834,9 @@ public final class SegmentGroupCanonicaliser {
       final long[] presence = slice.presenceWords();
       final int rows = slice.rowCount();
       for (int row = 0; row < rows; row++) {
-        if ((presence[row >>> 6] & 1L << (row & 63)) == 0L) {
-          continue; // an absent row holds no value and is not a distinct one
+        if ((presence[row >>> 6] & 1L << (row & 63)) == 0L
+            || rowsKept != null && (rowsKept[row >>> 6] & 1L << (row & 63)) == 0L) {
+          continue; // an absent row holds no value and is not a distinct one; a cleared one is not read
         }
         if (canonicalOf(cells[row]) == UNRESOLVABLE) {
           return false;

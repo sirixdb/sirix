@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +24,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -243,5 +246,118 @@ final class PredicateTreeKeepMaskTest {
     assertTrue(ProjectionColumnScan.allPruned(one, 2, 5));
     assertTrue(ProjectionColumnScan.allPruned(one, 6, 8));
     assertFalse(ProjectionColumnScan.allPruned(one, 0, 8));
+  }
+
+  /** The rows of {@code leaf} the mask keeps, in order. */
+  private static int[] rowsOf(final long[] mask) {
+    int n = 0;
+    for (final long w : mask) {
+      n += Long.bitCount(w);
+    }
+    final int[] rows = new int[n];
+    int at = 0;
+    for (int row = 0; row < mask.length * 64; row++) {
+      if ((mask[row >>> 6] & 1L << (row & 63)) != 0L) {
+        rows[at++] = row;
+      }
+    }
+    return rows;
+  }
+
+  private static int[] range(final int from, final int to) {
+    final int[] rows = new int[to - from];
+    for (int i = 0; i < rows.length; i++) {
+      rows[i] = from + i;
+    }
+    return rows;
+  }
+
+  @Test
+  @DisplayName("row keep masks are the kernel's own row verdicts: exact rows, null where no row passes")
+  void rowKeepMasksAreTheKernelsVerdicts() {
+    final Fixture f = buildFixture();
+    // A conjunction that keeps PART of one leaf: key >= 7030 AND class = 3 — rows 30..63 of leaf 7,
+    // no row of any other leaf (leaves 0..6 fail the key zone, leaf 3 the class).
+    final ColumnPredicate[] preds = {ColumnPredicate.numeric(0, Op.GE, 7_030L), classIs(3)};
+    final ColumnSlice[][] predCols = ProjectionColumnScan.resolvePredicateColumnsShared(f.store(), preds, f.fetcher());
+    final long[][] out = new long[LEAVES][];
+
+    final long kept = ProjectionColumnScan.rowKeepMasks(f.store(), preds, predCols, null, null, 0, LEAVES, out);
+
+    assertEquals(34, kept, "rows 30..63 of leaf 7");
+    for (int leaf = 0; leaf < 7; leaf++) {
+      assertNull(out[leaf], "leaf " + leaf + ": no row passes, so no mask");
+    }
+    assertNotNull(out[7]);
+    assertEquals(1, out[7].length, "64 rows fit one word");
+    assertArrayEquals(range(30, 64), rowsOf(out[7]), "leaf 7 keeps exactly the rows the kernel would");
+  }
+
+  @Test
+  @DisplayName("a leaf the zone maps keep but no row satisfies keeps an ALL-ZERO mask: the kernel reads that leaf")
+  void anAllZeroMaskIsAMask() {
+    final Fixture f = buildFixture();
+    // key >= 7032 AND key <= 7031: leaf 7's zone [7000, 7063] satisfies both bounds on its own, so
+    // the leaf is fetched and evaluated — and no row satisfies the pair. The conjunctive kernel
+    // answers the leaf's ROW COUNT for such a leaf and goes on to read its group and operand
+    // slices, so the mask must exist (all zero) and the consumer must hand the kernel a slice: a
+    // null here became a null the kernel dereferenced (q21 at 1M declined on it).
+    final ColumnPredicate[] preds =
+        {ColumnPredicate.numeric(0, Op.GE, 7_032L), ColumnPredicate.numeric(0, Op.LE, 7_031L)};
+    final ColumnSlice[][] predCols = ProjectionColumnScan.resolvePredicateColumnsShared(f.store(), preds, f.fetcher());
+    final long[][] out = new long[LEAVES][];
+    Arrays.fill(out, new long[] {-1L}); // a stale mask must be overwritten, not left behind
+
+    assertEquals(0, ProjectionColumnScan.rowKeepMasks(f.store(), preds, predCols, null, null, 0, LEAVES, out));
+    for (int leaf = 0; leaf < 7; leaf++) {
+      assertNull(out[leaf], "leaf " + leaf + " is zone-pruned: the kernel skips it, so no mask");
+    }
+    assertNotNull(out[7], "leaf 7 is kept by its zone and read by the kernel: a mask, all zero");
+    assertEquals(0, rowsOf(out[7]).length);
+  }
+
+  @Test
+  @DisplayName("a tree's row masks match evaluateMaskTree leaf for leaf, over the masked fill")
+  void treeRowKeepMasks() {
+    // (key >= 6000 AND class = 3) OR (key < 20): leaf 7 whole, leaf 0 rows 0..19.
+    final PredicateTree tree = PredicateTree.of(
+        new ColumnPredicate[] {keyAtLeast(6), classIs(3), ColumnPredicate.numeric(0, Op.LT, 20L)},
+        new byte[] {0, 1, PredicateTree.OP_AND, 2, PredicateTree.OP_OR});
+    final Fixture f = buildFixture();
+    final long[] keep = ProjectionColumnScan.predicateKeepMask(f.store(), NO_PREDICATES, tree, f.fetcher());
+    final ColumnSlice[][] treeCols = ProjectionColumnScan.resolveTreeColumnsShared(f.store(), tree, f.fetcher(), keep);
+    final long[][] out = new long[LEAVES][];
+
+    // Two ranges, as the morsels on the workers hand them out.
+    final long first = ProjectionColumnScan.rowKeepMasks(f.store(), NO_PREDICATES, new ColumnSlice[0][], tree,
+        treeCols, 0, 3, out);
+    final long second = ProjectionColumnScan.rowKeepMasks(f.store(), NO_PREDICATES, new ColumnSlice[0][], tree,
+        treeCols, 3, LEAVES, out);
+
+    assertEquals(20, first, "leaf 0's rows 0..19");
+    assertEquals(ROWS, second, "leaf 7 whole");
+    assertArrayEquals(range(0, 20), rowsOf(out[0]));
+    for (int leaf = 1; leaf < 7; leaf++) {
+      assertNull(out[leaf], "leaf " + leaf + " is pruned (the sentinel) and yields no mask");
+    }
+    assertArrayEquals(range(0, ROWS), rowsOf(out[7]));
+  }
+
+  @Test
+  @DisplayName("row keep masks refuse a bad range or mismatched columns")
+  void rowKeepMasksRefuseBadArguments() {
+    final Fixture f = buildFixture();
+    final ColumnPredicate[] preds = {classIs(3)};
+    final ColumnSlice[][] predCols = ProjectionColumnScan.resolvePredicateColumnsShared(f.store(), preds, f.fetcher());
+    final long[][] out = new long[LEAVES][];
+    assertThrows(IllegalArgumentException.class,
+        () -> ProjectionColumnScan.rowKeepMasks(f.store(), preds, predCols, null, null, 0, LEAVES + 1, out));
+    assertThrows(IllegalArgumentException.class,
+        () -> ProjectionColumnScan.rowKeepMasks(f.store(), preds, predCols, null, null, 3, 2, out));
+    assertThrows(IllegalArgumentException.class, () -> ProjectionColumnScan.rowKeepMasks(f.store(), preds,
+        new ColumnSlice[0][], null, null, 0, LEAVES, out), "one resolved column per predicate");
+    final PredicateTree tree = PredicateTree.of(new ColumnPredicate[] {classIs(3)}, new byte[] {0});
+    assertThrows(IllegalArgumentException.class, () -> ProjectionColumnScan.rowKeepMasks(f.store(), NO_PREDICATES,
+        new ColumnSlice[0][], tree, null, 0, LEAVES, out), "a tree needs its resolved columns");
   }
 }

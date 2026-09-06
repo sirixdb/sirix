@@ -17872,8 +17872,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final long[] groupKeepMask = segmentKeys == null
             ? null
             : ProjectionColumnScan.predicateKeepMask(slicedStore, preds, predTree, fetcher);
+        // ... AND AT ROW GRAIN. The leaf mask spares the leaves the zone maps drop, but a selective
+        // predicate over an UNSORTED column keeps a few rows in almost every leaf, so it spares
+        // almost nothing: q21's LIKE kept ~1 % of the rows and the seal still resolved all 18.3M
+        // distinct URLs. The kernels' own row verdict, taken once here on the workers, lets every
+        // seal below see only the cells of rows that pass.
+        final long[][] rowKeep = segmentKeys != null || anySegmentExtremum
+            ? predicateRowKeep(slicedStore, preds, slicedPredCols, predTree, slicedTreeCols)
+            : null;
         slicedGroupCol = canonicaliseGroupKeys(segmentKeys, slicedStore.column(groupCol, fetcher), groupKeepMask,
-            segmentWalksOnWorkers());
+            rowKeep, segmentWalksOnWorkers());
         if (slicedGroupCol == null) {
           return declineGroupAgg("a segment-scoped group key has no value in this revision");
         }
@@ -17922,7 +17930,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               return declineGroupAgg("segment-scoped extremum has no aggregate lane");
             }
             final SealedOperand sealed =
-                sealSegmentOperandShared(sealedByColumn, handle, slicedStore, aggCols[lane], fetcher, true);
+                sealSegmentOperandShared(sealedByColumn, handle, slicedStore, aggCols[lane], fetcher, rowKeep, true);
             if (sealed == null) {
               return declineGroupAgg("a segment-scoped extremum operand has no value in this revision");
             }
@@ -17937,7 +17945,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             // A length lane indexes lengthTable by the canonical id and never compares two of them,
             // so it needs canonical ids but NOT collating ones.
             final SealedOperand sealed =
-                sealSegmentOperandShared(sealedByColumn, handle, slicedStore, aggCols[a], fetcher, false);
+                sealSegmentOperandShared(sealedByColumn, handle, slicedStore, aggCols[a], fetcher, rowKeep, false);
             if (sealed == null) {
               return declineGroupAgg("a segment-scoped string-length operand has no value in this revision");
             }
@@ -18920,7 +18928,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private @Nullable SealedOperand sealSegmentOperand(final ProjectionIndexRegistry.Handle handle,
       final ProjectionColumnStore store, final int column,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
-    return sealSegmentOperand(handle, store, column, fetcher, true);
+    return sealSegmentOperand(handle, store, column, fetcher, null, true);
   }
 
   /**
@@ -18935,7 +18943,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private @Nullable SealedOperand sealSegmentOperandShared(final Int2ObjectOpenHashMap<SealedOperand> byColumn,
       final ProjectionIndexRegistry.Handle handle, final ProjectionColumnStore store, final int column,
-      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final boolean ordered) {
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [][] rowKeep,
+      final boolean ordered) {
     final SealedOperand cached = byColumn.get(column);
     if (cached != null) {
       if (ordered && !cached.ranked().isOrderPreserving() && !cached.ranked().sealOrderPreserving()) {
@@ -18943,7 +18952,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return cached;
     }
-    final SealedOperand sealed = sealSegmentOperand(handle, store, column, fetcher, ordered);
+    final SealedOperand sealed = sealSegmentOperand(handle, store, column, fetcher, rowKeep, ordered);
     if (sealed != null) {
       byColumn.put(column, sealed);
     }
@@ -18951,6 +18960,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
+   * @param rowKeep the predicates' row masks ({@link #predicateRowKeep}); the seal then resolves and
+   *        orders only the values of rows that pass. {@code null} = every row
    * @param ordered whether the canonical ids must COLLATE — true for min/max, whose kernel folds them
    *        as plain integers, and false for a string-length lane, which only indexes a table by them.
    *        Ordering is the one step here that does not scale: it is a total order over every distinct
@@ -18959,7 +18970,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private @Nullable SealedOperand sealSegmentOperand(final ProjectionIndexRegistry.Handle handle,
       final ProjectionColumnStore store, final int column,
-      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final boolean ordered) {
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [][] rowKeep,
+      final boolean ordered) {
     final Supplier<GlobalValueDictionary.ReadView> unionViews = segmentUnionViewPerThread(handle, column);
     if (unionViews == null) {
       return null;
@@ -18973,7 +18985,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // unreadable cell is a correctness stop, the ordering bound is a scale limit that names its own
     // remedy, and a failed canonicalise is neither. Say which.
     final SegmentGroupCanonicaliser.SegmentRunner walks = segmentWalksOnWorkers();
-    if (!ranked.observe(operand, walks)) {
+    if (!ranked.observe(operand, rowKeep, walks)) {
       if (PROJ_DIAG) {
         System.err.println("[proj] segment operand on column " + column + " has a cell with no value in this"
             + " revision");
@@ -18989,7 +19001,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return null; // too many distinct values to order; the caller declines to the generic pipeline
     }
     final long t3 = PROJ_DIAG ? System.nanoTime() : 0L;
-    final ProjectionColumnStore.ColumnSlice[] lane = ranked.canonicalise(operand, null, walks);
+    final ProjectionColumnStore.ColumnSlice[] lane = ranked.canonicalise(operand, null, rowKeep, walks);
     if (PROJ_DIAG) {
       // The seal is the serial part of every extremum / length query over a segment column; a
       // phase split says which of its four steps a change moved, and which it did not.
@@ -19043,9 +19055,81 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final @Nullable SegmentGroupCanonicaliser canonicaliser,
       final ProjectionColumnStore.ColumnSlice @Nullable [] slices, final long @Nullable [] keep,
       final SegmentGroupCanonicaliser.SegmentRunner runner) {
+    return canonicaliseGroupKeys(canonicaliser, slices, keep, null, runner);
+  }
+
+  /** The same, canonicalising only the rows {@code rowKeep} keeps ({@link #predicateRowKeep}). */
+  private static ProjectionColumnStore.ColumnSlice @Nullable [] canonicaliseGroupKeys(
+      final @Nullable SegmentGroupCanonicaliser canonicaliser,
+      final ProjectionColumnStore.ColumnSlice @Nullable [] slices, final long @Nullable [] keep,
+      final long @Nullable [][] rowKeep, final SegmentGroupCanonicaliser.SegmentRunner runner) {
     return canonicaliser == null
         ? slices
-        : canonicaliser.canonicalise(slices, keep, runner);
+        : canonicaliser.canonicalise(slices, keep, rowKeep, runner);
+  }
+
+  /** Leaves a lane claims at a time while building the row masks: enough to amortise the counter. */
+  private static final int ROW_KEEP_MORSEL = 64;
+
+  /**
+   * The predicates' row masks over every leaf of {@code store}, evaluated on the scan workers —
+   * {@link ProjectionColumnScan#rowKeepMasks} over morsels the lanes claim from a counter, so a
+   * predicate whose cost is uneven across leaves (a LIKE that settles a verdict per distinct cell)
+   * does not leave the pass waiting on its slowest static partition.
+   *
+   * <p>
+   * PLANNING THREAD ONLY: {@link #parallel} blocks on the pool. The kernels re-evaluate the same
+   * predicates over the same slices afterwards, which is cheap — a string verdict is memoised per
+   * distinct cell on the predicate, so the second evaluation is bit tests.
+   * </p>
+   */
+  private long @Nullable [][] predicateRowKeep(final ProjectionColumnStore store,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionColumnStore.ColumnSlice[][] predCols,
+      final ProjectionIndexScan.@Nullable PredicateTree tree,
+      final ProjectionColumnStore.ColumnSlice @Nullable [][] treeCols) {
+    final int leaves = store.leafCount();
+    final long[][] rowKeep = new long[leaves][];
+    final long t0 = PROJ_DIAG ? System.nanoTime() : 0L;
+    final int morsels = (leaves + ROW_KEEP_MORSEL - 1) / ROW_KEEP_MORSEL;
+    final int lanes = Math.max(1, Math.min(threads, morsels));
+    final long[] keptPerLane = new long[lanes];
+    if (lanes == 1) {
+      keptPerLane[0] = ProjectionColumnScan.rowKeepMasks(store, preds, predCols, tree, treeCols, 0, leaves, rowKeep);
+    } else {
+      final AtomicInteger next = new AtomicInteger();
+      parallel(lanes, lane -> {
+        long kept = 0;
+        for (int m = next.getAndIncrement(); m < morsels; m = next.getAndIncrement()) {
+          final int from = m * ROW_KEEP_MORSEL;
+          kept += ProjectionColumnScan.rowKeepMasks(store, preds, predCols, tree, treeCols, from,
+              Math.min(leaves, from + ROW_KEEP_MORSEL), rowKeep);
+        }
+        keptPerLane[lane] = kept;
+      });
+    }
+    if (PROJ_DIAG) {
+      long kept = 0;
+      for (final long perLane : keptPerLane) {
+        kept += perLane;
+      }
+      int leavesRead = 0; // leaves the kernel reads (a mask, all-zero or not)
+      int leavesKept = 0; // leaves with at least one passing row
+      for (final long[] mask : rowKeep) {
+        if (mask == null) {
+          continue;
+        }
+        leavesRead++;
+        for (final long word : mask) {
+          if (word != 0L) {
+            leavesKept++;
+            break;
+          }
+        }
+      }
+      System.err.println("[proj] predicate row masks: " + kept + " row(s) in " + leavesKept + " of " + leaves
+          + " leaves pass (" + leavesRead + " read), " + (System.nanoTime() - t0) / 1_000_000 + " ms");
+    }
+    return rowKeep;
   }
 
   /**

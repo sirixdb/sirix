@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -277,7 +278,8 @@ final class SegmentGroupCanonicaliserTest {
    * of a value is counted, so a test can say what a pass cost.
    */
   private record PositionedCorpus(Map<Long, String> values, Map<Long, Integer> positions, long[] cells,
-      Map<Long, Integer> mints, Map<Integer, Integer> entries, AtomicInteger reads, AtomicInteger collisions)
+      Map<Long, Integer> mints, Map<Integer, Integer> entries, AtomicInteger reads, AtomicInteger collisions,
+      AtomicInteger positionLookups, AtomicInteger positionWalks)
       implements SegmentGroupCanonicaliser.CellResolver {
     @Override
     public String valueOfCell(final long cell) {
@@ -294,6 +296,7 @@ final class SegmentGroupCanonicaliserTest {
 
     @Override
     public int positionOfCell(final long cell) {
+      positionLookups.incrementAndGet();
       final Integer position = positions.get(cell);
       return position == null
           ? SegmentGroupCanonicaliser.NO_POSITION
@@ -310,6 +313,7 @@ final class SegmentGroupCanonicaliserTest {
 
     @Override
     public int mintAtPosition(final long cell, final int position) {
+      positionWalks.incrementAndGet();
       final Integer mint =
           mints.get(ProjectionIndexRowGroupPage.packSegmentCell(ProjectionIndexRowGroupPage.segmentOfCell(cell),
               position));
@@ -358,7 +362,8 @@ final class SegmentGroupCanonicaliserTest {
       }
       entries.put(segment, perSegment);
     }
-    return new PositionedCorpus(values, positions, cells, mints, entries, new AtomicInteger(), new AtomicInteger());
+    return new PositionedCorpus(values, positions, cells, mints, entries, new AtomicInteger(), new AtomicInteger(),
+        new AtomicInteger(), new AtomicInteger());
   }
 
   /**
@@ -662,5 +667,184 @@ final class SegmentGroupCanonicaliserTest {
     assertNotNull(out);
     assertNotNull(out[0]);
     assertNotNull(out[1], "without a mask nothing is pruned");
+  }
+
+  /** A row mask over {@code rows} rows with exactly the named rows set. */
+  private static long[] rowsKept(final int rows, final int... kept) {
+    final long[] mask = new long[(rows + 63) >>> 6];
+    for (final int row : kept) {
+      mask[row >>> 6] |= 1L << (row & 63);
+    }
+    return mask;
+  }
+
+  @Test
+  @DisplayName("PREDICATE-FIRST: only the rows a mask keeps are resolved, issued, and carried")
+  void rowMasksBoundTheResolvedCells() {
+    // Two segments of eight distinct values each, one leaf per segment. The mask keeps three rows
+    // of leaf 0 and NO row of leaf 1 (null): the walk must resolve exactly those three cells, the
+    // value space must hold exactly three values, and leaf 1 must come back null — a leaf the
+    // kernel never reads a key from is a leaf nothing needs to canonicalise.
+    final int segments = 2;
+    final int perSegment = 8;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
+    final long[][] rowKeep = {rowsKept(perSegment, 1, 3, 6), null};
+
+    final ColumnSlice[] out = canonicaliser.canonicalise(leaves, null, rowKeep,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(out);
+    assertNull(out[1], "a leaf whose every row the predicates drop is left null");
+    assertEquals(3, corpus.reads().get(), "exactly the kept cells are read — the cleared rows cost nothing");
+    assertEquals(3, canonicaliser.size(), "and only the kept values are issued into the space");
+    final ColumnSlice kept = out[0];
+    assertNotNull(kept);
+    assertEquals(perSegment, kept.rowCount(), "the leaf keeps its row count: the kernel addresses rows by index");
+    final long[] presence = kept.presenceWords();
+    final long[] ids = kept.numericValues();
+    for (int row = 0; row < perSegment; row++) {
+      final boolean isKept = row == 1 || row == 3 || row == 6;
+      assertEquals(isKept, (presence[0] & 1L << row) != 0L, "row " + row + " presence follows the mask");
+      if (isKept) {
+        assertTrue(ids[row] >= 1 && ids[row] <= 3, "row " + row + " carries a canonical id");
+      } else {
+        assertEquals(0L, ids[row], "row " + row + " was cleared and carries no id");
+      }
+    }
+    // The rows run in mint order, the reverse of position order, and the walk issues along position:
+    // the kept ids FALL along the rows, as they do without a mask.
+    assertTrue(ids[6] < ids[3] && ids[3] < ids[1], "ids follow the storage-order walk");
+    assertEquals(1L, kept.min());
+    assertEquals(3L, kept.max());
+    // The merge seal sees a space of three, sorted.
+    assertTrue(canonicaliser.sealByPositionMerge(canonicaliser.size()));
+    assertTrue(canonicaliser.valueOf(1).compareTo(canonicaliser.valueOf(2)) < 0);
+    assertTrue(canonicaliser.valueOf(2).compareTo(canonicaliser.valueOf(3)) < 0);
+  }
+
+  @Test
+  @DisplayName("a value kept in two segments is still ONE group under row masks")
+  void rowMasksStillMergeAcrossSegments() {
+    // Every segment holds the same eight values; row 2 of each leaf is the same value.
+    final int segments = 2;
+    final int perSegment = 8;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment, true);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
+    final long[][] rowKeep = {rowsKept(perSegment, 2), rowsKept(perSegment, 2, 5)};
+
+    final ColumnSlice[] out = canonicaliser.canonicalise(leaves, null, rowKeep,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(out);
+    assertEquals(2, canonicaliser.size(), "two distinct values among the three kept rows");
+    assertEquals(out[0].numericValues()[2], out[1].numericValues()[2], "the shared value is one group key");
+    assertNotEquals(out[0].numericValues()[2], out[1].numericValues()[5]);
+    assertEquals(1, corpus.collisions().get(), "the duplicate landed on the hash chain exactly once");
+  }
+
+  @Test
+  @DisplayName("a mask that keeps few rows of a big segment walks the marks by position, not every position")
+  void aSparseMaskWalksByMarksNotPositions() {
+    final int segments = 2;
+    final int perSegment = 200; // 3 marks in 200 entries: below one in SPARSE_WALK_RATIO, so the walk is sparse
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
+    final long[][] rowKeep = {rowsKept(perSegment, 1, 3, 6), rowsKept(perSegment, 0, 100, 199)};
+
+    final ColumnSlice[] out = canonicaliser.canonicalise(leaves, null, rowKeep,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(out);
+    assertEquals(0, corpus.positionWalks().get(), "a sparse walk must not visit the positions between its marks");
+    assertEquals(6, corpus.positionLookups().get(), "a sparse walk asks the position of each mark exactly once");
+    assertEquals(6, corpus.reads().get(), "every marked cell is read exactly once, by the walk");
+    assertEquals(6, canonicaliser.size());
+    // Still storage order: inside a segment the rows run in mint order, the reverse of position
+    // order, so ids issued by position FALL along the kept rows — a walk in mark (mint) order would
+    // have issued them rising.
+    final long[] first = out[0].numericValues();
+    assertTrue(first[6] < first[3] && first[3] < first[1], "segment 0 ids must rise with position: "
+        + first[1] + ", " + first[3] + ", " + first[6]);
+    final long[] second = out[1].numericValues();
+    assertTrue(second[199] < second[100] && second[100] < second[0], "segment 1 ids must rise with position: "
+        + second[0] + ", " + second[100] + ", " + second[199]);
+    assertTrue(canonicaliser.sealByPositionMerge(canonicaliser.size()));
+    for (int rank = 2; rank <= 6; rank++) {
+      assertTrue(canonicaliser.valueOf(rank - 1).compareTo(canonicaliser.valueOf(rank)) < 0);
+    }
+  }
+
+  @Test
+  @DisplayName("a mask that keeps most rows of a segment still walks every position")
+  void aDenseMaskWalksEveryPosition() {
+    final int segments = 1;
+    final int perSegment = 64; // 8 marks in 64 entries: one in 8, above the sparse ratio
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
+    final long[][] rowKeep = {rowsKept(perSegment, 0, 9, 18, 27, 36, 45, 54, 63)};
+
+    final ColumnSlice[] out = canonicaliser.canonicalise(leaves, null, rowKeep,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(out);
+    assertEquals(perSegment, corpus.positionWalks().get(), "a dense walk visits every position of the segment once");
+    assertEquals(0, corpus.positionLookups().get(), "a dense walk never asks for a mark's position");
+    assertEquals(8, corpus.reads().get());
+    assertEquals(8, canonicaliser.size());
+    final long[] ids = out[0].numericValues();
+    for (int row = 9; row < perSegment; row += 9) {
+      assertTrue(ids[row] < ids[row - 9], "ids must rise with position, row " + row);
+    }
+  }
+
+  @Test
+  @DisplayName("observe under row masks counts the kept rows' values only")
+  void observeUnderRowMasks() {
+    final int segments = 3;
+    final int perSegment = 8;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
+    final long[][] rowKeep = {rowsKept(perSegment, 0, 7), null, rowsKept(perSegment, 4)};
+
+    assertTrue(canonicaliser.observe(leaves, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+
+    assertEquals(3, canonicaliser.size(), "three kept rows, three distinct values");
+    assertEquals(3, corpus.reads().get(), "nothing outside the masks was read");
+    // A null mask array keeps everything, as before.
+    assertTrue(canonicaliser.observe(leaves, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertEquals(segments * perSegment, canonicaliser.size());
+  }
+
+  @Test
+  @DisplayName("the pruned sentinel passes through a row-masked pass, and a mismatched mask array refuses")
+  void rowMasksAndTheSentinel() {
+    final Map<Long, String> corpus = new HashMap<>();
+    final long a = ProjectionIndexRowGroupPage.packSegmentCell(1, 3);
+    corpus.put(a, "alpha");
+    final SegmentGroupCanonicaliser canonicaliser = over(corpus, 2);
+    final ColumnSlice sentinel = prunedSentinel();
+    final ColumnSlice[] leaves = {sentinel, sliceOf(a)};
+
+    final ColumnSlice[] out = canonicaliser.canonicalise(leaves, null, new long[][] {null, rowsKept(1, 0)},
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(out, "a dropped leaf holds no cell and must not decline the pass");
+    assertTrue(out[0] == sentinel, "the sentinel passes through as the very same rowless slice");
+    assertEquals(1L, out[1].numericValues()[0]);
+    assertTrue(canonicaliser.observe(leaves, new long[][] {null, rowsKept(1, 0)},
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+
+    final long[][] tooShort = {rowsKept(1, 0)};
+    assertThrows(IllegalArgumentException.class,
+        () -> canonicaliser.canonicalise(leaves, null, tooShort, SegmentGroupCanonicaliser.SERIAL_SEGMENTS),
+        "one mask per leaf, or the pass refuses");
+    assertThrows(IllegalArgumentException.class,
+        () -> canonicaliser.observe(leaves, tooShort, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
   }
 }

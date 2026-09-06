@@ -206,6 +206,78 @@ public final class ProjectionColumnScan {
   }
 
   /**
+   * The predicates' ROW masks over the leaves {@code [fromLeaf, toLeaf)}: the very bits the group
+   * and aggregate kernels compute per leaf before they read a key or an operand, taken up front so a
+   * pass that must see a column's cells BEFORE the kernel runs — a segment-scoped seal, which
+   * resolves one dictionary value per distinct cell — sees only the cells of rows that pass.
+   *
+   * <p>
+   * The leaf-level keep mask ({@link #predicateKeepMask}) already spares the leaves the zone maps
+   * drop; this spares the ROWS inside the leaves they keep. A selective predicate over an unsorted
+   * column keeps a few rows in almost every leaf, so the leaf mask keeps almost everything and the
+   * seal still resolved the whole column: ClickBench q21 at 100M kept ~1 % of its rows and resolved
+   * 18.3M distinct URLs for them.
+   * </p>
+   *
+   * <p>
+   * {@code out[leaf]} becomes {@code null} EXACTLY when the kernel skips the leaf — the evaluator's
+   * verdict is {@code <= 0}: the pruned sentinel, a leaf the keep mask dropped, a tree no row of the
+   * leaf satisfies — and otherwise a fresh mask of {@code (rowCount + 63) / 64} words with the tail
+   * beyond {@code rowCount} clear, ALL-ZERO included. The conjunctive evaluator answers the row
+   * count for a kept leaf whether or not a row survived, and the kernels then read the leaf's group
+   * and operand slices and test the words; a consumer that turned such a leaf's slice into
+   * {@code null} would hand the kernel a null to dereference (ClickBench q21 at 1M declined so). So
+   * the mask's shape follows the kernel's skip rule, not the bit count: a leaf with a mask is a leaf
+   * the kernel reads, and its cleared rows are rows the kernel discards. Both evaluators are the
+   * kernels' own, so the kernel's later verdict on every row is this one. Safe to run on many
+   * threads over disjoint ranges: each call evaluates through its own scratch, writes only its own
+   * range of {@code out}, and the verdict memos the predicates carry are shared by design.
+   * </p>
+   *
+   * @param predCols the predicate columns as {@link #resolvePredicateColumnsShared} filled them
+   * @param treeCols the tree columns as {@link #resolveTreeColumnsShared} filled them; {@code null}
+   *        when there is no tree
+   * @return how many rows of the range pass
+   */
+  public static long rowKeepMasks(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
+      final ColumnSlice[][] predCols, final ProjectionIndexScan.@Nullable PredicateTree tree,
+      final ColumnSlice @Nullable [][] treeCols, final int fromLeaf, final int toLeaf, final long @Nullable [][] out) {
+    if (fromLeaf < 0 || toLeaf > out.length || fromLeaf > toLeaf) {
+      throw new IllegalArgumentException("leaf range [" + fromLeaf + ", " + toLeaf + ") over " + out.length);
+    }
+    if (predCols.length != predicates.length) {
+      throw new IllegalArgumentException(predCols.length + " predicate columns for " + predicates.length
+          + " predicates");
+    }
+    if (tree != null && (treeCols == null || treeCols.length != tree.leaves.length)) {
+      throw new IllegalArgumentException("a tree needs one resolved column per tree leaf");
+    }
+    final long[] scratch = new long[(ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6];
+    final ColumnSlice[] leafSlices = new ColumnSlice[predicates.length];
+    long kept = 0;
+    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+      final int rows = store.rowCount(leaf);
+      final int verdict = tree != null
+          ? evaluateMaskTree(tree, treeCols, leaf, rows, scratch)
+          : evaluateMask(predicates, predCols, leaf, rows, scratch, leafSlices);
+      if (verdict <= 0) {
+        out[leaf] = null;
+        continue;
+      }
+      final int stride = stride(rows);
+      final int tailBits = rows & 63;
+      if (tailBits != 0) {
+        scratch[stride - 1] &= (1L << tailBits) - 1L;
+      }
+      out[leaf] = Arrays.copyOf(scratch, stride);
+      for (int w = 0; w < stride; w++) {
+        kept += Long.bitCount(scratch[w]);
+      }
+    }
+    return kept;
+  }
+
+  /**
    * Masked views of every tree leaf's column, index-aligned with {@code tree.leaves}: a leaf the mask
    * drops is the pruned sentinel in EVERY tree column, which {@link #evaluateMaskTree} answers as "no
    * rows" without touching a slice. {@code keep == null} = the plain (cached) fills.
@@ -2215,7 +2287,15 @@ public final class ProjectionColumnScan {
     if (rowCount <= 0) {
       return 0;
     }
-    final ColumnSlice[] leafSlices = new ColumnSlice[predicates.length];
+    return evaluateMask(predicates, cols, leaf, rowCount, mask, new ColumnSlice[predicates.length]);
+  }
+
+  /** The same over a caller-owned {@code leafSlices} scratch, for a loop that evaluates leaf after leaf. */
+  static int evaluateMask(final ColumnPredicate[] predicates, final ColumnSlice[][] cols, final int leaf,
+      final int rowCount, final long[] mask, final ColumnSlice[] leafSlices) {
+    if (rowCount <= 0) {
+      return 0;
+    }
     for (int i = 0; i < predicates.length; i++) {
       leafSlices[i] = cols[i][leaf];
     }
