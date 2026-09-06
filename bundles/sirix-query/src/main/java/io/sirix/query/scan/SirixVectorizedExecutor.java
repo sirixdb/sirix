@@ -17781,15 +17781,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // scan worker, and a shared view's caches tear under it.
       final Pattern keyTransform = segmentKeyRegex;
       final String keyTransformReplacement = segmentKeyRegexReplacement;
-      final SegmentGroupCanonicaliser.CellResolver keyResolver = keyTransform == null
-          ? cell -> unionViews.get().valueOfCell(cell)
-          : cell -> {
+      // WITHOUT a transform the key IS the stored value, so the canonicaliser must be built from the
+      // VIEWS and not from a `cell -> valueOfCell(cell)` lambda. A bare CellResolver takes every
+      // default it declares: hashOfCell builds a String per distinct cell and hashes that, sameValue
+      // builds two more, and positionOfCell/entryCountOfSegment answer "cannot", which silently
+      // disables storage-order resolution. The views constructor overrides all of them and touches
+      // no String at all. A TRANSFORMING key keeps the lambda: its key is not the stored value, so
+      // neither the stored bytes nor the storage order say anything about it.
+      segmentKeys = keyTransform == null
+          ? new SegmentGroupCanonicaliser(unionViews, handle.segmentDictionarySegmentCount())
+          : new SegmentGroupCanonicaliser(cell -> {
             final String raw = unionViews.get().valueOfCell(cell);
             return raw == null
                 ? null
                 : keyTransform.matcher(raw).replaceAll(keyTransformReplacement);
-          };
-      segmentKeys = new SegmentGroupCanonicaliser(keyResolver, handle.segmentDictionarySegmentCount());
+          }, handle.segmentDictionarySegmentCount());
     } else {
       segmentKeys = null;
     }

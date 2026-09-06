@@ -771,6 +771,35 @@ public final class GlobalValueDictionary {
           : -1;
     }
 
+    /**
+     * Entries in the dictionary of the segment {@code anyCell} names, or {@code -1} when that segment
+     * keeps no collation-ordered storage to walk.
+     */
+    public int segmentEntryCount(final long anyCell) {
+      final ReadView view = perSegment == null
+          ? this
+          : segmentViewOf(anyCell);
+      return view.storageOrdered
+          ? view.entryCount
+          : -1;
+    }
+
+    /**
+     * The MINT stored at {@code position} within the segment {@code anyCell} names.
+     *
+     * <p>
+     * Lets a caller walk a segment's values in STORAGE order — which is collation order — while
+     * addressing them by the ids rows carry. Reading values in this order decodes each block once,
+     * where reading them in mint order re-decodes a block per value.
+     * </p>
+     */
+    public int mintAtPositionOfCell(final long anyCell, final int position) {
+      final ReadView view = perSegment == null
+          ? this
+          : segmentViewOf(anyCell);
+      return view.mintAtPosition(position);
+    }
+
     /** Whether this view resolves packed {@code (segment, id)} cells rather than bare ids. */
     public boolean isSegmentUnion() {
       return perSegment != null;

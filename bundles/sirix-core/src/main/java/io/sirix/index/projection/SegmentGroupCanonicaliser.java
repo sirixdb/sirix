@@ -6,6 +6,8 @@ package io.sirix.index.projection;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -58,6 +60,8 @@ public final class SegmentGroupCanonicaliser {
 
   /** Answer for a cell whose value this revision cannot resolve. */
   private static final int UNRESOLVABLE = -1;
+
+  private static final boolean PROJ_DIAG = Boolean.getBoolean("sirix.projDiag");
 
   /** {@link CellResolver#positionOfCell} could not answer: the merge seal declines. */
   public static final int NO_POSITION = -1;
@@ -122,6 +126,16 @@ public final class SegmentGroupCanonicaliser {
      */
     default int positionOfCell(final long cell) {
       return NO_POSITION;
+    }
+
+    /** Entries in {@code cell}'s segment dictionary, or {@code -1} when it cannot be walked. */
+    default int entryCountOfSegment(final long cell) {
+      return -1;
+    }
+
+    /** The mint stored at {@code position} of {@code cell}'s segment; only valid when walkable. */
+    default int mintAtPosition(final long cell, final int position) {
+      return -1;
     }
 
     default int compareValues(final long left, final long right) {
@@ -219,6 +233,16 @@ public final class SegmentGroupCanonicaliser {
       public int positionOfCell(final long cell) {
         return views.get().positionOfCell(cell);
       }
+
+      @Override
+      public int entryCountOfSegment(final long cell) {
+        return views.get().segmentEntryCount(cell);
+      }
+
+      @Override
+      public int mintAtPosition(final long cell, final int position) {
+        return views.get().mintAtPositionOfCell(cell, position);
+      }
     };
   }
 
@@ -243,6 +267,115 @@ public final class SegmentGroupCanonicaliser {
    */
   public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices) {
     return canonicalise(slices, null);
+  }
+
+
+  /**
+   * Resolve every cell these slices reference ONCE, in each segment's STORAGE order, before the
+   * row loop asks for any of them.
+   *
+   * <h2>Why order matters more than count here</h2>
+   *
+   * The row loop asks for cells in ROW order, which is arbitrary with respect to where their values
+   * are stored, so each miss is a random dictionary read: it locates a block, decodes it, takes one
+   * value out and moves on, and the next row's value is usually in a block that was just dropped.
+   * That is the shape that made a group-by over a whole string column cost tens of seconds at 100M.
+   *
+   * <p>
+   * A segment's values are STORED in collation order, so walking that segment's positions upward
+   * touches each block once and takes every referenced value out of it before moving on. The cells a
+   * query references are already in hand — they are these slices — so this marks them per segment and
+   * then walks positions, resolving only the marked ones. No value is read that the row loop would
+   * not have read anyway, and no canonical id is issued for one it would not have issued: the id
+   * space stays exactly what it was, which {@link #size} and the seal both depend on.
+   * </p>
+   *
+   * <p>
+   * Best effort by design. A resolver that cannot answer in position space — a TRANSFORMING one
+   * always refuses, since a transform reorders what storage ordered — simply skips this and the row
+   * loop resolves as before, correctly and more slowly.
+   * </p>
+   */
+  private static void report(final String why) {
+    if (PROJ_DIAG) {
+      // A prefetch that silently does nothing is indistinguishable from one that does not help; say
+      // which of the two happened, every time.
+      System.err.println("[proj] storage-order resolve SKIPPED: " + why);
+    }
+  }
+
+  private void resolveInStorageOrder(final ColumnSlice[] slices, final long @Nullable [] keep) {
+    // Referenced mints per segment. A bitmap over the dictionary is ~one bit per entry, so marking
+    // is cheaper than collecting the cells: an 18M-entry column costs ~2 MB here against ~150 MB to
+    // hold its distinct cells.
+    Long2ObjectOpenHashMap<long[]> markedBySegment = null;
+    Long2IntOpenHashMap entriesBySegment = null;
+    for (int i = 0; i < slices.length; i++) {
+      final ColumnSlice slice = slices[i];
+      if (slice == null || keep != null && (keep[i >>> 6] & 1L << (i & 63)) == 0L) {
+        continue;
+      }
+      final long[] cells = slice.numericValues();
+      if (cells == null) {
+        report("a slice carries no long lane");
+        return; // canonicalise refuses it anyway
+      }
+      final long[] presence = slice.presenceWords();
+      final int rows = slice.rowCount();
+      for (int row = 0; row < rows; row++) {
+        if ((presence[row >>> 6] & 1L << (row & 63)) == 0L) {
+          continue;
+        }
+        final long cell = cells[row];
+        final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
+        final int mint = ProjectionIndexRowGroupPage.idOfCell(cell);
+        if (segment < 0 || mint < 1) {
+          continue;
+        }
+        if (markedBySegment == null) {
+          markedBySegment = new Long2ObjectOpenHashMap<>();
+          entriesBySegment = new Long2IntOpenHashMap();
+          entriesBySegment.defaultReturnValue(-1);
+        }
+        long[] marked = markedBySegment.get(segment);
+        if (marked == null) {
+          final int entries = resolver.entryCountOfSegment(cell);
+          if (entries <= 0) {
+            report("segment " + segment + " reports entryCount=" + entries + " — not walkable");
+            return; // leave the row loop to resolve
+          }
+          marked = new long[(entries >> 6) + 2];
+          markedBySegment.put(segment, marked);
+          entriesBySegment.put(segment, entries);
+        }
+        if (mint <= entriesBySegment.get(segment)) {
+          marked[mint >>> 6] |= 1L << (mint & 63);
+        }
+      }
+    }
+    if (markedBySegment == null) {
+      report("no present cell in any kept leaf");
+      return;
+    }
+    int resolved = 0;
+    for (final Long2ObjectMap.Entry<long[]> entry : markedBySegment.long2ObjectEntrySet()) {
+      final int segment = (int) entry.getLongKey();
+      final long[] marked = entry.getValue();
+      final int entries = entriesBySegment.get(segment);
+      for (int position = 1; position <= entries; position++) {
+        final long probe = ProjectionIndexRowGroupPage.packSegmentCell(segment, 1);
+        final int mint = resolver.mintAtPosition(probe, position);
+        if (mint >= 1 && mint < marked.length << 6 && (marked[mint >>> 6] & 1L << (mint & 63)) != 0L) {
+          canonicalOf(ProjectionIndexRowGroupPage.packSegmentCell(segment, mint));
+          resolved++;
+        }
+      }
+    }
+    if (PROJ_DIAG) {
+      // A prefetch that silently does nothing is indistinguishable from one that does not help.
+      System.err.println("[proj] storage-order resolve: " + markedBySegment.size() + " segment(s), "
+          + resolved + " cell(s) resolved before the row loop");
+    }
   }
 
   /**
@@ -275,6 +408,7 @@ public final class SegmentGroupCanonicaliser {
     if (slices == null) {
       return null;
     }
+    resolveInStorageOrder(slices, keep);
     final ColumnSlice[] out = new ColumnSlice[slices.length];
     for (int i = 0; i < slices.length; i++) {
       final ColumnSlice slice = slices[i];
