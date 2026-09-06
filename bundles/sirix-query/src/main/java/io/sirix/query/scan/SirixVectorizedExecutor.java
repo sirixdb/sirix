@@ -12239,7 +12239,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return null;
     }
     final SegmentGroupCanonicaliser values = new SegmentGroupCanonicaliser(unionViews, segments);
-    if (!values.observe(slices, segmentWalksOnWorkers())) {
+    // The whole column at once: its value space is the merge of the segments' sorted runs, and the
+    // count is the merge's length — no hash table, no per-cell probe.
+    if (!values.observeColumn(slices, null, segmentWalksOnWorkers())) {
       return null;
     }
     return (long) values.size();
@@ -15554,7 +15556,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               cKeyKinds[k] = kernelKeyKind(cKeyKindsTrue[k]);
               cKeyCols[k] = groupStore.column(groupCols[k], cFetcher);
             }
-            cKeyColsGroup = canonicaliseCompositeKeys(segmentCanonicalisers, cKeyCols);
+            // Resident: the whole column is here, so each segment-scoped key builds its value space
+            // by the merge, over the rows the predicates keep — the kernels' own verdict, taken once
+            // on the workers (see the single-key arm below).
+            cKeyColsGroup = canonicaliseCompositeKeys(segmentCanonicalisers, cKeyCols, segmentCanonicalisers != null
+                ? predicateRowKeep(groupStore, preds, cPredCols, tree, cTreeCols)
+                : null, segmentWalksOnWorkers());
             if (cKeyColsGroup == null) {
               return declineGroupAgg("a segment-scoped composite key has no value in this revision");
             }
@@ -17940,7 +17947,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final long[][] rowKeep = segmentKeys != null || anySegmentExtremum
             ? predicateRowKeep(slicedStore, preds, slicedPredCols, predTree, slicedTreeCols)
             : null;
-        slicedGroupCol = canonicaliseGroupKeys(segmentKeys, slicedStore.column(groupCol, fetcher), groupKeepMask,
+        slicedGroupCol = canonicaliseGroupColumn(segmentKeys, slicedStore.column(groupCol, fetcher), groupKeepMask,
             rowKeep, segmentWalksOnWorkers());
         if (slicedGroupCol == null) {
           return declineGroupAgg("a segment-scoped group key has no value in this revision");
@@ -18010,7 +18017,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               return declineGroupAgg("a segment-scoped string-length operand has no value in this revision");
             }
             slicedAggCols[a] = sealed.lane();
-            globalLengthTables[a] = sealed.ranked().lengthTable(stringLengthModes[a]);
+            globalLengthTables[a] = sealed.ranked().lengthTable(stringLengthModes[a], segmentWalksOnWorkers());
           }
         }
         for (int a = 0; a < aggCols.length; a++) {
@@ -18320,7 +18327,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (slicedStore != null && !windowedSlices) {
       final ProjectionColumnStore.ColumnSegmentFetcher legFetcher = columnFetcher();
       legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, legFetcher);
-      legGroupCol = canonicaliseGroupKeys(segmentKeys, slicedStore.column(groupCol, legFetcher), null,
+      legGroupCol = canonicaliseGroupColumn(segmentKeys, slicedStore.column(groupCol, legFetcher), null, null,
           segmentWalksOnWorkers());
       if (legGroupCol == null) {
         return declineGroupAgg("a segment-scoped group key has no value in this revision");
@@ -18966,6 +18973,32 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return out;
   }
 
+  /**
+   * The same over WHOLE columns, from the planning thread: each segment-scoped component's value
+   * space is built by the segment merge over the rows {@code rowKeep} keeps
+   * ({@link SegmentGroupCanonicaliser#canonicaliseColumn}), with the merge's ranges on {@code runner}.
+   */
+  private static ProjectionColumnStore.ColumnSlice[] @Nullable [] canonicaliseCompositeKeys(
+      final SegmentGroupCanonicaliser @Nullable [] canonicalisers,
+      final ProjectionColumnStore.ColumnSlice[] @Nullable [] keyCols, final long @Nullable [][] rowKeep,
+      final SegmentGroupCanonicaliser.SegmentRunner runner) {
+    if (canonicalisers == null || keyCols == null) {
+      return keyCols;
+    }
+    final ProjectionColumnStore.ColumnSlice[][] out = new ProjectionColumnStore.ColumnSlice[keyCols.length][];
+    for (int k = 0; k < keyCols.length; k++) {
+      if (canonicalisers[k] == null) {
+        out[k] = keyCols[k];
+        continue;
+      }
+      out[k] = canonicalisers[k].canonicaliseColumn(keyCols[k], null, rowKeep, runner);
+      if (out[k] == null) {
+        return null;
+      }
+    }
+    return out;
+  }
+
   /** {@link #canonicaliseCompositeKeys} inside the parallel pass, where there is no decline to return. */
   private static ProjectionColumnStore.ColumnSlice[] @Nullable [] requireResolvedCompositeKeys(
       final SegmentGroupCanonicaliser @Nullable [] canonicalisers,
@@ -19045,7 +19078,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // unreadable cell is a correctness stop, the ordering bound is a scale limit that names its own
     // remedy, and a failed canonicalise is neither. Say which.
     final SegmentGroupCanonicaliser.SegmentRunner walks = segmentWalksOnWorkers();
-    if (!ranked.observe(operand, rowKeep, walks)) {
+    if (!ranked.observeColumn(operand, rowKeep, walks)) {
       if (PROJ_DIAG) {
         System.err.println("[proj] segment operand on column " + column + " has a cell with no value in this"
             + " revision");
@@ -19061,7 +19094,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return null; // too many distinct values to order; the caller declines to the generic pipeline
     }
     final long t3 = PROJ_DIAG ? System.nanoTime() : 0L;
-    final ProjectionColumnStore.ColumnSlice[] lane = ranked.canonicalise(operand, null, rowKeep, walks);
+    final ProjectionColumnStore.ColumnSlice[] lane = ranked.canonicaliseColumn(operand, null, rowKeep, walks);
     if (PROJ_DIAG) {
       // The seal is the serial part of every extremum / length query over a segment column; a
       // phase split says which of its four steps a change moved, and which it did not.
@@ -19126,6 +19159,26 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return canonicaliser == null
         ? slices
         : canonicaliser.canonicalise(slices, keep, rowKeep, runner);
+  }
+
+  /**
+   * {@link #canonicaliseGroupKeys} over a WHOLE resident column, from the planning thread: the value
+   * space is built by the segment merge ({@link SegmentGroupCanonicaliser#canonicaliseColumn}) with
+   * its ranges on {@code runner}, and the ids it issues are collation ranks.
+   *
+   * <p>
+   * NOT for the windowed arms: their per-morsel calls run INSIDE the parallel pass on the workers,
+   * where the runner must stay serial and the per-cell path is the one that fits a morsel. They keep
+   * {@link #canonicaliseGroupKeys}.
+   * </p>
+   */
+  private static ProjectionColumnStore.ColumnSlice @Nullable [] canonicaliseGroupColumn(
+      final @Nullable SegmentGroupCanonicaliser canonicaliser,
+      final ProjectionColumnStore.ColumnSlice @Nullable [] slices, final long @Nullable [] keep,
+      final long @Nullable [][] rowKeep, final SegmentGroupCanonicaliser.SegmentRunner runner) {
+    return canonicaliser == null
+        ? slices
+        : canonicaliser.canonicaliseColumn(slices, keep, rowKeep, runner);
   }
 
   /** Leaves a lane claims at a time while building the row masks: enough to amortise the counter. */

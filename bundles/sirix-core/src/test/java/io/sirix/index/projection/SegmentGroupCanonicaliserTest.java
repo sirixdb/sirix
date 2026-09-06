@@ -7,6 +7,7 @@ import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -889,5 +890,407 @@ final class SegmentGroupCanonicaliserTest {
         "one mask per leaf, or the pass refuses");
     assertThrows(IllegalArgumentException.class,
         () -> canonicaliser.observe(leaves, tooShort, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // The segment value MERGE: a whole column's value space from its segments' sorted runs.
+  // ---------------------------------------------------------------------------------------------
+
+  /** A runner that records every {@code count} it was handed and runs the bodies inline. */
+  private static SegmentGroupCanonicaliser.SegmentRunner recording(final List<Integer> counts) {
+    return (count, body) -> {
+      counts.add(count);
+      for (int i = 0; i < count; i++) {
+        body.accept(i);
+      }
+    };
+  }
+
+  /**
+   * The collation rank of the cell at row {@code row} of the leaf of {@code segment} in a
+   * NON-shared {@link #positionedCorpus}: the value at position {@code p} of segment {@code s} is
+   * {@code value-((p - 1) * segments + s)}, and {@link #leavesInMintOrder} puts position
+   * {@code perSegment - row} at {@code row}. Dense from 1 over the whole column.
+   */
+  private static long rankOf(final int segments, final int perSegment, final int segment, final int row) {
+    return (long) (perSegment - row - 1) * segments + segment + 1;
+  }
+
+  @Test
+  @DisplayName("MERGE, NOT HASH: a whole column's ids are collation ranks, issued without a sort or a hash probe")
+  void theMergeIssuesCollationRanks() {
+    final int segments = 3;
+    final int perSegment = 50;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final List<Integer> counts = new ArrayList<>();
+
+    final ColumnSlice[] out = canonicaliser.canonicaliseColumn(leavesInMintOrder(corpus, segments, perSegment), null,
+        null, recording(counts));
+
+    assertNotNull(out);
+    assertNull(canonicaliser.lastRefusal(), "the merge ran: nothing refused, nothing fell back");
+    assertEquals(segments * perSegment, canonicaliser.size());
+    assertEquals(0, corpus.collisions().get(), "no cell went through the hash index");
+    // THE WITNESS that the merge issued the ids and not the walk: the walk numbers each segment's
+    // run in arrival order (segment 0 would take 1..50), the merge numbers the whole column by
+    // collation, so segment 0's smallest value is 1, segment 1's is 2, segment 2's is 3, and so on.
+    for (int segment = 0; segment < segments; segment++) {
+      final long[] ids = out[segment].numericValues();
+      for (int row = 0; row < perSegment; row++) {
+        assertEquals(rankOf(segments, perSegment, segment, row), ids[row],
+            "segment " + segment + " row " + row + " carries its collation rank over the WHOLE column");
+      }
+    }
+    // 150 marks under the default range target is ONE range: the mark phase ran per run and the
+    // merge as one body; with a single range there is nothing to bound and nothing to offset.
+    assertEquals(List.of(segments, 1), counts, "one mark per run, then one merge");
+    // Ranks are the seal: nothing to sort, nothing to renumber, and the lane already collates.
+    assertFalse(canonicaliser.isOrderPreserving(), "not sealed until asked");
+    assertTrue(canonicaliser.sealOrderPreserving());
+    assertTrue(canonicaliser.isOrderPreserving());
+    for (int rank = 2; rank <= segments * perSegment; rank++) {
+      assertTrue(canonicaliser.valueOf(rank - 1).compareTo(canonicaliser.valueOf(rank)) < 0,
+          "rank " + rank + " collates after rank " + (rank - 1));
+    }
+    assertEquals("value-00000", canonicaliser.valueOf(1));
+    assertEquals(String.format("value-%05d", segments * perSegment - 1), canonicaliser.valueOf(segments * perSegment));
+    // A second pass finds everything settled: no read, and the same ids.
+    final int readsAfterFirst = corpus.reads().get();
+    final ColumnSlice[] again = canonicaliser.canonicaliseColumn(leavesInMintOrder(corpus, segments, perSegment),
+        null, null, recording(counts));
+    assertNotNull(again);
+    assertEquals(readsAfterFirst, corpus.reads().get(), "a settled cell is never read again");
+    for (int segment = 0; segment < segments; segment++) {
+      assertTrue(Arrays.equals(out[segment].numericValues(), again[segment].numericValues()));
+    }
+    // A column the merge already settled is not a REFUSED merge: the second pass has nothing to mark,
+    // so it neither records a refusal (the witness a real fallback leaves) nor dispatches a walk.
+    assertNull(canonicaliser.lastRefusal(), "a settled column is not a refusal");
+    assertEquals(List.of(segments, 1), counts, "a settled column dispatches no walk");
+  }
+
+  @Test
+  @DisplayName("a value held by every segment is ONE rank in the merge — duplicates are adjacent in the merge order")
+  void theMergeCoalescesAcrossSegments() {
+    final int segments = 4;
+    final int perSegment = 12;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment, true);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+
+    final ColumnSlice[] out = canonicaliser.canonicaliseColumn(leavesInMintOrder(corpus, segments, perSegment), null,
+        null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(out);
+    assertNull(canonicaliser.lastRefusal());
+    assertEquals(perSegment, canonicaliser.size(), "four copies of twelve values are twelve ranks");
+    assertEquals(0, corpus.collisions().get(), "identity came from the merge order, not from a hash chain");
+    for (int segment = 0; segment < segments; segment++) {
+      final long[] ids = out[segment].numericValues();
+      for (int row = 0; row < perSegment; row++) {
+        // Row `row` sits at position perSegment - row, and with one copy per value that IS its rank.
+        assertEquals(perSegment - row, ids[row], "segment " + segment + " row " + row);
+      }
+    }
+    assertTrue(canonicaliser.observeColumn(leavesInMintOrder(corpus, segments, perSegment), null,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertEquals(perSegment, canonicaliser.size(), "observing the same cells issues nothing new");
+  }
+
+  @Test
+  @DisplayName("range-partitioned, the merge issues the same ranks as one range — and the ranges really ran")
+  void rangesPartitionTheMerge() {
+    final int segments = 4;
+    final int perSegment = 40;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments).mergeRangeTarget(7);
+    final List<Integer> counts = new ArrayList<>();
+
+    final ColumnSlice[] out = canonicaliser.canonicaliseColumn(leavesInMintOrder(corpus, segments, perSegment), null,
+        null, recording(counts));
+
+    assertNotNull(out);
+    assertNull(canonicaliser.lastRefusal());
+    // 160 marked cells at 7 per range = 22 ranges, bounded by the longest run's 40 marks; the offset
+    // pass covers every range but the first.
+    final int ranges = Math.min(Math.max(1, segments * perSegment / 7), perSegment);
+    assertTrue(ranges > 1, "the corpus must be large enough to partition");
+    assertEquals(List.of(segments, segments, ranges, ranges - 1), counts, "mark, bound, merge, offset");
+    for (int segment = 0; segment < segments; segment++) {
+      final long[] ids = out[segment].numericValues();
+      for (int row = 0; row < perSegment; row++) {
+        assertEquals(rankOf(segments, perSegment, segment, row), ids[row],
+            "segment " + segment + " row " + row + ": a rank is a rank whatever range issued it");
+      }
+    }
+    assertEquals(segments * perSegment, canonicaliser.size());
+  }
+
+  @Test
+  @DisplayName("a value shared by every run lands in ONE range: the pivots bound by lower bounds, so twins never split")
+  void rangesKeepTwinsTogether() {
+    final int segments = 3;
+    final int perSegment = 40;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment, true);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments).mergeRangeTarget(7);
+    final List<Integer> counts = new ArrayList<>();
+
+    final ColumnSlice[] out = canonicaliser.canonicaliseColumn(leavesInMintOrder(corpus, segments, perSegment), null,
+        null, recording(counts));
+
+    assertNotNull(out);
+    assertNull(canonicaliser.lastRefusal());
+    assertTrue(counts.get(2) > 1, "more than one range ran: " + counts);
+    assertEquals(perSegment, canonicaliser.size(), "three copies of forty values are forty ranks, across the ranges");
+    for (int segment = 1; segment < segments; segment++) {
+      assertTrue(Arrays.equals(out[0].numericValues(), out[segment].numericValues()),
+          "segment " + segment + " carries the same ranks as segment 0 row for row");
+    }
+    for (int row = 1; row < perSegment; row++) {
+      assertEquals(out[0].numericValues()[row - 1] - 1, out[0].numericValues()[row], "ranks fall with the rows");
+    }
+  }
+
+  @Test
+  @DisplayName("PREDICATE-FIRST through the merge: sparse marks are located by position, and only they are ranked")
+  void sparseMarksMergeOnlyTheKeptRows() {
+    final int segments = 2;
+    final int perSegment = 200;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
+    // Three marks in a 200-entry segment is below the sparse break-even: the marks are located one
+    // by one through positionOfCell, and no position is walked.
+    final long[][] rowKeep = {rowsKept(perSegment, 1, 3, 6), rowsKept(perSegment, 0, 100, 199)};
+
+    final ColumnSlice[] out = canonicaliser.canonicaliseColumn(leaves, null, rowKeep,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(out);
+    assertNull(canonicaliser.lastRefusal());
+    assertEquals(6, canonicaliser.size(), "exactly the kept cells are in the space");
+    assertEquals(6, corpus.positionLookups().get(), "one position lookup per mark");
+    assertEquals(6, corpus.positionWalks().get(),
+        "and one mint read per MARKED position, by the merge — none walked to locate the marks");
+    // The kept values, in collation order over both segments: segment 1's positions 1 and 100 sort
+    // first (value-00001, value-00199), then segment 0's positions 194, 197, 199 (value-00386,
+    // -00392, -00396), then segment 1's position 200 (value-00399).
+    final long[] ids0 = out[0].numericValues();
+    final long[] ids1 = out[1].numericValues();
+    assertEquals(1L, ids1[199]);
+    assertEquals(2L, ids1[100]);
+    assertEquals(3L, ids0[6]);
+    assertEquals(4L, ids0[3]);
+    assertEquals(5L, ids0[1]);
+    assertEquals(6L, ids1[0]);
+    for (int row = 0; row < perSegment; row++) {
+      final boolean kept0 = row == 1 || row == 3 || row == 6;
+      final boolean kept1 = row == 0 || row == 100 || row == 199;
+      assertEquals(kept0, (out[0].presenceWords()[row >>> 6] & 1L << (row & 63)) != 0L, "leaf 0 row " + row);
+      assertEquals(kept1, (out[1].presenceWords()[row >>> 6] & 1L << (row & 63)) != 0L, "leaf 1 row " + row);
+      if (!kept0) {
+        assertEquals(0L, ids0[row], "a cleared row carries no id");
+      }
+      if (!kept1) {
+        assertEquals(0L, ids1[row], "a cleared row carries no id");
+      }
+    }
+    assertEquals("value-00001", canonicaliser.valueOf(1));
+    assertEquals("value-00399", canonicaliser.valueOf(6));
+    assertTrue(canonicaliser.sealOrderPreserving(), "ranks are the seal");
+  }
+
+  @Test
+  @DisplayName("after the merge, a cell it never saw finds its rank by value — and a NEW value takes the next id")
+  void lateArrivalsAfterTheMerge() {
+    final int segments = 3;
+    final int perSegment = 10;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment, true);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
+    // Segments 0 and 1 go through the merge; segment 2 holds the same ten values and arrives later.
+    final ColumnSlice[] merged = canonicaliser.canonicaliseColumn(new ColumnSlice[] {leaves[0], leaves[1]}, null,
+        null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    assertNotNull(merged);
+    assertEquals(perSegment, canonicaliser.size());
+
+    final ColumnSlice[] late = canonicaliser.canonicalise(new ColumnSlice[] {leaves[2]});
+
+    assertNotNull(late);
+    assertEquals(perSegment, canonicaliser.size(), "a value the merge ranked is FOUND, not issued again");
+    assertTrue(Arrays.equals(merged[0].numericValues(), late[0].numericValues()),
+        "the late cells carry the ranks their twins in segment 0 carry");
+    assertEquals(0, corpus.collisions().get(), "found by binary search over the ranked representatives, not by hash");
+
+    // A value nothing ranked: it takes the id past the ranks, in arrival order, and the space is no
+    // longer collated — until it is sealed, which sorts.
+    final long fresh = ProjectionIndexRowGroupPage.packSegmentCell(2, perSegment + 1);
+    corpus.values().put(fresh, "value-00003.5");
+    final ColumnSlice[] out = canonicaliser.canonicalise(new ColumnSlice[] {sliceOf(fresh)});
+    assertNotNull(out);
+    assertEquals(perSegment + 1, out[0].numericValues()[0], "the first id past the ranks");
+    assertEquals(perSegment + 1, canonicaliser.size());
+    assertFalse(canonicaliser.isOrderPreserving());
+    assertTrue(canonicaliser.sealOrderPreserving(), "eleven values still sort");
+    for (int rank = 2; rank <= perSegment + 1; rank++) {
+      assertTrue(canonicaliser.valueOf(rank - 1).compareTo(canonicaliser.valueOf(rank)) < 0);
+    }
+    assertEquals("value-00003.5", canonicaliser.valueOf(5), "value-00003 < value-00003.5 < value-00004");
+    final ColumnSlice[] sealed = canonicaliser.canonicalise(new ColumnSlice[] {sliceOf(fresh)});
+    assertNotNull(sealed);
+    assertEquals(5L, sealed[0].numericValues()[0], "the lane carries the rank once sealed");
+  }
+
+  @Test
+  @DisplayName("once the merge's ranks ARE the seal, a value first seen afterwards has no rank: the pass declines")
+  void aLateValueAfterTheMergeSealDeclines() {
+    final int segments = 2;
+    final int perSegment = 10;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
+    assertTrue(canonicaliser.observeColumn(leaves, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertTrue(canonicaliser.sealOrderPreserving());
+    assertTrue(canonicaliser.isOrderPreserving());
+
+    // Ranked cells still resolve, ranked values arriving through a new cell still resolve.
+    final ColumnSlice[] out = canonicaliser.canonicalise(leaves);
+    assertNotNull(out);
+    assertEquals(rankOf(segments, perSegment, 1, 0), out[1].numericValues()[0]);
+
+    final long fresh = ProjectionIndexRowGroupPage.packSegmentCell(1, perSegment + 1);
+    corpus.values().put(fresh, "zzz-never-ranked");
+    assertNull(canonicaliser.canonicalise(new ColumnSlice[] {sliceOf(fresh)}),
+        "a value with no rank cannot be placed in a collated lane: decline rather than misorder");
+    assertThrows(IllegalStateException.class, () -> canonicaliser.canonicalOfValue("a literal after the seal"));
+  }
+
+  @Test
+  @DisplayName("a literal issued before the merge leaves the space non-empty: the merge refuses, the walk answers")
+  void aLiteralBeforeTheMergeRefusesIt() {
+    final int segments = 2;
+    final int perSegment = 8;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment, true);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    canonicaliser.canonicalOfValue("else");
+    final List<Integer> counts = new ArrayList<>();
+
+    final ColumnSlice[] out = canonicaliser.canonicaliseColumn(leavesInMintOrder(corpus, segments, perSegment), null,
+        null, recording(counts));
+
+    assertNotNull(out, "the walk still canonicalises");
+    assertNotNull(canonicaliser.lastRefusal(), "a fallback must say so");
+    assertTrue(canonicaliser.lastRefusal().contains("not empty"), canonicaliser.lastRefusal());
+    assertEquals(List.of(segments), counts, "one walk per segment, and no merge phase");
+    assertTrue(Arrays.equals(out[0].numericValues(), out[1].numericValues()),
+        "the walk merges twins across segments by hash, as before");
+  }
+
+  @Test
+  @DisplayName("a rank table that disagrees with itself REFUSES the merge, and the walk answers the same question")
+  void aDisagreeingRankTableRefusesTheMerge() {
+    final int segments = 2;
+    final int perSegment = 8;
+    // Position 3 of segment 1 forgets which mint it stores.
+    final PositionedCorpus forgetful = positionedCorpus(segments, perSegment, true);
+    forgetful.mints().remove(ProjectionIndexRowGroupPage.packSegmentCell(1, 3));
+    assertRefusedThenWalked(forgetful, segments, perSegment, "answers mint");
+    // Position 3 of segment 1 claims the mint position 4 stores: one mint at two positions.
+    final PositionedCorpus doubled = positionedCorpus(segments, perSegment, true);
+    doubled.mints().put(ProjectionIndexRowGroupPage.packSegmentCell(1, 3),
+        doubled.mints().get(ProjectionIndexRowGroupPage.packSegmentCell(1, 4)));
+    assertRefusedThenWalked(doubled, segments, perSegment, "twice");
+    // A sparse pass locates marks by position; a mint whose position is unknown refuses it too.
+    final int large = 200;
+    final PositionedCorpus positionless = positionedCorpus(segments, large, true);
+    positionless.positions().remove(ProjectionIndexRowGroupPage.packSegmentCell(0, 2)); // row 1 of leaf 0
+    final SegmentGroupCanonicaliser sparse = new SegmentGroupCanonicaliser(positionless, segments);
+    final ColumnSlice[] out = sparse.canonicaliseColumn(leavesInMintOrder(positionless, segments, large), null,
+        new long[][] {rowsKept(large, 1, 2), null}, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    assertNotNull(out);
+    assertNotNull(sparse.lastRefusal());
+    assertTrue(sparse.lastRefusal().contains("answers position"), sparse.lastRefusal());
+    assertEquals(2, sparse.size());
+  }
+
+  /** The merge refuses {@code corpus} with a message naming {@code why}, and the walk still answers. */
+  private static void assertRefusedThenWalked(final PositionedCorpus corpus, final int segments,
+      final int perSegment, final String why) {
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final List<Integer> counts = new ArrayList<>();
+
+    final ColumnSlice[] out = canonicaliser.canonicaliseColumn(leavesInMintOrder(corpus, segments, perSegment), null,
+        null, recording(counts));
+
+    assertNotNull(out, "refused is not declined: the walk and the row loop still answer");
+    assertNotNull(canonicaliser.lastRefusal());
+    assertTrue(canonicaliser.lastRefusal().contains(why), canonicaliser.lastRefusal());
+    assertEquals(2, counts.size(), "the merge's mark phase, then the walk — and no merge phase after the refusal");
+    assertEquals(perSegment, canonicaliser.size(), "two copies of eight values are eight ids");
+    assertTrue(Arrays.equals(out[0].numericValues(), out[1].numericValues()), "twins still coalesce");
+  }
+
+  @Test
+  @DisplayName("observeColumn answers from the merge alone when every present kept cell was marked")
+  void observeColumnSkipsTheRowLoopWhenTheMergeSettledEverything() {
+    final int segments = 3;
+    final int perSegment = 20;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
+
+    assertTrue(canonicaliser.observeColumn(leaves, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+
+    assertEquals(segments * perSegment, canonicaliser.size(), "COUNT(DISTINCT) is the merge's length");
+    assertNull(canonicaliser.lastRefusal());
+
+    // A cell no dictionary holds is unmarkable: the shortcut must not hide it, and the row loop
+    // still reports it — the pass declines exactly as it does without the merge.
+    final SegmentGroupCanonicaliser strict = new SegmentGroupCanonicaliser(corpus, segments);
+    final long orphan = ProjectionIndexRowGroupPage.packSegmentCell(0, perSegment + 5);
+    assertFalse(strict.observeColumn(new ColumnSlice[] {leaves[0], sliceOf(orphan)}, null,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS), "an unmarkable cell still declines");
+  }
+
+  @Test
+  @DisplayName("the parallel length table over merged positions equals the serial one, in both units")
+  void lengthTableOverMergedPositions() {
+    final int segments = 3;
+    final int perSegment = 15;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    // Give a few values multi-byte content so the two units differ: mint 12 sits at position 4 and
+    // row 11, and a tail keeps the value between its neighbours.
+    for (int segment = 0; segment < segments; segment++) {
+      final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, 12);
+      corpus.values().put(cell, corpus.values().get(cell) + "é中");
+    }
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
+    final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
+    final long[][] rowKeep = {rowsKept(perSegment, 0, 4, 11), rowsKept(perSegment, 2, 11), null};
+    assertNotNull(canonicaliser.canonicaliseColumn(leaves, null, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertNull(canonicaliser.lastRefusal());
+    assertEquals(5, canonicaliser.size());
+
+    for (final byte mode : new byte[] {ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES,
+        ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS}) {
+      final int[] serial = canonicaliser.lengthTable(mode);
+      final int[] parallel = canonicaliser.lengthTable(mode, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+      assertTrue(Arrays.equals(serial, parallel), "mode " + mode + ": " + Arrays.toString(serial) + " vs "
+          + Arrays.toString(parallel));
+      assertEquals(canonicaliser.size() + 1, parallel.length, "one slot per id, plus the unused zero");
+      for (int id = 1; id <= canonicaliser.size(); id++) {
+        final String value = canonicaliser.valueOf(id);
+        final int expected = mode == ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS
+            ? value.codePointCount(0, value.length())
+            : value.getBytes(StandardCharsets.UTF_8).length;
+        assertEquals(expected, parallel[id], "id " + id + " = '" + value + "' in mode " + mode);
+      }
+    }
+    // Row 11 of leaf 0 is mint 12 = position 4, the value with the multi-byte tail.
+    final int tailId = (int) canonicaliser.canonicalise(new ColumnSlice[] {leaves[0]}, null,
+        new long[][] {rowKeep[0]}, SegmentGroupCanonicaliser.SERIAL_SEGMENTS)[0].numericValues()[11];
+    assertEquals(canonicaliser.lengthTable(ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS)[tailId] + 3,
+        canonicaliser.lengthTable(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES)[tailId],
+        "é is two bytes and 中 is three: five bytes for two code points");
   }
 }

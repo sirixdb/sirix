@@ -905,6 +905,59 @@ public final class GlobalValueDictionary {
           view.cachedLengths[slot]);
     }
 
+    /**
+     * The string length of the value a packed CELL names, in the given mode, read off the stored
+     * bytes — no {@link String} is built.
+     *
+     * <p>
+     * The per-cell twin of {@link #fillLengthTable}: a segment-scoped length table is derived per
+     * canonical id rather than per dictionary id, and the canonicaliser that owns those ids walks the
+     * segments in storage order and asks here for each cell it lands on.
+     * </p>
+     *
+     * @param lengthMode {@link ProjectionIndexByteScan#STRING_LENGTH_UTF8_BYTES} or
+     *        {@link ProjectionIndexByteScan#STRING_LENGTH_CODE_POINTS}
+     * @return the length, or {@code -1} when the cell names no entry of its segment
+     */
+    public int valueLengthOfCell(final long cell, final byte lengthMode) {
+      if (lengthMode != ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS
+          && lengthMode != ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES) {
+        throw new IllegalArgumentException("not a string length mode: " + lengthMode);
+      }
+      final ReadView view;
+      final int id;
+      if (perSegment == null) {
+        view = this;
+        id = (int) cell;
+      } else {
+        view = segmentViewOf(cell);
+        id = ProjectionIndexRowGroupPage.idOfCell(cell);
+      }
+      if (id < 1 || id > view.entryCount()) {
+        return -1;
+      }
+      final int slot = view.sliceSlot(id);
+      final ValueDictionaryEntryNode spill = view.cachedSpills[slot];
+      if (spill != null) {
+        return lengthMode == ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES
+            ? spill.getValueLength()
+            : spill.codePointLength();
+      }
+      final int len = view.cachedLengths[slot];
+      if (lengthMode == ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES) {
+        return len;
+      }
+      final byte[] backing = view.cachedBacking[slot];
+      final int off = view.cachedOffsets[slot];
+      int codePoints = 0;
+      for (int b = off; b < off + len; b++) {
+        if ((backing[b] & 0xC0) != 0x80) {
+          codePoints++;
+        }
+      }
+      return codePoints;
+    }
+
     public @Nullable Boolean cellMatchesStringOp(final long cell, final ProjectionIndexScan.Op op,
         final byte[] literalUtf8, final boolean literalHasSupplementary) {
       Objects.requireNonNull(op, "op must not be null");

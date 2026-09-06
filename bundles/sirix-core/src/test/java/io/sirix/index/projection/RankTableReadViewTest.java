@@ -20,6 +20,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.ValueDictionaryEntryNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.node.ValueDictionaryRankTableNode;
+import io.sirix.node.ValueDictionaryValueBlockNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.NamePage;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -373,6 +374,149 @@ final class RankTableReadViewTest {
       }
     }
     throw new IllegalStateException("the fixture lost its spilled value");
+  }
+
+  /**
+   * {@code valueLengthOfCell} is the per-cell twin of {@code fillLengthTable}: the segment-scoped
+   * length table is derived per canonical id by asking for one cell at a time. Both modes, every
+   * storage shape the fixture has (the empty value, block values, supplementary code points, the
+   * spilled oversized value), both view shapes (a plain view addressing mints, a segment union
+   * addressing packed cells) — and the refusals: an id outside the dictionary is {@code -1}, a cell
+   * naming a segment that sealed nothing is refused, a non-length mode is refused.
+   */
+  @Test
+  @DisplayName("valueLengthOfCell reads every length off the stored bytes, in both modes and view shapes")
+  void valueLengthsReadOffTheStoredBytes() {
+    // The shared fixture's spilled value is ASCII, where the two modes agree; a second spilled value
+    // made of supplementary code points makes the spill arm answer differently per mode.
+    final String emoji = new String(Character.toChars(0x1F600));
+    final byte[] multibyteSpill = utf8("p" + emoji.repeat(ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES / 4 + 1));
+    assertTrue(multibyteSpill.length > ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES, "it must not fit a block");
+    final List<byte[]> sorted = buildSortedValueSet();
+    sorted.add(multibyteSpill);
+    sorted.sort(RankTableReadViewTest::compareCollation);
+    final int prefix = sorted.size();
+    final int[] rankByMint = shuffledPermutation(prefix, 0x5EED5L);
+    swapToPin(rankByMint, 1, prefix);
+    swapToPin(rankByMint, prefix, 1);
+    final int[] mintByRank = new int[prefix + 1];
+    for (int mint = 1; mint <= prefix; mint++) {
+      mintByRank[rankByMint[mint]] = mint;
+    }
+
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+      final long headerKey;
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"k\":\"v\"}"), JsonNodeTrx.Commit.NO);
+        final StorageEngineWriter writer = wtx.getStorageEngineWriter();
+        final NamePage namePage = writer.getNamePage(writer.getActualRevisionRootPage());
+        headerKey = flushRankOrdered(sorted, namePage, writer);
+        GlobalValueDictionary.buildBlockIndex(headerKey, namePage, DatabaseType.JSON, writer, writer.getLog());
+        GlobalValueDictionary.attachRankTable(headerKey, rankByMint, namePage, DatabaseType.JSON, writer,
+            writer.getLog());
+        wtx.commit();
+      }
+
+      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final StorageEngineReader reader = rtx.getStorageEngineReader();
+        final GlobalValueDictionary.ReadView view = GlobalValueDictionary.readView(headerKey, reader);
+        assertNotNull(view);
+        assertFalse(view.isSegmentUnion());
+        // The same dictionary as segment 2 of a three-segment column whose other segments sealed none.
+        final int segment = 2;
+        final GlobalValueDictionary.ReadView union =
+            GlobalValueDictionary.segmentUnionReadView(new long[] {0L, 0L, headerKey}, reader);
+        assertNotNull(union);
+        assertTrue(union.isSegmentUnion());
+        final int[] byteTable = view.lengthTable(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES);
+        final int[] codePointTable = view.lengthTable(ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS);
+
+        int modesDiffer = 0;
+        for (int mint = 1; mint <= prefix; mint++) {
+          final byte[] stored = sorted.get(rankByMint[mint] - 1);
+          final String decoded = new String(stored, StandardCharsets.UTF_8);
+          final int codePoints = decoded.codePointCount(0, decoded.length());
+          final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, mint);
+          final String at = "mint " + mint + " at position " + rankByMint[mint];
+          assertEquals(stored.length, view.valueLengthOfCell(mint, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES),
+              () -> "bytes of " + at);
+          assertEquals(codePoints, view.valueLengthOfCell(mint, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS),
+              () -> "code points of " + at);
+          assertEquals(stored.length,
+              union.valueLengthOfCell(cell, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES),
+              () -> "bytes of " + at + " through the union");
+          assertEquals(codePoints,
+              union.valueLengthOfCell(cell, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS),
+              () -> "code points of " + at + " through the union");
+          assertEquals(byteTable[mint], stored.length, () -> "the table's bytes of " + at);
+          assertEquals(codePointTable[mint], codePoints, () -> "the table's code points of " + at);
+          if (stored.length != codePoints) {
+            modesDiffer++;
+          }
+        }
+        assertEquals(5, modesDiffer, "the four non-ASCII collate- values and the multibyte spill");
+
+        // The shapes the loop must have covered, named: the empty value has length 0 in both modes,
+        // the spilled value answers from its own record, and a supplementary code point is four bytes.
+        final int emptyMint = mintByRank[1];
+        assertEquals(0, sorted.get(0).length, "the fixture's first value is the empty one");
+        assertEquals(0, view.valueLengthOfCell(emptyMint, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES));
+        assertEquals(0, view.valueLengthOfCell(emptyMint, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS));
+        final int spilledMint = mintByRank[1 + indexOfSpilled(sorted)];
+        assertEquals(ValueDictionaryEntryNode.MAX_VALUE_LENGTH,
+            view.valueLengthOfCell(spilledMint, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES));
+        assertEquals(ValueDictionaryEntryNode.MAX_VALUE_LENGTH,
+            view.valueLengthOfCell(spilledMint, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS),
+            "the spilled value is ASCII: as many code points as bytes");
+        final int multibyteSpillMint = mintByRank[1 + indexOf(sorted, multibyteSpill)];
+        assertEquals(multibyteSpill.length,
+            view.valueLengthOfCell(multibyteSpillMint, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES));
+        assertEquals(1 + ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES / 4 + 1,
+            view.valueLengthOfCell(multibyteSpillMint, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS),
+            "the multibyte spill answers code points from its own record");
+        final int supplementaryMint = mintByRank[1 + indexOf(sorted, utf8("collate-" + new String(Character.toChars(
+            0x1F600))))];
+        assertEquals("collate-".length() + 4,
+            view.valueLengthOfCell(supplementaryMint, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES));
+        assertEquals("collate-".length() + 1,
+            view.valueLengthOfCell(supplementaryMint, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS));
+
+        // Outside 1..entryCount is "no entry", not a guess — in both view shapes.
+        for (final int outside : new int[] {0, -1, prefix + 1, Integer.MAX_VALUE, Integer.MIN_VALUE}) {
+          assertEquals(-1, view.valueLengthOfCell(outside, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES),
+              "bytes of id " + outside);
+          assertEquals(-1, view.valueLengthOfCell(outside, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS),
+              "code points of id " + outside);
+          final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, outside);
+          assertEquals(-1, union.valueLengthOfCell(cell, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES),
+              "bytes of cell (2, " + outside + ")");
+          assertEquals(-1, union.valueLengthOfCell(cell, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS),
+              "code points of cell (2, " + outside + ")");
+        }
+        // A cell of a segment that sealed no dictionary is refused, never resolved against segment 2.
+        for (final int other : new int[] {0, 1, 3, -1}) {
+          final long cell = ProjectionIndexRowGroupPage.packSegmentCell(other, 1);
+          assertThrows(IllegalStateException.class,
+              () -> union.valueLengthOfCell(cell, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES),
+              "a cell of segment " + other);
+        }
+        // Only the two length modes are lengths.
+        assertThrows(IllegalArgumentException.class,
+            () -> view.valueLengthOfCell(1, ProjectionIndexByteScan.STRING_LENGTH_NONE));
+        assertThrows(IllegalArgumentException.class,
+            () -> union.valueLengthOfCell(ProjectionIndexRowGroupPage.packSegmentCell(segment, 1), (byte) 7));
+      }
+    }
+  }
+
+  private static int indexOf(final List<byte[]> sorted, final byte[] value) {
+    for (int i = 0; i < sorted.size(); i++) {
+      if (Arrays.equals(sorted.get(i), value)) {
+        return i;
+      }
+    }
+    throw new IllegalStateException("the fixture lost " + new String(value, StandardCharsets.UTF_8));
   }
 
   /**

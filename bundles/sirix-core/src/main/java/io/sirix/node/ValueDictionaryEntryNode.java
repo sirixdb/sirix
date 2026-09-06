@@ -217,6 +217,12 @@ public final class ValueDictionaryEntryNode implements DataRecord {
    * a dictionary scan compares far more values than it ever emits, so building a String or a
    * defensive copy per comparison is exactly the per-row garbage the packed layout exists to remove.
    *
+   * <p>
+   * Byte-identical prefixes are settled without decoding — equal bytes are equal code points — so
+   * only the sequence holding the first differing byte, and everything after it on the shorter side's
+   * exhaustion path, is validated. Two byte-identical ranges therefore compare equal whatever they
+   * hold.
+   *
    * @param left backing array of the left value
    * @param leftOffset start of the left value
    * @param leftLength length of the left value
@@ -233,8 +239,24 @@ public final class ValueDictionaryEntryNode implements DataRecord {
     Objects.checkFromIndexSize(rightOffset, rightLength, right.length);
     final int leftLimit = leftOffset + leftLength;
     final int rightLimit = rightOffset + rightLength;
-    int thisOffset = leftOffset;
-    int otherOffset = rightOffset;
+    // Identical bytes decode to identical code points, so the common byte prefix is settled by a
+    // vectorised mismatch scan and only the sequence the first differing byte falls in is decoded.
+    // Comparisons in a merge or a sort share long prefixes (URLs share their host), which made the
+    // per-code-point loop the hot instruction stream of every ordered dictionary operation.
+    final int mismatch = Arrays.mismatch(left, leftOffset, leftLimit, right, rightOffset, rightLimit);
+    if (mismatch < 0) {
+      return 0;
+    }
+    int prefix = mismatch;
+    // Back up to the lead byte of the sequence holding the mismatch, so both sides decode whole
+    // sequences below; a side that ended at the mismatch shares every earlier byte with the other,
+    // so the surviving side's byte decides. Malformed input still fails closed in the decode loop.
+    while (prefix > 0
+        && isContinuationByte(prefix < leftLength ? left[leftOffset + prefix] : right[rightOffset + prefix])) {
+      prefix--;
+    }
+    int thisOffset = leftOffset + prefix;
+    int otherOffset = rightOffset + prefix;
     int thisPendingLowSurrogate = -1;
     int otherPendingLowSurrogate = -1;
     while (thisOffset < leftLimit || thisPendingLowSurrogate >= 0) {
@@ -280,6 +302,14 @@ public final class ValueDictionaryEntryNode implements DataRecord {
     return otherOffset >= rightLimit && otherPendingLowSurrogate < 0
         ? 0
         : -1;
+  }
+
+  /**
+   * Whether {@code encoded} is a UTF-8 continuation byte ({@code 10xxxxxx}), i.e. never the first
+   * byte of a sequence.
+   */
+  private static boolean isContinuationByte(final byte encoded) {
+    return (encoded & 0xC0) == 0x80;
   }
 
 
