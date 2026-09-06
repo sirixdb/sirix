@@ -119,6 +119,47 @@ public abstract class SegmentRunCursor {
         : spill.compareToRange(bytes, offset, length);
   }
 
+  /**
+   * The length of the value at the sought position in {@code lengthMode}'s unit, read off the slice
+   * the seek left behind — no copy, no String.
+   *
+   * <p>
+   * {@link ProjectionIndexByteScan#STRING_LENGTH_UTF8_BYTES} is the stored byte length;
+   * {@link ProjectionIndexByteScan#STRING_LENGTH_CODE_POINTS} counts the non-continuation bytes, the
+   * same derivation the per-leaf dictionary kernels and the read view's id-order table apply. A
+   * position walk that calls this per entry derives a whole segment's length table reading each
+   * block once, which is what makes a length operand over a segment column need no canonical ids.
+   * </p>
+   *
+   * @throws IllegalArgumentException if {@code lengthMode} is not one of the two string-length modes
+   */
+  public final int valueLength(final byte lengthMode) {
+    if (lengthMode != ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS
+        && lengthMode != ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES) {
+      throw new IllegalArgumentException("not a string length mode: " + lengthMode);
+    }
+    final ValueDictionaryEntryNode spilled = spill;
+    if (spilled != null) {
+      return lengthMode == ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES
+          ? spilled.getValueLength()
+          : spilled.codePointLength();
+    }
+    final int bytes = length;
+    if (lengthMode == ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES) {
+      return bytes;
+    }
+    final byte[] value = backing;
+    final int start = offset;
+    final int end = start + bytes;
+    int codePoints = 0;
+    for (int b = start; b < end; b++) {
+      if ((value[b] & 0xC0) != 0x80) {
+        codePoints++;
+      }
+    }
+    return codePoints;
+  }
+
   /** A COPY of the value at the sought position, for the few values a caller keeps (a range's pivots). */
   public final byte[] copyValue() {
     final ValueDictionaryEntryNode spilled = spill;

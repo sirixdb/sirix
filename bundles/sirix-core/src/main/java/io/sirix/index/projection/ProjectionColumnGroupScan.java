@@ -46,7 +46,9 @@ public final class ProjectionColumnGroupScan {
    * UTF-8-byte length over STRING_DICT operands (null = all-numeric aggregates); a STRING_GLOBAL
    * length operand instead supplies {@code globalLengthTables[a]}, the per-query id → length table
    * the fold indexes with the row's id lane — no dictionary bytes are touched per leaf (the same
-   * table the whole-leaf twin and the composite arm consume). {@code cdStringDict} marks the distinct
+   * table the whole-leaf twin and the composite arm consume); a STRING_SEGMENT length operand supplies
+   * {@code segmentLengthTables[a][segment]}, one such table per segment dictionary, and the leaf's
+   * zone bounds choose the table ({@link #leafLengthTable}). {@code cdStringDict} marks the distinct
    * block's operand as STRING_DICT — see {@link #foldSliced} for the leaf-local-id → content-hash
    * identity it feeds the set.
    */
@@ -56,16 +58,14 @@ public final class ProjectionColumnGroupScan {
       final byte[] stringLengthModes, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
       final long[] missingAcc, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
       final GroupDistinctAccumulator.Sink distinctMissing, final long[] budget, final boolean cdStringDict,
-      final int[][] globalLengthTables) {
+      final int[][] globalLengthTables, final int[][][] segmentLengthTables) {
     if (predicates == null || out == null || missingAcc == null || aggCols == null) {
       throw new IllegalArgumentException("predicates, out, missingAcc and aggCols must not be null");
     }
     if (cdStringDict && distinctBlock < 0) {
       throw new IllegalArgumentException("cdStringDict without a distinct block");
     }
-    if (globalLengthTables != null && (stringLengthModes == null || globalLengthTables.length < aggCols.length)) {
-      throw new IllegalArgumentException("globalLengthTables needs a string-length mode per aggregate");
-    }
+    checkLengthTables(globalLengthTables, segmentLengthTables, stringLengthModes, aggCols.length);
     final long[] mask = MASK.get();
     // The SUM lanes the query actually reads. Every other lane goes unfolded, so a query
     // that asks only for min/max/count can never decline on an overflow no answer depends
@@ -85,6 +85,7 @@ public final class ProjectionColumnGroupScan {
     final long[][] aggValues = new long[aggCount][];
     final long[][] aggPresence = new long[aggCount][];
     final int[][] aggIds = new int[aggCount][];
+    final int[][] leafLengthTables = new int[aggCount][];
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
       if (budget != null && budget[1] != 0) {
         return; // distinct budget exceeded — the caller declines; nothing here is an answer
@@ -105,14 +106,24 @@ public final class ProjectionColumnGroupScan {
         final ColumnSlice agg = aggCols[a][leaf];
         aggPresence[a] = agg.presenceWords();
         if (stringLengthModes != null && stringLengthModes[a] != ProjectionIndexByteScan.STRING_LENGTH_NONE) {
-          if (globalLengthTables != null && globalLengthTables[a] != null) {
-            // GLOBAL operand: the per-query id→length table replaces the per-leaf entry pass —
-            // the fold reads table[(int) idLane[row]] and no dictionary bytes are touched.
+          final int[] table = leafLengthTable(a, agg, globalLengthTables, segmentLengthTables);
+          leafLengthTables[a] = table;
+          if (table != null) {
+            // ID-LANE operand: a per-query id→length table replaces the per-leaf entry pass — the
+            // fold reads table[(int) idLane[row]] and no dictionary bytes are touched. A GLOBAL
+            // column's table serves every leaf; a SEGMENT column's is its own segment's, chosen once
+            // per leaf just now.
             aggValues[a] = agg.numericValues();
             aggIds[a] = null;
           } else {
             precomputeStringLengths(ds, a, agg, stringLengthModes[a]);
             aggIds[a] = agg.stringDictIds();
+            if (aggIds[a] == null) {
+              // An id-lane operand (GLOBAL or SEGMENT) carries no per-leaf dictionary: without its
+              // table the fold has nothing to index. The executor builds the table whenever it admits
+              // such a lane, so reaching here is a contract breach — refused by name, not by NPE.
+              throw new IllegalStateException("length lane " + a + " has no per-leaf dictionary and no length table");
+            }
             aggValues[a] = null;
           }
         } else if (cdStringDict && a == distinctBlock) {
@@ -195,7 +206,7 @@ public final class ProjectionColumnGroupScan {
           }
           foldSliced(slotArr, base, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
               bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null, sumExactMask,
-              globalLengthTables);
+              leafLengthTables);
         }
       }
     }
@@ -371,9 +382,10 @@ public final class ProjectionColumnGroupScan {
    * {@code keyRegex} groups on the TRANSFORMED entry (hashed once per dict entry per leaf); a matched
    * row MISSING the key field sets {@code regexDecline[0]} — fn:replace over the empty sequence is
    * {@code ""}, a REAL key the missing-key arm must not absorb. {@code stringLengthModes[a]} selects
-   * codepoint or UTF-8-byte counts with missing-is-zero semantics. {@code cdStringDict} marks the
-   * distinct block's operand as STRING_DICT — see {@link #foldSliced} for the leaf-local-id →
-   * content-hash identity it feeds the set.
+   * codepoint or UTF-8-byte counts with missing-is-zero semantics; {@code globalLengthTables} and
+   * {@code segmentLengthTables} are the id-lane length tables the numeric twin documents.
+   * {@code cdStringDict} marks the distinct block's operand as STRING_DICT — see {@link #foldSliced}
+   * for the leaf-local-id → content-hash identity it feeds the set.
    */
   public static void aggregateByGroupStringFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
@@ -382,13 +394,15 @@ public final class ProjectionColumnGroupScan {
       final long[] missingAcc, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
       final GroupDistinctAccumulator.Sink distinctMissing, final long[] budget, final boolean cdStringDict,
       final Pattern keyRegex, final String keyRegexRepl, final long[] regexDecline,
-      final GroupDistinctBitmaps distinctBitmaps, final int[][] globalLengthTables, final long[] globalKeyHashes) {
+      final GroupDistinctBitmaps distinctBitmaps, final int[][] globalLengthTables,
+      final int[][][] segmentLengthTables, final long[] globalKeyHashes) {
     if (predicates == null || out == null || missingAcc == null || aggCols == null) {
       throw new IllegalArgumentException("predicates, out, missingAcc and aggCols must not be null");
     }
     if (cdStringDict && distinctBlock < 0) {
       throw new IllegalArgumentException("cdStringDict without a distinct block");
     }
+    checkLengthTables(globalLengthTables, segmentLengthTables, stringLengthModes, aggCols.length);
     final long[] mask = MASK.get();
     // The SUM lanes the query actually reads. Every other lane goes unfolded, so a query
     // that asks only for min/max/count can never decline on an overflow no answer depends
@@ -420,6 +434,7 @@ public final class ProjectionColumnGroupScan {
     final long[][] aggValues = new long[aggCount][];
     final long[][] aggPresence = new long[aggCount][];
     final int[][] aggIds = new int[aggCount][];
+    final int[][] leafLengthTables = new int[aggCount][];
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
       if (budget != null && budget[1] != 0) {
         return; // distinct budget exceeded — the caller declines
@@ -464,14 +479,24 @@ public final class ProjectionColumnGroupScan {
         final ColumnSlice agg = aggCols[a][leaf];
         aggPresence[a] = agg.presenceWords();
         if (stringLengthModes != null && stringLengthModes[a] != ProjectionIndexByteScan.STRING_LENGTH_NONE) {
-          if (globalLengthTables != null && globalLengthTables[a] != null) {
-            // GLOBAL operand: the per-query id→length table replaces the per-leaf entry pass —
-            // the fold reads table[(int) idLane[row]] and no dictionary bytes are touched.
+          final int[] table = leafLengthTable(a, agg, globalLengthTables, segmentLengthTables);
+          leafLengthTables[a] = table;
+          if (table != null) {
+            // ID-LANE operand: a per-query id→length table replaces the per-leaf entry pass — the
+            // fold reads table[(int) idLane[row]] and no dictionary bytes are touched. A GLOBAL
+            // column's table serves every leaf; a SEGMENT column's is its own segment's, chosen once
+            // per leaf just now.
             aggValues[a] = agg.numericValues();
             aggIds[a] = null;
           } else {
             precomputeStringLengths(ds, a, agg, stringLengthModes[a]);
             aggIds[a] = agg.stringDictIds();
+            if (aggIds[a] == null) {
+              // An id-lane operand (GLOBAL or SEGMENT) carries no per-leaf dictionary: without its
+              // table the fold has nothing to index. The executor builds the table whenever it admits
+              // such a lane, so reaching here is a contract breach — refused by name, not by NPE.
+              throw new IllegalStateException("length lane " + a + " has no per-leaf dictionary and no length table");
+            }
             aggValues[a] = null;
           }
         } else if (cdStringDict && a == distinctBlock) {
@@ -553,7 +578,7 @@ public final class ProjectionColumnGroupScan {
                         ? distinctOut.sinkFor(0L)
                         : null,
                     budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, zeroWords, sumExactMask,
-                    globalLengthTables);
+                    leafLengthTables);
               }
               continue;
             }
@@ -626,7 +651,7 @@ public final class ProjectionColumnGroupScan {
                           ? distinctOut.sinkFor(0L)
                           : null,
                       budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, zeroWords, sumExactMask,
-                      globalLengthTables);
+                      leafLengthTables);
                 }
                 continue;
               }
@@ -658,11 +683,66 @@ public final class ProjectionColumnGroupScan {
           } else {
             foldSliced(slotArr, base, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
                 bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, dwords,
-                sumExactMask, globalLengthTables);
+                sumExactMask, leafLengthTables);
           }
         }
       }
     }
+  }
+
+  /** The table a leaf without a present operand cell gets: never indexed, because the fold reads presence first. */
+  private static final int[] NO_PRESENT_CELLS = new int[0];
+
+  private static void checkLengthTables(final int[][] globalLengthTables, final int[][][] segmentLengthTables,
+      final byte[] stringLengthModes, final int aggCount) {
+    if (globalLengthTables != null && (stringLengthModes == null || globalLengthTables.length < aggCount)) {
+      throw new IllegalArgumentException("globalLengthTables needs a string-length mode per aggregate");
+    }
+    if (segmentLengthTables != null && (stringLengthModes == null || segmentLengthTables.length < aggCount)) {
+      throw new IllegalArgumentException("segmentLengthTables needs a string-length mode per aggregate");
+    }
+  }
+
+  /**
+   * The id → length table a length operand indexes over one leaf, or null when the operand is a
+   * per-leaf dictionary whose lengths the entry pass computes.
+   *
+   * <p>
+   * A GLOBAL operand's table serves every leaf. A SEGMENT operand's lane holds packed cells
+   * ({@code segment << 32 | id}) and a leaf never spans two segments (leaves are cut at segment
+   * boundaries), so the leaf's zone bounds name its segment: {@code segmentOfCell(min)}, asserted
+   * equal to {@code segmentOfCell(max)}. A leaf with no present cell has inverted bounds
+   * ({@code min > max}, the descriptor sentinels) and gets {@link #NO_PRESENT_CELLS}, which the fold
+   * never indexes because it reads presence first. A segment that sealed no dictionary for the
+   * operand cannot occur on a kind-8 column — the encoder refuses to write an unresolved value — so
+   * a missing table is corruption, not a fallback.
+   */
+  private static int @Nullable [] leafLengthTable(final int a, final ColumnSlice agg,
+      final int[][] globalLengthTables, final int[][][] segmentLengthTables) {
+    if (globalLengthTables != null && globalLengthTables[a] != null) {
+      return globalLengthTables[a];
+    }
+    final int[][] bySegment = segmentLengthTables == null ? null : segmentLengthTables[a];
+    if (bySegment == null) {
+      return null;
+    }
+    final long min = agg.min();
+    final long max = agg.max();
+    if (min > max) {
+      return NO_PRESENT_CELLS;
+    }
+    final int segment = ProjectionIndexRowGroupPage.segmentOfCell(min);
+    final int maxSegment = ProjectionIndexRowGroupPage.segmentOfCell(max);
+    if (segment != maxSegment) {
+      throw new IllegalStateException("length lane " + a + " holds cells of segments " + segment + " and "
+          + maxSegment + " in one leaf; leaves are cut at segment boundaries");
+    }
+    final int[] table = segment >= 0 && segment < bySegment.length ? bySegment[segment] : null;
+    if (table == null) {
+      throw new IllegalStateException("length lane " + a + " names segment " + segment
+          + ", which sealed no dictionary for its operand");
+    }
+    return table;
   }
 
   /** Precompute codepoint or UTF-8-byte counts for one string aggregate's dictionary. */
@@ -709,7 +789,7 @@ public final class ProjectionColumnGroupScan {
       final int aggCount, final int w, final int bit, final int rowIdx, final int distinctBlock,
       final GroupDistinctAccumulator.Sink dset, final long[] budget, final byte[] cdDictBytes,
       final int[] cdDictOffsets, final long[] cdHash, final GroupDistinctBitmaps bitmaps, final long[] dwords,
-      final long sumExactMask, final int[][] globalLengthTables) {
+      final long sumExactMask, final int[][] leafLengthTables) {
     slotArr[base]++;
     for (int a = 0; a < aggCount; a++) {
       final boolean stringLengthAgg =
@@ -721,12 +801,14 @@ public final class ProjectionColumnGroupScan {
       // fn:string-length(()) is 0, never empty: a row MISSING the operand still contributes 0.
       final long v;
       if (stringLengthAgg) {
-        // A GLOBAL operand's lengths live in the per-query id table, indexed by the row's id lane;
-        // a per-leaf dict operand's in the precomputed per-entry pass, indexed by its dict id.
+        // An id-lane operand's lengths live in the table the leaf setup chose (GLOBAL: the per-query
+        // table; SEGMENT: this leaf's segment's), indexed by the row's id lane — a segment cell's low
+        // 32 bits are its id; a per-leaf dict operand's in the precomputed per-entry pass, indexed by
+        // its dict id.
         v = !present
             ? 0L
-            : globalLengthTables != null && globalLengthTables[a] != null
-                ? globalLengthTables[a][(int) aggValues[a][rowIdx]]
+            : leafLengthTables[a] != null
+                ? leafLengthTables[a][(int) aggValues[a][rowIdx]]
                 : stringLengths[a][aggIds[a][rowIdx]];
       } else if (cdHash != null && a == distinctBlock) {
         final int cdId = aggIds[a][rowIdx];

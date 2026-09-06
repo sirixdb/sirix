@@ -695,6 +695,58 @@ public final class GlobalValueDictionary {
     }
 
     /**
+     * Fill {@code table[1..entryCount]} with every id's string length in {@code lengthMode}, walking
+     * STORAGE positions rather than ids.
+     *
+     * <p>
+     * The segment twin of {@link #fillLengthTable}: a sealed segment dictionary stores its values in
+     * collation order behind a rank table, so a walk in id order visits storage at random and pays a
+     * block decode per id, while a walk in position order reads each block once and each inverse
+     * rank-table record once ({@link PositionCursor}). The table is indexed by the MINT the rows
+     * carry — the id half of a packed cell — so a length lane over a segment column reads
+     * {@code table[(int) cell]} with the leaf's segment choosing the table, and needs no canonical
+     * id space at all: a length is a property of one value, not of the column's order.
+     * </p>
+     *
+     * @param lengthMode {@link ProjectionIndexByteScan#STRING_LENGTH_UTF8_BYTES} or
+     *        {@link ProjectionIndexByteScan#STRING_LENGTH_CODE_POINTS}
+     * @param table the table indexed by id, at least {@code entryCount + 1} long
+     * @throws IllegalStateException if this view is a segment union (it has no dense id space; fill
+     *         each segment's own view), or the inverse rank table names a mint outside the dictionary
+     */
+    public void fillLengthTableByPosition(final byte lengthMode, final int[] table) {
+      if (lengthMode != ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS
+          && lengthMode != ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES) {
+        throw new IllegalArgumentException("not a string length mode: " + lengthMode);
+      }
+      if (perSegment != null) {
+        throw new IllegalStateException("a segment union has no dense id space; fill each segment's own view");
+      }
+      Objects.requireNonNull(table, "table must not be null");
+      final int entries = entryCount;
+      if (table.length <= entries) {
+        throw new IllegalArgumentException("table of " + table.length + " cannot hold ids 1.." + entries);
+      }
+      if (!storageOrdered) {
+        // Intern-ordered storage keeps no position space apart from its ids, and there the id walk
+        // already reads each block once — the same sequential pass, reached by the other name.
+        fillLengthTable(lengthMode, 1, entries, table);
+        return;
+      }
+      ensureRevision();
+      final PositionCursor cursor = new PositionCursor(this);
+      for (int position = 1; position <= entries; position++) {
+        cursor.seek(position);
+        final int mint = cursor.mintAt(position);
+        if (mint < 1 || mint > entries) {
+          throw new IllegalStateException("inverse rank table of value dictionary " + headerNodeKey + " maps position "
+              + position + " to id " + mint + ", outside 1.." + entries);
+        }
+        table[mint] = cursor.valueLength(lengthMode);
+      }
+    }
+
+    /**
      * Materialize the value interned under {@code id} as a {@link String}.
      *
      * <p>

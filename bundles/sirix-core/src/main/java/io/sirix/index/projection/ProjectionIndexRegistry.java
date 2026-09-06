@@ -1101,11 +1101,13 @@ public final class ProjectionIndexRegistry {
     }
 
     /**
-     * Per-id string-length tables of GLOBAL dictionary columns, by {@code (dictionary header key,
-     * length mode)}: what {@code AVG(length(col))} over a global column indexes per row. A table is one
-     * walk of the whole dictionary — every block decoded once, ~18M ids for URL at 100M — and it is a
-     * pure function of the dictionary this handle's build revision reads, so the first query to need it
-     * derives it and every later one indexes it. Retention is bounded in BYTES by
+     * Per-id string-length tables of dictionaries, by {@code (dictionary header key, length mode)}:
+     * what {@code AVG(length(col))} over a GLOBAL column indexes per row, and what it indexes per LEAF
+     * over a SEGMENT-scoped column (one table per segment dictionary, each under its own header key —
+     * the same rule, so the same memo). A table is one walk of its dictionary — every block decoded
+     * once, ~18M ids for URL at 100M — and it is a pure function of the dictionary this handle's build
+     * revision reads, so the first query to need it derives it and every later one indexes it.
+     * Retention is bounded in BYTES by
      * {@code sirix.projection.stringLength.memoBytes}; past the bound a table is still returned to its
      * query but not kept (the "0 disables" of the property is the kill switch).
      */

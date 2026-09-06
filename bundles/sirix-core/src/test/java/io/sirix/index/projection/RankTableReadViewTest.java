@@ -643,6 +643,160 @@ final class RankTableReadViewTest {
     }
   }
 
+  /**
+   * {@code fillLengthTableByPosition} derives the per-mint length table by ONE walk of the stored
+   * order — what a length lane over a segment column indexes by the row's own mint, with no canonical
+   * id space. It must equal the id walk's table entry for entry, in both modes, over a rank-tabled
+   * dictionary (the pinned extremes put a non-empty value's length at mint 1 and the empty value's 0
+   * at the last mint, so a fill that lands lengths on POSITIONS is wrong at both ends), over two
+   * spilled values (the ASCII one and a multibyte one, whose length per mode comes off its own record)
+   * and over an intern-ordered dictionary (no position space: the id walk by another name). The
+   * cursor's {@code valueLength} reads the length off the slice the seek left. Refusals: a union view,
+   * a short table, a foreign mode, a null table.
+   */
+  @Test
+  @DisplayName("a position-order fill lands every length on its mint, in both modes, over every storage shape")
+  void positionFillLandsLengthsOnMints() {
+    final String emoji = new String(Character.toChars(0x1F600));
+    final byte[] multibyteSpill = utf8("p" + emoji.repeat(ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES / 4 + 1));
+    final List<byte[]> sorted = buildSortedValueSet();
+    sorted.add(multibyteSpill);
+    sorted.sort(RankTableReadViewTest::compareCollation);
+    final int prefix = sorted.size();
+    final int[] rankByMint = shuffledPermutation(prefix, 0xBEEF5L);
+    swapToPin(rankByMint, 1, prefix);
+    swapToPin(rankByMint, prefix, 1);
+    final byte[] modes =
+        {ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS};
+
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+      final long headerKey;
+      final long hashedKey;
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"k\":\"v\"}"), JsonNodeTrx.Commit.NO);
+        final StorageEngineWriter writer = wtx.getStorageEngineWriter();
+        final NamePage namePage = writer.getNamePage(writer.getActualRevisionRootPage());
+        headerKey = flushRankOrdered(sorted, namePage, writer);
+        GlobalValueDictionary.buildBlockIndex(headerKey, namePage, DatabaseType.JSON, writer, writer.getLog());
+        GlobalValueDictionary.attachRankTable(headerKey, rankByMint, namePage, DatabaseType.JSON, writer,
+            writer.getLog());
+        final GlobalValueDictionaryWriter hashed = new GlobalValueDictionaryWriter();
+        for (final byte[] value : sorted) {
+          hashed.intern(value, 0, value.length);
+        }
+        hashedKey = hashed.flush(namePage, DatabaseType.JSON, writer, writer.getLog());
+        hashed.release();
+        wtx.commit();
+      }
+
+      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final StorageEngineReader reader = rtx.getStorageEngineReader();
+        final GlobalValueDictionary.ReadView view = GlobalValueDictionary.readView(headerKey, reader);
+        assertNotNull(view);
+        assertTrue(view.hasRankTable());
+        final GlobalValueDictionary.ReadView union =
+            GlobalValueDictionary.segmentUnionReadView(new long[] {0L, 0L, headerKey}, reader);
+        assertNotNull(union);
+        final GlobalValueDictionary.ReadView hashedView = GlobalValueDictionary.readView(hashedKey, reader);
+        assertNotNull(hashedView);
+        assertFalse(hashedView.hasRankTable());
+        assertNull(hashedView.positionCursorOfCell(1), "intern-ordered storage has no position space to walk");
+
+        for (final byte mode : modes) {
+          final int[] byPosition = new int[prefix + 1];
+          final int[] expectedByMint = new int[prefix + 1];
+          for (int position = 1; position <= prefix; position++) {
+            byPosition[position] = lengthOf(sorted.get(position - 1), mode);
+          }
+          for (int mint = 1; mint <= prefix; mint++) {
+            expectedByMint[mint] = byPosition[rankByMint[mint]];
+          }
+          // The trap is armed: at both pinned extremes a positional fill answers the wrong length.
+          assertEquals(0, byPosition[1], "the fixture's first value is the empty one");
+          assertEquals(0, expectedByMint[prefix], "the last mint holds the empty value");
+          assertNotEquals(0, expectedByMint[1], "the first mint holds the last value, which is not empty");
+          assertNotEquals(byPosition[prefix], expectedByMint[prefix], "mode " + mode + ": the last slot differs");
+
+          final int[] filled = new int[prefix + 1];
+          view.fillLengthTableByPosition(mode, filled);
+          assertArrayEquals(expectedByMint, filled, "mode " + mode + ": every length on its mint");
+          assertArrayEquals(view.lengthTable(mode), filled,
+              "mode " + mode + ": the id walk and the position walk derive one table");
+          // A table with room to spare is filled in 1..entryCount and untouched past it.
+          final int[] roomy = new int[prefix + 3];
+          roomy[prefix + 1] = -7;
+          roomy[prefix + 2] = -9;
+          view.fillLengthTableByPosition(mode, roomy);
+          assertArrayEquals(expectedByMint, Arrays.copyOf(roomy, prefix + 1), "mode " + mode + " into a roomy table");
+          assertEquals(-7, roomy[prefix + 1]);
+          assertEquals(-9, roomy[prefix + 2]);
+
+          // The cursor's own read is the fill's per-position ingredient: the slice's length, or the
+          // spilled record's, in the mode asked for.
+          final SegmentRunCursor cursor = view.positionCursorOfCell(1);
+          assertNotNull(cursor);
+          int spills = 0;
+          for (int position = 1; position <= prefix; position++) {
+            cursor.seek(position);
+            assertEquals(byPosition[position], cursor.valueLength(mode), "mode " + mode + " at position " + position);
+            if (cursor.spill != null) {
+              spills++;
+            }
+          }
+          assertEquals(2, spills, "the ASCII oversized value and the multibyte spill both come off their records");
+
+          // Intern-ordered storage: ids are positions, and the position fill is the id walk.
+          final int[] hashedFilled = new int[prefix + 1];
+          hashedView.fillLengthTableByPosition(mode, hashedFilled);
+          assertArrayEquals(hashedView.lengthTable(mode), hashedFilled, "mode " + mode + " over intern order");
+          assertArrayEquals(byPosition, hashedFilled, "mode " + mode + ": interned in sorted order, id = position");
+        }
+        // The two modes disagree on the multibyte values, so both lanes were exercised above.
+        final int[] bytes = new int[prefix + 1];
+        final int[] codePoints = new int[prefix + 1];
+        view.fillLengthTableByPosition(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES, bytes);
+        view.fillLengthTableByPosition(ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS, codePoints);
+        int modesDiffer = 0;
+        for (int mint = 1; mint <= prefix; mint++) {
+          if (bytes[mint] != codePoints[mint]) {
+            modesDiffer++;
+          }
+        }
+        assertEquals(5, modesDiffer, "the four non-ASCII collate- values and the multibyte spill");
+
+        // Refusals.
+        assertThrows(IllegalStateException.class,
+            () -> union.fillLengthTableByPosition(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES,
+                new int[prefix + 1]), "a union has no dense id space");
+        assertThrows(IllegalArgumentException.class,
+            () -> view.fillLengthTableByPosition(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES, new int[prefix]),
+            "one slot short");
+        assertThrows(IllegalArgumentException.class,
+            () -> view.fillLengthTableByPosition(ProjectionIndexByteScan.STRING_LENGTH_NONE, new int[prefix + 1]),
+            "not a length mode");
+        assertThrows(IllegalArgumentException.class,
+            () -> view.fillLengthTableByPosition((byte) 7, new int[prefix + 1]), "not a length mode");
+        assertThrows(NullPointerException.class,
+            () -> view.fillLengthTableByPosition(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES, null));
+        final SegmentRunCursor cursor = view.positionCursorOfCell(1);
+        assertNotNull(cursor);
+        cursor.seek(1);
+        assertThrows(IllegalArgumentException.class,
+            () -> cursor.valueLength(ProjectionIndexByteScan.STRING_LENGTH_NONE));
+        assertThrows(IllegalArgumentException.class, () -> cursor.valueLength((byte) 7));
+      }
+    }
+  }
+
+  private static int lengthOf(final byte[] value, final byte mode) {
+    if (mode == ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES) {
+      return value.length;
+    }
+    final String text = new String(value, StandardCharsets.UTF_8);
+    return text.codePointCount(0, text.length());
+  }
+
   private static int indexOf(final List<byte[]> sorted, final byte[] value) {
     for (int i = 0; i < sorted.size(); i++) {
       if (Arrays.equals(sorted.get(i), value)) {
