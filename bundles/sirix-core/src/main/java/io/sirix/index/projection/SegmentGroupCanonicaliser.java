@@ -242,13 +242,43 @@ public final class SegmentGroupCanonicaliser {
    *         group whose key has no value would silently become a group of its own
    */
   public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices) {
+    return canonicalise(slices, null);
+  }
+
+  /**
+   * The same, canonicalising ONLY the leaves {@code keep} keeps.
+   *
+   * <h2>Why a keep mask belongs here</h2>
+   *
+   * Canonicalising is the price of a prepass-free load: an id means something only inside its
+   * segment, so a cell must be mapped to a query-wide id before it can be a group key. That price is
+   * one dictionary read per DISTINCT cell, and over a whole column at 100M rows it is eighteen
+   * million random reads — which is fine when the query groups the whole table and absurd when its
+   * predicate keeps a handful of rows. Three ClickBench queries that answer in milliseconds over a
+   * resource-wide dictionary took ~39 s here for exactly that reason: every row was canonicalised
+   * before a single predicate ran.
+   *
+   * <p>
+   * A leaf the predicates' zone maps drop can produce no row at all, so its cells are never read as
+   * group keys and need no canonical id. Such a leaf is left {@code null} rather than passed through:
+   * a raw cell IS a small integer in segment 0, exactly the space canonical ids occupy, so passing one
+   * through would let it group silently BESIDE a canonical id. A {@code null} cannot do that, and the
+   * kernel never dereferences it — it reads {@code groupCol[leaf]} only after its own mask says the
+   * leaf has surviving rows, from the same authority that built this mask. Should the two ever
+   * disagree, this fails loudly instead of answering wrongly.
+   * </p>
+   *
+   * @param keep bit {@code leaf} set = canonicalise it; {@code null} = canonicalise every leaf
+   */
+  public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices,
+      final long @Nullable [] keep) {
     if (slices == null) {
       return null;
     }
     final ColumnSlice[] out = new ColumnSlice[slices.length];
     for (int i = 0; i < slices.length; i++) {
       final ColumnSlice slice = slices[i];
-      if (slice == null) {
+      if (slice == null || keep != null && (keep[i >>> 6] & 1L << (i & 63)) == 0L) {
         continue;
       }
       final long[] cells = slice.numericValues();

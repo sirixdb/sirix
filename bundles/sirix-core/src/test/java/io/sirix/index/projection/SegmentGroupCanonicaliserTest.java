@@ -358,4 +358,50 @@ final class SegmentGroupCanonicaliserTest {
         "without positions the merge must decline, not order by mint");
     assertFalse(canonicaliser.isOrderPreserving(), "a refused merge must leave the space unsealed");
   }
+
+  @Test
+  @DisplayName("a leaf the predicates pruned is left null and costs no dictionary read")
+  void aPrunedLeafIsNeverCanonicalised() {
+    final Map<Long, String> corpus = new HashMap<>();
+    // The KEPT cell lives in segment 1, so its packed form is a large long and cannot be confused
+    // with the small canonical id that replaces it — a segment-0 cell IS a small integer, which is
+    // precisely the collision this rewrite has to be readable against.
+    final long kept = ProjectionIndexRowGroupPage.packSegmentCell(1, 7);
+    final long pruned = ProjectionIndexRowGroupPage.packSegmentCell(0, 2);
+    corpus.put(kept, "kept");
+    corpus.put(pruned, "pruned");
+    final AtomicInteger resolves = new AtomicInteger();
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(cell -> {
+      resolves.incrementAndGet();
+      return corpus.get(cell);
+    }, 2);
+
+    // Leaf 0 survives the zone maps, leaf 1 does not.
+    final ColumnSlice[] slices = {sliceOf(kept), sliceOf(pruned)};
+    final long[] keep = {1L}; // bit 0 set, bit 1 clear
+    final ColumnSlice[] out = canonicaliser.canonicalise(slices, keep);
+
+    assertNotNull(out);
+    assertNotNull(out[0], "a kept leaf must be canonicalised");
+    assertNull(out[1], "a pruned leaf must be left null, never passed through with raw cells");
+    assertEquals(1, resolves.get(), "the pruned leaf's cell must cost no dictionary read");
+    assertEquals(1, canonicaliser.size(), "and must issue no canonical id of its own");
+    // The kept leaf really was rewritten: its lane carries a canonical id, not the packed cell.
+    assertEquals(1L, out[0].numericValues()[0], "the kept leaf's lane must hold the canonical id");
+    assertNotEquals(kept, out[0].numericValues()[0], "and not the raw cell it replaced");
+  }
+
+  @Test
+  @DisplayName("a null keep mask still canonicalises every leaf")
+  void aNullKeepMaskKeepsEverything() {
+    final Map<Long, String> corpus = new HashMap<>();
+    final long a = ProjectionIndexRowGroupPage.packSegmentCell(0, 1);
+    final long b = ProjectionIndexRowGroupPage.packSegmentCell(1, 2);
+    corpus.put(a, "alpha");
+    corpus.put(b, "beta");
+    final ColumnSlice[] out = over(corpus, 2).canonicalise(new ColumnSlice[] {sliceOf(a), sliceOf(b)}, null);
+    assertNotNull(out);
+    assertNotNull(out[0]);
+    assertNotNull(out[1], "without a mask nothing is pruned");
+  }
 }

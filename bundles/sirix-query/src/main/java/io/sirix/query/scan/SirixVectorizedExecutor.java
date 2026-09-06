@@ -17858,7 +17858,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         slicedTreeCols = predTree != null
             ? resolveTreeCols(slicedStore, predTree, fetcher)
             : null;
-        slicedGroupCol = canonicaliseGroupKeys(segmentKeys, slicedStore.column(groupCol, fetcher));
+        // PREDICATE-FIRST. Canonicalising is one dictionary read per distinct cell, so over a whole
+        // column at 100M it is ~18M random reads; a query whose predicate keeps a handful of rows
+        // must not pay for the rows it will discard. The zone maps already know which leaves can
+        // produce a row, and the kernel skips the rest before it ever reads a group key.
+        final long[] groupKeepMask = segmentKeys == null
+            ? null
+            : ProjectionColumnScan.predicateKeepMask(slicedStore, preds, predTree, fetcher);
+        slicedGroupCol =
+            canonicaliseGroupKeys(segmentKeys, slicedStore.column(groupCol, fetcher), groupKeepMask);
         if (slicedGroupCol == null) {
           return declineGroupAgg("a segment-scoped group key has no value in this revision");
         }
@@ -18964,9 +18972,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static ProjectionColumnStore.ColumnSlice @Nullable [] canonicaliseGroupKeys(
       final @Nullable SegmentGroupCanonicaliser canonicaliser,
       final ProjectionColumnStore.ColumnSlice @Nullable [] slices) {
+    return canonicaliseGroupKeys(canonicaliser, slices, null);
+  }
+
+  /** The same, canonicalising only the leaves {@code keep} keeps — see the note at the call site. */
+  private static ProjectionColumnStore.ColumnSlice @Nullable [] canonicaliseGroupKeys(
+      final @Nullable SegmentGroupCanonicaliser canonicaliser,
+      final ProjectionColumnStore.ColumnSlice @Nullable [] slices, final long @Nullable [] keep) {
     return canonicaliser == null
         ? slices
-        : canonicaliser.canonicalise(slices);
+        : canonicaliser.canonicalise(slices, keep);
   }
 
   /**
