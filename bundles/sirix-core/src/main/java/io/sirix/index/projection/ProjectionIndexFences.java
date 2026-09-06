@@ -297,7 +297,12 @@ public final class ProjectionIndexFences {
             + (rowGroupCount + 1) + ": " + first + " <= " + baseUpper);
       }
       final int nextSlot = rowGroupCount + 1;
-      if (chunkEntries > 0) {
+      if (chunkEntries == CHUNK_LEAVES) {
+        // The previous chunk filled on the last append and was held back for exactly this moment: a
+        // leaf DOES follow, so its tail entry points at this slot and the chunk is written once, final.
+        ProjectionIndexRowGroupCodec.putIntLEAt(chunk, (CHUNK_LEAVES - 1) * ENTRY_BYTES + DOC_NEXT_OFFSET, nextSlot);
+        flushChunk(storage);
+      } else if (chunkEntries > 0) {
         ProjectionIndexRowGroupCodec.putIntLEAt(chunk, (chunkEntries - 1) * ENTRY_BYTES + DOC_NEXT_OFFSET, nextSlot);
       }
       final int offset = chunkEntries * ENTRY_BYTES;
@@ -318,14 +323,14 @@ public final class ProjectionIndexFences {
         baseUpper = last;
       }
       RowGroupDescriptor.putLongLE(chunk, offset + BASE_UPPER_OFFSET, baseUpper);
-      if (chunkEntries + 1 == CHUNK_LEAVES && nextSlot < ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
-        ProjectionIndexRowGroupCodec.putIntLEAt(chunk, offset + DOC_NEXT_OFFSET, nextSlot + 1);
-      }
       chunkEntries++;
       rowGroupCount++;
-      if (chunkEntries == CHUNK_LEAVES) {
-        flushChunk(storage);
-      }
+      // A chunk that just filled is NOT written here. Its tail entry's document link is only known
+      // once the writer learns whether another leaf follows — the next append links and writes it, and
+      // finish writes it with the link cleared. Writing it now with a predicted link would make finish
+      // REPLACE the blob whenever the prediction fails (a leaf count that is a multiple of the chunk
+      // size), and a bulk load's side pages are append-only until publication: the replace was refused
+      // and the whole load failed at commit. Every chunk is now written exactly once.
     }
 
     void finish(final ProjectionIndexHOTStorage storage) {
@@ -334,19 +339,8 @@ public final class ProjectionIndexFences {
         throw new IllegalStateException("projection fence build writer is already finished");
       }
       if (chunkEntries > 0) {
+        // The tail entry was zero-filled on append and never linked forward: it terminates the chain.
         flushChunk(storage);
-      } else if (rowGroupCount > 0 && rowGroupCount % CHUNK_LEAVES == 0) {
-        if (chunksWritten == 0) {
-          throw new IllegalStateException("projection fence writer lost its completed chunks");
-        }
-        final long finalChunkSlot = CHUNK_SLOT_BASE + chunksWritten - 1L;
-        final byte[] persistedFinalChunk = storage.getBlob(finalChunkSlot);
-        if (persistedFinalChunk == null || persistedFinalChunk.length != CHUNK_LEAVES * ENTRY_BYTES) {
-          throw new IllegalStateException("projection final fence chunk is unavailable at finish");
-        }
-        final byte[] finalChunk = persistedFinalChunk.clone();
-        ProjectionIndexRowGroupCodec.putIntLEAt(finalChunk, (CHUNK_LEAVES - 1) * ENTRY_BYTES + DOC_NEXT_OFFSET, 0);
-        storage.putBlob(finalChunkSlot, finalChunk);
       }
       storage.putBlob(ORDER_HEADER_SLOT, orderHeader(rowGroupCount, rowGroupCount, rowGroupCount, 0, rowGroupCount == 0
           ? 0

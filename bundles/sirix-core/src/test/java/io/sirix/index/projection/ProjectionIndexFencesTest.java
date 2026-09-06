@@ -194,13 +194,18 @@ final class ProjectionIndexFencesTest {
         for (int index = 0; index < ProjectionIndexFences.CHUNK_LEAVES; index++) {
           writer.append(storage, expected[0][index], expected[1][index]);
         }
-        assertEquals(1, writer.chunksWritten(), "a completed fence chunk must publish in the epoch that completed it");
+        // A chunk that just filled is held: its tail entry's forward link is unknown until the writer
+        // learns whether a leaf follows, and a chunk is written exactly once — never replaced.
+        assertEquals(0, writer.chunksWritten(), "a just-filled fence chunk waits for the next append or finish");
         wtx.commit();
       }
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        for (int index = ProjectionIndexFences.CHUNK_LEAVES; index < rowGroups; index++) {
+        writer.append(storage, expected[0][ProjectionIndexFences.CHUNK_LEAVES],
+            expected[1][ProjectionIndexFences.CHUNK_LEAVES]);
+        assertEquals(1, writer.chunksWritten(), "the append that links the held chunk forward publishes it");
+        for (int index = ProjectionIndexFences.CHUNK_LEAVES + 1; index < rowGroups; index++) {
           writer.append(storage, expected[0][index], expected[1][index]);
         }
         assertEquals(1, writer.chunksWritten(), "only the partial second chunk remains before finish");
@@ -233,13 +238,14 @@ final class ProjectionIndexFencesTest {
         for (int index = 0; index < rowGroups; index++) {
           writer.append(storage, expected[0][index], expected[1][index]);
         }
-        assertEquals(1, writer.chunksWritten());
+        assertEquals(0, writer.chunksWritten(), "an exactly full chunk is held until finish settles its tail link");
         wtx.commit();
       }
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         writer.finish(storage);
+        assertEquals(1, writer.chunksWritten(), "finish writes the held chunk once, with a terminating tail link");
         wtx.commit();
       }
     }
