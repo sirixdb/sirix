@@ -258,4 +258,104 @@ final class SegmentGroupCanonicaliserTest {
     assertEquals(first[1], second[1]);
     assertTrue(second[1] < second[0], "alpha ranks before zulu");
   }
+
+  /**
+   * A dictionary stand-in that ALSO answers positions, the way a sealed segment dictionary does:
+   * within one segment, position order is collation order. Mints are deliberately NOT in that order,
+   * so anything that folds on the mint instead of the position is wrong at almost every id.
+   */
+  private record PositionedCorpus(Map<Long, String> values, Map<Long, Integer> positions, long[] cells)
+      implements SegmentGroupCanonicaliser.CellResolver {
+    @Override
+    public String valueOfCell(final long cell) {
+      return values.get(cell);
+    }
+
+    @Override
+    public int positionOfCell(final long cell) {
+      final Integer position = positions.get(cell);
+      return position == null
+          ? SegmentGroupCanonicaliser.NO_POSITION
+          : position;
+    }
+  }
+
+  /**
+   * {@code segments} segments of {@code perSegment} values each. Mints run DOWNWARD while positions
+   * run upward, so mint order is the exact reverse of collation order inside every segment.
+   */
+  private static PositionedCorpus positionedCorpus(final int segments, final int perSegment) {
+    final Map<Long, String> values = new HashMap<>();
+    final Map<Long, Integer> positions = new HashMap<>();
+    final long[] cells = new long[segments * perSegment];
+    int at = 0;
+    for (int segment = 0; segment < segments; segment++) {
+      // Interleave the segments' value ranges so a merge that simply concatenates runs is wrong:
+      // segment 0 holds value-000, value-004, ...; segment 1 holds value-001, value-005, ...
+      final String[] mine = new String[perSegment];
+      for (int i = 0; i < perSegment; i++) {
+        mine[i] = String.format("value-%05d", i * segments + segment);
+      }
+      java.util.Arrays.sort(mine);
+      for (int i = 0; i < perSegment; i++) {
+        final int mint = perSegment - i; // downward: mint order is the reverse of position order
+        final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, mint);
+        values.put(cell, mine[i]);
+        positions.put(cell, i + 1); // 1-based, ascending with collation inside this segment
+        cells[at++] = cell;
+      }
+    }
+    return new PositionedCorpus(values, positions, cells);
+  }
+
+  @Test
+  @DisplayName("the position merge orders the whole value space exactly as sorting it would")
+  void positionMergeMatchesTheSort() {
+    final int segments = 7;
+    final int perSegment = 40;
+    final PositionedCorpus corpus = positionedCorpus(segments, perSegment);
+    final int distinct = segments * perSegment;
+
+    final SegmentGroupCanonicaliser merged = new SegmentGroupCanonicaliser(corpus, segments);
+    assertNotNull(merged.canonicalise(new ColumnSlice[] {sliceOf(corpus.cells())}), "every cell resolves");
+    assertEquals(distinct, merged.size(), "the corpus must hold no duplicate values");
+    assertTrue(merged.sealByPositionMerge(merged.size()), "the merge must seal a corpus it has positions for");
+
+    // The property, stated directly: reading the sealed space by ascending rank yields ascending
+    // values. A merge that concatenated runs, or folded on the mint, fails at almost every rank.
+    for (int rank = 2; rank <= distinct; rank++) {
+      final String previous = merged.valueOf(rank - 1);
+      final String current = merged.valueOf(rank);
+      assertNotNull(previous);
+      assertNotNull(current);
+      assertTrue(previous.compareTo(current) < 0,
+          "rank " + (rank - 1) + " (" + previous + ") must collate before rank " + rank + " (" + current + ")");
+    }
+
+    // And it agrees with the path it replaces, id for id, on the same corpus.
+    final SegmentGroupCanonicaliser sorted = new SegmentGroupCanonicaliser(corpus, segments);
+    assertNotNull(sorted.canonicalise(new ColumnSlice[] {sliceOf(corpus.cells())}));
+    assertTrue(sorted.sealOrderPreserving(), "the small corpus takes the materialising path");
+    for (int rank = 1; rank <= distinct; rank++) {
+      assertEquals(sorted.valueOf(rank), merged.valueOf(rank), "the two seals disagree at rank " + rank);
+    }
+  }
+
+  @Test
+  @DisplayName("a resolver with no positions refuses the merge rather than inventing an order")
+  void aResolverWithoutPositionsRefusesTheMerge() {
+    final Map<Long, String> corpus = new HashMap<>();
+    final long a = ProjectionIndexRowGroupPage.packSegmentCell(0, 1);
+    final long b = ProjectionIndexRowGroupPage.packSegmentCell(1, 2);
+    corpus.put(a, "alpha");
+    corpus.put(b, "beta");
+    // `corpus::get` is a plain CellResolver: it answers values and takes the NO_POSITION default,
+    // which is what a TRANSFORMING resolver must also do, since a transform reorders what storage
+    // ordered.
+    final SegmentGroupCanonicaliser canonicaliser = over(corpus, 2);
+    assertNotNull(canonicaliser.canonicalise(new ColumnSlice[] {sliceOf(a, b)}));
+    assertFalse(canonicaliser.sealByPositionMerge(canonicaliser.size()),
+        "without positions the merge must decline, not order by mint");
+    assertFalse(canonicaliser.isOrderPreserving(), "a refused merge must leave the space unsealed");
+  }
 }

@@ -59,6 +59,9 @@ public final class SegmentGroupCanonicaliser {
   /** Answer for a cell whose value this revision cannot resolve. */
   private static final int UNRESOLVABLE = -1;
 
+  /** {@link CellResolver#positionOfCell} could not answer: the merge seal declines. */
+  public static final int NO_POSITION = -1;
+
   /**
    * How a packed cell becomes a value. Narrowed to this one operation so the merge semantics can be
    * tested without standing up a dictionary, and because the slow path is the only caller — the
@@ -106,6 +109,21 @@ public final class SegmentGroupCanonicaliser {
      * resolver overrides it with {@code compareCells} and touches no String at all.
      * </p>
      */
+    /**
+     * The storage POSITION of {@code cell} within its own segment, or {@link #NO_POSITION} when this
+     * resolver cannot answer in position space.
+     *
+     * <p>
+     * The default refuses, and a TRANSFORMING resolver must keep that refusal: positions order the
+     * dictionary's stored values, and a transform (a regex replacement, say) reorders them
+     * arbitrarily, so a position says nothing about where the transformed value collates. Only the
+     * untransformed byte resolver overrides it.
+     * </p>
+     */
+    default int positionOfCell(final long cell) {
+      return NO_POSITION;
+    }
+
     default int compareValues(final long left, final long right) {
       final String a = valueOfCell(left);
       final String b = valueOfCell(right);
@@ -195,6 +213,11 @@ public final class SegmentGroupCanonicaliser {
       @Override
       public int compareValues(final long left, final long right) {
         return views.get().compareCells(left, right);
+      }
+
+      @Override
+      public int positionOfCell(final long cell) {
+        return views.get().positionOfCell(cell);
       }
     };
   }
@@ -368,13 +391,17 @@ public final class SegmentGroupCanonicaliser {
       return true; // idempotent: a second seal would renumber ids the caller is already carrying
     }
     final int count = representativeCell.size();
+    // MERGE FIRST, at every size. The values of a segment-scoped column are not an unsorted heap:
+    // they are one already-sorted run per segment, so the order is a merge, and the merge holds S
+    // strings rather than one per value. Trying it first rather than only above a threshold means
+    // every gate exercises the path that 100M depends on — a route that only runs at the scale
+    // nothing verifies at is a route nobody has tested.
+    if (sealByPositionMerge(count)) {
+      return true;
+    }
     if (count > MAX_ORDERED_VALUES) {
-      // ORDERING IS THE ONE THING THAT DOES NOT SCALE HERE. Grouping, counting and predicate
-      // evaluation are each one pass over the distinct values; a total order is n log n COMPARISONS,
-      // and every comparison reads two dictionary entries. At eighteen million distinct URLs that is
-      // hundreds of millions of reads for one query. Refuse, and let the caller decline to a pipeline
-      // that is slower but finishes — the honest answer until MIN/MAX folds per segment and merges,
-      // which is what a column store with block-local dictionaries actually does.
+      // No positions to merge on AND too many to materialise: one String per distinct value is the
+      // heap at eighteen million URLs. Refuse, and let the caller decline.
       return false;
     }
     // Materialise once, sort on that. Comparing through the dictionary instead would pay two reads
@@ -404,10 +431,155 @@ public final class SegmentGroupCanonicaliser {
   }
 
   /**
-   * Distinct values above which {@link #sealOrderPreserving} refuses. Sized so a 1M-shaped column
-   * seals and a 100M-shaped one declines rather than spending minutes or the heap on a total order.
+   * Seal a value space too large to materialise, by MERGING the segments instead of sorting the whole.
+   *
+   * <h2>Why this is not another sort</h2>
+   *
+   * A sealed segment dictionary stores its values in collation order, so within one segment POSITION
+   * order already IS value order — the identity {@code ReadView.compareIds} exploits for
+   * {@code storageOrdered}. The distinct values of a segment-scoped column are therefore not an
+   * unsorted heap of eighteen million strings but S runs that are each already sorted, and a total
+   * order over them is a merge, not a sort.
+   *
+   * <p>
+   * That changes both costs that made the plain sort refuse. MEMORY: the sorted path materialises one
+   * {@link String} per distinct value, which at eighteen million URLs is the heap; the merge holds
+   * only ONE head value per run, so S strings live at a time whatever the count. READS: a sort
+   * touches values in whatever order the comparator asks, which is random; the merge walks each run in
+   * ascending position, which is the order the values are STORED in, so a decoded block serves every
+   * value in it before being dropped.
+   * </p>
+   *
+   * <p>
+   * Ordering the runs costs no value reads at all — {@code positionOfCell} answers from the rank
+   * table, whose records cover {@code ENTRIES_PER_RECORD} keys each and are cached on the view, so a
+   * pass over ascending ids loads each record once. What remains is {@code count} value reads and
+   * {@code count log S} comparisons.
+   * </p>
+   *
+   * @return {@code false} when the resolver cannot answer in position space (a TRANSFORMING resolver
+   *         never can, since a transform reorders what storage ordered), when a value is unreadable,
+   *         or above {@link #MAX_MERGED_VALUES}
+   */
+  boolean sealByPositionMerge(final int count) { // package-private: the merge is tested on a small corpus
+    if (count > MAX_MERGED_VALUES) {
+      return false;
+    }
+    // key = (segment, position), which sorts the arrivals into per-segment runs that are each in
+    // collation order. Both halves are non-negative, so a plain long compare orders the pair.
+    final long[] key = new long[count];
+    for (int arrival = 1; arrival <= count; arrival++) {
+      final long cell = representativeCell.getLong(arrival - 1);
+      final int position = resolver.positionOfCell(cell);
+      if (position == NO_POSITION) {
+        return false;
+      }
+      key[arrival - 1] = (long) ProjectionIndexRowGroupPage.segmentOfCell(cell) << 32 | position;
+    }
+    final int[] order = new int[count];
+    for (int i = 0; i < count; i++) {
+      order[i] = i;
+    }
+    IntArrays.parallelQuickSort(order, (left, right) -> Long.compare(key[left], key[right]));
+
+    // Run boundaries: one run per segment that contributed a value.
+    int runs = 0;
+    for (int i = 0; i < count; i++) {
+      if (i == 0 || key[order[i]] >>> 32 != key[order[i - 1]] >>> 32) {
+        runs++;
+      }
+    }
+    final int[] runStart = new int[runs + 1];
+    int run = 0;
+    for (int i = 0; i < count; i++) {
+      if (i == 0 || key[order[i]] >>> 32 != key[order[i - 1]] >>> 32) {
+        runStart[run++] = i;
+      }
+    }
+    runStart[runs] = count;
+
+    final int[] cursor = new int[runs];
+    final String[] head = new String[runs];
+    final int[] heap = new int[runs];
+    int heapSize = 0;
+    for (int r = 0; r < runs; r++) {
+      cursor[r] = runStart[r];
+      final String value = valueAt(order[cursor[r]]);
+      if (value == null) {
+        return false;
+      }
+      head[r] = value;
+      heap[heapSize++] = r;
+    }
+    for (int i = heapSize / 2 - 1; i >= 0; i--) {
+      siftDown(heap, heapSize, i, head);
+    }
+
+    final int[] ranks = new int[count];
+    final int[] sorted = new int[count];
+    for (int rank = 1; rank <= count; rank++) {
+      final int winner = heap[0];
+      final int arrival = order[cursor[winner]] + 1;
+      ranks[arrival - 1] = rank;
+      sorted[rank - 1] = arrival;
+      if (++cursor[winner] < runStart[winner + 1]) {
+        final String next = valueAt(order[cursor[winner]]);
+        if (next == null) {
+          return false;
+        }
+        head[winner] = next;
+      } else {
+        heap[0] = heap[--heapSize]; // the run is exhausted; drop it and re-heapify
+        if (heapSize == 0) {
+          break;
+        }
+      }
+      siftDown(heap, heapSize, 0, head);
+    }
+    sortedArrival = sorted;
+    rankByArrival = ranks; // last: a reader that sees this sees both tables
+    return true;
+  }
+
+  /** The value of the arrival at zero-based index {@code arrivalIndex}. */
+  private @Nullable String valueAt(final int arrivalIndex) {
+    return resolver.valueOfCell(representativeCell.getLong(arrivalIndex));
+  }
+
+  private static void siftDown(final int[] heap, final int size, final int from, final String[] head) {
+    int parent = from;
+    while (true) {
+      final int left = (parent << 1) + 1;
+      if (left >= size) {
+        return;
+      }
+      final int right = left + 1;
+      int smallest = right < size && head[heap[right]].compareTo(head[heap[left]]) < 0
+          ? right
+          : left;
+      if (head[heap[smallest]].compareTo(head[heap[parent]]) >= 0) {
+        return;
+      }
+      final int swap = heap[parent];
+      heap[parent] = heap[smallest];
+      heap[smallest] = swap;
+      parent = smallest;
+    }
+  }
+
+  /**
+   * Distinct values above which {@link #sealOrderPreserving} refuses when it cannot MERGE — the
+   * fallback materialises one {@link String} per distinct value, and that is the heap long before it
+   * is the clock.
    */
   private static final int MAX_ORDERED_VALUES = 2_000_000;
+
+  /**
+   * Distinct values above which even the merge refuses. The merge holds four arrays over the value
+   * space — the sort key, the permutation, and the two rank tables — at twenty bytes per value, so
+   * this is the point where the ORDER itself, not the values, would take the heap.
+   */
+  private static final int MAX_MERGED_VALUES = 32_000_000;
 
   /**
    * The canonical id a LITERAL takes in this value space, minting one if the column never held it.

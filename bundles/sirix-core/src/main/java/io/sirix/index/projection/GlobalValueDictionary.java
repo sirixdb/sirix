@@ -744,6 +744,33 @@ public final class GlobalValueDictionary {
           : segmentViewOf(anyCellInSegment).stringOpVerdictByMint(op, literalUtf8);
     }
 
+    /**
+     * The storage POSITION of a packed cell within its own segment's dictionary, or {@code -1} when
+     * that dictionary keeps no collation-ordered storage.
+     *
+     * <p>
+     * Why a caller wants this: a sealed segment dictionary stores its values in collation order, so
+     * within ONE segment position order IS value order and an ordering question becomes an integer
+     * compare — the same identity {@link #compareIds} already exploits for {@code storageOrdered}.
+     * Across segments the positions mean nothing to each other, so a caller may only use this to
+     * order within a segment and must compare VALUES to merge segments.
+     * </p>
+     */
+    public int positionOfCell(final long anyCell) {
+      final ReadView view = perSegment == null
+          ? this
+          : segmentViewOf(anyCell);
+      if (!view.storageOrdered) {
+        return -1;
+      }
+      final int id = perSegment == null
+          ? (int) anyCell
+          : ProjectionIndexRowGroupPage.idOfCell(anyCell);
+      return id >= 1 && id <= view.entryCount
+          ? view.positionOf(id)
+          : -1;
+    }
+
     /** Whether this view resolves packed {@code (segment, id)} cells rather than bare ids. */
     public boolean isSegmentUnion() {
       return perSegment != null;
