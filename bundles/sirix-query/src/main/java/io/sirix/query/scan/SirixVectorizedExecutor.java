@@ -154,6 +154,7 @@ import java.util.Map;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.function.Supplier;
 import java.util.function.LongSupplier;
 import java.util.function.IntConsumer;
@@ -17898,6 +17899,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // LANES are the distinctFields list (count(*) has no operand and takes no lane), while
           // segmentExtremumCols and rankStringViews are indexed by FUNC. A length lane is already
           // lane-indexed because the roster loop that marks it walks distinctFields itself.
+          // ONE value space per COLUMN, not per lane. A query can put two aggregates on the same
+          // segment-scoped column -- MIN(Referer) beside AVG(STRLEN(Referer)) -- and each lane used
+          // to build its own canonicalisation of all 19.7M distinct Referers. Two full spaces over
+          // one column is what exhausted a 14 GB heap on that query; they are also identical, so one
+          // serves both.
+          final Int2ObjectOpenHashMap<SealedOperand> sealedByColumn = new Int2ObjectOpenHashMap<>();
           for (int i = 0; i < funcs.length; i++) {
             if (segmentExtremumCols == null || i >= segmentExtremumCols.length || segmentExtremumCols[i] < 0) {
               continue;
@@ -17908,7 +17915,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             if (lane < 0 || lane >= aggCols.length) {
               return declineGroupAgg("segment-scoped extremum has no aggregate lane");
             }
-            final SealedOperand sealed = sealSegmentOperand(handle, slicedStore, aggCols[lane], fetcher);
+            final SealedOperand sealed =
+                sealSegmentOperandShared(sealedByColumn, handle, slicedStore, aggCols[lane], fetcher, true);
             if (sealed == null) {
               return declineGroupAgg("a segment-scoped extremum operand has no value in this revision");
             }
@@ -17922,7 +17930,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
             // A length lane indexes lengthTable by the canonical id and never compares two of them,
             // so it needs canonical ids but NOT collating ones.
-            final SealedOperand sealed = sealSegmentOperand(handle, slicedStore, aggCols[a], fetcher, false);
+            final SealedOperand sealed =
+                sealSegmentOperandShared(sealedByColumn, handle, slicedStore, aggCols[a], fetcher, false);
             if (sealed == null) {
               return declineGroupAgg("a segment-scoped string-length operand has no value in this revision");
             }
@@ -18905,6 +18914,33 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final ProjectionColumnStore store, final int column,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
     return sealSegmentOperand(handle, store, column, fetcher, true);
+  }
+
+  /**
+   * {@link #sealSegmentOperand} memoised by COLUMN for one plan, upgrading an unordered space in
+   * place when a later lane needs a collating one.
+   *
+   * <p>
+   * Canonicalising a segment-scoped column materialises its whole distinct value space, so doing it
+   * twice for one column costs twice the heap and twice the time for an identical answer. Sealing is
+   * idempotent, so the upgrade is free when the space is already ordered.
+   * </p>
+   */
+  private @Nullable SealedOperand sealSegmentOperandShared(final Int2ObjectOpenHashMap<SealedOperand> byColumn,
+      final ProjectionIndexRegistry.Handle handle, final ProjectionColumnStore store, final int column,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final boolean ordered) {
+    final SealedOperand cached = byColumn.get(column);
+    if (cached != null) {
+      if (ordered && !cached.ranked().isOrderPreserving() && !cached.ranked().sealOrderPreserving()) {
+        return null; // the shared space cannot be ordered; the caller declines as it would have alone
+      }
+      return cached;
+    }
+    final SealedOperand sealed = sealSegmentOperand(handle, store, column, fetcher, ordered);
+    if (sealed != null) {
+      byColumn.put(column, sealed);
+    }
+    return sealed;
   }
 
   /**
