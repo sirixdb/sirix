@@ -296,6 +296,33 @@ public final class SegmentGroupCanonicaliser {
    * loop resolves as before, correctly and more slowly.
    * </p>
    */
+  /** Diagnostics only: the last resolver failure, so a refusal names its cause and not just its cell. */
+  private volatile @Nullable String lastRefusal;
+
+  /**
+   * A refused canonicalisation names the cell it refused. Without this the caller sees only
+   * {@code null}, and a query that declines for one cell out of a hundred million looks exactly like
+   * a query that declines for a plan-shaped reason.
+   */
+  private void reportUnresolvable(final int leaf, final int row, final long cell) {
+    if (!PROJ_DIAG) {
+      return;
+    }
+    final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
+    final int id = ProjectionIndexRowGroupPage.idOfCell(cell);
+    int entries;
+    try {
+      entries = resolver.entryCountOfSegment(cell);
+    } catch (final RuntimeException unavailable) {
+      entries = -1;
+    }
+    final int[] ranks = rankByArrival;
+    System.err.println("[proj] canonicalise REFUSED leaf " + leaf + " row " + row + ": segment=" + segment
+        + " id=" + id + " segmentEntries=" + entries + " sealedRanks=" + (ranks == null
+            ? -1
+            : ranks.length) + " lastResolverFailure=" + lastRefusal);
+  }
+
   private static void report(final String why) {
     if (PROJ_DIAG) {
       // A prefetch that silently does nothing is indistinguishable from one that does not help; say
@@ -314,6 +341,9 @@ public final class SegmentGroupCanonicaliser {
       final ColumnSlice slice = slices[i];
       if (slice == null || keep != null && (keep[i >>> 6] & 1L << (i & 63)) == 0L) {
         continue;
+      }
+      if (slice.rowCount() == 0) {
+        continue; // the pruned sentinel: no rows, so nothing to mark
       }
       final long[] cells = slice.numericValues();
       if (cells == null) {
@@ -415,13 +445,23 @@ public final class SegmentGroupCanonicaliser {
       if (slice == null || keep != null && (keep[i >>> 6] & 1L << (i & 63)) == 0L) {
         continue;
       }
+      if (slice.rowCount() == 0) {
+        // THE PRUNED SENTINEL. A windowed fill hands out a shared rowless slice for every leaf the
+        // zone maps dropped inside a morsel that also has kept leaves, and the kernels short-circuit
+        // on its row count. It has no cells, so there is nothing to canonicalise and nothing that
+        // could group beside a canonical id — it passes through as it is. Refusing it declined
+        // ClickBench q39 at 100M (the one scale whose fill budget refuses residency) into a generic
+        // pipeline that cannot run the query at all.
+        out[i] = slice;
+        continue;
+      }
       final long[] cells = slice.numericValues();
       if (cells == null) {
-        // A segment-scoped column IS a long lane, so a slice without one cannot be canonicalised.
-        // Passing it through would be far worse than declining: its raw cells would then group
-        // BESIDE canonical ids from the leaves that were canonicalised, and a segment-0 cell is a
-        // small integer — exactly the space canonical ids occupy. Unrelated values would silently
-        // land in the same group.
+        // A segment-scoped column IS a long lane, so a slice WITH rows but without one cannot be
+        // canonicalised. Passing it through would be far worse than declining: its raw cells would
+        // then group BESIDE canonical ids from the leaves that were canonicalised, and a segment-0
+        // cell is a small integer — exactly the space canonical ids occupy. Unrelated values would
+        // silently land in the same group.
         return null;
       }
       final int rows = slice.rowCount();
@@ -463,6 +503,7 @@ public final class SegmentGroupCanonicaliser {
             ? rankOf(arrival, ranks)
             : laneIdOf(cell);
         if (id == UNRESOLVABLE) {
+          reportUnresolvable(i, row, cell);
           return null;
         }
         canonical[row] = id;
@@ -504,8 +545,8 @@ public final class SegmentGroupCanonicaliser {
       return false;
     }
     for (final ColumnSlice slice : slices) {
-      if (slice == null) {
-        continue;
+      if (slice == null || slice.rowCount() == 0) {
+        continue; // absent, or the pruned sentinel: no rows, no values
       }
       final long[] cells = slice.numericValues();
       if (cells == null) {
@@ -936,6 +977,9 @@ public final class SegmentGroupCanonicaliser {
       hash = resolver.hashOfCell(cell);
     } catch (final RuntimeException unresolvable) {
       hash = 0L; // the cell names no entry; 0 is not a hash here, so memoise refuses it below
+      if (PROJ_DIAG) {
+        lastRefusal = unresolvable.toString();
+      }
     }
     return memoise(cell, segment, id, hash);
   }

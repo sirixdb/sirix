@@ -391,6 +391,51 @@ final class SegmentGroupCanonicaliserTest {
     assertNotEquals(kept, out[0].numericValues()[0], "and not the raw cell it replaced");
   }
 
+  /** The store's pruned sentinel: no rows, no lanes — what a windowed fill hands out for a dropped leaf. */
+  private static ColumnSlice prunedSentinel() {
+    return new ColumnSlice(0, (byte) 0, Long.MAX_VALUE, Long.MIN_VALUE, new long[0], null, null, null, null, null,
+        null);
+  }
+
+  @Test
+  @DisplayName("the rowless pruned sentinel passes through untouched instead of refusing the pass")
+  void thePrunedSentinelPassesThrough() {
+    final Map<Long, String> corpus = new HashMap<>();
+    final long a = ProjectionIndexRowGroupPage.packSegmentCell(1, 3);
+    final long b = ProjectionIndexRowGroupPage.packSegmentCell(2, 5);
+    corpus.put(a, "alpha");
+    corpus.put(b, "beta");
+    final AtomicInteger resolves = new AtomicInteger();
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(cell -> {
+      resolves.incrementAndGet();
+      return corpus.get(cell);
+    }, 3);
+    final ColumnSlice sentinel = prunedSentinel();
+
+    // A windowed morsel: kept leaf, dropped leaf (the sentinel), kept leaf — and no keep mask, which
+    // is exactly how the parallel group pass calls it.
+    final ColumnSlice[] out = canonicaliser.canonicalise(new ColumnSlice[] {sliceOf(a), sentinel, sliceOf(b)});
+
+    assertNotNull(out, "a dropped leaf holds no cell and must not decline the morsel");
+    assertTrue(out[1] == sentinel, "the sentinel must pass through as the very same rowless slice");
+    assertEquals(0, out[1].rowCount());
+    assertEquals(1L, out[0].numericValues()[0]);
+    assertEquals(2L, out[2].numericValues()[0], "the kept leaves around it are still canonicalised");
+    assertEquals(2, resolves.get(), "and the sentinel costs no dictionary read");
+    assertTrue(canonicaliser.observe(new ColumnSlice[] {sentinel, sliceOf(a)}),
+        "observe must skip the sentinel the same way");
+  }
+
+  @Test
+  @DisplayName("a slice WITH rows but without a long lane still refuses — its raw cells could collide with ids")
+  void aRowfulSliceWithoutALaneRefuses() {
+    final ColumnSlice noLane = new ColumnSlice(2, (byte) 0, 0L, 1L, new long[] {3L}, null, null, null, null, null,
+        null);
+    final SegmentGroupCanonicaliser canonicaliser = over(new HashMap<>(), 1);
+    assertNull(canonicaliser.canonicalise(new ColumnSlice[] {noLane}));
+    assertFalse(canonicaliser.observe(new ColumnSlice[] {noLane}));
+  }
+
   @Test
   @DisplayName("a null keep mask still canonicalises every leaf")
   void aNullKeepMaskKeepsEverything() {
