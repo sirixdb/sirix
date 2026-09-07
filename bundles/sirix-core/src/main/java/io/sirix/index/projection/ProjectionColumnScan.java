@@ -1080,6 +1080,11 @@ public final class ProjectionColumnScan {
      */
     void orderVisit(final byte firstKeyKind) {
       final int knownCount = visitCount - unknownCount;
+      if (segmentBounds != null) {
+        // At most one distinct cell per segment: ranking them once turns every later leaf comparison
+        // into an int compare instead of two dictionary slice resolutions.
+        segmentBounds.rankBounds();
+      }
       final boolean tied = visitCount < 2 || (unknownCount == 0 && allKnownBestsEqual(firstKeyKind));
       if (tied && visitCount >= 2) {
         TOPK_PLAN_TIED.increment();
@@ -1094,12 +1099,7 @@ public final class ProjectionColumnScan {
         return; // nothing to order; the unknown leaves already lead
       }
       final int from = unknownCount;
-      if (segmentBounds != null) {
-        IntArrays.mergeSort(visit, from, visitCount, (left, right) -> {
-          final int cmp = segmentBounds.compare(lbNumeric[left], lbNumeric[right]);
-          return cmp == 0 ? Integer.compare(left, right) : descendingFirst ? -cmp : cmp;
-        });
-      } else if (extrema == null) {
+      if (extrema == null) {
         sortKnownNumeric(from, knownCount);
       } else if (firstKeyKind == TopKHeap.KEY_STRING_BYTES) {
         sortKnownStringBytes(from, knownCount);
@@ -1111,10 +1111,9 @@ public final class ProjectionColumnScan {
     private boolean allKnownBestsEqual(final byte firstKeyKind) {
       final int first = visit[unknownCount];
       if (extrema == null) {
-        final long best = lbNumeric[first];
+        final long best = orderKey(first);
         for (int i = unknownCount + 1; i < visitCount; i++) {
-          if (segmentBounds == null ? lbNumeric[visit[i]] != best
-              : segmentBounds.compare(lbNumeric[visit[i]], best) != 0) {
+          if (orderKey(visit[i]) != best) {
             return false;
           }
         }
@@ -1137,6 +1136,18 @@ public final class ProjectionColumnScan {
     }
 
     /**
+     * The leaf's numeric ordering key: its bound directly, or — for a segment-scoped string key,
+     * whose cells are only comparable through their dictionary values — that bound's collation
+     * ordinal, so the ordering below stays a radix pass over longs.
+     */
+    private long orderKey(final int leaf) {
+      final long best = lbNumeric[leaf];
+      return segmentBounds == null
+          ? best
+          : segmentBounds.rankOf(best);
+    }
+
+    /**
      * Stable radix sort of the known leaves by their numeric best — ascending on {@code ~best} for a
      * descending key.
      */
@@ -1144,7 +1155,7 @@ public final class ProjectionColumnScan {
       final long[] keys = new long[n];
       final int[] perm = new int[n];
       for (int i = 0; i < n; i++) {
-        final long best = lbNumeric[visit[from + i]];
+        final long best = orderKey(visit[from + i]);
         keys[i] = descendingFirst
             ? ~best
             : best;
@@ -1393,8 +1404,12 @@ public final class ProjectionColumnScan {
           }
         }
       }
-      // A bound is usable only where every matching row is guaranteed to carry every order key: a
-      // predicate on the column (missing ⇒ false) or the column all-present on the leaf.
+    }
+    // A bound is usable only where every matching row is guaranteed to carry every order key: a
+    // predicate on the column (missing ⇒ false) or the column all-present on the leaf. It guards
+    // every bounded arm, segment-scoped included: without the proof a leaf hiding a matching row
+    // with a missing key could be skipped, where the scan owes the interpreter a decline.
+    if (boundable || segmentBounds != null) {
       for (int kk = 0; kk < keyCount; kk++) {
         if (predicateNames(predicates, sortColumns[kk])) {
           continue;
