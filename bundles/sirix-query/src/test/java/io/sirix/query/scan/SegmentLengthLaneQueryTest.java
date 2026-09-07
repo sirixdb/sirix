@@ -58,19 +58,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * ClickBench q27 ({@code AVG(length(URL)) … GROUP BY CounterID}) spent 47 s at 100M sealing the URL
- * operand: the sliced group arm resolved and ranked all 18.3M distinct URLs so the kernel could fold
- * their lengths, though a length never compares two cells. The lever hands the kernel the raw
+ * operand: the sliced group arm resolved and ranked all 18.3M distinct URLs so the kernel could
+ * fold their lengths, though a length never compares two cells. The lever hands the kernel the raw
  * packed-cell lane and a table per segment; the kernel picks the leaf's table from its zone bounds.
  * Nothing in the answer shows which path produced it, so every test here asserts the path through
  * the executor's counters as well as the values.
  *
  * <p>
  * The fixture loads 64 regions × 2,048 rows through the real parallel bulk import with the lane
- * armed. {@code name} is a multi-byte salt plus the region ("😀-17"), so code points and UTF-8 bytes
- * disagree on every region and the two length modes need two tables; some rows of the even regions
- * carry no {@code name} at all, so the absent-operand rule (folds 0, still counted) has rows to bite.
- * The segment span cap is lowered so the corpus closes SEVERAL segments: a fixture with one segment
- * could not tell a per-segment table from a global one.
+ * armed. {@code name} is a multi-byte salt plus the region ("😀-17"), so code points and UTF-8
+ * bytes disagree on every region and the two length modes need two tables; some rows of the even
+ * regions carry no {@code name} at all, so the absent-operand rule (folds 0, still counted) has
+ * rows to bite. The segment span cap is lowered so the corpus closes SEVERAL segments: a fixture
+ * with one segment could not tell a per-segment table from a global one.
  */
 public final class SegmentLengthLaneQueryTest {
 
@@ -186,7 +186,9 @@ public final class SegmentLengthLaneQueryTest {
     return SALTS[i % SALTS.length] + "-" + regionOf(i);
   }
 
-  /** Rows of the EVEN regions drop {@code name} every 1,000th row; the odd regions keep every name. */
+  /**
+   * Rows of the EVEN regions drop {@code name} every 1,000th row; the odd regions keep every name.
+   */
   private static boolean namePresent(final int i) {
     return regionOf(i) % 2 != 0 || i % 1_000 != 500;
   }
@@ -214,7 +216,9 @@ public final class SegmentLengthLaneQueryTest {
         : value.codePointCount(0, value.length());
   }
 
-  /** Per region {@code {count, sum, min, max}} of the length lane; an absent name folds 0 and counts. */
+  /**
+   * Per region {@code {count, sum, min, max}} of the length lane; an absent name folds 0 and counts.
+   */
   private static long[][] expected(final byte mode) {
     final long[][] out = new long[REGIONS][];
     for (int r = 0; r < REGIONS; r++) {
@@ -281,15 +285,14 @@ public final class SegmentLengthLaneQueryTest {
   void regexGroupsPreserveLengthsMinimaMultiplicityAndStableCountTies() throws Exception {
     final int segments = segmentCount();
     assertTrue(segments > 1, "MIN must compare values from different segment dictionaries");
-    final String prefix = "subsequence(for $u in " + SRC
-        + " where $u.name != '' let $k := replace($u.name, '^(.*)-[0-9]+$', '$1'), "
-        + "$len := jn:utf8-length($u.name) group by $k let $c := count($u) ";
+    final String prefix =
+        "subsequence(for $u in " + SRC + " where $u.name != '' let $k := replace($u.name, '^(.*)-[0-9]+$', '$1'), "
+            + "$len := jn:utf8-length($u.name) group by $k let $c := count($u) ";
     final String[] queries = {
         prefix + "let $l := xs:double(avg($len)) where $c > 10 order by $l descending "
             + "return {\"k\": $k, \"l\": $l, \"c\": $c, \"m\": min($u.name)}, 1, 4)",
         // Three salts have equal counts. LIMIT cuts that tie; document order decides the survivor.
-        prefix + "order by $c descending return {\"k\": $k, \"c\": $c, \"m\": min($u.name)}, 1, 2)"
-    };
+        prefix + "order by $c descending return {\"k\": $k, \"c\": $c, \"m\": min($u.name)}, 1, 2)"};
     for (final String query : queries) {
       final String expected = run(query, false);
       final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();

@@ -274,22 +274,25 @@ final class SegmentGroupCanonicaliserTest {
    * so anything that folds on the mint instead of the position is wrong at almost every id.
    */
   /**
-   * A dictionary stand-in that also answers in POSITION space, both ways: {@code positions} is
-   * cell -> position, {@code mints} is {@code pack(segment, position)} -> mint, and {@code entries}
-   * is the per-segment entry count — enough for the storage-order walk to run over it. Every read
-   * of a value is counted, so a test can say what a pass cost.
+   * A dictionary stand-in that also answers in POSITION space, both ways: {@code positions} is cell
+   * -> position, {@code mints} is {@code pack(segment, position)} -> mint, and {@code entries} is the
+   * per-segment entry count — enough for the storage-order walk to run over it. Every read of a value
+   * is counted, so a test can say what a pass cost.
    */
   private record PositionedCorpus(Map<Long, String> values, Map<Long, Integer> positions, long[] cells,
       Map<Long, Integer> mints, Map<Integer, Integer> entries, AtomicInteger reads, AtomicInteger collisions,
-      AtomicInteger positionLookups, AtomicInteger positionWalks, AtomicInteger seeks)
-      implements SegmentGroupCanonicaliser.CellResolver {
+      AtomicInteger positionLookups, AtomicInteger positionWalks,
+      AtomicInteger seeks) implements SegmentGroupCanonicaliser.CellResolver {
     @Override
     public String valueOfCell(final long cell) {
       reads.incrementAndGet();
       return values.get(cell);
     }
 
-    /** Asked only on a hash-chain hit: on a corpus of distinct values, every call is a duplicate landing. */
+    /**
+     * Asked only on a hash-chain hit: on a corpus of distinct values, every call is a duplicate
+     * landing.
+     */
     @Override
     public boolean sameValue(final long left, final long right) {
       collisions.incrementAndGet();
@@ -316,9 +319,8 @@ final class SegmentGroupCanonicaliserTest {
     @Override
     public int mintAtPosition(final long cell, final int position) {
       positionWalks.incrementAndGet();
-      final Integer mint =
-          mints.get(ProjectionIndexRowGroupPage.packSegmentCell(ProjectionIndexRowGroupPage.segmentOfCell(cell),
-              position));
+      final Integer mint = mints.get(
+          ProjectionIndexRowGroupPage.packSegmentCell(ProjectionIndexRowGroupPage.segmentOfCell(cell), position));
       return mint == null
           ? -1
           : mint;
@@ -503,8 +505,8 @@ final class SegmentGroupCanonicaliserTest {
   @Test
   void transformedOrderIsNeitherMintOrderNorSourceValueOrder() {
     final PositionedCorpus corpus = positionedCorpus(2, 3);
-    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(corpus, 2,
-        value -> "key-" + (5 - Integer.parseInt(value.substring(6))), 4_096);
+    final SegmentGroupCanonicaliser groups =
+        new SegmentGroupCanonicaliser(corpus, 2, value -> "key-" + (5 - Integer.parseInt(value.substring(6))), 4_096);
     final ColumnSlice[] slices = leavesInMintOrder(corpus, 2, 3);
     assertNotNull(groups.canonicaliseColumn(slices, null, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
     assertFalse(groups.isOrderPreserving(), "raw sorted runs do not order transformed keys");
@@ -575,8 +577,9 @@ final class SegmentGroupCanonicaliserTest {
   void transformsUnwalkableCellsThroughTheMemoAndRefusesUnresolvablePresentCells() {
     final long cell = ProjectionIndexRowGroupPage.packSegmentCell(3, 7);
     final AtomicInteger transforms = new AtomicInteger();
-    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(
-        key -> key == cell ? "raw" : null, 4, value -> {
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(key -> key == cell
+        ? "raw"
+        : null, 4, value -> {
           transforms.incrementAndGet();
           return "transformed";
         }, 1_024);
@@ -637,8 +640,8 @@ final class SegmentGroupCanonicaliserTest {
       }
     };
 
-    final ColumnSlice[] out = canonicaliser.canonicalise(leavesInMintOrder(corpus, segments, perSegment), null,
-        recording);
+    final ColumnSlice[] out =
+        canonicaliser.canonicalise(leavesInMintOrder(corpus, segments, perSegment), null, recording);
 
     assertNotNull(out);
     assertEquals(segments, walked.size(), "the runner must be handed one walk per referenced segment");
@@ -650,11 +653,12 @@ final class SegmentGroupCanonicaliserTest {
     for (int segment = 0; segment < segments; segment++) {
       final long[] ids = out[segment].numericValues();
       for (int row = 1; row < perSegment; row++) {
-        assertTrue(ids[row] < ids[row - 1], "segment " + segment + ", row " + row
-            + " sits one position BELOW row " + (row - 1) + " and must carry the smaller id");
+        assertTrue(ids[row] < ids[row - 1], "segment " + segment + ", row " + row + " sits one position BELOW row "
+            + (row - 1) + " and must carry the smaller id");
       }
     }
-    // Sealed by the merge, the space is exactly the sort's — the walk changed which thread reads, not the order.
+    // Sealed by the merge, the space is exactly the sort's — the walk changed which thread reads, not
+    // the order.
     assertTrue(canonicaliser.sealByPositionMerge(canonicaliser.size()));
     for (int rank = 2; rank <= segments * perSegment; rank++) {
       assertTrue(canonicaliser.valueOf(rank - 1).compareTo(canonicaliser.valueOf(rank)) < 0);
@@ -849,7 +853,10 @@ final class SegmentGroupCanonicaliserTest {
     assertNotEquals(kept, out[0].numericValues()[0], "and not the raw cell it replaced");
   }
 
-  /** The store's pruned sentinel: no rows, no lanes — what a windowed fill hands out for a dropped leaf. */
+  /**
+   * The store's pruned sentinel: no rows, no lanes — what a windowed fill hands out for a dropped
+   * leaf.
+   */
   private static ColumnSlice prunedSentinel() {
     return new ColumnSlice(0, (byte) 0, Long.MAX_VALUE, Long.MIN_VALUE, new long[0], null, null, null, null, null,
         null);
@@ -887,8 +894,8 @@ final class SegmentGroupCanonicaliserTest {
   @Test
   @DisplayName("a slice WITH rows but without a long lane still refuses — its raw cells could collide with ids")
   void aRowfulSliceWithoutALaneRefuses() {
-    final ColumnSlice noLane = new ColumnSlice(2, (byte) 0, 0L, 1L, new long[] {3L}, null, null, null, null, null,
-        null);
+    final ColumnSlice noLane =
+        new ColumnSlice(2, (byte) 0, 0L, 1L, new long[] {3L}, null, null, null, null, null, null);
     final SegmentGroupCanonicaliser canonicaliser = over(new HashMap<>(), 1);
     assertNull(canonicaliser.canonicalise(new ColumnSlice[] {noLane}));
     assertFalse(canonicaliser.observe(new ColumnSlice[] {noLane}));
@@ -931,8 +938,8 @@ final class SegmentGroupCanonicaliserTest {
     final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
     final long[][] rowKeep = {rowsKept(perSegment, 1, 3, 6), null};
 
-    final ColumnSlice[] out = canonicaliser.canonicalise(leaves, null, rowKeep,
-        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    final ColumnSlice[] out =
+        canonicaliser.canonicalise(leaves, null, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
 
     assertNotNull(out);
     assertNull(out[1], "a leaf whose every row the predicates drop is left null");
@@ -974,8 +981,8 @@ final class SegmentGroupCanonicaliserTest {
     final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
     final long[][] rowKeep = {rowsKept(perSegment, 2), rowsKept(perSegment, 2, 5)};
 
-    final ColumnSlice[] out = canonicaliser.canonicalise(leaves, null, rowKeep,
-        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    final ColumnSlice[] out =
+        canonicaliser.canonicalise(leaves, null, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
 
     assertNotNull(out);
     assertEquals(2, canonicaliser.size(), "two distinct values among the three kept rows");
@@ -994,8 +1001,8 @@ final class SegmentGroupCanonicaliserTest {
     final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
     final long[][] rowKeep = {rowsKept(perSegment, 1, 3, 6), rowsKept(perSegment, 0, 100, 199)};
 
-    final ColumnSlice[] out = canonicaliser.canonicalise(leaves, null, rowKeep,
-        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    final ColumnSlice[] out =
+        canonicaliser.canonicalise(leaves, null, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
 
     assertNotNull(out);
     assertEquals(0, corpus.positionWalks().get(), "a sparse walk must not visit the positions between its marks");
@@ -1006,11 +1013,11 @@ final class SegmentGroupCanonicaliserTest {
     // order, so ids issued by position FALL along the kept rows — a walk in mark (mint) order would
     // have issued them rising.
     final long[] first = out[0].numericValues();
-    assertTrue(first[6] < first[3] && first[3] < first[1], "segment 0 ids must rise with position: "
-        + first[1] + ", " + first[3] + ", " + first[6]);
+    assertTrue(first[6] < first[3] && first[3] < first[1],
+        "segment 0 ids must rise with position: " + first[1] + ", " + first[3] + ", " + first[6]);
     final long[] second = out[1].numericValues();
-    assertTrue(second[199] < second[100] && second[100] < second[0], "segment 1 ids must rise with position: "
-        + second[0] + ", " + second[100] + ", " + second[199]);
+    assertTrue(second[199] < second[100] && second[100] < second[0],
+        "segment 1 ids must rise with position: " + second[0] + ", " + second[100] + ", " + second[199]);
     assertTrue(canonicaliser.sealByPositionMerge(canonicaliser.size()));
     for (int rank = 2; rank <= 6; rank++) {
       assertTrue(canonicaliser.valueOf(rank - 1).compareTo(canonicaliser.valueOf(rank)) < 0);
@@ -1027,8 +1034,8 @@ final class SegmentGroupCanonicaliserTest {
     final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
     final long[][] rowKeep = {rowsKept(perSegment, 0, 9, 18, 27, 36, 45, 54, 63)};
 
-    final ColumnSlice[] out = canonicaliser.canonicalise(leaves, null, rowKeep,
-        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    final ColumnSlice[] out =
+        canonicaliser.canonicalise(leaves, null, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
 
     assertNotNull(out);
     assertEquals(perSegment, corpus.positionWalks().get(), "a dense walk visits every position of the segment once");
@@ -1064,8 +1071,8 @@ final class SegmentGroupCanonicaliserTest {
   private static ColumnSlice withPaddingBit(final ColumnSlice slice, final int bit) {
     final long[] presence = slice.presenceWords().clone();
     presence[bit >>> 6] |= 1L << (bit & 63);
-    return new ColumnSlice(slice.rowCount(), slice.flags(), slice.min(), slice.max(), presence,
-        slice.numericValues(), null, null, null, null, null);
+    return new ColumnSlice(slice.rowCount(), slice.flags(), slice.min(), slice.max(), presence, slice.numericValues(),
+        null, null, null, null, null);
   }
 
   @Test
@@ -1083,8 +1090,8 @@ final class SegmentGroupCanonicaliserTest {
     final ColumnSlice[] leaves = {withPaddingBit(leavesInMintOrder(corpus, segments, perSegment)[0], padding)};
     final long[][] rowKeep = {rowsKept(perSegment, 0, 2, padding)};
 
-    final ColumnSlice[] masked = canonicaliser.canonicalise(leaves, null, rowKeep,
-        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    final ColumnSlice[] masked =
+        canonicaliser.canonicalise(leaves, null, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
 
     assertNotNull(masked);
     assertEquals(2, corpus.reads().get(), "the two kept rows are read; the padding bit reads nothing");
@@ -1119,8 +1126,8 @@ final class SegmentGroupCanonicaliserTest {
     assertNotNull(out, "a dropped leaf holds no cell and must not decline the pass");
     assertTrue(out[0] == sentinel, "the sentinel passes through as the very same rowless slice");
     assertEquals(1L, out[1].numericValues()[0]);
-    assertTrue(canonicaliser.observe(leaves, new long[][] {null, rowsKept(1, 0)},
-        SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertTrue(
+        canonicaliser.observe(leaves, new long[][] {null, rowsKept(1, 0)}, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
 
     final long[][] tooShort = {rowsKept(1, 0)};
     assertThrows(IllegalArgumentException.class,
@@ -1145,8 +1152,8 @@ final class SegmentGroupCanonicaliserTest {
   }
 
   /**
-   * The collation rank of the cell at row {@code row} of the leaf of {@code segment} in a
-   * NON-shared {@link #positionedCorpus}: the value at position {@code p} of segment {@code s} is
+   * The collation rank of the cell at row {@code row} of the leaf of {@code segment} in a NON-shared
+   * {@link #positionedCorpus}: the value at position {@code p} of segment {@code s} is
    * {@code value-((p - 1) * segments + s)}, and {@link #leavesInMintOrder} puts position
    * {@code perSegment - row} at {@code row}. Dense from 1 over the whole column.
    */
@@ -1195,8 +1202,8 @@ final class SegmentGroupCanonicaliserTest {
     assertEquals(String.format("value-%05d", segments * perSegment - 1), canonicaliser.valueOf(segments * perSegment));
     // A second pass finds everything settled: no read, and the same ids.
     final int readsAfterFirst = corpus.reads().get();
-    final ColumnSlice[] again = canonicaliser.canonicaliseColumn(leavesInMintOrder(corpus, segments, perSegment),
-        null, null, recording(counts));
+    final ColumnSlice[] again = canonicaliser.canonicaliseColumn(leavesInMintOrder(corpus, segments, perSegment), null,
+        null, recording(counts));
     assertNotNull(again);
     assertEquals(readsAfterFirst, corpus.reads().get(), "a settled cell is never read again");
     for (int segment = 0; segment < segments; segment++) {
@@ -1255,8 +1262,7 @@ final class SegmentGroupCanonicaliserTest {
     // the first, whose base is 0).
     final int ranges = Math.min(Math.max(1, segments * perSegment / 7), perSegment);
     assertTrue(ranges > 1, "the corpus must be large enough to partition");
-    assertEquals(List.of(segments, segments, segments, ranges, segments), counts,
-        "mark, sample, bound, merge, offset");
+    assertEquals(List.of(segments, segments, segments, ranges, segments), counts, "mark, sample, bound, merge, offset");
     // The reads the merge made: the sample phase seeks at most every mark once, the bound phase
     // gallops and bisects (at most twice the bits of the run length per pivot per run), and the
     // merge phase seeks every marked position exactly once.
@@ -1322,8 +1328,8 @@ final class SegmentGroupCanonicaliserTest {
     }
     final List<Integer> counts = new ArrayList<>();
 
-    final SegmentValueMerge.Result result = SegmentValueMerge.merge(corpus, runs, marks, entries, recording(counts),
-        rangeTarget, null);
+    final SegmentValueMerge.Result result =
+        SegmentValueMerge.merge(corpus, runs, marks, entries, recording(counts), rangeTarget, null);
 
     // Segment s holds domain s alone and the domains sort in segment order, so pivots read off ONE
     // run would all fall inside its domain and leave the other three segments — 120 of 160 cells —
@@ -1366,8 +1372,8 @@ final class SegmentGroupCanonicaliserTest {
     // by one through positionOfCell, and no position is walked.
     final long[][] rowKeep = {rowsKept(perSegment, 1, 3, 6), rowsKept(perSegment, 0, 100, 199)};
 
-    final ColumnSlice[] out = canonicaliser.canonicaliseColumn(leaves, null, rowKeep,
-        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    final ColumnSlice[] out =
+        canonicaliser.canonicaliseColumn(leaves, null, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
 
     assertNotNull(out);
     assertNull(canonicaliser.lastRefusal());
@@ -1412,8 +1418,8 @@ final class SegmentGroupCanonicaliserTest {
     final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, segments);
     final ColumnSlice[] leaves = leavesInMintOrder(corpus, segments, perSegment);
     // Segments 0 and 1 go through the merge; segment 2 holds the same ten values and arrives later.
-    final ColumnSlice[] merged = canonicaliser.canonicaliseColumn(new ColumnSlice[] {leaves[0], leaves[1]}, null,
-        null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    final ColumnSlice[] merged = canonicaliser.canonicaliseColumn(new ColumnSlice[] {leaves[0], leaves[1]}, null, null,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
     assertNotNull(merged);
     assertEquals(perSegment, canonicaliser.size());
 
@@ -1500,8 +1506,9 @@ final class SegmentGroupCanonicaliserTest {
     assertRefusedThenWalked(forgetful, segments, perSegment, "answers mint");
     // Position 3 of segment 1 claims the mint position 4 stores: one mint at two positions.
     final PositionedCorpus doubled = positionedCorpus(segments, perSegment, true);
-    doubled.mints().put(ProjectionIndexRowGroupPage.packSegmentCell(1, 3),
-        doubled.mints().get(ProjectionIndexRowGroupPage.packSegmentCell(1, 4)));
+    doubled.mints()
+           .put(ProjectionIndexRowGroupPage.packSegmentCell(1, 3),
+               doubled.mints().get(ProjectionIndexRowGroupPage.packSegmentCell(1, 4)));
     assertRefusedThenWalked(doubled, segments, perSegment, "twice");
     // A sparse pass locates marks by position; a mint whose position is unknown refuses it too.
     final int large = 200;
@@ -1548,9 +1555,11 @@ final class SegmentGroupCanonicaliserTest {
     assertEquals(0, corpus.seeks().get(), "nothing was seeked: there was no cursor to seek");
   }
 
-  /** The merge refuses {@code corpus} with a message naming {@code why}, and the walk still answers. */
-  private static void assertRefusedThenWalked(final PositionedCorpus corpus, final int segments,
-      final int perSegment, final String why) {
+  /**
+   * The merge refuses {@code corpus} with a message naming {@code why}, and the walk still answers.
+   */
+  private static void assertRefusedThenWalked(final PositionedCorpus corpus, final int segments, final int perSegment,
+      final String why) {
     assertRefusedThenWalked(corpus, corpus, segments, perSegment, why);
   }
 
@@ -1616,8 +1625,8 @@ final class SegmentGroupCanonicaliserTest {
         ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS}) {
       final int[] serial = canonicaliser.lengthTable(mode);
       final int[] parallel = canonicaliser.lengthTable(mode, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
-      assertTrue(Arrays.equals(serial, parallel), "mode " + mode + ": " + Arrays.toString(serial) + " vs "
-          + Arrays.toString(parallel));
+      assertTrue(Arrays.equals(serial, parallel),
+          "mode " + mode + ": " + Arrays.toString(serial) + " vs " + Arrays.toString(parallel));
       assertEquals(canonicaliser.size() + 1, parallel.length, "one slot per id, plus the unused zero");
       for (int id = 1; id <= canonicaliser.size(); id++) {
         final String value = canonicaliser.valueOf(id);
@@ -1628,8 +1637,8 @@ final class SegmentGroupCanonicaliserTest {
       }
     }
     // Row 11 of leaf 0 is mint 12 = position 4, the value with the multi-byte tail.
-    final int tailId = (int) canonicaliser.canonicalise(new ColumnSlice[] {leaves[0]}, null,
-        new long[][] {rowKeep[0]}, SegmentGroupCanonicaliser.SERIAL_SEGMENTS)[0].numericValues()[11];
+    final int tailId = (int) canonicaliser.canonicalise(new ColumnSlice[] {leaves[0]}, null, new long[][] {rowKeep[0]},
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS)[0].numericValues()[11];
     assertEquals(canonicaliser.lengthTable(ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS)[tailId] + 3,
         canonicaliser.lengthTable(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES)[tailId],
         "é is two bytes and 中 is three: five bytes for two code points");

@@ -31,24 +31,24 @@ import static java.util.Objects.requireNonNull;
  * different cell in each and comes back as two groups. Where nothing is dropped that is harmless —
  * merge the keys afterwards and the counts add up. Where a TOP-K prunes first it is not: the two
  * halves of a value compete separately and can both lose to a value that happens to sit in one
- * segment, so the answer is a plausible, wrong top-K. Canonicalising before the kernel puts the merge
- * on the right side of the pruning.
+ * segment, so the answer is a plausible, wrong top-K. Canonicalising before the kernel puts the
+ * merge on the right side of the pruning.
  *
  * <h2>What it costs</h2>
  *
- * One dictionary resolve and one hash per DISTINCT CELL, cached for the whole query — never per row.
- * A leaf holds at most {@link ProjectionIndexRowGroupPage#MAX_ROWS} rows and therefore at most that
- * many distinct cells, and repeats across leaves cost a single {@code long} lookup. The per-row work
- * is one array read and one map lookup into a table that stays in cache.
+ * One dictionary resolve and one hash per DISTINCT CELL, cached for the whole query — never per
+ * row. A leaf holds at most {@link ProjectionIndexRowGroupPage#MAX_ROWS} rows and therefore at most
+ * that many distinct cells, and repeats across leaves cost a single {@code long} lookup. The
+ * per-row work is one array read and one map lookup into a table that stays in cache.
  *
  * <h2>Threading: a lock-free steady state</h2>
  *
  * The aggregation pass is parallel over leaves, so a shared map guarded by one monitor would put a
- * global lock in front of every distinct cell — roughly a million acquisitions across a 1M scan, all
- * contended by fifteen workers. Instead the memo is a per-segment {@code int[]} indexed by the cell's
- * ID, which is dense because ids are arrival-order mints. A hit is two array reads and no lock at
- * all; only the FIRST touch of a given {@code (segment, id)} takes the monitor, to resolve the value
- * and issue its canonical id.
+ * global lock in front of every distinct cell — roughly a million acquisitions across a 1M scan,
+ * all contended by fifteen workers. Instead the memo is a per-segment {@code int[]} indexed by the
+ * cell's ID, which is dense because ids are arrival-order mints. A hit is two array reads and no
+ * lock at all; only the FIRST touch of a given {@code (segment, id)} takes the monitor, to resolve
+ * the value and issue its canonical id.
  *
  * <p>
  * A stale read of a table entry is benign: {@code int} writes never tear, so a reader sees either 0
@@ -77,7 +77,8 @@ public final class SegmentGroupCanonicaliser {
   @FunctionalInterface
   public interface CellResolver {
     /** The value {@code cell} names, or {@code null} when this revision cannot resolve it. */
-    @Nullable String valueOfCell(long cell);
+    @Nullable
+    String valueOfCell(long cell);
 
     /**
      * A content hash of that value, {@code 0} when the cell resolves to nothing.
@@ -85,8 +86,8 @@ public final class SegmentGroupCanonicaliser {
      * <p>
      * The default builds the String, which is what a TRANSFORMING resolver has to do anyway. A plain
      * one overrides it to hash the dictionary's stored bytes and allocate nothing — the difference
-     * between 150 bytes per distinct value and none, which at eighteen million values is the
-     * difference between running and an OutOfMemoryError.
+     * between 150 bytes per distinct value and none, which at eighteen million values is the difference
+     * between running and an OutOfMemoryError.
      * </p>
      */
     default long hashOfCell(final long cell) {
@@ -105,9 +106,9 @@ public final class SegmentGroupCanonicaliser {
      *
      * <p>
      * The default refuses, and a TRANSFORMING resolver must keep that refusal: positions order the
-     * dictionary's stored values, and a transform (a regex replacement, say) reorders them
-     * arbitrarily, so a position says nothing about where the transformed value collates. Only the
-     * untransformed byte resolver overrides it.
+     * dictionary's stored values, and a transform (a regex replacement, say) reorders them arbitrarily,
+     * so a position says nothing about where the transformed value collates. Only the untransformed
+     * byte resolver overrides it.
      * </p>
      */
     default int positionOfCell(final long cell) {
@@ -139,8 +140,8 @@ public final class SegmentGroupCanonicaliser {
     }
 
     /**
-     * The length of the value {@code cell} names in {@code lengthMode}'s unit, or {@code -1} when
-     * the cell resolves to nothing. The default measures the String; a plain resolver counts the
+     * The length of the value {@code cell} names in {@code lengthMode}'s unit, or {@code -1} when the
+     * cell resolves to nothing. The default measures the String; a plain resolver counts the
      * dictionary's stored bytes and allocates nothing.
      */
     default int valueLengthOfCell(final long cell, final byte lengthMode) {
@@ -158,8 +159,8 @@ public final class SegmentGroupCanonicaliser {
      *
      * <p>
      * The default compares Strings, which is UTF-16 code-unit order — the same order
-     * {@code compareUtf16Range} imposes on the dictionary's storage, so the two agree. A plain
-     * resolver overrides it with {@code compareCells} and touches no String at all.
+     * {@code compareUtf16Range} imposes on the dictionary's storage, so the two agree. A plain resolver
+     * overrides it with {@code compareCells} and touches no String at all.
      * </p>
      */
     default int compareValues(final long left, final long right) {
@@ -188,7 +189,9 @@ public final class SegmentGroupCanonicaliser {
     }
     final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
     final long hash = ProjectionIndexByteScan.fnv1a64(utf8, 0, utf8.length);
-    return hash == 0L ? 1L : hash;
+    return hash == 0L
+        ? 1L
+        : hash;
   }
 
   /**
@@ -240,25 +243,30 @@ public final class SegmentGroupCanonicaliser {
   private volatile int rankedCount = -1;
 
   /**
-   * Set by {@link #sealOrderPreserving} when the merge's ranks ARE the seal: nothing arrived after the
-   * merge, so the ids the lanes carry already collate and no rank table is needed. From then on an
-   * arrival above {@link #rankedCount} has no rank and is reported unresolvable, exactly as one above
-   * {@link #rankByArrival}'s length is.
+   * Set by {@link #sealOrderPreserving} when the merge's ranks ARE the seal: nothing arrived after
+   * the merge, so the ids the lanes carry already collate and no rank table is needed. From then on
+   * an arrival above {@link #rankedCount} has no rank and is reported unresolvable, exactly as one
+   * above {@link #rankByArrival}'s length is.
    */
   private volatile boolean sealedByMerge;
 
-  /** The segments the merge ranked, and per segment the POSITIONS it referenced; for the length table. */
+  /**
+   * The segments the merge ranked, and per segment the POSITIONS it referenced; for the length table.
+   */
   private int @Nullable [] mergedSegments;
 
   private long @Nullable [] @Nullable [] mergedPositions;
 
-  /** Marked cells per value range the merge aims for; package-private so a test can force many ranges. */
+  /**
+   * Marked cells per value range the merge aims for; package-private so a test can force many ranges.
+   */
   private int mergeRangeTarget = SegmentValueMerge.DEFAULT_RANGE_TARGET;
 
   /**
    * @param views supplier of a view PRIVATE TO THE CALLING THREAD — a
-   *        {@link GlobalValueDictionary.ReadView} holds plain mutable caches, and the resolver runs on
-   *        every scan worker, so a supplier that hands the same view to two of them tears its state
+   *        {@link GlobalValueDictionary.ReadView} holds plain mutable caches, and the resolver runs
+   *        on every scan worker, so a supplier that hands the same view to two of them tears its
+   *        state
    * @param segments how many segments the resource sealed, so the memo is sized once rather than
    *        grown under contention; a cell above it still resolves, through a grow on the slow path
    */
@@ -267,8 +275,8 @@ public final class SegmentGroupCanonicaliser {
   }
 
   /**
-   * Group by a deterministic, thread-safe string transform, evaluating selected dictionary entries
-   * on the segment workers before mapping rows through their cell ids. Retained output strings are
+   * Group by a deterministic, thread-safe string transform, evaluating selected dictionary entries on
+   * the segment workers before mapping rows through their cell ids. Retained output strings are
    * bounded independently of input cardinality; ordinary untransformed grouping allocates no cache.
    */
   public static SegmentGroupCanonicaliser transforming(final Supplier<GlobalValueDictionary.ReadView> views,
@@ -282,7 +290,9 @@ public final class SegmentGroupCanonicaliser {
     this(new SegmentValueTransform(source, transform, cacheBytes), source, segments);
   }
 
-  /** The untransformed resolver: hashes and compares the dictionary's own bytes, allocating nothing. */
+  /**
+   * The untransformed resolver: hashes and compares the dictionary's own bytes, allocating nothing.
+   */
   private static CellResolver byteResolver(final Supplier<GlobalValueDictionary.ReadView> views) {
     return new CellResolver() {
       @Override
@@ -344,7 +354,9 @@ public final class SegmentGroupCanonicaliser {
       final int segments) {
     this.resolver = requireNonNull(resolver, "resolver must not be null");
     this.storageResolver = requireNonNull(storageResolver, "storageResolver must not be null");
-    transformed = resolver instanceof SegmentValueTransform valueTransform ? valueTransform : null;
+    transformed = resolver instanceof SegmentValueTransform valueTransform
+        ? valueTransform
+        : null;
     if (segments < 0) {
       throw new IllegalArgumentException("segments must not be negative: " + segments);
     }
@@ -360,8 +372,11 @@ public final class SegmentGroupCanonicaliser {
     return this;
   }
 
-  /** Test hook: why the last resolution refused, or {@code null} — the witness that a fallback fired. */
-  @Nullable String lastRefusal() {
+  /**
+   * Test hook: why the last resolution refused, or {@code null} — the witness that a fallback fired.
+   */
+  @Nullable
+  String lastRefusal() {
     return lastRefusal;
   }
 
@@ -378,8 +393,8 @@ public final class SegmentGroupCanonicaliser {
 
 
   /**
-   * Resolve every cell these slices reference ONCE, in each segment's STORAGE order, before the
-   * row loop asks for any of them.
+   * Resolve every cell these slices reference ONCE, in each segment's STORAGE order, before the row
+   * loop asks for any of them.
    *
    * <h2>Why order matters more than count here</h2>
    *
@@ -403,7 +418,9 @@ public final class SegmentGroupCanonicaliser {
    * loop resolves as before, correctly and more slowly.
    * </p>
    */
-  /** Diagnostics only: the last resolver failure, so a refusal names its cause and not just its cell. */
+  /**
+   * Diagnostics only: the last resolver failure, so a refusal names its cause and not just its cell.
+   */
   private volatile @Nullable String lastRefusal;
 
   /**
@@ -424,10 +441,11 @@ public final class SegmentGroupCanonicaliser {
       entries = -1;
     }
     final int[] ranks = rankByArrival;
-    System.err.println("[proj] canonicalise REFUSED leaf " + leaf + " row " + row + ": segment=" + segment
-        + " id=" + id + " segmentEntries=" + entries + " sealedRanks=" + (ranks == null
+    System.err.println("[proj] canonicalise REFUSED leaf " + leaf + " row " + row + ": segment=" + segment + " id=" + id
+        + " segmentEntries=" + entries + " sealedRanks=" + (ranks == null
             ? -1
-            : ranks.length) + " lastResolverFailure=" + lastRefusal);
+            : ranks.length)
+        + " lastResolverFailure=" + lastRefusal);
   }
 
   private static void report(final String why) {
@@ -441,10 +459,10 @@ public final class SegmentGroupCanonicaliser {
   /**
    * Runs {@code body} once per index in {@code [0, count)}: each index is one independent unit of a
    * pass over the value space — a segment's storage-order walk, or one run or one value range of the
-   * merge. The units are independent — each reads through the calling thread's own view and lands
-   * its result in memory it owns — so a caller with scan workers hands in its pool and the units run
-   * at once; {@link #SERIAL_SEGMENTS} runs them one after another. A runner must run EVERY index
-   * to completion before returning, and rethrow (possibly wrapped) whatever a body throws.
+   * merge. The units are independent — each reads through the calling thread's own view and lands its
+   * result in memory it owns — so a caller with scan workers hands in its pool and the units run at
+   * once; {@link #SERIAL_SEGMENTS} runs them one after another. A runner must run EVERY index to
+   * completion before returning, and rethrow (possibly wrapped) whatever a body throws.
    */
   @FunctionalInterface
   public interface SegmentRunner {
@@ -493,8 +511,8 @@ public final class SegmentGroupCanonicaliser {
    * @param segments every segment a kept, present, not-yet-settled cell names
    * @param marks per segment, bit {@code mint} set for each such cell with {@code mint <= entries}
    * @param entryCounts per segment, its dictionary's entry count
-   * @param unmarkable present kept cells that no walk can settle — a negative segment, a mint below
-   *        1 or above the dictionary, or one already settled as unresolvable; the row loop must see
+   * @param unmarkable present kept cells that no walk can settle — a negative segment, a mint below 1
+   *        or above the dictionary, or one already settled as unresolvable; the row loop must see
    *        them, so a pass that would skip it needs this to be zero
    */
   private record Marked(int[] segments, long[][] marks, int[] entryCounts, int unmarkable) {
@@ -669,8 +687,8 @@ public final class SegmentGroupCanonicaliser {
    *
    * <p>
    * The ids it issues are RANKS, so the lanes collate from the start and {@link #sealOrderPreserving}
-   * has nothing left to do. The merge needs an EMPTY value space — its ranks are dense from 1 — and
-   * a resolver that answers in position space; when either is missing it says so and the storage-order
+   * has nothing left to do. The merge needs an EMPTY value space — its ranks are dense from 1 — and a
+   * resolver that answers in position space; when either is missing it says so and the storage-order
    * walk runs instead, so the answer is the same either way and only the clock differs.
    * </p>
    *
@@ -807,8 +825,10 @@ public final class SegmentGroupCanonicaliser {
           + phaseNanos[0] / 1_000_000 + " ms, bound " + phaseNanos[1] / 1_000_000 + " ms, merge " + mergeMillis
           + " ms (longest range " + longestRange / 1_000_000 + " ms over " + longestCells + " cells, mean "
           + result.marked() / result.ranges() + "; sum " + rangeSum / 1_000_000 + " ms = "
-          + String.format("%.1f", mergeMillis == 0 ? 0.0 : rangeSum / 1e6 / mergeMillis) + " lanes, "
-          + result.loads() + " record loads), offset " + phaseNanos[3] / 1_000_000 + " ms");
+          + String.format("%.1f", mergeMillis == 0
+              ? 0.0
+              : rangeSum / 1e6 / mergeMillis)
+          + " lanes, " + result.loads() + " record loads), offset " + phaseNanos[3] / 1_000_000 + " ms");
     }
     return true;
   }
@@ -835,7 +855,10 @@ public final class SegmentGroupCanonicaliser {
     return false;
   }
 
-  /** The refusal's own words when there is one in the cause chain (a runner may wrap it), else all of it. */
+  /**
+   * The refusal's own words when there is one in the cause chain (a runner may wrap it), else all of
+   * it.
+   */
   private static String refusalOf(final RuntimeException failure) {
     for (Throwable t = failure; t != null; t = t.getCause()) {
       if (t instanceof SegmentValueMerge.Refused) {
@@ -845,7 +868,9 @@ public final class SegmentGroupCanonicaliser {
     return failure.toString();
   }
 
-  /** Cells hashed per monitor acquisition by a walk: the lock is taken once per batch, not per cell. */
+  /**
+   * Cells hashed per monitor acquisition by a walk: the lock is taken once per batch, not per cell.
+   */
   private static final int WALK_BATCH = 4096;
 
   /** Expanding transforms flush at this charge, plus at most the single output crossing the limit. */
@@ -907,8 +932,8 @@ public final class SegmentGroupCanonicaliser {
   }
 
   /**
-   * Below one mark in this many entries a segment is walked by its marks, not by its positions:
-   * the break-even of one position lookup plus a sort slot per mark against one lookup per entry.
+   * Below one mark in this many entries a segment is walked by its marks, not by its positions: the
+   * break-even of one position lookup plus a sort slot per mark against one lookup per entry.
    */
   static final int SPARSE_WALK_RATIO = 16;
 
@@ -917,8 +942,12 @@ public final class SegmentGroupCanonicaliser {
     private final int segment;
     private final int[] ids = new int[WALK_BATCH];
     private final long[] hashes = new long[WALK_BATCH];
-    private final String @Nullable [] values = transformed == null ? null : new String[WALK_BATCH];
-    private final boolean @Nullable [] identities = transformed == null ? null : new boolean[WALK_BATCH];
+    private final String @Nullable [] values = transformed == null
+        ? null
+        : new String[WALK_BATCH];
+    private final boolean @Nullable [] identities = transformed == null
+        ? null
+        : new boolean[WALK_BATCH];
     private int filled;
     private int resolved;
     private long valueBytes;
@@ -943,7 +972,9 @@ public final class SegmentGroupCanonicaliser {
           hash = resolver.hashOfCell(cell);
         } else {
           final String raw = storageResolver.valueOfCell(cell);
-          values[filled] = raw == null ? null : transformed.apply(raw);
+          values[filled] = raw == null
+              ? null
+              : transformed.apply(raw);
           identities[filled] = raw != null && raw.equals(values[filled]);
           hash = valueHash(values[filled]);
         }
@@ -1029,23 +1060,22 @@ public final class SegmentGroupCanonicaliser {
    * <p>
    * A leaf the predicates' zone maps drop can produce no row at all, so its cells are never read as
    * group keys and need no canonical id. Such a leaf is left {@code null} rather than passed through:
-   * a raw cell IS a small integer in segment 0, exactly the space canonical ids occupy, so passing one
-   * through would let it group silently BESIDE a canonical id. A {@code null} cannot do that, and the
-   * kernel never dereferences it — it reads {@code groupCol[leaf]} only after its own mask says the
-   * leaf has surviving rows, from the same authority that built this mask. Should the two ever
+   * a raw cell IS a small integer in segment 0, exactly the space canonical ids occupy, so passing
+   * one through would let it group silently BESIDE a canonical id. A {@code null} cannot do that, and
+   * the kernel never dereferences it — it reads {@code groupCol[leaf]} only after its own mask says
+   * the leaf has surviving rows, from the same authority that built this mask. Should the two ever
    * disagree, this fails loudly instead of answering wrongly.
    * </p>
    *
    * @param keep bit {@code leaf} set = canonicalise it; {@code null} = canonicalise every leaf
    */
-  public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices,
-      final long @Nullable [] keep) {
+  public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices, final long @Nullable [] keep) {
     return canonicalise(slices, keep, null, SERIAL_SEGMENTS);
   }
 
   /** The same, with the storage-order prefetch's segment walks run by {@code runner}. */
-  public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices,
-      final long @Nullable [] keep, final SegmentRunner runner) {
+  public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices, final long @Nullable [] keep,
+      final SegmentRunner runner) {
     return canonicalise(slices, keep, null, runner);
   }
 
@@ -1056,14 +1086,14 @@ public final class SegmentGroupCanonicaliser {
    * PREDICATE-FIRST at row grain. {@code rowKeep[leaf]} is the predicates' verdict on the leaf's rows
    * as the kernel will compute it ({@code ProjectionColumnScan.rowKeepMasks}); {@code null} means no
    * row of the leaf passes, and such a leaf is left {@code null} here exactly like one the leaf mask
-   * drops. A row the mask clears keeps no cell: its canonical entry stays zero and its presence bit is
-   * cleared in the lane handed out, so nothing downstream can mistake it for a value. The kernel
+   * drops. A row the mask clears keeps no cell: its canonical entry stays zero and its presence bit
+   * is cleared in the lane handed out, so nothing downstream can mistake it for a value. The kernel
    * never reads it anyway — its own mask, the same verdict, clears the row first — but the lane must
    * not depend on that. {@code rowKeep == null} keeps every row.
    * </p>
    */
-  public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices,
-      final long @Nullable [] keep, final long @Nullable [] @Nullable [] rowKeep, final SegmentRunner runner) {
+  public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices, final long @Nullable [] keep,
+      final long @Nullable [] @Nullable [] rowKeep, final SegmentRunner runner) {
     if (slices == null) {
       return null;
     }
@@ -1228,8 +1258,8 @@ public final class SegmentGroupCanonicaliser {
   /**
    * The same, observing only the ROWS {@code rowKeep} keeps — see
    * {@link #canonicalise(ColumnSlice[], long[], long[][], SegmentRunner)}. The value space then holds
-   * exactly the values of rows that pass, which is what a seal over a filtered operand must order:
-   * a value only failing rows carry is not a candidate for their MIN.
+   * exactly the values of rows that pass, which is what a seal over a filtered operand must order: a
+   * value only failing rows carry is not a candidate for their MIN.
    */
   public boolean observe(final ColumnSlice @Nullable [] slices, final long @Nullable [] @Nullable [] rowKeep,
       final SegmentRunner runner) {
@@ -1241,7 +1271,9 @@ public final class SegmentGroupCanonicaliser {
     return observeMemoised(slices, rowKeep);
   }
 
-  /** The row loop of {@link #observe}: every kept present cell must resolve, through the memo or once. */
+  /**
+   * The row loop of {@link #observe}: every kept present cell must resolve, through the memo or once.
+   */
   private boolean observeMemoised(final ColumnSlice[] slices, final long @Nullable [] @Nullable [] rowKeep) {
     for (int i = 0; i < slices.length; i++) {
       final ColumnSlice slice = slices[i];
@@ -1358,7 +1390,8 @@ public final class SegmentGroupCanonicaliser {
   }
 
   /**
-   * Seal a value space too large to materialise, by MERGING the segments instead of sorting the whole.
+   * Seal a value space too large to materialise, by MERGING the segments instead of sorting the
+   * whole.
    *
    * <h2>Why this is not another sort</h2>
    *
@@ -1372,9 +1405,9 @@ public final class SegmentGroupCanonicaliser {
    * That changes both costs that made the plain sort refuse. MEMORY: the sorted path materialises one
    * {@link String} per distinct value, which at eighteen million URLs is the heap; the merge holds
    * only ONE head value per run, so S strings live at a time whatever the count. READS: a sort
-   * touches values in whatever order the comparator asks, which is random; the merge walks each run in
-   * ascending position, which is the order the values are STORED in, so a decoded block serves every
-   * value in it before being dropped.
+   * touches values in whatever order the comparator asks, which is random; the merge walks each run
+   * in ascending position, which is the order the values are STORED in, so a decoded block serves
+   * every value in it before being dropped.
    * </p>
    *
    * <p>
@@ -1627,9 +1660,9 @@ public final class SegmentGroupCanonicaliser {
    * <p>
    * The serial table asks for one value per id, in id order — which after the merge is collation
    * order over the whole column, so consecutive ids alternate between segments and every read is a
-   * random one: 18M block decodes for one {@code AVG(length(URL))}. The segments the merge ranked
-   * are walked here by POSITION instead, each on its own runner index, and the length is counted on
-   * the stored bytes; an id no walk reaches (a later arrival, a literal) is measured as before.
+   * random one: 18M block decodes for one {@code AVG(length(URL))}. The segments the merge ranked are
+   * walked here by POSITION instead, each on its own runner index, and the length is counted on the
+   * stored bytes; an id no walk reaches (a later arrival, a literal) is measured as before.
    * </p>
    */
   public int[] lengthTable(final byte lengthMode, final SegmentRunner runner) {
@@ -1673,16 +1706,16 @@ public final class SegmentGroupCanonicaliser {
   }
 
   /**
-   * One merged segment's contribution: its referenced positions upward, each to the lane id its
-   * memo entry maps to. Two segments carrying one value write the same length to the same slot,
-   * which is benign; a value nothing reaches stays {@code -1} for the serial path to measure.
+   * One merged segment's contribution: its referenced positions upward, each to the lane id its memo
+   * entry maps to. Two segments carrying one value write the same length to the same slot, which is
+   * benign; a value nothing reaches stays {@code -1} for the serial path to measure.
    */
-  private void fillLengthsByPosition(final int[] table, final int segment, final long[] positions,
-      final int[] memoised, final int @Nullable [] ranks, final byte lengthMode) {
+  private void fillLengthsByPosition(final int[] table, final int segment, final long[] positions, final int[] memoised,
+      final int @Nullable [] ranks, final byte lengthMode) {
     final long probe = ProjectionIndexRowGroupPage.packSegmentCell(segment, 1);
     final int limit = Integer.MAX_VALUE;
-    for (int position = SegmentValueMerge.nextMarked(positions, 1, limit); position >= 0;
-        position = SegmentValueMerge.nextMarked(positions, position + 1, limit)) {
+    for (int position = SegmentValueMerge.nextMarked(positions, 1, limit); position >= 0; position =
+        SegmentValueMerge.nextMarked(positions, position + 1, limit)) {
       final int mint = resolver.mintAtPosition(probe, position);
       if (mint < 1 || mint >= memoised.length) {
         continue;
@@ -1702,8 +1735,8 @@ public final class SegmentGroupCanonicaliser {
       if (laneId < 1 || laneId >= table.length) {
         continue;
       }
-      final int length = resolver.valueLengthOfCell(ProjectionIndexRowGroupPage.packSegmentCell(segment, mint),
-          lengthMode);
+      final int length =
+          resolver.valueLengthOfCell(ProjectionIndexRowGroupPage.packSegmentCell(segment, mint), lengthMode);
       if (length >= 0) {
         table[laneId] = length;
       }
@@ -1809,7 +1842,9 @@ public final class SegmentGroupCanonicaliser {
         hash = resolver.hashOfCell(cell);
       } else {
         final String raw = storageResolver.valueOfCell(cell);
-        value = raw == null ? null : transformed.apply(raw);
+        value = raw == null
+            ? null
+            : transformed.apply(raw);
         identity = raw != null && raw.equals(value);
         hash = valueHash(value);
       }
@@ -1880,7 +1915,9 @@ public final class SegmentGroupCanonicaliser {
     return canonical;
   }
 
-  /** The input has already been transformed outside the monitor; equality never transforms it again. */
+  /**
+   * The input has already been transformed outside the monitor; equality never transforms it again.
+   */
   private int issueTransformedCanonical(final long cell, final long hash, final @Nullable String value,
       final boolean identity) {
     if (hash == 0L || value == null) {
@@ -1896,17 +1933,23 @@ public final class SegmentGroupCanonicaliser {
     }
     representativeCell.add(cell);
     final int canonical = representativeCell.size();
-    idsByHash.put(hash, existing == null ? new int[] {canonical} : append(existing, canonical));
+    idsByHash.put(hash, existing == null
+        ? new int[] {canonical}
+        : append(existing, canonical));
     transformed.remember(canonical, cell, value, identity);
     return canonical;
   }
 
   /** Conservative retained-transform byte charge, exposed to the bounded-memory witness. */
   long retainedTransformBytes() {
-    return transformed == null ? 0L : transformed.retainedBytes();
+    return transformed == null
+        ? 0L
+        : transformed.retainedBytes();
   }
 
-  /** The rank carrying {@code cell}'s value among the merge's {@code ranked} representatives, or 0. */
+  /**
+   * The rank carrying {@code cell}'s value among the merge's {@code ranked} representatives, or 0.
+   */
   private int rankedIdOf(final long cell, final int ranked) {
     int lo = 0;
     int hi = ranked - 1;
