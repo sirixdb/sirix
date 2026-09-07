@@ -266,25 +266,25 @@ public final class ProjectionIndexRowGroupPage {
    * the seal writes.
    *
    * <p>
-   * {@link #COLUMN_KIND_STRING_GLOBAL} stores the strings once per RESOURCE, which is why it collapses
-   * a column that {@link #COLUMN_KIND_STRING_DICT} would store once per leaf. It pays for that with a
-   * dictionary that is rewritten as it grows and accumulates every dead value of the resource for all
-   * time. This kind keeps the collapse and bounds both: the dictionary is one segment's, its graveyard
-   * is that segment's own churn, and a value update costs zero dictionary bytes because the write path
-   * only appends.
+   * {@link #COLUMN_KIND_STRING_GLOBAL} stores the strings once per RESOURCE, which is why it
+   * collapses a column that {@link #COLUMN_KIND_STRING_DICT} would store once per leaf. It pays for
+   * that with a dictionary that is rewritten as it grows and accumulates every dead value of the
+   * resource for all time. This kind keeps the collapse and bounds both: the dictionary is one
+   * segment's, its graveyard is that segment's own churn, and a value update costs zero dictionary
+   * bytes because the write path only appends.
    *
    * <p>
-   * <b>Storage is byte-identical to {@link #COLUMN_KIND_NUMERIC_LONG}</b>, the precedent every long-lane
-   * kind follows. What the kind byte buys is the one thing kind 5 can assume and this cannot: an id is
-   * identity only WITHIN its segment. Two segments hand the same id to different values, so a group
-   * identity, a distinct count or an equality against a literal must be per segment and merged across
-   * segments by VALUE — a bitset over the row ids per segment, then one string hash per (segment,
-   * distinct id) for the merge. Nothing may treat these cells the way kind 5's are treated, which is
-   * why the kind is separate rather than a flag on kind 5.
+   * <b>Storage is byte-identical to {@link #COLUMN_KIND_NUMERIC_LONG}</b>, the precedent every
+   * long-lane kind follows. What the kind byte buys is the one thing kind 5 can assume and this
+   * cannot: an id is identity only WITHIN its segment. Two segments hand the same id to different
+   * values, so a group identity, a distinct count or an equality against a literal must be per
+   * segment and merged across segments by VALUE — a bitset over the row ids per segment, then one
+   * string hash per (segment, distinct id) for the merge. Nothing may treat these cells the way kind
+   * 5's are treated, which is why the kind is separate rather than a flag on kind 5.
    *
    * <p>
-   * The segment itself is not stored: a row group never straddles a boundary (the builder cuts there),
-   * so it is the segment its {@code firstRecordKey} falls in, which the directory answers.
+   * The segment itself is not stored: a row group never straddles a boundary (the builder cuts
+   * there), so it is the segment its {@code firstRecordKey} falls in, which the directory answers.
    */
   public static final byte COLUMN_KIND_STRING_SEGMENT = 8;
 
@@ -354,8 +354,8 @@ public final class ProjectionIndexRowGroupPage {
 
   /**
    * {@code true} when a cell's id is identity only within this row group's segment. Every site that
-   * derives meaning from an id — resolution, grouping, distinct counting, equality against a literal —
-   * must either handle the segment or refuse.
+   * derives meaning from an id — resolution, grouping, distinct counting, equality against a literal
+   * — must either handle the segment or refuse.
    */
   public static boolean isSegmentScopedIdKind(final byte kind) {
     return kind == COLUMN_KIND_STRING_SEGMENT;
@@ -1791,8 +1791,7 @@ public final class ProjectionIndexRowGroupPage {
    * @param c the column to convert
    * @param dictionary this leaf's segment's dictionary for this column
    */
-  void convertStringDictColumnToSegment(final int c, final GlobalValueDictionaryEncoder dictionary,
-      final int segment) {
+  void convertStringDictColumnToSegment(final int c, final GlobalValueDictionaryEncoder dictionary, final int segment) {
     if (segment < 0) {
       throw new IllegalArgumentException("segment must not be negative: " + segment);
     }
@@ -1803,10 +1802,10 @@ public final class ProjectionIndexRowGroupPage {
    * A segment-scoped cell: the segment in the high 32 bits, the dictionary id in the low 32.
    *
    * <p>
-   * The id alone does not identify a value — the same id names different values in different
-   * segments — so a resolver handed one cell and nothing else could not answer. Carrying the segment
-   * IN the cell means every site that resolves, compares or materialises a cell needs no extra
-   * argument threaded to it, which is the difference between one adapter and a hundred call sites.
+   * The id alone does not identify a value — the same id names different values in different segments
+   * — so a resolver handed one cell and nothing else could not answer. Carrying the segment IN the
+   * cell means every site that resolves, compares or materialises a cell needs no extra argument
+   * threaded to it, which is the difference between one adapter and a hundred call sites.
    * </p>
    *
    * <p>

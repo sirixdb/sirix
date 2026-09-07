@@ -178,9 +178,8 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * <p>
    * <b>The resolver must be safe to call from many threads at once.</b> Region building runs inside
    * the async snapshot window's parallel {@code forEach}, so {@code idOf} is invoked concurrently.
-   * {@code the trie lane} is the intended implementation and is thread-confined for
-   * exactly this reason; a resolver that walks the trie through a reader must never be installed
-   * here.
+   * {@code the trie lane} is the intended implementation and is thread-confined for exactly this
+   * reason; a resolver that walks the trie through a reader must never be installed here.
    * </p>
    *
    * <p>
@@ -247,8 +246,8 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * this commit writes and the recursive commit that writes the page graph.
    *
    * <p>
-   * It is the only moment at which both halves of "the dictionary is complete" and "the dictionary
-   * is still writable" hold. Before it, a page the commit has yet to encode can still mint a value;
+   * It is the only moment at which both halves of "the dictionary is complete" and "the dictionary is
+   * still writable" hold. Before it, a page the commit has yet to encode can still mint a value;
    * after it, the page graph is being written and a new record would not be part of it. A seal in
    * {@code beforeCommit} — where a bulk load finishes everything else — is on the wrong side: it
    * misses the tail pages the commit itself encodes, and their ids would name entries no dictionary
@@ -256,8 +255,8 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * </p>
    *
    * <p>
-   * The listener runs on the committing thread and MAY write: records it persists become part of
-   * this same revision. It is expected to clear itself, because it is armed for one commit.
+   * The listener runs on the committing thread and MAY write: records it persists become part of this
+   * same revision. It is expected to clear itself, because it is armed for one commit.
    * </p>
    *
    * @param listener the seam callback, or {@code null} to stop listening

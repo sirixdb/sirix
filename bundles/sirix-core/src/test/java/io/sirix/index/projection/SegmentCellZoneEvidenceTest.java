@@ -28,10 +28,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Descriptor-level evidence over a {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SEGMENT}
- * column. Its leaves carry a zone over packed {@code (segment, id)} cells, and a leaf never straddles
- * a segment, so the zone is a containment test for a cell exactly as a global column's is for an id:
- * {@link ProjectionColumnScan#zoneStabSorted} must admit a cell only into the leaves of its own
- * segment whose range covers it, and a resolved equality
+ * column. Its leaves carry a zone over packed {@code (segment, id)} cells, and a leaf never
+ * straddles a segment, so the zone is a containment test for a cell exactly as a global column's is
+ * for an id: {@link ProjectionColumnScan#zoneStabSorted} must admit a cell only into the leaves of
+ * its own segment whose range covers it, and a resolved equality
  * ({@link ColumnPredicate#segmentScopedEquality}) must prune leaves from the descriptors BEFORE any
  * column bytes are fetched — the fetch count is the witness, because a slice-level skip answers the
  * same rows after reading the whole column.
@@ -107,7 +107,10 @@ final class SegmentCellZoneEvidenceTest {
       return false;
     }
 
-    /** The literal's cell in every segment, {@link ColumnPredicate#SEGMENT_LITERAL_ABSENT} where unknown. */
+    /**
+     * The literal's cell in every segment, {@link ColumnPredicate#SEGMENT_LITERAL_ABSENT} where
+     * unknown.
+     */
     long[] literalCells(final String value) {
       final long[] cells = new long[SEGMENTS];
       for (int segment = 0; segment < SEGMENTS; segment++) {
@@ -205,8 +208,7 @@ final class SegmentCellZoneEvidenceTest {
     // the segment bits would admit those into segment 1's leaves.
     final int privateId = f.encoders[1].idOf(valueOf(LEAVES_PER_SEGMENT + 5, 7));
     assertTrue(privateId > 0, "the fixture's private value was minted");
-    final long[] values = {
-        ProjectionIndexRowGroupPage.packSegmentCell(0, f.encoders[0].idOf(SHARED)),
+    final long[] values = {ProjectionIndexRowGroupPage.packSegmentCell(0, f.encoders[0].idOf(SHARED)),
         ProjectionIndexRowGroupPage.packSegmentCell(0, privateId),
         ProjectionIndexRowGroupPage.packSegmentCell(1, privateId),
         ProjectionIndexRowGroupPage.packSegmentCell(2, privateId),
@@ -238,10 +240,10 @@ final class SegmentCellZoneEvidenceTest {
     // (and the collapsed leaf) — twelve leaves in segment 0, thirteen in segment 2 — and the private
     // value's id admits SOME leaf in its own segment and, packed into segments 0 and 2, only leaves
     // of THOSE segments (containment there is a coincidence of ids, never a cross-segment leak).
-    final int sharedIn0 = Arrays.binarySearch(values, ProjectionIndexRowGroupPage.packSegmentCell(0,
-        f.encoders[0].idOf(SHARED)));
-    final int sharedIn2 = Arrays.binarySearch(values, ProjectionIndexRowGroupPage.packSegmentCell(2,
-        f.encoders[2].idOf(SHARED)));
+    final int sharedIn0 =
+        Arrays.binarySearch(values, ProjectionIndexRowGroupPage.packSegmentCell(0, f.encoders[0].idOf(SHARED)));
+    final int sharedIn2 =
+        Arrays.binarySearch(values, ProjectionIndexRowGroupPage.packSegmentCell(2, f.encoders[2].idOf(SHARED)));
     assertTrue(kept(keeps[sharedIn0]) >= LEAVES_PER_SEGMENT / 2, "the shared value's even leaves in segment 0");
     assertTrue(kept(keeps[sharedIn2]) >= LEAVES_PER_SEGMENT / 2 + 1, "segment 2's even leaves plus the collapsed one");
     for (int leaf = 0; leaf < LEAVES; leaf++) {
@@ -267,8 +269,8 @@ final class SegmentCellZoneEvidenceTest {
     int keptLeaves = 0;
     for (int leaf = 0; leaf < LEAVES; leaf++) {
       final int segment = f.segmentOf(leaf);
-      final boolean expected = literal[segment] != ColumnPredicate.SEGMENT_LITERAL_ABSENT
-          && f.zoneAdmits(leaf, literal[segment]);
+      final boolean expected =
+          literal[segment] != ColumnPredicate.SEGMENT_LITERAL_ABSENT && f.zoneAdmits(leaf, literal[segment]);
       assertEquals(expected, bit(keep, leaf), "leaf " + leaf + " of segment " + segment);
       if (expected) {
         keptLeaves++;

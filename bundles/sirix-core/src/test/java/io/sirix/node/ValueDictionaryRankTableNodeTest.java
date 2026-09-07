@@ -16,8 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The bit-packed {@code mint -> rank} table of a sealed segment dictionary: the pack/read identity at
- * every width (including entries that straddle a word), the wire round trip, and the refusals a
+ * The bit-packed {@code mint -> rank} table of a sealed segment dictionary: the pack/read identity
+ * at every width (including entries that straddle a word), the wire round trip, and the refusals a
  * corrupt record must earn rather than a wrong position.
  */
 final class ValueDictionaryRankTableNodeTest {
@@ -40,8 +40,8 @@ final class ValueDictionaryRankTableNodeTest {
   }
 
   private static ValueDictionaryRankTableNode deserialize(final byte[] bytes) {
-    return (ValueDictionaryRankTableNode) NodeKind.VALUE_DICTIONARY_RANK_TABLE.deserialize(Bytes.wrapForRead(bytes),
-        5L, null, null);
+    return (ValueDictionaryRankTableNode) NodeKind.VALUE_DICTIONARY_RANK_TABLE.deserialize(Bytes.wrapForRead(bytes), 5L,
+        null, null);
   }
 
   /** Ranks indexed by mint, slot 0 unused, each a value that fits {@code bits} and is at least 1. */
@@ -82,9 +82,9 @@ final class ValueDictionaryRankTableNodeTest {
 
   /**
    * Every bit at or above {@code count * bits} must be zero: the high half of a straddling entry is
-   * placed with {@code rank >>> ~s >>> 1}, which is zero at {@code s == 0}. Written as a plain shift by
-   * {@code 64 - s} it would be a shift by 64 — a no-op in Java — and the WHOLE rank would land in the
-   * next entry's word, corrupting it. The padding word is included in the sweep.
+   * placed with {@code rank >>> ~s >>> 1}, which is zero at {@code s == 0}. Written as a plain shift
+   * by {@code 64 - s} it would be a shift by 64 — a no-op in Java — and the WHOLE rank would land in
+   * the next entry's word, corrupting it. The padding word is included in the sweep.
    */
   private static void assertNoStrayBits(final ValueDictionaryRankTableNode table, final int bits) {
     final long[] words = table.words();

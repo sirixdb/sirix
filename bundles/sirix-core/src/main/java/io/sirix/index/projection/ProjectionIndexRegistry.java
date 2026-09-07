@@ -187,8 +187,8 @@ public final class ProjectionIndexRegistry {
     }
 
     /**
-     * Per-{@code (segment, column)} dictionary anchors, packed by {@code segment * columns + column}
-     * — a segment-scoped string column has ONE of these per segment, where a resource-wide one has a
+     * Per-{@code (segment, column)} dictionary anchors, packed by {@code segment * columns + column} —
+     * a segment-scoped string column has ONE of these per segment, where a resource-wide one has a
      * single anchor for the whole column.
      */
     private long @Nullable [] segmentDictionaryHeaderKeys;
@@ -201,8 +201,8 @@ public final class ProjectionIndexRegistry {
      * Attach the segment-scoped dictionary anchors; called once, at construction, by the catalog.
      *
      * <p>
-     * Flattened at attach time rather than searched per lookup: a scan asks per LEAF, so the lookup
-     * is on the hot path and the table is tiny — segments times columns, both small.
+     * Flattened at attach time rather than searched per lookup: a scan asks per LEAF, so the lookup is
+     * on the hot path and the table is tiny — segments times columns, both small.
      * </p>
      */
     public void setSegmentDictionaryAnchors(final ProjectionIndexMetadata.SegmentAnchor @Nullable [] anchors,
@@ -230,9 +230,9 @@ public final class ProjectionIndexRegistry {
     }
 
     /**
-     * The dictionary anchor {@code col}'s values live in for rows of {@code segment}, or {@code 0}
-     * when that pair sealed nothing — which a caller must read as "these rows keep their bytes", never
-     * as an invitation to try another segment's dictionary.
+     * The dictionary anchor {@code col}'s values live in for rows of {@code segment}, or {@code 0} when
+     * that pair sealed nothing — which a caller must read as "these rows keep their bytes", never as an
+     * invitation to try another segment's dictionary.
      */
     public long segmentDictionaryHeaderKey(final int segment, final int col) {
       final long[] table = segmentDictionaryHeaderKeys;
@@ -1107,9 +1107,9 @@ public final class ProjectionIndexRegistry {
      * the same rule, so the same memo). A table is one walk of its dictionary — every block decoded
      * once, ~18M ids for URL at 100M — and it is a pure function of the dictionary this handle's build
      * revision reads, so the first query to need it derives it and every later one indexes it.
-     * Retention is bounded in BYTES by
-     * {@code sirix.projection.stringLength.memoBytes}; past the bound a table is still returned to its
-     * query but not kept (the "0 disables" of the property is the kill switch).
+     * Retention is bounded in BYTES by {@code sirix.projection.stringLength.memoBytes}; past the bound
+     * a table is still returned to its query but not kept (the "0 disables" of the property is the kill
+     * switch).
      */
     private final Long2ObjectOpenHashMap<int[]> stringLengthTables = new Long2ObjectOpenHashMap<>();
 

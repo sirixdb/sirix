@@ -366,7 +366,9 @@ final class StringRegionGlobalLaneTest {
     assertThrows(IllegalStateException.class, () -> StringRegion.globalIdAt(payload, header, tag, 0));
   }
 
-  /** A dictionary that MINTS: every probe it has not seen before becomes an entry, as the lane does. */
+  /**
+   * A dictionary that MINTS: every probe it has not seen before becomes an entry, as the lane does.
+   */
   private static final class MintingDictionary implements GlobalStringDictionaries {
     private final Map<String, Integer> ids = new HashMap<>();
     private final int tag;

@@ -88,14 +88,14 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
    * {@code mint -> rank} table, or 0 when ids ARE storage positions.
    *
    * <p>
-   * Non-zero only for a dictionary sealed from ids that were minted in arrival order and then
-   * stored in collation order (the segment lane's seal): the ids in the pages stay what they were,
-   * and the table says where each one's value went. Under a table {@link #isFullyOrdered()} still
-   * means the STORAGE is ordered (binary-search probe legal, no forward index needed), but id order
-   * is no longer value order — an arm that wants to compare ids as strings must ask
+   * Non-zero only for a dictionary sealed from ids that were minted in arrival order and then stored
+   * in collation order (the segment lane's seal): the ids in the pages stay what they were, and the
+   * table says where each one's value went. Under a table {@link #isFullyOrdered()} still means the
+   * STORAGE is ordered (binary-search probe legal, no forward index needed), but id order is no
+   * longer value order — an arm that wants to compare ids as strings must ask
    * {@link #idsAreCollationOrdered()}. The forward run's records live at {@code rankTableKey + i} for
-   * the {@code i}-th run of {@link ValueDictionaryRankTableNode#ENTRIES_PER_RECORD} mints, the inverse
-   * run ({@code rank -> mint}, for the probe) directly behind it at
+   * the {@code i}-th run of {@link ValueDictionaryRankTableNode#ENTRIES_PER_RECORD} mints, the
+   * inverse run ({@code rank -> mint}, for the probe) directly behind it at
    * {@code rankTableKey + recordCountFor(orderedPrefixCount) + i}; mints above
    * {@link #orderedPrefixCount} (an appended tail) are their own position.
    * </p>

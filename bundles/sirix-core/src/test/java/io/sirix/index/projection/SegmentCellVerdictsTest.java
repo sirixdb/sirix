@@ -79,7 +79,9 @@ final class SegmentCellVerdictsTest {
     assertFalse(verdicts.matches(ProjectionIndexRowGroupPage.packSegmentCell(0, 0)));
   }
 
-  /** Runs {@code workers} threads over every cell of every segment, returning the disagreement count. */
+  /**
+   * Runs {@code workers} threads over every cell of every segment, returning the disagreement count.
+   */
   private static int hammer(final SegmentCellVerdicts verdicts, final int segments, final int ids, final int workers)
       throws Exception {
     final CountDownLatch start = new CountDownLatch(1);
@@ -154,9 +156,9 @@ final class SegmentCellVerdictsTest {
   @DisplayName("a swept segment never consults the per-cell matcher")
   void aSweptSegmentIsSettledInOnePass() {
     final CountingView view = new CountingView();
-    final SegmentCellVerdicts verdicts = new SegmentCellVerdicts(view,
-        cell -> sweepOf(ProjectionIndexRowGroupPage.segmentOfCell(cell), 200),
-        ProjectionIndexScan.Op.STR_CONTAINS, new byte[] {'x'}, 2);
+    final SegmentCellVerdicts verdicts =
+        new SegmentCellVerdicts(view, cell -> sweepOf(ProjectionIndexRowGroupPage.segmentOfCell(cell), 200),
+            ProjectionIndexScan.Op.STR_CONTAINS, new byte[] {'x'}, 2);
     for (int segment = 0; segment < 2; segment++) {
       for (int id = 1; id <= 200; id++) {
         assertEquals((id + segment) % 2 == 0,
@@ -223,8 +225,8 @@ final class SegmentCellVerdictsTest {
         try {
           start.await();
           for (int id = 1; id <= 200; id++) {
-            if (verdicts.matches(ProjectionIndexRowGroupPage.packSegmentCell(segment, id))
-                != ((id + segment) % 2 == 0)) {
+            if (verdicts.matches(
+                ProjectionIndexRowGroupPage.packSegmentCell(segment, id)) != ((id + segment) % 2 == 0)) {
               disagreements.incrementAndGet();
             }
           }
@@ -244,7 +246,9 @@ final class SegmentCellVerdictsTest {
     assertEquals(0, view.evaluations.get(), "no cell read at all");
   }
 
-  /** A store over a plain map: what the buffer manager's cache does between queries, minus eviction. */
+  /**
+   * A store over a plain map: what the buffer manager's cache does between queries, minus eviction.
+   */
   private static final class MapStore implements SegmentCellVerdicts.TableStore {
     private final Map<Integer, byte[]> tables = new HashMap<>();
     private final int[] entryCounts;
@@ -280,8 +284,7 @@ final class SegmentCellVerdictsTest {
   }
 
   private static SegmentCellVerdicts over(final CountingView view, final MapStore store, final int segments) {
-    return new SegmentCellVerdicts(view, null, ProjectionIndexScan.Op.STR_CONTAINS, new byte[] {'x'}, segments,
-        store);
+    return new SegmentCellVerdicts(view, null, ProjectionIndexScan.Op.STR_CONTAINS, new byte[] {'x'}, segments, store);
   }
 
   @Test
@@ -352,9 +355,9 @@ final class SegmentCellVerdictsTest {
     assertNotNull(before);
 
     final CountingView view = new CountingView();
-    final SegmentCellVerdicts swept = new SegmentCellVerdicts(view,
-        cell -> sweepOf(ProjectionIndexRowGroupPage.segmentOfCell(cell), 200),
-        ProjectionIndexScan.Op.STR_CONTAINS, new byte[] {'x'}, 2, store);
+    final SegmentCellVerdicts swept =
+        new SegmentCellVerdicts(view, cell -> sweepOf(ProjectionIndexRowGroupPage.segmentOfCell(cell), 200),
+            ProjectionIndexScan.Op.STR_CONTAINS, new byte[] {'x'}, 2, store);
     // Adopted the partial table, so id 3 answers without a sweep; the first UNSETTLED id sweeps.
     assertFalse(swept.matches(ProjectionIndexRowGroupPage.packSegmentCell(0, 3)));
     assertTrue(swept.matches(ProjectionIndexRowGroupPage.packSegmentCell(0, 4)), "(0 + 4) is even");

@@ -17,8 +17,8 @@ import static java.util.Objects.requireNonNull;
  * A projection row holds the bytes of the document node it was extracted from, so the two sides are
  * interning the same value set. Sharing one dictionary is therefore not an optimisation but the
  * absence of a duplicate: the strings are written once, by the seal, and both a document page and a
- * projection leaf store the same id for the same value. A projection leaf then carries no dictionary
- * of its own at all, which is where a per-leaf dictionary's bytes go.
+ * projection leaf store the same id for the same value. A projection leaf then carries no
+ * dictionary of its own at all, which is where a per-leaf dictionary's bytes go.
  * </p>
  *
  * <p>
@@ -55,8 +55,8 @@ final class SegmentColumnEncoder implements GlobalValueDictionaryEncoder {
       // The seal cannot persist a value this long, so an id for it would name nothing. The caller
       // converts a whole column at a time and cannot fall back per value, so this is refused rather
       // than silently written as an absent cell.
-      throw new IllegalStateException("segment " + segment + " column " + column + " was asked to intern a "
-          + length + "-byte value, above what a dictionary entry can hold");
+      throw new IllegalStateException("segment " + segment + " column " + column + " was asked to intern a " + length
+          + "-byte value, above what a dictionary entry can hold");
     }
     return id;
   }

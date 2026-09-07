@@ -46,11 +46,11 @@ public final class ProjectionColumnGroupScan {
    * UTF-8-byte length over STRING_DICT operands (null = all-numeric aggregates); a STRING_GLOBAL
    * length operand instead supplies {@code globalLengthTables[a]}, the per-query id → length table
    * the fold indexes with the row's id lane — no dictionary bytes are touched per leaf (the same
-   * table the whole-leaf twin and the composite arm consume); a STRING_SEGMENT length operand supplies
-   * {@code segmentLengthTables[a][segment]}, one such table per segment dictionary, and the leaf's
-   * zone bounds choose the table ({@link #leafLengthTable}). {@code cdStringDict} marks the distinct
-   * block's operand as STRING_DICT — see {@link #foldSliced} for the leaf-local-id → content-hash
-   * identity it feeds the set.
+   * table the whole-leaf twin and the composite arm consume); a STRING_SEGMENT length operand
+   * supplies {@code segmentLengthTables[a][segment]}, one such table per segment dictionary, and the
+   * leaf's zone bounds choose the table ({@link #leafLengthTable}). {@code cdStringDict} marks the
+   * distinct block's operand as STRING_DICT — see {@link #foldSliced} for the leaf-local-id →
+   * content-hash identity it feeds the set.
    */
   public static void aggregateByGroupNumericFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
@@ -394,8 +394,8 @@ public final class ProjectionColumnGroupScan {
       final long[] missingAcc, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
       final GroupDistinctAccumulator.Sink distinctMissing, final long[] budget, final boolean cdStringDict,
       final Pattern keyRegex, final String keyRegexRepl, final long[] regexDecline,
-      final GroupDistinctBitmaps distinctBitmaps, final int[][] globalLengthTables,
-      final int[][][] segmentLengthTables, final long[] globalKeyHashes) {
+      final GroupDistinctBitmaps distinctBitmaps, final int[][] globalLengthTables, final int[][][] segmentLengthTables,
+      final long[] globalKeyHashes) {
     if (predicates == null || out == null || missingAcc == null || aggCols == null) {
       throw new IllegalArgumentException("predicates, out, missingAcc and aggCols must not be null");
     }
@@ -690,7 +690,10 @@ public final class ProjectionColumnGroupScan {
     }
   }
 
-  /** The table a leaf without a present operand cell gets: never indexed, because the fold reads presence first. */
+  /**
+   * The table a leaf without a present operand cell gets: never indexed, because the fold reads
+   * presence first.
+   */
   private static final int[] NO_PRESENT_CELLS = new int[0];
 
   private static void checkLengthTables(final int[][] globalLengthTables, final int[][][] segmentLengthTables,
@@ -714,15 +717,17 @@ public final class ProjectionColumnGroupScan {
    * equal to {@code segmentOfCell(max)}. A leaf with no present cell has inverted bounds
    * ({@code min > max}, the descriptor sentinels) and gets {@link #NO_PRESENT_CELLS}, which the fold
    * never indexes because it reads presence first. A segment that sealed no dictionary for the
-   * operand cannot occur on a kind-8 column — the encoder refuses to write an unresolved value — so
-   * a missing table is corruption, not a fallback.
+   * operand cannot occur on a kind-8 column — the encoder refuses to write an unresolved value — so a
+   * missing table is corruption, not a fallback.
    */
-  private static int @Nullable [] leafLengthTable(final int a, final ColumnSlice agg,
-      final int[][] globalLengthTables, final int[][][] segmentLengthTables) {
+  private static int @Nullable [] leafLengthTable(final int a, final ColumnSlice agg, final int[][] globalLengthTables,
+      final int[][][] segmentLengthTables) {
     if (globalLengthTables != null && globalLengthTables[a] != null) {
       return globalLengthTables[a];
     }
-    final int[][] bySegment = segmentLengthTables == null ? null : segmentLengthTables[a];
+    final int[][] bySegment = segmentLengthTables == null
+        ? null
+        : segmentLengthTables[a];
     if (bySegment == null) {
       return null;
     }
@@ -734,13 +739,15 @@ public final class ProjectionColumnGroupScan {
     final int segment = ProjectionIndexRowGroupPage.segmentOfCell(min);
     final int maxSegment = ProjectionIndexRowGroupPage.segmentOfCell(max);
     if (segment != maxSegment) {
-      throw new IllegalStateException("length lane " + a + " holds cells of segments " + segment + " and "
-          + maxSegment + " in one leaf; leaves are cut at segment boundaries");
+      throw new IllegalStateException("length lane " + a + " holds cells of segments " + segment + " and " + maxSegment
+          + " in one leaf; leaves are cut at segment boundaries");
     }
-    final int[] table = segment >= 0 && segment < bySegment.length ? bySegment[segment] : null;
+    final int[] table = segment >= 0 && segment < bySegment.length
+        ? bySegment[segment]
+        : null;
     if (table == null) {
-      throw new IllegalStateException("length lane " + a + " names segment " + segment
-          + ", which sealed no dictionary for its operand");
+      throw new IllegalStateException(
+          "length lane " + a + " names segment " + segment + ", which sealed no dictionary for its operand");
     }
     return table;
   }

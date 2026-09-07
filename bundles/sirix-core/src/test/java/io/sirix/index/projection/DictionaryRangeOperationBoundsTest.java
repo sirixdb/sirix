@@ -112,7 +112,8 @@ final class DictionaryRangeOperationBoundsTest {
     // byte; the comparison must back up to the lead byte or the decoder starts mid-sequence and
     // fails closed on a perfectly valid pair. Every pair differs only in a trailing continuation
     // byte, at each of the three continuation positions a sequence can have.
-    final String[][] pairs = {{"é", "è"}, {"x€", "x₭"}, {"𐐀", "𐐁"}, {"ab𐐀", "ab𐐁"}, {"\u00E9\u00E9", "\u00E9\u00E8"}};
+    final String[][] pairs =
+        {{"é", "è"}, {"x€", "x₭"}, {"𐐀", "𐐁"}, {"ab𐐀", "ab𐐁"}, {"\u00E9\u00E9", "\u00E9\u00E8"}};
     for (final String[] pair : pairs) {
       final byte[] l = utf8(pair[0]);
       final byte[] r = utf8(pair[1]);

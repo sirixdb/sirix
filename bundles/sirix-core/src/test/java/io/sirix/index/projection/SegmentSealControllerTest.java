@@ -198,8 +198,7 @@ final class SegmentSealControllerTest {
     controller.encoded(0, 1L);
     controller.adopted(1, 2L);
     assertEquals(IntList.of(0), controller.takeSealable());
-    final IllegalStateException failure =
-        assertThrows(IllegalStateException.class, () -> controller.adopted(0, 5L));
+    final IllegalStateException failure = assertThrows(IllegalStateException.class, () -> controller.adopted(0, 5L));
     assertTrue(failure.getMessage().contains("segment 0"), failure.getMessage());
     assertEquals(0, controller.outstandingIn(0), "the refused page was not recorded");
   }

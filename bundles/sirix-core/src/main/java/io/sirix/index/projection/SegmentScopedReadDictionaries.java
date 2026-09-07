@@ -32,8 +32,8 @@ import static java.util.Objects.requireNonNull;
  * can resolve a page's values, which it cannot know from the page; needs a path-summary walk per
  * transaction to turn field paths back into tags; and keys dictionaries by an index's OWN column
  * numbering, so two projection indexes on one resource name different dictionaries by the same
- * {@code (segment, column)} and a page records nothing that tells them apart. The directory is keyed
- * by tag, which is what the page carries.
+ * {@code (segment, column)} and a page records nothing that tells them apart. The directory is
+ * keyed by tag, which is what the page carries.
  *
  *
  * <h2>The two refusals, and why both are needed</h2>

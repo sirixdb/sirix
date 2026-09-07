@@ -18,13 +18,13 @@ import java.util.Arrays;
  *
  * The writer tells this controller two things per page — {@code adopted(segment, pageKey)} when a
  * page is given its segment view, and {@code encoded(segment, pageKey)} each time the page's bytes
- * are produced. Neither arrives exactly once per page: a page written in two flush epochs is encoded
- * twice; a copy-on-write copy re-adopted through the same factory is adopted twice; and the two can
- * interleave arbitrarily because the flush pool runs concurrently with adoption. A counter that
- * increments on adopt and decrements on encode reads every duplicate as a real event and either
- * seals a segment early (an extra encode) or never (an extra adopt). A SET of outstanding page keys
- * makes both notifications idempotent: a page is outstanding while its key is in the set, whatever
- * the number of times either side spoke.
+ * are produced. Neither arrives exactly once per page: a page written in two flush epochs is
+ * encoded twice; a copy-on-write copy re-adopted through the same factory is adopted twice; and the
+ * two can interleave arbitrarily because the flush pool runs concurrently with adoption. A counter
+ * that increments on adopt and decrements on encode reads every duplicate as a real event and
+ * either seals a segment early (an extra encode) or never (an extra adopt). A SET of outstanding
+ * page keys makes both notifications idempotent: a page is outstanding while its key is in the set,
+ * whatever the number of times either side spoke.
  *
  * <p>
  * A segment's set holds only the pages the flush pool has not caught up with, and it is dropped the
@@ -51,7 +51,10 @@ public final class SegmentSealController {
   private static final LongOpenHashSet[] NO_SEGMENTS = new LongOpenHashSet[0];
   private static final boolean[] NO_FLAGS = new boolean[0];
 
-  /** Outstanding page keys per segment at index {@code segment}; {@code null} for a segment never adopted into. */
+  /**
+   * Outstanding page keys per segment at index {@code segment}; {@code null} for a segment never
+   * adopted into.
+   */
   private LongOpenHashSet[] outstanding = NO_SEGMENTS;
   /** Whether the segment at index {@code segment} has been offered by a take-method. */
   private boolean[] sealed = NO_FLAGS;
@@ -62,15 +65,15 @@ public final class SegmentSealController {
    * A page was given its segment view. Idempotent: re-adopting an outstanding page (a copy-on-write
    * copy through the same factory) changes nothing.
    *
-   * @throws IllegalStateException if the segment was already offered for sealing — its dictionary
-   *         may be persisted and released, and a page encoded against it would mint into nothing
+   * @throws IllegalStateException if the segment was already offered for sealing — its dictionary may
+   *         be persisted and released, and a page encoded against it would mint into nothing
    */
   public synchronized void adopted(final int segment, final long pageKey) {
     requireNonNegative(segment, "segment");
     requireNonNegative(pageKey, "pageKey");
     if (segment < sealed.length && sealed[segment]) {
-      throw new IllegalStateException("page " + pageKey + " adopted into segment " + segment
-          + ", which was already sealed");
+      throw new IllegalStateException(
+          "page " + pageKey + " adopted into segment " + segment + ", which was already sealed");
     }
     ensureCapacity(segment);
     LongOpenHashSet pages = outstanding[segment];
@@ -113,8 +116,9 @@ public final class SegmentSealController {
   }
 
   /**
-   * Segments that may be sealed now: adopted into, nothing outstanding, below the high-water mark, and
-   * not offered before. Each segment is offered exactly once; the caller owns its seal from then on.
+   * Segments that may be sealed now: adopted into, nothing outstanding, below the high-water mark,
+   * and not offered before. Each segment is offered exactly once; the caller owns its seal from then
+   * on.
    */
   public synchronized IntList takeSealable() {
     return takeSealable(0);
@@ -128,8 +132,8 @@ public final class SegmentSealController {
    * a segment is finished by ADOPTING a page into a higher one; a consumer that derives from the same
    * row stream — the projection, whose leaf is cut the moment a row's segment differs — mints into
    * the old segment a moment LATER, when that leaf flushes. Sealing at the high-water mark alone
-   * would let a commit land in between and refuse a mint that was always going to arrive. One
-   * segment of slack costs one segment's values in memory and removes the window entirely.
+   * would let a commit land in between and refuse a mint that was always going to arrive. One segment
+   * of slack costs one segment's values in memory and removes the window entirely.
    * </p>
    */
   public synchronized IntList takeSealable(final int slack) {
@@ -156,8 +160,8 @@ public final class SegmentSealController {
     for (int segment = 0; segment <= highWaterMark; segment++) {
       final LongOpenHashSet pages = outstanding[segment];
       if (pages != null && !pages.isEmpty()) {
-        throw new IllegalStateException("segment " + segment + " has " + pages.size()
-            + " page(s) adopted but never encoded after the flush fence");
+        throw new IllegalStateException(
+            "segment " + segment + " has " + pages.size() + " page(s) adopted but never encoded after the flush fence");
       }
     }
     return take(highWaterMark);

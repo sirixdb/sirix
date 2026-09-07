@@ -22,11 +22,11 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>
  * This is the write half of {@code docs/SEGMENT_DICTIONARY_DESIGN.md}: the answer to the pre-pass.
- * the trie lane resolves against a dictionary a PRE-PASS already committed, which
- * is why the corpus must be read twice, why the value set must be closed before the shred, and why an
- * unknown value fails the build. Here a segment's dictionary is built AS its pages are encoded — a
- * value is minted the first time it is seen — so there is no pre-pass, no second read, no closed
- * corpus and no absent value.
+ * the trie lane resolves against a dictionary a PRE-PASS already committed, which is why the corpus
+ * must be read twice, why the value set must be closed before the shred, and why an unknown value
+ * fails the build. Here a segment's dictionary is built AS its pages are encoded — a value is
+ * minted the first time it is seen — so there is no pre-pass, no second read, no closed corpus and
+ * no absent value.
  * </p>
  *
  * <h2>Where a segment begins and ends</h2>
@@ -51,8 +51,8 @@ import static java.util.Objects.requireNonNull;
  * flush pool ({@code sirix.asyncFlush.parallelism}) — so a page of segment N can be encoded AFTER
  * the writer has moved on to segment N+1. A resolver that answered "the segment I am currently
  * filling" would mint that page's ids in N+1 and stamp N+1's anchor onto a page whose neighbours
- * point at N: a coherent wrong answer, and one the reader's entry-count validity check cannot catch,
- * because both dictionaries are live and both are large enough.
+ * point at N: a coherent wrong answer, and one the reader's entry-count validity check cannot
+ * catch, because both dictionaries are live and both are large enough.
  *
  * <p>
  * So the segment is bound to the PAGE, not to a moment: {@link #adopt} is called on the
@@ -74,8 +74,8 @@ import static java.util.Objects.requireNonNull;
  * <h2>The mint map, on the hot path</h2>
  *
  * Every string value of every page goes through {@link GlobalStringDictionaries#idOf}, and almost
- * all of them HIT (a segment holds a few hundred thousand distinct values over millions of rows). So
- * the hit path allocates nothing: an open-addressing table of {@code (hash << 32 | id)} words,
+ * all of them HIT (a segment holds a few hundred thousand distinct values over millions of rows).
+ * So the hit path allocates nothing: an open-addressing table of {@code (hash << 32 | id)} words,
  * probed lock-free with acquire loads, and the value bytes compared in place against the slice the
  * encoder hands in. A MISS takes the dictionary's lock, re-probes (another encoder may have minted
  * the value meanwhile), copies the bytes once — they have to be kept anyway — and publishes the
@@ -126,12 +126,12 @@ public final class SegmentScopedDictionaries {
   private volatile SegmentState[] states = NO_STATES;
 
   /**
-   * Nonzero while a thread is inside {@link #adopt}. Adoption is sequential by contract — one
-   * adopter at a time, with an ordered hand-over between the bulk importer's coordinator and the
+   * Nonzero while a thread is inside {@link #adopt}. Adoption is sequential by contract — one adopter
+   * at a time, with an ordered hand-over between the bulk importer's coordinator and the
    * transaction's own thread — and {@link #adopt} updates the boundary cursors and the state array
-   * without atomics on that basis. This is the positive witness for that contract: one compare-and-set
-   * per PAGE, which is nothing beside the page itself, and a caller that breaks the contract is told
-   * so instead of silently losing a segment state to a lost update.
+   * without atomics on that basis. This is the positive witness for that contract: one
+   * compare-and-set per PAGE, which is nothing beside the page itself, and a caller that breaks the
+   * contract is told so instead of silently losing a segment state to a lost update.
    */
   @SuppressWarnings("unused") // read and written through ADOPTING
   private volatile int adopting;
@@ -192,8 +192,8 @@ public final class SegmentScopedDictionaries {
         // The general write path — a later revision touching a page of a long-sealed segment — needs
         // the other answer (keep the bytes, or probe the persisted dictionary); that arrives with
         // incremental sealing, which is also what first makes this reachable by design.
-        throw new IllegalStateException("segment " + segment + " was sealed and released; page " + recordPageKey
-            + " cannot be adopted into it");
+        throw new IllegalStateException(
+            "segment " + segment + " was sealed and released; page " + recordPageKey + " cannot be adopted into it");
       }
       return new SegmentView(segment, state);
     } finally {
@@ -370,7 +370,9 @@ public final class SegmentScopedDictionaries {
     return count;
   }
 
-  /** Slots in the mint table of {@code (segment, column)}, {@code 0} without one (test observability). */
+  /**
+   * Slots in the mint table of {@code (segment, column)}, {@code 0} without one (test observability).
+   */
   int slotCount(final int segment, final int column) {
     final ColumnDictionary dictionary = dictionaryAt(segment, column);
     return dictionary == null
@@ -378,7 +380,9 @@ public final class SegmentScopedDictionaries {
         : dictionary.slotCount();
   }
 
-  /** Value slots {@code (segment, column)} keeps resident, {@code 0} without one (test observability). */
+  /**
+   * Value slots {@code (segment, column)} keeps resident, {@code 0} without one (test observability).
+   */
   int retainedValueSlots(final int segment, final int column) {
     final ColumnDictionary dictionary = dictionaryAt(segment, column);
     return dictionary == null
@@ -432,24 +436,23 @@ public final class SegmentScopedDictionaries {
     private static final ColumnDictionary[] NO_COLUMNS = new ColumnDictionary[0];
 
     /**
-     * Dictionaries at index {@code column}; {@code null} until the column mints its first value.
-     * Grown under the lock, read from any thread through acquire loads.
+     * Dictionaries at index {@code column}; {@code null} until the column mints its first value. Grown
+     * under the lock, read from any thread through acquire loads.
      */
     private volatile ColumnDictionary[] columns = NO_COLUMNS;
     private final LongAdder mintedBytes = new LongAdder();
     private volatile boolean released;
 
     /**
-     * The dictionary for {@code column}, created on first use. Synchronised against {@link #release}
-     * so a column cannot be created in the gap between the release flag and the release loop — that
-     * dictionary would be live, unreleased and never sealed. Taken once per tag run per page (the
-     * view caches it), never per value.
+     * The dictionary for {@code column}, created on first use. Synchronised against {@link #release} so
+     * a column cannot be created in the gap between the release flag and the release loop — that
+     * dictionary would be live, unreleased and never sealed. Taken once per tag run per page (the view
+     * caches it), never per value.
      */
     synchronized ColumnDictionary column(final int column) {
       requireNonNegativeColumn(column);
       if (released) {
-        throw new IllegalStateException(
-            "the segment was sealed and released; no value may be minted into it any more");
+        throw new IllegalStateException("the segment was sealed and released; no value may be minted into it any more");
       }
       ColumnDictionary[] snapshot = columns;
       if (column >= snapshot.length) {
@@ -464,7 +467,8 @@ public final class SegmentScopedDictionaries {
       return dictionary;
     }
 
-    @Nullable ColumnDictionary dictionaryAt(final int column) {
+    @Nullable
+    ColumnDictionary dictionaryAt(final int column) {
       final ColumnDictionary[] snapshot = columns;
       return column < snapshot.length
           ? (ColumnDictionary) COLUMNS.getAcquire(snapshot, column)
@@ -517,8 +521,8 @@ public final class SegmentScopedDictionaries {
    * A slot is published with a release store AFTER {@code size} and the value it points at, so a
    * reader whose acquire load returns the slot sees a count covering the id and the bytes behind it.
    * Growing either array publishes the grown array through its volatile field BEFORE the slot that
-   * needs it, and a grown array holds a copy of everything published before it, so a reader may see
-   * a newer array than the writer used, never an older one. A reader probing an OLD table after a
+   * needs it, and a grown array holds a copy of everything published before it, so a reader may see a
+   * newer array than the writer used, never an older one. A reader probing an OLD table after a
    * rehash can miss a value inserted only into the new one; it then takes the miss path, which
    * re-probes the current table under the lock — a wasted lock, never a duplicate id.
    *
@@ -565,7 +569,9 @@ public final class SegmentScopedDictionaries {
     /** Ids issued so far; written before the slot that makes the id visible. */
     private volatile int size;
     private final LongAdder mintedBytes;
-    /** Set by {@link #release} and read by {@link #mint} and {@link #valuesById}, all under the lock. */
+    /**
+     * Set by {@link #release} and read by {@link #mint} and {@link #valuesById}, all under the lock.
+     */
     private boolean released;
 
     ColumnDictionary(final LongAdder mintedBytes) {
@@ -601,9 +607,9 @@ public final class SegmentScopedDictionaries {
     }
 
     /**
-     * Whether id {@code id}'s stored bytes equal the slice. The slot was published after the bytes,
-     * so a value slot that is GONE means the dictionary was released between the reader's two loads:
-     * that is a miss, not an error — the miss path refuses under the lock, where release is decided.
+     * Whether id {@code id}'s stored bytes equal the slice. The slot was published after the bytes, so
+     * a value slot that is GONE means the dictionary was released between the reader's two loads: that
+     * is a miss, not an error — the miss path refuses under the lock, where release is decided.
      */
     boolean matches(final int id, final byte[] value, final int offset, final int length) {
       final byte[][] values = valueById;
@@ -672,7 +678,9 @@ public final class SegmentScopedDictionaries {
       return ((long) hash << 32) | id;
     }
 
-    /** Every word of {@code table} in a fresh table of {@code capacity} slots, placed by its own hash. */
+    /**
+     * Every word of {@code table} in a fresh table of {@code capacity} slots, placed by its own hash.
+     */
     private static long[] rehash(final long[] table, final int capacity) {
       final long[] grown = new long[capacity];
       final int mask = capacity - 1;
@@ -732,11 +740,11 @@ public final class SegmentScopedDictionaries {
     }
 
     /**
-     * Forget the values and the table: the dictionary is persisted. {@link #size} stays, so the
-     * sealed count is still answered; every probe from now on misses — the table is empty and the
-     * value slots are gone — and reaches {@link #mint}, which refuses under this lock. The two stores
-     * are not ordered against a concurrent probe's loads and need not be: whichever it sees, a miss
-     * is the worst it can conclude.
+     * Forget the values and the table: the dictionary is persisted. {@link #size} stays, so the sealed
+     * count is still answered; every probe from now on misses — the table is empty and the value slots
+     * are gone — and reaches {@link #mint}, which refuses under this lock. The two stores are not
+     * ordered against a concurrent probe's loads and need not be: whichever it sees, a miss is the
+     * worst it can conclude.
      */
     synchronized void release() {
       released = true;
@@ -752,9 +760,9 @@ public final class SegmentScopedDictionaries {
    *
    * One page is encoded by one thread at a time, and a view belongs to exactly one page. Each
    * {@link #adopt} mints a fresh view, so two pages never share one; the flush pool serializes an
-   * adopted leaf IN PLACE (the same instance, on one pool thread) and deep-copies anything else,
-   * and a deep copy carries no resolver at all. A page written in two flush epochs is encoded twice,
-   * by possibly different pool threads — but the epochs are separated by the window join and the
+   * adopted leaf IN PLACE (the same instance, on one pool thread) and deep-copies anything else, and
+   * a deep copy carries no resolver at all. A page written in two flush epochs is encoded twice, by
+   * possibly different pool threads — but the epochs are separated by the window join and the
    * writer's own sequential pass, which orders the first encode's writes before the second's reads.
    *
    * <h2>One snapshot per tag run</h2>
@@ -762,17 +770,17 @@ public final class SegmentScopedDictionaries {
    * The encoder resolves a tag's values in a run — {@link #hasDictionary}, then
    * {@link #dictionaryKey}, then {@link #idOf} per value, then {@link #dictionaryEntryCount} — and
    * derives the page's id width from the count at the end. Every answer of a run must come from ONE
-   * dictionary: a count from a different column than the ids would either fail the encode or record
-   * a bound that does not cover the ids. So {@link #hasDictionary}, the run's opener (the interface
+   * dictionary: a count from a different column than the ids would either fail the encode or record a
+   * bound that does not cover the ids. So {@link #hasDictionary}, the run's opener (the interface
    * asks it once per tag per page), resolves the tag against the tag map as published NOW and the
-   * three later answers come from that resolution, however often the map is republished meanwhile.
-   * A republished map is picked up at the next run, which is also what lets a page re-encoded in a
+   * three later answers come from that resolution, however often the map is republished meanwhile. A
+   * republished map is picked up at the next run, which is also what lets a page re-encoded in a
    * later flush epoch see a tag that has since become contested and keep its bytes.
    *
    * <p>
    * The COLUMN is what a run pins; the column's dictionary is taken at the run's first value and
-   * cached for the rest of it. A tag whose page holds no value therefore creates nothing, and the
-   * one synchronised {@code column} call is paid once per tag run rather than once per value.
+   * cached for the rest of it. A tag whose page holds no value therefore creates nothing, and the one
+   * synchronised {@code column} call is paid once per tag run rather than once per value.
    * </p>
    */
   public final class SegmentView implements GlobalStringDictionaries {
@@ -880,9 +888,9 @@ public final class SegmentScopedDictionaries {
     }
 
     /**
-     * Resolve {@code tag} against the tag map as published now and make that the run's snapshot. A
-     * tag without a column leaves no snapshot, so a later call for it resolves again — the map may
-     * have gained the tag by then, and there is no run to keep consistent when nothing was answered.
+     * Resolve {@code tag} against the tag map as published now and make that the run's snapshot. A tag
+     * without a column leaves no snapshot, so a later call for it resolves again — the map may have
+     * gained the tag by then, and there is no run to keep consistent when nothing was answered.
      */
     private int resolve(final int tag) {
       final Int2IntMap tags = columnByTag;

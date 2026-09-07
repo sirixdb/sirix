@@ -15,10 +15,10 @@ import org.jspecify.annotations.Nullable;
  * POSITION of a run whose neighbours it will visit next. The per-cell path answers a MINT — it
  * translates the mint to its position through the forward rank table (a random read), looks the
  * position's block up in a direct-mapped cache keyed by the mint (which random mints thrash), and
- * checks the reader's revision on every call. Measured at 100M on {@code GROUP BY URL}, that path was
- * three quarters of the merge's CPU and the byte comparison itself a fifth. A cursor holds the block
- * and the inverse rank-table record it is in and moves on only when the walk leaves them, so the
- * merge reads each block ONCE per range and compares bytes it already holds.
+ * checks the reader's revision on every call. Measured at 100M on {@code GROUP BY URL}, that path
+ * was three quarters of the merge's CPU and the byte comparison itself a fifth. A cursor holds the
+ * block and the inverse rank-table record it is in and moves on only when the walk leaves them, so
+ * the merge reads each block ONCE per range and compares bytes it already holds.
  * </p>
  *
  * <p>
@@ -50,7 +50,10 @@ public abstract class SegmentRunCursor {
   /** The record of a spilled value, or {@code null} when the value is packed in a block. */
   protected @Nullable ValueDictionaryEntryNode spill;
 
-  /** Blocks, buckets and rank-table records this cursor fetched — the witness that a walk read each once. */
+  /**
+   * Blocks, buckets and rank-table records this cursor fetched — the witness that a walk read each
+   * once.
+   */
   protected long loads;
 
   /**
@@ -93,8 +96,8 @@ public abstract class SegmentRunCursor {
    * copied a cursor's fields out (the previous winner of a merge, whose cursor has moved on).
    */
   public static int compare(final byte @Nullable [] leftBacking, final int leftOffset, final int leftLength,
-      final @Nullable ValueDictionaryEntryNode leftSpill, final byte @Nullable [] rightBacking,
-      final int rightOffset, final int rightLength, final @Nullable ValueDictionaryEntryNode rightSpill) {
+      final @Nullable ValueDictionaryEntryNode leftSpill, final byte @Nullable [] rightBacking, final int rightOffset,
+      final int rightLength, final @Nullable ValueDictionaryEntryNode rightSpill) {
     if (leftSpill == null) {
       return rightSpill == null
           ? ValueDictionaryEntryNode.compareUtf16Range(leftBacking, leftOffset, leftLength, rightBacking, rightOffset,
@@ -127,8 +130,8 @@ public abstract class SegmentRunCursor {
    * {@link ProjectionIndexByteScan#STRING_LENGTH_UTF8_BYTES} is the stored byte length;
    * {@link ProjectionIndexByteScan#STRING_LENGTH_CODE_POINTS} counts the non-continuation bytes, the
    * same derivation the per-leaf dictionary kernels and the read view's id-order table apply. A
-   * position walk that calls this per entry derives a whole segment's length table reading each
-   * block once, which is what makes a length operand over a segment column need no canonical ids.
+   * position walk that calls this per entry derives a whole segment's length table reading each block
+   * once, which is what makes a length operand over a segment column need no canonical ids.
    * </p>
    *
    * @throws IllegalArgumentException if {@code lengthMode} is not one of the two string-length modes
@@ -160,7 +163,9 @@ public abstract class SegmentRunCursor {
     return codePoints;
   }
 
-  /** A COPY of the value at the sought position, for the few values a caller keeps (a range's pivots). */
+  /**
+   * A COPY of the value at the sought position, for the few values a caller keeps (a range's pivots).
+   */
   public final byte[] copyValue() {
     final ValueDictionaryEntryNode spilled = spill;
     if (spilled != null) {

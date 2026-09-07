@@ -37,16 +37,16 @@ final class SegmentDictionaryDirectoryNodeTest {
   }
 
   private static SegmentDictionaryDirectoryNode deserialize(final byte[] bytes) {
-    return (SegmentDictionaryDirectoryNode) NodeKind.SEGMENT_DICTIONARY_DIRECTORY.deserialize(
-        Bytes.wrapForRead(bytes), KEY, null, null);
+    return (SegmentDictionaryDirectoryNode) NodeKind.SEGMENT_DICTIONARY_DIRECTORY.deserialize(Bytes.wrapForRead(bytes),
+        KEY, null, null);
   }
 
-  /** Three segments; the middle one sealed on two slots with a placeholder between, the last unsealed. */
+  /**
+   * Three segments; the middle one sealed on two slots with a placeholder between, the last unsealed.
+   */
   private static SegmentDictionaryDirectoryNode sample() {
     final SlotTable first = SlotTable.takeOwnership(new int[][] {{7}}, new long[] {1024L}, new int[] {12});
-    final SlotTable second = SlotTable.takeOwnership(
-        new int[][] {{3, 9}, {}, {12}},
-        new long[] {2048L, 0L, 4096L},
+    final SlotTable second = SlotTable.takeOwnership(new int[][] {{3, 9}, {}, {12}}, new long[] {2048L, 0L, 4096L},
         new int[] {275_494, 0, 1});
     return SegmentDictionaryDirectoryNode.takeOwnership(KEY, new long[] {0L, 1000L, 50_000L},
         new SlotTable[] {first, second, SlotTable.EMPTY});
@@ -169,12 +169,11 @@ final class SegmentDictionaryDirectoryNodeTest {
         () -> SegmentDictionaryDirectoryNode.takeOwnership(2L, new long[] {0L}, one), "the directory lives at key 1");
     assertThrows(IllegalArgumentException.class,
         () -> SegmentDictionaryDirectoryNode.takeOwnership(KEY, new long[] {1L}, one), "segment 0 starts at page 0");
-    assertThrows(IllegalArgumentException.class,
-        () -> SegmentDictionaryDirectoryNode.takeOwnership(KEY, new long[] {0L, 5L, 5L},
-            new SlotTable[] {SlotTable.EMPTY, SlotTable.EMPTY, SlotTable.EMPTY}), "equal starts");
-    assertThrows(IllegalArgumentException.class,
-        () -> SegmentDictionaryDirectoryNode.takeOwnership(KEY, new long[] {0L, 9L, 5L},
-            new SlotTable[] {SlotTable.EMPTY, SlotTable.EMPTY, SlotTable.EMPTY}), "descending starts");
+    assertThrows(IllegalArgumentException.class, () -> SegmentDictionaryDirectoryNode.takeOwnership(KEY,
+        new long[] {0L, 5L, 5L}, new SlotTable[] {SlotTable.EMPTY, SlotTable.EMPTY, SlotTable.EMPTY}), "equal starts");
+    assertThrows(IllegalArgumentException.class, () -> SegmentDictionaryDirectoryNode.takeOwnership(KEY,
+        new long[] {0L, 9L, 5L}, new SlotTable[] {SlotTable.EMPTY, SlotTable.EMPTY, SlotTable.EMPTY}),
+        "descending starts");
     assertThrows(IllegalArgumentException.class,
         () -> SegmentDictionaryDirectoryNode.takeOwnership(KEY, new long[0], new SlotTable[0]), "no segments");
     assertThrows(IllegalArgumentException.class,
@@ -200,11 +199,9 @@ final class SegmentDictionaryDirectoryNodeTest {
     assertThrows(IllegalArgumentException.class,
         () -> SlotTable.takeOwnership(new int[][] {{-1}}, new long[] {10L}, new int[] {1}), "negative tag");
     assertThrows(IllegalArgumentException.class,
-        () -> SlotTable.takeOwnership(new int[][] {{1}}, new long[] {10L}, new int[] {0}),
-        "a header without entries");
+        () -> SlotTable.takeOwnership(new int[][] {{1}}, new long[] {10L}, new int[] {0}), "a header without entries");
     assertThrows(IllegalArgumentException.class,
-        () -> SlotTable.takeOwnership(new int[][] {{1}}, new long[] {0L}, new int[] {3}),
-        "entries without a header");
+        () -> SlotTable.takeOwnership(new int[][] {{1}}, new long[] {0L}, new int[] {3}), "entries without a header");
     assertThrows(IllegalArgumentException.class,
         () -> SlotTable.takeOwnership(new int[][] {{}}, new long[] {10L}, new int[] {3}),
         "a dictionary covering no tag");

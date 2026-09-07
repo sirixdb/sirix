@@ -341,10 +341,10 @@ public final class ProjectionBulkLoad {
    *
    * <p>
    * Without this a load holds every segment's values until it finishes, which is affordable at 1M
-   * (two segments) and is not at 100M: measured, the load died with {@code OutOfMemoryError} at
-   * 33 GB written on a 10 GB heap, with roughly forty-five segments live at about 230 MiB each. A
-   * segment below the high-water mark can take no further page, so its dictionary is already final
-   * and the memory is pure waste.
+   * (two segments) and is not at 100M: measured, the load died with {@code OutOfMemoryError} at 33 GB
+   * written on a 10 GB heap, with roughly forty-five segments live at about 230 MiB each. A segment
+   * below the high-water mark can take no further page, so its dictionary is already final and the
+   * memory is pure waste.
    * </p>
    *
    * <p>
@@ -352,16 +352,15 @@ public final class ProjectionBulkLoad {
    * when the lane binds does not work and fails silently: an auto-commit ends the page transaction,
    * so the writer captured then never reaches another seam and the listener fires zero times —
    * measured, with 24 segments and 43 commits. {@link #armSegmentSeal} takes the seam over for the
-   * final commit, which seals the tail and publishes the anchors. Neither writes the directory —
-   * that names every segment and is written once, when the last seal knows them all.
+   * final commit, which seals the tail and publishes the anchors. Neither writes the directory — that
+   * names every segment and is written once, when the last seal knows them all.
    * </p>
    */
   private void armIncrementalSegmentSeal(final StorageEngineWriter storageEngineWriter) {
     final SegmentDictionaryLane lane = segmentDictionaryLane;
     if (SEAL_ARM_DIAG) {
-      System.err.println("[seal] arm attempt: lane=" + (lane != null) + " finalArmed=" + segmentSealArmed
-          + " writer=" + storageEngineWriter.getClass().getSimpleName() + "@"
-          + System.identityHashCode(storageEngineWriter));
+      System.err.println("[seal] arm attempt: lane=" + (lane != null) + " finalArmed=" + segmentSealArmed + " writer="
+          + storageEngineWriter.getClass().getSimpleName() + "@" + System.identityHashCode(storageEngineWriter));
     }
     if (lane == null || segmentSealArmed) {
       return; // no lane, or the FINAL seal already owns the seam
@@ -934,8 +933,8 @@ public final class ProjectionBulkLoad {
    * guarantees.
    * </p>
    */
-  private void sealSegmentDictionaries(final StorageEngineWriter storageEngineWriter,
-      final SegmentDictionaryLane lane, final ProjectionIndexHOTStorage sealStorage) {
+  private void sealSegmentDictionaries(final StorageEngineWriter storageEngineWriter, final SegmentDictionaryLane lane,
+      final ProjectionIndexHOTStorage sealStorage) {
     final ProjectionIndexMetadata.SegmentAnchor[] anchors = lane.sealAll(storageEngineWriter);
     if (anchors.length == 0) {
       return;

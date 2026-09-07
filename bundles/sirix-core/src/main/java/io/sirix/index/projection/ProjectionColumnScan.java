@@ -206,10 +206,10 @@ public final class ProjectionColumnScan {
   }
 
   /**
-   * The predicates' ROW masks over the leaves {@code [fromLeaf, toLeaf)}: the very bits the group
-   * and aggregate kernels compute per leaf before they read a key or an operand, taken up front so a
-   * pass that must see a column's cells BEFORE the kernel runs — a segment-scoped seal, which
-   * resolves one dictionary value per distinct cell — sees only the cells of rows that pass.
+   * The predicates' ROW masks over the leaves {@code [fromLeaf, toLeaf)}: the very bits the group and
+   * aggregate kernels compute per leaf before they read a key or an operand, taken up front so a pass
+   * that must see a column's cells BEFORE the kernel runs — a segment-scoped seal, which resolves one
+   * dictionary value per distinct cell — sees only the cells of rows that pass.
    *
    * <p>
    * The leaf-level keep mask ({@link #predicateKeepMask}) already spares the leaves the zone maps
@@ -223,15 +223,15 @@ public final class ProjectionColumnScan {
    * {@code out[leaf]} becomes {@code null} EXACTLY when the kernel skips the leaf — the evaluator's
    * verdict is {@code <= 0}: the pruned sentinel, a leaf the keep mask dropped, a tree no row of the
    * leaf satisfies — and otherwise a fresh mask of {@code (rowCount + 63) / 64} words with the tail
-   * beyond {@code rowCount} clear, ALL-ZERO included. The conjunctive evaluator answers the row
-   * count for a kept leaf whether or not a row survived, and the kernels then read the leaf's group
-   * and operand slices and test the words; a consumer that turned such a leaf's slice into
-   * {@code null} would hand the kernel a null to dereference (ClickBench q21 at 1M declined so). So
-   * the mask's shape follows the kernel's skip rule, not the bit count: a leaf with a mask is a leaf
-   * the kernel reads, and its cleared rows are rows the kernel discards. Both evaluators are the
-   * kernels' own, so the kernel's later verdict on every row is this one. Safe to run on many
-   * threads over disjoint ranges: each call evaluates through its own scratch, writes only its own
-   * range of {@code out}, and the verdict memos the predicates carry are shared by design.
+   * beyond {@code rowCount} clear, ALL-ZERO included. The conjunctive evaluator answers the row count
+   * for a kept leaf whether or not a row survived, and the kernels then read the leaf's group and
+   * operand slices and test the words; a consumer that turned such a leaf's slice into {@code null}
+   * would hand the kernel a null to dereference (ClickBench q21 at 1M declined so). So the mask's
+   * shape follows the kernel's skip rule, not the bit count: a leaf with a mask is a leaf the kernel
+   * reads, and its cleared rows are rows the kernel discards. Both evaluators are the kernels' own,
+   * so the kernel's later verdict on every row is this one. Safe to run on many threads over disjoint
+   * ranges: each call evaluates through its own scratch, writes only its own range of {@code out},
+   * and the verdict memos the predicates carry are shared by design.
    * </p>
    *
    * @param predCols the predicate columns as {@link #resolvePredicateColumnsShared} filled them
@@ -246,8 +246,8 @@ public final class ProjectionColumnScan {
       throw new IllegalArgumentException("leaf range [" + fromLeaf + ", " + toLeaf + ") over " + out.length);
     }
     if (predCols.length != predicates.length) {
-      throw new IllegalArgumentException(predCols.length + " predicate columns for " + predicates.length
-          + " predicates");
+      throw new IllegalArgumentException(
+          predCols.length + " predicate columns for " + predicates.length + " predicates");
     }
     if (tree != null && (treeCols == null || treeCols.length != tree.leaves.length)) {
       throw new IllegalArgumentException("a tree needs one resolved column per tree leaf");
@@ -2262,11 +2262,12 @@ public final class ProjectionColumnScan {
 
   /**
    * Kinds whose descriptor min/max bound a long lane a VALUE can be stabbed into: the
-   * {@link #zonePrunableKind zone-prunable} kinds and {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SEGMENT},
-   * whose cells are packed (segment, id) pairs. Containment of a packed cell in a packed range is
-   * sound for the same reason a global id's is; what the segment kind lacks is a {@code longLit} a
-   * numeric predicate could be tested against, which is why it stays outside {@link #zonePrunableKind}
-   * and prunes through {@link ProjectionIndexScan.ColumnPredicate#segmentLiteralCells} instead.
+   * {@link #zonePrunableKind zone-prunable} kinds and
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SEGMENT}, whose cells are packed (segment,
+   * id) pairs. Containment of a packed cell in a packed range is sound for the same reason a global
+   * id's is; what the segment kind lacks is a {@code longLit} a numeric predicate could be tested
+   * against, which is why it stays outside {@link #zonePrunableKind} and prunes through
+   * {@link ProjectionIndexScan.ColumnPredicate#segmentLiteralCells} instead.
    */
   static boolean zoneStabbableKind(final byte kind) {
     return zonePrunableKind(kind) || ProjectionIndexRowGroupPage.isSegmentScopedIdKind(kind);
@@ -2367,7 +2368,10 @@ public final class ProjectionColumnScan {
     return evaluateMask(predicates, cols, leaf, rowCount, mask, new ColumnSlice[predicates.length]);
   }
 
-  /** The same over a caller-owned {@code leafSlices} scratch, for a loop that evaluates leaf after leaf. */
+  /**
+   * The same over a caller-owned {@code leafSlices} scratch, for a loop that evaluates leaf after
+   * leaf.
+   */
   static int evaluateMask(final ColumnPredicate[] predicates, final ColumnSlice[][] cols, final int leaf,
       final int rowCount, final long[] mask, final ColumnSlice[] leafSlices) {
     if (rowCount <= 0) {

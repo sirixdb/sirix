@@ -35,11 +35,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * A bulk load whose leaf count is an exact multiple of the fence chunk size. The fence writer used
- * to publish a chunk the moment it filled, with its tail entry PREDICTING the next leaf; when no leaf
- * followed, {@code finish} re-read the chunk and wrote it back with the link cleared. A bulk load's
- * side pages are append-only until publication, so that replace was refused and the whole load
- * failed at commit — one leaf count in every {@value ProjectionIndexFences#CHUNK_LEAVES}. The writer
- * now holds a just-filled chunk until it knows whether a leaf follows and writes every chunk once.
+ * to publish a chunk the moment it filled, with its tail entry PREDICTING the next leaf; when no
+ * leaf followed, {@code finish} re-read the chunk and wrote it back with the link cleared. A bulk
+ * load's side pages are append-only until publication, so that replace was refused and the whole
+ * load failed at commit — one leaf count in every {@value ProjectionIndexFences#CHUNK_LEAVES}. The
+ * writer now holds a just-filled chunk until it knows whether a leaf follows and writes every chunk
+ * once.
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */

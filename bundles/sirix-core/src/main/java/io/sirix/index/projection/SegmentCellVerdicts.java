@@ -20,8 +20,8 @@ import static java.util.Objects.requireNonNull;
  * A resource-wide dictionary answers these ops by evaluating the predicate once against every entry
  * and handing the kernels a verdict bitset over id space. A sealed segment dictionary looked unable
  * to reuse that, because its ids are arrival-order MINTS while its storage is collation order — a
- * sweep walking storage would set the right bits at the wrong ids. That reasoning was right about the
- * hazard and wrong about the conclusion: the rank table translates a position to its mint, and
+ * sweep walking storage would set the right bits at the wrong ids. That reasoning was right about
+ * the hazard and wrong about the conclusion: the rank table translates a position to its mint, and
  * {@code stringOpVerdictByMint} calls it only for entries that MATCH, so a selective predicate pays
  * the translation for a handful of entries and nothing for the rest.
  *
@@ -29,10 +29,11 @@ import static java.util.Objects.requireNonNull;
  * So the first row to touch a segment settles the WHOLE segment: one pass over its dictionary in
  * storage order, decoding each block once. The alternative this replaced — resolving lazily per
  * REFERENCED cell — addresses an id and so needs no rank reasoning at all, but it is a random read
- * per distinct value, and a random read re-decodes a block that a neighbouring value has usually just
- * decoded. At 100M rows that difference was measured at 46 s for a single LIKE. The sweep pays for
- * values the column never references (a segment's dictionary is shared with fields this column does
- * not hold), and wins anyway, because sequential decode amortises over every entry in the block.
+ * per distinct value, and a random read re-decodes a block that a neighbouring value has usually
+ * just decoded. At 100M rows that difference was measured at 46 s for a single LIKE. The sweep pays
+ * for values the column never references (a segment's dictionary is shared with fields this column
+ * does not hold), and wins anyway, because sequential decode amortises over every entry in the
+ * block.
  * </p>
  *
  * <h2>Cost</h2>
@@ -40,23 +41,23 @@ import static java.util.Objects.requireNonNull;
  * One byte-level comparison per dictionary ENTRY, once per segment, cached for the whole query; the
  * per-row work is then two array reads against an already-settled table. No {@link String} is built
  * at any point — the comparison runs on the stored bytes through the same per-entry authority the
- * per-leaf dictionary kernels use. A segment whose sweep is refused falls back to the per-cell path,
- * which answers identically and is what every unit test of the memo exercises.
+ * per-leaf dictionary kernels use. A segment whose sweep is refused falls back to the per-cell
+ * path, which answers identically and is what every unit test of the memo exercises.
  *
  * <h2>Threading</h2>
  *
  * The scan is parallel over leaves. The memo is a per-segment {@code byte[]} indexed by the cell's
  * dense id, so a hit is lock-free; only the first touch of a given {@code (segment, id)} takes this
- * instance's monitor. A stale read of a table entry is benign — {@code byte} writes never tear, so a
- * reader sees either {@link #UNKNOWN} (and takes the idempotent slow path) or a settled verdict.
+ * instance's monitor. A stale read of a table entry is benign — {@code byte} writes never tear, so
+ * a reader sees either {@link #UNKNOWN} (and takes the idempotent slow path) or a settled verdict.
  *
  * <p>
  * The DICTIONARY READ, by contrast, runs outside every lock, and that is only sound because the
  * constructor takes a {@link Supplier} of views rather than a view: each worker must be handed its
  * own. A {@link GlobalValueDictionary.ReadView} holds plain mutable caches, so two workers sharing
- * one tear its state and the parse fails with {@code AssertionError: Type not known}. Sharing a view
- * and serialising the read behind this monitor is correct but makes the read a scan-wide bottleneck,
- * because it fetches a page and decodes a block while every other worker waits.
+ * one tear its state and the parse fails with {@code AssertionError: Type not known}. Sharing a
+ * view and serialising the read behind this monitor is correct but makes the read a scan-wide
+ * bottleneck, because it fetches a page and decodes a block while every other worker waits.
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -80,10 +81,10 @@ public final class SegmentCellVerdicts {
   /** The segment's table is fully settled; every in-range id reads a verdict. */
   private static final byte SWEEP_DONE = 1;
   /**
-   * The segment cannot be swept, so its table is filled per cell and stays PARTIALLY settled. Distinct
-   * from {@link #SWEEP_DONE} because the two tables read identically but mean opposite things: an
-   * {@link #UNKNOWN} entry in a settled table would be a wrong answer, in a partial one it is the
-   * signal to take the slow path.
+   * The segment cannot be swept, so its table is filled per cell and stays PARTIALLY settled.
+   * Distinct from {@link #SWEEP_DONE} because the two tables read identically but mean opposite
+   * things: an {@link #UNKNOWN} entry in a settled table would be a wrong answer, in a partial one it
+   * is the signal to take the slow path.
    */
   private static final byte SWEEP_REFUSED = 2;
 
@@ -95,7 +96,8 @@ public final class SegmentCellVerdicts {
   @FunctionalInterface
   public interface CellMatcher {
     /** Whether the value {@code cell} names satisfies the predicate; {@code null} if it names none. */
-    @Nullable Boolean matches(long cell);
+    @Nullable
+    Boolean matches(long cell);
   }
 
   /**
@@ -166,8 +168,8 @@ public final class SegmentCellVerdicts {
    * @param literalUtf8 the literal's UTF-8 bytes
    * @param segments how many segments the resource sealed, so the memo is sized once
    */
-  public SegmentCellVerdicts(final Supplier<GlobalValueDictionary.ReadView> views,
-      final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int segments) {
+  public SegmentCellVerdicts(final Supplier<GlobalValueDictionary.ReadView> views, final ProjectionIndexScan.Op op,
+      final byte[] literalUtf8, final int segments) {
     this(views, op, literalUtf8, segments, null);
   }
 
@@ -179,12 +181,12 @@ public final class SegmentCellVerdicts {
    * @param segments how many segments the resource sealed, so the memo is sized once
    * @param store where the settled tables persist between queries, or {@code null} to settle afresh
    */
-  public SegmentCellVerdicts(final Supplier<GlobalValueDictionary.ReadView> views,
-      final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int segments,
-      final @Nullable TableStore store) {
-    this(matcherOver(requireNonNull(views, "views must not be null"), op,
-            requireNonNull(literalUtf8, "literalUtf8 must not be null")), sweeperOver(views, op, literalUtf8), op,
-        literalUtf8, segments, store);
+  public SegmentCellVerdicts(final Supplier<GlobalValueDictionary.ReadView> views, final ProjectionIndexScan.Op op,
+      final byte[] literalUtf8, final int segments, final @Nullable TableStore store) {
+    this(
+        matcherOver(requireNonNull(views, "views must not be null"), op,
+            requireNonNull(literalUtf8, "literalUtf8 must not be null")),
+        sweeperOver(views, op, literalUtf8), op, literalUtf8, segments, store);
   }
 
   /**
@@ -219,8 +221,7 @@ public final class SegmentCellVerdicts {
    * @param store where the settled tables persist between queries, or {@code null} to settle afresh
    */
   public SegmentCellVerdicts(final CellMatcher matcher, final @Nullable SegmentSweeper sweeper,
-      final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int segments,
-      final @Nullable TableStore store) {
+      final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int segments, final @Nullable TableStore store) {
     this.matcher = requireNonNull(matcher, "matcher must not be null");
     this.sweeper = sweeper;
     this.store = store;
@@ -317,7 +318,9 @@ public final class SegmentCellVerdicts {
     return matches(cell);
   }
 
-  /** Whether the value {@code cell} names satisfies the predicate. An unresolvable cell never does. */
+  /**
+   * Whether the value {@code cell} names satisfies the predicate. An unresolvable cell never does.
+   */
   public boolean matches(final long cell) {
     final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
     final int id = ProjectionIndexRowGroupPage.idOfCell(cell);
@@ -451,15 +454,15 @@ public final class SegmentCellVerdicts {
   }
 
   /**
-   * Publish {@code table} as {@code segment}'s memo, growing the memo array if the segment lies beyond
-   * the count the constructor was told.
+   * Publish {@code table} as {@code segment}'s memo, growing the memo array if the segment lies
+   * beyond the count the constructor was told.
    *
    * <p>
    * Under the INSTANCE monitor, not the segment's, because it may replace the memo array itself —
    * which {@link #evaluatePerCell} can also do, and two threads replacing it from different arrays
    * would drop one of them. The sweep itself stays outside this monitor, so segments still settle in
-   * parallel and only the O(1) install serialises. Lock order is always segment-then-instance; nothing
-   * takes them the other way round.
+   * parallel and only the O(1) install serialises. Lock order is always segment-then-instance;
+   * nothing takes them the other way round.
    * </p>
    */
   private synchronized void install(final int segment, final byte[] table) {
@@ -485,8 +488,8 @@ public final class SegmentCellVerdicts {
    * </p>
    *
    * <p>
-   * Racing threads may evaluate the same cell twice. That costs a repeated read and changes no
-   * answer — {@link #evaluate} is idempotent and free of side effects.
+   * Racing threads may evaluate the same cell twice. That costs a repeated read and changes no answer
+   * — {@link #evaluate} is idempotent and free of side effects.
    * </p>
    */
   private byte evaluatePerCell(final long cell, final int segment, final int id) {

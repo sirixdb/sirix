@@ -233,8 +233,8 @@ public final class BufferManagerImpl implements BufferManager {
       Long.getLong("sirix.projection.globalDict.verdictCacheBytes", 64L << 20);
 
   /**
-   * Segment verdict-table budget. A table is one BYTE per id of one segment dictionary, one table
-   * per {@code (op, literal)}: ~18 MB for an 18M-value column at 100M rows, so the default holds the
+   * Segment verdict-table budget. A table is one BYTE per id of one segment dictionary, one table per
+   * {@code (op, literal)}: ~18 MB for an 18M-value column at 100M rows, so the default holds the
    * handful of distinct string predicates a workload repeats and evicts the rest by weight.
    */
   private static final long SEGMENT_VERDICT_CACHE_BYTES =

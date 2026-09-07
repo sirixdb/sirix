@@ -78,9 +78,9 @@ final class ValueDictionaryHeaderLayoutTest {
 
   /**
    * A decode-only dictionary — no forward index, ids NOT in collation order — is the shape that makes
-   * an incremental, per-segment dictionary affordable, because the forward index is what copy-on-write
-   * retains per append. The header used to refuse it outright, so this pins that it is now legal AND
-   * that it is still distinguishable from the two shapes it must not be confused with.
+   * an incremental, per-segment dictionary affordable, because the forward index is what
+   * copy-on-write retains per append. The header used to refuse it outright, so this pins that it is
+   * now legal AND that it is still distinguishable from the two shapes it must not be confused with.
    */
   @Test
   @DisplayName("A decode-only header is legal, readable, and refuses the encode direction")
@@ -129,7 +129,9 @@ final class ValueDictionaryHeaderLayoutTest {
     assertTrue(empty.supportsValueProbe(), "and it can be probed vacuously, so no caller need special-case it");
   }
 
-  /** A decode-only header survives the wire unchanged: the shape needs no new field to be expressed. */
+  /**
+   * A decode-only header survives the wire unchanged: the shape needs no new field to be expressed.
+   */
   @Test
   @DisplayName("A decode-only header round-trips through the record serializer")
   void decodeOnlyHeaderRoundTrips() {
@@ -152,10 +154,10 @@ final class ValueDictionaryHeaderLayoutTest {
   /**
    * The shape a sealed segment dictionary writes: storage in collation order (so the binary-search
    * probe and the separator array are legal) but ids that are arrival-order MINTS mapped through a
-   * rank table. Every arm that compares ids AS values must ask {@link
-   * ValueDictionaryHeaderNode#idsAreCollationOrdered()}, which is the one predicate the table turns
-   * off; everything {@link ValueDictionaryHeaderNode#isFullyOrdered()} licenses about the STORAGE
-   * stays true.
+   * rank table. Every arm that compares ids AS values must ask
+   * {@link ValueDictionaryHeaderNode#idsAreCollationOrdered()}, which is the one predicate the table
+   * turns off; everything {@link ValueDictionaryHeaderNode#isFullyOrdered()} licenses about the
+   * STORAGE stays true.
    */
   @Test
   @DisplayName("A rank table keeps the storage ordered but makes the ids NOT collation-ordered")
@@ -182,8 +184,8 @@ final class ValueDictionaryHeaderLayoutTest {
 
   /**
    * A table translates mints in {@code 1..orderedPrefixCount}; with no prefix there is nothing to
-   * translate, and a forward index would answer a probe with a storage POSITION that the pages do
-   * not carry. Both are refused at construction, so no reader has to guard against them.
+   * translate, and a forward index would answer a probe with a storage POSITION that the pages do not
+   * carry. Both are refused at construction, so no reader has to guard against them.
    */
   @Test
   @DisplayName("A rank table needs an ordered prefix and excludes a forward index")
@@ -276,10 +278,10 @@ final class ValueDictionaryHeaderLayoutTest {
   }
 
   /**
-   * Every header written before the rank table existed carries the PAIR — including the 100M
-   * artefact whose rebuild is disk-blocked — and must keep reading as a dictionary WITHOUT a table.
-   * The bytes are written by hand so this pins the wire shape, not merely the current serializer's
-   * agreement with itself.
+   * Every header written before the rank table existed carries the PAIR — including the 100M artefact
+   * whose rebuild is disk-blocked — and must keep reading as a dictionary WITHOUT a table. The bytes
+   * are written by hand so this pins the wire shape, not merely the current serializer's agreement
+   * with itself.
    */
   @Test
   @DisplayName("A pair-only trailer (every pre-rank-table header) reads with no rank table")

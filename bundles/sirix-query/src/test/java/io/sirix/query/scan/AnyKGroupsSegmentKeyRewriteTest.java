@@ -54,28 +54,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The any-k group selection and leaf pruning over a
- * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SEGMENT} key — the shape every string column
- * takes under the segment dictionary lane, which is the lane the 100M database is built with. At
- * 100M the any-k planner declined {@code GROUP BY UserID, SearchPhrase LIMIT 10} ("key SearchPhrase
- * … kind=8 has no leaf evidence") and read the whole column, ~10 s against a board best of
- * milliseconds; and a segment-scoped equality skipped leaves only AFTER their slices were fetched.
- * A segment column's zones ARE packed-cell bounds, a leaf never straddles a segment, and a cell of
- * another segment stabs nothing there — so a cell equality is containment exactly as a global id's
- * is, and the planner can price a segment key the way it prices a global one.
+ * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SEGMENT} key — the shape every string
+ * column takes under the segment dictionary lane, which is the lane the 100M database is built
+ * with. At 100M the any-k planner declined {@code GROUP BY UserID, SearchPhrase LIMIT 10} ("key
+ * SearchPhrase … kind=8 has no leaf evidence") and read the whole column, ~10 s against a board
+ * best of milliseconds; and a segment-scoped equality skipped leaves only AFTER their slices were
+ * fetched. A segment column's zones ARE packed-cell bounds, a leaf never straddles a segment, and a
+ * cell of another segment stabs nothing there — so a cell equality is containment exactly as a
+ * global id's is, and the planner can price a segment key the way it prices a global one.
  *
  * <p>
  * The fixture is {@link AnyKGroupsGlobalKeyRewriteTest}'s shape, loaded through the real parallel
- * bulk import with the lane armed (the lane mints as document pages encode; there is no other way to
- * build it): 64 regions × 2,048 rows — exactly TWO 1,024-row leaves per region — four tags
+ * bulk import with the lane armed (the lane mints as document pages encode; there is no other way
+ * to build it): 64 regions × 2,048 rows — exactly TWO 1,024-row leaves per region — four tags
  * round-robin (512 rows per (region, tag) group), plus a {@code label} column that names its region
- * ("L7"). Every leaf's label zone COLLAPSES onto one cell, which gives the {@code !=} rule a positive
- * witness. The corpus is small enough for the default segment boundaries to seal ONE segment, so a
- * leaf's cells are one dictionary's ids and the leaf arithmetic below is exact.
+ * ("L7"). Every leaf's label zone COLLAPSES onto one cell, which gives the {@code !=} rule a
+ * positive witness. The corpus is small enough for the default segment boundaries to seal ONE
+ * segment, so a leaf's cells are one dictionary's ids and the leaf arithmetic below is exact.
  *
  * <p>
- * Each witness first asserts the PRECONDITION (the columns really are segment-scoped, the store holds
- * the expected leaves) and then that the lever ENGAGED (rewrite counter, prune counter), so a fixture
- * that silently fell back to another column kind cannot pass by answering correctly.
+ * Each witness first asserts the PRECONDITION (the columns really are segment-scoped, the store
+ * holds the expected leaves) and then that the lever ENGAGED (rewrite counter, prune counter), so a
+ * fixture that silently fell back to another column kind cannot pass by answering correctly.
  */
 public final class AnyKGroupsSegmentKeyRewriteTest {
 
@@ -172,9 +172,9 @@ public final class AnyKGroupsSegmentKeyRewriteTest {
   }
 
   private static IndexDef projectionDef() {
-    final List<Path<QNm>> fieldPaths = List.of(Path.parse("/[]/region", PathParser.Type.JSON),
-        Path.parse("/[]/tag", PathParser.Type.JSON), Path.parse("/[]/label", PathParser.Type.JSON),
-        Path.parse("/[]/amount", PathParser.Type.JSON));
+    final List<Path<QNm>> fieldPaths =
+        List.of(Path.parse("/[]/region", PathParser.Type.JSON), Path.parse("/[]/tag", PathParser.Type.JSON),
+            Path.parse("/[]/label", PathParser.Type.JSON), Path.parse("/[]/amount", PathParser.Type.JSON));
     return IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON), fieldPaths,
         List.of(Type.LON, Type.STR, Type.STR, Type.LON), 0, IndexDef.DbType.JSON);
   }

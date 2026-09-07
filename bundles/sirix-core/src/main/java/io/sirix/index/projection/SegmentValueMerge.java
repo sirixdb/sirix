@@ -19,36 +19,36 @@ import static java.util.Objects.requireNonNull;
  * <h2>Why a merge and not a hash</h2>
  *
  * Canonicalising a column means giving every distinct VALUE one id, however many segments carry it.
- * The per-cell path does that with a hash table under a lock: hash the cell's bytes, probe, confirm a
- * hit by re-reading both cells' bytes. Over a whole column that is one probe per referenced cell, one
- * random dictionary read per cross-segment duplicate, all serialised on one monitor — measured at
- * 100M as ~25 s of a 26 s {@code GROUP BY URL} (util 2 of 20) and ~700 MB of table.
+ * The per-cell path does that with a hash table under a lock: hash the cell's bytes, probe, confirm
+ * a hit by re-reading both cells' bytes. Over a whole column that is one probe per referenced cell,
+ * one random dictionary read per cross-segment duplicate, all serialised on one monitor — measured
+ * at 100M as ~25 s of a 26 s {@code GROUP BY URL} (util 2 of 20) and ~700 MB of table.
  *
  * <p>
  * A sealed segment dictionary stores its values in COLLATION order, so the referenced cells of one
  * segment, taken in position order, are already a sorted run — and a column's value space is S such
- * runs. A total order over S sorted runs is a merge: every cross-segment duplicate is ADJACENT in the
- * merged sequence, so identity needs no hash and no lock, only a comparison with the previous winner.
- * The canonical id of a value is simply its rank in that sequence, which also makes the id space
- * collate — the seal an extremum or {@code ORDER BY} needs comes for free.
+ * runs. A total order over S sorted runs is a merge: every cross-segment duplicate is ADJACENT in
+ * the merged sequence, so identity needs no hash and no lock, only a comparison with the previous
+ * winner. The canonical id of a value is simply its rank in that sequence, which also makes the id
+ * space collate — the seal an extremum or {@code ORDER BY} needs comes for free.
  * </p>
  *
  * <h2>Parallelism: range-partition the value space</h2>
  *
- * One merge is serial. Splitting the VALUE space into P ranges by pivots, and locating each pivot in
- * every run by a search over its positions, gives P independent merges over disjoint value ranges;
- * equal values fall in the same range whatever their segment, so each range deduplicates completely
- * on its own. Ranks are local to a range and offset by a prefix sum of the ranges' distinct counts
- * afterwards.
+ * One merge is serial. Splitting the VALUE space into P ranges by pivots, and locating each pivot
+ * in every run by a search over its positions, gives P independent merges over disjoint value
+ * ranges; equal values fall in the same range whatever their segment, so each range deduplicates
+ * completely on its own. Ranks are local to a range and offset by a prefix sum of the ranges'
+ * distinct counts afterwards.
  *
  * <p>
  * The pivots come from a REGULAR SAMPLE of every run — every {@code stride}-th marked value, so a
- * run's share of the sample is its share of the cells — gathered, sorted, and cut at equal intervals
- * (parallel sorting by regular sampling). Pivots taken from one run alone were measured to fail at
- * 100M: the rows arrive grouped by site, so one segment's URLs are one domain's, and pivots spaced
- * evenly through the longest run's domain left every other domain in a single range that ran for
- * 1.9 s of a 2.0 s phase while 181 ranges finished in 70 ms each. A regular sample bounds every
- * range at about twice the mean, whatever the runs hold.
+ * run's share of the sample is its share of the cells — gathered, sorted, and cut at equal
+ * intervals (parallel sorting by regular sampling). Pivots taken from one run alone were measured
+ * to fail at 100M: the rows arrive grouped by site, so one segment's URLs are one domain's, and
+ * pivots spaced evenly through the longest run's domain left every other domain in a single range
+ * that ran for 1.9 s of a 2.0 s phase while 181 ranges finished in 70 ms each. A regular sample
+ * bounds every range at about twice the mean, whatever the runs hold.
  * </p>
  *
  * <p>
@@ -56,9 +56,9 @@ import static java.util.Objects.requireNonNull;
  * <ol>
  * <li>MARK: turn each run's referenced MINTS into a bitmap over POSITIONS, sparse (one position
  * lookup per mark) or dense (one mint lookup per entry), and allocate its memo table.</li>
- * <li>BOUND: sample every run's marks at a regular stride, sort the samples, cut P-1 pivots at equal
- * intervals; locate each pivot's lower bound in every run by a galloping search from the previous
- * pivot's bound.</li>
+ * <li>BOUND: sample every run's marks at a regular stride, sort the samples, cut P-1 pivots at
+ * equal intervals; locate each pivot's lower bound in every run by a galloping search from the
+ * previous pivot's bound.</li>
  * <li>MERGE: per range, a loser tree over the runs' marked positions in that range; the winner's
  * rank is issued on a value change and written into the run's table at the winner's mint.</li>
  * <li>OFFSET: per run, add each range's rank base to the table entries the range wrote.</li>
@@ -68,21 +68,21 @@ import static java.util.Objects.requireNonNull;
  * <h2>Reads: a cursor per run, never the per-cell path</h2>
  *
  * Every run is walked in ascending position, the order its values are stored in, through a
- * {@link SegmentRunCursor} that holds the block and the inverse rank-table record it is in and reads
- * the next value off them. The heads are compared as the byte slices the cursors hold. Nothing goes
- * through the read view's per-mint route — that route translates a mint to its position through the
- * forward table (a random read per call), keeps its slices in a cache keyed by mint (which random
- * mints thrash into a block re-fetch per compare) and re-checks the reader's revision every time;
- * measured at 100M on {@code GROUP BY URL} it was three quarters of the merge's CPU while the byte
- * comparison was a fifth. With cursors a block is decoded once per range it straddles and a compare
- * is a compare.
+ * {@link SegmentRunCursor} that holds the block and the inverse rank-table record it is in and
+ * reads the next value off them. The heads are compared as the byte slices the cursors hold.
+ * Nothing goes through the read view's per-mint route — that route translates a mint to its
+ * position through the forward table (a random read per call), keeps its slices in a cache keyed by
+ * mint (which random mints thrash into a block re-fetch per compare) and re-checks the reader's
+ * revision every time; measured at 100M on {@code GROUP BY URL} it was three quarters of the
+ * merge's CPU while the byte comparison was a fifth. With cursors a block is decoded once per range
+ * it straddles and a compare is a compare.
  *
  * <p>
- * Everything is built in local arrays and handed back as one {@link Result}; nothing is published to
- * the canonicaliser until the merge has completed, so a refusal or a failure in any phase leaves the
- * value space exactly as it was and the walk path takes over. Refusals are {@link Refused}: a
- * resolver that cannot answer in position space or hand out a cursor (a TRANSFORMING one never can),
- * a rank table whose two directions disagree, a value that cannot be read.
+ * Everything is built in local arrays and handed back as one {@link Result}; nothing is published
+ * to the canonicaliser until the merge has completed, so a refusal or a failure in any phase leaves
+ * the value space exactly as it was and the walk path takes over. Refusals are {@link Refused}: a
+ * resolver that cannot answer in position space or hand out a cursor (a TRANSFORMING one never
+ * can), a rank table whose two directions disagree, a value that cannot be read.
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -90,10 +90,10 @@ import static java.util.Objects.requireNonNull;
 final class SegmentValueMerge {
 
   /**
-   * Marked cells per range the merge aims for. Ranges beyond the worker count balance the tail of
-   * the phase — the ranges are equal only on the run the pivots came from, so a phase of as many
-   * ranges as workers ends when its slowest one does; each range costs one binary search per run
-   * to bound and one block re-decode per run at its boundary.
+   * Marked cells per range the merge aims for. Ranges beyond the worker count balance the tail of the
+   * phase — the ranges are equal only on the run the pivots came from, so a phase of as many ranges
+   * as workers ends when its slowest one does; each range costs one binary search per run to bound
+   * and one block re-decode per run at its boundary.
    */
   static final int DEFAULT_RANGE_TARGET = 1 << 17;
 
@@ -113,7 +113,8 @@ final class SegmentValueMerge {
    * What a completed merge hands the canonicaliser.
    *
    * @param positions per run, bit {@code position} set for every referenced entry of that segment
-   * @param tables per run, {@code table[mint]} = the canonical id (1-based rank), 0 where unreferenced
+   * @param tables per run, {@code table[mint]} = the canonical id (1-based rank), 0 where
+   *        unreferenced
    * @param representatives {@code representatives[rank - 1]} = a cell carrying that rank
    * @param ranges how many value ranges the merge ran as
    * @param marked referenced cells over all runs
@@ -121,8 +122,8 @@ final class SegmentValueMerge {
    * @param rangeCells per range, the marked cells it merged — whether the pivots balanced the work
    * @param loads records the merge phase's cursors fetched, summed — a block per range it straddles
    */
-  record Result(long[][] positions, int[][] tables, long[] representatives, int ranges, long marked,
-      long[] rangeNanos, int[] rangeCells, long loads) {
+  record Result(long[][] positions, int[][] tables, long[] representatives, int ranges, long marked, long[] rangeNanos,
+      int[] rangeCells, long loads) {
   }
 
   /** A designed refusal: the merge cannot run over this resolver or this dictionary; walk instead. */
@@ -141,7 +142,9 @@ final class SegmentValueMerge {
   private final int runs;
   private final int rangeTarget;
 
-  /** {@code pack(segment, 1)}: the cell {@link CellResolver#cursorOfSegment} addresses a segment by. */
+  /**
+   * {@code pack(segment, 1)}: the cell {@link CellResolver#cursorOfSegment} addresses a segment by.
+   */
   private final long[] probes;
 
   // Phase 1.
@@ -199,8 +202,8 @@ final class SegmentValueMerge {
    * @return the merged space
    * @throws Refused when the resolver or the dictionaries cannot support the merge
    */
-  static Result merge(final CellResolver resolver, final int[] segments, final long[][] marks,
-      final int[] entryCounts, final SegmentRunner runner, final int rangeTarget, final long[] phaseNanos) {
+  static Result merge(final CellResolver resolver, final int[] segments, final long[][] marks, final int[] entryCounts,
+      final SegmentRunner runner, final int rangeTarget, final long[] phaseNanos) {
     requireNonNull(resolver, "resolver must not be null");
     requireNonNull(runner, "runner must not be null");
     if (segments.length == 0 || segments.length != marks.length || segments.length != entryCounts.length) {
@@ -327,8 +330,8 @@ final class SegmentValueMerge {
   /**
    * Split the value space into ranges. Every run contributes every {@code stride}-th of its marked
    * values (its cursor walking upward, a block per sample), the samples are sorted, and the pivots
-   * are the samples at equal intervals — so each range holds about the same number of CELLS over
-   * all runs together, not the same number of one run's. Equal pivots (a value many runs sampled)
+   * are the samples at equal intervals — so each range holds about the same number of CELLS over all
+   * runs together, not the same number of one run's. Equal pivots (a value many runs sampled)
    * collapse into one, so the ranges may come out fewer than aimed for. Each pivot is then located in
    * every run as a lower bound (the whole segment is sorted, not only its marked entries, so the
    * search runs over all of them and the marks are filtered afterwards by the bitmap).
@@ -385,8 +388,8 @@ final class SegmentValueMerge {
 
   /**
    * Run {@code r}'s regular sample: the values of its marks at indices {@code stride/2 + i*stride},
-   * read in position order — the cursor walks upward and a block is decoded once however many
-   * samples it holds.
+   * read in position order — the cursor walks upward and a block is decoded once however many samples
+   * it holds.
    */
   private byte[][] sampleRun(final int r, final int stride) {
     final int markedCount = markedCounts[r];
@@ -401,8 +404,8 @@ final class SegmentValueMerge {
     int index = 0; // of the mark about to be visited, among the run's marks
     int next = first; // index of the next mark to sample
     int taken = 0;
-    for (int position = nextMarked(bits, 1, limit); position != EXHAUSTED && taken < samples.length;
-        position = nextMarked(bits, position + 1, limit), index++) {
+    for (int position = nextMarked(bits, 1, limit); position != EXHAUSTED && taken < samples.length; position =
+        nextMarked(bits, position + 1, limit), index++) {
       if (index == next) {
         cursor.seek(position);
         samples[taken++] = cursor.copyValue();
@@ -471,10 +474,9 @@ final class SegmentValueMerge {
    * <p>
    * A loser tree over the runs costs exactly {@code ceil(log2 runs)} comparisons per winner, each a
    * byte comparison of the two slices the runs' cursors hold. A same-segment tie is impossible (a
-   * dictionary holds each value once), so the equality test against the previous winner — whose
-   * slice is kept in locals, since its cursor has moved on — is the only cross-run identity work
-   * there is: the hash table, the lock and the confirming re-read of the per-cell path all
-   * disappear.
+   * dictionary holds each value once), so the equality test against the previous winner — whose slice
+   * is kept in locals, since its cursor has moved on — is the only cross-run identity work there is:
+   * the hash table, the lock and the confirming re-read of the per-cell path all disappear.
    * </p>
    */
   private void mergeRange(final int p) {
@@ -568,7 +570,9 @@ final class SegmentValueMerge {
     rangeNanos[p] = System.nanoTime() - started;
   }
 
-  /** Whether run {@code a}'s head orders before run {@code b}'s: exhausted heads sink, ties by run. */
+  /**
+   * Whether run {@code a}'s head orders before run {@code b}'s: exhausted heads sink, ties by run.
+   */
   private static boolean before(final int a, final int b, final int[] headPos, final SegmentRunCursor[] cursors) {
     if (headPos[a] == EXHAUSTED) {
       return false;
@@ -586,7 +590,9 @@ final class SegmentValueMerge {
   // Phase 4: range-local ranks -> global ranks.
   // ---------------------------------------------------------------------------------------------
 
-  /** Offset every range's ranks by the distinct counts before it; the representatives, in rank order. */
+  /**
+   * Offset every range's ranks by the distinct counts before it; the representatives, in rank order.
+   */
   private long[] offset(final SegmentRunner runner) {
     rankBase = new int[ranges + 1];
     for (int p = 0; p < ranges; p++) {
@@ -622,8 +628,8 @@ final class SegmentValueMerge {
         continue;
       }
       final int limit = bound[p + 1];
-      for (int position = nextMarked(bits, bound[p], limit); position != EXHAUSTED;
-          position = nextMarked(bits, position + 1, limit)) {
+      for (int position = nextMarked(bits, bound[p], limit); position != EXHAUSTED; position =
+          nextMarked(bits, position + 1, limit)) {
         table[mintAt(r, cursor, position)] += base;
       }
     }
@@ -657,7 +663,9 @@ final class SegmentValueMerge {
     }
   }
 
-  /** A fresh cursor over run {@code r}'s positions, refused when the resolver cannot walk the segment. */
+  /**
+   * A fresh cursor over run {@code r}'s positions, refused when the resolver cannot walk the segment.
+   */
   private SegmentRunCursor cursorOf(final int r) {
     final SegmentRunCursor cursor = resolver.cursorOfSegment(probes[r]);
     if (cursor == null) {
@@ -666,7 +674,9 @@ final class SegmentValueMerge {
     return cursor;
   }
 
-  /** The mint stored at {@code position} of run {@code r}, refused when it is not one of the run's. */
+  /**
+   * The mint stored at {@code position} of run {@code r}, refused when it is not one of the run's.
+   */
   private int mintAt(final int r, final SegmentRunCursor cursor, final int position) {
     final int mint = cursor.mintAt(position);
     if (mint < 1 || mint > entryCounts[r]) {

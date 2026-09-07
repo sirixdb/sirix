@@ -705,8 +705,7 @@ public final class ProjectionIndexCatalog {
       System.err.println("[cat]   col " + col + " anchors: " + anchors);
     }
     System.err.println("[cat] segment lane: " + segments + " segment(s), " + segmentScopedColumns
-        + " segment-scoped column(s)"
-        + (segments == 1
+        + " segment-scoped column(s)" + (segments == 1
             ? " — ONE segment: packed cells all carry segment 0, so this run does not exercise the"
                 + " multi-segment resolver"
             : ""));
@@ -733,8 +732,8 @@ public final class ProjectionIndexCatalog {
     if (!namePage.hasProjectionValueDictionary(databaseType)) {
       return null;
     }
-    final DataRecord record = namePage.getProjectionValueDictionaryRecord(SegmentDictionaryDirectoryNode.DIRECTORY_KEY,
-        databaseType, reader);
+    final DataRecord record =
+        namePage.getProjectionValueDictionaryRecord(SegmentDictionaryDirectoryNode.DIRECTORY_KEY, databaseType, reader);
     return record instanceof SegmentDictionaryDirectoryNode directory
         ? directory.segmentStarts()
         : null;

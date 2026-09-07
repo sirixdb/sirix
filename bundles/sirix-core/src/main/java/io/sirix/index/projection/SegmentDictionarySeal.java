@@ -19,23 +19,23 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>
  * This is {@code docs/SEGMENT_DICTIONARY_DESIGN.md} §6, the rank pass per segment. The pages of a
- * segment were encoded before its value set was known, so their ids are MINTS — arrival order, dense
- * from 1 ({@link SegmentScopedDictionaries}). Serving wants collation order: the front-coded value
- * blocks only pay for sorted neighbours, the separator array only exists over a sorted run, and a
- * range predicate is a position range only in sorted storage. The seal reconciles the two by sorting
- * once and persisting the permutation ({@link GlobalValueDictionary#attachRankTable}), so the pages
- * keep what they wrote and the storage is what serving wants. When the mints already ARE the ranks
- * the table is skipped: ids are then positions, which is strictly cheaper to serve, and the header
- * says so by carrying no table.
+ * segment were encoded before its value set was known, so their ids are MINTS — arrival order,
+ * dense from 1 ({@link SegmentScopedDictionaries}). Serving wants collation order: the front-coded
+ * value blocks only pay for sorted neighbours, the separator array only exists over a sorted run,
+ * and a range predicate is a position range only in sorted storage. The seal reconciles the two by
+ * sorting once and persisting the permutation ({@link GlobalValueDictionary#attachRankTable}), so
+ * the pages keep what they wrote and the storage is what serving wants. When the mints already ARE
+ * the ranks the table is skipped: ids are then positions, which is strictly cheaper to serve, and
+ * the header says so by carrying no table.
  * </p>
  *
  * <h2>The order of the four writes is load-bearing</h2>
  *
  * <ol>
  * <li>the values, in rank order, as chained rank-ordered generations of
- * {@link GlobalValueDictionaryWriter#MAX_DISTINCT_ENTRIES_PER_APPEND} — the interner's safe size, so
- * a slot with more distinct values than that spans several generations whose ordered prefix keeps
- * extending ({@code ordered = rankOrdered && base.isFullyOrdered()});</li>
+ * {@link GlobalValueDictionaryWriter#MAX_DISTINCT_ENTRIES_PER_APPEND} — the interner's safe size,
+ * so a slot with more distinct values than that spans several generations whose ordered prefix
+ * keeps extending ({@code ordered = rankOrdered && base.isFullyOrdered()});</li>
  * <li>the separator array ({@link GlobalValueDictionary#buildBlockIndex}), which reads values by
  * STORAGE position through the id route and therefore must run while ids still are positions — it
  * refuses to run after the table exists;</li>
@@ -45,12 +45,13 @@ import static java.util.Objects.requireNonNull;
  *
  * <h2>What is checked, and why per value</h2>
  *
- * The sorted stream must be STRICTLY ascending: an equal neighbour means the mint map issued two ids
- * for one value, and the dictionary would then hold a value twice under two positions, one of which
- * no probe can ever find. The interner's answer is checked against the expected local rank on every
- * value for the same reason — a duplicate comes back as its earlier id without raising the count.
- * Both refusals happen before the first record of the affected generation is written (the check runs
- * as the values are interned, the flush comes after), so a refused seal leaves no half-written run.
+ * The sorted stream must be STRICTLY ascending: an equal neighbour means the mint map issued two
+ * ids for one value, and the dictionary would then hold a value twice under two positions, one of
+ * which no probe can ever find. The interner's answer is checked against the expected local rank on
+ * every value for the same reason — a duplicate comes back as its earlier id without raising the
+ * count. Both refusals happen before the first record of the affected generation is written (the
+ * check runs as the values are interned, the flush comes after), so a refused seal leaves no
+ * half-written run.
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
@@ -97,8 +98,8 @@ public final class SegmentDictionarySeal {
     final int[] mintsByRank = new int[count];
     for (int i = 0; i < count; i++) {
       if (valuesById[i] == null) {
-        throw new IllegalStateException("mint " + (i + 1) + " has no value: the segment was read before every page of"
-            + " it had been encoded");
+        throw new IllegalStateException(
+            "mint " + (i + 1) + " has no value: the segment was read before every page of" + " it had been encoded");
       }
       mintsByRank[i] = i + 1;
     }
@@ -149,8 +150,8 @@ public final class SegmentDictionarySeal {
    *
    * @param storageEngineWriter the transaction's writer; the records go through its intent log
    * @param column the projection column, for messages
-   * @param valuesById the segment's values in MINT order — {@link SegmentScopedDictionaries#valuesById},
-   *        read before the segment is released
+   * @param valuesById the segment's values in MINT order —
+   *        {@link SegmentScopedDictionaries#valuesById}, read before the segment is released
    * @return where the dictionary was written; {@link Sealed#NOTHING} when {@code valuesById} is empty
    * @throws IllegalStateException if the values are not distinct or a generation's interner disagrees
    *         with the expected rank
@@ -193,8 +194,8 @@ public final class SegmentDictionarySeal {
         } else {
           final ValueDictionaryHeaderNode base = GlobalValueDictionary.header(headerKey, storageEngineWriter);
           if (base == null || !base.isFullyOrdered()) {
-            throw new IllegalStateException("segment dictionary column " + column + " cannot chain onto header "
-                + headerKey + ": " + base);
+            throw new IllegalStateException(
+                "segment dictionary column " + column + " cannot chain onto header " + headerKey + ": " + base);
           }
           generation.flushAppend(base, namePage, databaseType, storageEngineWriter, log);
         }

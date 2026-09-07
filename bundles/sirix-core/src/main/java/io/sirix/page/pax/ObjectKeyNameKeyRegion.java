@@ -58,8 +58,8 @@ public final class ObjectKeyNameKeyRegion {
    * "because the imagecode property is set at build-time class initialization" while reading only
    * {@code sirix.pax.scalarOnly}, which nothing in the tree sets — so every image built with
    * {@code --add-modules=jdk.incubator.vector} (sirix-rest-api/build.gradle) ran the very loops the
-   * comment said were disabled. {@link #vectorLoopsEnabled()} composes both terms and is exercised
-   * by {@code ObjectKeyNameKeyRegionTest}.
+   * comment said were disabled. {@link #vectorLoopsEnabled()} composes both terms and is exercised by
+   * {@code ObjectKeyNameKeyRegionTest}.
    * </p>
    *
    * <p>

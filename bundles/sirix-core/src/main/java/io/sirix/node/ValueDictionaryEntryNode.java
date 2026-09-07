@@ -251,8 +251,9 @@ public final class ValueDictionaryEntryNode implements DataRecord {
     // Back up to the lead byte of the sequence holding the mismatch, so both sides decode whole
     // sequences below; a side that ended at the mismatch shares every earlier byte with the other,
     // so the surviving side's byte decides. Malformed input still fails closed in the decode loop.
-    while (prefix > 0
-        && isContinuationByte(prefix < leftLength ? left[leftOffset + prefix] : right[rightOffset + prefix])) {
+    while (prefix > 0 && isContinuationByte(prefix < leftLength
+        ? left[leftOffset + prefix]
+        : right[rightOffset + prefix])) {
       prefix--;
     }
     int thisOffset = leftOffset + prefix;
