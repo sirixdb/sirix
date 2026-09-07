@@ -174,34 +174,32 @@ warmup-sensitive dictionary-read component today, not the cause of the historica
 
 ## Bounded change and remaining target
 
-The empty-lane hypothesis is supported for q21. `canonicaliseMemoised` now runs one prescan per
-leaf for the first word that keeps a row, and **both** of the arrays it would otherwise mint for
-that leaf are covered: the canonical value lane on either path, and the presence lane on the
-row-masked path. A leaf that keeps no row shares an untouched zero array of the same length in each
-covered lane within one rewrite; a leaf that keeps one owns its canonical lane, and owns its
-presence lane too wherever a row mask made this pass build one. The kernel still receives full
-slices with unchanged row counts, masks, zero bounds and canonical ranks. This avoids the
-null-slice error documented in `rowKeepMasks` and changes no row traversal order. The prescan
-doubles as the row loop's start and as the conjunction's first written word, so no leaf is crossed
-twice. Dense leaves do one extra presence-word check and allocate exactly as before. Without a row
-mask there is no presence array to save at all: the pass hands back the source slice's own words,
-borrowed, as it always has, while its canonical zeroes are still shared among the leaves that hold
-no present row. Empty lanes of alternating widths can allocate at most once per leaf, as before;
-there is no global cache or new prepass.
+The empty-lane hypothesis is supported for q21. **The whole mechanism is gated on the row mask** —
+the path q21 and q22 take, and the only path any figure here measures. Under a mask,
+`canonicaliseMemoised` runs one prescan per leaf for the first word the mask keeps, and **both** of
+the arrays it would otherwise mint for that leaf are covered: the canonical value lane and the
+presence lane. A leaf the mask empties shares an untouched zero array of the same length in each
+lane within one rewrite; a leaf that keeps a row owns both. The kernel still receives full slices
+with unchanged row counts, masks, zero bounds and canonical ranks. This avoids the null-slice error
+documented in `rowKeepMasks` and changes no row traversal order. The prescan doubles as the row
+loop's start and as the conjunction's first written word, so no leaf is crossed twice. Dense leaves
+do one extra presence-word check and allocate exactly as before. Empty lanes of alternating widths
+can allocate at most once per leaf, as before; there is no global cache or new prepass.
 
-Both shared arrays rest on the same read-only contract, now stated on the public entry points:
-every consumer of a canonicalised lane reads it. Two lifetimes meet there and the contract names
-both. A shared zero lane belongs to the rewrite, and the returned `ColumnSlice` objects are fresh
-ones that never reach `SliceArrayPool.recycle`. A borrowed unmasked presence lane is a different
-thing: it is the SOURCE slice's array, which a windowed access does hand to that pool on eviction,
-so it must not outlive the caller's release of its window. The windowed arms satisfy this today —
-each morsel is folded and released before the next fetch can evict anything. Tests exercise the
-read-only half through real consumers — `ProjectionColumnScan.distinctLongs` and `distinctBitset`,
-the exact count-distinct kernels — as well as the canonicaliser: mixed live/empty leaves, a 65-row
-boundary, a shorter tail, a null mask, independent dense lanes, correct value inversion, unchanged
-source arrays, empty leaves that contribute no visit at all, and shared value and presence lanes
-that are still all-zero, and still the same objects, after both kernels have read every leaf that
-shares them.
+**Without a row mask nothing at all changes.** That pass builds no presence array to save, so it
+walks from word zero and allocates each canonical lane exactly as it did before this change — byte
+for byte the old behaviour, on routes no measurement here covers. It keeps handing back the source
+slice's own presence words, borrowed as always.
+
+The shared arrays rest on one read-only contract, now stated on the public entry points: every
+consumer of a canonicalised lane reads it, and a shared zero lane belongs to the rewrite that made
+it — the returned `ColumnSlice` objects are fresh ones that never reach `SliceArrayPool.recycle`.
+Tests exercise that contract through real consumers — `ProjectionColumnScan.distinctLongs` and
+`distinctBitset`, the exact count-distinct kernels — as well as the canonicaliser: mixed live/empty
+leaves, a 65-row boundary, a shorter tail, a null mask, independent dense lanes, correct value
+inversion, unchanged source arrays, empty leaves that contribute no visit at all, and shared value
+and presence lanes that are still all-zero, and still the same objects, after both kernels have
+read every leaf that shares them.
 
 The repeated-mask hypothesis is supported for q22; distinct counting and verdict-cache churn
 are disconfirmed as dominant hot costs. Reusing existing masks in the numeric aggregate arm is
@@ -209,14 +207,21 @@ the next candidate, deferred here to keep the change small. It must cover NOT/mi
 tails, multiplicity and stable document-order ties, while retaining the path for callers without
 masks. No global dictionary or format change is justified.
 
-## Before/after at 100M (the canonical-lane build `c5870478e`)
+## Before/after at 100M (the historical canonical-lane capture)
 
-**Every measurement in this section is of `c5870478e`, which shared the canonical lane only.** The
-presence-lane extension (`b7be9d3db`) landed after these captures, so nothing below — not the
-timing table, not the route and counter preservation, not the output hashes, not the 1M gate —
-has been re-run against the code that actually ships. Those fresh captures are outstanding and are
-required before this change is shipped; the paragraph after the counter block says what the
-recorded counters do and do not already bound.
+**Every measurement in this section is of the canonical-lane-only edit applied to `ca4c34d38`** —
+the pre-rebase base named at the top of this file, whose original commit was `aae7ba2be` and which
+was later rebased into this branch as `c5870478e`. It is NOT the tree at `c5870478e`: ten commits
+sit between `ca4c34d38` and that commit's parent `de2724c5c`, including the q25 `SegmentTopKBounds`
+lever, and they touch `ProjectionColumnScan`, `SegmentValueMerge` and `SegmentCellVerdicts` — the
+very files this section attributes CPU percentages to. To reproduce the numbers below, check out
+`ca4c34d38` and apply the empty-lane edit; checking out `c5870478e` measures a different build.
+
+Nothing below — not the timing table, not the route and counter preservation, not the output
+hashes, not the 1M gate — has been re-run against the code that actually ships, which since then
+has also gained presence-lane sharing. Those fresh captures are outstanding and are required before
+this change is shipped; the paragraph after the counter block says what the recorded counters do
+and do not already bound.
 
 Firstmate authorized a second window after the private 1M gate passed. Both builds ran q21/q22
 with the same five-try CPU/allocation capture, JVM envelope, flags and fresh-executor settings as
@@ -282,12 +287,12 @@ strongly verified tie windows, **0 mismatch, 0 missing, 0 unverifiable, 0 declin
 two-segment private gate database was loaded by this lane. No scored 100M suite ran. The
 after-check lock was released and no benchmark Java process remained.
 
-**The shipping build is `b7be9d3db`, and only its focused tests have run so far:** all 48
-`SegmentGroupCanonicaliserTest` tests pass, the 48th being
+**The shipping build is this branch's tip — row-mask-gated sharing of both lanes — and only its
+focused tests have run so far:** all 48 `SegmentGroupCanonicaliserTest` tests pass, the 48th being
 `sharedEmptyLanesAreNotWrittenByTheKernelsThatReadThem`, which reads shared value and presence
 lanes back through the real count-distinct kernels. Its 100M allocation, route/counter and
-byte-identity captures and its own `seggate1m.sh` gate have not been run; the hashes above are
-`c5870478e`'s and must not be taken as covering presence-lane sharing.
+byte-identity captures and its own `seggate1m.sh` gate have not been run; the hashes above belong
+to the historical capture and must not be taken as covering presence-lane sharing.
 
 ## Evidence reproduction
 

@@ -1081,6 +1081,36 @@ final class SegmentGroupCanonicaliserTest {
   }
 
   @Test
+  @DisplayName("without a row mask nothing is shared, not even between leaves with no present row")
+  void unmaskedLeavesNeverShareALaneEvenWhenEveryRowIsAbsent() {
+    final Map<Long, String> corpus = new HashMap<>();
+    final SegmentGroupCanonicaliser canonicaliser = over(corpus, 2);
+    final long[] cellsOfZero =
+        {ProjectionIndexRowGroupPage.packSegmentCell(0, 1), ProjectionIndexRowGroupPage.packSegmentCell(0, 2)};
+    final long[] cellsOfOne =
+        {ProjectionIndexRowGroupPage.packSegmentCell(1, 1), ProjectionIndexRowGroupPage.packSegmentCell(1, 2)};
+    final ColumnSlice[] leaves = {sliceWithAbsent(cellsOfZero, 0, 1), sliceWithAbsent(cellsOfOne, 0, 1)};
+
+    final ColumnSlice[] out = canonicaliser.canonicalise(leaves, null, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(out);
+    assertNotSame(out[0].numericValues(), out[1].numericValues(),
+        "an unmasked pass allocates each canonical lane, exactly as it did before empty leaves were shared");
+    for (int leaf = 0; leaf < leaves.length; leaf++) {
+      assertSame(leaves[leaf].presenceWords(), out[leaf].presenceWords(),
+          "an unmasked presence lane is the source slice's own array, borrowed as always");
+      assertNotSame(leaves[leaf].numericValues(), out[leaf].numericValues());
+      assertEquals(leaves[leaf].numericValues().length, out[leaf].numericValues().length);
+      assertEquals(0L, out[leaf].min());
+      assertEquals(0L, out[leaf].max());
+      for (final long value : out[leaf].numericValues()) {
+        assertEquals(0L, value, "no row is present, so no cell is resolved");
+      }
+    }
+    assertEquals(0, canonicaliser.size(), "an absent row names no value");
+  }
+
+  @Test
   @DisplayName("a value kept in two segments is still ONE group under row masks")
   void rowMasksStillMergeAcrossSegments() {
     // Every segment holds the same eight values; row 2 of each leaf is the same value.
