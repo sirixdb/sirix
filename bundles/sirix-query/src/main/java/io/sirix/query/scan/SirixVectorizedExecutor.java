@@ -13698,6 +13698,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         .append(spill.sharedHint())
         .append(" sharedRehashes=")
         .append(spill.sharedRehashes());
+    if ("composite".equals(arm)) {
+      line.append(" discardedRows=").append(ProjectionColumnGroupScan.compositeDiscardedRowsCount());
+    }
     if (registry != null) {
       // The identity state the pass RAN with (a completed eager pass re-marks the registry before this
       // line).
