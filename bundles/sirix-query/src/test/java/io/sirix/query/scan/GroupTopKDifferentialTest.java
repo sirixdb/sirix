@@ -62,7 +62,12 @@ public final class GroupTopKDifferentialTest {
       }
       sb.append("{\"id\":").append(i); // unique numeric key, includes 0 (zero side slot)
       if (i < 3) {
-        sb.append(",\"edge\":").append(i == 0 ? Long.MAX_VALUE : i == 1 ? Long.MIN_VALUE : 0L);
+        sb.append(",\"edge\":")
+          .append(i == 0
+              ? Long.MAX_VALUE
+              : i == 1
+                  ? Long.MIN_VALUE
+                  : 0L);
       }
       sb.append(",\"k7\":").append(i % 7); // few groups, near-equal counts (tie plateaus)
       sb.append(",\"k40\":").append(i % 40);
@@ -143,60 +148,57 @@ public final class GroupTopKDifferentialTest {
 
   @Test
   void repeatedNumericKeyOffsetsPreserveCountTies() throws Exception {
-    assertOffsetDifferential(true, "subsequence(for $u in " + SRC
-        + " let $a := $u.id, $b := $u.id - 1, $d := $u.id + 3 group by $a, $b, $d"
-        + " let $c := count($u) order by $c descending"
-        + " return {\"a\": $a, \"b\": $b, \"d\": $d, \"c\": $c}, 1, 12)");
+    assertOffsetDifferential(true,
+        "subsequence(for $u in " + SRC + " let $a := $u.id, $b := $u.id - 1, $d := $u.id + 3 group by $a, $b, $d"
+            + " let $c := count($u) order by $c descending"
+            + " return {\"a\": $a, \"b\": $b, \"d\": $d, \"c\": $c}, 1, 12)");
   }
 
   @Test
   void repeatedNumericKeyOffsetsPreserveMissingWinner() throws Exception {
-    assertOffsetDifferential(true, "subsequence(for $u in " + SRC
-        + " let $a := $u.bonus, $b := $u.bonus - 1 group by $a, $b"
-        + " let $c := count($u) order by $c descending"
-        + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+    assertOffsetDifferential(true,
+        "subsequence(for $u in " + SRC + " let $a := $u.bonus, $b := $u.bonus - 1 group by $a, $b"
+            + " let $c := count($u) order by $c descending" + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
   }
 
   @Test
   void repeatedNumericKeyOffsetsWithoutBareKey() throws Exception {
-    assertOffsetDifferential(true, "subsequence(for $u in " + SRC
-        + " where $u.amount > 200 let $a := $u.k40 + 2, $b := $u.k40 - 3 group by $a, $b"
-        + " let $c := count($u) where $c > 40 order by $c ascending"
-        + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+    assertOffsetDifferential(true,
+        "subsequence(for $u in " + SRC + " where $u.amount > 200 let $a := $u.k40 + 2, $b := $u.k40 - 3 group by $a, $b"
+            + " let $c := count($u) where $c > 40 order by $c ascending"
+            + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
   }
 
   @Test
   void independentNumericOffsetKeysRemainIndependent() throws Exception {
-    assertOffsetDifferential(false, "subsequence(for $u in " + SRC
-        + " let $a := $u.k7, $b := $u.k40 - 1 group by $a, $b"
-        + " let $c := count($u) order by $c descending"
-        + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+    assertOffsetDifferential(false,
+        "subsequence(for $u in " + SRC + " let $a := $u.k7, $b := $u.k40 - 1 group by $a, $b"
+            + " let $c := count($u) order by $c descending" + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
   }
 
   @Test
   void repeatedNumericOffsetsPromoteBeyondLongRange() throws Exception {
-    assertOffsetDifferential(true, "subsequence(for $u in " + SRC
-        + " let $a := $u.edge, $b := $u.edge + 1, $d := $u.edge - 1 group by $a, $b, $d"
-        + " let $c := count($u) order by $c descending"
-        + " return {\"a\": $a, \"b\": $b, \"d\": $d, \"c\": $c}, 1, 4)");
+    assertOffsetDifferential(true,
+        "subsequence(for $u in " + SRC + " let $a := $u.edge, $b := $u.edge + 1, $d := $u.edge - 1 group by $a, $b, $d"
+            + " let $c := count($u) order by $c descending"
+            + " return {\"a\": $a, \"b\": $b, \"d\": $d, \"c\": $c}, 1, 4)");
   }
 
   @Test
   void dependentOffsetWinnerRestorationIsBounded() throws Exception {
     for (final int limit : new int[] {1024, 1025}) {
-      assertOffsetDifferential(limit == 1024, "subsequence(for $u in " + SRC
-          + " let $a := $u.id, $b := $u.id - 1 group by $a, $b"
-          + " let $c := count($u) order by $c descending"
-          + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, " + limit + ")");
+      assertOffsetDifferential(limit == 1024,
+          "subsequence(for $u in " + SRC + " let $a := $u.id, $b := $u.id - 1 group by $a, $b"
+              + " let $c := count($u) order by $c descending" + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, " + limit
+              + ")");
     }
   }
 
   @Test
   void nonInjectiveNumericKeysKeepTheirCompositeGroups() throws Exception {
-    assertOffsetDifferential(false, "subsequence(for $u in " + SRC
-        + " let $a := $u.k40 idiv 2, $b := $u.k40 mod 3 group by $a, $b"
-        + " let $c := count($u) order by $c descending"
-        + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+    assertOffsetDifferential(false,
+        "subsequence(for $u in " + SRC + " let $a := $u.k40 idiv 2, $b := $u.k40 mod 3 group by $a, $b"
+            + " let $c := count($u) order by $c descending" + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
   }
 
   @Test
@@ -648,7 +650,9 @@ public final class GroupTopKDifferentialTest {
   private void assertOffsetDifferential(final boolean rewritten, final String query) throws Exception {
     final long before = SirixVectorizedExecutor.offsetCountGroupsRewriteCount();
     assertOrderedDifferentialServed(query);
-    assertEquals(before + (rewritten ? 1 : 0), SirixVectorizedExecutor.offsetCountGroupsRewriteCount(),
+    assertEquals(before + (rewritten
+        ? 1
+        : 0), SirixVectorizedExecutor.offsetCountGroupsRewriteCount(),
         "the bounded same-column rewrite must engage exactly for its eligible shapes");
   }
 
