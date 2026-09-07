@@ -1,0 +1,58 @@
+Unscored 100M q16/q35 diagnostic transcript, 2026-09-07
+Baseline ca4c34d38 executor overlay; feature e9f0f5c76; identical remaining classpath.
+Each diagnostic JVM executes q16 twice, then q35 twice. Every [proj] line is retained.
+Leaves are reported as leaves=; these group kernels do not emit visit= or cand=.
+
+baseline-100m-diag
+[cat] segment lane: 148 segment(s), 5 segment-scoped column(s)
+[proj] predicate row masks: 99997497 row(s) in 97737 of 97737 leaves pass (97737 read), 75 ms
+[proj] segment value merge: 148 segment(s), 7713698 marked cell(s) -> 6019103 distinct in 58 range(s); mark 120 ms, bound 382 ms, merge 476 ms (longest range 365 ms over 311141 cells, mean 132994; sum 8611 ms = 18.1 lanes, 86128 record loads), offset 110 ms
+[groupBudget] budget=16777216 stride=7 perGroup=112 liveMB=4729 latestGcMB=4729 poolsGcMB=4729 usedMB=4949 maxMB=14336 shareMB=1792 pooledMB=0
+[proj] groupAgg pass aborted: passes=1 range=[0,1024) spilled=17732663 abandoned=0 estimated=24418638 budget=16777216 completedSeed=false leaves=97737
+[proj] groupAgg restart: passes=1 -> 2 estimated=24418638 budget=16777216 aborts=1
+[proj] groupAgg pass done (composite): 1/2 range=[0,512) ms=875 scanMs=652 mergeMs=222 workerMs=639/648/651 slowest=2 spilled=11369102 leaves=97737 sharedHint=25038 sharedRehashes=0 retainedMB=1967 pool=55579/17987 pooled=17987 dropped=0 sliceReuse=0
+[proj] groupAgg pass done (composite): 2/2 range=[512,1024) ms=583 scanMs=393 mergeMs=190 workerMs=384/387/392 slowest=3 spilled=11534742 leaves=97737 sharedHint=25038 sharedRehashes=0 retainedMB=1967 pool=90550/17987 pooled=17987 dropped=0 sliceReuse=0
+# q16 try 1: wall=7.635 s cpu=96.4 s util=12.6/20 gc=12 pauses 0.40 s
+[proj] predicate row masks: 99997497 row(s) in 97737 of 97737 leaves pass (97737 read), 2 ms
+[proj] segment value merge: 148 segment(s), 7713698 marked cell(s) -> 6019103 distinct in 58 range(s); mark 6 ms, bound 42 ms, merge 313 ms (longest range 166 ms over 311141 cells, mean 132994; sum 5060 ms = 16.2 lanes, 86128 record loads), offset 39 ms
+[groupBudget] budget=16777216 stride=7 perGroup=112 liveMB=6634 latestGcMB=6706 poolsGcMB=6634 usedMB=7432 maxMB=14336 shareMB=1792 pooledMB=1967
+[proj] groupAgg pass done (composite): 1/2 range=[0,512) ms=640 scanMs=440 mergeMs=199 workerMs=426/433/439 slowest=12 spilled=11529218 leaves=97737 sharedHint=24681 sharedRehashes=0 retainedMB=1967 pool=125572/17987 pooled=17987 dropped=0 sliceReuse=0
+[proj] groupAgg pass done (composite): 2/2 range=[512,1024) ms=589 scanMs=396 mergeMs=193 workerMs=386/392/395 slowest=2 spilled=11478582 leaves=97737 sharedHint=24681 sharedRehashes=0 retainedMB=1967 pool=160137/17987 pooled=17987 dropped=0 sliceReuse=0
+# q16 try 2: wall=2.449 s cpu=29.8 s util=12.2/20 gc=5 pauses 0.08 s
+16   |      7.635 |      2.449 |         10 | route=group-aggregate
+[groupBudget] budget=14680064 stride=9 perGroup=128 liveMB=7861 latestGcMB=7861 poolsGcMB=7861 usedMB=8047 maxMB=14336 shareMB=1618 pooledMB=1967
+[proj] groupAgg pass done (composite): 1/1 range=[0,1024) ms=1371 scanMs=1231 mergeMs=139 workerMs=1213/1220/1224 slowest=9 spilled=9481076 leaves=97737 sharedHint=-1 sharedRehashes=0 retainedMB=2798 pool=48256/39794 pooled=39794 dropped=0 sliceReuse=0
+# q35 try 1: wall=1.725 s cpu=29.2 s util=16.9/20 gc=6 pauses 0.24 s
+[groupBudget] budget=14680064 stride=9 perGroup=128 liveMB=7757 latestGcMB=7973 poolsGcMB=7757 usedMB=8352 maxMB=14336 shareMB=1644 pooledMB=2798
+[proj] groupAgg pass done (composite): 1/1 range=[0,1024) ms=864 scanMs=774 mergeMs=90 workerMs=764/770/773 slowest=16 spilled=9545085 leaves=97737 sharedHint=10009 sharedRehashes=0 retainedMB=2798 pool=120459/39794 pooled=39794 dropped=0 sliceReuse=0
+# q35 try 2: wall=0.870 s cpu=16.5 s util=19.0/20 gc=0 pauses 0.00 s
+35   |      1.725 |      0.870 |         10 | route=group-aggregate
+
+after-100m-diag
+[cat] segment lane: 148 segment(s), 5 segment-scoped column(s)
+[proj] predicate row masks: 99997497 row(s) in 97737 of 97737 leaves pass (97737 read), 71 ms
+[proj] segment value merge: 148 segment(s), 7713698 marked cell(s) -> 6019103 distinct in 58 range(s); mark 107 ms, bound 393 ms, merge 582 ms (longest range 443 ms over 311141 cells, mean 132994; sum 10611 ms = 18.2 lanes, 86128 record loads), offset 157 ms
+[groupBudget] budget=16777216 stride=7 perGroup=112 liveMB=4127 latestGcMB=4151 poolsGcMB=4127 usedMB=4986 maxMB=14336 shareMB=1792 pooledMB=0
+[proj] groupAgg pass aborted: passes=1 range=[0,1024) spilled=17197650 abandoned=0 estimated=24683486 budget=16777216 completedSeed=false leaves=97737
+[proj] groupAgg restart: passes=1 -> 2 estimated=24683486 budget=16777216 aborts=1
+[proj] groupAgg pass done (composite): 1/2 range=[0,512) ms=940 scanMs=670 mergeMs=270 workerMs=660/664/669 slowest=15 spilled=11571485 leaves=97737 sharedHint=25309 sharedRehashes=0 retainedMB=1953 pool=58731/17864 pooled=17864 dropped=0 sliceReuse=0
+[proj] groupAgg pass done (composite): 2/2 range=[512,1024) ms=593 scanMs=403 mergeMs=189 workerMs=394/398/402 slowest=11 spilled=11624308 leaves=97737 sharedHint=25309 sharedRehashes=0 retainedMB=1953 pool=94059/17864 pooled=17864 dropped=0 sliceReuse=0
+# q16 try 1: wall=6.834 s cpu=94.2 s util=13.8/20 gc=15 pauses 0.34 s
+[proj] predicate row masks: 99997497 row(s) in 97737 of 97737 leaves pass (97737 read), 2 ms
+[proj] segment value merge: 148 segment(s), 7713698 marked cell(s) -> 6019103 distinct in 58 range(s); mark 21 ms, bound 87 ms, merge 332 ms (longest range 230 ms over 219410 cells, mean 132994; sum 5639 ms = 17.0 lanes, 86128 record loads), offset 14 ms
+[groupBudget] budget=16777216 stride=7 perGroup=112 liveMB=7567 latestGcMB=7567 poolsGcMB=7567 usedMB=7923 maxMB=14336 shareMB=1692 pooledMB=1953
+[proj] groupAgg pass done (composite): 1/2 range=[0,512) ms=578 scanMs=374 mergeMs=203 workerMs=364/368/373 slowest=8 spilled=11502314 leaves=97737 sharedHint=24681 sharedRehashes=0 retainedMB=1953 pool=129025/17864 pooled=17864 dropped=0 sliceReuse=0
+[proj] groupAgg pass done (composite): 2/2 range=[512,1024) ms=556 scanMs=376 mergeMs=180 workerMs=367/371/375 slowest=11 spilled=11427719 leaves=97737 sharedHint=24681 sharedRehashes=0 retainedMB=1953 pool=162404/17864 pooled=17864 dropped=0 sliceReuse=0
+# q16 try 2: wall=2.280 s cpu=30.0 s util=13.2/20 gc=2 pauses 0.08 s
+16   |      6.834 |      2.280 |         10 | route=group-aggregate
+[proj] numericGroupAggregate col=5 kind=0 canonicalising=false sliced=true windowed=false
+[groupBudget] budget=39146837 stride=3 perGroup=48 liveMB=7559 latestGcMB=8527 poolsGcMB=7559 usedMB=9147 maxMB=14336 shareMB=1694 pooledMB=1953
+[proj] groupAgg pass done (numeric): 1/1 range=[0,1024) ms=940 scanMs=719 mergeMs=220 workerMs=693/710/714 slowest=14 spilled=9540384 leaves=97737 sharedHint=-1 sharedRehashes=0 retainedMB=466 pool=16832/4974 pooled=4974 dropped=0 sliceReuse=0
+[proj] offset-count groups: keys=4->1 identityLanes=5->0 restored=10
+# q35 try 1: wall=1.426 s cpu=21.2 s util=14.9/20 gc=4 pauses 0.13 s
+[proj] numericGroupAggregate col=5 kind=0 canonicalising=false sliced=true windowed=false
+[groupBudget] budget=33003177 stride=3 perGroup=48 liveMB=8759 latestGcMB=8759 poolsGcMB=8759 usedMB=9208 maxMB=14336 shareMB=1394 pooledMB=466
+[proj] groupAgg pass done (numeric): 1/1 range=[0,1024) ms=365 scanMs=297 mergeMs=68 workerMs=289/292/296 slowest=3 spilled=9502275 leaves=97737 sharedHint=10009 sharedRehashes=0 retainedMB=466 pool=34169/4974 pooled=4974 dropped=0 sliceReuse=0
+[proj] offset-count groups: keys=4->1 identityLanes=5->0 restored=10
+# q35 try 2: wall=0.371 s cpu=6.9 s util=18.7/20 gc=0 pauses 0.00 s
+35   |      1.426 |      0.371 |         10 | route=group-aggregate+numeric-group-by

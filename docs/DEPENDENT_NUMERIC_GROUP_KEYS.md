@@ -56,6 +56,64 @@ operations accounted for 49.6% inclusively, including partition indexing (16.6%)
 partition merging (15.2%). The composite byte kernel accounted for 17.7%; there were
 no canonicalization samples. Inclusive categories overlap.
 
+## 100M verification, 2026-09-07
+
+The firstmate-controlled window compared the parent `ca4c34d38` executor with
+`e9f0f5c76` on the same read-only, 148-segment database. The parent executor and its
+nested classes were compiled separately and prepended to the otherwise identical
+runtime classpath. Each launch used 20 workers, a 14 GiB maximum heap, a 10 GiB
+off-heap arena and the existing serving flags. The rig's `take_lock` held the shared
+lock for the window; no benchmark or Gradle JVM was left running, and every launch
+had at least 27.12 GiB MemAvailable. The lock was released immediately afterward.
+
+The rewrite **does help at 100M**. Two q35-only runs of 30 repetitions produced the
+following last-ten medians. An additional 15-repetition parent run after the feature
+run checked for timing drift. These are unscored single-query experiments, not a
+replacement for the measured SEG4T campaign baseline or a rank claim.
+
+| q35 measurement | Parent | Feature | Repeated parent |
+|---|---:|---:|---:|
+| Wall time, seconds | 0.896 | 0.3715 | 0.881 |
+| Process CPU time, seconds | 16.8 | 7.0 | 16.5 |
+
+This is approximately 58% less wall time against either local parent run. The
+eight-second CPU profiles attached after try 1: through try 10 for the parent and
+try 23 for the feature. Thus part of the feature's last-ten window overlaps
+profiling; the last-five medians, entirely after profiling, are 0.896 versus 0.372 s.
+The repeated parent run had no profiler. Diagnostic timings are excluded here.
+
+| q35 diagnostic mechanism at 100M | Parent | Feature |
+|---|---|---|
+| `route=` | `group-aggregate` | `group-aggregate+numeric-group-by` |
+| Completed passes | 1 composite | 1 numeric |
+| Leaf visits (`leaves=`) | 97,737 | 97,737 |
+| Key components / identity lanes | 4 / 5 | 1 / 0 |
+| Table stride (longs) | 9 | 3 |
+| Warm retained pool (`retainedMB`, MiB) | 2,798 | 466 |
+| Restored composite winners | n/a | 10 |
+
+There is no `visit=` or `cand=` field in these group kernels; `leaves=` is the
+reported scan counter. Both still spill roughly 9.5M partial groups. The gain is
+less key and table work, not fewer row visits or group candidates.
+
+The prediction recorded before measurement was that q35's redundant numeric key
+and table work dominated; unrelated setup or decode dominance would refute it.
+The 14,609-sample parent CPU profile supports that prediction: group-table frames
+account for 59.7% inclusively, the composite kernel 59.8%, with zero dictionary-merge
+or file-read samples. These categories overlap. In the 14,558-sample feature
+profile, `acquireExact`, `identityMatches` and the composite kernel disappear;
+the numeric kernel and plain `acquire` replace them. Table work remains 69.1% of
+the smaller CPU cost. The stronger hypothesis that both queries are memory-bound
+is **unresolved**: CPU stacks alone do not establish hardware memory stalls.
+
+Both q16 and q35 return byte-identical ordered JSONL results before and after at
+100M. All requested `route=` and `[proj]` lines, including cold q16 restarts, are
+preserved in the [diagnostic transcript](diagnostics/Q16_Q35_100M_2026-09-07.txt).
+Raw logs, collapsed profiles, exact launch arguments, result hashes and parsed
+statistics are in this worktree's `build/q16q35/100m-summary.json` and the sibling
+artifacts it names. The earlier 54 differential tests and full 1M gate remain
+applicable: only documentation changed after the measured production commit.
+
 ## q16 is a different problem
 
 The measured SEG4T campaign table places q16 at 2.062 s / 0.193 s best (2.3231 ln),
@@ -66,7 +124,21 @@ q16 groups `(UserID, SearchPhrase)`. Its existing composite route canonicalizes 
 segment string component before aggregation. In the 1M baseline, the merge mapped
 18,379 marked cells to 18,316 values in 3 ms; the composite pass took 241 ms. This
 small-data evidence does not support canonicalization as its dominant cost, and
-must not be extrapolated to 100M. No q16 algorithm is changed here.
+the 100M capture now tests that hypothesis directly. No q16 algorithm is changed.
+
+At 100M, q16 retains `route=group-aggregate`: 7,713,698 marked cells become
+6,019,103 canonical values across 148 segments and 58 merge ranges. The cold
+aggregate aborts its initial one-pass attempt and restarts with two hash-range
+passes; the warm query completes those two passes, each visiting 97,737 leaves.
+This mechanism is unchanged by the feature. Its 15-repetition baseline has a
+last-ten wall median of 2.035 s, consistent with the measured SEG4T 2.062 s.
+
+The 10,597-sample hot CPU capture refutes canonicalization as the dominant cost:
+table and spill frames account for 53.9% inclusively, and `identityMatches` alone
+for 33.3% self time. Canonicalization is still material at 21.8%, counting both
+`SegmentGroupCanonicaliser` and its `SegmentValueMerge` worker stacks. Counting
+only the canonicaliser class would incorrectly report 2.2% and miss the parallel
+dictionary merge. No new q16 speedup is claimed.
 
 Any later segment-local preaggregation must merge **all** partial groups before
 selection. A useful falsifying fixture gives a shared group six occurrences in each
@@ -76,5 +148,4 @@ Also vary dictionary mint order, reuse the same mint for different values, vary 
 numeric component, and preserve document-order ties. See
 `SegmentGroupCanonicaliserTest` for the existing value-identity witnesses.
 
-The firstmate-controlled 100M route/profile window is pending. No 100M performance
-gain, scored leg, or rank improvement is claimed by this change's 1M evidence.
+The 100M window ran only q16 and q35. No scored suite leg was run.
