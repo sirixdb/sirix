@@ -33,11 +33,12 @@ Standing secondary target: ~50 GB storage at 100M (met: 48 GB); long-term ≤ 30
 | N1FULL1 (2026-09-03) | global dictionary + prepass | `db100m-ovf`, 49.70 GB — **deleted** | 3.327 | **10** | 51.69 |
 | SEG3T (2026-09-06, measured) | segment lane | `clickbench-seg100m-20260905-2328`, 48 GB, 148 segments | 19.943 | 74 | 128.69 |
 | SEG3TB (SEG3T with the served q21/q22/q28 spliced in) | segment lane + `a3aed07ec`…`417c62ead` | same | 9.516 | 52 | 96.88 |
-| **projection** SEG3TB + q17 (`86d839058`) + q27 (`be5e8232f`) | HEAD | same | ≈ 7.89 | **≈ 42** | ≈ 88.8 |
+| projection: SEG3TB + q17 (`86d839058`) + q27 (`be5e8232f`) | `be5e8232f` | same | ≈ 7.89 | ≈ 42 | ≈ 88.8 |
+| **SEG4T (2026-09-07, measured)** | segment lane at the handover (`54b0a059b`) | same | **5.179** | **17** | **70.72** |
 
-The projection is arithmetic on two measured single-query numbers (q17 0.055 s hot, q27 0.346 s
-hot at 100M); **the first thing to do is replace it with a measured leg** (§5). Rank 10 then needs
-≈ **−36.8 ln**.
+SEG4T is the measured leg that replaced the arithmetic projection above, and it came in ahead of it.
+Rank 10 (Σln ≤ 51.99) needs ≈ **−18.7 ln** from here. Its leg JSON is **not** committed under
+`rig/legs/`, so `rank.py SEG4T` only works on the box that produced it.
 
 How we got here: on 2026-09-03 a global-dictionary build (`db100m-ovf`) scored rank 6 — but it
 needed a value **prepass** over the corpus to build its dictionaries. The user ruled the prepass out
@@ -74,21 +75,25 @@ Key code (paths under `bundles/`):
 | segment cut policy / incremental sealing | `SegmentBoundaries.java`, `SegmentDictionaryLane.java` |
 | leaf-level group scan (length tables, present cells) | `ProjectionColumnGroupScan.java` |
 | handle + per-handle memos (`stringLengthTables`) | `ProjectionIndexRegistry.java` (`Handle`), `ProjectionIndexCatalog.java` |
-| diagnostics | `-Dsirix.projDiag=true` prints `route=`, `[proj] groupAgg decline: …`, `[lengthTable] col= mode= segments= memoHits= built= ids= ms=`, `segment lane: …`; counters `projectionStringLengthTableBuildCount()`, `projectionStringLengthTableMemoHitCount()`, `segmentOperandSealCount()` on the executor |
+| diagnostics | `-Dsirix.projDiag=true` prints `route=`, `[proj] groupAgg decline: …`, `[lengthTable] col= mode= segments= memoHits= built= ids= ms=`, `[topk-bounds] kind= positions= segments=`, `segment lane: …`; counters `projectionStringLengthTableBuildCount()`, `projectionStringLengthTableMemoHitCount()`, `segmentOperandSealCount()` on the executor |
 
 Tests that pin the lane: `SegmentLengthLaneQueryTest`, `AnyKGroupsSegmentKeyRewriteTest`,
 `AnyKGroupsGlobalKeyRewriteTest`, `GroupTopKDifferentialTest` (sirix-query);
 `SegmentLengthLaneGroupScanTest`, `RankTableReadViewTest`, `SegmentBoundariesTest`,
-`SegmentCellRoundTripTest`, `ProjectionBulkLoadFenceChunkBoundaryTest` (sirix-core).
+`SegmentCellRoundTripTest`, `SegmentTopKBoundsTest`, `ProjectionBulkLoadFenceChunkBoundaryTest`
+(sirix-core).
 `sirix-query`'s test JVM forwards `sirix.projDiag` (build.gradle ≈ l. 201), so a declined route in
 a test is one `-Dsirix.projDiag=true` away from its reason.
 
-## 4. The lever queue (C6A hot ln at the projected standing; ours s / board best s)
+## 4. The lever queue (C6A hot ln; ours s / board best s)
+
+Only q25 has been rescored on the measured SEG4T leg; every other row is still at the ≈ 88.8
+projection that SEG4T superseded, so treat those ln values as an ordering, not as arithmetic.
 
 | q | ln | ours / best | query shape | lever |
 |---|---|---|---|---|
 | q28 | 4.48 | 115.7 / 1.297 | `REGEXP_REPLACE(Referer, …)` group + `AVG(STRLEN(Referer))` + `MIN(Referer)` | **Landed** (`09f9bf3b3`): the regex now runs **once per distinct value per segment** (≤ dictionary size, not 100M rows), STRLEN comes from the length table (`be5e8232f`), and `MIN(Referer)` folds the merge's canonical ranks rather than comparing strings. Mechanism, retention bounds and profiling evidence: `docs/SEGMENT_TRANSFORM_GROUPS.md`. That evidence is a 100M **diagnostic** hot time of 60.728 s → 8.616 s; **no scored suite leg was run, so the ln here still stands and no rank improvement is claimed.** |
-| q25 | 4.18 | 0.645 / 0.000 | `ORDER BY SearchPhrase LIMIT 10` | The answer is the first 10 non-empty values of the merge. Should be a cursor over the first run positions of each segment — tens of microseconds. Find what the 0.6 s is (probably a column materialisation before the merge). |
+| q25 | 4.13 | 0.611 / 0.000 | `ORDER BY SearchPhrase LIMIT 10` | **Profiled and acted on (`7c8f382e8`…`8aa6d5509`); not yet rescored.** The merge is not involved at all — `SegmentValueMerge`/`SegmentRunCursor` take zero samples, so the "column materialisation before the merge" guess above was wrong, and the route was already `sorted-scan`. The 0.6 s was the top-K plan: a segment cell means nothing outside its own segment, so `planTopK` declared the key unboundable, all 96,459 admitted leaves of 97,737 carried unknown bounds, none was skipped and 13,172,392 candidate rows were decoded for a ten-entry heap. `SegmentTopKBounds` now bounds a leaf by its **segment's** first/last collation position — advanced once past a directly excluded literal, at most two position reads per segment, no prepass — ranks those ≤ 148 cells once and orders and cuts through dictionary values. 100M diagnostic: evaluations 96,459 → 8,191, 88,268 leaves skipped, candidates 13,172,392 → 1,272,084, no restart. Whole-segment is the granularity ceiling without the merge, whose implementation is preserved on `fm/q25-segment-merge-preserved-0350230d`. An ordering with **no** predicate on the sort key is deliberately refused (its all-present proof would be a whole-column BODY pass — the no-prepass ruling); the reasoning is in `SegmentTopKBounds.create`'s javadoc. **Next: a scored leg** — no timing gain is claimed yet. |
 | q16 / q14 / q18 | 3.97 / 3.96 / 2.72 | 10.7, 10.1, 13.0 / 0.19, 0.18, 0.85 | composite keys `(UserID, SearchPhrase)` etc. | Composite group keys with a segment-string component canonicalise the string column fully; a cell is already a unique id **within** a segment, so aggregate per segment on the packed cell and merge the per-segment tables by canonical id only for groups that survive. `a-segment-scoped-id-is-a-preaggregation-not-a-group` applies: merging cell keys is correct only where nothing is pruned, so top-K needs canonical ids **during** aggregation for the candidates. |
 | q39 | 3.85 | 1.44 / 0.021 | 5-column group with `CASE` on Referer/URL + tight `WHERE` | Predicate keeps few rows; the remaining second is fixed cost — see what runs before the predicate. |
 | q33 / q34 | 3.13 each | 6.1 / 0.257 | `GROUP BY URL ORDER BY c LIMIT 10` on an 18.3M-distinct column | Aggregate **inside the merge**: counts per cell are known per segment; the merge emits canonical groups in order and a bounded top-K needs no hash table. Same lever serves q12 (2.2 ln), q5 `COUNT(DISTINCT SearchPhrase)` (2.65 — the distinct count is the merge's output length). |
@@ -115,15 +120,10 @@ Rule of thumb from the ledger: a lever that removes a whole-column canonicalisat
 
 ## 5. Operating protocol
 
-Do the first measured leg before anything else — the standing above is a projection:
-
-```sh
-cd bundles/sirix-query/bench/clickbench/rig
-cat ../../../build/diagnostics/rig/current-100m-dir.txt   # the 100M DB the scripts use
-bash suite100m.sh 3                                        # 43 queries × 3 tries, ~10 min
-python3 mkleg.py SEG4T "$(cat ../../../build/diagnostics/rig/current-100m-dir.txt)/suite100m.log"
-python3 rank.py SEG4T SEG3T N1FULL1                        # the [C6A] hot block is the target
-```
+SEG4T (§2) is the first measured leg; the next one scores whatever lands after it. The commands are
+"The one loop that matters" in the rig's
+[`README.md`](../bundles/sirix-query/bench/clickbench/rig/README.md) — tag the next leg `SEG5T`,
+since `SEG4T` is taken.
 
 Per lever, in this order — every step has been skipped once in this campaign and every skip cost
 more than the step:

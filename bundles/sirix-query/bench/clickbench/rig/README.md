@@ -19,16 +19,17 @@ variable; working files live under `bundles/sirix-query/build/diagnostics/` (git
 | `load1m.sh` / `seggate1m.sh` | 1M load + correctness gate against DuckDB (`0 mismatch, 0 missing` required) |
 | `junit.py START CLASS…` | read JUnit XML refusing anything older than the run start (a compile error leaves stale XML) |
 | `collapsed.py FILE [pat…]` | summarise an async-profiler collapsed-stack file |
-| `legs/` | reference legs: `N1FULL1` (rank 10, the old global-dictionary DB), `SEG2T`/`SEG3T`/`SEG3TB` (segment lane) |
+| `legs/` | reference legs: `N1FULL1` (rank 10, the old global-dictionary DB), `SEG2T`/`SEG3T`/`SEG3TB` (segment lane). `SEG4T` — the measured standing, rank 17 — was scored but its JSON is not committed here |
 | `board/data.generated.js` | snapshot (2026-09-02) of https://benchmark.clickhouse.com/data.generated.js |
 
 ## The one loop that matters
 
 ```sh
 cd bundles/sirix-query/bench/clickbench/rig
+cat ../../../build/diagnostics/rig/current-100m-dir.txt   # which 100M DB the query scripts read
 bash suite100m.sh 3                                   # ~10 min at the current state; one leg per box
-python3 mkleg.py SEG4T "$(cat ../../../build/diagnostics/rig/current-100m-dir.txt)/suite100m.log"
-python3 rank.py SEG4T SEG3T N1FULL1                   # read the [C6A] hot block
+python3 mkleg.py SEG5T "$(cat ../../../build/diagnostics/rig/current-100m-dir.txt)/suite100m.log"
+python3 rank.py SEG5T SEG3T N1FULL1                   # read the [C6A] hot block
 ```
 
 `rank.py` prints, per board and metric, the rank thresholds (`r10=3.35` is the target) and for each

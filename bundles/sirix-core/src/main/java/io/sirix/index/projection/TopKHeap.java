@@ -162,9 +162,9 @@ final class TopKHeap {
   }
 
   /**
-   * Whether a leaf whose BEST possible first key is {@code best} (numeric or a segment cell) is strictly worse
-   * than the worst kept row on that key alone — then none of its rows can enter. Only meaningful on a
-   * {@link #full()} heap.
+   * Whether a leaf whose BEST possible first key is {@code best} (numeric or a segment cell) is
+   * strictly worse than the worst kept row on that key alone — then none of its rows can enter. Only
+   * meaningful on a {@link #full()} heap.
    */
   boolean firstKeyStrictlyWorse(final long best) {
     return firstKeyStrictlyWorse(best, this);

@@ -883,7 +883,9 @@ public final class GlobalValueDictionary {
 
     /** Segment slots in this union, including missing dictionaries; -1 for an ordinary view. */
     public int segmentCount() {
-      return perSegment == null ? -1 : perSegment.length;
+      return perSegment == null
+          ? -1
+          : perSegment.length;
     }
 
     /**
