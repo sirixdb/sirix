@@ -1,7 +1,9 @@
 # Segment LIKE groups: remaining work
 
-Status: 100M CPU/allocation comparison and correctness checks completed on 2026-09-07;
-empty-lane optimization based on `ca4c34d38`. No new score is claimed. The measured SEG4T report
+Status: 100M CPU/allocation comparison and correctness checks completed on 2026-09-07, and
+re-captured on the shipping build `b00ed9e4`. The historical figures below are the empty-lane edit
+over `ca4c34d38`; **The shipping build at 100M** carries what ships. No new score is claimed — no
+scored suite has run on any of these. The measured SEG4T report
 (`data/sirix-cb-measure-1/report.md` in Firstmate) gives:
 
 | Query | Hot / board best | ln contribution | Change against projection |
@@ -217,11 +219,10 @@ lever, and they touch `ProjectionColumnScan`, `SegmentValueMerge` and `SegmentCe
 very files this section attributes CPU percentages to. To reproduce the numbers below, check out
 `ca4c34d38` and apply the empty-lane edit; checking out `c5870478e` measures a different build.
 
-Nothing below — not the timing table, not the route and counter preservation, not the output
-hashes, not the 1M gate — has been re-run against the code that actually ships, which since then
-has also gained presence-lane sharing. Those fresh captures are outstanding and are required before
-this change is shipped; the paragraph after the counter block says what the recorded counters do
-and do not already bound.
+Nothing below was captured on the code that ships: that build also gates sharing on the row mask
+and covers the presence lane. It has since been captured in its own window — see **The shipping
+build at 100M** below, which supersedes this section for every claim about what ships. This
+section is kept as the historical record it is.
 
 Firstmate authorized a second window after the private 1M gate passed. Both builds ran q21/q22
 with the same five-try CPU/allocation capture, JVM envelope, flags and fresh-executor settings as
@@ -246,25 +247,25 @@ The other empty leaves initialize a shared array or change its width. This is al
 evidence, not an inference from the wall-clock improvement.
 
 That capture predates the presence lane, so its counter line names the canonical lane only. The
-diagnostic now also reports `allocatedPresenceWords` and `reusedEmptyPresence`, and **the presence
-lane's own measured figure is still outstanding** — it needs the next authorized 100M window and is
-not claimed here. What the counters above already bound arithmetically: 96,459 retained leaves per
-lane each took a fresh `long[16]` presence array (1,024-row leaves, 128 bytes), about 11.8 MiB per
-lane and **23.6 MiB across the two**, of which the 95,434 empty leaves per lane are now shared —
-leaving roughly 128 KiB per lane. Against the 1.493 GiB initial and the 14.5 MiB the canonical-lane
-fix left, that puts the projected remainder near 15 MiB per hot try rather than 38 MiB. These are
-derivations from the recorded counters, not a new measurement.
+diagnostic now also reports `allocatedPresenceWords` and `reusedEmptyPresence`; both are measured
+on the shipping build below.
 
-| q21 hot try | Before wall (s) | After wall (s) | Before GC (s) | After GC (s) |
+Raw wall and GC readings from that capture's two JVMs, recorded as observed and attributed to
+nothing:
+
+| q21 hot try | Baseline-JAR wall (s) | Edited-JAR wall (s) | Baseline GC (s) | Edited GC (s) |
 |---:|---:|---:|---:|---:|
 | 2 | 0.632 | 0.344 | 0.12 | 0.03 |
 | 3 | 0.434 | 0.158 | 0.11 | 0.00 |
 | 4 | 0.477 | 0.167 | 0.09 | 0.01 |
 | 5 | 0.459 | 0.116 | 0.06 | 0.00 |
 
-Hot CPU samples in G1 fall from 6,737/14,842 (45.4%) to 1,245/7,394 (16.8%); direct
-canonicalisation falls from 905 samples to 69. The best of tries 2/3 changes from 0.434 to
-0.158 s. These are diagnostic observations, not a new score or projected ln saving.
+Hot CPU samples in G1 read 6,737/14,842 (45.4%) and 1,245/7,394 (16.8%); direct canonicalisation
+reads 905 samples and 69. **No timing claim is made from these numbers**, here or anywhere else in
+this document: the shipping-build capture below puts q21's own min(tries 2,3) at 0.175 s against
+this capture's 0.158 s, so the observed range across the two unscored diagnostics is 0.158–0.175 s
+and a single sample each cannot separate run-to-run variance from anything else. What this change
+claims is the allocation reduction and byte-identical output, both measured on the shipping build.
 
 The q22 control retains **5,082,420 allocated longs per lane**, with zero reused empty leaves:
 its tree had already dropped them. All three lane payloads remain unchanged. Its best of tries
@@ -287,12 +288,60 @@ strongly verified tie windows, **0 mismatch, 0 missing, 0 unverifiable, 0 declin
 two-segment private gate database was loaded by this lane. No scored 100M suite ran. The
 after-check lock was released and no benchmark Java process remained.
 
-**The shipping build is this branch's tip — row-mask-gated sharing of both lanes — and only its
-focused tests have run so far:** all 48 `SegmentGroupCanonicaliserTest` tests pass, the 48th being
-`sharedEmptyLanesAreNotWrittenByTheKernelsThatReadThem`, which reads shared value and presence
-lanes back through the real count-distinct kernels. Its 100M allocation, route/counter and
-byte-identity captures and its own `seggate1m.sh` gate have not been run; the hashes above belong
-to the historical capture and must not be taken as covering presence-lane sharing.
+## The shipping build at 100M
+
+**This section measures `b00ed9e4` — row-mask-gated sharing of BOTH lanes — on an isolated checkout
+at exactly that commit.** Two queries only, five tries, the same rig JVM/serving envelope, 1 ms CPU
+and 512 KiB allocation sampling, and hot windows over tries 2–5. No scored suite ran; no shared
+database or corpus was written; the rig lock was taken and released cleanly. Documentation-only
+commits after `b00ed9e4` do not change the measured source build.
+
+**Correctness is confirmed on the build that ships.** Both serialized 100M outputs are
+byte-identical to the historical capture's — the same two SHA-256 digests printed above, with an
+empty `diff`. Both routes are unchanged (`group-aggregate+numeric-group-by` for q21, that plus
+`group-distinct` for q22), and every per-try marked-cell, distinct-rank and canonical
+source/allocated/reuse counter compares exactly equal. The focused suite runs all **49**
+`SegmentGroupCanonicaliserTest` tests with 0 failures, 0 errors and 0 skipped — including
+`unmaskedLeavesNeverShareALaneEvenWhenEveryRowIsAbsent`, the regression test for the row-mask
+gating, and `sharedEmptyLanesAreNotWrittenByTheKernelsThatReadThem`, which reads the shared lanes
+back through the real count-distinct kernels. A freshly compiled
+`bundles/sirix-query/bench/clickbench/rig/seggate1m.sh` over the two-segment 1M database reports
+**33 match, 10 tie-ambiguous (0 unverifiable), 0 mismatch, 0 missing, 0 declines** across all 43
+queries.
+
+Both lanes now report their own counters, per rewrite (q21 rewrites two lanes per query, q22 three):
+
+```text
+q21  sourceLongs=98700177 allocatedLongs=975761 reusedEmptyLeaves=95434
+     allocatedPresenceWords=15123 reusedEmptyPresence=95446
+q22  sourceLongs=5082420 allocatedLongs=5082420 reusedEmptyLeaves=0
+     allocatedPresenceWords=79414 reusedEmptyPresence=0
+```
+
+q22 reuses nothing in either lane — its tree drops empty leaves before this pass sees them — which
+is the control that bounds the saving to leaves a row mask empties.
+
+**The allocation saving, measured and disaggregated.** Categories matter here, so they are named
+explicitly. The 1.493 GiB initial and 14.5 MiB canonical-only figures count CANONICAL arrays only;
+the combined figure below counts canonical PLUS presence arrays. For q21, per hot try:
+
+| Category | Sampled bytes | Sampled |
+|---|---:|---:|
+| Canonical lanes | 15,204,352 | 14.5 MiB |
+| Presence lanes | 655,360 | 0.625 MiB |
+| **Both lanes** | **15,859,712** | **15.125 MiB** |
+
+Against an initial canonical sample of **1.493 GiB per hot try**. The exact payload the counters
+imply, excluding object headers, is 15,612,176 B canonical + 241,968 B presence =
+**15,854,144 B (15.120 MiB)**; the canonical slot reduction remains **99.01%**. Two caveats on
+reading these: the sampled values are statistical estimates at 512 KiB sampling, not exact
+per-array byte counts, and 15.125 MiB is only the two long-array lanes — everything allocated under
+`canonicaliseMemoised`, including the `ColumnSlice` objects and the outer arrays, samples
+27.625 MiB per hot try. These are not the query's total allocations either.
+
+The shipping capture also re-reads q22's CPU shape: `evaluateMask` **68.8%** of 12,815 hot samples
+and `GroupDistinctAccumulator` **0.23%**, confirming the initial profile's 68.9% / 0.13% split.
+Duplicate predicate-mask evaluation remains q22's dominant hot cost and its reuse remains deferred.
 
 ## Evidence reproduction
 
@@ -317,3 +366,11 @@ The controlled comparison adds `after-window.sh`, `baseline-runtime.gradle`, `be
 `after-100m.log`, matching JFR files, `before-results/`, `after-results/`, `output-diff.txt`,
 `summarize-ab.py` and `ab-summary.json`. The summary records exact hot-window bounds and sampled
 totals for each build. `empty-lanes-test-final.log` and `gate-final.log` hold final validation.
+
+The shipping-build capture is the sibling `shipping-b00ed9e4/` directory, taken from an isolated
+checkout `capture-b00ed9e4/` whose git HEAD is exactly `b00ed9e4`. It holds `shipping-evidence.json`
+(source identity, test counts, the full gate output, output hashes, the route/counter comparison and
+the disaggregated allocation and timing facts), `shipping-100m.log`, `shipping-100m.jfr`,
+`shipping-windows.json`, `shipping-summary.json`, the per-query collapsed CPU and allocation stacks,
+`window.log`, `gate.log`, an empty `output-diff.txt`, `results/q21.jsonl` and `q22.jsonl`,
+`seg1m/compare.log` and `build-test.log`; `summarize-shipping.py` regenerates the summary.
