@@ -33,6 +33,16 @@ Disabling the dependency proof in a separately compiled mutant makes the eligibl
 count-tie witness fail: expected one rewrite, observed zero. The normal classpath
 passes again; no production source was replaced for this mutation check.
 
+`ClickBenchQ16Q35RouteEvidenceTest` runs the **shipped** ClickBench q16 and q35 text
+over 20,000 generated hits behind the projection index, once through the vectorized
+executor and once through the interpreter, and requires byte-identical results in
+emission order plus an advancing group-aggregate serving counter, so a silent decline
+cannot pass as agreement. The fold counter must advance for q35 and stand still for
+q16. That 20,000-row transcript reports `stride=3` for the rewritten q35 plan and
+`stride=8` for q16's `(UserID, SearchPhrase)` composite plan: those are two different
+queries, not a q35 before and after. q35's own measured stride is 9 before the
+rewrite and 3 after it, at both 1M and 100M.
+
 Both private 1M gates used a freshly loaded two-segment database and the same source
 corpus. Each returned **33 match, 10 tie-ambiguous, 0 unverifiable, 0 mismatch,
 0 missing, 0 declines** for all 43 queries. These are diagnostic checks, not scores.
@@ -59,12 +69,16 @@ no canonicalization samples. Inclusive categories overlap.
 ## 100M verification, 2026-09-07
 
 The firstmate-controlled window compared the parent `ca4c34d38` executor with
-`e9f0f5c76` on the same read-only, 148-segment database. The parent executor and its
-nested classes were compiled separately and prepended to the otherwise identical
-runtime classpath. Each launch used 20 workers, a 14 GiB maximum heap, a 10 GiB
-off-heap arena and the existing serving flags. The rig's `take_lock` held the shared
-lock for the window; no benchmark or Gradle JVM was left running, and every launch
-had at least 27.12 GiB MemAvailable. The lock was released immediately afterward.
+`e9f0f5c76` on the same read-only, 148-segment database. `e9f0f5c76` is this change
+before the rebase that renamed it `57b25c45b`: `ca4c34d38` is literally its parent,
+and `git diff e9f0f5c76 HEAD -- .../SirixVectorizedExecutor.java` is empty. That
+diff is how any later leg checks that its own head contains the rewrite. The parent
+executor and its nested classes were compiled separately and prepended to the
+otherwise identical runtime classpath. Each launch used 20 workers, a 14 GiB maximum
+heap, a 10 GiB off-heap arena and the existing serving flags. The rig's `take_lock`
+held the shared lock for the window; no benchmark or Gradle JVM was left running,
+and every launch had at least 27.12 GiB MemAvailable. The lock was released
+immediately afterward.
 
 The rewrite **does help at 100M**. Two q35-only runs of 30 repetitions produced the
 following last-ten medians. An additional 15-repetition parent run after the feature
@@ -110,9 +124,29 @@ Both q16 and q35 return byte-identical ordered JSONL results before and after at
 100M. All requested `route=` and `[proj]` lines, including cold q16 restarts, are
 preserved in the [diagnostic transcript](diagnostics/Q16_Q35_100M_2026-09-07.txt).
 Raw logs, collapsed profiles, exact launch arguments, result hashes and parsed
-statistics are in this worktree's `build/q16q35/100m-summary.json` and the sibling
-artifacts it names. The earlier 54 differential tests and full 1M gate remain
-applicable: only documentation changed after the measured production commit.
+statistics are retained outside the repository, in the measurement worktree's
+`build/q16q35/100m-summary.json`, under
+`/home/johannes/.treehouse/sirix-cdde48/4/sirix`, and the sibling artifacts it
+names. The earlier 54 differential tests and full 1M gate remain applicable: only
+documentation changed after the measured production commit.
+
+### What this branch does and does not establish
+
+These 100M numbers are **not reproducible from this repository**. They need the
+148-segment 100M database, an exclusively quiet machine and the rig lock; a
+repository test run has none of those, and remote CI has none of them either, so no
+automated check re-derives the 0.896 s parent and 0.3715 s feature medians. Those
+timings rest entirely on the committed transcript and the retained artifacts above.
+
+They are also **not a score**. Those are unscored single-query diagnostic medians;
+SEG4T's 1.319 s / 0.123 s and 2.302 ln remain q35's scored baseline, and the
+authoritative replacement must come from a separately scheduled full-suite campaign
+leg, not from this branch's diagnostic. No in-flight leg is claimed to have validated
+this rewrite: a leg validates it only if its head contains the executor change,
+checked with the diff named above.
+
+What a repository test run does establish is the route and the answers, at a size CI
+can afford: see Validation above.
 
 ## q16 is a different problem
 
