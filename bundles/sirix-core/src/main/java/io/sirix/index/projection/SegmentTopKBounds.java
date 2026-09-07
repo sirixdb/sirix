@@ -43,15 +43,15 @@ final class SegmentTopKBounds {
    * cell cannot match, and its literal is what the endpoint is refined past.
    *
    * <p>
-   * <b>Why an unrefined ordering — no predicate on the key at all — is refused here, deliberately.</b>
-   * The endpoint would be perfectly SOUND for it: the first/last collation position bounds every
-   * value the segment holds, hence any subset a filter leaves. What it cannot bound is a MISSING key,
-   * which a leaf may hide and which only the interpreter can place, so a bound without a predicate on
-   * the key is usable only behind {@link ProjectionColumnStore#allPresentLeaves}. That proof's cold
-   * path is a whole-column BODY pass INSIDE planning: it fetches every leaf's payload in windows,
-   * reads one marker byte, discards it, and the leaves the scan then evaluates are fetched again —
-   * traced (not timed) at 97,737 leaf payloads on the shape this was written against, though a
-   * resident, byte-cached or already memoized column answers it with no fetch at all. The campaign
+   * <b>Why an unrefined ordering — no predicate on the key at all — is refused here,
+   * deliberately.</b> The endpoint would be perfectly SOUND for it: the first/last collation position
+   * bounds every value the segment holds, hence any subset a filter leaves. What it cannot bound is a
+   * MISSING key, which a leaf may hide and which only the interpreter can place, so a bound without a
+   * predicate on the key is usable only behind {@link ProjectionColumnStore#allPresentLeaves}. That
+   * proof's cold path is a whole-column BODY pass INSIDE planning: it fetches every leaf's payload in
+   * windows, reads one marker byte, discards it, and the leaves the scan then evaluates are fetched
+   * again — traced (not timed) at 97,737 leaf payloads on the shape this was written against, though
+   * a resident, byte-cached or already memoized column answers it with no fetch at all. The campaign
    * forbids a prepass, so this declines and the query evaluates unbounded rather than pay a full
    * column read to plan. Do NOT widen this to the unrefined shape without a per-leaf all-present
    * proof that costs no fetch.
@@ -80,7 +80,9 @@ final class SegmentTopKBounds {
       }
       exclusion = predicate;
     }
-    return exclusion == null ? null : new SegmentTopKBounds(view, exclusion, descending);
+    return exclusion == null
+        ? null
+        : new SegmentTopKBounds(view, exclusion, descending);
   }
 
   long forLeaf(final ZoneIndex zone, final int leaf) {
@@ -95,8 +97,8 @@ final class SegmentTopKBounds {
       return UNKNOWN;
     }
     final int count = view.entryCountOfSegment(segment);
-    if (ProjectionIndexRowGroupPage.idOfCell(min) < 1
-        || ProjectionIndexRowGroupPage.idOfCell(max) > count || count < 1) {
+    if (ProjectionIndexRowGroupPage.idOfCell(min) < 1 || ProjectionIndexRowGroupPage.idOfCell(max) > count
+        || count < 1) {
       return UNKNOWN;
     }
     long bound = bounds[segment];
@@ -104,11 +106,17 @@ final class SegmentTopKBounds {
       if (view.segmentEntryCount(min) < 1) {
         bound = UNKNOWN; // unordered storage has no collation endpoint to read
       } else {
-        int position = descending ? count : 1;
+        int position = descending
+            ? count
+            : 1;
         bound = cellAt(min, segment, position, count);
         if (bound != UNKNOWN && bound == exclusion.literalForLeaf(min)) {
-          position += descending ? -1 : 1;
-          bound = position < 1 || position > count ? EMPTY : cellAt(min, segment, position, count);
+          position += descending
+              ? -1
+              : 1;
+          bound = position < 1 || position > count
+              ? EMPTY
+              : cellAt(min, segment, position, count);
         }
       }
       bounds[segment] = bound;
@@ -119,7 +127,9 @@ final class SegmentTopKBounds {
   private long cellAt(final long probe, final int segment, final int position, final int count) {
     positionLookups++;
     final int mint = view.mintAtPositionOfCell(probe, position);
-    return mint < 1 || mint > count ? UNKNOWN : ProjectionIndexRowGroupPage.packSegmentCell(segment, mint);
+    return mint < 1 || mint > count
+        ? UNKNOWN
+        : ProjectionIndexRowGroupPage.packSegmentCell(segment, mint);
   }
 
   /**
@@ -139,7 +149,9 @@ final class SegmentTopKBounds {
     }
     IntArrays.mergeSort(order, 0, n, (left, right) -> {
       final int cmp = view.compareCells(bounds[left], bounds[right]);
-      return cmp == 0 ? Integer.compare(left, right) : cmp;
+      return cmp == 0
+          ? Integer.compare(left, right)
+          : cmp;
     });
     final int[] ranked = new int[segmentCount];
     int rank = 0;
@@ -152,7 +164,9 @@ final class SegmentTopKBounds {
     ranks = ranked;
   }
 
-  /** The collation ordinal of a bound cell this instance produced; {@link #rankBounds()} runs first. */
+  /**
+   * The collation ordinal of a bound cell this instance produced; {@link #rankBounds()} runs first.
+   */
   int rankOf(final long cell) {
     final int[] ranked = ranks;
     if (ranked == null) {
@@ -161,7 +175,9 @@ final class SegmentTopKBounds {
     return ranked[ProjectionIndexRowGroupPage.segmentOfCell(cell)];
   }
 
-  /** Position requests, not physical page reads; used by diagnostics and the bounded-setup witness. */
+  /**
+   * Position requests, not physical page reads; used by diagnostics and the bounded-setup witness.
+   */
   int positionLookups() {
     return positionLookups;
   }

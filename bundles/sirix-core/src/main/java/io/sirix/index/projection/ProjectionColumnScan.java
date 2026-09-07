@@ -1136,9 +1136,9 @@ public final class ProjectionColumnScan {
     }
 
     /**
-     * The leaf's numeric ordering key: its bound directly, or — for a segment-scoped string key,
-     * whose cells are only comparable through their dictionary values — that bound's collation
-     * ordinal, so the ordering below stays a radix pass over longs.
+     * The leaf's numeric ordering key: its bound directly, or — for a segment-scoped string key, whose
+     * cells are only comparable through their dictionary values — that bound's collation ordinal, so
+     * the ordering below stays a radix pass over longs.
      */
     private long orderKey(final int leaf) {
       final long best = lbNumeric[leaf];
@@ -1273,8 +1273,8 @@ public final class ProjectionColumnScan {
     long[] lbNumeric = null;
     StringValueExtrema extrema = null;
     SegmentTopKBounds segmentBounds = null;
-    if (keyCount == 1 && ProjectionIndexRowGroupPage.isSegmentScopedIdKind(firstKind)
-        && globalSortViews.length > 0 && globalSortViews[0] != null) {
+    if (keyCount == 1 && ProjectionIndexRowGroupPage.isSegmentScopedIdKind(firstKind) && globalSortViews.length > 0
+        && globalSortViews[0] != null) {
       segmentBounds = SegmentTopKBounds.create(globalSortViews[0], predicates, first, desc);
       if (segmentBounds != null) {
         lbNumeric = new long[leafCount];
@@ -1292,8 +1292,8 @@ public final class ProjectionColumnScan {
           }
         }
         if (DIAG) {
-          System.err.printf("[topk-bounds] kind=segment positions=%d segments=%d%n",
-              segmentBounds.positionLookups(), globalSortViews[0].segmentCount());
+          System.err.printf("[topk-bounds] kind=segment positions=%d segments=%d%n", segmentBounds.positionLookups(),
+              globalSortViews[0].segmentCount());
         }
       }
     }
