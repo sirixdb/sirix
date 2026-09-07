@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -446,6 +447,179 @@ final class SegmentGroupCanonicaliserTest {
       leaves[segment] = sliceOf(rows);
     }
     return leaves;
+  }
+
+  @Test
+  void transformsEachSelectedCellOnceOnSegmentWorkersAndKeepsRowMultiplicity() throws Exception {
+    final int segments = 4;
+    final int entries = 5_000; // more than a batch, plus its partial tail
+    final PositionedCorpus corpus = positionedCorpus(segments, entries);
+    final AtomicInteger transforms = new AtomicInteger();
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(corpus, segments, value -> {
+      transforms.incrementAndGet();
+      return value.substring(value.length() - 1); // ten groups, each spread over all four segments
+    }, 4_096);
+    final ColumnSlice[] slices = leavesInMintOrder(corpus, segments, entries);
+    final ColumnSlice[] out;
+    try (ExecutorService workers = Executors.newFixedThreadPool(segments)) {
+      out = groups.canonicaliseColumn(slices, null, null, (count, body) -> {
+        final List<Future<?>> futures = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+          final int segment = i;
+          futures.add(workers.submit(() -> body.accept(segment)));
+        }
+        for (final Future<?> future : futures) {
+          try {
+            future.get(30, TimeUnit.SECONDS);
+          } catch (final Exception failure) {
+            throw new AssertionError(failure);
+          }
+        }
+      });
+    }
+    assertNotNull(out);
+    assertEquals(segments * entries, transforms.get(), "one transform per distinct selected cell");
+    assertEquals(segments * entries, corpus.reads().get(), "no dictionary re-reads for equality");
+    assertEquals(segments * entries, corpus.positionWalks().get(), "walk physical positions before mapping rows");
+    assertEquals(10, groups.size());
+    final long[] counts = new long[groups.size() + 1];
+    for (int s = 0; s < segments; s++) {
+      assertEquals(slices[s].rowCount(), out[s].rowCount());
+      for (int row = 0; row < entries; row++) {
+        final int id = (int) out[s].numericValues()[row];
+        counts[id]++;
+        final String raw = corpus.values().get(slices[s].numericValues()[row]);
+        assertEquals(raw.substring(raw.length() - 1), groups.valueOf(id));
+      }
+    }
+    for (int id = 1; id < counts.length; id++) {
+      assertEquals(segments * entries / 10, counts[id]);
+    }
+    final int before = transforms.get();
+    assertNotNull(groups.canonicaliseColumn(slices, null, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertEquals(before, transforms.get(), "mapping repeated rows and repeated passes does no transform work");
+  }
+
+  @Test
+  void transformedOrderIsNeitherMintOrderNorSourceValueOrder() {
+    final PositionedCorpus corpus = positionedCorpus(2, 3);
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(corpus, 2,
+        value -> "key-" + (5 - Integer.parseInt(value.substring(6))), 4_096);
+    final ColumnSlice[] slices = leavesInMintOrder(corpus, 2, 3);
+    assertNotNull(groups.canonicaliseColumn(slices, null, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertFalse(groups.isOrderPreserving(), "raw sorted runs do not order transformed keys");
+    assertTrue(groups.sealOrderPreserving());
+    final ColumnSlice[] ranked = groups.canonicalise(slices);
+    for (int s = 0; s < slices.length; s++) {
+      for (int row = 0; row < slices[s].rowCount(); row++) {
+        final long cell = slices[s].numericValues()[row];
+        final int rawNumber = Integer.parseInt(corpus.values().get(cell).substring(6));
+        assertEquals(6 - rawNumber, ranked[s].numericValues()[row]);
+      }
+    }
+    assertEquals("key-0", groups.valueOf(1));
+    assertEquals("key-5", groups.valueOf(6));
+    // The same mint in different segments names different values; raw long order is not MIN order.
+    final long first = ProjectionIndexRowGroupPage.packSegmentCell(0, 1);
+    final long second = ProjectionIndexRowGroupPage.packSegmentCell(1, 3);
+    assertTrue(first < second);
+    assertTrue(corpus.values().get(first).compareTo(corpus.values().get(second)) > 0);
+    final SegmentGroupCanonicaliser operand = new SegmentGroupCanonicaliser(corpus, 2);
+    final ColumnSlice[] operandRows = {sliceOf(first), sliceOf(second)};
+    assertTrue(operand.observeColumn(operandRows, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertTrue(operand.sealOrderPreserving());
+    final ColumnSlice[] operandIds = operand.canonicalise(operandRows);
+    final int minimum = (int) Math.min(operandIds[0].numericValues()[0], operandIds[1].numericValues()[0]);
+    assertEquals(corpus.values().get(second), operand.valueOf(minimum),
+        "MIN must fold canonical value ranks, never segment-local mints or packed cells");
+  }
+
+  @Test
+  void selectiveTransformDoesNoWorkForUnselectedDictionaryEntries() {
+    final PositionedCorpus corpus = positionedCorpus(2, 200);
+    final AtomicInteger transforms = new AtomicInteger();
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(corpus, 2, value -> {
+      transforms.incrementAndGet();
+      return value.toUpperCase(Locale.ROOT);
+    }, 4_096);
+    final ColumnSlice[] slices = leavesInMintOrder(corpus, 2, 200);
+    final long[][] keep = {new long[] {1L << 1 | 1L << 3 | 1L << 6, 0, 0, 0}, null};
+    final ColumnSlice[] out = groups.canonicaliseColumn(slices, null, keep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    assertNotNull(out);
+    assertNull(out[1]);
+    assertEquals(3, transforms.get());
+    assertEquals(3, corpus.positionLookups().get());
+    assertEquals(0, corpus.positionWalks().get(), "sparse input must never trigger a whole dictionary sweep");
+    assertEquals(keep[0][0], out[0].presenceWords()[0]);
+    assertEquals(0L, out[0].numericValues()[0]);
+  }
+
+  @Test
+  void uncachedTransformBoundsMemoryAndEvaluationsBelowTheLegacyResolver() {
+    final PositionedCorpus corpus = positionedCorpus(3, 100);
+    final AtomicInteger calls = new AtomicInteger();
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(corpus, 3, value -> {
+      calls.incrementAndGet();
+      return "large-result-".repeat(1_000) + value.charAt(value.length() - 1);
+    }, 1_024);
+    assertNotNull(groups.canonicaliseColumn(leavesInMintOrder(corpus, 3, 100), null, null,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertEquals(10, groups.size());
+    assertEquals(0, groups.retainedTransformBytes(), "even a single oversized output must respect the cap");
+    assertEquals(300 + 290, calls.get(), "one incoming transform plus at most one per equality candidate");
+    final SegmentGroupCanonicaliser ordinary = new SegmentGroupCanonicaliser(corpus, 3);
+    assertEquals(0, ordinary.retainedTransformBytes(), "ordinary keys never allocate a transform cache");
+  }
+
+  @Test
+  void transformsUnwalkableCellsThroughTheMemoAndRefusesUnresolvablePresentCells() {
+    final long cell = ProjectionIndexRowGroupPage.packSegmentCell(3, 7);
+    final AtomicInteger transforms = new AtomicInteger();
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(
+        key -> key == cell ? "raw" : null, 4, value -> {
+          transforms.incrementAndGet();
+          return "transformed";
+        }, 1_024);
+    final ColumnSlice[] slices = {sliceWithAbsent(new long[] {cell, -1, cell}, 1)};
+    final ColumnSlice[] out = groups.canonicaliseColumn(slices, null, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    assertNotNull(out);
+    assertEquals(1, transforms.get());
+    assertEquals(out[0].numericValues()[0], out[0].numericValues()[2]);
+    assertEquals(0, out[0].numericValues()[1]);
+    assertEquals("transformed", groups.valueOf((int) out[0].numericValues()[0]));
+    assertNull(groups.canonicalise(new ColumnSlice[] {sliceOf(ProjectionIndexRowGroupPage.packSegmentCell(3, 8))}));
+  }
+
+  @Test
+  void identityResultsNeedNoRetainedStringsOrRepeatedTransformsEvenWithoutCache() {
+    final PositionedCorpus corpus = positionedCorpus(3, 100, true, false);
+    final AtomicInteger calls = new AtomicInteger();
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(corpus, 3, value -> {
+      calls.incrementAndGet();
+      return new String(value); // equal content counts as identity, not only the same reference
+    }, 0);
+    final ColumnSlice[] out = groups.canonicaliseColumn(leavesInMintOrder(corpus, 3, 100), null, null,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    assertNotNull(out);
+    assertEquals(100, groups.size());
+    assertEquals(300, calls.get(), "identity representatives are read directly from their dictionary");
+    assertEquals(0, groups.retainedTransformBytes());
+    for (int row = 0; row < 100; row++) {
+      assertEquals(out[0].numericValues()[row], out[1].numericValues()[row]);
+      assertEquals(out[0].numericValues()[row], out[2].numericValues()[row]);
+    }
+  }
+
+  @Test
+  void transformCacheStopsAtItsBudgetWithoutChangingGroups() {
+    final PositionedCorpus corpus = positionedCorpus(2, 100);
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(corpus, 2, value -> value + "!", 512);
+    assertNotNull(groups.canonicaliseColumn(leavesInMintOrder(corpus, 2, 100), null, null,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertEquals(200, groups.size());
+    assertTrue(groups.retainedTransformBytes() > 0);
+    assertTrue(groups.retainedTransformBytes() <= 512);
+    assertThrows(IllegalArgumentException.class, () -> new SegmentGroupCanonicaliser(corpus, 2, value -> value, -1));
   }
 
   @Test

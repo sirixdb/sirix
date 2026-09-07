@@ -277,6 +277,30 @@ public final class SegmentLengthLaneQueryTest {
         "the first mode's tables must still be memoised beside the second's");
   }
 
+  @Test
+  void regexGroupsPreserveLengthsMinimaMultiplicityAndStableCountTies() throws Exception {
+    final int segments = segmentCount();
+    assertTrue(segments > 1, "MIN must compare values from different segment dictionaries");
+    final String prefix = "subsequence(for $u in " + SRC
+        + " where $u.name != '' let $k := replace($u.name, '^(.*)-[0-9]+$', '$1'), "
+        + "$len := jn:utf8-length($u.name) group by $k let $c := count($u) ";
+    final String[] queries = {
+        prefix + "let $l := xs:double(avg($len)) where $c > 10 order by $l descending "
+            + "return {\"k\": $k, \"l\": $l, \"c\": $c, \"m\": min($u.name)}, 1, 4)",
+        // Three salts have equal counts. LIMIT cuts that tie; document order decides the survivor.
+        prefix + "order by $c descending return {\"k\": $k, \"c\": $c, \"m\": min($u.name)}, 1, 2)"
+    };
+    for (final String query : queries) {
+      final String expected = run(query, false);
+      final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+      final long sealsBefore = SirixVectorizedExecutor.segmentOperandSealCount();
+      assertEquals(expected, run(query, true), "regex grouping must agree with the interpreter including order");
+      assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedBefore, "the projection route must serve");
+      assertEquals(1, SirixVectorizedExecutor.segmentOperandSealCount() - sealsBefore,
+          "MIN uses one ordered value space for the original column");
+    }
+  }
+
   private void assertLengthLaneServed(final String lengthFunction, final byte mode) throws Exception {
     final int segments = segmentCount();
     final String query = avgQuery(lengthFunction);
