@@ -162,12 +162,19 @@ final class TopKHeap {
   }
 
   /**
-   * Whether a leaf whose BEST possible first key is {@code best} (a numeric key) is strictly worse
+   * Whether a leaf whose BEST possible first key is {@code best} (numeric or a segment cell) is strictly worse
    * than the worst kept row on that key alone — then none of its rows can enter. Only meaningful on a
    * {@link #full()} heap.
    */
   boolean firstKeyStrictlyWorse(final long best) {
-    final int cmp = Long.compare(best, tuple[0]);
+    return firstKeyStrictlyWorse(best, this);
+  }
+
+  /** Compare to a frozen threshold using THIS heap's calling-thread dictionary views. */
+  boolean firstKeyStrictlyWorse(final long best, final TopKHeap threshold) {
+    final int cmp = keyKind[0] == KEY_STRING_SEGMENT
+        ? globalViews[0].compareCells(best, threshold.tuple[0])
+        : Long.compare(best, threshold.tuple[0]);
     return descending[0]
         ? cmp < 0
         : cmp > 0;
@@ -269,7 +276,8 @@ final class TopKHeap {
         case KEY_NUMERIC -> cmp = Long.compare(ha.tuple[ba + kk], hb.tuple[bb + kk]);
         case KEY_STRING_GLOBAL ->
           cmp = ha.globalViews[kk].compareIds(Math.toIntExact(ha.tuple[ba + kk]), Math.toIntExact(hb.tuple[bb + kk]));
-        case KEY_STRING_SEGMENT -> cmp = ha.globalViews[kk].compareCells(ha.tuple[ba + kk], hb.tuple[bb + kk]);
+        // In a merge ha is the completed worker heap, while hb is the receiving heap on this thread.
+        case KEY_STRING_SEGMENT -> cmp = hb.globalViews[kk].compareCells(ha.tuple[ba + kk], hb.tuple[bb + kk]);
         default -> {
           final byte[] x = ha.strKey[ba + kk];
           final byte[] y = hb.strKey[bb + kk];

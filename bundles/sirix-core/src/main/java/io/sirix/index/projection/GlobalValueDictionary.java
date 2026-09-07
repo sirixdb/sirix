@@ -881,6 +881,11 @@ public final class GlobalValueDictionary {
       return perSegment != null;
     }
 
+    /** Segment slots in this union, including missing dictionaries; -1 for an ordinary view. */
+    public int segmentCount() {
+      return perSegment == null ? -1 : perSegment.length;
+    }
+
     /**
      * Ids readable in the dictionary of segment {@code segment} of a union, or {@code -1} when that
      * segment sealed none for this column (its rows keep their bytes) or this is not a union.
