@@ -40,20 +40,26 @@ final class SegmentValueTransform implements CellResolver {
   @Override
   public @Nullable String valueOfCell(final long cell) {
     final String raw = source.valueOfCell(cell);
-    return raw == null ? null : apply(raw);
+    return raw == null
+        ? null
+        : apply(raw);
   }
 
-  @Nullable String apply(final String raw) {
+  @Nullable
+  String apply(final String raw) {
     return transform.apply(raw);
   }
 
   /** Called only under the canonicaliser's monitor, like {@link #remember}. */
-  @Nullable String representative(final int canonical, final long cell) {
+  @Nullable
+  String representative(final int canonical, final long cell) {
     if (unchanged.get(canonical)) {
       return source.valueOfCell(cell); // an identity result already lives in the source dictionary
     }
     final String cached = representatives.get(cell);
-    return cached != null ? cached : valueOfCell(cell);
+    return cached != null
+        ? cached
+        : valueOfCell(cell);
   }
 
   /**
