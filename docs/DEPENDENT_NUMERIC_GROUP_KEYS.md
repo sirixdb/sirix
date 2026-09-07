@@ -70,11 +70,11 @@ no canonicalization samples. Inclusive categories overlap.
 
 The firstmate-controlled window compared the parent `ca4c34d38` executor with
 `e9f0f5c76` on the same read-only, 148-segment database. `e9f0f5c76` is this change
-before the rebases that renamed it `87a5f04be`: `ca4c34d38` is literally its parent,
-and `git diff e9f0f5c76 87a5f04be -- .../SirixVectorizedExecutor.java` is empty.
+before the rebases that renamed it `87a5f04be`: `ca4c34d38` is literally its parent.
 The only later edit to that file is the campaign formatter's reflow of the new
-block, so a later leg checks that its own head contains the rewrite by diffing it
-against `87a5f04be` and finding nothing but that reflow. The parent executor and its
+block. `e9f0f5c76` is recorded here as the historical identity of the measured
+build; it was left unreachable by those rebases, so a fresh clone will not have the
+object and no check should assume it does. The parent executor and its
 nested classes were compiled separately and prepended to the otherwise identical
 runtime classpath. Each launch used 20 workers, a 14 GiB maximum
 heap, a 10 GiB off-heap arena and the existing serving flags. The rig's `take_lock`
@@ -146,8 +146,9 @@ They are also **not a score**. Those are unscored single-query diagnostic median
 SEG4T's 1.319 s / 0.123 s and 2.302 ln remain q35's scored baseline, and the
 authoritative replacement must come from a separately scheduled full-suite campaign
 leg, not from this branch's diagnostic. No in-flight leg is claimed to have validated
-this rewrite: a leg validates it only if its head contains the executor change,
-checked with the diff named above.
+this rewrite: a leg validates it only if its head contains the executor change.
+SEG5T does not — it measured `de2724c5c`, which predates `87a5f04be`, so its q35 row
+rescores the **unrewritten** query.
 
 What a repository test run does establish is the route and the answers, at a size CI
 can afford: see Validation above.

@@ -19,7 +19,7 @@ variable; working files live under `bundles/sirix-query/build/diagnostics/` (git
 | `load1m.sh` / `seggate1m.sh` | 1M load + correctness gate against DuckDB (`0 mismatch, 0 missing` required) |
 | `junit.py START CLASS…` | read JUnit XML refusing anything older than the run start (a compile error leaves stale XML) |
 | `collapsed.py FILE [pat…]` | summarise an async-profiler collapsed-stack file |
-| `legs/` | reference legs: `N1FULL1` (rank 10, the old global-dictionary DB), `SEG2T`/`SEG3T`/`SEG3TB` (segment lane), `SEG4T` — **the measured standing** (the handoff's §2 owns the number) — and `SEG5T`, a later measured leg the handoff has not folded into that standing yet |
+| `legs/` | reference legs: `N1FULL1` (rank 10, the old global-dictionary DB), `SEG2T`/`SEG3T`/`SEG3TB` (segment lane), `SEG4T` (the earlier measured leg the handoff's §4 lever ln values are drawn from) and `SEG5T` — **the measured standing** (the handoff's §2 owns the number) |
 | `board/data.generated.js` | snapshot (2026-09-02) of https://benchmark.clickhouse.com/data.generated.js |
 
 ## The one loop that matters
