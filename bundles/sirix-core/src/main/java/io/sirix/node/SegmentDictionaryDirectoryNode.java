@@ -11,13 +11,14 @@ import java.util.Objects;
  * for every {@code (segment, slot)} the sealed dictionary generation that decodes its ids.
  *
  * <p>
- * ONE record per resource at the fixed key {@link #DIRECTORY_KEY} of the projection-value-dictionary
- * sub-trie. A resource that never bound the segment lane has either nothing or a plain dictionary
- * header at that key, so readers dispatch on the record's type rather than on a flag anywhere else:
- * {@code instanceof SegmentDictionaryDirectoryNode} is the whole discovery protocol, and the
- * {@code NamePage} format is untouched. The lane reserves keys {@code 1..1023} when it binds, which
- * leaves the directory alone in page 0 of the sub-trie ({@code pageKey = recordKey >>> 10}); a
- * rewrite of the directory therefore never copies a value block.
+ * ONE record per resource at the fixed key {@link #DIRECTORY_KEY} of the
+ * projection-value-dictionary sub-trie. A resource that never bound the segment lane has either
+ * nothing or a plain dictionary header at that key, so readers dispatch on the record's type rather
+ * than on a flag anywhere else: {@code instanceof SegmentDictionaryDirectoryNode} is the whole
+ * discovery protocol, and the {@code NamePage} format is untouched. The lane reserves keys
+ * {@code 1..1023} when it binds, which leaves the directory alone in page 0 of the sub-trie
+ * ({@code pageKey = recordKey >>> 10}); a rewrite of the directory therefore never copies a value
+ * block.
  * </p>
  *
  * <p>
@@ -79,13 +80,12 @@ public final class SegmentDictionaryDirectoryNode implements DataRecord {
     /**
      * Takes ownership of the arrays; the caller must not touch them again.
      *
-     * @param tagsBySlot per slot its tags, each strictly ascending; an empty array for a slot
-     *        without a dictionary
+     * @param tagsBySlot per slot its tags, each strictly ascending; an empty array for a slot without a
+     *        dictionary
      * @param headerKeys per slot the sealed generation's header key, 0 for none
      * @param entryCounts per slot the sealed generation's entry count, 0 for none
      */
-    public static SlotTable takeOwnership(final int[][] tagsBySlot, final long[] headerKeys,
-        final int[] entryCounts) {
+    public static SlotTable takeOwnership(final int[][] tagsBySlot, final long[] headerKeys, final int[] entryCounts) {
       if (tagsBySlot == null || headerKeys == null || entryCounts == null) {
         throw new NullPointerException("slot table arrays must not be null");
       }
@@ -138,7 +138,10 @@ public final class SegmentDictionaryDirectoryNode implements DataRecord {
       return new SlotTable(tagsBySlot, headerKeys, entryCounts);
     }
 
-    /** Number of slots (the highest projection column index the segment's load dictionary-encoded, plus one). */
+    /**
+     * Number of slots (the highest projection column index the segment's load dictionary-encoded, plus
+     * one).
+     */
     public int slotCount() {
       return headerKeys.length;
     }
@@ -183,8 +186,7 @@ public final class SegmentDictionaryDirectoryNode implements DataRecord {
   /** Index-aligned with {@link #segmentStarts}. */
   private final SlotTable[] slotTables;
 
-  private SegmentDictionaryDirectoryNode(final long nodeKey, final long[] segmentStarts,
-      final SlotTable[] slotTables) {
+  private SegmentDictionaryDirectoryNode(final long nodeKey, final long[] segmentStarts, final SlotTable[] slotTables) {
     this.nodeKey = nodeKey;
     this.segmentStarts = segmentStarts;
     this.slotTables = slotTables;
@@ -200,19 +202,19 @@ public final class SegmentDictionaryDirectoryNode implements DataRecord {
   public static SegmentDictionaryDirectoryNode takeOwnership(final long nodeKey, final long[] segmentStarts,
       final SlotTable[] slotTables) {
     if (nodeKey != DIRECTORY_KEY) {
-      throw new IllegalArgumentException("the segment dictionary directory lives at key " + DIRECTORY_KEY + ", not "
-          + nodeKey);
+      throw new IllegalArgumentException(
+          "the segment dictionary directory lives at key " + DIRECTORY_KEY + ", not " + nodeKey);
     }
     if (segmentStarts == null || slotTables == null) {
       throw new NullPointerException("directory arrays must not be null");
     }
     if (segmentStarts.length == 0 || segmentStarts.length > MAX_SEGMENTS) {
-      throw new IllegalArgumentException("a segment directory holds 1.." + MAX_SEGMENTS + " segments, not "
-          + segmentStarts.length);
+      throw new IllegalArgumentException(
+          "a segment directory holds 1.." + MAX_SEGMENTS + " segments, not " + segmentStarts.length);
     }
     if (slotTables.length != segmentStarts.length) {
-      throw new IllegalArgumentException("directory has " + segmentStarts.length + " segments but "
-          + slotTables.length + " slot tables");
+      throw new IllegalArgumentException(
+          "directory has " + segmentStarts.length + " segments but " + slotTables.length + " slot tables");
     }
     if (segmentStarts[0] != 0L) {
       throw new IllegalArgumentException("segment 0 must start at page key 0, not " + segmentStarts[0]);
@@ -334,9 +336,6 @@ public final class SegmentDictionaryDirectoryNode implements DataRecord {
 
   @Override
   public String toString() {
-    return ToStringHelper.of(this)
-                         .add("nodeKey", nodeKey)
-                         .add("segments", segmentStarts.length)
-                         .toString();
+    return ToStringHelper.of(this).add("nodeKey", nodeKey).add("segments", segmentStarts.length).toString();
   }
 }

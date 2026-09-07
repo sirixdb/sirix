@@ -45,18 +45,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The seal takes a segment's values in MINT order and writes a dictionary whose storage is in
  * collation order, with a rank table from every mint to its position — or no table at all when the
  * mints already are the ranks. What must hold afterwards, through a real writer and a real reader:
- * every mint decodes to exactly the bytes the segment minted under it, every value probes back to its
- * mint, the storage is provably sorted (positions ascend in collation), the separator array exists
- * over a dictionary wide enough to need one and survives the table, a slot wider than one interner
- * generation chains and stays one ordered run, and a refused seal reserves no key.
+ * every mint decodes to exactly the bytes the segment minted under it, every value probes back to
+ * its mint, the storage is provably sorted (positions ascend in collation), the separator array
+ * exists over a dictionary wide enough to need one and survives the table, a slot wider than one
+ * interner generation chains and stays one ordered run, and a refused seal reserves no key.
  *
  * <p>
  * <b>Mutations this must fail:</b> the seal skipping {@code attachRankTable} (mints decode to the
  * value at their own position — the scrambled fixture pins mint 1 to the LAST value); building the
  * table before the block index (refused by {@code buildBlockIndex}); a comparator in byte order
- * rather than UTF-16 order (the astral trap inverts); the identity check inverted (a table where none
- * is needed, or none where one is); the strictness check dropped (a duplicate value seals); the
- * generation cut off by one (the interner refuses the 16385th value).
+ * rather than UTF-16 order (the astral trap inverts); the identity check inverted (a table where
+ * none is needed, or none where one is); the strictness check dropped (a duplicate value seals);
+ * the generation cut off by one (the interner refuses the 16385th value).
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -150,8 +150,7 @@ final class SegmentDictionarySealTest {
               () -> "probe of mint " + m + "'s value");
         }
         assertEquals(GlobalValueDictionary.ID_ABSENT,
-            GlobalValueDictionary.probe(headerKey, utf8("value-000005-and-a-half"),
-            reader));
+            GlobalValueDictionary.probe(headerKey, utf8("value-000005-and-a-half"), reader));
         // ORDER: comparing mints compares their values.
         final SplittableRandom random = new SplittableRandom(7L);
         for (int i = 0; i < 2_000; i++) {
@@ -242,8 +241,8 @@ final class SegmentDictionarySealTest {
           assertEquals(mint, GlobalValueDictionary.probe(sealed.headerKey(), valuesById[mint - 1], reader));
         }
         // The generation seams in particular: the last mint of one interner and the first of the next.
-        for (int seam = SegmentDictionarySeal.GENERATION_ENTRIES; seam <= count;
-            seam += SegmentDictionarySeal.GENERATION_ENTRIES) {
+        for (int seam = SegmentDictionarySeal.GENERATION_ENTRIES; seam <= count; seam +=
+            SegmentDictionarySeal.GENERATION_ENTRIES) {
           assertEquals(seam, GlobalValueDictionary.probe(sealed.headerKey(), valuesById[seam - 1], reader));
           assertEquals(seam + 1, GlobalValueDictionary.probe(sealed.headerKey(), valuesById[seam], reader));
         }
@@ -281,8 +280,9 @@ final class SegmentDictionarySealTest {
           final int withinRun = i < records
               ? i
               : i - records;
-          final ValueDictionaryRankTableNode record = (ValueDictionaryRankTableNode) namePage
-              .getProjectionValueDictionaryRecord(sealed.rankTableKey() + i, DatabaseType.JSON, reader);
+          final ValueDictionaryRankTableNode record =
+              (ValueDictionaryRankTableNode) namePage.getProjectionValueDictionaryRecord(sealed.rankTableKey() + i,
+                  DatabaseType.JSON, reader);
           assertNotNull(record, "record " + i);
           assertEquals(1 + withinRun * ValueDictionaryRankTableNode.ENTRIES_PER_RECORD, record.firstKey(),
               "record " + i);
@@ -315,14 +315,14 @@ final class SegmentDictionarySealTest {
 
       final byte[][] duplicated = sorted.toArray(new byte[0][]);
       duplicated[7] = duplicated[30].clone();
-      final IllegalStateException duplicate = assertThrows(IllegalStateException.class,
-          () -> SegmentDictionarySeal.write(writer, 0, duplicated));
+      final IllegalStateException duplicate =
+          assertThrows(IllegalStateException.class, () -> SegmentDictionarySeal.write(writer, 0, duplicated));
       assertTrue(duplicate.getMessage().contains("two ids for one value"), duplicate.getMessage());
 
       final byte[][] holed = sorted.toArray(new byte[0][]);
       holed[12] = null;
-      final IllegalStateException hole = assertThrows(IllegalStateException.class,
-          () -> SegmentDictionarySeal.write(writer, 0, holed));
+      final IllegalStateException hole =
+          assertThrows(IllegalStateException.class, () -> SegmentDictionarySeal.write(writer, 0, holed));
       assertTrue(hole.getMessage().contains("mint 13"), hole.getMessage());
 
       assertThrows(IllegalArgumentException.class, () -> SegmentDictionarySeal.write(writer, -1, duplicated));

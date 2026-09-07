@@ -4251,11 +4251,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Encode one page for the final commit and report it.
    *
    * <p>
-   * ONE site for both the sequential and the parallel sweep, because the report is not optional: every
-   * page still in the log produces its bytes here, and this is the only place that is true of the
-   * pages a commit encodes itself — the snapshot windows speak for the pages they flushed, and a page
-   * they promoted or deferred, or that never entered one, reaches its bytes here and nowhere else. A
-   * branch that prepared without reporting would leave those pages outstanding forever.
+   * ONE site for both the sequential and the parallel sweep, because the report is not optional:
+   * every page still in the log produces its bytes here, and this is the only place that is true of
+   * the pages a commit encodes itself — the snapshot windows speak for the pages they flushed, and a
+   * page they promoted or deferred, or that never entered one, reaches its bytes here and nowhere
+   * else. A branch that prepared without reporting would leave those pages outstanding forever.
    * </p>
    */
   private void prepareAndNoteKeyValuePage(final ResourceConfiguration resourceConfig, final Page page) {
@@ -5341,14 +5341,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Tell the seam listener that every page this commit writes has been encoded. Run on the
-   * committing thread, before the recursive commit, so whatever it persists joins this revision.
+   * Tell the seam listener that every page this commit writes has been encoded. Run on the committing
+   * thread, before the recursive commit, so whatever it persists joins this revision.
    */
   private void notifyEncodePassComplete() {
     final Runnable listener = encodePassCompleteListener;
     if (SEAM_DIAG) {
-      System.err.println("[seam] encode pass complete: writer=" + System.identityHashCode(this) + " listener="
-          + (listener != null));
+      System.err.println(
+          "[seam] encode pass complete: writer=" + System.identityHashCode(this) + " listener=" + (listener != null));
     }
     if (listener != null) {
       listener.run();

@@ -281,7 +281,7 @@ final class SegmentScopedDictionariesTest {
     // so that misses, hits and rehashes interleave.
     final int distinct = 6000;
     // Strides coprime to 6000 = 2^4 * 3 * 5^3, so each worker's walk is a permutation of the values.
-    final int[] strides = { 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47 };
+    final int[] strides = {7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47};
     final ExecutorService pool = Executors.newFixedThreadPool(threads);
     final CountDownLatch start = new CountDownLatch(1);
     final AtomicReferenceArray<int[]> seen = new AtomicReferenceArray<>(threads);
@@ -424,7 +424,8 @@ final class SegmentScopedDictionariesTest {
   void theMintTableGrows() {
     final SegmentScopedDictionaries dictionaries = leafCapped();
     final GlobalStringDictionaries view = dictionaries.adopt(0);
-    // Past INITIAL_VALUES (512) values and INITIAL_SLOTS (1024) slots at load factor 1/2: several rehashes.
+    // Past INITIAL_VALUES (512) values and INITIAL_SLOTS (1024) slots at load factor 1/2: several
+    // rehashes.
     final int distinct = 5000;
     for (int i = 0; i < distinct; i++) {
       assertEquals(i + 1, id(view, URL_TAG, "http://value-" + i), "ids are dense in arrival order");
@@ -687,7 +688,9 @@ final class SegmentScopedDictionariesTest {
     throw new AssertionError("no folded-hash collision found in 4M candidates; the fixture cannot be built");
   }
 
-  /** {@code value} as ASCII digits in {@code scratch}, returning its length — no allocation per probe. */
+  /**
+   * {@code value} as ASCII digits in {@code scratch}, returning its length — no allocation per probe.
+   */
   private static int writeDecimal(final byte[] scratch, final int value) {
     int remaining = value;
     int length = 0;

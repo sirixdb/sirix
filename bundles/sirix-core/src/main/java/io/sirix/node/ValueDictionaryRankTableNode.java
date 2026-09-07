@@ -13,31 +13,33 @@ import io.sirix.utils.ToStringHelper;
  * A segment dictionary mints ids the moment a value is first encoded — on a flush thread, into a
  * page that is written long before the segment's value set is closed — so the ids in the pages are
  * in arrival order (MINTS). The seal then stores the values in UTF-16 collation order (RANKS, the
- * storage positions), which is what makes the front-coded blocks pay and a probe a binary search over
- * a separator array. The forward run is the bridge every read takes: {@code entryOf(mint)} is the
- * position the value occupies in the ordered storage. The inverse run serves the probe, which finds
- * a POSITION by binary search and must hand back the id the rows carry: one record read per probe
- * instead of an {@code orderedPrefixCount}-int inverse built per view — at a 100M scale a per-probe
- * allocation of megabytes on the query path, for a table that costs the same bytes again on disk
- * (≈ 2.5 B per distinct value, a rounding error of the resource).
+ * storage positions), which is what makes the front-coded blocks pay and a probe a binary search
+ * over a separator array. The forward run is the bridge every read takes: {@code entryOf(mint)} is
+ * the position the value occupies in the ordered storage. The inverse run serves the probe, which
+ * finds a POSITION by binary search and must hand back the id the rows carry: one record read per
+ * probe instead of an {@code orderedPrefixCount}-int inverse built per view — at a 100M scale a
+ * per-probe allocation of megabytes on the query path, for a table that costs the same bytes again
+ * on disk (≈ 2.5 B per distinct value, a rounding error of the resource).
  * </p>
  *
  * <p>
  * Entries are bit-packed at the generation's uniform width ({@link #bitsFor}), so a record covering
- * {@link #ENTRIES_PER_RECORD} keys is at most 64 KiB even at 32 bits and a key resolves in one shift
- * and one mask with no per-record decode state. The word array carries ONE padding word so a value
- * straddling two words reads branch-free ({@code words[w + 1] << ~s << 1} is zero when the shift is
- * zero, the standard trick) — which also means records are NOT concatenable by array copy; each is
- * unpacked through its own {@link #entryAt}. Records are addressed arithmetically for the {@code i}-th
- * run of {@link #ENTRIES_PER_RECORD} keys, so a reader holds record references, never a copy of the
- * table.
+ * {@link #ENTRIES_PER_RECORD} keys is at most 64 KiB even at 32 bits and a key resolves in one
+ * shift and one mask with no per-record decode state. The word array carries ONE padding word so a
+ * value straddling two words reads branch-free ({@code words[w + 1] << ~s << 1} is zero when the
+ * shift is zero, the standard trick) — which also means records are NOT concatenable by array copy;
+ * each is unpacked through its own {@link #entryAt}. Records are addressed arithmetically for the
+ * {@code i}-th run of {@link #ENTRIES_PER_RECORD} keys, so a reader holds record references, never
+ * a copy of the table.
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class ValueDictionaryRankTableNode implements DataRecord {
 
-  /** Keys per record; {@code 1 << 14}, so {@code (key - 1) >>> 14} is the record index within a run. */
+  /**
+   * Keys per record; {@code 1 << 14}, so {@code (key - 1) >>> 14} is the record index within a run.
+   */
   public static final int ENTRIES_PER_RECORD = 1 << 14;
 
   /** {@code log2(ENTRIES_PER_RECORD)}, the shift that turns a key into its record index. */
@@ -48,10 +50,15 @@ public final class ValueDictionaryRankTableNode implements DataRecord {
 
   private final long nodeKey;
 
-  /** First key this record covers, {@code 1 + i * ENTRIES_PER_RECORD} for record {@code i} of its run. */
+  /**
+   * First key this record covers, {@code 1 + i * ENTRIES_PER_RECORD} for record {@code i} of its run.
+   */
   private final int firstKey;
 
-  /** How many keys this record covers, {@code 1..ENTRIES_PER_RECORD}; only the last record of a run is short. */
+  /**
+   * How many keys this record covers, {@code 1..ENTRIES_PER_RECORD}; only the last record of a run is
+   * short.
+   */
   private final int count;
 
   /** Bits per packed entry, {@code 1..32}, uniform across the generation's records (both runs). */
@@ -62,8 +69,8 @@ public final class ValueDictionaryRankTableNode implements DataRecord {
   /** Packed entries plus one padding word. */
   private final long[] words;
 
-  private ValueDictionaryRankTableNode(final long nodeKey, final int firstKey, final int count,
-      final int bitsPerEntry, final long[] words) {
+  private ValueDictionaryRankTableNode(final long nodeKey, final int firstKey, final int count, final int bitsPerEntry,
+      final long[] words) {
     this.nodeKey = nodeKey;
     this.firstKey = firstKey;
     this.count = count;
@@ -73,8 +80,8 @@ public final class ValueDictionaryRankTableNode implements DataRecord {
   }
 
   /**
-   * The uniform entry width for a generation of {@code orderedPrefixCount} ranked values: enough
-   * bits to hold the largest rank, which is the count itself.
+   * The uniform entry width for a generation of {@code orderedPrefixCount} ranked values: enough bits
+   * to hold the largest rank, which is the count itself.
    *
    * @param orderedPrefixCount the number of ranked values, at least 1
    * @return bits per entry, {@code 1..32}
@@ -99,7 +106,10 @@ public final class ValueDictionaryRankTableNode implements DataRecord {
     return (orderedPrefixCount - 1 >>> ENTRIES_PER_RECORD_SHIFT) + 1;
   }
 
-  /** Number of words that hold {@code count} entries of {@code bitsPerEntry} bits, plus the padding word. */
+  /**
+   * Number of words that hold {@code count} entries of {@code bitsPerEntry} bits, plus the padding
+   * word.
+   */
   static int wordsFor(final int count, final int bitsPerEntry) {
     final long bits = (long) count * bitsPerEntry;
     return (int) ((bits + 63) >>> 6) + 1;
@@ -125,8 +135,8 @@ public final class ValueDictionaryRankTableNode implements DataRecord {
     }
     checkShape(firstKey, count, bitsPerEntry);
     if ((long) firstKey + count > entryByKey.length) {
-      throw new IllegalArgumentException("rank table record " + firstKey + "+" + count + " exceeds the entries given ("
-          + entryByKey.length + ")");
+      throw new IllegalArgumentException(
+          "rank table record " + firstKey + "+" + count + " exceeds the entries given (" + entryByKey.length + ")");
     }
     final long[] words = new long[wordsFor(count, bitsPerEntry)];
     final long limit = Math.min(Integer.MAX_VALUE, (1L << bitsPerEntry) - 1L);
@@ -170,15 +180,15 @@ public final class ValueDictionaryRankTableNode implements DataRecord {
 
   private static void checkShape(final int firstKey, final int count, final int bitsPerEntry) {
     if (firstKey < 1 || (firstKey - 1 & ENTRIES_PER_RECORD - 1) != 0) {
-      throw new IllegalArgumentException("a rank table record must start at 1 + k * " + ENTRIES_PER_RECORD
-          + ", not at key " + firstKey);
+      throw new IllegalArgumentException(
+          "a rank table record must start at 1 + k * " + ENTRIES_PER_RECORD + ", not at key " + firstKey);
     }
     if (count < 1 || count > ENTRIES_PER_RECORD) {
       throw new IllegalArgumentException("a rank table record covers 1.." + ENTRIES_PER_RECORD + " keys, not " + count);
     }
     if (bitsPerEntry < 1 || bitsPerEntry > MAX_BITS_PER_ENTRY) {
-      throw new IllegalArgumentException("rank table entries are 1.." + MAX_BITS_PER_ENTRY + " bits wide, not "
-          + bitsPerEntry);
+      throw new IllegalArgumentException(
+          "rank table entries are 1.." + MAX_BITS_PER_ENTRY + " bits wide, not " + bitsPerEntry);
     }
   }
 
@@ -203,8 +213,8 @@ public final class ValueDictionaryRankTableNode implements DataRecord {
   }
 
   /**
-   * The entry ({@code 1..orderedPrefixCount}) of the {@code index}-th key of this record.
-   * Allocation- and branch-free after the bounds check: one shift per word, one mask.
+   * The entry ({@code 1..orderedPrefixCount}) of the {@code index}-th key of this record. Allocation-
+   * and branch-free after the bounds check: one shift per word, one mask.
    *
    * @param index {@code key - firstKey}, in {@code 0..size() - 1}
    */

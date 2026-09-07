@@ -1175,8 +1175,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (hasTrxIntentLog()) {
       return true;
     }
-    final boolean mayCarry = getNamePage(getActualRevisionRootPage())
-        .hasProjectionValueDictionary(GlobalValueDictionary.databaseTypeOf(this));
+    final boolean mayCarry = getNamePage(getActualRevisionRootPage()).hasProjectionValueDictionary(
+        GlobalValueDictionary.databaseTypeOf(this));
     // Cached only here, where the revision is finished and the answer cannot change.
     documentPagesMayCarryDictionaryIds = mayCarry;
     return mayCarry;
@@ -1243,8 +1243,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (!namePage.hasProjectionValueDictionary(databaseType)) {
       return null;
     }
-    final DataRecord record = namePage.getProjectionValueDictionaryRecord(SegmentDictionaryDirectoryNode.DIRECTORY_KEY,
-        databaseType, this);
+    final DataRecord record =
+        namePage.getProjectionValueDictionaryRecord(SegmentDictionaryDirectoryNode.DIRECTORY_KEY, databaseType, this);
     if (!(record instanceof SegmentDictionaryDirectoryNode directory)) {
       return null; // no lane ever sealed here — the trie lane's own anchors decide from here on
     }

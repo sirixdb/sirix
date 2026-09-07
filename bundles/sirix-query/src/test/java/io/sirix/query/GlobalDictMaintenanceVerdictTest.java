@@ -516,10 +516,10 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
    *
    * <p>
    * Reachability attribution, not decoration: the open question is WHICH pipeline lands in the
-   * predicate-count route in the {@link Arm#GENERIC} oracle arm. If it is the generic
-   * pipeline, then making that route decline would change what the differential oracle itself does —
-   * and a route that declines into itself either regresses infinitely or answers wrongly. If it is a
-   * third, auto-wired shortcut, the oracle is independent and the fix is safe.
+   * predicate-count route in the {@link Arm#GENERIC} oracle arm. If it is the generic pipeline, then
+   * making that route decline would change what the differential oracle itself does — and a route
+   * that declines into itself either regresses infinitely or answers wrongly. If it is a third,
+   * auto-wired shortcut, the oracle is independent and the fix is safe.
    * </p>
    */
   private static void printCallerChain(final String label, final Throwable thrown) {
@@ -620,9 +620,8 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
     // with it and reports nothing, which is how this differential ran self-referentially before; a
     // served counter that moves during the GENERIC arm is the only direct evidence of that, so it is
     // asserted here rather than left for a caller to remember.
-    Assertions.assertEquals(0L, oracleDelta,
-        () -> "the GENERIC oracle served " + oracleDelta + " " + counter + " shape(s) through the vectorized "
-            + "routes, so it is not an independent oracle: " + phase + "/" + shape);
+    Assertions.assertEquals(0L, oracleDelta, () -> "the GENERIC oracle served " + oracleDelta + " " + counter
+        + " shape(s) through the vectorized " + "routes, so it is not an independent oracle: " + phase + "/" + shape);
     final long start = counter.read();
     final String served = evaluateIsolated(q, Arm.EXPLICIT_EXECUTOR);
     final long delta = counter.read() - start;

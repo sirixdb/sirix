@@ -47,20 +47,22 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * A sealed segment dictionary stores its values in collation order but the pages carry arrival-order
- * MINTS, mapped to storage positions by a rank table. This drives the read side through a real table
- * over a real dictionary — one that spans several 256-value blocks, several 16384-mint table records
- * are not needed for that, and a spilled oversized value — and checks every route that must
- * translate: decode ({@code valueAsString}, the static {@code valueBytes}/{@code value}), the encode
- * probe (a POSITION found by binary search must come back as the MINT), id comparison, and the two
- * refusals (verdict sweeps, and a second block index or an append on top of the table).
+ * A sealed segment dictionary stores its values in collation order but the pages carry
+ * arrival-order MINTS, mapped to storage positions by a rank table. This drives the read side
+ * through a real table over a real dictionary — one that spans several 256-value blocks, several
+ * 16384-mint table records are not needed for that, and a spilled oversized value — and checks
+ * every route that must translate: decode ({@code valueAsString}, the static
+ * {@code valueBytes}/{@code value}), the encode probe (a POSITION found by binary search must come
+ * back as the MINT), id comparison, and the two refusals (verdict sweeps, and a second block index
+ * or an append on top of the table).
  *
  * <p>
  * <b>Mutations this must fail:</b> {@code ReadView#positionOf} returning the id untranslated (every
  * decode reads the wrong value); {@code probe} returning the search's position instead of
  * {@code mintAtPosition} (the probe answers a position that is a different mint); the static
  * {@code valueBytes} skipping the table (wrong bytes); {@code compareIds} comparing mints as ints
- * (the order inverts for the reversed permutation); {@code attachRankTable} accepting a repeated rank.
+ * (the order inverts for the reversed permutation); {@code attachRankTable} accepting a repeated
+ * rank.
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -124,14 +126,15 @@ final class RankTableReadViewTest {
             namePage, DatabaseType.JSON, writer, writer.getLog()), "a rank assigned to two mints");
         final int[] outOfRange = rankByMint.clone();
         outOfRange[5] = prefix + 1;
-        assertThrows(IllegalArgumentException.class, () -> GlobalValueDictionary.attachRankTable(headerKey,
-            outOfRange, namePage, DatabaseType.JSON, writer, writer.getLog()), "a rank beyond the prefix");
+        assertThrows(IllegalArgumentException.class, () -> GlobalValueDictionary.attachRankTable(headerKey, outOfRange,
+            namePage, DatabaseType.JSON, writer, writer.getLog()), "a rank beyond the prefix");
         final int[] zero = rankByMint.clone();
         zero[7] = 0;
         assertThrows(IllegalArgumentException.class, () -> GlobalValueDictionary.attachRankTable(headerKey, zero,
             namePage, DatabaseType.JSON, writer, writer.getLog()), "rank 0 is not a position");
-        assertThrows(IllegalArgumentException.class, () -> GlobalValueDictionary.attachRankTable(headerKey,
-            Arrays.copyOf(rankByMint, prefix), namePage, DatabaseType.JSON, writer, writer.getLog()),
+        assertThrows(
+            IllegalArgumentException.class, () -> GlobalValueDictionary.attachRankTable(headerKey,
+                Arrays.copyOf(rankByMint, prefix), namePage, DatabaseType.JSON, writer, writer.getLog()),
             "one mint short");
         final ValueDictionaryHeaderNode untouched = GlobalValueDictionary.header(headerKey, writer);
         assertNotNull(untouched);
@@ -148,9 +151,9 @@ final class RankTableReadViewTest {
             "a table over one record reserves exactly two keys: the forward run and the inverse run");
 
         // Once tabled, the routes that would silently drop the table refuse instead.
-        final IllegalStateException secondIndex = assertThrows(IllegalStateException.class,
-            () -> GlobalValueDictionary.buildBlockIndex(headerKey, namePage, DatabaseType.JSON, writer,
-                writer.getLog()));
+        final IllegalStateException secondIndex =
+            assertThrows(IllegalStateException.class, () -> GlobalValueDictionary.buildBlockIndex(headerKey, namePage,
+                DatabaseType.JSON, writer, writer.getLog()));
         assertTrue(secondIndex.getMessage().contains("rank table"), secondIndex.getMessage());
         assertThrows(IllegalArgumentException.class, () -> GlobalValueDictionary.attachRankTable(headerKey, rankByMint,
             namePage, DatabaseType.JSON, writer, writer.getLog()), "a second table on the same dictionary");
@@ -250,8 +253,7 @@ final class RankTableReadViewTest {
             "the sweep trap is not armed: " + permuted + " of " + prefix + " mints differ from their rank");
 
         final int oversizedPosition = positionOfOversized(sorted);
-        final int[] sweptMints =
-            {1, 2, prefix / 2, prefix - 1, prefix, mintByRank[oversizedPosition]};
+        final int[] sweptMints = {1, 2, prefix / 2, prefix - 1, prefix, mintByRank[oversizedPosition]};
         for (final int mint : sweptMints) {
           final byte[] value = sorted.get(rankByMint[mint] - 1);
           final long[] swept = view.stringOpVerdictByMint(ProjectionIndexScan.Op.EQ, value);
@@ -308,8 +310,8 @@ final class RankTableReadViewTest {
         for (int i = 0; i < 4_000; i++) {
           final int left = 1 + random.nextInt(prefix);
           final int right = 1 + random.nextInt(prefix);
-          final int expected = Integer.signum(compareCollation(sorted.get(rankByMint[left] - 1),
-              sorted.get(rankByMint[right] - 1)));
+          final int expected =
+              Integer.signum(compareCollation(sorted.get(rankByMint[left] - 1), sorted.get(rankByMint[right] - 1)));
           assertEquals(expected, Integer.signum(view.compareIds(left, right)),
               () -> "compareIds(" + left + ", " + right + ")");
         }
@@ -327,8 +329,8 @@ final class RankTableReadViewTest {
           if (mint == spilledMint) {
             continue;
           }
-          final int expected = Integer.signum(compareCollation(sorted.get(spilledPosition - 1),
-              sorted.get(rankByMint[mint] - 1)));
+          final int expected =
+              Integer.signum(compareCollation(sorted.get(spilledPosition - 1), sorted.get(rankByMint[mint] - 1)));
           assertEquals(expected, Integer.signum(view.compareIds(spilledMint, mint)),
               "compareIds(spilled, " + mint + ")");
           assertEquals(-expected, Integer.signum(view.compareIds(mint, spilledMint)),
@@ -345,14 +347,16 @@ final class RankTableReadViewTest {
         // The two runs are reachable at the header's key: the forward record at tableKey covers the
         // prefix in mints, the inverse record right behind it covers the prefix in positions.
         final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
-        final ValueDictionaryRankTableNode forward = (ValueDictionaryRankTableNode) namePage
-            .getProjectionValueDictionaryRecord(tableKey, DatabaseType.JSON, reader);
+        final ValueDictionaryRankTableNode forward =
+            (ValueDictionaryRankTableNode) namePage.getProjectionValueDictionaryRecord(tableKey, DatabaseType.JSON,
+                reader);
         assertNotNull(forward);
         assertEquals(1, forward.firstKey());
         assertEquals(prefix, forward.size());
         assertEquals(ValueDictionaryRankTableNode.bitsFor(prefix), forward.bitsPerEntry());
-        final ValueDictionaryRankTableNode inverse = (ValueDictionaryRankTableNode) namePage
-            .getProjectionValueDictionaryRecord(tableKey + 1, DatabaseType.JSON, reader);
+        final ValueDictionaryRankTableNode inverse =
+            (ValueDictionaryRankTableNode) namePage.getProjectionValueDictionaryRecord(tableKey + 1, DatabaseType.JSON,
+                reader);
         assertNotNull(inverse);
         assertEquals(1, inverse.firstKey());
         assertEquals(prefix, inverse.size());
@@ -443,11 +447,9 @@ final class RankTableReadViewTest {
               () -> "bytes of " + at);
           assertEquals(codePoints, view.valueLengthOfCell(mint, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS),
               () -> "code points of " + at);
-          assertEquals(stored.length,
-              union.valueLengthOfCell(cell, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES),
+          assertEquals(stored.length, union.valueLengthOfCell(cell, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES),
               () -> "bytes of " + at + " through the union");
-          assertEquals(codePoints,
-              union.valueLengthOfCell(cell, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS),
+          assertEquals(codePoints, union.valueLengthOfCell(cell, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS),
               () -> "code points of " + at + " through the union");
           assertEquals(byteTable[mint], stored.length, () -> "the table's bytes of " + at);
           assertEquals(codePointTable[mint], codePoints, () -> "the table's code points of " + at);
@@ -475,8 +477,8 @@ final class RankTableReadViewTest {
         assertEquals(1 + ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES / 4 + 1,
             view.valueLengthOfCell(multibyteSpillMint, ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS),
             "the multibyte spill answers code points from its own record");
-        final int supplementaryMint = mintByRank[1 + indexOf(sorted, utf8("collate-" + new String(Character.toChars(
-            0x1F600))))];
+        final int supplementaryMint =
+            mintByRank[1 + indexOf(sorted, utf8("collate-" + new String(Character.toChars(0x1F600))))];
         assertEquals("collate-".length() + 4,
             view.valueLengthOfCell(supplementaryMint, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES));
         assertEquals("collate-".length() + 1,
@@ -558,8 +560,8 @@ final class RankTableReadViewTest {
 
         final SegmentRunCursor cursor = view.positionCursorOfCell(1);
         assertNotNull(cursor);
-        final SegmentRunCursor viaUnion = union.positionCursorOfCell(ProjectionIndexRowGroupPage.packSegmentCell(
-            segment, 7));
+        final SegmentRunCursor viaUnion =
+            union.positionCursorOfCell(ProjectionIndexRowGroupPage.packSegmentCell(segment, 7));
         assertNotNull(viaUnion);
         assertEquals(0L, cursor.loads(), "a fresh cursor holds nothing");
 
@@ -603,8 +605,8 @@ final class RankTableReadViewTest {
         final int records = ValueDictionaryRankTableNode.recordCountFor(prefix);
         final long walked = cursor.loads();
         assertTrue(walked >= buckets + records + 1, "buckets, records and at least one block: " + walked);
-        assertTrue(walked <= 2L * buckets + 2L * spills + records + 1, "each read once: " + walked + " loads for "
-            + prefix + " positions");
+        assertTrue(walked <= 2L * buckets + 2L * spills + records + 1,
+            "each read once: " + walked + " loads for " + prefix + " positions");
         assertEquals(walked, viaUnion.loads(), "the union's cursor is the segment's cursor");
 
         // Seeks inside the held block, and mints inside the held record, fetch nothing more.
@@ -649,10 +651,10 @@ final class RankTableReadViewTest {
    * id space. It must equal the id walk's table entry for entry, in both modes, over a rank-tabled
    * dictionary (the pinned extremes put a non-empty value's length at mint 1 and the empty value's 0
    * at the last mint, so a fill that lands lengths on POSITIONS is wrong at both ends), over two
-   * spilled values (the ASCII one and a multibyte one, whose length per mode comes off its own record)
-   * and over an intern-ordered dictionary (no position space: the id walk by another name). The
-   * cursor's {@code valueLength} reads the length off the slice the seek left. Refusals: a union view,
-   * a short table, a foreign mode, a null table.
+   * spilled values (the ASCII one and a multibyte one, whose length per mode comes off its own
+   * record) and over an intern-ordered dictionary (no position space: the id walk by another name).
+   * The cursor's {@code valueLength} reads the length off the slice the seek left. Refusals: a union
+   * view, a short table, a foreign mode, a null table.
    */
   @Test
   @DisplayName("a position-order fill lands every length on its mint, in both modes, over every storage shape")
@@ -768,7 +770,8 @@ final class RankTableReadViewTest {
         // Refusals.
         assertThrows(IllegalStateException.class,
             () -> union.fillLengthTableByPosition(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES,
-                new int[prefix + 1]), "a union has no dense id space");
+                new int[prefix + 1]),
+            "a union has no dense id space");
         assertThrows(IllegalArgumentException.class,
             () -> view.fillLengthTableByPosition(ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES, new int[prefix]),
             "one slot short");
@@ -808,8 +811,8 @@ final class RankTableReadViewTest {
 
   /**
    * A permutation the seal would never produce — identity — is still a legal table; and a table over
-   * a dictionary that is NOT fully ordered, or that has a forward index, is refused before anything is
-   * written.
+   * a dictionary that is NOT fully ordered, or that has a forward index, is refused before anything
+   * is written.
    */
   @Test
   @DisplayName("attachRankTable refuses a hashed or empty dictionary and accepts an identity permutation")
@@ -884,8 +887,8 @@ final class RankTableReadViewTest {
           assertEquals(3, GlobalValueDictionary.probe(hashedKey, sorted.get(2), reader));
           // The tailed dictionary kept both directions: its prefix by binary search, its tail by index.
           assertEquals(3, GlobalValueDictionary.probe(tailedKey, sorted.get(2), reader));
-          assertEquals(sorted.size() + 1, GlobalValueDictionary.probe(tailedKey, utf8("zz-appended-tail-value"),
-              reader));
+          assertEquals(sorted.size() + 1,
+              GlobalValueDictionary.probe(tailedKey, utf8("zz-appended-tail-value"), reader));
         }
       }
     }
@@ -897,8 +900,8 @@ final class RankTableReadViewTest {
    * — first key, count, width, kind — on the forward record, then the count of the inverse record
    * alone, so that each check is shown to fire on its own and the inverse run is shown to be
    * validated independently of the forward run. Each corruption is its own revision; the final
-   * revision restores both records and everything reads again, which pins the corruption as the
-   * only cause.
+   * revision restores both records and everything reads again, which pins the corruption as the only
+   * cause.
    */
   @Test
   @DisplayName("a rank table record of the wrong shape refuses, field by field, on both runs")
@@ -1060,9 +1063,9 @@ final class RankTableReadViewTest {
           final long headerKey = flushRankOrdered(sorted, namePage, real);
           real.assertTransactionWritable();
           final FailingPersistWriter failing = new FailingPersistWriter(real, failAt);
-          final IllegalStateException injected = assertThrows(IllegalStateException.class,
-              () -> GlobalValueDictionary.attachRankTable(headerKey, rankByMint, namePage, DatabaseType.JSON, failing,
-                  real.getLog()));
+          final IllegalStateException injected =
+              assertThrows(IllegalStateException.class, () -> GlobalValueDictionary.attachRankTable(headerKey,
+                  rankByMint, namePage, DatabaseType.JSON, failing, real.getLog()));
           assertTrue(injected.getMessage().startsWith("injected"), injected.getMessage());
           assertEquals(failAt, failing.calls(), "the failure fired at the intended persist");
           final SirixIOException poisoned = assertThrows(SirixIOException.class, real::assertTransactionWritable);
@@ -1080,9 +1083,9 @@ final class RankTableReadViewTest {
           final NamePage namePage = real.getNamePage(real.getActualRevisionRootPage());
           final long headerKey = flushRankOrdered(sorted, namePage, real);
           final FailingPersistWriter failing = new FailingPersistWriter(real, failAt);
-          final IllegalStateException injected = assertThrows(IllegalStateException.class,
-              () -> GlobalValueDictionary.buildBlockIndex(headerKey, namePage, DatabaseType.JSON, failing,
-                  real.getLog()));
+          final IllegalStateException injected =
+              assertThrows(IllegalStateException.class, () -> GlobalValueDictionary.buildBlockIndex(headerKey, namePage,
+                  DatabaseType.JSON, failing, real.getLog()));
           assertTrue(injected.getMessage().startsWith("injected"), injected.getMessage());
           assertEquals(failAt, failing.calls());
           final SirixIOException poisoned = assertThrows(SirixIOException.class, real::assertTransactionWritable);
@@ -1119,7 +1122,9 @@ final class RankTableReadViewTest {
     throw new AssertionError("expected the failure to be caused by " + cause, thrown);
   }
 
-  /** Forwards everything to the real writer; {@code persistRecord} number {@code failAtCall} throws. */
+  /**
+   * Forwards everything to the real writer; {@code persistRecord} number {@code failAtCall} throws.
+   */
   private static final class FailingPersistWriter extends AbstractForwardingStorageEngineWriter {
     private final StorageEngineWriter delegate;
     private final int failAtCall;
@@ -1189,7 +1194,9 @@ final class RankTableReadViewTest {
     throw new IllegalStateException("rank " + rank + " missing from the permutation");
   }
 
-  /** The value set of {@code OrderedPrefixProbeEqualsHashProbeTest}: blocks, a spill, collation traps. */
+  /**
+   * The value set of {@code OrderedPrefixProbeEqualsHashProbeTest}: blocks, a spill, collation traps.
+   */
   private static List<byte[]> buildSortedValueSet() {
     final List<byte[]> values = new ArrayList<>();
     values.add(new byte[0]);
@@ -1256,7 +1263,9 @@ final class RankTableReadViewTest {
     return bits;
   }
 
-  /** The single set bit of {@code verdict}, for a failure message; {@code -1} when there is not one. */
+  /**
+   * The single set bit of {@code verdict}, for a failure message; {@code -1} when there is not one.
+   */
   private static int onlySetBit(final long[] verdict) {
     int found = -1;
     for (int word = 0; word < verdict.length; word++) {

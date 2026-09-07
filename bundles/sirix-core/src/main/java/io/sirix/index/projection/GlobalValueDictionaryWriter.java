@@ -725,8 +725,8 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
    * <p>
    * The claim a caller makes here is about its READERS, not about its data, which is why it is
    * cheaper to honour than {@link #markRankOrdered()}: arrival-ordered ids stay arrival-ordered and
-   * nothing is asserted about collation. A segment-scoped dictionary qualifies because the write
-   * side keeps its own in-memory map for the segment's lifetime and the read side answers only
+   * nothing is asserted about collation. A segment-scoped dictionary qualifies because the write side
+   * keeps its own in-memory map for the segment's lifetime and the read side answers only
    * {@code valueOf} ({@code SegmentScopedReadDictionaries.idOf} returns {@code ID_ABSENT}).
    * </p>
    *
@@ -797,10 +797,9 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
                 + baseHeader.getForwardRootKey() + ": the index would cover only the first "
                 + baseHeader.getEntryCount() + " ids");
       }
-      final GlobalValueDictionaryRadix.Roots roots =
-          GlobalValueDictionaryRadix.append(baseHeader.getForwardRootKey(), baseHeader.getReverseRootKey(),
-              baseHeader.getEntryCount(), this, namePage, databaseType, storageEngineWriter, log,
-              !ordered && !decodeOnlyChain);
+      final GlobalValueDictionaryRadix.Roots roots = GlobalValueDictionaryRadix.append(baseHeader.getForwardRootKey(),
+          baseHeader.getReverseRootKey(), baseHeader.getEntryCount(), this, namePage, databaseType, storageEngineWriter,
+          log, !ordered && !decodeOnlyChain);
       namePage.putProjectionValueDictionaryRecord(
           new ValueDictionaryHeaderNode(baseHeader.getNodeKey(), ValueDictionaryHeaderNode.VERSION, totalEntries,
               roots.forward(), roots.reverse(), Math.addExact(baseHeader.getGeneration(), 1), ordered
@@ -815,13 +814,13 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   }
 
   /**
-   * Preserve the dictionary failure as the transaction's authoritative rollback cause. Package-private
-   * so that every dictionary write path of the intent log ({@link GlobalValueDictionary#attachRankTable},
-   * {@link GlobalValueDictionary#buildBlockIndex}) poisons the same way: a half-written structure
-   * behind a caught exception would otherwise be committed by a caller that swallowed it.
+   * Preserve the dictionary failure as the transaction's authoritative rollback cause.
+   * Package-private so that every dictionary write path of the intent log
+   * ({@link GlobalValueDictionary#attachRankTable}, {@link GlobalValueDictionary#buildBlockIndex})
+   * poisons the same way: a half-written structure behind a caught exception would otherwise be
+   * committed by a caller that swallowed it.
    */
-  static void poisonOwningTransaction(final StorageEngineWriter storageEngineWriter,
-      final Throwable primaryFailure) {
+  static void poisonOwningTransaction(final StorageEngineWriter storageEngineWriter, final Throwable primaryFailure) {
     try {
       storageEngineWriter.markTransactionRollbackOnly(primaryFailure);
     } catch (final RuntimeException | Error poisonFailure) {

@@ -389,8 +389,7 @@ final class GlobalValueDictionaryTailCowTest {
           final var reader = rtx.getStorageEngineReader();
           final var header = GlobalValueDictionary.header(headerKey, reader);
           assertNotNull(header, "header must be readable at revision " + id);
-          assertEquals(0L, header.getForwardRootKey(),
-              "revision " + id + " must not persist a forward hash index");
+          assertEquals(0L, header.getForwardRootKey(), "revision " + id + " must not persist a forward hash index");
           assertTrue(header.isDecodeOnly(), "revision " + id + " must report itself decode-only, not merely indexed");
           assertTrue(header.isDirectoryComplete(), "the reverse index still makes it readable at revision " + id);
           assertEquals(id, header.getEntryCount());

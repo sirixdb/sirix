@@ -36,9 +36,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Three segments with the same eight values interned in DIFFERENT orders, so a table applied to the
  * wrong segment yields a wrong answer rather than an exception; rows whose operand is absent (they
  * count and contribute length 0, as {@code fn:string-length(())} does); one leaf whose operand is
- * absent in EVERY row (inverted zone bounds — the sentinel path); the zero group key and rows without
- * a group key (the side slot and the missing accumulator). Every expectation is computed from the
- * generator that built the rows, per length mode.
+ * absent in EVERY row (inverted zone bounds — the sentinel path); the zero group key and rows
+ * without a group key (the side slot and the missing accumulator). Every expectation is computed
+ * from the generator that built the rows, per length mode.
  * </p>
  */
 final class SegmentLengthLaneGroupScanTest {
@@ -150,10 +150,11 @@ final class SegmentLengthLaneGroupScanTest {
         final boolean operand = operandPresent(leaf, row);
         page.appendRow(recordKey++, new long[] {group == MISSING
             ? 0L
-            : group, 0L}, new boolean[] {false, false}, new String[] {null, operand
-                ? valueOf(leaf, row)
-                : null}, new boolean[] {group != MISSING, operand}, new boolean[] {false, false},
-            new boolean[] {false, false});
+            : group, 0L}, new boolean[] {false, false}, new String[] {null,
+                operand
+                    ? valueOf(leaf, row)
+                    : null},
+            new boolean[] {group != MISSING, operand}, new boolean[] {false, false}, new boolean[] {false, false});
       }
       page.convertStringDictColumnToSegment(OPERAND_COL, encoders[segmentOf(leaf)], segmentOf(leaf));
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
@@ -309,7 +310,7 @@ final class SegmentLengthLaneGroupScanTest {
     final int[][][] tooShort = {Arrays.copyOf(f.lengthTables(SegmentLengthLaneGroupScanTest::utf8Length)[0], 1)};
     assertTrue(assertThrows(IllegalStateException.class,
         () -> run(f, ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES, null, tooShort)).getMessage()
-        .contains("segment 1"));
+                                                                                       .contains("segment 1"));
   }
 
   @Test

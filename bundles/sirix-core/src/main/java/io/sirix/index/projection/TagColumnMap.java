@@ -10,24 +10,25 @@ import it.unimi.dsi.fastutil.objects.ObjectIterator;
 
 /**
  * Builds the tag-to-column map a string region's dictionary ids are resolved through — ONE conflict
- * rule, shared by the writer that stamps ids on a page and the reader that has to resolve them again.
+ * rule, shared by the writer that stamps ids on a page and the reader that has to resolve them
+ * again.
  *
  * <h2>Why the rule has to be shared</h2>
  *
  * A string-region tag is a path class: a path node key that fits an int. A projection column claims
  * every path class its field path resolves to, and two columns whose field paths overlap (a
- * descendant step, a repeated field) claim the same tag. There is no right column for such a tag: an
- * id minted into one column's dictionary and resolved against the other's reads back a value that
- * is plausible and wrong. The writer and the reader used to decide this independently — the writer
- * kept the LAST claim, the reader dropped the tag — so a page the writer had encoded with ids was a
- * page the reader could not resolve at all.
+ * descendant step, a repeated field) claim the same tag. There is no right column for such a tag:
+ * an id minted into one column's dictionary and resolved against the other's reads back a value
+ * that is plausible and wrong. The writer and the reader used to decide this independently — the
+ * writer kept the LAST claim, the reader dropped the tag — so a page the writer had encoded with
+ * ids was a page the reader could not resolve at all.
  *
  * <p>
- * Here a CONTESTED tag is withheld from the map, permanently: a third claim cannot restore it, and a
- * rebuilt map (the writer rebuilds from every claim so far on each refresh) reaches the same verdict
- * because both claims are still among its inputs. Both sides feed the same claims — each field
- * path's path classes, per column, from the path summary — so they build the same map, and both
- * leave a contested tag's values as bytes. A tag can only ever be contested from its first
+ * Here a CONTESTED tag is withheld from the map, permanently: a third claim cannot restore it, and
+ * a rebuilt map (the writer rebuilds from every claim so far on each refresh) reaches the same
+ * verdict because both claims are still among its inputs. Both sides feed the same claims — each
+ * field path's path classes, per column, from the path summary — so they build the same map, and
+ * both leave a contested tag's values as bytes. A tag can only ever be contested from its first
  * appearance: a path node matches a field path or it does not, decided when the node is created, so
  * no uncontested tag turns contested under pages already encoded against its column.
  * </p>

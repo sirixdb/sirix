@@ -53,8 +53,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * over one string field, the lane armed, no pre-pass and no closed corpus. The document pages mint
  * their string values into the open segment as they encode; at the end of the load every segment is
  * sealed into a rank-ordered dictionary under a rank table, the anchors land in the index metadata,
- * the directory lands at key 1 — and a reader, which knows none of this, gets every string value back
- * byte for byte through the ids the pages carry.
+ * the directory lands at key 1 — and a reader, which knows none of this, gets every string value
+ * back byte for byte through the ids the pages carry.
  *
  * <p>
  * The values arrive in DESCENDING order with repeats across pages, so the mints are not the
@@ -174,7 +174,7 @@ final class SegmentDictionaryLaneEndToEndTest {
               SegmentDictionaryDirectoryNode.DIRECTORY_KEY, DatabaseType.JSON, reader);
           final SegmentDictionaryDirectoryNode directory =
               assertInstanceOf(SegmentDictionaryDirectoryNode.class, atKeyOne, "the directory lives at key 1");
-          assertArrayEquals(new long[] { 0L }, directory.segmentStarts());
+          assertArrayEquals(new long[] {0L}, directory.segmentStarts());
           final SlotTable slots = directory.slots(0);
           assertEquals(1, slots.slotCount());
           assertEquals(1, slots.tags(0).length, "one path class feeds the column");

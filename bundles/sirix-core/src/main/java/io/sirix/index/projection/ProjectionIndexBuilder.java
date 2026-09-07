@@ -1292,7 +1292,7 @@ public final class ProjectionIndexBuilder {
       if (sample != null) {
         decideDictionaryKindsAndDrainSample();
       }
-    publishSegmentColumnKinds();
+      publishSegmentColumnKinds();
     } finally {
       rtx.moveTo(restoreNodeKey);
     }
@@ -1607,9 +1607,9 @@ public final class ProjectionIndexBuilder {
    */
   /**
    * Flip the SHARED kinds array for every column the segment lane converted, once every leaf has been
-   * written — the same ordering {@link #publishInjectedColumnKinds} needs and for the same reason: the
-   * extractor reads this array to decide how to BUILD a leaf, and the leaves must keep being built
-   * with per-leaf dictionaries so each one has something to convert.
+   * written — the same ordering {@link #publishInjectedColumnKinds} needs and for the same reason:
+   * the extractor reads this array to decide how to BUILD a leaf, and the leaves must keep being
+   * built with per-leaf dictionaries so each one has something to convert.
    */
   private void publishSegmentColumnKinds() {
     if (segmentScopedDictionaries == null) {
@@ -1815,10 +1815,10 @@ public final class ProjectionIndexBuilder {
    *
    * <p>
    * A row group that straddled a boundary would hold rows whose values live in two different segment
-   * dictionaries, and a leaf carries ONE dictionary anchor — so the ids of half its rows would resolve
-   * against the wrong segment: plausible values, silently wrong. Cutting is nearly free, because a
-   * segment spans far more rows than a row group holds; at 1M rows a segment covers of the order of a
-   * hundred groups, so the cut costs a partial group per segment and nothing else.
+   * dictionaries, and a leaf carries ONE dictionary anchor — so the ids of half its rows would
+   * resolve against the wrong segment: plausible values, silently wrong. Cutting is nearly free,
+   * because a segment spans far more rows than a row group holds; at 1M rows a segment covers of the
+   * order of a hundred groups, so the cut costs a partial group per segment and nothing else.
    * </p>
    *
    * <p>
@@ -1833,7 +1833,9 @@ public final class ProjectionIndexBuilder {
         && currentLeaf.getRowCount() > 0;
   }
 
-  /** The document segment {@code recordKey}'s row belongs to, or {@link #NO_SEGMENT} without a lane. */
+  /**
+   * The document segment {@code recordKey}'s row belongs to, or {@link #NO_SEGMENT} without a lane.
+   */
   private int segmentOfRecord(final long recordKey) {
     final SegmentScopedDictionaries segments = segmentScopedDictionaries;
     if (segments == null || recordKey < 0) {

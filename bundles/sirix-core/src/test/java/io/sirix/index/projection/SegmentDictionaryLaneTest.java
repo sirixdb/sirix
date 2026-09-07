@@ -109,8 +109,7 @@ final class SegmentDictionaryLaneTest {
     assertNotNull(lane);
 
     @SuppressWarnings("unchecked")
-    final ArgumentCaptor<LongFunction<GlobalStringDictionaries>> factory =
-        ArgumentCaptor.forClass(LongFunction.class);
+    final ArgumentCaptor<LongFunction<GlobalStringDictionaries>> factory = ArgumentCaptor.forClass(LongFunction.class);
     verify(writer).installDocumentStringDictionaryFactory(factory.capture());
     final ArgumentCaptor<LongConsumer> listener = ArgumentCaptor.forClass(LongConsumer.class);
     verify(writer).installDocumentPageEncodedListener(listener.capture());

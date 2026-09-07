@@ -26,15 +26,16 @@ import java.util.function.BiFunction;
  * table is a monotone three-state memo: every entry starts unsettled and is written at most to the
  * one verdict the dictionary determines for it, by whichever query settles it first. Two queries
  * settling the same entry concurrently write the same byte, and a byte store never tears, so a
- * reader sees either "unsettled" (and evaluates, idempotently) or the verdict. Sharing is the point:
- * a query that touches a segment inherits every entry an earlier query settled and adds its own.
+ * reader sees either "unsettled" (and evaluates, idempotently) or the verdict. Sharing is the
+ * point: a query that touches a segment inherits every entry an earlier query settled and adds its
+ * own.
  * </p>
  *
  * <p>
  * Bounded by WEIGHT in bytes, one byte per dictionary id: ~18 MB for an 18M-entry column, and one
  * table per distinct {@code (op, literal)}. A count bound comfortable at a million rows would
- * silently cost gigabytes at a hundred million. Missing is always safe: the caller allocates a fresh
- * table and settles it as it would have anyway.
+ * silently cost gigabytes at a hundred million. Missing is always safe: the caller allocates a
+ * fresh table and settles it as it would have anyway.
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>

@@ -163,14 +163,11 @@ final class TopKHeap {
 
   /**
    * Whether a leaf whose BEST possible first key is {@code best} (numeric or a segment cell) is
-   * strictly worse than the worst kept row on that key alone — then none of its rows can enter. Only
-   * meaningful on a {@link #full()} heap.
+   * strictly worse than {@code threshold}'s worst kept row on that key alone — then none of its rows
+   * can enter. Only meaningful on a {@link #full()} threshold. The threshold is read as a frozen
+   * tuple, but a segment cell is compared through THIS heap's dictionary views, so the receiver must
+   * be the heap owned by the calling thread.
    */
-  boolean firstKeyStrictlyWorse(final long best) {
-    return firstKeyStrictlyWorse(best, this);
-  }
-
-  /** Compare to a frozen threshold using THIS heap's calling-thread dictionary views. */
   boolean firstKeyStrictlyWorse(final long best, final TopKHeap threshold) {
     final int cmp = keyKind[0] == KEY_STRING_SEGMENT
         ? globalViews[0].compareCells(best, threshold.tuple[0])
@@ -180,7 +177,7 @@ final class TopKHeap {
         : cmp > 0;
   }
 
-  /** {@link #firstKeyStrictlyWorse(long)} for a string first key given as bytes. */
+  /** {@link #firstKeyStrictlyWorse(long, TopKHeap)} for a string first key given as bytes. */
   boolean firstKeyStrictlyWorse(final byte[] best, final int off, final int len) {
     final byte[] worst = strKey[0];
     final int cmp = keyKind[0] == KEY_STRING_COLLATED

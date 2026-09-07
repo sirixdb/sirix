@@ -92,21 +92,24 @@ public final class ProjectionIndexScan {
      * {@code null} for every other predicate.
      *
      * <p>
-     * A segment-scoped column stores {@code (segment << 32) | id} cells, so one literal has a
-     * DIFFERENT id in every segment and no single {@code longLit} can express {@code = lit}. What
-     * makes it cheap anyway is that a row group never straddles a segment: every cell in a leaf shares
-     * its high bits, so the whole leaf is answered against ONE of these entries, chosen once from any
-     * present cell. The per-row work stays a single integer compare.
+     * A segment-scoped column stores {@code (segment << 32) | id} cells, so one literal has a DIFFERENT
+     * id in every segment and no single {@code longLit} can express {@code = lit}. What makes it cheap
+     * anyway is that a row group never straddles a segment: every cell in a leaf shares its high bits,
+     * so the whole leaf is answered against ONE of these entries, chosen once from any present cell.
+     * The per-row work stays a single integer compare.
      * </p>
      */
     public final long @Nullable [] segmentLiteralCells;
 
-    /** No cell in this segment can equal the literal: {@code EQ} is false, {@code NE} true, for the leaf. */
+    /**
+     * No cell in this segment can equal the literal: {@code EQ} is false, {@code NE} true, for the
+     * leaf.
+     */
     public static final long SEGMENT_LITERAL_ABSENT = Long.MIN_VALUE;
 
     /**
-     * For a per-VALUE string op (containment, ordering) over a SEGMENT-SCOPED column: the lazily
-     * filled verdict memo the kernels test per row. {@code null} for every other predicate.
+     * For a per-VALUE string op (containment, ordering) over a SEGMENT-SCOPED column: the lazily filled
+     * verdict memo the kernels test per row. {@code null} for every other predicate.
      *
      * <p>
      * The segment-scoped twin of {@link #globalIdVerdict}, and lazy rather than swept for the reason
@@ -129,8 +132,8 @@ public final class ProjectionIndexScan {
      *        {@link #SEGMENT_LITERAL_ABSENT}
      */
     /**
-     * A per-value string predicate over a segment-scoped column, answered from a lazily filled
-     * per-cell memo.
+     * A per-value string predicate over a segment-scoped column, answered from a lazily filled per-cell
+     * memo.
      *
      * @param verdicts evaluates and remembers one distinct cell at a time
      */
@@ -155,8 +158,8 @@ public final class ProjectionIndexScan {
     /**
      * The literal this predicate compares against inside the leaf {@code anyCellInLeaf} belongs to.
      *
-     * @return the packed target cell, or {@link #SEGMENT_LITERAL_ABSENT} when that segment cannot
-     *         hold the value; {@link #longLit} for an ordinary predicate
+     * @return the packed target cell, or {@link #SEGMENT_LITERAL_ABSENT} when that segment cannot hold
+     *         the value; {@link #longLit} for an ordinary predicate
      */
     public long literalForLeaf(final long anyCellInLeaf) {
       final long[] cells = segmentLiteralCells;

@@ -29,8 +29,8 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * This is the orchestration {@code docs/SEGMENT_SCOPED_DICTIONARIES.md} describes, over five pieces
  * that are each tested on their own: {@link SegmentScopedDictionaries} (mint, per-PAGE views),
- * {@link SegmentSealController} (when a segment is done), {@link SegmentDictionarySeal} (write
- * one sealed segment through the load's own writer), {@link SegmentDictionaryAnchors} (where each
+ * {@link SegmentSealController} (when a segment is done), {@link SegmentDictionarySeal} (write one
+ * sealed segment through the load's own writer), {@link SegmentDictionaryAnchors} (where each
  * sealed dictionary lives) and the metadata section that persists the last of those. The lane
  * exists so a caller wires three call sites rather than five objects.
  * </p>
@@ -191,11 +191,11 @@ public final class SegmentDictionaryLane {
   }
 
   /**
-   * Seal every segment: write each one's values as a dictionary through the load's own writer,
-   * record where it went, and release its mint maps. Call once every adopted page has been encoded:
-   * {@link SegmentSealController#drainAfterFence} verifies that from the pages' own notifications
-   * and refuses a segment with a page still outstanding, because a page encoded after the seal would
-   * mint into a dictionary nothing will persist.
+   * Seal every segment: write each one's values as a dictionary through the load's own writer, record
+   * where it went, and release its mint maps. Call once every adopted page has been encoded:
+   * {@link SegmentSealController#drainAfterFence} verifies that from the pages' own notifications and
+   * refuses a segment with a page still outstanding, because a page encoded after the seal would mint
+   * into a dictionary nothing will persist.
    *
    * @return the anchors to persist, empty when the lane minted nothing
    * @throws IllegalStateException if a page was adopted but not encoded, if a segment with values
@@ -234,10 +234,10 @@ public final class SegmentDictionaryLane {
    * <p>
    * The incremental regime a 100M load needs. Holding every segment's values to the end costs one
    * budget per segment — about 64 MiB of value bytes plus its hash maps — and at a hundred segments
-   * that is the whole heap: measured, a 100M load died with {@code OutOfMemoryError} at 33 GB
-   * written with roughly forty-five segments live. A segment below the high-water mark can take no
-   * further page (the boundaries never go back), so its dictionary is already final; writing it here
-   * and dropping the maps turns an O(segments) heap cost into an O(1) one.
+   * that is the whole heap: measured, a 100M load died with {@code OutOfMemoryError} at 33 GB written
+   * with roughly forty-five segments live. A segment below the high-water mark can take no further
+   * page (the boundaries never go back), so its dictionary is already final; writing it here and
+   * dropping the maps turns an O(segments) heap cost into an O(1) one.
    * </p>
    *
    * <p>
@@ -282,7 +282,10 @@ public final class SegmentDictionaryLane {
   /** Reports what each incremental pass sealed and the heap after it; {@code -Dsirix.projDiag}. */
   private static final boolean SEAL_DIAG = Boolean.getBoolean("sirix.projDiag");
 
-  /** Segments kept live below the high-water mark; see {@link SegmentSealController#takeSealable(int)}. */
+  /**
+   * Segments kept live below the high-water mark; see
+   * {@link SegmentSealController#takeSealable(int)}.
+   */
   private static final int SEAL_SLACK_SEGMENTS = 1;
 
   private static final SegmentAnchor[] NO_ANCHORS = new SegmentAnchor[0];

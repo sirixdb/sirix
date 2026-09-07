@@ -14,10 +14,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The packed {@code (segment, id)} cell a segment-scoped column stores.
  *
  * <p>
- * The packing is what lets one resolver serve a column whose dictionary is per segment: the cell says
- * which dictionary it belongs to, so nothing downstream has to be told. It is free on disk only
- * because a row group never straddles a boundary — every cell in a leaf then carries the same high
- * bits, and the lane is FOR-packed against the leaf's own minimum.
+ * The packing is what lets one resolver serve a column whose dictionary is per segment: the cell
+ * says which dictionary it belongs to, so nothing downstream has to be told. It is free on disk
+ * only because a row group never straddles a boundary — every cell in a leaf then carries the same
+ * high bits, and the lane is FOR-packed against the leaf's own minimum.
  * </p>
  */
 final class SegmentUnionReadViewTest {

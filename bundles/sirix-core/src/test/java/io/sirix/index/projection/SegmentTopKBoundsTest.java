@@ -75,8 +75,7 @@ final class SegmentTopKBoundsTest {
   void parallelPlanOrdersValuesAndSkipsWithoutFetchingLosingLeaves() {
     // Both mint order and segment order disagree with value order. Supplementary characters sort
     // before E000 under UTF-16, while unsigned UTF-8 byte order would put them after it.
-    final String[][] mints = {{"zz", "", "m"}, {"\uE000", "", "\uD800\uDC00"},
-        {"yy", "", "a"}, {"zz", "", "a"}};
+    final String[][] mints = {{"zz", "", "m"}, {"\uE000", "", "\uD800\uDC00"}, {"yy", "", "a"}, {"zz", "", "a"}};
     final Fixture fixture = fixture(mints, 16);
     final ColumnPredicate excluded = exclusion(mints, "", Op.NE);
     for (final boolean descending : new boolean[] {false, true}) {
@@ -113,13 +112,17 @@ final class SegmentTopKBoundsTest {
     try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       final GlobalValueDictionary.ReadView view = view(fixture, rtx);
       for (final boolean descending : new boolean[] {false, true}) {
-        final ColumnPredicate excluded = exclusion(mints, descending ? "z" : "", Op.NE);
-        final SegmentTopKBounds bounds = SegmentTopKBounds.create(view, new ColumnPredicate[] {excluded}, 0,
-            descending);
+        final ColumnPredicate excluded = exclusion(mints, descending
+            ? "z"
+            : "", Op.NE);
+        final SegmentTopKBounds bounds =
+            SegmentTopKBounds.create(view, new ColumnPredicate[] {excluded}, 0, descending);
         assertNotNull(bounds);
         final ZoneIndex zone = fixture.store().zoneIndex(0);
         for (int leaf = 0; leaf < fixture.leaves().size(); leaf++) {
-          assertEquals(leaf < 16 ? "b" : "a", view.valueOfCell(bounds.forLeaf(zone, leaf)));
+          assertEquals(leaf < 16
+              ? "b"
+              : "a", view.valueOfCell(bounds.forLeaf(zone, leaf)));
         }
         assertEquals(4, bounds.positionLookups(), "two positions per segment, independent of leaf count");
       }
@@ -140,8 +143,12 @@ final class SegmentTopKBoundsTest {
       final SegmentTopKBounds bounds = SegmentTopKBounds.create(view, new ColumnPredicate[] {ne}, 0, false);
       assertNotNull(bounds);
       final long s1 = ProjectionIndexRowGroupPage.packSegmentCell(1, 1);
-      final ZoneIndex zone = new ZoneIndex(new long[] {1, 1, 0, 5}, new long[] {3, s1, 3, 4}, new byte[4],
-          new long[] {0b1110}); // unknown, mixed, invalid id, all-missing
+      final ZoneIndex zone =
+          new ZoneIndex(new long[] {1, 1, 0, 5}, new long[] {3, s1, 3, 4}, new byte[4], new long[] {0b1110}); // unknown,
+                                                                                                              // mixed,
+                                                                                                              // invalid
+                                                                                                              // id,
+                                                                                                              // all-missing
       for (int leaf = 0; leaf < 4; leaf++) {
         assertEquals(SegmentTopKBounds.UNKNOWN, bounds.forLeaf(zone, leaf));
       }
@@ -154,8 +161,8 @@ final class SegmentTopKBoundsTest {
     final String[][] mints = {{""}};
     final Fixture fixture = fixture(mints, 2);
     try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-      final SegmentTopKBounds bounds = SegmentTopKBounds.create(view(fixture, rtx),
-          new ColumnPredicate[] {exclusion(mints, "", Op.NE)}, 0, false);
+      final SegmentTopKBounds bounds =
+          SegmentTopKBounds.create(view(fixture, rtx), new ColumnPredicate[] {exclusion(mints, "", Op.NE)}, 0, false);
       assertNotNull(bounds);
       assertEquals(SegmentTopKBounds.EMPTY, bounds.forLeaf(fixture.store().zoneIndex(0), 0));
       assertEquals(SegmentTopKBounds.EMPTY, bounds.forLeaf(fixture.store().zoneIndex(0), 1));
@@ -192,8 +199,7 @@ final class SegmentTopKBoundsTest {
     try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertNull(
           ProjectionColumnScan.topKRecordKeys(fixture.store(), new ColumnPredicate[0], new int[] {0},
-              new boolean[] {false}, 4, fixture.fetcher(),
-              new GlobalValueDictionary.ReadView[] {view(fixture, rtx)}),
+              new boolean[] {false}, 4, fixture.fetcher(), new GlobalValueDictionary.ReadView[] {view(fixture, rtx)}),
           "a matching row without an order key must decline, never be bounded away");
     }
   }
@@ -258,33 +264,40 @@ final class SegmentTopKBoundsTest {
   private static StorageEngineReader ownedReader(final JsonNodeReadOnlyTrx rtx) {
     final Thread owner = Thread.currentThread();
     final StorageEngineReader delegate = rtx.getStorageEngineReader();
-    final StorageEngineReader reader = (StorageEngineReader) Proxy.newProxyInstance(
-        StorageEngineReader.class.getClassLoader(), new Class<?>[] {StorageEngineReader.class}, (proxy, method, args) -> {
-          assertEquals(owner, Thread.currentThread(), "dictionary reads must use the calling thread's reader");
-          try {
-            return method.invoke(delegate, args);
-          } catch (final InvocationTargetException error) {
-            throw error.getCause();
-          }
-        });
+    final StorageEngineReader reader =
+        (StorageEngineReader) Proxy.newProxyInstance(StorageEngineReader.class.getClassLoader(),
+            new Class<?>[] {StorageEngineReader.class}, (proxy, method, args) -> {
+              assertEquals(owner, Thread.currentThread(), "dictionary reads must use the calling thread's reader");
+              try {
+                return method.invoke(delegate, args);
+              } catch (final InvocationTargetException error) {
+                throw error.getCause();
+              }
+            });
     return reader;
   }
 
-  private record Row(long key, String value) { }
+  private record Row(long key, String value) {
+  }
 
-  private record Fixture(List<RowGroupDirectory> leaves, ColumnSegmentFetcher fetcher, long[] headers,
-      List<Row> rows, Map<Long, AtomicInteger> reads, int payloadCount) {
+  private record Fixture(List<RowGroupDirectory> leaves, ColumnSegmentFetcher fetcher, long[] headers, List<Row> rows,
+      Map<Long, AtomicInteger> reads, int payloadCount) {
     ProjectionColumnStore store() {
       return new ProjectionColumnStore(leaves);
     }
   }
 
-  private static long[] expected(final Fixture fixture, final String exclusion, final boolean descending,
-      final int k) {
-    final Comparator<String> order = descending ? Comparator.reverseOrder() : Comparator.naturalOrder();
-    return fixture.rows().stream().filter(row -> row.value() != null && !row.value().equals(exclusion))
-        .sorted(Comparator.comparing(Row::value, order).thenComparingLong(Row::key)).limit(k).mapToLong(Row::key)
-        .toArray();
+  private static long[] expected(final Fixture fixture, final String exclusion, final boolean descending, final int k) {
+    final Comparator<String> order = descending
+        ? Comparator.reverseOrder()
+        : Comparator.naturalOrder();
+    return fixture.rows()
+                  .stream()
+                  .filter(row -> row.value() != null && !row.value().equals(exclusion))
+                  .sorted(Comparator.comparing(Row::value, order).thenComparingLong(Row::key))
+                  .limit(k)
+                  .mapToLong(Row::key)
+                  .toArray();
   }
 
   private Fixture fixture(final String[][] mints, final int leavesPerSegment) {
@@ -318,9 +331,13 @@ final class SegmentTopKBoundsTest {
         final ProjectionIndexRowGroupPage page =
             new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT});
         // Include every mint, duplicate the last value, and — where asked — a missing key.
-        final int rowCount = values.size() + (missingPerSegment[segment] ? 2 : 1);
+        final int rowCount = values.size() + (missingPerSegment[segment]
+            ? 2
+            : 1);
         for (int row = 0; row < rowCount; row++) {
-          final String value = row == values.size() + 1 ? null : values.get(Math.min(row, values.size() - 1));
+          final String value = row == values.size() + 1
+              ? null
+              : values.get(Math.min(row, values.size() - 1));
           final long key = leaves.size() * 1_000L + row + 1;
           rows.add(new Row(key, value));
           assertTrue(page.appendRow(key, new long[1], new boolean[1], new String[] {value},
@@ -343,8 +360,8 @@ final class SegmentTopKBoundsTest {
     try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{}"), JsonNodeTrx.Commit.NO);
       for (int segment = 0; segment < mints.length; segment++) {
-        final byte[][] bytes = Arrays.stream(mints[segment]).map(value -> value.getBytes(StandardCharsets.UTF_8))
-            .toArray(byte[][]::new);
+        final byte[][] bytes =
+            Arrays.stream(mints[segment]).map(value -> value.getBytes(StandardCharsets.UTF_8)).toArray(byte[][]::new);
         headers[segment] = SegmentDictionarySeal.write(wtx.getStorageEngineWriter(), 0, bytes).headerKey();
       }
       wtx.commit();

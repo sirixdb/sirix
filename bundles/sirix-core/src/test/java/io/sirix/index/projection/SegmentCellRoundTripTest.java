@@ -13,9 +13,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * A packed {@code (segment, id)} cell must survive the page's own serialize/deserialize. Observed at
- * 1M: the builder stamped segment 1 on leaf 867 onward, and every cell read back as segment 0 — real
- * ids resolved against the wrong segment's dictionary, which is a plausible value for another row.
+ * A packed {@code (segment, id)} cell must survive the page's own serialize/deserialize. Observed
+ * at 1M: the builder stamped segment 1 on leaf 867 onward, and every cell read back as segment 0 —
+ * real ids resolved against the wrong segment's dictionary, which is a plausible value for another
+ * row.
  */
 final class SegmentCellRoundTripTest {
 

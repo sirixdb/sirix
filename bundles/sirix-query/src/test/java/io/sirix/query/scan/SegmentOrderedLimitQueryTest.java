@@ -57,10 +57,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * Before the segment bound existed the planner declared a segment-scoped key unboundable (a mint id
  * means nothing outside its own segment), so every admitted leaf carried an unknown bound, none was
- * ever skipped, and the whole column was decoded into a ten-entry heap. The lever gives each segment
- * a bound read from its dictionary's first/last COLLATION position — refined past the excluded
- * literal — and compares those bounds through their dictionary VALUES, so best-first selection can
- * stop.
+ * ever skipped, and the whole column was decoded into a ten-entry heap. The lever gives each
+ * segment a bound read from its dictionary's first/last COLLATION position — refined past the
+ * excluded literal — and compares those bounds through their dictionary VALUES, so best-first
+ * selection can stop.
  *
  * <p>
  * The fixture loads 64 regions × 2,048 rows through the real parallel bulk import with the lane
@@ -172,8 +172,8 @@ public final class SegmentOrderedLimitQueryTest {
   }
 
   private static IndexDef projectionDef() {
-    final List<Path<QNm>> fieldPaths = List.of(Path.parse("/[]/phrase", PathParser.Type.JSON),
-        Path.parse("/[]/n", PathParser.Type.JSON));
+    final List<Path<QNm>> fieldPaths =
+        List.of(Path.parse("/[]/phrase", PathParser.Type.JSON), Path.parse("/[]/n", PathParser.Type.JSON));
     return IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON), fieldPaths,
         List.of(Type.STR, Type.LON), 0, IndexDef.DbType.JSON);
   }
@@ -184,8 +184,8 @@ public final class SegmentOrderedLimitQueryTest {
 
   /**
    * Every third row is the empty phrase — the COLLATION minimum of every segment, and what the
-   * {@code <>} refines the endpoint past. The rest are distinct and ordered by region, so a
-   * segment's smallest non-empty value is strictly larger than the previous segment's.
+   * {@code <>} refines the endpoint past. The rest are distinct and ordered by region, so a segment's
+   * smallest non-empty value is strictly larger than the previous segment's.
    */
   private static String phraseOf(final int i) {
     return i % 3 == 0
@@ -206,7 +206,9 @@ public final class SegmentOrderedLimitQueryTest {
     return sb.toString().getBytes(StandardCharsets.UTF_8);
   }
 
-  /** The oracle: the k smallest (or largest) phrases, {@code excluded} dropped, ties in value order. */
+  /**
+   * The oracle: the k smallest (or largest) phrases, {@code excluded} dropped, ties in value order.
+   */
   private static List<String> expected(final String excluded, final boolean descending) {
     final List<String> values = new ArrayList<>(RECORDS);
     for (int i = 0; i < RECORDS; i++) {
@@ -224,9 +226,11 @@ public final class SegmentOrderedLimitQueryTest {
   private static String orderedLimitQuery(final boolean excludeEmpty, final boolean descending) {
     return "subsequence(\nfor $h in " + SRC + "\n" + (excludeEmpty
         ? "where $h.phrase != \"\"\n"
-        : "") + "order by $h.phrase" + (descending
+        : "") + "order by $h.phrase"
+        + (descending
             ? " descending"
-            : "") + "\nreturn $h.phrase, 1, " + K + ")";
+            : "")
+        + "\nreturn $h.phrase, 1, " + K + ")";
   }
 
   @Test
@@ -259,9 +263,9 @@ public final class SegmentOrderedLimitQueryTest {
 
   /**
    * The deliberately refused shape: without a predicate naming the key a leaf could hide a row whose
-   * sort key is MISSING, which only the interpreter can place, and the only proof otherwise
-   * available costs a whole-column pass inside planning. The scan therefore evaluates unbounded — a
-   * correct answer, no leaf skipped.
+   * sort key is MISSING, which only the interpreter can place, and the only proof otherwise available
+   * costs a whole-column pass inside planning. The scan therefore evaluates unbounded — a correct
+   * answer, no leaf skipped.
    */
   @Test
   void anUnrefinedSegmentOrderingAnswersUnboundedWithoutSkippingALeaf() throws Exception {

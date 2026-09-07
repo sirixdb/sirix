@@ -1410,7 +1410,7 @@ public final class ProjectionIndexColumnSegmentCodec {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
             ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
             ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           numericCols[c] = ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(body, rowCount);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
@@ -1663,9 +1663,8 @@ public final class ProjectionIndexColumnSegmentCodec {
     ProjectionIndexRowGroupCodec.decodePresenceInto(body, presence, presWords, rowCount);
     switch (kind) {
       case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-          ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
-          ProjectionIndexRowGroupPage.COLUMN_KIND_DATE -> {
+          ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT,
+          ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE -> {
         final long[] values = pool != null
             ? pool.values(rowCount)
             : new long[rowCount];

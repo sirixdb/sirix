@@ -14,12 +14,12 @@ variable; working files live under `bundles/sirix-query/build/diagnostics/` (git
 | `load100m.sh [DIR]` | load the 100M corpus with the segment lane (~45–60 min, ~48 GB); writes the pointer the query scripts read |
 | `suite100m.sh [TRIES]` | **the scoring leg**: 43 queries, 3 tries → `$D100M/suite100m.log` |
 | `diag100m.sh Q[,Q…] [JVMFLAGS]` | one diagnostic run with `-Dsirix.projDiag=true`: routes, declines, `[proj]` counters — never for timing |
-| `mkleg.py TAG LOG` | turn a leg log into `legs/query-TAG.json` (43 × 3 tries) |
+| `mkleg.py TAG LOG` | turn a leg log into `legs/query-TAG.json` (43 × 3 tries). Only `result` is measured; `date` and `data_size` are template fields copied into every leg and ignored by `rank.py` — do not read a leg's database size or run date off them |
 | `rank.py TAG…` | **the score**: reproduces the site's scoring against `board/data.generated.js`; prints rank and Σln per board/metric |
 | `load1m.sh` / `seggate1m.sh` | 1M load + correctness gate against DuckDB (`0 mismatch, 0 missing` required) |
 | `junit.py START CLASS…` | read JUnit XML refusing anything older than the run start (a compile error leaves stale XML) |
 | `collapsed.py FILE [pat…]` | summarise an async-profiler collapsed-stack file |
-| `legs/` | reference legs: `N1FULL1` (rank 10, the old global-dictionary DB), `SEG2T`/`SEG3T`/`SEG3TB` (segment lane). `SEG4T` — the measured standing, rank 17 — was scored but its JSON is not committed here |
+| `legs/` | reference legs: `N1FULL1` (rank 10, the old global-dictionary DB), `SEG2T`/`SEG3T`/`SEG3TB` (segment lane) and `SEG4T` — **the measured standing** (the handoff's §2 owns the number) |
 | `board/data.generated.js` | snapshot (2026-09-02) of https://benchmark.clickhouse.com/data.generated.js |
 
 ## The one loop that matters

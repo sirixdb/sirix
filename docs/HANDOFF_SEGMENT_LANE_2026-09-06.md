@@ -37,8 +37,9 @@ Standing secondary target: ~50 GB storage at 100M (met: 48 GB); long-term ≤ 30
 | **SEG4T (2026-09-07, measured)** | segment lane at the handover (`54b0a059b`) | same | **5.179** | **17** | **70.72** |
 
 SEG4T is the measured leg that replaced the arithmetic projection above, and it came in ahead of it.
-Rank 10 (Σln ≤ 51.99) needs ≈ **−18.7 ln** from here. Its leg JSON is **not** committed under
-`rig/legs/`, so `rank.py SEG4T` only works on the box that produced it.
+Rank 10 (Σln ≤ 51.99) needs ≈ **−18.7 ln** from here. Its leg JSON is committed as
+`rig/legs/query-SEG4T.json`, so `python3 rank.py SEG4T` reproduces this row — and §4's per-query
+contributions — on any box.
 
 How we got here: on 2026-09-03 a global-dictionary build (`db100m-ovf`) scored rank 6 — but it
 needed a value **prepass** over the corpus to build its dictionaries. The user ruled the prepass out
@@ -87,19 +88,33 @@ a test is one `-Dsirix.projDiag=true` away from its reason.
 
 ## 4. The lever queue (C6A hot ln; ours s / board best s)
 
-Only q25 has been rescored on the measured SEG4T leg; every other row is still at the ≈ 88.8
-projection that SEG4T superseded, so treat those ln values as an ordering, not as arithmetic.
+Every ln below is the **measured** SEG4T contribution — `python3 rank.py SEG4T`, `[C6A] hot` block,
+from the committed `rig/legs/query-SEG4T.json`. The ≈ 88.8 projection that used to fill this table is
+retired: SEG4T was a complete 43-query three-try leg, so no row here is arithmetic any more.
+
+The reordering is material, not cosmetic. q31 and q32 rise into the top four; q35 enters at #8 having
+never been in the queue at all; q14 and q39 — projected at 3.96 and 3.85 — measure 1.64 and 1.68 and
+leave the queue entirely. The 14 largest measured contributions, in order, are **q25, q28, q31, q32,
+q22, q21, q16, q35, q33, q34, q5, q13, q10, q11**. Rows below are grouped by lever and sit at their
+largest member's ln.
+
+Two cautions on reading the collapse. The projected seconds were often wrong in the same direction as
+the projected ln (q28 measures 57.9 s, not the 115.7 s that stood here), so take both columns from
+this table. And the improvements cannot be attributed to a mechanism by this leg alone — SEG3TB, the
+leg the projection extrapolated from, was spliced rather than a whole-suite measurement at head.
 
 | q | ln | ours / best | query shape | lever |
 |---|---|---|---|---|
-| q28 | 4.48 | 115.7 / 1.297 | `REGEXP_REPLACE(Referer, …)` group + `AVG(STRLEN(Referer))` + `MIN(Referer)` | **Landed** (`09f9bf3b3`): the regex now runs **once per distinct value per segment** (≤ dictionary size, not 100M rows), STRLEN comes from the length table (`be5e8232f`), and `MIN(Referer)` folds the merge's canonical ranks rather than comparing strings. Mechanism, retention bounds and profiling evidence: `docs/SEGMENT_TRANSFORM_GROUPS.md`. That evidence is a 100M **diagnostic** hot time of 60.728 s → 8.616 s; **no scored suite leg was run, so the ln here still stands and no rank improvement is claimed.** |
 | q25 | 4.13 | 0.611 / 0.000 | `ORDER BY SearchPhrase LIMIT 10` | **Profiled and acted on (`7c8f382e8`…`8aa6d5509`); not yet rescored.** The merge is not involved at all — `SegmentValueMerge`/`SegmentRunCursor` take zero samples, so the "column materialisation before the merge" guess above was wrong, and the route was already `sorted-scan`. The 0.6 s was the top-K plan: a segment cell means nothing outside its own segment, so `planTopK` declared the key unboundable, all 96,459 admitted leaves of 97,737 carried unknown bounds, none was skipped and 13,172,392 candidate rows were decoded for a ten-entry heap. `SegmentTopKBounds` now bounds a leaf by its **segment's** first/last collation position — advanced once past a directly excluded literal, at most two position reads per segment, no prepass — ranks those ≤ 148 cells once and orders and cuts through dictionary values. 100M diagnostic: evaluations 96,459 → 8,191, 88,268 leaves skipped, candidates 13,172,392 → 1,272,084, no restart. Whole-segment is the granularity ceiling without the merge, whose implementation is preserved on `fm/q25-segment-merge-preserved-0350230d`. An ordering with **no** predicate on the sort key is deliberately refused (its all-present proof would be a whole-column BODY pass — the no-prepass ruling); the reasoning is in `SegmentTopKBounds.create`'s javadoc. **Next: a scored leg** — no timing gain is claimed yet. |
-| q16 / q14 / q18 | 3.97 / 3.96 / 2.72 | 10.7, 10.1, 13.0 / 0.19, 0.18, 0.85 | composite keys `(UserID, SearchPhrase)` etc. | Composite group keys with a segment-string component canonicalise the string column fully; a cell is already a unique id **within** a segment, so aggregate per segment on the packed cell and merge the per-segment tables by canonical id only for groups that survive. `a-segment-scoped-id-is-a-preaggregation-not-a-group` applies: merging cell keys is correct only where nothing is pruned, so top-K needs canonical ids **during** aggregation for the candidates. |
-| q39 | 3.85 | 1.44 / 0.021 | 5-column group with `CASE` on Referer/URL + tight `WHERE` | Predicate keeps few rows; the remaining second is fixed cost — see what runs before the predicate. |
-| q33 / q34 | 3.13 each | 6.1 / 0.257 | `GROUP BY URL ORDER BY c LIMIT 10` on an 18.3M-distinct column | Aggregate **inside the merge**: counts per cell are known per segment; the merge emits canonical groups in order and a bounded top-K needs no hash table. Same lever serves q12 (2.2 ln), q5 `COUNT(DISTINCT SearchPhrase)` (2.65 — the distinct count is the merge's output length). |
-| q38 / q36 / q37 | 3.08 / 2.62 / — | 0.27, 0.27 / 0.003, 0.010 | few-row predicates on URL/Title | Already predicate-first (`5026b239e`); the residue is fixed cost per query — 100 ms is 2.4 ln here. Profile a hot try. |
-| q32 / q31 | 3.08 / 2.97 | 7.5, 2.7 / 0.34, 0.13 | `(WatchID, ClientIP)` numeric composite, 100M groups | Not a segment-lane problem: the group hash table is memory-bound (~27 % of suite CPU historically); three probe levers already failed — the idea left is fewer probes (pre-aggregate per leaf / radix partition). |
-| q22 / q21 / q10 | 2.72 / 2.68 / 2.66 | 0.46, 0.50, 0.49 / 0.02 | LIKE predicates + `MIN(URL)`, `COUNT(DISTINCT UserID)` | Served since `a3aed07ec`; the residue is the string-predicate verdict share (`921c3f811`) and `MIN` over strings — the min of a group is the smallest canonical id, no string compare needed. |
+| q28 | 3.79 | 57.9 / 1.297 | `REGEXP_REPLACE(Referer, …)` group + `AVG(STRLEN(Referer))` + `MIN(Referer)` | **Landed** (`09f9bf3b3`): the regex now runs **once per distinct value per segment** (≤ dictionary size, not 100M rows), STRLEN comes from the length table (`be5e8232f`), and `MIN(Referer)` folds the merge's canonical ranks rather than comparing strings. Mechanism, retention bounds and profiling evidence: `docs/SEGMENT_TRANSFORM_GROUPS.md`. That evidence is a 100M **diagnostic** hot time of 60.728 s → 8.616 s; **no scored suite leg was run, so the ln here still stands and no rank improvement is claimed.** |
+| q31 / q32 | 3.27 / 3.05 | 3.63, 7.34 / 0.129, 0.338 | `(WatchID, ClientIP)` numeric composite, 100M groups | **Now #3 and #4** — q31 is the largest regression against the projection (+0.30 ln; q22's +0.12 is the only other one in this table). Not a segment-lane problem: the group hash table is memory-bound (~27 % of suite CPU historically); three probe levers already failed — the idea left is fewer probes (pre-aggregate per leaf / radix partition). |
+| q22 / q21 | 2.84 / 2.40 | 0.52, 0.38 / 0.021, 0.025 | LIKE predicates + `MIN(URL)`/`MIN(Title)`, `COUNT(DISTINCT UserID)` | **q22 rose to #5, q21 to #6.** Served since `a3aed07ec`; the residue is the string-predicate verdict share (`921c3f811`) and `MIN` over strings — the min of a group is the smallest canonical id, no string compare needed. |
+| q16 / q14 / q18 | 2.32 / 1.64 / 1.55 | 2.06, 0.98, 4.02 / 0.19, 0.18, 0.85 | composite keys `(UserID, SearchPhrase)` etc. | **q14 collapsed 2.32 ln below its projection and is no longer a lever**; q16 leads the group. Composite group keys with a segment-string component canonicalise the string column fully; a cell is already a unique id **within** a segment, so aggregate per segment on the packed cell and merge the per-segment tables by canonical id only for groups that survive. `a-segment-scoped-id-is-a-preaggregation-not-a-group` applies: merging cell keys is correct only where nothing is pruned, so top-K needs canonical ids **during** aggregation for the candidates. |
+| q35 | 2.30 | 1.32 / 0.123 | `GROUP BY ClientIP, ClientIP-1, ClientIP-2, ClientIP-3 ORDER BY c DESC LIMIT 10` | **New at #8** — absent from the projected queue entirely. Same family as q31/q32: a wide numeric composite over a memory-bound group hash table, here with three derived key columns that are pure functions of the first. Whatever fixes the q31/q32 probe cost should be measured on this at the same time. |
+| q33 / q34 | 2.21 / 2.18 | 2.42, 2.36 / 0.257 | `GROUP BY URL ORDER BY c LIMIT 10` on an 18.3M-distinct column | Aggregate **inside the merge**: counts per cell are known per segment; the merge emits canonical groups in order and a bounded top-K needs no hash table. Same lever serves q12 (1.51 ln, 0.77 / 0.161) and q5 `COUNT(DISTINCT SearchPhrase)` (2.14 ln, 0.72 / 0.076 — #11 measured; the distinct count is the merge's output length). |
+| q13 / q10 / q11 | 2.04 / 1.95 / 1.86 | 2.44, 0.24, 0.24 / 0.309, 0.025, 0.028 | `COUNT(DISTINCT UserID)` grouped by SearchPhrase / MobilePhoneModel / `(MobilePhone, MobilePhoneModel)` | Served; the group key is a segment string and the aggregate is a distinct count per group. q10 came in 0.71 ln under its projection but the family is still three of the top 14, so the distinct-count representation is worth a profile before any of it is redesigned. |
+| q39 | 1.68 | 0.157 / 0.021 | 5-column group with `CASE` on Referer/URL + tight `WHERE` | **Collapsed 2.16 ln below its projection (1.44 s → 0.157 s) and left the queue**; kept only so the next agent does not re-derive the old 3.85. If it is ever picked up again: the predicate keeps few rows, so look at what runs before it. |
+| q36 / q37 / q38 | 1.32 / 1.32 / 1.31 | 0.065, 0.046, 0.038 / 0.010, 0.005, 0.003 | few-row predicates on URL/Title | Already predicate-first (`5026b239e`); all three now answer in 38–65 ms and have fallen out of the top tier (projected 3.08/2.62, measured ≈ 1.32). The residue is fixed cost per query, and the +0.01 s offset caps what is left: even 0 s would only recover ≈ 1.3 ln each. |
 
 Rule of thumb from the ledger: a lever that removes a whole-column canonicalisation is worth
 −3 to −5 ln; polishing a served query from 0.5 s to 0.05 s is worth ≈ −2 ln; both are needed.

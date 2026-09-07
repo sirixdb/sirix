@@ -450,7 +450,10 @@ public final class GlobalValueDictionary {
 
     private final long headerNodeKey;
     private final long reverseRootKey;
-    /** Root of the forward hash index, or 0 for a dictionary that is probed by binary search or not at all. */
+    /**
+     * Root of the forward hash index, or 0 for a dictionary that is probed by binary search or not at
+     * all.
+     */
     private final long forwardRootKey;
     private final int entryCount;
     private final int revision;
@@ -459,8 +462,8 @@ public final class GlobalValueDictionary {
     private final @Nullable StorageEngineReader reader;
     /**
      * Per-id SLICE cache, keyed by the id a caller passes (a MINT under a rank table): the backing
-     * array a value lives in, plus its offset and length. No entry node and no copied {@code byte[]}
-     * — a scan compares far more values than it emits, so a wrapper or a copy per compared id is
+     * array a value lives in, plus its offset and length. No entry node and no copied {@code byte[]} —
+     * a scan compares far more values than it emits, so a wrapper or a copy per compared id is
      * precisely the per-row garbage the packed layout removes.
      */
     private final int[] cachedIds = new int[READ_VIEW_CACHE_SIZE];
@@ -502,9 +505,10 @@ public final class GlobalValueDictionary {
     private long @Nullable [] transformedValues;
 
     /**
-     * Whether EVERY id is in collation order of its value — {@link ValueDictionaryHeaderNode#idsAreCollationOrdered},
-     * the single test an ordering arm may make. While it holds, id order IS value order, so id
-     * comparisons answer string comparisons with no dictionary touch at all.
+     * Whether EVERY id is in collation order of its value —
+     * {@link ValueDictionaryHeaderNode#idsAreCollationOrdered}, the single test an ordering arm may
+     * make. While it holds, id order IS value order, so id comparisons answer string comparisons with
+     * no dictionary touch at all.
      */
     private final boolean fullyOrdered;
 
@@ -519,12 +523,14 @@ public final class GlobalValueDictionary {
      * Key of the first {@link ValueDictionaryRankTableNode} record, or {@code 0} when ids ARE storage
      * positions. Under a table the view's callers speak MINTS (the ids rows carry) and the reverse
      * radix speaks POSITIONS (collation order); {@link #positionOf} translates on every miss through
-     * the forward run and {@link #mintAtPosition} translates back for the probe through the inverse
-     * run that follows it ({@code rankTableKey + recordCount + i}).
+     * the forward run and {@link #mintAtPosition} translates back for the probe through the inverse run
+     * that follows it ({@code rankTableKey + recordCount + i}).
      */
     private final long rankTableKey;
 
-    /** Mints the table covers; a mint above it is its own position (an unordered tail appended later). */
+    /**
+     * Mints the table covers; a mint above it is its own position (an unordered tail appended later).
+     */
     private final int orderedPrefixCount;
 
     /**
@@ -551,11 +557,11 @@ public final class GlobalValueDictionary {
      *
      * <p>
      * A SEGMENT-scoped column has one dictionary per segment, and a cell carries its segment in the
-     * high 32 bits ({@link ProjectionIndexRowGroupPage#packSegmentCell}). A union view unpacks the
-     * cell and delegates, so every consumer that resolves a CELL keeps working untouched. What it
-     * cannot do is anything indexed by ID SPACE — a verdict bitset, a length table over a range —
-     * because packed cells are not a dense id space; those refuse rather than answer, and the callers
-     * that would use them already decline a column that is not resource-wide.
+     * high 32 bits ({@link ProjectionIndexRowGroupPage#packSegmentCell}). A union view unpacks the cell
+     * and delegates, so every consumer that resolves a CELL keeps working untouched. What it cannot do
+     * is anything indexed by ID SPACE — a verdict bitset, a length table over a range — because packed
+     * cells are not a dense id space; those refuse rather than answer, and the callers that would use
+     * them already decline a column that is not resource-wide.
      * </p>
      */
     private final ReadView @Nullable [] perSegment;
@@ -606,10 +612,10 @@ public final class GlobalValueDictionary {
     }
 
     /**
-     * Whether a rank table stands between the ids rows carry and storage positions. A verdict arm
-     * must DECLINE such a view before asking ({@link #stringOpVerdict} refuses with an
-     * {@link UnsupportedOperationException} as the backstop): the verdict is built by walking
-     * storage in position order and would otherwise have to be re-indexed by mint.
+     * Whether a rank table stands between the ids rows carry and storage positions. A verdict arm must
+     * DECLINE such a view before asking ({@link #stringOpVerdict} refuses with an
+     * {@link UnsupportedOperationException} as the backstop): the verdict is built by walking storage
+     * in position order and would otherwise have to be re-indexed by mint.
      */
     public boolean hasRankTable() {
       return rankTableKey != 0L;
@@ -702,10 +708,10 @@ public final class GlobalValueDictionary {
      * The segment twin of {@link #fillLengthTable}: a sealed segment dictionary stores its values in
      * collation order behind a rank table, so a walk in id order visits storage at random and pays a
      * block decode per id, while a walk in position order reads each block once and each inverse
-     * rank-table record once ({@link PositionCursor}). The table is indexed by the MINT the rows
-     * carry — the id half of a packed cell — so a length lane over a segment column reads
-     * {@code table[(int) cell]} with the leaf's segment choosing the table, and needs no canonical
-     * id space at all: a length is a property of one value, not of the column's order.
+     * rank-table record once ({@link PositionCursor}). The table is indexed by the MINT the rows carry
+     * — the id half of a packed cell — so a length lane over a segment column reads
+     * {@code table[(int) cell]} with the leaf's segment choosing the table, and needs no canonical id
+     * space at all: a length is a property of one value, not of the column's order.
      * </p>
      *
      * @param lengthMode {@link ProjectionIndexByteScan#STRING_LENGTH_UTF8_BYTES} or
@@ -804,8 +810,8 @@ public final class GlobalValueDictionary {
      * Why a caller wants this: a sealed segment dictionary stores its values in collation order, so
      * within ONE segment position order IS value order and an ordering question becomes an integer
      * compare — the same identity {@link #compareIds} already exploits for {@code storageOrdered}.
-     * Across segments the positions mean nothing to each other, so a caller may only use this to
-     * order within a segment and must compare VALUES to merge segments.
+     * Across segments the positions mean nothing to each other, so a caller may only use this to order
+     * within a segment and must compare VALUES to merge segments.
      * </p>
      */
     public int positionOfCell(final long anyCell) {
@@ -857,12 +863,12 @@ public final class GlobalValueDictionary {
      * {@code null} when that dictionary keeps no collation-ordered storage to walk.
      *
      * <p>
-     * The walking counterpart of {@link #mintAtPositionOfCell}: where that answers one position
-     * through this view's per-mint caches, the cursor holds the block and the inverse rank-table
-     * record of the position it is at and moves on only when a seek leaves them — the shape a merge
-     * over every segment at once needs, which reads each block once per range and compares bytes it
-     * already holds ({@link SegmentRunCursor}). The cursor shares this view's rank-table records and
-     * is as thread-private as the view is.
+     * The walking counterpart of {@link #mintAtPositionOfCell}: where that answers one position through
+     * this view's per-mint caches, the cursor holds the block and the inverse rank-table record of the
+     * position it is at and moves on only when a seek leaves them — the shape a merge over every
+     * segment at once needs, which reads each block once per range and compares bytes it already holds
+     * ({@link SegmentRunCursor}). The cursor shares this view's rank-table records and is as
+     * thread-private as the view is.
      * </p>
      */
     public @Nullable SegmentRunCursor positionCursorOfCell(final long anyCell) {
@@ -909,14 +915,14 @@ public final class GlobalValueDictionary {
     }
 
     /**
-     * The value a packed {@code (segment, id)} CELL names — the long-width entry point a
-     * segment-scoped column needs.
+     * The value a packed {@code (segment, id)} CELL names — the long-width entry point a segment-scoped
+     * column needs.
      *
      * <p>
      * A cell does not fit in an {@code int}: the segment lives in its high 32 bits, so
-     * {@code valueAsString((int) cell)} would silently truncate the segment away and resolve every
-     * cell against segment 0. That is invisible while a resource has one segment and wrong the moment
-     * it has two, which is why the packed path has its own signature rather than sharing the id one.
+     * {@code valueAsString((int) cell)} would silently truncate the segment away and resolve every cell
+     * against segment 0. That is invisible while a resource has one segment and wrong the moment it has
+     * two, which is why the packed path has its own signature rather than sharing the id one.
      * </p>
      */
     public @Nullable String valueOfCell(final long cell) {
@@ -930,8 +936,8 @@ public final class GlobalValueDictionary {
         // whatever entry the index happens to land on -- a real value, belonging to another row --
         // so the only safe answer is "cannot resolve", which makes the caller decline.
         if (PROJ_DIAG) {
-          System.err.println("[segdict] cell names segment " + ProjectionIndexRowGroupPage.segmentOfCell(cell)
-              + " id " + id + ", but that dictionary holds " + segmentView.entryCount() + " entries");
+          System.err.println("[segdict] cell names segment " + ProjectionIndexRowGroupPage.segmentOfCell(cell) + " id "
+              + id + ", but that dictionary holds " + segmentView.entryCount() + " entries");
         }
         return null;
       }
@@ -939,15 +945,15 @@ public final class GlobalValueDictionary {
     }
 
     /**
-     * Whether the value a packed CELL names satisfies {@code op} against {@code literalUtf8},
-     * evaluated on the stored BYTES — no {@link String} is built.
+     * Whether the value a packed CELL names satisfies {@code op} against {@code literalUtf8}, evaluated
+     * on the stored BYTES — no {@link String} is built.
      *
      * <p>
      * The per-value half of a two-phase string predicate on a segment-scoped column, and the reason
      * such a column needs no dictionary-wide sweep: a caller memoises this per {@code (segment, id)},
-     * so the byte work is paid once per distinct value the column actually REFERENCES, which is at
-     * most — and usually far less than — the dictionary's size. It is also indifferent to a rank
-     * table, because it addresses an id rather than a storage position.
+     * so the byte work is paid once per distinct value the column actually REFERENCES, which is at most
+     * — and usually far less than — the dictionary's size. It is also indifferent to a rank table,
+     * because it addresses an id rather than a storage position.
      * </p>
      *
      * @return the verdict, or {@code null} when the cell names no entry of its segment
@@ -958,8 +964,8 @@ public final class GlobalValueDictionary {
      * <p>
      * What a group-by over a segment-scoped column needs and a {@link String} is the wrong way to get:
      * building one per distinct value costs about 150 bytes and a GC-visible object each, which is
-     * invisible at a million distinct values and is 2.7 GB at eighteen million. Every column store
-     * that dictionary-encodes strings compares and hashes bytes in place for exactly this reason.
+     * invisible at a million distinct values and is 2.7 GB at eighteen million. Every column store that
+     * dictionary-encodes strings compares and hashes bytes in place for exactly this reason.
      * </p>
      *
      * @return the hash, or 0 when the cell names no entry — a caller must treat 0 as "unresolvable"
@@ -989,8 +995,8 @@ public final class GlobalValueDictionary {
     }
 
     /**
-     * The string length of the value a packed CELL names, in the given mode, read off the stored
-     * bytes — no {@link String} is built.
+     * The string length of the value a packed CELL names, in the given mode, read off the stored bytes
+     * — no {@link String} is built.
      *
      * <p>
      * The per-cell twin of {@link #fillLengthTable}: a segment-scoped length table is derived per
@@ -1120,10 +1126,10 @@ public final class GlobalValueDictionary {
     }
 
     /**
-     * The verdict sweep sets bit {@code position} — it walks storage — while every row carries a
-     * MINT, and the bucket-to-word aliasing the split sweep is built on ({@link VerdictSlice}) does
-     * not survive a permutation between the two. Until the sweep is rebuilt in rank space, a caller
-     * holding a tabled dictionary must take a route that does not depend on the bitset.
+     * The verdict sweep sets bit {@code position} — it walks storage — while every row carries a MINT,
+     * and the bucket-to-word aliasing the split sweep is built on ({@link VerdictSlice}) does not
+     * survive a permutation between the two. Until the sweep is rebuilt in rank space, a caller holding
+     * a tabled dictionary must take a route that does not depend on the bitset.
      */
     private void refuseVerdictUnderRankTable() {
       if (rankTableKey != 0L) {
@@ -1197,8 +1203,8 @@ public final class GlobalValueDictionary {
      * sealed segment dictionary has. Refusing pushed the segment lane onto a per-referenced-cell
      * resolution — a random dictionary read for each distinct value a query touches, measured at 46 s
      * for one LIKE over 100M rows. Walking storage once is sequential and reads each block's packed
-     * bytes in place; the rank table then says which id each position belongs to, one record lookup
-     * per entry.
+     * bytes in place; the rank table then says which id each position belongs to, one record lookup per
+     * entry.
      * </p>
      *
      * @return bit {@code id} set iff the value under that id satisfies {@code op}
@@ -1223,8 +1229,7 @@ public final class GlobalValueDictionary {
 
     private long[] sweepStringOp(final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
       final long[] verdict = newVerdict();
-      final boolean litHasSupplementary =
-          ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
+      final boolean litHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
       final int buckets = verdictBucketCount();
       for (int bucket = 0; bucket < buckets; bucket++) {
         final ValueDictionaryValueBucketNode bucketNode =
@@ -1239,8 +1244,8 @@ public final class GlobalValueDictionary {
           final ValueDictionaryValueBlockNode node = GlobalValueDictionaryRadix.blockNode(bucketNode.blockKey(block),
               blockFirstPosition, namePage, databaseType, reader);
           if (node == null) {
-            throw new IllegalStateException("value dictionary block " + blockFirstPosition + " is missing from"
-                + " revision " + revision);
+            throw new IllegalStateException(
+                "value dictionary block " + blockFirstPosition + " is missing from" + " revision " + revision);
           }
           final byte[] bytes = node.rawBytes();
           final int count = node.size();
@@ -1373,8 +1378,8 @@ public final class GlobalValueDictionary {
      *
      * <p>
      * Within one segment this is {@link #compareIds}, which a rank table already answers from two
-     * position reads without touching a value. ACROSS segments neither id space says anything about
-     * the other's, so the values themselves decide — and because the two operands come from different
+     * position reads without touching a value. ACROSS segments neither id space says anything about the
+     * other's, so the values themselves decide — and because the two operands come from different
      * views, their slice caches cannot alias, which is the hazard {@code compareIds} lifts locals to
      * avoid. Allocation-free either way: no {@link String} is built.
      * </p>
@@ -1452,8 +1457,8 @@ public final class GlobalValueDictionary {
     }
 
     /**
-     * Compare the value stored at storage {@code position} to a caller-owned byte range, under the
-     * same collation.
+     * Compare the value stored at storage {@code position} to a caller-owned byte range, under the same
+     * collation.
      *
      * <p>
      * The binary-search probe's inner loop, which searches STORAGE — the ordered prefix is a range of
@@ -1487,14 +1492,14 @@ public final class GlobalValueDictionary {
      *
      * <p>
      * The instance form of {@link GlobalValueDictionary#probe(long, byte[], StorageEngineReader)}: a
-     * caller that interns many values (the segment lane probing a sealed generation for a tail, a
-     * point predicate resolved once per segment) holds one view and pays the bucket, block, separator
-     * and rank-table record fetches ONCE across all of them, where the static form pays them per call.
-     * Same answers, same contract: {@link #ID_ABSENT} only when the directory is complete and provably
-     * does not hold the value; a decode-only dictionary answers {@link #ID_UNKNOWN}. A view is opened
-     * only over a complete directory, so completeness needs no re-check here. Under a rank table the
-     * id returned is the MINT the rows carry, translated from the found position by one inverse-run
-     * record read.
+     * caller that interns many values (the segment lane probing a sealed generation for a tail, a point
+     * predicate resolved once per segment) holds one view and pays the bucket, block, separator and
+     * rank-table record fetches ONCE across all of them, where the static form pays them per call. Same
+     * answers, same contract: {@link #ID_ABSENT} only when the directory is complete and provably does
+     * not hold the value; a decode-only dictionary answers {@link #ID_UNKNOWN}. A view is opened only
+     * over a complete directory, so completeness needs no re-check here. Under a rank table the id
+     * returned is the MINT the rows carry, translated from the found position by one inverse-run record
+     * read.
      * </p>
      *
      * @param utf8 the value's UTF-8 bytes
@@ -1544,10 +1549,10 @@ public final class GlobalValueDictionary {
      * when there is no table or the id lies above the table's prefix (an appended tail is stored in
      * mint order behind the ordered prefix, so there id and position coincide).
      *
-     * @throws IllegalStateException if {@code id} is outside {@code 1..entryCount}, or the table
-     *         record is missing, mis-shaped, or holds a rank outside the prefix — a wrong position would
-     *         read the wrong value silently, and an out-of-range id would index a table record that does
-     *         not exist (id 0 lands on record index 262143 through the unsigned shift)
+     * @throws IllegalStateException if {@code id} is outside {@code 1..entryCount}, or the table record
+     *         is missing, mis-shaped, or holds a rank outside the prefix — a wrong position would read
+     *         the wrong value silently, and an out-of-range id would index a table record that does not
+     *         exist (id 0 lands on record index 262143 through the unsigned shift)
      */
     int positionOf(final int id) {
       if (rankTableKey == 0L) {
@@ -1560,8 +1565,7 @@ public final class GlobalValueDictionary {
       if (id > orderedPrefixCount) {
         return id;
       }
-      final int rank =
-          rankTableRecord((id - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT).entryOf(id);
+      final int rank = rankTableRecord((id - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT).entryOf(id);
       if (rank < 1 || rank > orderedPrefixCount) {
         throw new IllegalStateException("rank table of value dictionary " + headerNodeKey + " maps id " + id
             + " to position " + rank + ", outside its ordered prefix of " + orderedPrefixCount);
@@ -1590,8 +1594,8 @@ public final class GlobalValueDictionary {
       }
       final int records = ValueDictionaryRankTableNode.recordCountFor(orderedPrefixCount);
       final int mint =
-          rankTableRecord(records + ((position - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT))
-              .entryOf(position);
+          rankTableRecord(records + ((position - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT)).entryOf(
+              position);
       if (mint < 1 || mint > orderedPrefixCount) {
         throw new IllegalStateException("inverse rank table of value dictionary " + headerNodeKey + " maps position "
             + position + " to id " + mint + ", outside its ordered prefix of " + orderedPrefixCount);
@@ -1611,8 +1615,8 @@ public final class GlobalValueDictionary {
       }
       ValueDictionaryRankTableNode record = table[index];
       if (record == null) {
-        record = loadRankTableRecord(headerNodeKey, rankTableKey, orderedPrefixCount, index, namePage, databaseType,
-            reader);
+        record =
+            loadRankTableRecord(headerNodeKey, rankTableKey, orderedPrefixCount, index, namePage, databaseType, reader);
         table[index] = record;
       }
       return record;
@@ -1657,7 +1661,8 @@ public final class GlobalValueDictionary {
         // Same width problem as valueAsString: a cell's segment does not survive an int. No caller
         // needs a substring of a segment-scoped column yet, and a truncating one would read segment
         // 0's dictionary for every cell.
-        throw new IllegalStateException("this view resolves packed (segment, id) cells; xsIntegerOfSubstring has no cell form");
+        throw new IllegalStateException(
+            "this view resolves packed (segment, id) cells; xsIntegerOfSubstring has no cell form");
       }
       return transformed(id, start, length, (byte) 1);
     }
@@ -1668,7 +1673,8 @@ public final class GlobalValueDictionary {
         // Same width problem as valueAsString: a cell's segment does not survive an int. No caller
         // needs a substring of a segment-scoped column yet, and a truncating one would read segment
         // 0's dictionary for every cell.
-        throw new IllegalStateException("this view resolves packed (segment, id) cells; packIsoMinuteSubstring has no cell form");
+        throw new IllegalStateException(
+            "this view resolves packed (segment, id) cells; packIsoMinuteSubstring has no cell form");
       }
       return transformed(id, start, length, (byte) 2);
     }
@@ -1679,7 +1685,8 @@ public final class GlobalValueDictionary {
         // Same width problem as valueAsString: a cell's segment does not survive an int. No caller
         // needs a substring of a segment-scoped column yet, and a truncating one would read segment
         // 0's dictionary for every cell.
-        throw new IllegalStateException("this view resolves packed (segment, id) cells; materializeIsoMinuteSubstring has no cell form");
+        throw new IllegalStateException(
+            "this view resolves packed (segment, id) cells; materializeIsoMinuteSubstring has no cell form");
       }
       // The ONE place a value becomes a String: an emitted winner. Validated on exactly the terms
       // packIsoMinuteSubstring uses, so an inadmissible substring is refused here as it is there.
@@ -1730,8 +1737,8 @@ public final class GlobalValueDictionary {
     /**
      * Resolve storage {@code position} to its slice, into the {@code located*} scratch: the reverse
      * bucket that covers it (retained direct-mapped), the block within the bucket (likewise), and the
-     * value's offset and length inside the block's packed bytes — or its spill record. This is the
-     * one path from a position to bytes; {@link #sliceSlot} caches its result per id and
+     * value's offset and length inside the block's packed bytes — or its spill record. This is the one
+     * path from a position to bytes; {@link #sliceSlot} caches its result per id and
      * {@link #comparePositionToValue} reads it in place.
      */
     private void locate(final int position) {
@@ -1842,11 +1849,11 @@ public final class GlobalValueDictionary {
    * {@link SegmentRunCursor} over one dictionary's storage positions, on top of a {@link ReadView}.
    *
    * <p>
-   * Holds the reverse bucket, the value block and the inverse rank-table record covering the
-   * position it is at, each replaced only when a seek leaves it. Nothing here is keyed by mint and
-   * nothing is direct-mapped: a walk in position order touches each block once, so a cache would
-   * only be a cache of the block it holds anyway. Rank-table records are the VIEW's, shared with its
-   * other routes; block and bucket records come through the shared dictionary record cache.
+   * Holds the reverse bucket, the value block and the inverse rank-table record covering the position
+   * it is at, each replaced only when a seek leaves it. Nothing here is keyed by mint and nothing is
+   * direct-mapped: a walk in position order touches each block once, so a cache would only be a cache
+   * of the block it holds anyway. Rank-table records are the VIEW's, shared with its other routes;
+   * block and bucket records come through the shared dictionary record cache.
    * </p>
    */
   private static final class PositionCursor extends SegmentRunCursor {
@@ -1860,7 +1867,9 @@ public final class GlobalValueDictionary {
 
     private @Nullable ValueDictionaryValueBucketNode bucket;
 
-    /** The block held, covering positions {@code [blockFirst, blockEnd)}; empty until the first seek. */
+    /**
+     * The block held, covering positions {@code [blockFirst, blockEnd)}; empty until the first seek.
+     */
     private @Nullable ValueDictionaryValueBlockNode block;
 
     private int blockFirst;
@@ -1943,8 +1952,8 @@ public final class GlobalValueDictionary {
       ValueDictionaryRankTableNode record = inverse;
       if (record == null || position < inverseFirst || position >= inverseEnd) {
         final int records = ValueDictionaryRankTableNode.recordCountFor(view.orderedPrefixCount);
-        record = view.rankTableRecord(records
-            + ((position - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT));
+        record =
+            view.rankTableRecord(records + ((position - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT));
         inverse = record;
         inverseFirst = record.firstKey();
         inverseEnd = inverseFirst + record.size();
@@ -2202,8 +2211,7 @@ public final class GlobalValueDictionary {
       return id;
     }
     final int position = loadRankTableRecord(header.getNodeKey(), header.getRankTableKey(), orderedPrefixCount,
-        (id - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT, namePage, databaseType, reader)
-        .entryOf(id);
+        (id - 1) >>> ValueDictionaryRankTableNode.ENTRIES_PER_RECORD_SHIFT, namePage, databaseType, reader).entryOf(id);
     if (position < 1 || position > orderedPrefixCount) {
       throw new IllegalStateException("rank table of value dictionary " + header.getNodeKey() + " maps id " + id
           + " to position " + position + ", outside its ordered prefix of " + orderedPrefixCount);
@@ -2244,8 +2252,8 @@ public final class GlobalValueDictionary {
     if (table.firstKey() != expectedFirstKey || table.size() != expectedCount
         || table.bitsPerEntry() != ValueDictionaryRankTableNode.bitsFor(orderedPrefixCount)) {
       throw new IllegalStateException("rank table record " + index + " of value dictionary " + headerNodeKey
-          + " at key " + key + " covers keys " + table.firstKey() + "+" + table.size() + " at "
-          + table.bitsPerEntry() + " bits; expected " + expectedFirstKey + "+" + expectedCount + " at "
+          + " at key " + key + " covers keys " + table.firstKey() + "+" + table.size() + " at " + table.bitsPerEntry()
+          + " bits; expected " + expectedFirstKey + "+" + expectedCount + " at "
           + ValueDictionaryRankTableNode.bitsFor(orderedPrefixCount) + " bits for an ordered prefix of "
           + orderedPrefixCount);
     }
@@ -2482,9 +2490,9 @@ public final class GlobalValueDictionary {
    * From here on the ids the pages carry are MINTS: {@code rankByMint[m]} is the storage position of
    * mint {@code m}, and every read route translates through the table ({@link ReadView#positionOf}).
    * The seal writes the sorted values first (positions {@code 1..P}), builds the separator array
-   * ({@link #buildBlockIndex}, which refuses to run after this), then calls here with the
-   * permutation it recorded while sorting. Mints above {@code P} (an unordered tail) stay their own
-   * positions. The permutation is persisted in BOTH directions as two runs of
+   * ({@link #buildBlockIndex}, which refuses to run after this), then calls here with the permutation
+   * it recorded while sorting. Mints above {@code P} (an unordered tail) stay their own positions.
+   * The permutation is persisted in BOTH directions as two runs of
    * {@link ValueDictionaryRankTableNode#recordCountFor} records at consecutive keys: {@code mint ->
    * rank} at {@code tableKey + i} (the direction every decode takes) and {@code rank -> mint} at
    * {@code tableKey + records + i} (the direction the probe takes, once per probe — persisting it
@@ -2493,8 +2501,8 @@ public final class GlobalValueDictionary {
    * per entry, {@link ValueDictionaryRankTableNode#ENTRIES_PER_RECORD} entries per record.
    * </p>
    *
-   * @param rankByMint the storage position of every mint {@code 1..P}, index 0 unused — a
-   *        permutation of {@code 1..P}, checked here once so that no reader has to
+   * @param rankByMint the storage position of every mint {@code 1..P}, index 0 unused — a permutation
+   *        of {@code 1..P}, checked here once so that no reader has to
    * @return the key of the first table record
    * @throws IllegalArgumentException if the header does not describe an untabled ordered prefix
    *         without a forward index, or {@code rankByMint} is not a permutation of {@code 1..P}
@@ -2513,8 +2521,8 @@ public final class GlobalValueDictionary {
           + header);
     }
     if (rankByMint.length != prefix + 1) {
-      throw new IllegalArgumentException("rankByMint covers " + (rankByMint.length - 1) + " mints, the ordered prefix "
-          + prefix);
+      throw new IllegalArgumentException(
+          "rankByMint covers " + (rankByMint.length - 1) + " mints, the ordered prefix " + prefix);
     }
     // A repeated rank would give two mints one value and leave another value unreachable; refused
     // before a single record is written. The inverse is built in the same pass: a slot already

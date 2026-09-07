@@ -320,17 +320,17 @@ final class PredicateTreeKeepMaskTest {
   @DisplayName("a tree's row masks match evaluateMaskTree leaf for leaf, over the masked fill")
   void treeRowKeepMasks() {
     // (key >= 6000 AND class = 3) OR (key < 20): leaf 7 whole, leaf 0 rows 0..19.
-    final PredicateTree tree = PredicateTree.of(
-        new ColumnPredicate[] {keyAtLeast(6), classIs(3), ColumnPredicate.numeric(0, Op.LT, 20L)},
-        new byte[] {0, 1, PredicateTree.OP_AND, 2, PredicateTree.OP_OR});
+    final PredicateTree tree =
+        PredicateTree.of(new ColumnPredicate[] {keyAtLeast(6), classIs(3), ColumnPredicate.numeric(0, Op.LT, 20L)},
+            new byte[] {0, 1, PredicateTree.OP_AND, 2, PredicateTree.OP_OR});
     final Fixture f = buildFixture();
     final long[] keep = ProjectionColumnScan.predicateKeepMask(f.store(), NO_PREDICATES, tree, f.fetcher());
     final ColumnSlice[][] treeCols = ProjectionColumnScan.resolveTreeColumnsShared(f.store(), tree, f.fetcher(), keep);
     final long[][] out = new long[LEAVES][];
 
     // Two ranges, as the morsels on the workers hand them out.
-    final long first = ProjectionColumnScan.rowKeepMasks(f.store(), NO_PREDICATES, new ColumnSlice[0][], tree,
-        treeCols, 0, 3, out);
+    final long first =
+        ProjectionColumnScan.rowKeepMasks(f.store(), NO_PREDICATES, new ColumnSlice[0][], tree, treeCols, 0, 3, out);
     final long second = ProjectionColumnScan.rowKeepMasks(f.store(), NO_PREDICATES, new ColumnSlice[0][], tree,
         treeCols, 3, LEAVES, out);
 
@@ -354,8 +354,9 @@ final class PredicateTreeKeepMaskTest {
         () -> ProjectionColumnScan.rowKeepMasks(f.store(), preds, predCols, null, null, 0, LEAVES + 1, out));
     assertThrows(IllegalArgumentException.class,
         () -> ProjectionColumnScan.rowKeepMasks(f.store(), preds, predCols, null, null, 3, 2, out));
-    assertThrows(IllegalArgumentException.class, () -> ProjectionColumnScan.rowKeepMasks(f.store(), preds,
-        new ColumnSlice[0][], null, null, 0, LEAVES, out), "one resolved column per predicate");
+    assertThrows(IllegalArgumentException.class,
+        () -> ProjectionColumnScan.rowKeepMasks(f.store(), preds, new ColumnSlice[0][], null, null, 0, LEAVES, out),
+        "one resolved column per predicate");
     final PredicateTree tree = PredicateTree.of(new ColumnPredicate[] {classIs(3)}, new byte[] {0});
     assertThrows(IllegalArgumentException.class, () -> ProjectionColumnScan.rowKeepMasks(f.store(), NO_PREDICATES,
         new ColumnSlice[0][], tree, null, 0, LEAVES, out), "a tree needs its resolved columns");

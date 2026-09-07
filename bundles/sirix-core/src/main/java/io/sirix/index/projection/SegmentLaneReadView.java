@@ -22,8 +22,8 @@ import static java.util.Objects.requireNonNull;
  * </p>
  *
  * <p>
- * The values are in memory the whole time — the lane is holding them precisely so it can seal them —
- * so this view answers from there. It is the write side's twin of
+ * The values are in memory the whole time — the lane is holding them precisely so it can seal them
+ * — so this view answers from there. It is the write side's twin of
  * {@link SegmentScopedReadDictionaries}, which answers the same questions from the persisted
  * directory once a revision is finished, and it is live for exactly as long as the lane is.
  * </p>

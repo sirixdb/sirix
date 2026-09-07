@@ -12,8 +12,8 @@ import java.util.Arrays;
  * thread, and never revised for a page that has been adopted.
  *
  * <p>
- * A segment is a page-aligned node-key range {@code [start(s), start(s + 1))} of the document trie (
- * {@code docs/SEGMENT_DICTIONARY_DESIGN.md} §1). Node keys are monotone and never reused, so a
+ * A segment is a page-aligned node-key range {@code [start(s), start(s + 1))} of the document trie
+ * ( {@code docs/SEGMENT_DICTIONARY_DESIGN.md} §1). Node keys are monotone and never reused, so a
  * node's segment is permanent. The boundaries are the first page key of every segment, strictly
  * ascending from 0; the last one is the OPEN segment, which every page above it belongs to until it
  * closes. The array is what {@link SegmentDictionaryDirectoryNode} persists, so this class produces
@@ -23,8 +23,8 @@ import java.util.Arrays;
  * <h2>When a segment closes</h2>
  *
  * At the next page adoption once the open segment has minted
- * {@link #SEGMENT_DICTIONARY_BUDGET_BYTES} of distinct-value bytes (summed over its tags) or its page
- * keys span {@link #SEGMENT_MAX_LEAVES}. The bytes are what the seal has to sort and store, so
+ * {@link #SEGMENT_DICTIONARY_BUDGET_BYTES} of distinct-value bytes (summed over its tags) or its
+ * page keys span {@link #SEGMENT_MAX_LEAVES}. The bytes are what the seal has to sort and store, so
  * closing on them makes every segment dictionary cost about the same to build and to serve whatever
  * the column mix; the span cap bounds the mint map's lifetime for a corpus of few distinct values.
  * Two constants, no properties: the budget is the seal's working set, not a tuning knob.
@@ -32,8 +32,8 @@ import java.util.Arrays;
  * <p>
  * The cap is on the KEY SPAN — the distance from the segment's first adopted page key to the page
  * being adopted — not on a count of adopted leaves. The two agree for a bulk load, whose document
- * page keys are dense; where keys have gaps the segment holds fewer leaves than the cap, never more,
- * and the directory's contract (page-aligned key ranges) is what the span protects.
+ * page keys are dense; where keys have gaps the segment holds fewer leaves than the cap, never
+ * more, and the directory's contract (page-aligned key ranges) is what the span protects.
  * </p>
  *
  * <h2>Why the decision is taken at adoption, and only for a page ABOVE every adopted one</h2>
@@ -42,11 +42,11 @@ import java.util.Arrays;
  * later, on the flush pool. So the byte count a close reacts to lags the adoption by the flush
  * window, and a boundary can only be placed where no already-adopted page could fall on the other
  * side of it: a boundary is appended at page key {@code k} only when {@code k} exceeds every page
- * adopted so far. Then every adopted page keeps its segment for the rest of the load, which is
- * what lets {@link #segmentOf} answer from any thread without a lock — an adopted page's answer is
- * fixed before anyone else can ask for it. A page arriving BELOW the highest adopted key (not a
- * bulk load) is simply placed by the boundaries as they stand; the close is deferred to the next
- * page that is above everything.
+ * adopted so far. Then every adopted page keeps its segment for the rest of the load, which is what
+ * lets {@link #segmentOf} answer from any thread without a lock — an adopted page's answer is fixed
+ * before anyone else can ask for it. A page arriving BELOW the highest adopted key (not a bulk
+ * load) is simply placed by the boundaries as they stand; the close is deferred to the next page
+ * that is above everything.
  *
  * <p>
  * Adoption is SEQUENTIAL: one adopter at a time, and a hand-over between adopting threads (the bulk
@@ -73,9 +73,11 @@ public final class SegmentBoundaries {
   private final int maxSegments;
 
   /** First page key of every segment, strictly ascending from 0. Replaced on close, never mutated. */
-  private volatile long[] starts = { 0L };
+  private volatile long[] starts = {0L};
 
-  /** Highest page key adopted so far, {@code -1} before the first. Adopter only; see the class note. */
+  /**
+   * Highest page key adopted so far, {@code -1} before the first. Adopter only; see the class note.
+   */
   private volatile long highestAdopted = -1L;
 
   /** First page key adopted into the open segment, {@code -1} while it has none. Adopter only. */
@@ -124,8 +126,8 @@ public final class SegmentBoundaries {
       throw new IllegalArgumentException("maxLeaves must be positive: " + maxLeaves);
     }
     if (maxSegments <= 0 || maxSegments > SegmentDictionaryDirectoryNode.MAX_SEGMENTS) {
-      throw new IllegalArgumentException("maxSegments must be in [1, " + SegmentDictionaryDirectoryNode.MAX_SEGMENTS
-          + "]: " + maxSegments);
+      throw new IllegalArgumentException(
+          "maxSegments must be in [1, " + SegmentDictionaryDirectoryNode.MAX_SEGMENTS + "]: " + maxSegments);
     }
     this.budgetBytes = budgetBytes;
     this.maxLeaves = maxLeaves;
@@ -133,8 +135,8 @@ public final class SegmentBoundaries {
   }
 
   /**
-   * Place document page {@code recordPageKey} in a segment, closing the open one first if it is
-   * full. One adopter at a time, once per adoption, before the page's resolver is chosen.
+   * Place document page {@code recordPageKey} in a segment, closing the open one first if it is full.
+   * One adopter at a time, once per adoption, before the page's resolver is chosen.
    *
    * @param recordPageKey the page's key, at least 0
    * @param openSegmentMintedBytes distinct-value bytes minted into the open segment so far, summed
@@ -168,12 +170,12 @@ public final class SegmentBoundaries {
     final long[] current = starts;
     final int count = current.length;
     if (start <= current[count - 1]) {
-      throw new IllegalStateException("a boundary at page " + start + " would not ascend past the open segment's start "
-          + current[count - 1]);
+      throw new IllegalStateException(
+          "a boundary at page " + start + " would not ascend past the open segment's start " + current[count - 1]);
     }
     if (count >= maxSegments) {
-      throw new IllegalStateException("the segment directory holds at most " + maxSegments + " segments; page "
-          + start + " would open one more");
+      throw new IllegalStateException(
+          "the segment directory holds at most " + maxSegments + " segments; page " + start + " would open one more");
     }
     final long[] grown = Arrays.copyOf(current, count + 1);
     grown[count] = start;
