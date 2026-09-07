@@ -23,6 +23,7 @@ import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.compiler.optimizer.VectorizedExecutor;
 import io.brackit.query.expr.Cast;
 import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.sequence.ItemSequence;
@@ -14089,6 +14090,48 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return true;
   }
 
+  /** Bounds the extra winner records built when dependent keys are restored after selection. */
+  private static final int OFFSET_GROUP_WINNER_LIMIT = 1024;
+
+  private static final LongAdder OFFSET_COUNT_GROUPS_REWRITTEN = new LongAdder();
+
+  /** Count-group requests whose same-column offsets were moved from every row to the winners. */
+  public static long offsetCountGroupsRewriteCount() {
+    return OFFSET_COUNT_GROUPS_REWRITTEN.sum();
+  }
+
+  /**
+   * Fixed integer translations are injective, including beyond the long range. Grouping their
+   * common source therefore preserves the complete groups and their first-seen ties. Only winners
+   * need the translated keys; Brackit's arithmetic preserves integer promotion at emission.
+   */
+  private static ServedGroups restoreOffsetGroupKeys(final ServedGroups source, final String[] keyNames,
+      final long[] offsets, final String countName) {
+    final int keys = keyNames.length;
+    final QNm[] names = new QNm[keys + 1];
+    final Int64[] shifts = new Int64[keys];
+    for (int k = 0; k < keys; k++) {
+      names[k] = new QNm(keyNames[k]);
+      shifts[k] = new Int64(offsets[k]);
+    }
+    names[keys] = new QNm(countName);
+    final ArrayList<Item> rows = new ArrayList<>(source.groups().size().intValue());
+    try (final Iter iter = source.groups().iterate()) {
+      Item item;
+      while ((item = iter.next()) != null) {
+        final ArrayObject row = (ArrayObject) item;
+        final Int64 value = (Int64) row.value(0);
+        final Sequence[] values = new Sequence[keys + 1];
+        for (int k = 0; k < keys; k++) {
+          values[k] = value == null ? null : value.add(shifts[k]);
+        }
+        values[keys] = row.value(1);
+        rows.add(new ArrayObject(names.clone(), values));
+      }
+    }
+    return new ServedGroups(new ItemSequence(rows.toArray(new Item[0])), source.ordered());
+  }
+
   /**
    * {@code GROUP BY k1..kn LIMIT k} without ORDER BY asks for ANY k groups: SQL leaves the choice to
    * the engine and XQuery's group-by emission order is implementation-defined. The aggregate route
@@ -14589,6 +14632,39 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         System.err.println("[groupAgg] keys=" + keyCount + " limit=" + limit + " ordered=" + (orderIndexes != null)
             + " predicate=" + (predicateOrNull != null) + " having=" + (having != null) + " wholeLeafOnly="
             + wholeLeafOnly + " budgetRefused=" + budgetRefused);
+      }
+      // Narrow, metadata-only dependency proof: count-ordered, capped groups on one exact numeric
+      // column with fixed offsets. Every other shape keeps its existing kernel and budget.
+      if (keyCount > 1 && keyOffsets != null && limit >= 1 && limit <= OFFSET_GROUP_WINNER_LIMIT
+          && funcs.length == 1 && "count".equals(funcs[0]) && aggFields[0] == null
+          && orderIndexes != null && orderIndexes.length == 1 && orderIndexes[0] == keyCount
+          && anyKPlainKeys(keyCount, null, keySubstr, keyCondElse, keyRegexPattern, keyDivMod, keyStringify)) {
+        boolean dependent = true;
+        for (int g = 1; g < keyCount; g++) {
+          dependent &= groupFields[0].equals(groupFields[g]);
+        }
+        if (keyCondFields != null) {
+          for (final String condition : keyCondFields) {
+            dependent &= condition == null;
+          }
+        }
+        final int column = handle.columnOf(groupFields[0]);
+        if (dependent && column >= 0
+            && handle.columnKindOf(column) == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          final ServedGroups source = groupByAggregate(ctx, sourcePath, predicateOrNull,
+              new String[] {groupFields[0]}, new String[] {keyNames[0]}, funcs, aggFields, outNames,
+              new int[] {1}, orderAsc, orderEmptyLeast, limit, null, null, null, null, null, null, null, null,
+              null, having, wholeLeafOnly, budgetRefused);
+          if (source != null) {
+            final ServedGroups restored = restoreOffsetGroupKeys(source, keyNames, keyOffsets, outNames[0]);
+            OFFSET_COUNT_GROUPS_REWRITTEN.increment();
+            if (PROJ_DIAG) {
+              System.err.println("[proj] offset-count groups: keys=" + keyCount + "->1 identityLanes="
+                  + (keyCount + 1) + "->0 restored=" + restored.groups().size());
+            }
+            return restored;
+          }
+        }
       }
       // GROUP BY … LIMIT k with neither ORDER BY nor a predicate: any k groups are the answer, so
       // pick k the store can aggregate cheaply and serve them through the predicate route
