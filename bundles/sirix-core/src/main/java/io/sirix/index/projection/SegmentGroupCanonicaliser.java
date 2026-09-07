@@ -1072,14 +1072,24 @@ public final class SegmentGroupCanonicaliser {
    * disagree, this fails loudly instead of answering wrongly.
    * </p>
    *
-   * <h2>The returned lanes are READ-ONLY</h2>
+   * <h2>The returned lanes are READ-ONLY, and not all of them are this pass's to hand out</h2>
    *
    * Leaves that keep no row hold nothing but zeroes, so several returned slices may share ONE
-   * all-zero value lane and ONE all-zero presence lane rather than minting a private copy of the same
-   * nothing per leaf — at 100M rows under a selective predicate that is the bulk of this pass's
-   * allocation. A caller that writes into a returned lane would therefore corrupt sibling leaves
-   * silently. Nothing here needs to: the kernels read group keys, and the returned slices are fresh
-   * objects that never go back to the store's slice pool. Copy the lane if you must write one.
+   * all-zero value lane — with or without a row mask — and, under a row mask, ONE all-zero presence
+   * lane, rather than minting a private copy of the same nothing per leaf; at 100M rows under a
+   * selective predicate that is the bulk of this pass's allocation. WITHOUT a row mask there is no
+   * presence array to save, and the returned presence lane is the SOURCE slice's own array, borrowed
+   * rather than copied: it lives exactly as long as that slice does, and a windowed access hands it
+   * to {@code SliceArrayPool} on eviction, after which the next decode overwrites it in place. Every
+   * {@code ColumnSlice} returned here is a fresh object; its lanes are not all fresh arrays.
+   *
+   * <p>
+   * So READ them. A write into a returned lane would silently corrupt sibling leaves, or a slice the
+   * store still owns, with no error anywhere. Nothing needs to — the kernels read group keys — and a
+   * caller that must write copies the lane first. A caller that must keep a lane past its source
+   * window copies it before releasing that window; the windowed arms fold and release each morsel
+   * before anything can be evicted, so they never have to.
+   * </p>
    *
    * @param keep bit {@code leaf} set = canonicalise it; {@code null} = canonicalise every leaf
    */
@@ -1200,8 +1210,8 @@ public final class SegmentGroupCanonicaliser {
       }
       if (firstWord == words) {
         // An all-zero conjunctive mask still makes the kernel read this slice. Preserve its
-        // full lane shape, sharing only untouched zeroes within this rewrite. Nonempty leaves
-        // always own their lanes; dense inputs allocate exactly as before.
+        // full lane shape, sharing only untouched zeroes within this rewrite. A leaf with a live
+        // row always owns this lane; dense inputs allocate exactly as before.
         if (emptyCanonical == null || emptyCanonical.length != cells.length) {
           emptyCanonical = new long[cells.length];
           if (diag) {
