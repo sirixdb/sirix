@@ -35,17 +35,28 @@ final class CompositeGroupIdentityCollisionTest {
   /** Second tuple: first component chosen freely, second SOLVED so the composite key collides. */
   private static final long B0 = 42L;
 
+  /**
+   * One fold step of the kernel, {@code h = h * FNV_PRIME ^ mix(component)}.
+   *
+   * <p>
+   * Stated once, as a method, so every use below goes through the same arithmetic. The multiply is
+   * FNV's deliberate wraparound and must stay a RUNTIME operation: written inline over two constant
+   * operands javac folds it at compile time, and Error Prone then rejects the fold as
+   * {@code [ConstantOverflow]} — an ERROR that aborts the whole module's static analysis. A parameter
+   * is not a constant expression, so the wraparound stays intended and stays legal.
+   */
+  private static long fold(final long h, final long component) {
+    return h * ProjectionIndexByteScan.FNV_PRIME ^ HashCommon.mix(component);
+  }
+
   private static long compositeKey(final long c0, final long c1) {
-    long h = ProjectionIndexByteScan.FNV_SEED;
-    h = h * ProjectionIndexByteScan.FNV_PRIME ^ HashCommon.mix(c0);
-    h = h * ProjectionIndexByteScan.FNV_PRIME ^ HashCommon.mix(c1);
-    return h;
+    return fold(fold(ProjectionIndexByteScan.FNV_SEED, c0), c1);
   }
 
   /** The second component that makes {@code (B0, ?)} collide with {@code (A0, A1)}. */
   private static long solveCollidingSecondComponent() {
     final long target = compositeKey(A0, A1);
-    final long partial = ProjectionIndexByteScan.FNV_SEED * ProjectionIndexByteScan.FNV_PRIME ^ HashCommon.mix(B0);
+    final long partial = fold(ProjectionIndexByteScan.FNV_SEED, B0);
     return HashCommon.invMix(partial * ProjectionIndexByteScan.FNV_PRIME ^ target);
   }
 
