@@ -409,6 +409,6 @@ For deeper context, see:
 - `docs/ARCHITECTURE.md` — page format, versioning, transaction model.
 - `docs/cost-based-optimizer-design.md` — JQGM, histogram selectivity, DPhyp.
 - `docs/NATIVE_IMAGE.md` — GraalVM native-image build/deploy.
-- `CLAUDE.md` — internal developer expectations (HFT-grade hot path,
-  no-Claude-in-commits, etc.).
+- `AGENTS.md` — internal developer expectations (explicit imports, HFT-grade
+  hot path, etc.).
 - `ROADMAP.md` — open work items and target order.
