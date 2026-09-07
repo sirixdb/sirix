@@ -8,7 +8,6 @@ import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.concurrent.atomic.LongAdder;
 import java.util.regex.Pattern;
 
 /**
@@ -32,14 +31,6 @@ import java.util.regex.Pattern;
  * zero side slot.
  */
 public final class ProjectionColumnGroupScan {
-
-  private static final boolean PROJ_DIAG = Boolean.getBoolean("sirix.projDiag");
-  private static final LongAdder COMPOSITE_DISCARDED_ROWS = new LongAdder();
-
-  /** Cumulative rows whose composite aggregate fold was skipped outside their hash-range pass. */
-  public static long compositeDiscardedRowsCount() {
-    return COMPOSITE_DISCARDED_ROWS.sum();
-  }
 
   private ProjectionColumnGroupScan() {}
 
@@ -1041,7 +1032,6 @@ public final class ProjectionColumnGroupScan {
     // One row-sized scratch, hoisted: the kernel writes it per row and acquireExact copies out of
     // it, so a composite group-by allocates nothing per row.
     final long[] identity = new long[identityWidth];
-    long discardedRows = 0;
     // Which components own a second identity lane, so a row that leaves one unwritten cannot
     // inherit the previous row's secondary hash.
     final boolean[] twoLane = new boolean[keyCount];
@@ -1308,9 +1298,6 @@ public final class ProjectionColumnGroupScan {
             // Key transforms and identity proofs above still run for every selected row.
             // Only the owning pass may read/fold operands or update the distinct sink.
             if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
-              if (PROJ_DIAG) {
-                discardedRows++;
-              }
               continue;
             }
             final long[] slotArr = out.storageAtAccBase(handle);
@@ -1478,9 +1465,6 @@ public final class ProjectionColumnGroupScan {
           // Key transforms and identity proofs above still run for every selected row.
           // Only the owning pass may read/fold operands or update the distinct sink.
           if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
-            if (PROJ_DIAG) {
-              discardedRows++;
-            }
             continue;
           }
           final long[] slotArr = out.storageAtAccBase(handle);
@@ -1499,9 +1483,6 @@ public final class ProjectionColumnGroupScan {
           }
         }
       }
-    }
-    if (PROJ_DIAG && discardedRows != 0) {
-      COMPOSITE_DISCARDED_ROWS.add(discardedRows);
     }
   }
 

@@ -114,11 +114,12 @@ that they are the other two unnamed failed probe levers in the handoff.
 
 ## Work reduction and timing cross-check
 
-Temporary instrumentation used invocation-local primitive counters, combined only
-at each morsel's end. It counted selected rows, pass rejections, new local groups,
-adjacent equal identities within a leaf, and executed folds. It was removed after
-the experiment. The production diagnostic adds only `discardedRows`, cumulative
-across completed kernel calls in the JVM; use its delta for the hot try.
+Every work count below comes from **temporary** instrumentation: invocation-local
+primitive counters, combined only at each morsel's end, counting selected rows, pass
+rejections, new local groups, adjacent equal identities within a leaf, and executed
+folds. It was removed after the experiment, so these numbers are an archived
+measurement and are not reproducible from the shipped source. `experiment.patch` in
+the evidence directory preserves it. The change itself ships **no** counter.
 
 | q32 hot work, seven passes | Before | After |
 |---|---:|---:|
@@ -128,13 +129,11 @@ across completed kernel calls in the JVM; use its delta for the hot try.
 | Executed aggregate folds | 699,982,479 | 99,997,497 |
 | Shared rehashes | 0 | 0 |
 
-The final diagnostic's `discardedRows` rises from 599,984,982 after try 1 to
-1,199,969,964 after try 2: **599,984,982 avoided hot folds**, or 85.7%. q31's
-counter stays zero. No extra retained row state, per-row allocation or per-row
-synchronization is introduced. Normal execution pays one handle comparison per
-selected row; diagnostic mode also increments a local primitive counter on rejection
-and combines it once per kernel invocation. Duplicate-heavy and one-pass inputs
-keep their existing table and spill paths rather than copying extra stripes.
+One hot try of q32 skipped **599,984,982 folds**, or 85.7% of them; q31 skipped
+none. No extra retained row state, per-row allocation or per-row synchronization is
+introduced: execution pays one handle comparison per selected row and nothing else.
+Duplicate-heavy and one-pass inputs keep their existing table and spill paths rather
+than copying extra stripes.
 
 | q32 measurement, all diagnostic | Baseline wall / CPU | Candidate wall / CPU |
 |---|---:|---:|
@@ -160,16 +159,19 @@ lever for the observed q31 run.
 
 ## Correctness and reproduction
 
-`CompositeDiscardedFoldTest` exercises both the plain and transformed composite
-loops. Two distinct, excluded groups with individually valid `Long.MAX_VALUE` sums
-must not overflow a shared discard accumulator. The owning pass still rejects a
-real within-group overflow. Partitioned and unpartitioned results agree on duplicate
-multiplicity, absent versus zero keys, sums, extrema, first-seen ordinals and aux.
-Key-transform overflow must still decline before ownership filtering.
-Disabling the two skip guards makes both discarded-overflow witnesses fail;
-restoring the exact tested source returns all seven new tests to green.
+`CompositeDiscardedFoldTest` exercises all three composite loops that fold under a
+hash-range pass: the sliced plain and transformed loops and the whole-leaf kernel
+(`ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat`, the arm taken
+when the column store neither fits nor windows). Two distinct, excluded groups with
+individually valid `Long.MAX_VALUE` sums must not overflow a shared discard
+accumulator. The owning pass still rejects a real within-group overflow. Partitioned
+and unpartitioned results agree on duplicate multiplicity, absent versus zero keys,
+sums, extrema, first-seen ordinals and aux. Key-transform overflow must still decline
+before ownership filtering. Disabling any skip guard makes that loop's
+discarded-overflow witness fail; restoring the exact tested source returns them all
+to green.
 
-Targeted validation: 72 tests passed across `CompositeDiscardedFoldTest`,
+Targeted validation: 75 tests passed across `CompositeDiscardedFoldTest`,
 `CompositeGroupIdentityCollisionTest`, `GroupStripeSpillTest`,
 `GroupHashRangePassTest` and `GroupTopKDifferentialTest`. The last two also compare
 serving with the interpreter, including grouped distinct values and ties.

@@ -3483,6 +3483,9 @@ public final class ProjectionIndexByteScan {
           }
           identity[0] = presenceMask;
           final int handle = out.acquireExact(h, leafOrdinalBase | rowIdx, identity, 0);
+          if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
+            continue;
+          }
           final long[] slotArr = out.storageAtAccBase(handle);
           final int base = out.offsetAtAccBase(handle);
           if (slotArr[base] == 0L) {
