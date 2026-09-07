@@ -1,9 +1,10 @@
 # Segment LIKE groups: remaining work
 
 Status: 100M CPU/allocation comparison and correctness checks completed on 2026-09-07, and
-re-captured on the shipping build `b00ed9e4`. The historical figures below are the empty-lane edit
-over `ca4c34d38`; **The shipping build at 100M** carries what ships. No new score is claimed — no
-scored suite has run on any of these. The measured SEG4T report
+re-captured at revision `b00ed9e4`. The historical figures below are the empty-lane edit over
+`ca4c34d38`; **The measured capture at 100M** carries the revision that measures this change, and
+says exactly how it relates to the branch tip. No new score is claimed — no scored suite has run on
+any of these. The measured SEG4T report
 (`data/sirix-cb-measure-1/report.md` in Firstmate) gives:
 
 | Query | Hot / board best | ln contribution | Change against projection |
@@ -253,7 +254,7 @@ evidence, not an inference from the wall-clock improvement.
 
 That capture predates the presence lane, so its counter line names the canonical lane only. The
 diagnostic now also reports `allocatedPresenceWords` and `reusedEmptyPresence`; both are measured
-on the shipping build below.
+in the `b00ed9e4` capture below.
 
 Raw wall and GC readings from that capture's two JVMs, recorded as observed and attributed to
 nothing:
@@ -267,13 +268,12 @@ nothing:
 
 Hot CPU samples in G1 read 6,737/14,842 (45.4%) and 1,245/7,394 (16.8%); direct canonicalisation
 reads 905 samples and 69. **No timing claim is made from these numbers**, here or anywhere else in
-this document — the shipping-build section below ranges both queries across both captures. What
-this change claims is the allocation reduction and byte-identical output, both measured on the
-shipping build.
+this document — the capture section below ranges both queries across both captures. What this
+change claims is the allocation reduction and byte-identical output, both measured at `b00ed9e4`.
 
 The q22 control retains **5,082,420 allocated longs per lane**, with zero reused empty leaves:
 its tree had already dropped them. All three lane payloads remain unchanged. Its min(tries 2,3)
-read 0.356 s and 0.278 s in this capture's two JVMs and 0.316 s on the shipping build — see the
+read 0.356 s and 0.278 s in this capture's two JVMs and 0.316 s at `b00ed9e4` — see the
 timing table below, which ranges both queries. This control and the dense-lane unit test establish
 that the allocation saving is bounded to empty leaves. q22's duplicate predicate evaluation remains
 for a separate change.
@@ -293,19 +293,46 @@ strongly verified tie windows, **0 mismatch, 0 missing, 0 unverifiable, 0 declin
 two-segment private gate database was loaded by this lane. No scored 100M suite ran. The
 after-check lock was released and no benchmark Java process remained.
 
-## The shipping build at 100M
+## The measured capture at 100M (`b00ed9e4`)
 
 **This section measures `b00ed9e4` — row-mask-gated sharing of BOTH lanes — on an isolated checkout
 at exactly that commit.** Two queries only, five tries, the same rig JVM/serving envelope, 1 ms CPU
 and 512 KiB allocation sampling, and hot windows over tries 2–5. No scored suite ran; no shared
-database or corpus was written; the rig lock was taken and released cleanly. `b00ed9e4` remains the
-measured source build. Commits after it are documentation, tests, and one static-analysis cleanup
-that rewrote comments in `SegmentGroupCanonicaliser.java` and deleted an unreachable private
-`resolveInStorageOrder(ColumnSlice[], long[])` overload that had no call sites. That file is
-therefore no longer byte-identical to the captured revision, but no executed statement in it
-changed, so every measured live path is the one that was captured.
+database or corpus was written; the rig lock was taken and released cleanly.
 
-**Correctness is confirmed on the build that ships.** Both serialized 100M outputs are
+**`b00ed9e4` is a SIBLING of the branch tip, not an ancestor of it.** It sits on the pre-rebase
+lineage, branched from `de2724c5c` and carrying only the empty-lane commits
+(`c5870478e` → `7e2b64b58` → `b7be9d3db` → `cf5b58b63` → `b00ed9e4`); `git merge-base` between it
+and the tip is `de2724c5c`. So there are no "commits after it" on this branch — the tip additionally
+carries the q32/q35 lever work that the capture lineage never contained: `fc8f44cf8` and `f256d3603`
+(composite-fold guards) and `1cc53ec75` (dependent numeric count-group keys), plus their
+documentation and lint follow-ups.
+
+Six runtime files therefore differ between the captured tree and the tip, and **none of the
+differences is reachable from q21 or q22**:
+
+| File | Delta since the capture | Unreachable from q21/q22 because |
+|---|---|---|
+| `ProjectionColumnGroupScan` | two `DISCARD_HANDLE` guards | composite-fold loops only |
+| `ProjectionIndexByteScan` | one `DISCARD_HANDLE` guard | composite-fold loop only |
+| `SirixVectorizedExecutor` | offset-count-group arm | gated on `keyCount > 1` |
+| `NumericGroupAggTable` | javadoc only | no statement changed |
+| `CASKeySerializer` | narrowing via a named local | HOT index; behaviour-preserving |
+| `SegmentGroupCanonicaliser` | comments, one dead overload | see below |
+
+All three `DISCARD_HANDLE` guards sit inside `aggregateByGroupCompositeFlat` and its byte-scan twin
+`conjunctiveAggregateByGroupCompositeFlat`; the executor's `restoreOffsetGroupKeys` arm is gated on
+`keyCount > 1 && keyOffsets != null`. q21 and q22 are SINGLE-key numeric group routes —
+`group-aggregate+numeric-group-by` for q21, that plus `group-distinct` for q22, both recorded
+unchanged below — so the composite-only guards never execute and `keyCount > 1` is false.
+
+The canonicaliser itself is blob-identical between `b00ed9e4` and `a54181214`, its counterpart on
+the tip's lineage. Between `a54181214` and the tip its only non-comment change is the deletion of
+the unreachable private `resolveInStorageOrder(ColumnSlice[], long[])` overload, which had no call
+sites. The file is therefore NOT byte-identical to the captured revision, but the mechanism
+measured below is the mechanism that ships.
+
+**Correctness is confirmed on the captured tree.** Both serialized 100M outputs are
 byte-identical to the historical capture's — the same two SHA-256 digests printed above, with an
 empty `diff`. Both routes are unchanged (`group-aggregate+numeric-group-by` for q21, that plus
 `group-distinct` for q22), and every per-try marked-cell, distinct-rank and canonical
@@ -316,7 +343,9 @@ gating, and `sharedEmptyLanesAreNotWrittenByTheKernelsThatReadThem`, which reads
 back through a real consumer. A freshly compiled
 `bundles/sirix-query/bench/clickbench/rig/seggate1m.sh` over the two-segment 1M database reports
 **33 match, 10 tie-ambiguous (0 unverifiable), 0 mismatch, 0 missing, 0 declines** across all 43
-queries.
+queries. That gate ran on the `b00ed9e4` tree, like everything else in this section; the q32/q35
+commits the tip adds carry their own 43-query gate evidence in
+`docs/DEPENDENT_NUMERIC_GROUP_KEYS.md` and `docs/NUMERIC_COMPOSITE_GROUP_MEASUREMENTS.md`.
 
 Both lanes now report their own counters, per rewrite (q21 rewrites two lanes per query, q22 three):
 
@@ -348,10 +377,10 @@ per-array byte counts, and 15.125 MiB is only the two long-array lanes — every
 `canonicaliseMemoised`, including the `ColumnSlice` objects and the outer arrays, samples
 27.625 MiB per hot try. These are not the query's total allocations either.
 
-**Wall times, both queries, ranged.** min(tries 2, 3) on the shipping build, beside the same
+**Wall times, both queries, ranged.** min(tries 2, 3) at `b00ed9e4`, beside the same
 statistic from the earlier canonical-lane capture:
 
-| Query | Shipping build (s) | Observed range across both captures (s) |
+| Query | `b00ed9e4` (s) | Observed range across both captures (s) |
 |---|---:|---:|
 | q21 | 0.175 | 0.158–0.175 |
 | q22 | 0.316 | 0.278–0.316 |
@@ -398,7 +427,7 @@ The controlled comparison adds `after-window.sh`, `baseline-runtime.gradle`, `be
 `summarize-ab.py` and `ab-summary.json`. The summary records exact hot-window bounds and sampled
 totals for each build. `empty-lanes-test-final.log` and `gate-final.log` hold final validation.
 
-The shipping-build capture is the sibling `shipping-b00ed9e4/` directory, taken from an isolated
+The `b00ed9e4` capture is the sibling `shipping-b00ed9e4/` directory, taken from an isolated
 checkout `capture-b00ed9e4/` whose git HEAD is exactly `b00ed9e4`. It holds `shipping-evidence.json`
 (source identity, test counts, the full gate output, output hashes, the route/counter comparison and
 the disaggregated allocation and timing facts), `shipping-100m.log`, `shipping-100m.jfr`,
