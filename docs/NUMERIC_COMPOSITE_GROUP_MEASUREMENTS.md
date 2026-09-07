@@ -142,6 +142,10 @@ keep their existing table and spill paths rather than copying extra stripes.
 | Work counters on, profiling off | 7.614 / 140.3 s | 7.101 / 132.4 s |
 | Final implementation, profiling off | — | 6.736 / 124.4 s |
 
+The roughly **5% saving is paired-profile CPU time** (134.8 to 128.6 CPU seconds,
+4.6%). The **599,984,982 removed folds are a work count**, not a time saving.
+Neither measurement is a scored delta-ln or a leaderboard result.
+
 In the paired profiles, `foldSliced` falls from 11,744 samples (9.6%) to 3,207
 (2.7%). This agrees with the work counters. The table probes remain the dominant
 remaining cost. Final q32 scan/merge sums are 3,982/2,714 ms; the scan reduction
