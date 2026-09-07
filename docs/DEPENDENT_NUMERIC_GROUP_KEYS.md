@@ -70,11 +70,13 @@ no canonicalization samples. Inclusive categories overlap.
 
 The firstmate-controlled window compared the parent `ca4c34d38` executor with
 `e9f0f5c76` on the same read-only, 148-segment database. `e9f0f5c76` is this change
-before the rebase that renamed it `57b25c45b`: `ca4c34d38` is literally its parent,
-and `git diff e9f0f5c76 HEAD -- .../SirixVectorizedExecutor.java` is empty. That
-diff is how any later leg checks that its own head contains the rewrite. The parent
-executor and its nested classes were compiled separately and prepended to the
-otherwise identical runtime classpath. Each launch used 20 workers, a 14 GiB maximum
+before the rebases that renamed it `87a5f04be`: `ca4c34d38` is literally its parent,
+and `git diff e9f0f5c76 87a5f04be -- .../SirixVectorizedExecutor.java` is empty.
+The only later edit to that file is the campaign formatter's reflow of the new
+block, so a later leg checks that its own head contains the rewrite by diffing it
+against `87a5f04be` and finding nothing but that reflow. The parent executor and its
+nested classes were compiled separately and prepended to the otherwise identical
+runtime classpath. Each launch used 20 workers, a 14 GiB maximum
 heap, a 10 GiB off-heap arena and the existing serving flags. The rig's `take_lock`
 held the shared lock for the window; no benchmark or Gradle JVM was left running,
 and every launch had at least 27.12 GiB MemAvailable. The lock was released
@@ -127,8 +129,10 @@ Raw logs, collapsed profiles, exact launch arguments, result hashes and parsed
 statistics are retained outside the repository, in the measurement worktree's
 `build/q16q35/100m-summary.json`, under
 `/home/johannes/.treehouse/sirix-cdde48/4/sirix`, and the sibling artifacts it
-names. The earlier 54 differential tests and full 1M gate remain applicable: only
-documentation changed after the measured production commit.
+names. The earlier 54 differential tests and full 1M gate remain applicable: after
+the measured production commit only documentation, the
+`ClickBenchQ16Q35RouteEvidenceTest` witness and that formatter reflow changed, so no
+executor behaviour moved under the measurement.
 
 ### What this branch does and does not establish
 

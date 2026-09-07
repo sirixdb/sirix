@@ -14101,9 +14101,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * Fixed integer translations are injective, including beyond the long range. Grouping their
-   * common source therefore preserves the complete groups and their first-seen ties. Only winners
-   * need the translated keys; Brackit's arithmetic preserves integer promotion at emission.
+   * Fixed integer translations are injective, including beyond the long range. Grouping their common
+   * source therefore preserves the complete groups and their first-seen ties. Only winners need the
+   * translated keys; Brackit's arithmetic preserves integer promotion at emission.
    */
   private static ServedGroups restoreOffsetGroupKeys(final ServedGroups source, final String[] keyNames,
       final long[] offsets, final String countName) {
@@ -14123,7 +14123,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final Int64 value = (Int64) row.value(0);
         final Sequence[] values = new Sequence[keys + 1];
         for (int k = 0; k < keys; k++) {
-          values[k] = value == null ? null : value.add(shifts[k]);
+          values[k] = value == null
+              ? null
+              : value.add(shifts[k]);
         }
         values[keys] = row.value(1);
         rows.add(new ArrayObject(names.clone(), values));
@@ -14635,9 +14637,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       // Narrow, metadata-only dependency proof: count-ordered, capped groups on one exact numeric
       // column with fixed offsets. Every other shape keeps its existing kernel and budget.
-      if (keyCount > 1 && keyOffsets != null && limit >= 1 && limit <= OFFSET_GROUP_WINNER_LIMIT
-          && funcs.length == 1 && "count".equals(funcs[0]) && aggFields[0] == null
-          && orderIndexes != null && orderIndexes.length == 1 && orderIndexes[0] == keyCount
+      if (keyCount > 1 && keyOffsets != null && limit >= 1 && limit <= OFFSET_GROUP_WINNER_LIMIT && funcs.length == 1
+          && "count".equals(funcs[0]) && aggFields[0] == null && orderIndexes != null && orderIndexes.length == 1
+          && orderIndexes[0] == keyCount
           && anyKPlainKeys(keyCount, null, keySubstr, keyCondElse, keyRegexPattern, keyDivMod, keyStringify)) {
         boolean dependent = true;
         for (int g = 1; g < keyCount; g++) {
@@ -14651,16 +14653,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final int column = handle.columnOf(groupFields[0]);
         if (dependent && column >= 0
             && handle.columnKindOf(column) == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          final ServedGroups source = groupByAggregate(ctx, sourcePath, predicateOrNull,
-              new String[] {groupFields[0]}, new String[] {keyNames[0]}, funcs, aggFields, outNames,
-              new int[] {1}, orderAsc, orderEmptyLeast, limit, null, null, null, null, null, null, null, null,
-              null, having, wholeLeafOnly, budgetRefused);
+          final ServedGroups source = groupByAggregate(ctx, sourcePath, predicateOrNull, new String[] {groupFields[0]},
+              new String[] {keyNames[0]}, funcs, aggFields, outNames, new int[] {1}, orderAsc, orderEmptyLeast, limit,
+              null, null, null, null, null, null, null, null, null, having, wholeLeafOnly, budgetRefused);
           if (source != null) {
             final ServedGroups restored = restoreOffsetGroupKeys(source, keyNames, keyOffsets, outNames[0]);
             OFFSET_COUNT_GROUPS_REWRITTEN.increment();
             if (PROJ_DIAG) {
-              System.err.println("[proj] offset-count groups: keys=" + keyCount + "->1 identityLanes="
-                  + (keyCount + 1) + "->0 restored=" + restored.groups().size());
+              System.err.println("[proj] offset-count groups: keys=" + keyCount + "->1 identityLanes=" + (keyCount + 1)
+                  + "->0 restored=" + restored.groups().size());
             }
             return restored;
           }
