@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -22,6 +23,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -980,8 +982,7 @@ final class SegmentGroupCanonicaliserTest {
     final ColumnSlice[] source = leavesInMintOrder(corpus, 2, rows);
     final ColumnSlice tail = sliceOf(ProjectionIndexRowGroupPage.packSegmentCell(0, 1));
     final ColumnSlice[] leaves = {source[0], source[1], source[0], tail, source[1], source[0]};
-    final long[][] rowKeep = {rowsKept(rows), rowsKept(rows, 0, 64), rowsKept(rows), rowsKept(1),
-        rowsKept(rows), null};
+    final long[][] rowKeep = {rowsKept(rows), rowsKept(rows, 0, 64), rowsKept(rows), rowsKept(1), rowsKept(rows), null};
 
     final ColumnSlice[] out =
         canonicaliser.canonicaliseColumn(leaves, null, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
@@ -1009,6 +1010,51 @@ final class SegmentGroupCanonicaliserTest {
           canonicaliser.valueOf((int) out[1].numericValues()[row]));
       assertEquals(1L, out[1].presenceWords()[row >>> 6]);
     }
+  }
+
+  @Test
+  @DisplayName("the shared zero lanes survive the real distinct kernels: every consumer only reads")
+  void sharedEmptyLanesAreNotWrittenByTheKernelsThatReadThem() {
+    final int rows = 65;
+    final PositionedCorpus corpus = positionedCorpus(2, rows);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, 2);
+    final ColumnSlice[] source = leavesInMintOrder(corpus, 2, rows);
+    final ColumnSlice[] leaves = {source[0], source[1], source[0], source[1]};
+    final long[][] rowKeep = {rowsKept(rows), rowsKept(rows, 0, 64), rowsKept(rows), rowsKept(rows)};
+
+    final ColumnSlice[] out =
+        canonicaliser.canonicaliseColumn(leaves, null, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(out);
+    final long[] sharedPresence = out[0].presenceWords();
+    final long[] sharedCanonical = out[0].numericValues();
+    assertSame(sharedPresence, out[2].presenceWords(), "empty leaves reuse one zero PRESENCE lane too");
+    assertSame(sharedPresence, out[3].presenceWords());
+    assertSame(sharedCanonical, out[2].numericValues());
+    assertNotSame(sharedPresence, out[1].presenceWords(), "a leaf with kept rows owns its presence lane");
+    assertNotSame(leaves[1].presenceWords(), out[1].presenceWords(), "a masked lane never aliases its source");
+    final long[] presenceBefore = sharedPresence.clone();
+    final long[] canonicalBefore = sharedCanonical.clone();
+    assertArrayEquals(new long[(rows + 63) >>> 6], presenceBefore, "an empty leaf keeps no row");
+
+    // The consumers, not a stand-in: both exact count-distinct kernels read a canonicalised group
+    // lane through presenceWords()/numericValues(), and a leaf that keeps nothing must contribute
+    // nothing to either — while leaving the lane the OTHER empty leaves are still holding intact.
+    final LongArrayList visited = new LongArrayList();
+    assertTrue(ProjectionColumnScan.distinctLongs(out, 0, out.length, visited::add));
+    assertEquals(2, visited.size(), "only the kept rows of the one live leaf are visited");
+    assertEquals(out[1].numericValues()[0], visited.getLong(0));
+    assertEquals(out[1].numericValues()[64], visited.getLong(1));
+
+    final long[] seen = new long[(int) (out[1].max() >>> 6) + 1];
+    assertTrue(ProjectionColumnScan.distinctBitset(out, 0, out.length, 0L, seen));
+    assertEquals(2L, ProjectionColumnScan.distinctBitsetUnionCount(new long[][] {seen}, 0, seen.length));
+
+    assertSame(sharedPresence, out[0].presenceWords(), "no consumer may swap a lane out");
+    assertSame(sharedPresence, out[2].presenceWords());
+    assertSame(sharedPresence, out[3].presenceWords());
+    assertArrayEquals(presenceBefore, sharedPresence, "a consumer that wrote here would corrupt sibling leaves");
+    assertArrayEquals(canonicalBefore, sharedCanonical, "a consumer that wrote here would corrupt sibling leaves");
   }
 
   @Test

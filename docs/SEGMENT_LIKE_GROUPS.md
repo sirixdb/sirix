@@ -61,13 +61,14 @@ NOT. q21 uses the same URL literal as q20; q22's Title and URL literals are diff
 
 ## What the historical q22 increase establishes
 
-`rig/legs/query-SEG3TB.json` contains q22 `[110.809, 0.462, 0.462]`; the handoff explicitly describes
-SEG3TB as a spliced leg. The later projected row changes q17 and q27 only, so q22 keeps 0.462 s.
-SEG4T measures 0.522 s, a 60 ms increase and `ln(0.532 / 0.472) = 0.1197` after the board offset.
-This comparison establishes the increase against the planning value, not its cause. It is not a
-controlled before/after code comparison. Cache state, allocation/GC, JIT state and changed code
-remain competing explanations; a hot profile can locate today's cost but cannot alone prove a
-historical regression. The original SEG4T `suite100m.log` adds concrete evidence:
+`bundles/sirix-query/bench/clickbench/rig/legs/query-SEG3TB.json` contains q22
+`[110.809, 0.462, 0.462]`; the handoff explicitly describes SEG3TB as a spliced leg. The later
+projected row changes q17 and q27 only, so q22 keeps 0.462 s. SEG4T measures 0.522 s, a 60 ms
+increase and `ln(0.532 / 0.472) = 0.1197` after the board offset. This comparison establishes the
+increase against the planning value, not its cause. It is not a controlled before/after code
+comparison. Cache state, allocation/GC, JIT state and changed code remain competing explanations;
+a hot profile can locate today's cost but cannot alone prove a historical regression. The original
+SEG4T `suite100m.log` adds concrete evidence:
 
 ```text
 # q22 try 2: wall=1.520 s cpu=3.7 s util=2.4/20 gc=0 pauses 0.00 s
@@ -83,8 +84,9 @@ regression is unsupported.**
 ## Baseline correctness
 
 A freshly loaded worktree-local 1M database has two segments and five segment string columns
-(445,057,968 bytes). `seggate1m.sh` passed all 43 queries: 33 matches, 10 strongly verified tie
-windows, zero unverifiable results, zero mismatch, zero missing and zero declines.
+(445,057,968 bytes). `bundles/sirix-query/bench/clickbench/rig/seggate1m.sh` passed all 43
+queries: 33 matches, 10 strongly verified tie windows, zero unverifiable results, zero mismatch,
+zero missing and zero declines.
 
 q21: `route=group-aggregate+numeric-group-by`, two selected rows in one of 978 leaves; its single
 MIN ranks one URL. q22: `route=group-aggregate+numeric-group-by+group-distinct`, 217 selected rows
@@ -172,16 +174,26 @@ warmup-sensitive dictionary-read component today, not the cause of the historica
 
 ## Bounded change and remaining target
 
-The empty-lane hypothesis is supported for q21. `canonicaliseMemoised` now finds the first
-nonzero presence word before allocating its output lane. Empty leaves share an untouched zero
-array of the same length within one rewrite. Nonempty leaves always own their arrays. The kernel
-still receives full slices with unchanged row counts, masks, zero bounds and canonical ranks.
-This avoids the null-slice error documented in `rowKeepMasks` and changes no row traversal order.
-The row loop starts at the first live word, so skipped zero words are not scanned twice.
-Dense leaves do one extra presence-word check and allocate exactly as before. Empty lanes of
-alternating widths can allocate at most once per leaf, as before; there is no global cache or
-new prepass. Tests exercise mixed live/empty leaves, a 65-row boundary, a shorter tail, a null mask,
-independent dense lanes, correct value inversion and unchanged source arrays.
+The empty-lane hypothesis is supported for q21. `canonicaliseMemoised` now runs one prescan per
+leaf for the first word that keeps a row, and **both** of the arrays it would otherwise mint for
+that leaf are covered: the canonical value lane and, on the row-masked path, the presence lane.
+A leaf that keeps no row shares an untouched zero array of the same length in each lane within one
+rewrite; a leaf that keeps one always owns both. The kernel still receives full slices with
+unchanged row counts, masks, zero bounds and canonical ranks. This avoids the null-slice error
+documented in `rowKeepMasks` and changes no row traversal order. The prescan doubles as the row
+loop's start and as the conjunction's first written word, so no leaf is crossed twice.
+Dense leaves do one extra presence-word check and allocate exactly as before; an unmasked pass
+still hands out the slice's own presence words and shares nothing. Empty lanes of alternating
+widths can allocate at most once per leaf, as before; there is no global cache or new prepass.
+
+Both shared arrays rest on the same read-only contract, now stated on the public entry points:
+every consumer of a canonicalised lane reads it, and canonicalised slices are fresh objects that
+never reach `SliceArrayPool.recycle`. Tests exercise that contract through real consumers —
+`ProjectionColumnScan.distinctLongs` and `distinctBitset`, the exact count-distinct kernels — as
+well as the canonicaliser: mixed live/empty leaves, a 65-row boundary, a shorter tail, a null mask,
+independent dense lanes, correct value inversion, unchanged source arrays, empty leaves that
+contribute no visit at all, and shared value and presence lanes that are still all-zero, and still
+the same objects, after both kernels have read every leaf that shares them.
 
 The repeated-mask hypothesis is supported for q22; distinct counting and verdict-cache churn
 are disconfirmed as dominant hot costs. Reusing existing masks in the numeric aggregate arm is
@@ -213,6 +225,16 @@ leaf count and row masks are unchanged; 95,434 empty leaves per lane reuse an ex
 The other empty leaves initialize a shared array or change its width. This is allocation-work
 evidence, not an inference from the wall-clock improvement.
 
+That capture predates the presence lane, so its counter line names the canonical lane only. The
+diagnostic now also reports `allocatedPresenceWords` and `reusedEmptyPresence`, and **the presence
+lane's own measured figure is still outstanding** — it needs the next authorized 100M window and is
+not claimed here. What the counters above already bound arithmetically: 96,459 retained leaves per
+lane each took a fresh `long[16]` presence array (1,024-row leaves, 128 bytes), about 11.8 MiB per
+lane and **23.6 MiB across the two**, of which the 95,434 empty leaves per lane are now shared —
+leaving roughly 128 KiB per lane. Against the 1.493 GiB initial and the 14.5 MiB the canonical-lane
+fix left, that puts the projected remainder near 15 MiB per hot try rather than 38 MiB. These are
+derivations from the recorded counters, not a new measurement.
+
 | q21 hot try | Before wall (s) | After wall (s) | Before GC (s) | After GC (s) |
 |---:|---:|---:|---:|---:|
 | 2 | 0.632 | 0.344 | 0.12 | 0.03 |
@@ -239,10 +261,11 @@ q22 c6972e15129b9cd0ba18263b3206a8a1734a9b97c7864c7722d3018145558fe8
 ```
 
 The final focused test run passes all 47 `SegmentGroupCanonicaliserTest` tests. It compiled the
-changed source before the final `seggate1m.sh`, which then reports 33 matches, 10 strongly verified
-tie windows, **0 mismatch, 0 missing, 0 unverifiable, 0 declines**. The two-segment private gate
-database was loaded by this lane. No scored 100M suite ran. The after-check lock was released
-and no benchmark Java process remained.
+changed source before the final `bundles/sirix-query/bench/clickbench/rig/seggate1m.sh`, which
+then reports 33 matches, 10 strongly verified tie windows,
+**0 mismatch, 0 missing, 0 unverifiable, 0 declines**. The two-segment private gate database was
+loaded by this lane. No scored 100M suite ran. The after-check lock was released and no benchmark
+Java process remained.
 
 ## Evidence reproduction
 
