@@ -27,6 +27,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -968,6 +970,68 @@ final class SegmentGroupCanonicaliserTest {
     assertTrue(canonicaliser.sealByPositionMerge(canonicaliser.size()));
     assertTrue(canonicaliser.valueOf(1).compareTo(canonicaliser.valueOf(2)) < 0);
     assertTrue(canonicaliser.valueOf(2).compareTo(canonicaliser.valueOf(3)) < 0);
+  }
+
+  @Test
+  void emptySelectedLanesShareZeroesWithoutChangingLeafShapeOrLiveRanks() {
+    final int rows = 65;
+    final PositionedCorpus corpus = positionedCorpus(2, rows);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, 2);
+    final ColumnSlice[] source = leavesInMintOrder(corpus, 2, rows);
+    final ColumnSlice tail = sliceOf(ProjectionIndexRowGroupPage.packSegmentCell(0, 1));
+    final ColumnSlice[] leaves = {source[0], source[1], source[0], tail, source[1], source[0]};
+    final long[][] rowKeep = {rowsKept(rows), rowsKept(rows, 0, 64), rowsKept(rows), rowsKept(1),
+        rowsKept(rows), null};
+
+    final ColumnSlice[] out =
+        canonicaliser.canonicaliseColumn(leaves, null, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(out);
+    assertSame(out[0].numericValues(), out[2].numericValues(),
+        "empty leaves reuse a full zero lane instead of allocating one per leaf");
+    assertNotSame(out[0].numericValues(), out[1].numericValues(), "selected rows own their writable lane");
+    assertNull(out[5], "a null mask still skips the leaf entirely");
+    for (final int leaf : new int[] {0, 2, 3, 4}) {
+      assertEquals(leaves[leaf].rowCount(), out[leaf].rowCount());
+      assertEquals(leaves[leaf].numericValues().length, out[leaf].numericValues().length);
+      assertEquals(0L, out[leaf].min());
+      assertEquals(0L, out[leaf].max());
+      for (final long word : out[leaf].presenceWords()) {
+        assertEquals(0L, word);
+      }
+      for (final long value : out[leaf].numericValues()) {
+        assertEquals(0L, value, "live ranks must never leak into an empty leaf");
+      }
+    }
+    assertEquals(2, canonicaliser.size());
+    for (final int row : new int[] {0, 64}) {
+      assertEquals(corpus.valueOfCell(source[1].numericValues()[row]),
+          canonicaliser.valueOf((int) out[1].numericValues()[row]));
+      assertEquals(1L, out[1].presenceWords()[row >>> 6]);
+    }
+  }
+
+  @Test
+  void denseCanonicalLanesRemainIndependentAndPreserveTheirSources() {
+    final PositionedCorpus corpus = positionedCorpus(2, 65);
+    final SegmentGroupCanonicaliser canonicaliser = new SegmentGroupCanonicaliser(corpus, 2);
+    final ColumnSlice[] leaves = leavesInMintOrder(corpus, 2, 65);
+    final long[] original = leaves[0].numericValues().clone();
+
+    final ColumnSlice[] out =
+        canonicaliser.canonicaliseColumn(leaves, null, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+
+    assertNotNull(out);
+    assertNotSame(out[0].numericValues(), out[1].numericValues());
+    for (int leaf = 0; leaf < leaves.length; leaf++) {
+      assertNotSame(leaves[leaf].numericValues(), out[leaf].numericValues());
+      assertEquals(leaves[leaf].numericValues().length, out[leaf].numericValues().length);
+      for (int row = 0; row < out[leaf].rowCount(); row++) {
+        assertEquals(corpus.valueOfCell(leaves[leaf].numericValues()[row]),
+            canonicaliser.valueOf((int) out[leaf].numericValues()[row]));
+      }
+    }
+    assertTrue(Arrays.equals(original, leaves[0].numericValues()));
   }
 
   @Test
