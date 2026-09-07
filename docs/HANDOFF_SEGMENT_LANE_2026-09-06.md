@@ -88,7 +88,7 @@ Key code (paths under `bundles/`):
 | segment cut policy / incremental sealing | `SegmentBoundaries.java`, `SegmentDictionaryLane.java` |
 | leaf-level group scan (length tables, present cells) | `ProjectionColumnGroupScan.java` |
 | handle + per-handle memos (`stringLengthTables`) | `ProjectionIndexRegistry.java` (`Handle`), `ProjectionIndexCatalog.java` |
-| diagnostics | `-Dsirix.projDiag=true` prints `route=`, `[proj] groupAgg decline: …`, `[lengthTable] col= mode= segments= memoHits= built= ids= ms=`, `[topk-bounds] kind= positions= segments=`, `segment lane: …`; counters `projectionStringLengthTableBuildCount()`, `projectionStringLengthTableMemoHitCount()`, `segmentOperandSealCount()` on the executor |
+| diagnostics | `-Dsirix.projDiag=true` prints `route=`, `[proj] groupAgg decline: …`, `[lengthTable] col= mode= segments= memoHits= built= ids= ms=`, `[topk-bounds] kind= positions= segments=`, `[proj] canonical lanes: sourceLongs= allocatedLongs= reusedEmptyLeaves= allocatedPresenceWords= reusedEmptyPresence=` (whole-column rewrites only), `segment lane: …`; counters `projectionStringLengthTableBuildCount()`, `projectionStringLengthTableMemoHitCount()`, `segmentOperandSealCount()` on the executor |
 
 Tests that pin the lane: `SegmentLengthLaneQueryTest`, `AnyKGroupsSegmentKeyRewriteTest`,
 `AnyKGroupsGlobalKeyRewriteTest`, `GroupTopKDifferentialTest`, `SegmentOrderedLimitQueryTest`
