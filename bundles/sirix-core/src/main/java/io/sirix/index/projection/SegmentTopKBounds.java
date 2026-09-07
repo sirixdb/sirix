@@ -10,8 +10,7 @@ import it.unimi.dsi.fastutil.ints.IntArrays;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Query-local whole-segment bounds for one ordered string key, refined past a directly resolved
- * literal exclusion when the query carries one.
+ * Query-local whole-segment bounds for one string key with a directly resolved literal exclusion.
  * Zones prove segment membership only: their mint extrema are never interpreted as lexical extrema.
  * The bound comes from the dictionary's first/last COLLATION position, skipping the excluded value.
  * At most two positions are read per admitted segment; no rows or full dictionaries are scanned.
@@ -23,14 +22,14 @@ final class SegmentTopKBounds {
   static final long EMPTY = Long.MIN_VALUE + 1;
 
   private final GlobalValueDictionary.ReadView view;
-  private final @Nullable ColumnPredicate exclusion;
+  private final ColumnPredicate exclusion;
   private final boolean descending;
   private final long[] bounds;
   /** Dense collation ordinals of {@link #bounds}, by segment; built once by {@link #rankBounds()}. */
   private int @Nullable [] ranks;
   private int positionLookups;
 
-  private SegmentTopKBounds(final GlobalValueDictionary.ReadView view, final @Nullable ColumnPredicate exclusion,
+  private SegmentTopKBounds(final GlobalValueDictionary.ReadView view, final ColumnPredicate exclusion,
       final boolean descending) {
     this.view = view;
     this.exclusion = exclusion;
@@ -39,12 +38,31 @@ final class SegmentTopKBounds {
   }
 
   /**
-   * Bounds for an ordered LIMIT over a segment-scoped key, with or without a predicate on that key.
-   * A directly resolved {@code <>} refines the endpoint past its literal; an EQ, a range, a second
-   * predicate on the key or an exclusion that needs per-cell verdicts is DECLINED, because those
-   * would have to prove which of the endpoint's neighbours still match, which the endpoints alone
-   * cannot say. Missing keys are not ruled out here: a bound is usable only where the caller has
-   * proven the column all-present on the leaf or a predicate names it (missing then never matches).
+   * Bounds for an ordered LIMIT over a segment-scoped key, and ONLY when a supported predicate names
+   * that key. The supported one is a directly resolved {@code <>}: it names the key, so a missing
+   * cell cannot match, and its literal is what the endpoint is refined past.
+   *
+   * <p>
+   * <b>Why an unrefined ordering — no predicate on the key at all — is refused here, deliberately.</b>
+   * The endpoint would be perfectly SOUND for it: the first/last collation position bounds every
+   * value the segment holds, hence any subset a filter leaves. What it cannot bound is a MISSING key,
+   * which a leaf may hide and which only the interpreter can place, so a bound without a predicate on
+   * the key is usable only behind {@link ProjectionColumnStore#allPresentLeaves}. That proof's cold
+   * path is a whole-column BODY pass INSIDE planning: it fetches every leaf's payload in windows,
+   * reads one marker byte, discards it, and the leaves the scan then evaluates are fetched again —
+   * traced (not timed) at 97,737 leaf payloads on the shape this was written against, though a
+   * resident, byte-cached or already memoized column answers it with no fetch at all. The campaign
+   * forbids a prepass, so this declines and the query evaluates unbounded rather than pay a full
+   * column read to plan. Do NOT widen this to the unrefined shape without a per-leaf all-present
+   * proof that costs no fetch.
+   * </p>
+   *
+   * <p>
+   * An EQ, a range, a second predicate on the key, or an exclusion needing per-cell verdicts is
+   * declined too — as an implementation limitation, not a safety one. The unrefined endpoint bounds
+   * those shapes just as soundly; this class simply resolves exactly one directly packed literal per
+   * segment and has nothing to refine the endpoint past for the others.
+   * </p>
    */
   static @Nullable SegmentTopKBounds create(final GlobalValueDictionary.ReadView view,
       final ColumnPredicate[] predicates, final int column, final boolean descending) {
@@ -62,7 +80,7 @@ final class SegmentTopKBounds {
       }
       exclusion = predicate;
     }
-    return new SegmentTopKBounds(view, exclusion, descending);
+    return exclusion == null ? null : new SegmentTopKBounds(view, exclusion, descending);
   }
 
   long forLeaf(final ZoneIndex zone, final int leaf) {
@@ -88,7 +106,7 @@ final class SegmentTopKBounds {
       } else {
         int position = descending ? count : 1;
         bound = cellAt(min, segment, position, count);
-        if (exclusion != null && bound != UNKNOWN && bound == exclusion.literalForLeaf(min)) {
+        if (bound != UNKNOWN && bound == exclusion.literalForLeaf(min)) {
           position += descending ? -1 : 1;
           bound = position < 1 || position > count ? EMPTY : cellAt(min, segment, position, count);
         }

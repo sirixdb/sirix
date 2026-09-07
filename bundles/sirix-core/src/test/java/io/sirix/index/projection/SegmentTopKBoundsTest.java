@@ -133,8 +133,8 @@ final class SegmentTopKBoundsTest {
     try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       final GlobalValueDictionary.ReadView view = view(fixture, rtx);
       final ColumnPredicate ne = exclusion(mints, "", Op.NE);
-      assertNotNull(SegmentTopKBounds.create(view, new ColumnPredicate[0], 0, false),
-          "a plain ordered LIMIT is bounded by the same endpoints");
+      assertNull(SegmentTopKBounds.create(view, new ColumnPredicate[0], 0, false),
+          "an unrefined ordering is refused: its bound would need a whole-column all-present pass");
       assertNull(SegmentTopKBounds.create(view, new ColumnPredicate[] {exclusion(mints, "b", Op.EQ)}, 0, false));
       assertNull(SegmentTopKBounds.create(view, new ColumnPredicate[] {ne, ne}, 0, false));
       final SegmentTopKBounds bounds = SegmentTopKBounds.create(view, new ColumnPredicate[] {ne}, 0, false);
@@ -165,7 +165,7 @@ final class SegmentTopKBoundsTest {
   }
 
   @Test
-  void aPlainOrderedLimitIsBoundedOverAnAllPresentSegmentColumn() {
+  void anUnrefinedOrderingEvaluatesUnboundedRatherThanProveTheColumnAllPresent() {
     final String[][] mints = {{"zz", "m"}, {"\uE000", "\uD800\uDC00"}, {"yy", "a"}, {"zz", "b"}};
     final Fixture fixture = fixture(mints, 8, new boolean[mints.length]);
     final ProjectionColumnStore store = fixture.store();
@@ -174,17 +174,20 @@ final class SegmentTopKBoundsTest {
       final long[] answer = ProjectionColumnScan.topKRecordKeys(store, new ColumnPredicate[0], new int[] {0},
           new boolean[] {false}, 6, fixture.fetcher(), new GlobalValueDictionary.ReadView[] {view(fixture, rtx)});
       assertArrayEquals(expected(fixture, null, false, 6), answer,
-          "a LIMIT without a predicate on the key must still order by dictionary value");
-      assertTrue(ProjectionColumnScan.topKLeavesSkippedCount() > skipped,
-          "the collation endpoint must prune with no key predicate to refine it");
+          "the unbounded fallback still answers in dictionary value order, with ties in document order");
+      assertTrue(fixture.reads().values().stream().allMatch(count -> count.get() == 1),
+          "one read per payload: no all-present proof pass over the column, and no refetch after one");
+      assertEquals(skipped, ProjectionColumnScan.topKLeavesSkippedCount(),
+          "no predicate names the key, so no bound is produced and no leaf is skipped");
       assertFalse(store.columnFilled(0), "planning must not materialize the sort column");
     }
   }
 
   @Test
-  void aPlainOrderedLimitDeclinesWhereASkippableLeafCouldHideAMissingSortKey() {
-    // Segment 0 bounds better and is all-present; segment 1's leaves hold a row with no sort key, so
-    // no bound of theirs is usable — the interpreter alone can place such a row.
+  void anUnrefinedOrderingDeclinesWhereALeafHidesAMissingSortKey() {
+    // Segment 0 would bound better and is all-present; segment 1's leaves hold a row with no sort
+    // key. Whichever leaf is reached first, such a row is the interpreter's to place, never one a
+    // bound may skip past — the property planTopK's all-present guard keeps true for every arm.
     final Fixture fixture = fixture(new String[][] {{"a"}, {"z"}}, 7, new boolean[] {false, true});
     try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertNull(

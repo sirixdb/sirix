@@ -1408,7 +1408,10 @@ public final class ProjectionColumnScan {
     // A bound is usable only where every matching row is guaranteed to carry every order key: a
     // predicate on the column (missing ⇒ false) or the column all-present on the leaf. It guards
     // every bounded arm, segment-scoped included: without the proof a leaf hiding a matching row
-    // with a missing key could be skipped, where the scan owes the interpreter a decline.
+    // with a missing key could be skipped, where the scan owes the interpreter a decline. On the
+    // segment arm it is a DELIBERATE no-op — SegmentTopKBounds admits only a shape whose predicate
+    // names the sole order key, so this loop always short-circuits there and never reaches the
+    // all-present memo, whose cold path is the whole-column pass that gate refuses to pay.
     if (boundable || segmentBounds != null) {
       for (int kk = 0; kk < keyCount; kk++) {
         if (predicateNames(predicates, sortColumns[kk])) {
