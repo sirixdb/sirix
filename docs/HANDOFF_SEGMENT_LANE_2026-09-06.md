@@ -140,8 +140,8 @@ Rule of thumb from the ledger: a lever that removes a whole-column canonicalisat
 
 SEG4T (§2) is the first measured leg; the next one scores whatever lands after it. The commands are
 "The one loop that matters" in the rig's
-[`README.md`](../bundles/sirix-query/bench/clickbench/rig/README.md) — tag the next leg `SEG5T`,
-since `SEG4T` is taken.
+[`README.md`](../bundles/sirix-query/bench/clickbench/rig/README.md) — tag the next leg `SEG6T`,
+since `SEG4T` and `SEG5T` are taken (`rig/legs/`).
 
 Per lever, in this order — every step has been skipped once in this campaign and every skip cost
 more than the step:
