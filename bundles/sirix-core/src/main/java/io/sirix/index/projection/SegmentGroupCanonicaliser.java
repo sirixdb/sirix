@@ -1072,24 +1072,16 @@ public final class SegmentGroupCanonicaliser {
    * disagree, this fails loudly instead of answering wrongly.
    * </p>
    *
-   * <h2>The returned lanes are READ-ONLY, and not all of them are this pass's to hand out</h2>
+   * <h2>The returned lanes are READ-ONLY</h2>
    *
-   * Leaves that keep no row hold nothing but zeroes, so several returned slices may share ONE
-   * all-zero value lane — with or without a row mask — and, under a row mask, ONE all-zero presence
-   * lane, rather than minting a private copy of the same nothing per leaf; at 100M rows under a
-   * selective predicate that is the bulk of this pass's allocation. WITHOUT a row mask there is no
-   * presence array to save, and the returned presence lane is the SOURCE slice's own array, borrowed
-   * rather than copied: it lives exactly as long as that slice does, and a windowed access hands it
-   * to {@code SliceArrayPool} on eviction, after which the next decode overwrites it in place. Every
-   * {@code ColumnSlice} returned here is a fresh object; its lanes are not all fresh arrays.
-   *
-   * <p>
-   * So READ them. A write into a returned lane would silently corrupt sibling leaves, or a slice the
-   * store still owns, with no error anywhere. Nothing needs to — the kernels read group keys — and a
-   * caller that must write copies the lane first. A caller that must keep a lane past its source
-   * window copies it before releasing that window; the windowed arms fold and release each morsel
-   * before anything can be evicted, so they never have to.
-   * </p>
+   * UNDER A ROW MASK, a leaf the mask empties holds nothing but zeroes, so several returned slices
+   * may share ONE all-zero value lane and ONE all-zero presence lane rather than minting a private
+   * copy of the same nothing per leaf — at 100M rows under a selective predicate that is the bulk of
+   * this pass's allocation. A caller that writes into such a lane would corrupt sibling leaves
+   * silently. Without a row mask nothing is shared and the pass allocates exactly as it always has,
+   * handing back the source slice's own presence words; writing into those would corrupt a slice the
+   * store still owns. Either way: READ the lanes, and copy one before you write it. Nothing here
+   * needs to — the kernels read group keys.
    *
    * @param keep bit {@code leaf} set = canonicalise it; {@code null} = canonicalise every leaf
    */
@@ -1178,10 +1170,12 @@ public final class SegmentGroupCanonicaliser {
       final int rows = slice.rowCount();
       final int words = (rows + 63) >>> 6;
       final long[] slicePresence = slice.presenceWords();
-      // ONE PRESCAN FOR BOTH LANES. The first word that keeps a row decides everything below: it is
-      // where the row loop starts, and `words` — no such word — says the leaf contributes nothing.
+      // ONE PRESCAN, AND ONLY UNDER A ROW MASK. The first word the mask keeps decides both lanes:
+      // it is where the row loop starts, and `words` — no such word — says the leaf keeps nothing.
+      // Without a mask this pass builds no presence array to save, so it walks from word zero
+      // exactly as it did before empty leaves were shared at all.
       final int firstWord = rowsKept == null
-          ? firstPresentWord(slicePresence, words)
+          ? 0
           : firstPresentAndKeptWord(slicePresence, rowsKept, words, rows);
       final long[] presence;
       if (rowsKept == null) {
@@ -1208,7 +1202,7 @@ public final class SegmentGroupCanonicaliser {
       if (diag) {
         sourceLongs += cells.length;
       }
-      if (firstWord == words) {
+      if (rowsKept != null && firstWord == words) {
         // An all-zero conjunctive mask still makes the kernel read this slice. Preserve its
         // full lane shape, sharing only untouched zeroes within this rewrite. A leaf with a live
         // row always owns this lane; dense inputs allocate exactly as before.
@@ -1301,17 +1295,9 @@ public final class SegmentGroupCanonicaliser {
     return out;
   }
 
-  /** The first of {@code words} presence words holding a row, or {@code words} when none does. */
-  private static int firstPresentWord(final long[] presence, final int words) {
-    int w = 0;
-    while (w < words && presence[w] == 0L) {
-      w++;
-    }
-    return w;
-  }
-
   /**
-   * The same over the conjunction with {@code kept}, which must cover the words {@code rows} span.
+   * The first of {@code words} presence words that {@code kept} keeps a row in, or {@code words} when
+   * none does; {@code kept} must cover the words {@code rows} span.
    */
   private static int firstPresentAndKeptWord(final long[] presence, final long[] kept, final int words,
       final int rows) {
