@@ -695,6 +695,11 @@ public final class SegmentGroupCanonicaliser {
    * <p>
    * PLANNING THREAD ONLY, like every canonicalising pass: the runner blocks on the workers.
    * </p>
+   *
+   * <p>
+   * The returned lanes are READ-ONLY and empty leaves may share one zero lane, exactly as in
+   * {@link #canonicalise(ColumnSlice[], long[], long[][], SegmentRunner)}.
+   * </p>
    */
   public ColumnSlice @Nullable [] canonicaliseColumn(final ColumnSlice @Nullable [] slices,
       final long @Nullable [] keep, final long @Nullable [] @Nullable [] rowKeep, final SegmentRunner runner) {
@@ -707,7 +712,7 @@ public final class SegmentGroupCanonicaliser {
     if (marked != null && !mergeColumn(marked, runner)) {
       walkMarked(marked, runner);
     }
-    return canonicaliseMemoised(slices, keep, rowKeep);
+    return canonicaliseMemoised(slices, keep, rowKeep, true);
   }
 
   /**
@@ -1067,6 +1072,15 @@ public final class SegmentGroupCanonicaliser {
    * disagree, this fails loudly instead of answering wrongly.
    * </p>
    *
+   * <h2>The returned lanes are READ-ONLY</h2>
+   *
+   * Leaves that keep no row hold nothing but zeroes, so several returned slices may share ONE
+   * all-zero value lane and ONE all-zero presence lane rather than minting a private copy of the same
+   * nothing per leaf — at 100M rows under a selective predicate that is the bulk of this pass's
+   * allocation. A caller that writes into a returned lane would therefore corrupt sibling leaves
+   * silently. Nothing here needs to: the kernels read group keys, and the returned slices are fresh
+   * objects that never go back to the store's slice pool. Copy the lane if you must write one.
+   *
    * @param keep bit {@code leaf} set = canonicalise it; {@code null} = canonicalise every leaf
    */
   public ColumnSlice @Nullable [] canonicalise(final ColumnSlice @Nullable [] slices, final long @Nullable [] keep) {
@@ -1099,17 +1113,28 @@ public final class SegmentGroupCanonicaliser {
     }
     checkRowKeep(slices, rowKeep);
     resolveInStorageOrder(slices, keep, rowKeep, requireNonNull(runner, "runner must not be null"));
-    return canonicaliseMemoised(slices, keep, rowKeep);
+    return canonicaliseMemoised(slices, keep, rowKeep, false);
   }
 
-  /** The row loop: every kept present cell to the id the memo holds for it, or the slow path once. */
+  /**
+   * The row loop: every kept present cell to the id the memo holds for it, or the slow path once.
+   *
+   * @param wholeColumn the rewrite covers a whole resident column from the planning thread, so its
+   *        allocation summary describes one pass and may be printed. The windowed arms call this once
+   *        per MORSEL from inside a parallel pass, where an autoflushing {@code System.err} would
+   *        serialize every worker on one lock in the middle of the timed phase it reports on.
+   */
   private ColumnSlice @Nullable [] canonicaliseMemoised(final ColumnSlice[] slices, final long @Nullable [] keep,
-      final long @Nullable [] @Nullable [] rowKeep) {
+      final long @Nullable [] @Nullable [] rowKeep, final boolean wholeColumn) {
     final ColumnSlice[] out = new ColumnSlice[slices.length];
+    final boolean diag = PROJ_DIAG && wholeColumn;
     long[] emptyCanonical = null;
+    long[] emptyPresence = null;
     long sourceLongs = 0;
     long allocatedLongs = 0;
+    long allocatedPresenceWords = 0;
     int reusedEmptyLeaves = 0;
+    int reusedEmptyPresence = 0;
     for (int i = 0; i < slices.length; i++) {
       final ColumnSlice slice = slices[i];
       if (slice == null || keep != null && (keep[i >>> 6] & 1L << (i & 63)) == 0L) {
@@ -1141,34 +1166,54 @@ public final class SegmentGroupCanonicaliser {
         return null;
       }
       final int rows = slice.rowCount();
-      final long[] presence = rowsKept == null
-          ? slice.presenceWords()
-          : presentAndKept(slice.presenceWords(), rowsKept, rows);
       final int words = (rows + 63) >>> 6;
-      int firstWord = 0;
-      while (firstWord < words && presence[firstWord] == 0L) {
-        firstWord++;
+      final long[] slicePresence = slice.presenceWords();
+      // ONE PRESCAN FOR BOTH LANES. The first word that keeps a row decides everything below: it is
+      // where the row loop starts, and `words` — no such word — says the leaf contributes nothing.
+      final int firstWord = rowsKept == null
+          ? firstPresentWord(slicePresence, words)
+          : firstPresentAndKeptWord(slicePresence, rowsKept, words, rows);
+      final long[] presence;
+      if (rowsKept == null) {
+        presence = slicePresence; // the mask keeps every row: the slice's own words already answer
+      } else if (firstWord == words) {
+        if (emptyPresence == null || emptyPresence.length != words) {
+          emptyPresence = new long[words];
+          if (diag) {
+            allocatedPresenceWords += words;
+          }
+        } else if (diag) {
+          reusedEmptyPresence++;
+        }
+        presence = emptyPresence;
+      } else {
+        // The words before the first kept one are already zero in a fresh array, so the conjunction
+        // is written from there: the prescan and this fill together cross the leaf exactly once.
+        presence = presentAndKept(slicePresence, rowsKept, words, firstWord);
+        if (diag) {
+          allocatedPresenceWords += words;
+        }
       }
       final long[] canonical;
-      if (PROJ_DIAG) {
+      if (diag) {
         sourceLongs += cells.length;
       }
       if (firstWord == words) {
         // An all-zero conjunctive mask still makes the kernel read this slice. Preserve its
         // full lane shape, sharing only untouched zeroes within this rewrite. Nonempty leaves
-        // always own their lane; dense inputs allocate exactly as before.
+        // always own their lanes; dense inputs allocate exactly as before.
         if (emptyCanonical == null || emptyCanonical.length != cells.length) {
           emptyCanonical = new long[cells.length];
-          if (PROJ_DIAG) {
+          if (diag) {
             allocatedLongs += cells.length;
           }
-        } else if (PROJ_DIAG) {
+        } else if (diag) {
           reusedEmptyLeaves++;
         }
         canonical = emptyCanonical;
       } else {
         canonical = new long[cells.length];
-        if (PROJ_DIAG) {
+        if (diag) {
           allocatedLongs += cells.length;
         }
       }
@@ -1238,21 +1283,42 @@ public final class SegmentGroupCanonicaliser {
       out[i] = new ColumnSlice(rows, slice.flags(), min, max, presence, canonical, slice.boolWords(),
           slice.stringDictIds(), slice.dictBytes(), slice.dictOffsets(), slice.setCounts(), slice.dictHashes());
     }
-    if (PROJ_DIAG) {
+    if (diag) {
       System.err.println("[proj] canonical lanes: sourceLongs=" + sourceLongs + " allocatedLongs=" + allocatedLongs
-          + " reusedEmptyLeaves=" + reusedEmptyLeaves);
+          + " reusedEmptyLeaves=" + reusedEmptyLeaves + " allocatedPresenceWords=" + allocatedPresenceWords
+          + " reusedEmptyPresence=" + reusedEmptyPresence);
     }
     return out;
   }
 
-  /** Presence with every row the mask clears cleared too, over the words {@code rows} span. */
-  private static long[] presentAndKept(final long[] presence, final long[] kept, final int rows) {
-    final int words = (rows + 63) >>> 6;
+  /** The first of {@code words} presence words holding a row, or {@code words} when none does. */
+  private static int firstPresentWord(final long[] presence, final int words) {
+    int w = 0;
+    while (w < words && presence[w] == 0L) {
+      w++;
+    }
+    return w;
+  }
+
+  /**
+   * The same over the conjunction with {@code kept}, which must cover the words {@code rows} span.
+   */
+  private static int firstPresentAndKeptWord(final long[] presence, final long[] kept, final int words,
+      final int rows) {
     if (kept.length < words) {
       throw new IllegalArgumentException("a row mask of " + kept.length + " words cannot cover " + rows + " rows");
     }
+    int w = 0;
+    while (w < words && (presence[w] & kept[w]) == 0L) {
+      w++;
+    }
+    return w;
+  }
+
+  /** Presence with every row the mask clears cleared too; words below {@code from} keep nothing. */
+  private static long[] presentAndKept(final long[] presence, final long[] kept, final int words, final int from) {
     final long[] out = new long[words];
-    for (int w = 0; w < words; w++) {
+    for (int w = from; w < words; w++) {
       out[w] = presence[w] & kept[w];
     }
     return out;
