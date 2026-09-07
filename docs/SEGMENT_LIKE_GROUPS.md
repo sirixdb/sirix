@@ -298,8 +298,12 @@ after-check lock was released and no benchmark Java process remained.
 **This section measures `b00ed9e4` — row-mask-gated sharing of BOTH lanes — on an isolated checkout
 at exactly that commit.** Two queries only, five tries, the same rig JVM/serving envelope, 1 ms CPU
 and 512 KiB allocation sampling, and hot windows over tries 2–5. No scored suite ran; no shared
-database or corpus was written; the rig lock was taken and released cleanly. Documentation-only
-commits after `b00ed9e4` do not change the measured source build.
+database or corpus was written; the rig lock was taken and released cleanly. `b00ed9e4` remains the
+measured source build. Commits after it are documentation, tests, and one static-analysis cleanup
+that rewrote comments in `SegmentGroupCanonicaliser.java` and deleted an unreachable private
+`resolveInStorageOrder(ColumnSlice[], long[])` overload that had no call sites. That file is
+therefore no longer byte-identical to the captured revision, but no executed statement in it
+changed, so every measured live path is the one that was captured.
 
 **Correctness is confirmed on the build that ships.** Both serialized 100M outputs are
 byte-identical to the historical capture's — the same two SHA-256 digests printed above, with an
@@ -362,7 +366,9 @@ drives `ProjectionColumnGroupScan.aggregateByGroupNumericFlat` — the consumer 
 — instead of the count-distinct kernels, which the executor never routes a canonicalised lane to.
 The focused suite was re-run for it and still reports **49 tests, 0 failures, 0 errors**. That is a
 test change only: it touches no runtime source, so the `b00ed9e4` allocation, byte-identity and 1M
-gate results above stand unchanged and need no new capture.
+gate results above stand unchanged and need no new capture. The static-analysis cleanup noted above
+did edit `SegmentGroupCanonicaliser.java`, but only its comments and that one unreachable private
+overload; it leaves the same results standing for the same reason.
 
 The shipping capture also re-reads q22's CPU shape: `evaluateMask` **68.8%** of 12,815 hot samples
 and `GroupDistinctAccumulator` **0.23%**, confirming the initial profile's 68.9% / 0.13% split.

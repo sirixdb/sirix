@@ -311,11 +311,6 @@ final class SegmentGroupCanonicaliserTest {
   }
 
   /**
-   * A dictionary stand-in that ALSO answers positions, the way a sealed segment dictionary does:
-   * within one segment, position order is collation order. Mints are deliberately NOT in that order,
-   * so anything that folds on the mint instead of the position is wrong at almost every id.
-   */
-  /**
    * A dictionary stand-in that also answers in POSITION space, both ways: {@code positions} is cell
    * -> position, {@code mints} is {@code pack(segment, position)} -> mint, and {@code entries} is the
    * per-segment entry count — enough for the storage-order walk to run over it. Every read of a value
