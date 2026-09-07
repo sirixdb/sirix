@@ -6,10 +6,12 @@ package io.sirix.index.projection;
 import io.sirix.index.projection.ProjectionColumnStore.ZoneIndex;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.Op;
+import it.unimi.dsi.fastutil.ints.IntArrays;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Query-local whole-segment bounds for one string key with a directly resolved literal exclusion.
+ * Query-local whole-segment bounds for one ordered string key, refined past a directly resolved
+ * literal exclusion when the query carries one.
  * Zones prove segment membership only: their mint extrema are never interpreted as lexical extrema.
  * The bound comes from the dictionary's first/last COLLATION position, skipping the excluded value.
  * At most two positions are read per admitted segment; no rows or full dictionaries are scanned.
@@ -21,12 +23,14 @@ final class SegmentTopKBounds {
   static final long EMPTY = Long.MIN_VALUE + 1;
 
   private final GlobalValueDictionary.ReadView view;
-  private final ColumnPredicate exclusion;
+  private final @Nullable ColumnPredicate exclusion;
   private final boolean descending;
   private final long[] bounds;
+  /** Dense collation ordinals of {@link #bounds}, by segment; built once by {@link #rankBounds()}. */
+  private int @Nullable [] ranks;
   private int positionLookups;
 
-  private SegmentTopKBounds(final GlobalValueDictionary.ReadView view, final ColumnPredicate exclusion,
+  private SegmentTopKBounds(final GlobalValueDictionary.ReadView view, final @Nullable ColumnPredicate exclusion,
       final boolean descending) {
     this.view = view;
     this.exclusion = exclusion;
@@ -34,7 +38,14 @@ final class SegmentTopKBounds {
     bounds = new long[view.segmentCount()]; // zero is not a valid cell: it means not yet requested
   }
 
-  /** A key predicate excludes missing keys; unsupported refinements retain unknown bounds. */
+  /**
+   * Bounds for an ordered LIMIT over a segment-scoped key, with or without a predicate on that key.
+   * A directly resolved {@code <>} refines the endpoint past its literal; an EQ, a range, a second
+   * predicate on the key or an exclusion that needs per-cell verdicts is DECLINED, because those
+   * would have to prove which of the endpoint's neighbours still match, which the endpoints alone
+   * cannot say. Missing keys are not ruled out here: a bound is usable only where the caller has
+   * proven the column all-present on the leaf or a predicate names it (missing then never matches).
+   */
   static @Nullable SegmentTopKBounds create(final GlobalValueDictionary.ReadView view,
       final ColumnPredicate[] predicates, final int column, final boolean descending) {
     if (!view.isSegmentUnion()) {
@@ -51,7 +62,7 @@ final class SegmentTopKBounds {
       }
       exclusion = predicate;
     }
-    return exclusion == null ? null : new SegmentTopKBounds(view, exclusion, descending);
+    return new SegmentTopKBounds(view, exclusion, descending);
   }
 
   long forLeaf(final ZoneIndex zone, final int leaf) {
@@ -77,7 +88,7 @@ final class SegmentTopKBounds {
       } else {
         int position = descending ? count : 1;
         bound = cellAt(min, segment, position, count);
-        if (bound != UNKNOWN && bound == exclusion.literalForLeaf(min)) {
+        if (exclusion != null && bound != UNKNOWN && bound == exclusion.literalForLeaf(min)) {
           position += descending ? -1 : 1;
           bound = position < 1 || position > count ? EMPTY : cellAt(min, segment, position, count);
         }
@@ -93,8 +104,43 @@ final class SegmentTopKBounds {
     return mint < 1 || mint > count ? UNKNOWN : ProjectionIndexRowGroupPage.packSegmentCell(segment, mint);
   }
 
-  int compare(final long left, final long right) {
-    return left == right ? 0 : view.compareCells(left, right);
+  /**
+   * Rank the requested bounds — at most one per segment — through their dictionary VALUES once, so
+   * ordering the leaves compares dense ordinals instead of resolving two dictionary slices per
+   * comparison. Equal values share an ordinal, which keeps the caller's tie handling intact.
+   */
+  void rankBounds() {
+    final int segmentCount = bounds.length;
+    final int[] order = new int[segmentCount];
+    int n = 0;
+    for (int segment = 0; segment < segmentCount; segment++) {
+      final long bound = bounds[segment];
+      if (bound != 0L && bound != UNKNOWN && bound != EMPTY) {
+        order[n++] = segment;
+      }
+    }
+    IntArrays.mergeSort(order, 0, n, (left, right) -> {
+      final int cmp = view.compareCells(bounds[left], bounds[right]);
+      return cmp == 0 ? Integer.compare(left, right) : cmp;
+    });
+    final int[] ranked = new int[segmentCount];
+    int rank = 0;
+    for (int i = 0; i < n; i++) {
+      if (i > 0 && view.compareCells(bounds[order[i - 1]], bounds[order[i]]) != 0) {
+        rank++;
+      }
+      ranked[order[i]] = rank;
+    }
+    ranks = ranked;
+  }
+
+  /** The collation ordinal of a bound cell this instance produced; {@link #rankBounds()} runs first. */
+  int rankOf(final long cell) {
+    final int[] ranked = ranks;
+    if (ranked == null) {
+      throw new IllegalStateException("rankBounds() must run before a bound is ranked");
+    }
+    return ranked[ProjectionIndexRowGroupPage.segmentOfCell(cell)];
   }
 
   /** Position requests, not physical page reads; used by diagnostics and the bounded-setup witness. */

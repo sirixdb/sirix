@@ -12,6 +12,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.ZoneIndex;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
@@ -35,6 +36,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -130,7 +133,8 @@ final class SegmentTopKBoundsTest {
     try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       final GlobalValueDictionary.ReadView view = view(fixture, rtx);
       final ColumnPredicate ne = exclusion(mints, "", Op.NE);
-      assertNull(SegmentTopKBounds.create(view, new ColumnPredicate[0], 0, false), "missing-key uncertainty");
+      assertNotNull(SegmentTopKBounds.create(view, new ColumnPredicate[0], 0, false),
+          "a plain ordered LIMIT is bounded by the same endpoints");
       assertNull(SegmentTopKBounds.create(view, new ColumnPredicate[] {exclusion(mints, "b", Op.EQ)}, 0, false));
       assertNull(SegmentTopKBounds.create(view, new ColumnPredicate[] {ne, ne}, 0, false));
       final SegmentTopKBounds bounds = SegmentTopKBounds.create(view, new ColumnPredicate[] {ne}, 0, false);
@@ -160,6 +164,72 @@ final class SegmentTopKBoundsTest {
     }
   }
 
+  @Test
+  void aPlainOrderedLimitIsBoundedOverAnAllPresentSegmentColumn() {
+    final String[][] mints = {{"zz", "m"}, {"\uE000", "\uD800\uDC00"}, {"yy", "a"}, {"zz", "b"}};
+    final Fixture fixture = fixture(mints, 8, new boolean[mints.length]);
+    final ProjectionColumnStore store = fixture.store();
+    final long skipped = ProjectionColumnScan.topKLeavesSkippedCount();
+    try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      final long[] answer = ProjectionColumnScan.topKRecordKeys(store, new ColumnPredicate[0], new int[] {0},
+          new boolean[] {false}, 6, fixture.fetcher(), new GlobalValueDictionary.ReadView[] {view(fixture, rtx)});
+      assertArrayEquals(expected(fixture, null, false, 6), answer,
+          "a LIMIT without a predicate on the key must still order by dictionary value");
+      assertTrue(ProjectionColumnScan.topKLeavesSkippedCount() > skipped,
+          "the collation endpoint must prune with no key predicate to refine it");
+      assertFalse(store.columnFilled(0), "planning must not materialize the sort column");
+    }
+  }
+
+  @Test
+  void aPlainOrderedLimitDeclinesWhereASkippableLeafCouldHideAMissingSortKey() {
+    // Segment 0 bounds better and is all-present; segment 1's leaves hold a row with no sort key, so
+    // no bound of theirs is usable — the interpreter alone can place such a row.
+    final Fixture fixture = fixture(new String[][] {{"a"}, {"z"}}, 7, new boolean[] {false, true});
+    try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      assertNull(
+          ProjectionColumnScan.topKRecordKeys(fixture.store(), new ColumnPredicate[0], new int[] {0},
+              new boolean[] {false}, 4, fixture.fetcher(),
+              new GlobalValueDictionary.ReadView[] {view(fixture, rtx)}),
+          "a matching row without an order key must decline, never be bounded away");
+    }
+  }
+
+  @Test
+  void mergingGlobalKeysComparesThroughTheReceivingHeapsView() throws Exception {
+    final Fixture fixture = fixture(new String[][] {{"z", "a"}}, 1);
+    final byte[] kinds = {TopKHeap.KEY_STRING_GLOBAL};
+    final boolean[] ascending = new boolean[1];
+    final ConcurrentLinkedQueue<JsonNodeReadOnlyTrx> opened = new ConcurrentLinkedQueue<>();
+    final ExecutorService pool = Executors.newSingleThreadExecutor();
+    try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      final GlobalValueDictionary.ReadView receiving = globalView(fixture, rtx);
+      assertNotNull(receiving);
+      assertFalse(receiving.fullyOrdered(), "mint order must disagree with value order to need a view");
+      final TopKHeap global = new TopKHeap(1, kinds, ascending, new GlobalValueDictionary.ReadView[] {receiving});
+      global.offer(new ColumnSlice[] {onlyRow(1)}, 0, 100L, 0L);
+      final TopKHeap local = pool.submit(() -> {
+        final JsonNodeReadOnlyTrx worker = session.beginNodeReadOnlyTrx();
+        opened.add(worker);
+        final TopKHeap heap =
+            new TopKHeap(1, kinds, ascending, new GlobalValueDictionary.ReadView[] {globalView(fixture, worker)});
+        heap.offer(new ColumnSlice[] {onlyRow(2)}, 0, 200L, 1L);
+        return heap;
+      }).get();
+      global.mergeFrom(local);
+      assertArrayEquals(new long[] {200L}, global.sortedRecordKeys(),
+          "the smaller VALUE wins, resolved through the merging thread's own view");
+    } finally {
+      pool.shutdownNow();
+      opened.forEach(JsonNodeReadOnlyTrx::close);
+    }
+  }
+
+  /** One row carrying {@code id} in the numeric lane — a global string key's tuple. */
+  private static ColumnSlice onlyRow(final int id) {
+    return new ColumnSlice(1, (byte) 0, id, id, new long[] {1L}, new long[] {id}, null, null, null, null);
+  }
+
   private static ColumnPredicate exclusion(final String[][] mints, final String value, final Op op) {
     final long[] literals = new long[mints.length];
     Arrays.fill(literals, ColumnPredicate.SEGMENT_LITERAL_ABSENT);
@@ -174,6 +244,15 @@ final class SegmentTopKBoundsTest {
   }
 
   private static GlobalValueDictionary.ReadView view(final Fixture fixture, final JsonNodeReadOnlyTrx rtx) {
+    return GlobalValueDictionary.segmentUnionReadView(fixture.headers(), ownedReader(rtx));
+  }
+
+  private static GlobalValueDictionary.ReadView globalView(final Fixture fixture, final JsonNodeReadOnlyTrx rtx) {
+    return GlobalValueDictionary.readView(fixture.headers()[0], ownedReader(rtx));
+  }
+
+  /** A reader that refuses every thread but the one that opened the view over it. */
+  private static StorageEngineReader ownedReader(final JsonNodeReadOnlyTrx rtx) {
     final Thread owner = Thread.currentThread();
     final StorageEngineReader delegate = rtx.getStorageEngineReader();
     final StorageEngineReader reader = (StorageEngineReader) Proxy.newProxyInstance(
@@ -185,7 +264,7 @@ final class SegmentTopKBoundsTest {
             throw error.getCause();
           }
         });
-    return GlobalValueDictionary.segmentUnionReadView(fixture.headers(), reader);
+    return reader;
   }
 
   private record Row(long key, String value) { }
@@ -206,6 +285,12 @@ final class SegmentTopKBoundsTest {
   }
 
   private Fixture fixture(final String[][] mints, final int leavesPerSegment) {
+    final boolean[] missing = new boolean[mints.length];
+    Arrays.fill(missing, true);
+    return fixture(mints, leavesPerSegment, missing);
+  }
+
+  private Fixture fixture(final String[][] mints, final int leavesPerSegment, final boolean[] missingPerSegment) {
     final Map<Long, byte[]> payloads = new HashMap<>();
     final Map<Long, AtomicInteger> reads = new ConcurrentHashMap<>();
     final List<RowGroupDirectory> leaves = new ArrayList<>();
@@ -229,8 +314,9 @@ final class SegmentTopKBoundsTest {
       for (int repeat = 0; repeat < leavesPerSegment; repeat++) {
         final ProjectionIndexRowGroupPage page =
             new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT});
-        // Include every mint, duplicate the last value, and include a missing key.
-        for (int row = 0; row < values.size() + 2; row++) {
+        // Include every mint, duplicate the last value, and — where asked — a missing key.
+        final int rowCount = values.size() + (missingPerSegment[segment] ? 2 : 1);
+        for (int row = 0; row < rowCount; row++) {
           final String value = row == values.size() + 1 ? null : values.get(Math.min(row, values.size() - 1));
           final long key = leaves.size() * 1_000L + row + 1;
           rows.add(new Row(key, value));

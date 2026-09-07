@@ -274,9 +274,9 @@ final class TopKHeap {
       final int cmp;
       switch (ha.keyKind[kk]) {
         case KEY_NUMERIC -> cmp = Long.compare(ha.tuple[ba + kk], hb.tuple[bb + kk]);
-        case KEY_STRING_GLOBAL ->
-          cmp = ha.globalViews[kk].compareIds(Math.toIntExact(ha.tuple[ba + kk]), Math.toIntExact(hb.tuple[bb + kk]));
         // In a merge ha is the completed worker heap, while hb is the receiving heap on this thread.
+        case KEY_STRING_GLOBAL ->
+          cmp = hb.globalViews[kk].compareIds(Math.toIntExact(ha.tuple[ba + kk]), Math.toIntExact(hb.tuple[bb + kk]));
         case KEY_STRING_SEGMENT -> cmp = hb.globalViews[kk].compareCells(ha.tuple[ba + kk], hb.tuple[bb + kk]);
         default -> {
           final byte[] x = ha.strKey[ba + kk];
