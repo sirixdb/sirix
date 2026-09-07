@@ -161,7 +161,7 @@ needs `-Dclickbench.expectedRows=99997497` (the file has 99,997,497 rows, not 10
 - **Best defaults, fewer knobs.** `-DversioningType=FULL` is pinned in gate arms.
 - **A rule implemented twice is two rules** (writer and reader once disagreed on the tag-conflict
   rule; share the code).
-- Code style per `CLAUDE.md`: explicit imports (no wildcards, no inline FQNs), HFT-style hot paths
+- Code style per `AGENTS.md`: explicit imports (no wildcards, no inline FQNs), HFT-style hot paths
   (no allocation per row, primitives, `final`), production-ready with tests.
 - Branch hygiene: this branch is exclusively owned by the agent; never reset/clean/stash/rebase;
   `.claude/settings.json` shows modified and is not ours — never commit it.
