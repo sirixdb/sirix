@@ -61,6 +61,9 @@ public final class GroupTopKDifferentialTest {
         sb.append(',');
       }
       sb.append("{\"id\":").append(i); // unique numeric key, includes 0 (zero side slot)
+      if (i < 3) {
+        sb.append(",\"edge\":").append(i == 0 ? Long.MAX_VALUE : i == 1 ? Long.MIN_VALUE : 0L);
+      }
       sb.append(",\"k7\":").append(i % 7); // few groups, near-equal counts (tie plateaus)
       sb.append(",\"k40\":").append(i % 40);
       sb.append(",\"amount\":").append(rng.nextInt(1000));
@@ -137,6 +140,64 @@ public final class GroupTopKDifferentialTest {
   }
 
   // ---- numeric single key -------------------------------------------------------------------
+
+  @Test
+  void repeatedNumericKeyOffsetsPreserveCountTies() throws Exception {
+    assertOffsetDifferential(true, "subsequence(for $u in " + SRC
+        + " let $a := $u.id, $b := $u.id - 1, $d := $u.id + 3 group by $a, $b, $d"
+        + " let $c := count($u) order by $c descending"
+        + " return {\"a\": $a, \"b\": $b, \"d\": $d, \"c\": $c}, 1, 12)");
+  }
+
+  @Test
+  void repeatedNumericKeyOffsetsPreserveMissingWinner() throws Exception {
+    assertOffsetDifferential(true, "subsequence(for $u in " + SRC
+        + " let $a := $u.bonus, $b := $u.bonus - 1 group by $a, $b"
+        + " let $c := count($u) order by $c descending"
+        + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+  }
+
+  @Test
+  void repeatedNumericKeyOffsetsWithoutBareKey() throws Exception {
+    assertOffsetDifferential(true, "subsequence(for $u in " + SRC
+        + " where $u.amount > 200 let $a := $u.k40 + 2, $b := $u.k40 - 3 group by $a, $b"
+        + " let $c := count($u) where $c > 40 order by $c ascending"
+        + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+  }
+
+  @Test
+  void independentNumericOffsetKeysRemainIndependent() throws Exception {
+    assertOffsetDifferential(false, "subsequence(for $u in " + SRC
+        + " let $a := $u.k7, $b := $u.k40 - 1 group by $a, $b"
+        + " let $c := count($u) order by $c descending"
+        + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+  }
+
+  @Test
+  void repeatedNumericOffsetsPromoteBeyondLongRange() throws Exception {
+    assertOffsetDifferential(true, "subsequence(for $u in " + SRC
+        + " let $a := $u.edge, $b := $u.edge + 1, $d := $u.edge - 1 group by $a, $b, $d"
+        + " let $c := count($u) order by $c descending"
+        + " return {\"a\": $a, \"b\": $b, \"d\": $d, \"c\": $c}, 1, 4)");
+  }
+
+  @Test
+  void dependentOffsetWinnerRestorationIsBounded() throws Exception {
+    for (final int limit : new int[] {1024, 1025}) {
+      assertOffsetDifferential(limit == 1024, "subsequence(for $u in " + SRC
+          + " let $a := $u.id, $b := $u.id - 1 group by $a, $b"
+          + " let $c := count($u) order by $c descending"
+          + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, " + limit + ")");
+    }
+  }
+
+  @Test
+  void nonInjectiveNumericKeysKeepTheirCompositeGroups() throws Exception {
+    assertOffsetDifferential(false, "subsequence(for $u in " + SRC
+        + " let $a := $u.k40 idiv 2, $b := $u.k40 mod 3 group by $a, $b"
+        + " let $c := count($u) order by $c descending"
+        + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+  }
 
   @Test
   void countDescTiePlateauAtTheBoundary() throws Exception {
@@ -584,6 +645,13 @@ public final class GroupTopKDifferentialTest {
         "ordering BY a string extremum must DECLINE to the interpreter");
   }
 
+  private void assertOffsetDifferential(final boolean rewritten, final String query) throws Exception {
+    final long before = SirixVectorizedExecutor.offsetCountGroupsRewriteCount();
+    assertOrderedDifferentialServed(query);
+    assertEquals(before + (rewritten ? 1 : 0), SirixVectorizedExecutor.offsetCountGroupsRewriteCount(),
+        "the bounded same-column rewrite must engage exactly for its eligible shapes");
+  }
+
   private void assertOrderedDifferentialServed(final String query) throws Exception {
     assertOrderedDifferential(query, true);
   }
@@ -633,9 +701,9 @@ public final class GroupTopKDifferentialTest {
         let $doc := jn:doc('%s','%s')
         let $stats := jn:create-projection-index($doc, '/[]',
           ('/[]/id', '/[]/k7', '/[]/k40', '/[]/amount', '/[]/dept', '/[]/name',
-           '/[]/tier', '/[]/bonus', '/[]/bk', '/[]/big', '/[]/ts', '/[]/nick'),
+           '/[]/tier', '/[]/bonus', '/[]/bk', '/[]/big', '/[]/ts', '/[]/nick', '/[]/edge'),
           ('long', 'long', 'long', 'long', 'string', 'string',
-           'string', 'long', 'long', 'long', 'string', 'string'))
+           'string', 'long', 'long', 'long', 'string', 'string', 'long'))
         return sdb:commit($doc)
         """.formatted(DB, RES)).evaluate(context);
   }
