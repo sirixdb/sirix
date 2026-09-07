@@ -1106,6 +1106,10 @@ public final class SegmentGroupCanonicaliser {
   private ColumnSlice @Nullable [] canonicaliseMemoised(final ColumnSlice[] slices, final long @Nullable [] keep,
       final long @Nullable [] @Nullable [] rowKeep) {
     final ColumnSlice[] out = new ColumnSlice[slices.length];
+    long[] emptyCanonical = null;
+    long sourceLongs = 0;
+    long allocatedLongs = 0;
+    int reusedEmptyLeaves = 0;
     for (int i = 0; i < slices.length; i++) {
       final ColumnSlice slice = slices[i];
       if (slice == null || keep != null && (keep[i >>> 6] & 1L << (i & 63)) == 0L) {
@@ -1140,7 +1144,34 @@ public final class SegmentGroupCanonicaliser {
       final long[] presence = rowsKept == null
           ? slice.presenceWords()
           : presentAndKept(slice.presenceWords(), rowsKept, rows);
-      final long[] canonical = new long[cells.length];
+      final int words = (rows + 63) >>> 6;
+      int firstWord = 0;
+      while (firstWord < words && presence[firstWord] == 0L) {
+        firstWord++;
+      }
+      final long[] canonical;
+      if (PROJ_DIAG) {
+        sourceLongs += cells.length;
+      }
+      if (firstWord == words) {
+        // An all-zero conjunctive mask still makes the kernel read this slice. Preserve its
+        // full lane shape, sharing only untouched zeroes within this rewrite. Nonempty leaves
+        // always own their lane; dense inputs allocate exactly as before.
+        if (emptyCanonical == null || emptyCanonical.length != cells.length) {
+          emptyCanonical = new long[cells.length];
+          if (PROJ_DIAG) {
+            allocatedLongs += cells.length;
+          }
+        } else if (PROJ_DIAG) {
+          reusedEmptyLeaves++;
+        }
+        canonical = emptyCanonical;
+      } else {
+        canonical = new long[cells.length];
+        if (PROJ_DIAG) {
+          allocatedLongs += cells.length;
+        }
+      }
       long min = Long.MAX_VALUE;
       long max = Long.MIN_VALUE;
       int present = 0;
@@ -1159,8 +1190,7 @@ public final class SegmentGroupCanonicaliser {
       // pass unresolvable and decline a query that is perfectly servable. The kernel reads presence
       // itself, so an absent row's canonical entry is never looked at. Walked BY WORD: under a
       // selective predicate most leaves keep nothing, and a word that keeps nothing costs one load.
-      final int words = (rows + 63) >>> 6;
-      for (int w = 0; w < words; w++) {
+      for (int w = firstWord; w < words; w++) {
         long live = presence[w];
         while (live != 0L) {
           final int row = (w << 6) + Long.numberOfTrailingZeros(live);
@@ -1207,6 +1237,10 @@ public final class SegmentGroupCanonicaliser {
       // let a range prune drop a leaf whose canonical ids are nowhere near them.
       out[i] = new ColumnSlice(rows, slice.flags(), min, max, presence, canonical, slice.boolWords(),
           slice.stringDictIds(), slice.dictBytes(), slice.dictOffsets(), slice.setCounts(), slice.dictHashes());
+    }
+    if (PROJ_DIAG) {
+      System.err.println("[proj] canonical lanes: sourceLongs=" + sourceLongs + " allocatedLongs=" + allocatedLongs
+          + " reusedEmptyLeaves=" + reusedEmptyLeaves);
     }
     return out;
   }
