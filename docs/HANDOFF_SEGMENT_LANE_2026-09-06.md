@@ -79,10 +79,10 @@ Key code (paths under `bundles/`):
 | diagnostics | `-Dsirix.projDiag=true` prints `route=`, `[proj] groupAgg decline: …`, `[lengthTable] col= mode= segments= memoHits= built= ids= ms=`, `[topk-bounds] kind= positions= segments=`, `segment lane: …`; counters `projectionStringLengthTableBuildCount()`, `projectionStringLengthTableMemoHitCount()`, `segmentOperandSealCount()` on the executor |
 
 Tests that pin the lane: `SegmentLengthLaneQueryTest`, `AnyKGroupsSegmentKeyRewriteTest`,
-`AnyKGroupsGlobalKeyRewriteTest`, `GroupTopKDifferentialTest` (sirix-query);
-`SegmentLengthLaneGroupScanTest`, `RankTableReadViewTest`, `SegmentBoundariesTest`,
-`SegmentCellRoundTripTest`, `SegmentTopKBoundsTest`, `ProjectionBulkLoadFenceChunkBoundaryTest`
-(sirix-core).
+`AnyKGroupsGlobalKeyRewriteTest`, `GroupTopKDifferentialTest`, `SegmentOrderedLimitQueryTest`
+(sirix-query); `SegmentLengthLaneGroupScanTest`, `RankTableReadViewTest`,
+`SegmentBoundariesTest`, `SegmentCellRoundTripTest`, `SegmentTopKBoundsTest`,
+`ProjectionBulkLoadFenceChunkBoundaryTest` (sirix-core).
 `sirix-query`'s test JVM forwards `sirix.projDiag` (build.gradle ≈ l. 201), so a declined route in
 a test is one `-Dsirix.projDiag=true` away from its reason.
 

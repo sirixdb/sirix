@@ -1,7 +1,8 @@
 #!/bin/bash
 # The scoring leg: all 43 queries against the 100M database, N tries (3 for a leg that scores).
 #   bash suite100m.sh 3            -> $D100M/suite100m.log
-#   python3 mkleg.py SEG4T $D100M/suite100m.log && python3 rank.py SEG4T SEG3T N1FULL1
+# Then score it: "The one loop that matters" in README.md. Give mkleg.py a FRESH tag — it
+# overwrites legs/query-<TAG>.json, and the committed legs are the campaign's baselines.
 # Never time with -Dsirix.projDiag=true (use diag100m.sh to read routes) and never launch it while a
 # load or another leg runs: two JVMs in the envelope OOM-kill the box.
 set -u
