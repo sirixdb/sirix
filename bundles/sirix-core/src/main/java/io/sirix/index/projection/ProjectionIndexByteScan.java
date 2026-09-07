@@ -3483,6 +3483,8 @@ public final class ProjectionIndexByteScan {
           }
           identity[0] = presenceMask;
           final int handle = out.acquireExact(h, leafOrdinalBase | rowIdx, identity, 0);
+          // Key transforms and identity proofs above still run for every selected row.
+          // Only the owning pass may read/fold operands or update the distinct sink.
           if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
             continue;
           }

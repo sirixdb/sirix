@@ -155,9 +155,12 @@ public final class NumericGroupAggTable {
 
   /**
    * Handle {@link #acquire}/{@link #acquireExact} answer for a key outside the table's pass range:
-   * {@link #storageAtAccBase}/{@link #offsetAtAccBase} resolve it to a scratch block the kernels fold
-   * into and nobody reads, so a kernel needs no knowledge of passes at all. Negative, so a kernel's
-   * per-dictionary handle cache treats it as unresolved and re-probes (a pass-mode cost only).
+   * {@link #storageAtAccBase}/{@link #offsetAtAccBase} resolve it to a write-only scratch block
+   * nobody reads, so a kernel that folds into it unconditionally needs no knowledge of passes at all.
+   * Since the block is never read, a kernel may equally skip the fold on this handle instead; the
+   * three composite loops do, to drop the (P-1)/P folds a pass would otherwise perform for keys it
+   * does not own. Negative, so a kernel's per-dictionary handle cache treats it as unresolved and
+   * re-probes (a pass-mode cost only).
    */
   public static final int DISCARD_HANDLE = -1;
 

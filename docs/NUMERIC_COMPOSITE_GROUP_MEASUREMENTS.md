@@ -91,7 +91,7 @@ and whole-JVM PMUs cannot assign every stall to an individual probe instruction.
 1. **Skip discarded folds: retain for q32, refute for q31.** q31 runs one pass and
    discards nothing. q32 repeats numeric aggregate loads, sum checks and scratch
    updates for six non-owning passes. This is measurable work worth removing even
-   though it does not remove a probe. Both composite loops use the same guard.
+   though it does not remove a probe. All three composite loops use the same guard.
 2. **Bypass worker hashing for almost-unique input: do not land in this change.**
    Near uniqueness is confirmed, but the predeclared shared-compaction/copying
    falsifier is also present: merge acquisition exceeds local acquisition in both
