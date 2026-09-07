@@ -22,11 +22,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 final class CompositeDiscardedFoldTest {
   private static final byte NUMERIC = ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
   private static final byte[] KEY_KINDS = {NUMERIC, NUMERIC};
+  private static final int[] KEY_COLUMNS = {0, 1};
+  private static final int[] AGG_COLUMNS = {2};
   private static final ColumnPredicate[] NO_PREDICATES = new ColumnPredicate[0];
 
-  private record Fixture(ProjectionColumnStore store, ColumnSlice[][] keys, ColumnSlice[][] operands) {}
+  private record Fixture(ProjectionColumnStore store, ColumnSlice[][] keys, ColumnSlice[][] operands, byte[] leaf) {
+  }
 
-  private record Identity(long missing, long first, long second) {}
+  private record Identity(long missing, long first, long second) {
+  }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
@@ -100,23 +104,86 @@ final class CompositeDiscardedFoldTest {
     assertEquals(0, out.size());
   }
 
+  @Test
+  void wholeLeafDiscardedGroupsNeverFoldIntoTheSharedScratch() {
+    final long first = keyInPartitionZero(1);
+    final long second = keyInPartitionZero(first + 1);
+    final Fixture fixture = fixture(new long[][] {{first, 7, Long.MAX_VALUE}, {second, 7, Long.MAX_VALUE}});
+    final NumericGroupAggTable excluded = table();
+    excluded.setPassRange(63, 1, 2);
+    // Each group has a valid sum. Folding both into the non-owning pass's shared scratch overflows.
+    assertDoesNotThrow(() -> scanWholeLeaf(fixture, excluded));
+    assertEquals(0, excluded.size());
+    final int discard = NumericGroupAggTable.DISCARD_HANDLE;
+    final int base = excluded.offsetAtAccBase(discard);
+    assertArrayEquals(new long[excluded.slotWidth()],
+        Arrays.copyOfRange(excluded.storageAtAccBase(discard), base, base + excluded.slotWidth()));
+
+    final NumericGroupAggTable owner = table();
+    owner.setPassRange(63, 0, 1);
+    assertDoesNotThrow(() -> scanWholeLeaf(fixture, owner));
+    assertEquals(2, owner.size(), "the owning pass must still fold both distinct groups");
+    for (final long[] aggregate : snapshot(owner).values()) {
+      assertEquals(Long.MAX_VALUE, aggregate[3]);
+    }
+  }
+
+  @Test
+  void wholeLeafOwningGroupOverflowStillFails() {
+    final long key = keyInPartitionZero(1);
+    final Fixture fixture = fixture(new long[][] {{key, 7, Long.MAX_VALUE}, {key, 7, 1}});
+    final NumericGroupAggTable owner = table();
+    owner.setPassRange(63, 0, 1);
+    assertThrows(ArithmeticException.class, () -> scanWholeLeaf(fixture, owner));
+  }
+
+  @Test
+  void wholeLeafPartitionedFoldsMatchTheUnpartitionedScan() {
+    final long[][] rows = {{0, 7, 4}, {-3, 7, -8}, {0, 7, 5}, {Long.MIN_VALUE, 7, 11}, {-3, 7, 9},
+        {Long.MIN_VALUE, 7, 12}, {keyInPartitionZero(1), 3, 17}};
+    final Fixture fixture = fixture(rows);
+    final NumericGroupAggTable all = table();
+    scanWholeLeaf(fixture, all);
+    final NumericGroupAggTable merged = table();
+    for (int partition = 0; partition < 2; partition++) {
+      final NumericGroupAggTable part = table();
+      part.setPassRange(63, partition, partition + 1);
+      scanWholeLeaf(fixture, part);
+      NumericGroupAggTable.mergePartition(new NumericGroupAggTable[] {part}, 0, 64, merged);
+    }
+    final Map<Identity, long[]> expected = snapshot(all);
+    final Map<Identity, long[]> actual = snapshot(merged);
+    assertEquals(4, expected.size());
+    assertEquals(expected.keySet(), actual.keySet());
+    for (final Identity identity : expected.keySet()) {
+      assertArrayEquals(expected.get(identity), actual.get(identity), identity.toString());
+    }
+  }
+
+  private static void scanWholeLeaf(final Fixture fixture, final NumericGroupAggTable out) {
+    ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(List.of(fixture.leaf()), NO_PREDICATES,
+        KEY_COLUMNS, AGG_COLUMNS, out, 0, -1, null, null, null, null, new long[1], null);
+  }
+
   private static NumericGroupAggTable table() {
     return new NumericGroupAggTable(1, 16, true, 1L, 3);
   }
 
   private static void scan(final Fixture fixture, final NumericGroupAggTable out, final boolean transformedLoop) {
-    scan(fixture, out, transformedLoop ? new long[2] : null, new long[1]);
+    scan(fixture, out, transformedLoop
+        ? new long[2]
+        : null, new long[1]);
   }
 
   private static void scan(final Fixture fixture, final NumericGroupAggTable out, final long[] offsets,
       final long[] decline) {
-    ProjectionColumnGroupScan.aggregateByGroupCompositeFlat(fixture.store(), NO_PREDICATES, new ColumnSlice[0][],
-        null, null, fixture.keys(), KEY_KINDS, fixture.operands(), 0, 1, out, -1, null, null, offsets, null, decline,
-        null, null, null, null, null);
+    ProjectionColumnGroupScan.aggregateByGroupCompositeFlat(fixture.store(), NO_PREDICATES, new ColumnSlice[0][], null,
+        null, fixture.keys(), KEY_KINDS, fixture.operands(), 0, 1, out, -1, null, null, offsets, null, decline, null,
+        null, null, null, null);
   }
 
   private static long keyInPartitionZero(final long from) {
-    for (long key = from; ; key++) {
+    for (long key = from;; key++) {
       final long hash = (ProjectionIndexByteScan.FNV_SEED * ProjectionIndexByteScan.FNV_PRIME ^ HashCommon.mix(key))
           * ProjectionIndexByteScan.FNV_PRIME ^ HashCommon.mix(7L);
       if (hash != 0 && HashCommon.mix(hash) >>> 63 == 0) {
@@ -148,13 +215,14 @@ final class CompositeDiscardedFoldTest {
       page.appendRow(row + 1, rows[row], new boolean[3], new String[3],
           new boolean[] {rows[row][0] != Long.MIN_VALUE, true, true}, new boolean[3], new boolean[3]);
     }
-    final EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(page.serialize());
+    final byte[] leaf = page.serialize();
+    final EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(leaf);
     final long[] offsets = new long[encoded.columnSegmentIds().length];
     for (int i = 0; i < offsets.length; i++) {
       offsets[i] = i + 1;
     }
-    final ProjectionColumnStore store = new ProjectionColumnStore(List.of(new RowGroupDirectory(1,
-        encoded.descriptor(), encoded.columnSegmentIds(), offsets, new byte[offsets.length][])));
+    final ProjectionColumnStore store = new ProjectionColumnStore(List.of(new RowGroupDirectory(1, encoded.descriptor(),
+        encoded.columnSegmentIds(), offsets, new byte[offsets.length][])));
     final ColumnSlice[][] columns = new ColumnSlice[3][];
     for (int col = 0; col < columns.length; col++) {
       columns[col] = store.column(col, wanted -> {
@@ -165,6 +233,6 @@ final class CompositeDiscardedFoldTest {
         return segments;
       });
     }
-    return new Fixture(store, new ColumnSlice[][] {columns[0], columns[1]}, new ColumnSlice[][] {columns[2]});
+    return new Fixture(store, new ColumnSlice[][] {columns[0], columns[1]}, new ColumnSlice[][] {columns[2]}, leaf);
   }
 }
