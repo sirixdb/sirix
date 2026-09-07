@@ -1031,18 +1031,21 @@ public final class ProjectionColumnScan {
     private final byte[] lbSlot;
     private final long @Nullable [] lbNumeric;
     private final @Nullable StringValueExtrema extrema;
+    private final @Nullable SegmentTopKBounds segmentBounds;
     private final boolean descendingFirst;
     /** Whether the known leaves are ordered best-first (and the stop rule applies). */
     boolean sorted;
 
     TopKPlan(final int[] visit, final int visitCount, final int unknownCount, final byte[] lbSlot,
-        final long @Nullable [] lbNumeric, final @Nullable StringValueExtrema extrema, final boolean descendingFirst) {
+        final long @Nullable [] lbNumeric, final @Nullable StringValueExtrema extrema, final boolean descendingFirst,
+        final @Nullable SegmentTopKBounds segmentBounds) {
       this.visit = visit;
       this.visitCount = visitCount;
       this.unknownCount = unknownCount;
       this.lbSlot = lbSlot;
       this.lbNumeric = lbNumeric;
       this.extrema = extrema;
+      this.segmentBounds = segmentBounds;
       this.descendingFirst = descendingFirst;
     }
 
@@ -1055,12 +1058,17 @@ public final class ProjectionColumnScan {
      * FULL {@code heap}.
      */
     boolean strictlyWorse(final TopKHeap heap, final int leaf) {
+      return strictlyWorse(heap, leaf, heap);
+    }
+
+    /** The threshold is frozen across slabs; dictionary reads still belong to the calling slab. */
+    boolean strictlyWorse(final TopKHeap heap, final int leaf, final TopKHeap readerHeap) {
       final int slot = lbSlot[leaf];
       if (slot < 0) {
         return false;
       }
       if (extrema == null) {
-        return heap.firstKeyStrictlyWorse(lbNumeric[leaf]);
+        return readerHeap.firstKeyStrictlyWorse(lbNumeric[leaf], heap);
       }
       return heap.firstKeyStrictlyWorse(extrema.bytes(), extrema.offset(leaf, slot), extrema.length(leaf, slot));
     }
@@ -1086,7 +1094,12 @@ public final class ProjectionColumnScan {
         return; // nothing to order; the unknown leaves already lead
       }
       final int from = unknownCount;
-      if (extrema == null) {
+      if (segmentBounds != null) {
+        IntArrays.mergeSort(visit, from, visitCount, (left, right) -> {
+          final int cmp = segmentBounds.compare(lbNumeric[left], lbNumeric[right]);
+          return cmp == 0 ? Integer.compare(left, right) : descendingFirst ? -cmp : cmp;
+        });
+      } else if (extrema == null) {
         sortKnownNumeric(from, knownCount);
       } else if (firstKeyKind == TopKHeap.KEY_STRING_BYTES) {
         sortKnownStringBytes(from, knownCount);
@@ -1100,7 +1113,8 @@ public final class ProjectionColumnScan {
       if (extrema == null) {
         final long best = lbNumeric[first];
         for (int i = unknownCount + 1; i < visitCount; i++) {
-          if (lbNumeric[visit[i]] != best) {
+          if (segmentBounds == null ? lbNumeric[visit[i]] != best
+              : segmentBounds.compare(lbNumeric[visit[i]], best) != 0) {
             return false;
           }
         }
@@ -1247,13 +1261,37 @@ public final class ProjectionColumnScan {
     final boolean[] dropped = new boolean[leafCount];
     long[] lbNumeric = null;
     StringValueExtrema extrema = null;
+    SegmentTopKBounds segmentBounds = null;
+    if (keyCount == 1 && ProjectionIndexRowGroupPage.isSegmentScopedIdKind(firstKind)
+        && globalSortViews.length > 0 && globalSortViews[0] != null) {
+      segmentBounds = SegmentTopKBounds.create(globalSortViews[0], predicates, first, desc);
+      if (segmentBounds != null) {
+        lbNumeric = new long[leafCount];
+        final ZoneIndex zone = store.zoneIndex(first);
+        for (int leaf = 0; leaf < leafCount; leaf++) {
+          if (leafRows[leaf] <= 0 || (keep != null && (keep[leaf >>> 6] & (1L << (leaf & 63))) == 0L)) {
+            continue;
+          }
+          final long bound = segmentBounds.forLeaf(zone, leaf);
+          if (bound == SegmentTopKBounds.EMPTY) {
+            dropped[leaf] = true;
+          } else if (bound != SegmentTopKBounds.UNKNOWN) {
+            lbNumeric[leaf] = bound;
+            lbSlot[leaf] = 0;
+          }
+        }
+        if (DIAG) {
+          System.err.printf("[topk-bounds] kind=segment positions=%d segments=%d%n",
+              segmentBounds.positionLookups(), globalSortViews[0].segmentCount());
+        }
+      }
+    }
     // A global first key is bounded by its id lane only when id order IS value order (the rank
     // pass's fully-ordered dictionary): then a leaf's smallest present id is its smallest value and
     // the heap's numeric first-key test (ids in the tuple) is the value test. Any other global
     // dictionary leaves every leaf unbounded — visited, never skipped.
-    // A SEGMENT-scoped id is never a bound: ids are per-segment mints, so the same id names different
-    // values in different leaves and the smallest id in a leaf is not its smallest value — not even
-    // when that segment's own dictionary is rank-ordered, because the order does not cross segments.
+    // Segment mint extrema are never lexical bounds. The separate arm above uses whole-segment
+    // collation endpoints, compared through dictionary values in both visitation and heap cutoff.
     final boolean boundable = !ProjectionIndexRowGroupPage.isSegmentScopedIdKind(firstKind)
         && (firstKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
             || (globalSortViews.length > 0 && globalSortViews[0] != null && globalSortViews[0].fullyOrdered()));
@@ -1396,7 +1434,8 @@ public final class ProjectionColumnScan {
         visit[w++] = leaf;
       }
     }
-    return new TopKPlan(visit, unknownCount + knownCount, unknownCount, lbSlot, lbNumeric, extrema, desc);
+    return new TopKPlan(visit, unknownCount + knownCount, unknownCount, lbSlot, lbNumeric, extrema, desc,
+        segmentBounds);
   }
 
   /**
@@ -1509,7 +1548,7 @@ public final class ProjectionColumnScan {
       final boolean globalFull = global.full();
       for (int i = from; i < to; i++) {
         final int leaf = plan.visit[i];
-        if (globalFull && plan.strictlyWorse(global, leaf)) {
+        if (globalFull && plan.strictlyWorse(global, leaf, local)) {
           TOPK_LEAVES_SKIPPED.increment();
           skipped.increment();
           continue;
