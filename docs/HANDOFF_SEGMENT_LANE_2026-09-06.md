@@ -18,8 +18,12 @@ Consequences that shape every decision:
 
 - **Seconds are not the metric.** 686.8 s total was rank 81; 32.13 s was rank 10. A lever is worth
   its Δln, summed over the queries it touches. Score every leg before claiming progress.
-- **The +0.01 s offset** on both sides means 0.05 s against a 0.000 s best still costs ln 6 ≈ 1.8.
-  The last ~10 ln of a top-10 run live in queries under 100 ms (q25, q36–q38, q39, q10, q21, q22).
+- **The +0.01 s offset** on both sides means 0.05 s against a 0.000 s best still costs ln 6 ≈ 1.8 —
+  SEG4T's q17 measures exactly that (0.051 s against a 0.000 s best, 1.81 ln). Measured on SEG4T,
+  **19 of the 43 queries already answer in under 100 ms and still carry 20.48 of the 70.72 ln**;
+  the 16 under 50 ms carry 16.33 ln between them. None of the 19 is a lever on its own — the largest
+  is that q17 at 1.81 ln — so this block is per-query fixed cost, not a query to fix, and the 18.7 ln
+  to rank 10 has to come from §4. (`python3 rank.py SEG4T` prints every contribution.)
 - Only 3-try legs score (`suite100m.sh 3`). Never compare legs of different run shapes, and never a
   `-Dsirix.projDiag=true` run.
 
