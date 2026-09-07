@@ -14,12 +14,12 @@ variable; working files live under `bundles/sirix-query/build/diagnostics/` (git
 | `load100m.sh [DIR]` | load the 100M corpus with the segment lane (~45–60 min, ~48 GB); writes the pointer the query scripts read |
 | `suite100m.sh [TRIES]` | **the scoring leg**: 43 queries, 3 tries → `$D100M/suite100m.log` |
 | `diag100m.sh Q[,Q…] [JVMFLAGS]` | one diagnostic run with `-Dsirix.projDiag=true`: routes, declines, `[proj]` counters — never for timing |
-| `mkleg.py TAG LOG` | turn a leg log into `legs/query-TAG.json` (43 × 3 tries). Only `result` is measured; `date` and `data_size` are template fields copied into every leg and ignored by `rank.py` — do not read a leg's database size or run date off them |
+| `mkleg.py TAG LOG` | turn a leg log into `legs/query-TAG.json` (43 × 3 tries). It writes that path unconditionally, so reusing a tag overwrites a measured leg — pick one `legs/` does not already hold. Only `result` is measured; `date` and `data_size` are template fields copied into every leg and ignored by `rank.py` — do not read a leg's database size or run date off them |
 | `rank.py TAG…` | **the score**: reproduces the site's scoring against `board/data.generated.js`; prints rank and Σln per board/metric |
 | `load1m.sh` / `seggate1m.sh` | 1M load + correctness gate against DuckDB (`0 mismatch, 0 missing` required) |
 | `junit.py START CLASS…` | read JUnit XML refusing anything older than the run start (a compile error leaves stale XML) |
 | `collapsed.py FILE [pat…]` | summarise an async-profiler collapsed-stack file |
-| `legs/` | reference legs: `N1FULL1` (rank 10, the old global-dictionary DB), `SEG2T`/`SEG3T`/`SEG3TB` (segment lane) and `SEG4T` — **the measured standing** (the handoff's §2 owns the number) |
+| `legs/` | reference legs: `N1FULL1` (rank 10, the old global-dictionary DB), `SEG2T`/`SEG3T`/`SEG3TB` (segment lane), `SEG4T` — **the measured standing** (the handoff's §2 owns the number) — and `SEG5T`, a later measured leg the handoff has not folded into that standing yet |
 | `board/data.generated.js` | snapshot (2026-09-02) of https://benchmark.clickhouse.com/data.generated.js |
 
 ## The one loop that matters
@@ -28,8 +28,8 @@ variable; working files live under `bundles/sirix-query/build/diagnostics/` (git
 cd bundles/sirix-query/bench/clickbench/rig
 cat ../../../build/diagnostics/rig/current-100m-dir.txt   # which 100M DB the query scripts read
 bash suite100m.sh 3                                   # ~10 min at the current state; one leg per box
-python3 mkleg.py SEG5T "$(cat ../../../build/diagnostics/rig/current-100m-dir.txt)/suite100m.log"
-python3 rank.py SEG5T SEG3T N1FULL1                   # read the [C6A] hot block
+python3 mkleg.py SEG6T "$(cat ../../../build/diagnostics/rig/current-100m-dir.txt)/suite100m.log"
+python3 rank.py SEG6T SEG5T N1FULL1                   # read the [C6A] hot block
 ```
 
 `rank.py` prints, per board and metric, the rank thresholds (`r10=3.35` is the target) and for each
