@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.function.IntConsumer;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 
 import static java.util.Objects.requireNonNull;
 
@@ -89,15 +90,7 @@ public final class SegmentGroupCanonicaliser {
      * </p>
      */
     default long hashOfCell(final long cell) {
-      final String value = valueOfCell(cell);
-      if (value == null) {
-        return 0L;
-      }
-      final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
-      final long hash = ProjectionIndexByteScan.fnv1a64(utf8, 0, utf8.length);
-      return hash == 0L
-          ? 1L
-          : hash; // 0 is reserved for "unresolvable"
+      return valueHash(valueOfCell(cell));
     }
 
     /** Whether two cells name the SAME value — the check that keeps a hash collision harmless. */
@@ -185,6 +178,19 @@ public final class SegmentGroupCanonicaliser {
 
   private final CellResolver resolver;
 
+  /** Physical positions are useful for a transform's reads, but never order its output values. */
+  private final CellResolver storageResolver;
+  private final @Nullable SegmentValueTransform transformed;
+
+  private static long valueHash(final @Nullable String value) {
+    if (value == null) {
+      return 0L;
+    }
+    final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
+    final long hash = ProjectionIndexByteScan.fnv1a64(utf8, 0, utf8.length);
+    return hash == 0L ? 1L : hash;
+  }
+
   /**
    * {@code memo[segment][id]} is that cell's canonical id, {@code 0} when it has never been resolved.
    * Written only under this instance's monitor; read without one.
@@ -260,6 +266,22 @@ public final class SegmentGroupCanonicaliser {
     this(byteResolver(requireNonNull(views, "views must not be null")), segments);
   }
 
+  /**
+   * Group by a deterministic, thread-safe string transform, evaluating selected dictionary entries
+   * on the segment workers before mapping rows through their cell ids. Retained output strings are
+   * bounded independently of input cardinality; ordinary untransformed grouping allocates no cache.
+   */
+  public static SegmentGroupCanonicaliser transforming(final Supplier<GlobalValueDictionary.ReadView> views,
+      final int segments, final UnaryOperator<String> transform) {
+    return new SegmentGroupCanonicaliser(byteResolver(requireNonNull(views, "views must not be null")), segments,
+        transform, SegmentValueTransform.CACHE_BYTES);
+  }
+
+  SegmentGroupCanonicaliser(final CellResolver source, final int segments, final UnaryOperator<String> transform,
+      final long cacheBytes) {
+    this(new SegmentValueTransform(source, transform, cacheBytes), source, segments);
+  }
+
   /** The untransformed resolver: hashes and compares the dictionary's own bytes, allocating nothing. */
   private static CellResolver byteResolver(final Supplier<GlobalValueDictionary.ReadView> views) {
     return new CellResolver() {
@@ -315,7 +337,14 @@ public final class SegmentGroupCanonicaliser {
    * @param segments how many segments the resource sealed
    */
   public SegmentGroupCanonicaliser(final CellResolver resolver, final int segments) {
+    this(resolver, resolver, segments);
+  }
+
+  private SegmentGroupCanonicaliser(final CellResolver resolver, final CellResolver storageResolver,
+      final int segments) {
     this.resolver = requireNonNull(resolver, "resolver must not be null");
+    this.storageResolver = requireNonNull(storageResolver, "storageResolver must not be null");
+    transformed = resolver instanceof SegmentValueTransform valueTransform ? valueTransform : null;
     if (segments < 0) {
       throw new IllegalArgumentException("segments must not be negative: " + segments);
     }
@@ -548,7 +577,7 @@ public final class SegmentGroupCanonicaliser {
             }
             marked = markedBySegment.get(segment);
             if (marked == null) {
-              entries = resolver.entryCountOfSegment(cell);
+              entries = storageResolver.entryCountOfSegment(cell);
               if (entries <= 0) {
                 report("segment " + segment + " reports entryCount=" + entries + " — not walkable");
                 return null; // leave the row loop to resolve
@@ -708,6 +737,9 @@ public final class SegmentGroupCanonicaliser {
    * @return whether the space is now the merge's; {@code false} says the walk must run instead
    */
   private synchronized boolean mergeColumn(final Marked marked, final SegmentRunner runner) {
+    if (transformed != null) {
+      return false; // storage positions order the source, never an arbitrary transform of it
+    }
     if (!fresh()) {
       final String why = "segment value merge: the value space is not empty";
       lastRefusal = why;
@@ -816,6 +848,9 @@ public final class SegmentGroupCanonicaliser {
   /** Cells hashed per monitor acquisition by a walk: the lock is taken once per batch, not per cell. */
   private static final int WALK_BATCH = 4096;
 
+  /** Expanding transforms flush at this charge, plus at most the single output crossing the limit. */
+  private static final long TRANSFORM_BATCH_BYTES = 1L << 20;
+
   /**
    * One segment's storage-order walk: hash every marked, not-yet-memoised mint through the calling
    * thread's view and land the batch in the memo under one lock.
@@ -849,7 +884,8 @@ public final class SegmentGroupCanonicaliser {
         while (word != 0L) {
           final int mint = (w << 6) + Long.numberOfTrailingZeros(word);
           word &= word - 1;
-          final int position = resolver.positionOfCell(ProjectionIndexRowGroupPage.packSegmentCell(segment, mint));
+          final int position =
+              storageResolver.positionOfCell(ProjectionIndexRowGroupPage.packSegmentCell(segment, mint));
           byPosition[n++] = (long) Math.max(position, 0) << 32 | mint;
         }
       }
@@ -860,7 +896,7 @@ public final class SegmentGroupCanonicaliser {
     } else {
       final long probe = ProjectionIndexRowGroupPage.packSegmentCell(segment, 1);
       for (int position = 1; position <= entries; position++) {
-        final int mint = resolver.mintAtPosition(probe, position);
+        final int mint = storageResolver.mintAtPosition(probe, position);
         if (mint < 1 || mint >= marked.length << 6 || (marked[mint >>> 6] & 1L << (mint & 63)) == 0L) {
           continue;
         }
@@ -881,8 +917,11 @@ public final class SegmentGroupCanonicaliser {
     private final int segment;
     private final int[] ids = new int[WALK_BATCH];
     private final long[] hashes = new long[WALK_BATCH];
+    private final String @Nullable [] values = transformed == null ? null : new String[WALK_BATCH];
+    private final boolean @Nullable [] identities = transformed == null ? null : new boolean[WALK_BATCH];
     private int filled;
     private int resolved;
+    private long valueBytes;
 
     WalkBatch(final int segment) {
       this.segment = segment;
@@ -900,7 +939,14 @@ public final class SegmentGroupCanonicaliser {
       final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, mint);
       long hash;
       try {
-        hash = resolver.hashOfCell(cell);
+        if (values == null) {
+          hash = resolver.hashOfCell(cell);
+        } else {
+          final String raw = storageResolver.valueOfCell(cell);
+          values[filled] = raw == null ? null : transformed.apply(raw);
+          identities[filled] = raw != null && raw.equals(values[filled]);
+          hash = valueHash(values[filled]);
+        }
       } catch (final RuntimeException unresolvable) {
         hash = 0L; // memoised as unresolvable, exactly as the row loop would
         if (PROJ_DIAG) {
@@ -909,9 +955,13 @@ public final class SegmentGroupCanonicaliser {
       }
       ids[filled] = mint;
       hashes[filled] = hash;
-      if (++filled == WALK_BATCH) {
-        memoiseBatch(segment, ids, hashes, filled);
+      if (values != null && values[filled] != null) {
+        valueBytes += 64L + 2L * values[filled].length();
+      }
+      if (++filled == WALK_BATCH || valueBytes >= TRANSFORM_BATCH_BYTES) {
+        memoiseBatch(segment, ids, hashes, values, identities, filled);
         filled = 0;
+        valueBytes = 0;
       }
       resolved++;
     }
@@ -919,7 +969,7 @@ public final class SegmentGroupCanonicaliser {
     /** Land the last partial batch; how many cells the walk resolved. */
     int finish() {
       if (filled > 0) {
-        memoiseBatch(segment, ids, hashes, filled);
+        memoiseBatch(segment, ids, hashes, values, identities, filled);
         filled = 0;
       }
       return resolved;
@@ -927,7 +977,8 @@ public final class SegmentGroupCanonicaliser {
   }
 
   /** {@link #memoise} for a walk's batch: the monitor is taken once for {@code n} cells. */
-  private synchronized void memoiseBatch(final int segment, final int[] ids, final long[] hashes, final int n) {
+  private synchronized void memoiseBatch(final int segment, final int[] ids, final long[] hashes,
+      final String @Nullable [] values, final boolean @Nullable [] identities, final int n) {
     int[][] tables = memo;
     if (segment >= tables.length) {
       tables = Arrays.copyOf(tables, segment + 1);
@@ -951,7 +1002,13 @@ public final class SegmentGroupCanonicaliser {
       if (table[id] != 0) {
         continue; // another walk or the row loop got there first
       }
-      table[id] = issueCanonical(ProjectionIndexRowGroupPage.packSegmentCell(segment, id), hashes[i]);
+      final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, id);
+      table[id] = values == null
+          ? issueCanonical(cell, hashes[i])
+          : issueTransformedCanonical(cell, hashes[i], values[i], identities[i]);
+    }
+    if (values != null) {
+      Arrays.fill(values, 0, n, null);
     }
     memo = tables; // volatile write: publishes the entries above and any grown array
   }
@@ -1745,18 +1802,28 @@ public final class SegmentGroupCanonicaliser {
       return UNRESOLVABLE;
     }
     long hash;
+    String value = null;
+    boolean identity = false;
     try {
-      hash = resolver.hashOfCell(cell);
+      if (transformed == null) {
+        hash = resolver.hashOfCell(cell);
+      } else {
+        final String raw = storageResolver.valueOfCell(cell);
+        value = raw == null ? null : transformed.apply(raw);
+        identity = raw != null && raw.equals(value);
+        hash = valueHash(value);
+      }
     } catch (final RuntimeException unresolvable) {
       hash = 0L; // the cell names no entry; 0 is not a hash here, so memoise refuses it below
       if (PROJ_DIAG) {
         lastRefusal = unresolvable.toString();
       }
     }
-    return memoise(cell, segment, id, hash);
+    return memoise(cell, segment, id, hash, value, identity);
   }
 
-  private synchronized int memoise(final long cell, final int segment, final int id, final long hash) {
+  private synchronized int memoise(final long cell, final int segment, final int id, final long hash,
+      final @Nullable String value, final boolean identity) {
     int[][] tables = memo;
     if (segment >= tables.length) {
       tables = Arrays.copyOf(tables, segment + 1);
@@ -1773,7 +1840,9 @@ public final class SegmentGroupCanonicaliser {
     } else if (table[id] != 0) {
       return table[id]; // another worker resolved it while this one was hashing the dictionary
     }
-    final int canonical = issueCanonical(cell, hash);
+    final int canonical = transformed == null
+        ? issueCanonical(cell, hash)
+        : issueTransformedCanonical(cell, hash, value, identity);
     table[id] = canonical;
     memo = tables; // volatile write: publishes both the entry above and any grown array
     return canonical;
@@ -1809,6 +1878,32 @@ public final class SegmentGroupCanonicaliser {
         ? new int[] {canonical}
         : append(existing, canonical));
     return canonical;
+  }
+
+  /** The input has already been transformed outside the monitor; equality never transforms it again. */
+  private int issueTransformedCanonical(final long cell, final long hash, final @Nullable String value,
+      final boolean identity) {
+    if (hash == 0L || value == null) {
+      return UNRESOLVABLE;
+    }
+    final int[] existing = idsByHash.get(hash);
+    if (existing != null) {
+      for (final int candidate : existing) {
+        if (value.equals(transformed.representative(candidate, representativeCell.getLong(candidate - 1)))) {
+          return candidate;
+        }
+      }
+    }
+    representativeCell.add(cell);
+    final int canonical = representativeCell.size();
+    idsByHash.put(hash, existing == null ? new int[] {canonical} : append(existing, canonical));
+    transformed.remember(canonical, cell, value, identity);
+    return canonical;
+  }
+
+  /** Conservative retained-transform byte charge, exposed to the bounded-memory witness. */
+  long retainedTransformBytes() {
+    return transformed == null ? 0L : transformed.retainedBytes();
   }
 
   /** The rank carrying {@code cell}'s value among the merge's {@code ranked} representatives, or 0. */

@@ -14625,10 +14625,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       boolean numericSingleKey = false;
       boolean anyNumericComponent = false;
       boolean globalRegexKey = false;
-      // A REGEX over a segment-scoped key needs no dictionary sweep and no hashing: the canonicaliser
-      // resolves each distinct cell once anyway, so applying the transform inside its resolver makes
-      // the canonical id name the TRANSFORMED string. The group identity is then exact rather than a
-      // 64-bit hash of it, and the winner's key is already the value the query asked for.
+      // A segment key's canonical id names the transformed string. The transform runs over selected
+      // dictionary entries before the row scan, and exact equality keeps hash collisions harmless.
       boolean segmentRegexKey = false;
       long globalRegexHeaderKey = 0L;
       // The single key is a global string column: it rides the NUMERIC arm (its cells are dense
@@ -17951,6 +17949,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // lives in two segments as two groups — and a top-K prunes before anything could merge them
     // again. Canonicalising each leaf's lane to VALUE ids first makes the kernel's groups the real
     // groups, at one dictionary resolve per distinct cell for the whole query.
+    final LongAdder segmentTransformVisits = PROJ_DIAG && segmentKeyRegex != null ? new LongAdder() : null;
     final SegmentGroupCanonicaliser segmentKeys;
     if (handle != null
         && ProjectionIndexRowGroupPage.isSegmentScopedIdKind(handle.columnKindOf(groupCol))) {
@@ -17970,28 +17969,25 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         // sorting on it would return the right rows in the wrong order.
         return declineGroupAgg("segment-scoped group key cannot order on the key lane");
       }
-      // With a regex the resolver answers with the TRANSFORMED value, so the canonical id is the
-      // group's real identity and the winner's key needs no second transform. It resolves only on the
-      // memo's slow path, once per distinct cell, so a Matcher there is nowhere near the row path. It
-      // reads through the PER-THREAD supplier and not a captured view: that slow path runs on every
-      // scan worker, and a shared view's caches tear under it.
+      // Transform selected dictionary entries in physical order on the segment workers. Their
+      // canonical ids name the transformed values; raw positions are never used to order them.
       final Pattern keyTransform = segmentKeyRegex;
       final String keyTransformReplacement = segmentKeyRegexReplacement;
-      // WITHOUT a transform the key IS the stored value, so the canonicaliser must be built from the
-      // VIEWS and not from a `cell -> valueOfCell(cell)` lambda. A bare CellResolver takes every
-      // default it declares: hashOfCell builds a String per distinct cell and hashes that, sameValue
-      // builds two more, and positionOfCell/entryCountOfSegment answer "cannot", which silently
-      // disables storage-order resolution. The views constructor overrides all of them and touches
-      // no String at all. A TRANSFORMING key keeps the lambda: its key is not the stored value, so
-      // neither the stored bytes nor the storage order say anything about it.
+      final ThreadLocal<Matcher> transformMatcher = keyTransform == null ? null
+          : ThreadLocal.withInitial(() -> keyTransform.matcher(""));
       segmentKeys = keyTransform == null
           ? new SegmentGroupCanonicaliser(unionViews, handle.segmentDictionarySegmentCount())
-          : new SegmentGroupCanonicaliser(cell -> {
-            final String raw = unionViews.get().valueOfCell(cell);
-            return raw == null
-                ? null
-                : keyTransform.matcher(raw).replaceAll(keyTransformReplacement);
-          }, handle.segmentDictionarySegmentCount());
+          : SegmentGroupCanonicaliser.transforming(unionViews, handle.segmentDictionarySegmentCount(), raw -> {
+            if (segmentTransformVisits != null) {
+              segmentTransformVisits.increment();
+            }
+            final Matcher matcher = transformMatcher.get();
+            try {
+              return matcher.reset(raw).replaceAll(keyTransformReplacement);
+            } finally {
+              matcher.reset("");
+            }
+          });
     } else {
       segmentKeys = null;
     }
@@ -18085,6 +18081,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             : null;
         slicedGroupCol = canonicaliseGroupColumn(segmentKeys, slicedStore.column(groupCol, fetcher), groupKeepMask,
             rowKeep, segmentWalksOnWorkers());
+        if (segmentTransformVisits != null) {
+          System.err.println("[proj] segment transform: visit=" + segmentTransformVisits.sum()
+              + " cand=" + segmentKeys.size());
+        }
         if (slicedGroupCol == null) {
           return declineGroupAgg("a segment-scoped group key has no value in this revision");
         }
