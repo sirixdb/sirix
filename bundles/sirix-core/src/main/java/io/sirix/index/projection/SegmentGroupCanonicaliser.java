@@ -391,33 +391,6 @@ public final class SegmentGroupCanonicaliser {
     return canonicalise(slices, null);
   }
 
-
-  /**
-   * Resolve every cell these slices reference ONCE, in each segment's STORAGE order, before the row
-   * loop asks for any of them.
-   *
-   * <h2>Why order matters more than count here</h2>
-   *
-   * The row loop asks for cells in ROW order, which is arbitrary with respect to where their values
-   * are stored, so each miss is a random dictionary read: it locates a block, decodes it, takes one
-   * value out and moves on, and the next row's value is usually in a block that was just dropped.
-   * That is the shape that made a group-by over a whole string column cost tens of seconds at 100M.
-   *
-   * <p>
-   * A segment's values are STORED in collation order, so walking that segment's positions upward
-   * touches each block once and takes every referenced value out of it before moving on. The cells a
-   * query references are already in hand — they are these slices — so this marks them per segment and
-   * then walks positions, resolving only the marked ones. No value is read that the row loop would
-   * not have read anyway, and no canonical id is issued for one it would not have issued: the id
-   * space stays exactly what it was, which {@link #size} and the seal both depend on.
-   * </p>
-   *
-   * <p>
-   * Best effort by design. A resolver that cannot answer in position space — a TRANSFORMING one
-   * always refuses, since a transform reorders what storage ordered — simply skips this and the row
-   * loop resolves as before, correctly and more slowly.
-   * </p>
-   */
   /**
    * Diagnostics only: the last resolver failure, so a refusal names its cause and not just its cell.
    */
@@ -476,25 +449,38 @@ public final class SegmentGroupCanonicaliser {
     }
   };
 
-  private void resolveInStorageOrder(final ColumnSlice[] slices, final long @Nullable [] keep) {
-    resolveInStorageOrder(slices, keep, null, SERIAL_SEGMENTS);
-  }
-
   /**
-   * Resolve every cell the kept leaves reference BEFORE the row loop, walking each segment's
-   * dictionary in STORAGE order.
+   * Resolve every cell the kept leaves reference ONCE, in each segment's STORAGE order, BEFORE the
+   * row loop asks for any of them.
+   *
+   * <h2>Why order matters more than count here</h2>
+   *
+   * The row loop asks for cells in ROW order, which is arbitrary with respect to where their values
+   * are stored, so each miss is a random dictionary read: it locates a block, decodes it, takes one
+   * value out and moves on, and the next row's value is usually in a block that was just dropped.
+   * That is the shape that made a group-by over a whole string column cost tens of seconds at 100M.
+   * The same cells asked for in position order decode each block once.
    *
    * <p>
-   * The row loop asks for cells in row order, and a sealed segment dictionary stores its values in
-   * collation order, so those reads are random over the dictionary: every one is a block decode. The
-   * same cells asked for in position order decode each block once. Marking the referenced mints per
-   * segment costs one bit per entry; the walk then reads only the marked positions' values.
+   * A segment's values are STORED in collation order, so walking that segment's positions upward
+   * touches each block once and takes every referenced value out of it before moving on. The cells a
+   * query references are already in hand — they are these slices — so this marks them per segment and
+   * then walks positions, resolving only the marked ones. Marking the referenced mints costs one bit
+   * per entry. No value is read that the row loop would not have read anyway, and no canonical id is
+   * issued for one it would not have issued: the id space stays exactly what it was, which
+   * {@link #size} and the seal both depend on.
    * </p>
    *
    * <p>
    * Segments are independent, which is where the parallelism of this pass lives: the operand seal of
    * a 100M extremum query spent 44 s here on one thread, and the same walk over 148 segments on the
    * scan workers is bounded by the memo's insert lock, not by the reads.
+   * </p>
+   *
+   * <p>
+   * Best effort by design. A resolver that cannot answer in position space — a TRANSFORMING one
+   * always refuses, since a transform reorders what storage ordered — simply skips this and the row
+   * loop resolves as before, correctly and more slowly.
    * </p>
    */
   private void resolveInStorageOrder(final ColumnSlice[] slices, final long @Nullable [] keep,
