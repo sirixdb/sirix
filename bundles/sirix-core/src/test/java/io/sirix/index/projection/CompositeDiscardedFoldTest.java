@@ -182,10 +182,23 @@ final class CompositeDiscardedFoldTest {
         null, null, null, null);
   }
 
+  /**
+   * One fold step of the kernel, {@code h = h * FNV_PRIME ^ mix(component)}.
+   *
+   * <p>
+   * A method rather than an inline expression, for the reason spelled out on
+   * {@link CompositeGroupIdentityCollisionTest}'s helper of the same name: written inline over two
+   * constant operands javac folds FNV's deliberate wraparound at compile time, and Error Prone
+   * rejects the fold as {@code [ConstantOverflow]} — an ERROR that aborts the whole module's static
+   * analysis. A parameter is not a constant expression.
+   */
+  private static long fold(final long h, final long component) {
+    return h * ProjectionIndexByteScan.FNV_PRIME ^ HashCommon.mix(component);
+  }
+
   private static long keyInPartitionZero(final long from) {
     for (long key = from;; key++) {
-      final long hash = (ProjectionIndexByteScan.FNV_SEED * ProjectionIndexByteScan.FNV_PRIME ^ HashCommon.mix(key))
-          * ProjectionIndexByteScan.FNV_PRIME ^ HashCommon.mix(7L);
+      final long hash = fold(fold(ProjectionIndexByteScan.FNV_SEED, key), 7L);
       if (hash != 0 && HashCommon.mix(hash) >>> 63 == 0) {
         return key;
       }

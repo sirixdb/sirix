@@ -60,16 +60,26 @@ public final class CompositeGroupKeyCollisionDifferentialTest {
 
   private Path dbDir;
 
+  /**
+   * One fold step of the kernel, {@code h = h * FNV_PRIME ^ mix(component)}.
+   *
+   * <p>
+   * A method rather than an inline expression: FNV's multiply is a deliberate wraparound, and written
+   * inline over two constant operands javac folds it at compile time, which Error Prone rejects as
+   * {@code [ConstantOverflow]} — an ERROR that aborts the whole module's static analysis. A parameter
+   * is not a constant expression, so the wraparound stays intended and stays legal.
+   */
+  private static long fold(final long h, final long component) {
+    return h * FNV_PRIME ^ HashCommon.mix(component);
+  }
+
   private static long compositeKey(final long c0, final long c1) {
-    long h = FNV_SEED;
-    h = h * FNV_PRIME ^ HashCommon.mix(c0);
-    h = h * FNV_PRIME ^ HashCommon.mix(c1);
-    return h;
+    return fold(fold(FNV_SEED, c0), c1);
   }
 
   private static long collidingSecondComponent() {
     final long target = compositeKey(A0, A1);
-    final long partial = FNV_SEED * FNV_PRIME ^ HashCommon.mix(B0);
+    final long partial = fold(FNV_SEED, B0);
     return HashCommon.invMix(partial * FNV_PRIME ^ target);
   }
 

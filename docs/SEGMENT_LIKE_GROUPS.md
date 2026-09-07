@@ -226,9 +226,9 @@ numbers below, check out `ca4c34d38` and apply the empty-lane edit; checking out
 measures a different build.
 
 Nothing below was captured on the code that ships: that build also gates sharing on the row mask
-and covers the presence lane. It has since been captured in its own window — see **The shipping
-build at 100M** below, which supersedes this section for every claim about what ships. This
-section is kept as the historical record it is.
+and covers the presence lane. It has since been captured in its own window — see **The measured
+capture at 100M (`b00ed9e4`)** below, which supersedes this section for every claim about what
+ships. This section is kept as the historical record it is.
 
 Firstmate authorized a second window after the private 1M gate passed. Both builds ran q21/q22
 with the same five-try CPU/allocation capture, JVM envelope, flags and fresh-executor settings as
@@ -399,7 +399,7 @@ gate results above stand unchanged and need no new capture. The static-analysis 
 did edit `SegmentGroupCanonicaliser.java`, but only its comments and that one unreachable private
 overload; it leaves the same results standing for the same reason.
 
-The shipping capture also re-reads q22's CPU shape: `evaluateMask` **68.8%** of 12,815 hot samples
+The `b00ed9e4` capture also re-reads q22's CPU shape: `evaluateMask` **68.8%** of 12,815 hot samples
 and `GroupDistinctAccumulator` **0.23%**, confirming the initial profile's 68.9% / 0.13% split.
 Duplicate predicate-mask evaluation remains q22's dominant hot cost and its reuse remains deferred.
 
