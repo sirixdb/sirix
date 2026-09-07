@@ -196,12 +196,16 @@ slice's own presence words, borrowed as always.
 The shared arrays rest on one read-only contract, now stated on the public entry points: every
 consumer of a canonicalised lane reads it, and a shared zero lane belongs to the rewrite that made
 it — the returned `ColumnSlice` objects are fresh ones that never reach `SliceArrayPool.recycle`.
-Tests exercise that contract through real consumers — `ProjectionColumnScan.distinctLongs` and
-`distinctBitset`, the exact count-distinct kernels — as well as the canonicaliser: mixed live/empty
-leaves, a 65-row boundary, a shorter tail, a null mask, independent dense lanes, correct value
-inversion, unchanged source arrays, empty leaves that contribute no visit at all, and shared value
-and presence lanes that are still all-zero, and still the same objects, after both kernels have
-read every leaf that shares them.
+Tests exercise that contract through the consumer that actually reads these lanes:
+`ProjectionColumnGroupScan.aggregateByGroupNumericFlat`, the group-aggregate kernel q21 and q22
+feed. (The count-distinct kernels never see a canonicalised lane — the executor routes a
+segment-scoped distinct count to `segmentScopedDistinct` before one is built.) With no predicate
+every row of every leaf reaches the fold, so the mask-emptied leaves are read in full while sharing
+one zero lane; the test asserts their rows land in the missing-key accumulator, the live leaf's
+kept rows fold into their canonical groups, and the shared value and presence lanes are still the
+same objects and still all-zero afterwards. Around it the canonicaliser's own tests cover mixed
+live/empty leaves, a 65-row boundary, a shorter tail, a null mask, independent dense lanes, correct
+value inversion, unchanged source arrays, and unmasked leaves that never share.
 
 The repeated-mask hypothesis is supported for q22; distinct counting and verdict-cache churn
 are disconfirmed as dominant hot costs. Reusing existing masks in the numeric aggregate arm is
@@ -213,11 +217,12 @@ masks. No global dictionary or format change is justified.
 
 **Every measurement in this section is of the canonical-lane-only edit applied to `ca4c34d38`** —
 the pre-rebase base named at the top of this file, whose original commit was `aae7ba2be` and which
-was later rebased into this branch as `c5870478e`. It is NOT the tree at `c5870478e`: ten commits
-sit between `ca4c34d38` and that commit's parent `de2724c5c`, including the q25 `SegmentTopKBounds`
-lever, and they touch `ProjectionColumnScan`, `SegmentValueMerge` and `SegmentCellVerdicts` — the
-very files this section attributes CPU percentages to. To reproduce the numbers below, check out
-`ca4c34d38` and apply the empty-lane edit; checking out `c5870478e` measures a different build.
+was later rebased into this branch as `c5870478e`. It is NOT the tree at `c5870478e`: the two bases
+differ semantically. `ca4c34d38..de2724c5c` carries the q25 `SegmentTopKBounds` lever
+(`b1fe16c05`, `c7de7e43e`, `ab193d772`) and touches `ProjectionColumnScan`, `SegmentValueMerge` and
+`SegmentCellVerdicts` — the very files this section attributes CPU percentages to. To reproduce the
+numbers below, check out `ca4c34d38` and apply the empty-lane edit; checking out `c5870478e`
+measures a different build.
 
 Nothing below was captured on the code that ships: that build also gates sharing on the row mask
 and covers the presence lane. It has since been captured in its own window — see **The shipping
@@ -262,16 +267,16 @@ nothing:
 
 Hot CPU samples in G1 read 6,737/14,842 (45.4%) and 1,245/7,394 (16.8%); direct canonicalisation
 reads 905 samples and 69. **No timing claim is made from these numbers**, here or anywhere else in
-this document: the shipping-build capture below puts q21's own min(tries 2,3) at 0.175 s against
-this capture's 0.158 s, so the observed range across the two unscored diagnostics is 0.158–0.175 s
-and a single sample each cannot separate run-to-run variance from anything else. What this change
-claims is the allocation reduction and byte-identical output, both measured on the shipping build.
+this document — the shipping-build section below ranges both queries across both captures. What
+this change claims is the allocation reduction and byte-identical output, both measured on the
+shipping build.
 
 The q22 control retains **5,082,420 allocated longs per lane**, with zero reused empty leaves:
-its tree had already dropped them. All three lane payloads remain unchanged. Its best of tries
-2/3 is 0.356 s before and 0.278 s after; no q22 speedup is attributed to this mechanism.
-This control and the dense-lane unit test establish that the allocation saving is bounded to
-empty leaves. q22's duplicate predicate evaluation remains for a separate change.
+its tree had already dropped them. All three lane payloads remain unchanged. Its min(tries 2,3)
+read 0.356 s and 0.278 s in this capture's two JVMs and 0.316 s on the shipping build — see the
+timing table below, which ranges both queries. This control and the dense-lane unit test establish
+that the allocation saving is bounded to empty leaves. q22's duplicate predicate evaluation remains
+for a separate change.
 
 In that comparison both queries retained the exact routes and marked-cell/distinct-rank counters
 listed above, and both serialized outputs were byte-identical (`diff -r` exit 0), with SHA-256:
@@ -304,7 +309,7 @@ source/allocated/reuse counter compares exactly equal. The focused suite runs al
 `SegmentGroupCanonicaliserTest` tests with 0 failures, 0 errors and 0 skipped — including
 `unmaskedLeavesNeverShareALaneEvenWhenEveryRowIsAbsent`, the regression test for the row-mask
 gating, and `sharedEmptyLanesAreNotWrittenByTheKernelsThatReadThem`, which reads the shared lanes
-back through the real count-distinct kernels. A freshly compiled
+back through a real consumer. A freshly compiled
 `bundles/sirix-query/bench/clickbench/rig/seggate1m.sh` over the two-segment 1M database reports
 **33 match, 10 tie-ambiguous (0 unverifiable), 0 mismatch, 0 missing, 0 declines** across all 43
 queries.
@@ -338,6 +343,26 @@ reading these: the sampled values are statistical estimates at 512 KiB sampling,
 per-array byte counts, and 15.125 MiB is only the two long-array lanes — everything allocated under
 `canonicaliseMemoised`, including the `ColumnSlice` objects and the outer arrays, samples
 27.625 MiB per hot try. These are not the query's total allocations either.
+
+**Wall times, both queries, ranged.** min(tries 2, 3) on the shipping build, beside the same
+statistic from the earlier canonical-lane capture:
+
+| Query | Shipping build (s) | Observed range across both captures (s) |
+|---|---:|---:|
+| q21 | 0.175 | 0.158–0.175 |
+| q22 | 0.316 | 0.278–0.316 |
+
+These are **unscored diagnostic captures on different bases and different machine states**, one
+sample each. The ranges are recorded as observed; nothing here asserts noise, regression or
+speedup, and no delta-ln follows from them. The claims this change makes are the allocation
+reduction and the byte-identical output above.
+
+One documentation-and-test follow-up has landed since that capture: the read-only witness above now
+drives `ProjectionColumnGroupScan.aggregateByGroupNumericFlat` — the consumer q21/q22 actually feed
+— instead of the count-distinct kernels, which the executor never routes a canonicalised lane to.
+The focused suite was re-run for it and still reports **49 tests, 0 failures, 0 errors**. That is a
+test change only: it touches no runtime source, so the `b00ed9e4` allocation, byte-identity and 1M
+gate results above stand unchanged and need no new capture.
 
 The shipping capture also re-reads q22's CPU shape: `evaluateMask` **68.8%** of 12,815 hot samples
 and `GroupDistinctAccumulator` **0.23%**, confirming the initial profile's 68.9% / 0.13% split.
