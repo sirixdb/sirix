@@ -4,7 +4,8 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
+import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -43,6 +44,43 @@ final class SegmentGroupCanonicaliserTest {
   /** A dictionary stand-in: cell -> value, so a test can put one value in several segments. */
   private static SegmentGroupCanonicaliser over(final Map<Long, String> corpus, final int segments) {
     return new SegmentGroupCanonicaliser(corpus::get, segments);
+  }
+
+  /** No predicate at all: every row of every leaf reaches the group fold. */
+  private static final ColumnPredicate[] NO_PREDICATES = new ColumnPredicate[0];
+
+  private static final ColumnSlice[][] NO_PREDICATE_COLUMNS = new ColumnSlice[0][];
+
+  /**
+   * A store the group kernel can read {@code rowCount(leaf)} from. It holds descriptors only: the
+   * kernel takes the group and aggregate lanes as arguments, so no column segment is ever fetched.
+   */
+  private static ProjectionColumnStore rowCountStore(final int leaves, final int rows) {
+    final List<RowGroupDirectory> directories = new ArrayList<>(leaves);
+    for (int leaf = 0; leaf < leaves; leaf++) {
+      final ProjectionIndexRowGroupPage page =
+          new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+      for (int row = 0; row < rows; row++) {
+        page.appendRow(leaf * 100_000L + row + 1, new long[] {row}, new boolean[] {false}, new String[] {null});
+      }
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+          ProjectionIndexColumnSegmentCodec.encode(page.serialize());
+      final int segments = encoded.columnSegmentIds().length;
+      directories.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), encoded.columnSegmentIds().clone(),
+          new long[segments], new byte[segments][]));
+    }
+    return new ProjectionColumnStore(directories);
+  }
+
+  /** One aggregate column, every cell present and worth 1, so a group's count IS its row count. */
+  private static ColumnSlice[] onesLane(final int leaves, final int rows) {
+    final ColumnSlice[] lane = new ColumnSlice[leaves];
+    final long[] ones = new long[rows];
+    Arrays.fill(ones, 1L);
+    for (int leaf = 0; leaf < leaves; leaf++) {
+      lane[leaf] = sliceOf(ones.clone());
+    }
+    return lane;
   }
 
   /** A slice whose every row is PRESENT — the ordinary case. */
@@ -1013,7 +1051,7 @@ final class SegmentGroupCanonicaliserTest {
   }
 
   @Test
-  @DisplayName("the shared zero lanes survive the real distinct kernels: every consumer only reads")
+  @DisplayName("the shared zero lanes survive the real group-aggregate kernel: every consumer only reads")
   void sharedEmptyLanesAreNotWrittenByTheKernelsThatReadThem() {
     final int rows = 65;
     final PositionedCorpus corpus = positionedCorpus(2, rows);
@@ -1037,18 +1075,31 @@ final class SegmentGroupCanonicaliserTest {
     final long[] canonicalBefore = sharedCanonical.clone();
     assertArrayEquals(new long[(rows + 63) >>> 6], presenceBefore, "an empty leaf keeps no row");
 
-    // The consumers, not a stand-in: both exact count-distinct kernels read a canonicalised group
-    // lane through presenceWords()/numericValues(), and a leaf that keeps nothing must contribute
-    // nothing to either — while leaving the lane the OTHER empty leaves are still holding intact.
-    final LongArrayList visited = new LongArrayList();
-    assertTrue(ProjectionColumnScan.distinctLongs(out, 0, out.length, visited::add));
-    assertEquals(2, visited.size(), "only the kept rows of the one live leaf are visited");
-    assertEquals(out[1].numericValues()[0], visited.getLong(0));
-    assertEquals(out[1].numericValues()[64], visited.getLong(1));
+    // THE CONSUMER THAT ACTUALLY READS THESE LANES. q21/q22 hand a canonicalised group column to
+    // ProjectionColumnGroupScan, not to a count-distinct kernel — the executor routes segment-scoped
+    // distinct counts away before those ever see a lane. With no predicate every row of every leaf
+    // reaches the fold, so the three mask-emptied leaves are read in full while sharing one zero
+    // lane: their rows must land in the missing-key accumulator and leave that lane untouched.
+    final ColumnSlice[][] aggCols = {onesLane(leaves.length, rows)};
+    final NumericGroupAggTable groups = new NumericGroupAggTable(1, 16, false, 1L); // fold the SUM lane
+    final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(1, Long.MAX_VALUE);
+    ProjectionColumnGroupScan.aggregateByGroupNumericFlat(rowCountStore(leaves.length, rows), NO_PREDICATES,
+        NO_PREDICATE_COLUMNS, null, null, out, aggCols, null, 0, leaves.length, groups, missing, -1, null, null, null,
+        false, null, null);
 
-    final long[] seen = new long[(int) (out[1].max() >>> 6) + 1];
-    assertTrue(ProjectionColumnScan.distinctBitset(out, 0, out.length, 0L, seen));
-    assertEquals(2L, ProjectionColumnScan.distinctBitsetUnionCount(new long[][] {seen}, 0, seen.length));
+    assertEquals(2, groups.size(), "only the live leaf's two kept rows carry a group key");
+    for (final int row : new int[] {0, 64}) {
+      final long key = out[1].numericValues()[row];
+      final int handle = groups.acquire(key, Long.MAX_VALUE);
+      final long[] block = groups.storageAtAccBase(handle);
+      final int base = groups.offsetAtAccBase(handle);
+      assertEquals(1L, block[base], "one row folds into canonical group " + key);
+      assertEquals(1L, block[base + 2], "its one aggregate cell is counted");
+      assertEquals(1L, block[base + 3], "and summed");
+    }
+    assertEquals(2, groups.size(), "re-probing a present key must not insert");
+    assertEquals((long) leaves.length * rows - 2L, missing[0],
+        "every row of a mask-emptied leaf has no group key, and so do the live leaf's cleared rows");
 
     assertSame(sharedPresence, out[0].presenceWords(), "no consumer may swap a lane out");
     assertSame(sharedPresence, out[2].presenceWords());
