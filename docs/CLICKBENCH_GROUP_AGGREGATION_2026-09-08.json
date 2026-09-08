@@ -2314,5 +2314,17 @@
         "candidate": 0
       }
     }
-  ]
+  ],
+  "delivery_status": "Correctness review, tests and CI authorized now; Firstmate holds merge pending a repaired-rig performance verdict.",
+  "rig_audit_reported_by_firstmate": {
+    "source": "Firstmate instruction 2026-09-08T03:55:11Z",
+    "unchanged_code_sum_ln": [
+      65.398,
+      66.156,
+      69.803
+    ],
+    "sum_ln_spread": 4.405,
+    "peak_temperature_celsius_each_leg": 100,
+    "interpretation": "Thermal instability prevents an accepted performance verdict; these audit observations are not optimization gains."
+  }
 }
