@@ -38,7 +38,7 @@ python3 bundles/sirix-query/bench/clickbench/rig/measure.py compare \
   --pairs 10 --effect-ln 0.5
 ```
 
-Both revisions are built in isolated worktrees using the same current benchmark main and
+Both revisions are built in isolated worktrees using the same current benchmark mains and
 process-guard sources. This explicit harness overlay leaves engine sources at the requested
 commits and avoids applying new startup instrumentation to only one arm. The source overlay
 hashes and query-catalog identity are recorded and must match across arms. Their classpaths
