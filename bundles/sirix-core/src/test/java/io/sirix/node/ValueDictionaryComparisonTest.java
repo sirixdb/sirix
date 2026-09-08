@@ -59,6 +59,33 @@ final class ValueDictionaryComparisonTest {
         Arrays.copyOf(right, right.length), 0, right.length));
   }
 
+  @Test
+  void asciiMismatchAfterAMultibyteLeadIsSettledByTheDecidingByte() {
+    final byte[] wellFormedLeft = "\u00e9A".getBytes(StandardCharsets.UTF_8);
+    final byte[] wellFormedRight = "\u00e9B".getBytes(StandardCharsets.UTF_8);
+    assertEquals(Integer.signum("\u00e9A".compareTo("\u00e9B")), Integer.signum(ValueDictionaryEntryNode
+        .compareUtf16Range(wellFormedLeft, 0, wellFormedLeft.length, wellFormedRight, 0, wellFormedRight.length)));
+
+    final byte[] left = {(byte) 0xC3, 65};
+    final byte[] right = {(byte) 0xC3, 66};
+    assertEquals(-1, Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(left, 0, left.length, right, 0,
+        right.length)));
+    assertEquals(1, Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(right, 0, right.length, left, 0,
+        left.length)));
+    assertEquals(0, ValueDictionaryEntryNode.compareUtf16Range(left, 0, left.length, Arrays.copyOf(left, left.length),
+        0, left.length));
+  }
+
+  @Test
+  void malformationAtTheDecidingSequenceFailsClosedWhicheverSideCarriesIt() {
+    final byte[] wellFormed = {65, (byte) 0xC2, (byte) 0x80};
+    final byte[] malformed = {65, (byte) 0xC2, 65};
+    assertThrows(IllegalStateException.class, () -> ValueDictionaryEntryNode.compareUtf16Range(malformed, 0,
+        malformed.length, wellFormed, 0, wellFormed.length));
+    assertThrows(IllegalStateException.class, () -> ValueDictionaryEntryNode.compareUtf16Range(wellFormed, 0,
+        wellFormed.length, malformed, 0, malformed.length));
+  }
+
   private static String value(final SplittableRandom random, final int[] alphabet) {
     final StringBuilder value = new StringBuilder();
     final int length = random.nextInt(24);
