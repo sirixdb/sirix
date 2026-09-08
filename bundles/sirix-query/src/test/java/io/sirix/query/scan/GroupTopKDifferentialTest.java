@@ -6,6 +6,7 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.projection.GroupTableSpill;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -145,6 +146,34 @@ public final class GroupTopKDifferentialTest {
   }
 
   // ---- numeric single key -------------------------------------------------------------------
+
+  @Test
+  void compactSumsPreserveSparseOperandsAndCountTiesAcrossSpills() throws Exception {
+    final long budget = GroupTableSpill.setGroupBudgetForTesting(16);
+    final int threshold = GroupTableSpill.setFlushGroupsForTesting(4);
+    final int morsel = GroupTableSpill.setSubChunkLeavesForTesting(1);
+    try {
+      final long before = SirixVectorizedExecutor.compactSumGroupsServedCount();
+      assertOrderedDifferentialServed(
+          "subsequence(for $u in " + SRC + " where $u.id >= 7 let $a := $u.k7, $b := $u.tier group by $a, $b"
+              + " let $c := count($u), $s := sum($u.amount), $v := xs:double(avg($u.bonus))"
+              + " order by $c descending return {\"a\":$a,\"b\":$b,\"c\":$c,\"s\":$s,\"v\":$v},1,12)");
+      assertEquals(before + 1, SirixVectorizedExecutor.compactSumGroupsServedCount());
+    } finally {
+      GroupTableSpill.setGroupBudgetForTesting(budget);
+      GroupTableSpill.setFlushGroupsForTesting(threshold);
+      GroupTableSpill.setSubChunkLeavesForTesting(morsel);
+    }
+  }
+
+  @Test
+  void requestedExtremaKeepTheFullAccumulator() throws Exception {
+    final long before = SirixVectorizedExecutor.compactSumGroupsServedCount();
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $a := $u.k7, $b := $u.k40 group by $a, $b"
+        + " let $c := count($u), $s := sum($u.amount), $m := max($u.bonus)"
+        + " order by $c descending return {\"a\":$a,\"b\":$b,\"c\":$c,\"s\":$s,\"m\":$m},1,12)");
+    assertEquals(before, SirixVectorizedExecutor.compactSumGroupsServedCount());
+  }
 
   @Test
   void repeatedNumericKeyOffsetsPreserveCountTies() throws Exception {

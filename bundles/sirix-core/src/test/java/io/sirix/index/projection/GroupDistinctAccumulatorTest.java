@@ -8,6 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.SplittableRandom;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -27,6 +28,111 @@ final class GroupDistinctAccumulatorTest {
   /** Group ids that stress the hashing: zero, negatives, the extremes, and a few dense small ones. */
   private static final long[] GROUPS =
       {0L, 1L, 2L, 3L, -1L, Long.MIN_VALUE, Long.MAX_VALUE, 0x5DEECE66DL, 1L << 40, -(1L << 33), 42L, 43L, 1_000_003L};
+
+  @Test
+  void directGroupsUseTheSamePassAndDuplicateSemanticsAsSinks() {
+    final GroupDistinctAccumulator acc = new GroupDistinctAccumulator(2, Long.MAX_VALUE);
+    acc.setPassRange(60, 3, 8);
+    for (final long group : GROUPS) {
+      acc.worker(0).addToGroup(group, Long.MIN_VALUE);
+      acc.worker(0).addToGroup(group, 0L);
+      acc.worker(1).sinkFor(group).add(Long.MIN_VALUE);
+      acc.worker(1).sinkFor(group).add(0L);
+    }
+    acc.worker(0).missing().add(1L);
+    acc.finish();
+    for (final long group : GROUPS) {
+      final int partition = NumericGroupAggTable.partitionOf(group, 60);
+      assertEquals(partition >= 3 && partition < 8
+          ? 2L
+          : 0L, acc.groupSizes().get(group));
+    }
+    assertEquals(0L, acc.missingSize());
+  }
+
+  @Test
+  void singletonGroupsPromoteExactlyAndResetBetweenPasses() {
+    final GroupDistinctAccumulator acc = new GroupDistinctAccumulator(3, Long.MAX_VALUE);
+    for (int pass = 0; pass < 2; pass++) {
+      for (int group = 0; group < 30_000; group++) {
+        final long first = group + pass;
+        acc.worker(0).sinkFor(group).add(first);
+        acc.worker(1).sinkFor(group).add(first);
+        if (group % 3 == 0) {
+          acc.worker(2).sinkFor(group).add(~first);
+          acc.worker(2).sinkFor(group).add(~first);
+        }
+      }
+      acc.finish();
+      assertEquals(40_000L, acc.entries());
+      assertEquals(30_000, acc.groupSizes().size());
+      for (int group = 0; group < 30_000; group++) {
+        assertEquals(group % 3 == 0
+            ? 2L
+            : 1L, acc.groupSizes().get(group));
+      }
+      acc.reset();
+    }
+  }
+
+  @Test
+  void parallelCountPublicationVisitsEveryGroupOnceAndResets() {
+    final GroupDistinctAccumulator acc = new GroupDistinctAccumulator(3, Long.MAX_VALUE);
+    assertThrows(IllegalStateException.class, () -> acc.forEachGroupSize((group, count) -> {
+    }));
+    try (final ExecutorService pool = Executors.newFixedThreadPool(4)) {
+      for (int pass = 0; pass < 2; pass++) {
+        for (int group = -20_000; group < 20_000; group++) {
+          for (int value = 0; value < 7; value++) {
+            acc.worker(value % 3).addToGroup(group, value + pass);
+            acc.worker((value + 1) % 3).addToGroup(group, value + pass);
+          }
+        }
+        for (int worker = 0; worker < 3; worker++) {
+          acc.worker(worker).missing().add(Long.MIN_VALUE);
+          acc.worker(worker).missing().add(0L);
+        }
+        acc.finish((tasks, task) -> {
+          final CompletableFuture<?>[] futures = new CompletableFuture<?>[tasks];
+          for (int i = 0; i < tasks; i++) {
+            final int index = i;
+            futures[i] = CompletableFuture.runAsync(() -> task.accept(index), pool);
+          }
+          CompletableFuture.allOf(futures).join();
+        });
+        acc.finish((tasks, task) -> {
+          throw new AssertionError("finish must be idempotent");
+        });
+        final Long2LongOpenHashMap visited = new Long2LongOpenHashMap();
+        acc.forEachGroupSize((group, count) -> {
+          assertEquals(0L, visited.put(group, count), "one callback per completed group");
+          assertEquals(7L, count);
+        });
+        assertEquals(40_000, visited.size());
+        assertEquals(visited, acc.groupSizes());
+        assertEquals(2L, acc.missingSize());
+        acc.reset();
+        assertThrows(IllegalStateException.class, () -> acc.forEachGroupSize((group, count) -> {
+        }));
+      }
+    }
+  }
+
+  @Test
+  void failedPublicationDoesNotExposePartialCountsAndCanBeRetried() {
+    final GroupDistinctAccumulator acc = new GroupDistinctAccumulator(1, Long.MAX_VALUE);
+    acc.worker(0).addToGroup(0L, 5L);
+    acc.worker(0).addToGroup(-1L, 7L);
+    acc.worker(0).missing().add(9L);
+    assertThrows(IllegalStateException.class, () -> acc.finish((tasks, task) -> task.accept(0)));
+    assertThrows(IllegalStateException.class, acc::groupSizes);
+    assertThrows(IllegalStateException.class, acc::missingSize);
+    acc.finish();
+    assertEquals(1L, acc.groupSizes().get(0L));
+    assertEquals(1L, acc.groupSizes().get(-1L));
+    assertEquals(1L, acc.missingSize());
+    assertEquals(3L, acc.entries());
+  }
 
   @Test
   @DisplayName("exact under duplication across workers, including the missing-key rows")
@@ -124,7 +230,7 @@ final class GroupDistinctAccumulatorTest {
   }
 
   @Test
-  @DisplayName("the same pair always lands on the same stripe, and the four value stripes partition a group")
+  @DisplayName("the same pair always lands on the same stripe, and the value stripes partition a group")
   void stripingIsDeterministicAndPartitioning() {
     final SplittableRandom rnd = new SplittableRandom(11);
     for (int i = 0; i < 100_000; i++) {
