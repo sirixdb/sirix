@@ -546,7 +546,13 @@ the same ten rows because group emission order is implementation-defined for tha
 group-aggregate detector does recognize this order-free form and serves Q17 from the projection; the
 permutation is not evidence of a Brackit-only fallback.
 
-### What still declines, and why
+### What still declines, and why — historical snapshot, 2026-08-15
+
+> **Historical, not current status.** Everything in this section describes the state on
+> **2026-08-15**, i.e. *before* the 2026-08-16 kernel campaign recorded in the serving table above.
+> The named query lists went stale that day and have not been maintained since; for what serves
+> today, read the serving table above, which is the authoritative current status. The section is
+> kept only because *why* each shape once declined is still worth having.
 
 * **String NE is unrepresentable** — `PredicateNode.StrEq` carries no operator, and `Not(StrEq)` is
   not equivalent: over a record MISSING the field the interpreter yields the empty sequence, which a
