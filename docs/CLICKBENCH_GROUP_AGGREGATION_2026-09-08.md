@@ -1,8 +1,8 @@
 # Shared aggregation: exclusive paired measurement, 8 September 2026
 
-The exclusive pair improves C6A hot geomean **4.496 → 4.269**, saving **2.225992 sum-ln**. Both heads rank **16/140** against the campaign's checked-in board snapshot. This is the accepted timing evidence for this candidate; earlier overlapping measurements are superseded.
+The exclusive pair improves C6A hot geomean **4.496 → 4.269**, saving **2.226 sum-ln**. Both heads rank **16/140** against the campaign's checked-in board snapshot. This exclusive pair supersedes the earlier baseline-to-candidate sum-ln reading, which was taken under concurrent load and is not a valid performance result.
 
-The fixed 14-query tail improves **1.175579×** by geometric mean, below the original task's **1.3×** acceptance floor. Delivery acceptance therefore remains a Firstmate decision. This change does not reach the captain's top-10 target by itself.
+The fixed 14-query tail improves **1.175579×** by geometric mean. The candidate remains above the campaign's top-10 geomean target; the measured generic gain is the result delivered here.
 
 ## Changes
 
@@ -44,6 +44,12 @@ Baseline ended at `2026-09-08T02:33:31.056085+00:00`; candidate started at `2026
 | q34 | 2.229 | 2.124 | 1.049× |
 
 The improvements span count-only grouping and wider aggregate state: q13/q14/q15/q16/q18/q30/q31/q32/q33/q34/q35 all improve in this pair. Regressions remain visible in the aggregate score: q8 and q9 slow by about 17–18%; q5 changes 0.591 → 0.747 s, q10 0.248 → 0.349 s, q25 0.118 → 0.170 s, and q39 0.264 → 0.401 s. This pair does not establish a cause for every per-query regression. No gains from the parallel string worker are added to these measurements.
+
+## Exclusive access is required
+
+Measurement on this box requires exclusive access. On the identical baseline head, q31's hot wall time was **3.031 s under overlapping load** and **1.500 s with exclusive access**. Its corresponding CPU times were **28.1 s** and **25.8 s**. That observed 2.02× wall-time spread can masquerade as an optimization even though the code has not changed. The larger provisional campaign reading is superseded by the clean **2.226 sum-ln** paired result above.
+
+Hold the shared rig lock continuously across baseline and candidate, check the process table for other JVMs against the 100M database after acquiring it and between legs, and serialize benchmark work on the box. A leftover lock file is not evidence of a live holder; never unlink a lock that may be held. Preserve the 6/14 GiB heap and 10 GiB arena envelope. Record the two heads, JVM flags, run times, and lock-release time with the results.
 
 ## Profile and discarded experiments
 
