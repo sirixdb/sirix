@@ -953,7 +953,7 @@ public final class GroupTableSpill {
    * The recycler for the dense layout's compact index chunks, or {@code null} when this spill's
    * stripe stays interleaved or the pool is switched off (test observability).
    */
-  LongChunkPool probeChunkPool() {
+  public LongChunkPool probeChunkPool() {
     return probePool;
   }
 
