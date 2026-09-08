@@ -212,9 +212,12 @@ descriptors directly to Java, which verifies the inode and kernel lock and retai
 until process exit. Raw Java/Gradle benchmark entry points also acquire a process-lifetime
 lease. A JVM is exclusive exactly when its database is the campaign one `CB100M_DIR` names, and
 only such a query JVM must match the full campaign envelope; every other load or query keeps shared
-host ownership, cannot overlap an exclusive 100M process, and leaves the 1M lanes free to run.
-Losing a wrapper does not release the lease while its JVM survives. Legacy executables must use
-`rig_lock.py -- COMMAND...`.
+host ownership and cannot overlap an exclusive 100M process, so two small JVMs no longer exclude
+each other. Their wrappers stay stricter: `load1m.sh` and `seggate1m.sh` hold `leg.lock` exclusively
+and refuse any live benchmark JVM, so the 1M lanes still run one at a time, and
+`rig_lock.py -- COMMAND...` — which every legacy executable must use — takes the host lease
+exclusively whatever database the command opens. Losing a wrapper does not release the lease while
+its JVM survives.
 
 The 100M database and both source corpora are irreplaceable and read-only for this campaign.
 Never run `load100m.sh`, rebuild projection indexes, shrink the query envelope, or delete shared
