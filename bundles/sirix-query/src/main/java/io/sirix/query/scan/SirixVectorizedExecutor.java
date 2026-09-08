@@ -13629,15 +13629,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * → 7.9M and the restart paid 16 passes for 8. Release before re-planning; the estimate needs only
    * the spill's counters, which {@link GroupTableSpill#releaseTables} keeps.
    */
-  private static void releaseAbortedPass(final GroupTableSpill spill, final NumericGroupAggTable[] tables,
+  static void releaseAbortedPass(final GroupTableSpill spill, final NumericGroupAggTable[] tables,
       final int[][][] partIdx) {
-    spill.releaseTables();
     for (int t = 0; t < tables.length; t++) {
       final NumericGroupAggTable table = tables[t];
       if (table != null && !table.released()) {
         table.release(); // its chunks are the restart's tables
       }
     }
+    spill.releaseTables();
     Arrays.fill(tables, null);
     Arrays.fill(partIdx, null);
   }
