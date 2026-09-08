@@ -1,8 +1,8 @@
 {
-  "status": "provisional: measurement rig repair pending",
+  "status": "provisional: performance effect unverified pending measurement resolution",
   "performance_validated": false,
   "accepted_score": null,
-  "restriction": "All pre-repair timing figures are provisional. Do not use them for tuning, performance acceptance or delivery. Firstmate must grant a new 100M window after rig validation.",
+  "restriction": "All historical timing figures are provisional. Do not use them for tuning, performance acceptance or delivery. Firstmate reports a harness minimum detectable effect of approximately 1.345 ln; this is a measurement-resolution limit, not a performance result for this change. No 100M work is authorized, and merge remains held pending measurement resolution and Firstmate approval.",
   "tested_source_identity": {
     "head": "b3d34899b0320d35bcd166c0017d09c6c9a35e16",
     "head_subject": "Document accepted aggregation gain and exclusive measurement requirement",
