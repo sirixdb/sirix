@@ -19,17 +19,28 @@ variable; working files live under `bundles/sirix-query/build/diagnostics/` (git
 | `load1m.sh` / `seggate1m.sh` | 1M load + correctness gate against DuckDB (`0 mismatch, 0 missing` required) |
 | `junit.py START CLASS…` | read JUnit XML refusing anything older than the run start (a compile error leaves stale XML) |
 | `collapsed.py FILE [pat…]` | summarise an async-profiler collapsed-stack file |
-| `legs/` | reference legs: `N1FULL1` (rank 10, the old global-dictionary DB), `SEG2T`/`SEG3T`/`SEG3TB` (segment lane), `SEG4T` (the earlier measured leg the handoff's §4 lever ln values are drawn from) and `SEG5T` — **the measured standing** (the handoff's §2 owns the number) |
+| `legs/` | reference legs: `N1FULL1` (rank 10, the old global-dictionary DB), `SEG2T`/`SEG3T`/`SEG3TB` (segment lane), `SEG4T` (the earlier measured leg the handoff's §4 lever ln values are drawn from) and `SEG5T` (historical snapshots); `SEG6T` is also committed (the handoff's §2 records its status) |
 | `board/data.generated.js` | snapshot (2026-09-02) of https://benchmark.clickhouse.com/data.generated.js |
 
 ## The one loop that matters
+
+**Measurement status, 2026-09-08:** Firstmate's instrument study reports a minimum
+detectable effect of approximately **1.345 summed ln** for this harness. The
+string-decode change makes no performance claim; its performance effect is
+unverified pending measurement resolution. Builds, tests and reviews are released,
+but this lane still needs explicit Firstmate authorization for any 100M work and
+its merge remains held. A free lock does not grant a benchmark window. See
+[the string-decode report](../../../../../docs/CLICKBENCH_STRING_DECODE_2026-09-08.md).
+
+The `STRDEC*` records in `legs/` preserve historical observations. They are not
+accepted performance evidence and must not be used to claim this lane's gain.
 
 ```sh
 cd bundles/sirix-query/bench/clickbench/rig
 cat ../../../build/diagnostics/rig/current-100m-dir.txt   # which 100M DB the query scripts read
 bash suite100m.sh 3                                   # ~10 min at the current state; one leg per box
-python3 mkleg.py SEG6T "$(cat ../../../build/diagnostics/rig/current-100m-dir.txt)/suite100m.log"
-python3 rank.py SEG6T SEG5T N1FULL1                   # read the [C6A] hot block
+python3 mkleg.py SEG7T "$(cat ../../../build/diagnostics/rig/current-100m-dir.txt)/suite100m.log"
+python3 rank.py SEG7T SEG6T N1FULL1                   # read the [C6A] hot block
 ```
 
 `rank.py` prints, per board and metric, the rank thresholds (`r10=3.35` is the target) and for each

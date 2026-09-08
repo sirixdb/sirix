@@ -256,6 +256,15 @@ That capture predates the presence lane, so its counter line names the canonical
 diagnostic now also reports `allocatedPresenceWords` and `reusedEmptyPresence`; both are measured
 in the `b00ed9e4` capture below.
 
+That capture also predates parallel row mapping, which adds a `mapRanges=` field.
+A whole-column rewrite can map disjoint ranges on the caller's workers, with each
+range sharing its own empty canonical and presence lanes. Diagnostic counters
+remain column totals, but empty-lane reuse is per range rather than column-wide.
+Historical serial allocation readings therefore do not describe the current
+parallel mapping. The handoff's diagnostics row owns the current field list;
+[string-decode correctness and measurement status](CLICKBENCH_STRING_DECODE_2026-09-08.md)
+owns this change's evidence. No new allocation or timing result is claimed here.
+
 Raw wall and GC readings from that capture's two JVMs, recorded as observed and attributed to
 nothing:
 

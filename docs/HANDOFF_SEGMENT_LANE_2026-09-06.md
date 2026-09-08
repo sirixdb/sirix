@@ -31,6 +31,14 @@ Standing secondary target: ~50 GB storage at 100M (met: 48 GB); long-term ≤ 30
 
 ## 2. Where we stand
 
+**Update, 2026-09-08:** the committed `query-SEG6T.json` supersedes the historical
+SEG5T snapshot below. This correctness-only string-decode change adds no accepted
+performance result. Its effect remains unverified pending measurement resolution;
+[the string-decode report](CLICKBENCH_STRING_DECODE_2026-09-08.md) records the
+instrument study's detection floor and the current delivery constraints. The
+historical numeric ledger below is retained unchanged, not extended into a claim
+for this change.
+
 | leg | build | database | C6A hot geomean | rank / 140 | Σln |
 |---|---|---|---|---|---|
 | N1FULL1 (2026-09-03) | global dictionary + prepass | `db100m-ovf`, 49.70 GB — **deleted** | 3.327 | **10** | 51.69 |
@@ -40,7 +48,7 @@ Standing secondary target: ~50 GB storage at 100M (met: 48 GB); long-term ≤ 30
 | SEG4T (2026-09-07, measured) | segment lane at the handover (`54b0a059b`) | same | 5.179 | 17 | 70.72 |
 | **SEG5T (2026-09-07, measured)** | segment lane at `de2724c5c` | same | **4.714** | **16** | **66.68** |
 
-**SEG5T is where we stand.** Rank 10 (Σln ≤ 51.99) needs ≈ **−14.7 ln** from here
+**SEG5T is this handoff's historical snapshot.** Rank 10 (Σln ≤ 51.99) needs ≈ **−14.7 ln** from here
 (66.676 − 51.99 = 14.686). Its leg JSON is committed as `rig/legs/query-SEG5T.json`, so
 `python3 rank.py SEG5T SEG4T` reproduces both rows — and §4's per-query contributions — on any box.
 
@@ -88,13 +96,18 @@ Key code (paths under `bundles/`):
 | segment cut policy / incremental sealing | `SegmentBoundaries.java`, `SegmentDictionaryLane.java` |
 | leaf-level group scan (length tables, present cells) | `ProjectionColumnGroupScan.java` |
 | handle + per-handle memos (`stringLengthTables`) | `ProjectionIndexRegistry.java` (`Handle`), `ProjectionIndexCatalog.java` |
-| diagnostics | `-Dsirix.projDiag=true` prints `route=`, `[proj] groupAgg decline: …`, `[lengthTable] col= mode= segments= memoHits= built= ids= ms=`, `[topk-bounds] kind= positions= segments=`, `[proj] canonical lanes: sourceLongs= allocatedLongs= reusedEmptyLeaves= allocatedPresenceWords= reusedEmptyPresence=` (whole-column rewrites only), `segment lane: …`; counters `projectionStringLengthTableBuildCount()`, `projectionStringLengthTableMemoHitCount()`, `segmentOperandSealCount()` on the executor |
+| diagnostics | `-Dsirix.projDiag=true` prints `route=`, `[proj] groupAgg decline: …`, `[lengthTable] col= mode= segments= memoHits= built= ids= ms=`, `[topk-bounds] kind= positions= segments=`, `[proj] canonical lanes: sourceLongs= allocatedLongs= reusedEmptyLeaves= allocatedPresenceWords= reusedEmptyPresence= mapRanges=` (whole-column rewrites only; counters are column totals summed over the `mapRanges` parallel mapping ranges, but each range shares its own zero lane, so above one range the empty-lane reuse is per range rather than column-wide), `segment lane: …`; counters `projectionStringLengthTableBuildCount()`, `projectionStringLengthTableMemoHitCount()`, `segmentOperandSealCount()` on the executor |
 
 Tests that pin the lane: `SegmentLengthLaneQueryTest`, `AnyKGroupsSegmentKeyRewriteTest`,
-`AnyKGroupsGlobalKeyRewriteTest`, `GroupTopKDifferentialTest`, `SegmentOrderedLimitQueryTest`
-(sirix-query); `SegmentLengthLaneGroupScanTest`, `RankTableReadViewTest`,
-`SegmentBoundariesTest`, `SegmentCellRoundTripTest`, `SegmentTopKBoundsTest`,
+`AnyKGroupsGlobalKeyRewriteTest`, `GroupTopKDifferentialTest`, `SegmentOrderedLimitQueryTest`,
+`ClickBenchQ21Q22SegmentRouteEvidenceTest`, `ClickBenchQ16Q35RouteEvidenceTest` and
+`ClickBenchStringDecodeRouteEvidenceTest` (sirix-query); `SegmentLengthLaneGroupScanTest`,
+`RankTableReadViewTest`, `SegmentBoundariesTest`, `SegmentCellRoundTripTest`,
+`SegmentTopKBoundsTest`, `ValueDictionaryComparisonTest`,
 `ProjectionBulkLoadFenceChunkBoundaryTest` (sirix-core).
+The `…RouteEvidenceTest`s are the end-to-end witnesses that a route is actually taken, at a size CI
+can afford: `Q21Q22` for the string extremum, `StringDecode` for the whole-column, predicated and
+transformed group shapes, `Q16Q35` for the numeric composite keys.
 `sirix-query`'s test JVM forwards `sirix.projDiag` (build.gradle ≈ l. 201), so a declined route in
 a test is one `-Dsirix.projDiag=true` away from its reason.
 
@@ -103,7 +116,7 @@ a test is one `-Dsirix.projDiag=true` away from its reason.
 Every ln below is the **measured** SEG4T contribution — `python3 rank.py SEG4T`, `[C6A] hot` block,
 from the committed `rig/legs/query-SEG4T.json`. The ≈ 88.8 projection that used to fill this table is
 retired: SEG4T was a complete 43-query three-try leg, so no row here is arithmetic any more.
-SEG4T — not the current SEG5T standing (§2) — is deliberately kept as this table's basis, so the
+SEG4T — not the later standing discussed in §2 — is deliberately kept as this table's basis, so the
 lever ordering that produced the queue stays readable; rows SEG5T has since rescored say so.
 
 The reordering is material, not cosmetic. q31 and q32 rise into the top four; q35 enters at #8 having
@@ -150,11 +163,12 @@ Rule of thumb from the ledger: a lever that removes a whole-column canonicalisat
 
 ## 5. Operating protocol
 
-SEG5T (§2) is the current measured leg; the next one scores whatever lands after it — including the
-q35 fold, which no leg has scored yet. The commands are
-"The one loop that matters" in the rig's
-[`README.md`](../bundles/sirix-query/bench/clickbench/rig/README.md) — tag the next leg `SEG6T`,
-since `SEG4T` and `SEG5T` are taken (`rig/legs/`).
+The committed SEG6T record supersedes this handoff's historical SEG5T snapshot and
+contains the q35 fold. No accepted performance result is added for the subsequent
+string-decode change. The commands are "The one loop that matters" in the rig's
+[`README.md`](../bundles/sirix-query/bench/clickbench/rig/README.md); `SEG6T` is
+already taken. Check existing names and obtain a Firstmate benchmark window before
+running any 100M work. The string-decode lane currently has no such authorization.
 
 Per lever, in this order — every step has been skipped once in this campaign and every skip cost
 more than the step:
