@@ -3,16 +3,19 @@
 Base: `aa4d81d547fb0e2353ede959786d6e8ba442edf2` (`SEG6T`).
 Worktree: `fm/sirix-cb-strdec-1`.
 
-The current accepted measurement is the second exclusive pair, `STRDECEXPAIR2`,
-which improves C6A hot geomean from **4.782 to 4.535**, a **1.0545x** geometric
-speedup and **2.281 ln** reduction. Both rank 16 of 140. All 43 result files are
-byte-identical and all routes answer. The twofold string-query target and the
-top-10 campaign goal are not reached. **That headline number overstates this
-lane's contribution and must not be quoted alone**: 0.644 ln of it comes from
-q31, which this lane does not claim, and the same pair contains a large q33
-regression. See the caveats below the table.
+The shared canonicalisation change improves q28 from **9.365 to 6.322 s** in
+the second exclusive pair, consistent with the publication-monitor profile.
+Four subsequent q33-only pairs all favor the candidate, by a geometric **1.061x**.
+The full-suite q33 doubling does not reproduce in isolation, but its cause
+remains unresolved. The twofold string-query target and top-10 goal are not reached.
 
-## Exclusive-rig acceptance measurement (STRDECEXPAIR2)
+`STRDECEXPAIR2` observes C6A hot geomean **4.782 to 4.535**, or **2.281 ln** lower,
+with both legs rank 16 of 140. All 43 result files are byte-identical and all
+routes answer. This single-pair difference is not established causal credit for
+the lane: it includes an unattributed 0.644 ln q31 difference and a large q33
+regression. Subtracting q31 alone does not establish attribution for the remainder.
+
+## Exclusive full-suite measurement (STRDECEXPAIR2)
 
 Pristine `aa4d81d54` and the revised candidate run back to back under one
 continuously held `$CB_RIG_WORK/leg.lock` (inode 36438151, single acquisition),
@@ -29,9 +32,10 @@ check named here.
 The audit also records class digests proving which source each leg ran. In the
 candidate runtime `SegmentGroupCanonicaliser` and `SegmentRunCursor` match the
 superseded candidate and differ from pristine, so the lane's canonicalisation work
-is present; `ValueDictionaryEntryNode` matches neither, because the fix restores
-`compareUtf16Range` to its pristine body while the class keeps this lane's other
-additions.
+is present. `ValueDictionaryEntryNode` has a distinct class digest, but its source
+diff against pristine now contains only the Javadoc clarification: the comparison
+body is restored to pristine. A distinct class digest alone is not evidence of
+different executable behavior.
 
 | Leg | C6A hot geomean | Sum ln | Rank | Hot seconds |
 | --- | ---: | ---: | ---: | ---: |
@@ -54,14 +58,14 @@ Three caveats bound what this pair establishes.
 - **q31 is not this lane's gain.** Its 3.191 s pristine hot is an outlier: the
   earlier pristine leg `STRDECEXBASE1` measured 1.500 s and this candidate 1.671 s
   for the same query. q31 groups numeric keys and this lane claims no q31/q32
-  improvement. Excluding q31 the pair reduces sum ln by **1.637**, and that is the
-  number to carry forward for this lane.
+  improvement. Excluding q31 leaves an observed sum-ln difference of **1.637**;
+  that arithmetic is not a measurement of this lane's causal contribution.
 - **q33 regressed by more than the whole lane's gain on any other single query**,
   2.311 s to 4.929 s. The previous pair measured 2.324 s to 2.045 s for a candidate
   that differs only by the removed shortcut, and the differential fuzz shows that
-  shortcut cannot change any comparison result. This is therefore the unexplained
-  late-query variation recorded further down this document recurring, not a defect
-  the removal introduced. It is unresolved.
+  shortcut did not change any comparison result in that check. This does not rule
+  out a context-dependent performance regression in the retained code or its
+  compiled execution. The cause of the late-query variation is unresolved.
 - **The pristine baseline itself drifted between the two pairs**, 4.513 to 4.782
   geomean and 37.4 to 40.5 hot seconds for the identical `aa4d81d54` runtime and
   flags 40 minutes apart. Only within-pair deltas are meaningful here; absolute
@@ -70,6 +74,33 @@ Three caveats bound what this pair establishes.
 `STRDECEXBASE1`/`STRDECEXCAND1` measured a superseded candidate that still
 contained the ASCII comparison shortcut. Their pair (4.513 to 4.399, 1.1062 ln)
 is retained as history and no longer describes the delivered source.
+
+## Repeated q33 isolation check
+
+Firstmate requested repeated q33-only pairs after the exclusive full-suite
+regression. The revised candidate first passed a refreshed complete 1M oracle
+gate. The following eight JVMs then ran under one continuously held rig lock,
+using the same preserved pristine and revised runtime snapshots as pair2,
+identical external dependencies, the fixed C2 envelope, and three tries each.
+Hot remains min(tries 2, 3). No profiler or diagnostic flag was enabled.
+
+| Pair | Order | Pristine hot | Candidate hot | Ratio with 0.01 s offset |
+| --- | --- | ---: | ---: | ---: |
+| 1 | baseline, candidate | 1.945 s | 1.895 s | 1.026x |
+| 2 | candidate, baseline | 2.213 s | 1.994 s | 1.109x |
+| 3 | baseline, candidate | 2.160 s | 2.057 s | 1.050x |
+| 4 | candidate, baseline | 2.219 s | 2.091 s | 1.061x |
+
+The geometric ratio is **1.0611x**; median hot times are 2.1865 and 2.0255 s.
+All eight outputs are byte-identical. The lock spans 03:11:52–03:13:35 UTC on
+2026-09-08, with 104 audits showing at most one database JVM and no conflicts.
+The evidence is persisted as `legs/STRDECQ33REPEAT1-audit.json`.
+
+The full-suite 2.13x slowdown does not reproduce in any of the four isolated
+pairs, in either run order. This supports sensitivity to suite history or JVM
+state rather than a repeatable standalone q33 slowdown. It does not identify the
+cause or exclude a context-dependent code regression. These isolated times must
+not replace q33 in the full-suite score or be added to its observed gain.
 
 The earlier logs below remain for audit, but Firstmate identified potential
 contention during those windows. They do not settle acceptance and were not used
@@ -229,12 +260,12 @@ change restores the original merge and removes every prefix-history API.
 - First-byte shortcut and ASCII mismatch fast path in `compareUtf16Range`:
   bypassed `Arrays.mismatch` when the leading bytes already differed, and returned
   the byte difference directly when both mismatching bytes were ASCII. Its
-  isolated q33 hot time was 2.174 s pristine against 2.170 s, i.e. noise, while
-  the accepted gain belongs to the canonicalisation work. **Removed during review.**
+  isolated q33 hot time was 2.174 s pristine against 2.170 s, i.e. noise.
+  **Removed during review as unearned complexity.**
   A 3,000,000-case differential fuzz over random and deliberately malformed byte
-  ranges found the shortcut and the general path to agree on every input, so its
-  removal is behaviour-preserving and no regression test can distinguish the two.
-  What the review did surface is a real documentation defect, now fixed:
+  ranges found no divergence. The suspected malformed-input defect did not
+  reproduce; removal is not claimed as a correctness fix. The review also found
+  an inaccurate documentation claim, now corrected:
   `compareValueUtf16` promised `IllegalStateException` for any malformed payload,
   but the byte-identical prefix has been settled without decoding since
   `a3aed07ec`, well before this lane. `{C3,41}` against `{C3,42}` therefore
@@ -257,14 +288,12 @@ only and are not compared with the campaign. All profiles and scored legs named
 
 ## Delivery validation constraint
 
-Firstmate's 2026-09-08T02:50:48Z review decision supersedes the earlier
-no-further-100M constraint and authorized exactly one replacement pair, because
-removing the ASCII comparison shortcut invalidated `STRDECEXCAND1`. That pair ran
-as `STRDECEXPAIR2` above and is the performance evidence for delivery. **No
-further 100M operation is authorized:** no profiling, ablations, additional
-benchmark legs, loads, or rebuilds. If validation appears to require one, stop and
-escalate to firstmate before running it. The existing 1M oracle result is
-complete; no database rebuild was performed or is needed.
+Firstmate's 02:50:48 UTC decision authorized the replacement full-suite pair
+after removing the comparison shortcut. Their 03:08:32 UTC follow-up authorized
+the repeated q33-only checks above. Both requests are complete. Any additional
+100M work during delivery needs coordination with firstmate and the same rig
+lock and process checks. The refreshed 1M oracle result is complete; no database
+rebuild was performed or is needed.
 
 ## Correctness and reproducibility
 
@@ -282,7 +311,8 @@ simultaneous transformed walks, and reads outside the publication monitor. Query
 `SegmentLengthLaneQueryTest`, `GroupTopKDifferentialTest`, and
 `AnyKGroupsSegmentKeyRewriteTest`.
 
-The final C2 1M validation reports 34 matches, 9 strongly verified legal tie windows,
+The refreshed C2 1M validation on the revised runtime reports 33 matches and
+10 strongly verified legal tie windows,
 zero mismatch, zero missing, zero unverifiable, and zero route declines. All 43
 query dumps are byte-identical to the pristine Sirix 1M outputs. The strong
 DuckDB oracle uses `duckdb_reference.py --candidate-reference` and
@@ -327,9 +357,12 @@ reversed-prefix-order mutation with four failing tests.
 Raw logs, preserved pristine/candidate runtimes, profiles, mutation logs, 1M
 oracle results, and the local launchers are under
 `bundles/sirix-query/build/diagnostics/strdec/` in this worktree;
-`STRDECEXPAIR2`'s launcher, audit stream, runtime snapshot, per-leg logs and
-result dumps are under `strdec2/` beside it, written with new names so no earlier
-artifact is overwritten. Scored triples
+`STRDECEXPAIR2`'s scored triples and audit summary are committed. Its raw logs
+and dumps were created in the pipeline's disposable worktree and are no longer
+available after custody recovery; the summary preserves their reported checks.
+Before recovery, its revised runtime was frozen under `strdec/review1-runtime/`
+for the repeated q33 and refreshed 1M checks, whose raw evidence remains in this
+task worktree. All used new artifact names. Scored triples
 are persisted in `bundles/sirix-query/bench/clickbench/rig/legs/`; use that rig's
 `mkleg.py` and `rank.py`. Use paired full-suite legs rather than summing apparent
 wins from isolated profiles or selecting the fourth try.

@@ -1,0 +1,159 @@
+{
+  "query": 33,
+  "pairs": [
+    {
+      "pair": 1,
+      "order": "AB",
+      "base": {
+        "tries_s": [
+          4.194,
+          2.341,
+          1.945
+        ],
+        "hot_s": 1.945,
+        "hot_cpu_s": 26.9
+      },
+      "candidate": {
+        "tries_s": [
+          4.748,
+          2.063,
+          1.895
+        ],
+        "hot_s": 1.895,
+        "hot_cpu_s": 28.7
+      },
+      "speedup": 1.026246719160105
+    },
+    {
+      "pair": 2,
+      "order": "BA",
+      "base": {
+        "tries_s": [
+          4.692,
+          2.379,
+          2.213
+        ],
+        "hot_s": 2.213,
+        "hot_cpu_s": 30.6
+      },
+      "candidate": {
+        "tries_s": [
+          4.324,
+          2.087,
+          1.994
+        ],
+        "hot_s": 1.994,
+        "hot_cpu_s": 30.6
+      },
+      "speedup": 1.1092814371257484
+    },
+    {
+      "pair": 3,
+      "order": "AB",
+      "base": {
+        "tries_s": [
+          4.285,
+          2.46,
+          2.16
+        ],
+        "hot_s": 2.16,
+        "hot_cpu_s": 30.4
+      },
+      "candidate": {
+        "tries_s": [
+          4.744,
+          2.16,
+          2.057
+        ],
+        "hot_s": 2.057,
+        "hot_cpu_s": 31.3
+      },
+      "speedup": 1.049830672472182
+    },
+    {
+      "pair": 4,
+      "order": "BA",
+      "base": {
+        "tries_s": [
+          4.641,
+          2.453,
+          2.219
+        ],
+        "hot_s": 2.219,
+        "hot_cpu_s": 30.9
+      },
+      "candidate": {
+        "tries_s": [
+          4.721,
+          2.249,
+          2.091
+        ],
+        "hot_s": 2.091,
+        "hot_cpu_s": 32.4
+      },
+      "speedup": 1.0609233698238931
+    }
+  ],
+  "geometric_hot_speedup": 1.0611437002931183,
+  "median_base_hot_s": 2.1865,
+  "median_candidate_hot_s": 2.0255,
+  "byte_identical_runs": 8,
+  "jvm_audit_samples": 104,
+  "maximum_concurrent_database_jvms": 1,
+  "lock_acquisitions": 1,
+  "lock_acquired": "2026-09-08T03:11:52.042052+00:00",
+  "lock_released": "2026-09-08T03:13:35.547312+00:00",
+  "jvm_flags": [
+    "--add-opens",
+    "java.base/sun.nio.ch=ALL-UNNAMED",
+    "--add-opens",
+    "java.base/java.nio=ALL-UNNAMED",
+    "--add-modules",
+    "jdk.incubator.vector",
+    "--enable-native-access=ALL-UNNAMED",
+    "--enable-preview",
+    "-XX:+UnlockExperimentalVMOptions",
+    "-XX:-UseJVMCICompiler",
+    "-Dsirix.projection.eagerMaterializeBytes=5368709120",
+    "-Xms6g",
+    "-Xmx14g",
+    "-Dsirix.offheap.bytes=10737418240",
+    "-Dsirix.query.autoVectorize=true",
+    "-Dsirix.chunkedBody.enable=true",
+    "-Dsirix.chunkedBody.targetChunkBytes=16384"
+  ],
+  "runtime_manifest_sha256": "f0544628cf3bd22f9dd801288de0e29a8fe9fd1b7202491e398a0d51acbfec04",
+  "conclusion": "The 2.13x full-suite q33 slowdown did not reproduce in any of four balanced-order isolated pairs; every candidate hot run is faster. This supports sensitivity to suite history or JVM run shape, not a repeatable standalone q33 slowdown. Isolated results do not identify the cause of the full-suite outlier and must not replace its score.",
+  "q31_attribution": "The 0.6441 ln q31 delta in pair2 is an observed difference that this lane has not established its change caused. It must not be attributed to the string lane. Removing that credit alone does not establish causality for the remainder of the full-suite delta.",
+  "validation_1m": {
+    "match": 33,
+    "verified_tie_windows": 10,
+    "unverifiable": 0,
+    "mismatch": 0,
+    "missing": 0,
+    "declines": 0,
+    "byte_identical_to_pristine": 43
+  },
+  "pair": "STRDECQ33REPEAT1",
+  "baseline_head": "aa4d81d547fb0e2353ede959786d6e8ba442edf2",
+  "candidate_head": "43e820c1f18d2395ec787b99414cf18f119db0f4",
+  "candidate_runtime": "Frozen copy of STRDECEXPAIR2 candidate, matching the fixed main sources in 43e820c1f; subsequent changes only affect evidence/docs.",
+  "query_result_sha256": "1625b2743dcb650f344dfcf296045d2db75387d94891bc9211a674f44f576bc9",
+  "runtime_provenance_sha256": {
+    "ValueDictionaryEntryNode.class": {
+      "candidate_strdec2": "7863201c47f7059b707ce690d908baf514d82a923802323b68c2e71ab53f29fe",
+      "pristine_aa4d81d54": "3c8124a063dd83efa8950de7456ced3e1748fda023c440ad772e9f96f7ae8e3d",
+      "superseded_candidate_562d0b522": "e5822ce36543d9bf12704e4116a175ca316e6401003d74fb22f0ef286bd53aa5"
+    },
+    "SegmentGroupCanonicaliser.class": {
+      "candidate_strdec2": "9885a6b39a7077d3703c95c0453f61911a49898d64d4591812ef3364556f2a82",
+      "pristine_aa4d81d54": "6014213b2a2c233d6e615d133a364f6324d9e3485a0cdfc97cabccc70767231c",
+      "superseded_candidate_562d0b522": "9885a6b39a7077d3703c95c0453f61911a49898d64d4591812ef3364556f2a82"
+    },
+    "SegmentRunCursor.class": {
+      "candidate_strdec2": "228bbcbc00f9e230a797eeca3ef20d7b02c14a453891ca3f6d7cca415f246835",
+      "pristine_aa4d81d54": "b10a63529df37d49593904abad03bb60e4c8f58c884ac129975f477b5943083c",
+      "superseded_candidate_562d0b522": "228bbcbc00f9e230a797eeca3ef20d7b02c14a453891ca3f6d7cca415f246835"
+    }
+  }
+}
