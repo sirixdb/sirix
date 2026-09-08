@@ -3,13 +3,47 @@
 Base: `aa4d81d547fb0e2353ede959786d6e8ba442edf2` (`SEG6T`).
 Worktree: `fm/sirix-cb-strdec-1`.
 
-**Status: correctness passes; full-suite performance acceptance is blocked.**
-The committed candidate improves the final six-query diagnostic by 1.4329x,
-including q28 8.657 to 5.949 s, but its scored full leg is **4.919, rank 16,
-68.50 ln**. This is worse than both pristine full legs and the campaign head.
-It is reviewable investigation work, not an accepted campaign speedup or a
-top-10 result. The repeated late-query regression is escalated to firstmate;
-further work requires coordination with the aggregation lane.
+The controlled exclusive-rig pair improves C6A hot geomean from **4.513 to
+4.399**, a **1.0261x** geometric speedup and **1.1062 ln** reduction. Both rank
+16 of 140. The earlier large late-query regression does not recur. All 43 result
+files are byte-identical and all routes answer. The twofold string-query target
+and top-10 campaign goal are not reached.
+
+## Exclusive-rig acceptance measurement
+
+Pristine `aa4d81d54` and candidate `562d0b522` run back to back under one
+continuously held `$CB_RIG_WORK/leg.lock`, with identical fixed C2 settings,
+three tries, all 43 queries, no profiler and no diagnostic flag. Firstmate had
+stopped the other lane's 100M work before this pair. The launcher confirmed no
+other database JVM before each leg; 310 audit samples throughout the pair found
+at most one. The 41 external runtime dependencies match. The lock spans
+2026-09-08 02:18:51 UTC through 02:24:06 UTC; the exact timestamps and checks are
+in `legs/STRDECEXPAIR1-audit.json` under the rig directory.
+
+| Leg | C6A hot geomean | Sum ln | Rank | Hot seconds |
+| --- | ---: | ---: | ---: | ---: |
+| STRDECEXBASE1 | 4.513 | 64.80 | 16 | 37.4 |
+| STRDECEXCAND1 | 4.399 | 63.70 | 16 | 35.2 |
+
+| Query | Pristine hot | Candidate hot | Ratio |
+| --- | ---: | ---: | ---: |
+| q5 | 0.624 s | 0.707 s | 0.883x |
+| q12 | 0.738 s | 0.716 s | 1.031x |
+| q13 | 2.401 s | 2.536 s | 0.947x |
+| q28 | 8.625 s | 6.756 s | 1.277x |
+| q33 | 2.324 s | 2.045 s | 1.136x |
+| q34 | 2.179 s | 2.038 s | 1.069x |
+
+This is a modest measured full-suite gain, not a uniform speedup. In particular,
+q5 and q13 regress in this pair. No q31/q32 improvement is attributed to the
+string path, and this lane's ln reduction must not be added to the aggregation
+lane's overlapping gains. The combined head needs its own scored leg.
+
+The earlier logs below remain for audit, but Firstmate identified potential
+contention during those windows. They do not settle acceptance and were not used
+to tune the retained implementation after exclusive access was granted. The
+code measured here is unchanged from the candidate that passed 132 focused
+tests and the complete 1M correctness gate.
 
 This investigation owns dictionary decoding and value canonicalisation. It does not
 change hash aggregation, top-N, query text, stored formats, or the database. All
@@ -49,7 +83,7 @@ same string-key canonicalisation as q13, q28, q33, and q34. Changes in its timin
 cannot be attributed to this work without a separate profile.
 
 
-## Retained change: paired six-query measurements
+## Historical six-query diagnostic (not the acceptance pair)
 
 Both legs run q5, q12, q13, q28, q33, and q34, in that order, with four tries and
 identical C2 diagnostic settings. Hot still means min(tries 2, 3). The fourth try
@@ -77,7 +111,7 @@ also guards an unresolved memo entry when translating arrival IDs through a
 sealed rank table; repeated unresolvable inputs decline instead of indexing a
 rank array with a negative ID. That guard does not change these corpus results.
 
-## Full-suite legs and merge ablation
+## Historical full-suite legs and merge ablation
 
 All legs below contain all 43 queries and all three scored tries. The C6A hot
 board is the campaign filter, with 140 entries. These measurements have material
@@ -105,15 +139,16 @@ The final cleaned candidate again regressed late: q28 is 6.151 s, q33 2.540 s,
 q34 4.693 s, and q35 0.986 s. Its 43 result files remain byte-identical, with no
 route declines. Thus removing prefix history did **not** resolve the full-suite
 problem, and the one favorable STRDECNOLCP leg cannot establish a reliable gain.
-No full-suite speedup is claimed for the committed candidate.
+These pre-exclusivity runs did not establish a full-suite speedup. The exclusive
+pair above supersedes that blocked verdict.
 
-The exact three-try q34 diagnostic has 61,482 CPU samples, including 8,755
+The historical exact three-try q34 diagnostic has 61,482 CPU samples, including 8,755
 self samples in `ProjectionColumnGroupScan.aggregateByGroupNumericFlat`, versus
 1,342 in the four-try full diagnostic. `NumericGroupAggTable.acquire` shifts
 in the opposite direction, from 11,649 to 3,210 samples. Inlining and warm-up can
 change sample attribution, so this does not prove an aggregation defect. It is a
 concrete lead in files assigned to the parallel lane, which this worker has not
-edited. Full-suite repetition is required on the combined head.
+edited. This lead is unproven; the large regression disappeared in the exclusive pair.
 
 The controlled six-query ablation gives the opposite ordering for the prefix
 component: removing it changes q5/q12/q13/q28/q33/q34 from
@@ -177,6 +212,16 @@ The early galloping and LCP diagnostic launchers accidentally used Graal JIT and
 omitted the 5 GiB eager-materialisation setting. Their timings are exploratory
 only and are not compared with the campaign. All profiles and scored legs named
 `*-c2-*` were rerun using the pinned task settings below.
+
+## Delivery validation constraint
+
+Firstmate accepted the exclusive measurement and assigned the 100M rig to the
+aggregation lane. **No further 100M operation is authorized for this delivery:**
+no profiling, ablations, benchmark legs, loads, or rebuilds. If validation appears
+to require one, stop and escalate to firstmate before running it. Use the
+committed exclusive pair as performance evidence and the focused unit/query
+checks below for delivery validation. The existing 1M oracle result is complete;
+no database rebuild is needed.
 
 ## Correctness and reproducibility
 
