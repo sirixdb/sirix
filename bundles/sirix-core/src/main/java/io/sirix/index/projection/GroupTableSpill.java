@@ -1367,7 +1367,8 @@ public final class GroupTableSpill {
    * heap, the budget FELL 11.5M → 7.9M and the restart ran 16 passes instead of 8. Call after the
    * parallel section has joined and before re-planning; the spill is not reused. The pools are
    * drained for the same reason: what they hold is retained by intent only, and the measurement must
-   * not count it.
+   * not count it. Drain LAST, therefore: a caller that owns tables of its own must release them
+   * BEFORE this call, or their chunks land in a pool this call has already emptied.
    */
   public void releaseTables() {
     for (int p = 0; p < partitions; p++) {

@@ -10,7 +10,7 @@ Firstmate's completed variance study reports a **minimum detectable effect of ap
 - Integral COUNT/SUM/AVG composite groups ordered solely by row count use present-count/sum operand pairs. Only winning accumulators expand into the ordinary output layout. Other orders, HAVING, string/deferred operands, and MIN/MAX retain ordinary state.
 - Sliced numeric/composite DISTINCT aggregation feeds worker batches directly. Singleton sets store their first value inline; promotion retains the previous 16-entry set sizing. Disjoint group stripes publish final counts on the existing worker pool, and merge bucketing visits the shards without building one intermediate map.
 - Incompatible-table diagnostics now include the `sumsOnly` flags, including the case where all other layout properties agree.
-- Aborted-pass cleanup drains the scan-local probe-index recycler before the restart measures live heap. The existing shared payload-pool guard remains in place.
+- Aborted-pass cleanup releases the finished workers' tables first and drains the scan-local probe-index recycler last, so every chunk is back in a pool before the restart measures live heap. The existing shared payload-pool guard remains in place.
 
 No additional input scan, global dictionary or data cache, persisted-format change, or database rebuild is introduced. Dictionary value comparisons, row multiplicity, checked sum overflow, missing operands, stable ties, existing pass budgets, and four distinct value stripes remain unchanged. The benchmark runner is unmodified and uninstrumented.
 
