@@ -73,7 +73,7 @@ final class ClickBenchRigLease implements AutoCloseable {
     if (exclusive) {
       validateQueryEnvelope(arenaBytes);
     }
-    holdForProcess(campaign, exclusive, true);
+    holdForProcess(campaign, database, exclusive, true);
   }
 
   static void holdForLoadProcess(final Path database) throws IOException {
@@ -87,11 +87,11 @@ final class ClickBenchRigLease implements AutoCloseable {
   static void holdForLoadProcess(final String campaign, final Path database) throws IOException {
     // Existing load wrappers retain their legacy shell lease. The JVM owns the host lease,
     // so losing that shell cannot expose a still-running loader to another large JVM.
-    holdForProcess(campaign, isCampaignDatabase(campaign, database), false);
+    holdForProcess(campaign, database, isCampaignDatabase(campaign, database), false);
   }
 
-  private static void holdForProcess(final String campaign, final boolean exclusive, final boolean includeLegacy)
-      throws IOException {
+  private static void holdForProcess(final String campaign, final Path database, final boolean exclusive,
+      final boolean includeLegacy) throws IOException {
     if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("linux")) {
       if (exclusive) {
         System.out.println("# rig lease: NOT exclusive — process-owned flock leases require Linux. This run "
@@ -117,10 +117,12 @@ final class ClickBenchRigLease implements AutoCloseable {
         acquired.add(acquire(legacyLock, true, System.getenv("CB_RIG_LEGACY_LOCK_FD")));
       }
       processLeases = acquired;
-      // A shared mode against a 100M database means this pointer is unset or names another directory.
-      System.out.printf("# rig lease: pid=%d mode=%s %s=%s host=%s%n", ProcessHandle.current().pid(), exclusive
+      // Both operands of the classification: a shared mode against a 100M database means this pointer
+      // is unset or names another directory, and only the pair shows which.
+      System.out.printf("# rig lease: pid=%d mode=%s db=%s %s=%s host=%s%n", ProcessHandle.current().pid(), exclusive
           ? "exclusive"
-          : "shared", CAMPAIGN_DIRECTORY, campaign == null || campaign.isBlank()
+          : "shared", database.toAbsolutePath().normalize(), CAMPAIGN_DIRECTORY,
+          campaign == null || campaign.isBlank()
               ? "unset"
               : campaign, hostLock);
     } catch (final IOException | RuntimeException | Error failure) {
