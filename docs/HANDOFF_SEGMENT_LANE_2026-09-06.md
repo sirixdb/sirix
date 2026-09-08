@@ -34,8 +34,8 @@ Standing secondary target: ~50 GB storage at 100M (met: 48 GB); long-term ≤ 30
 **Update, 2026-09-08:** the committed `query-SEG6T.json` supersedes the historical
 SEG5T snapshot below. This correctness-only string-decode change adds no accepted
 performance result. Its effect remains unverified pending measurement resolution;
-[the string-decode report](CLICKBENCH_STRING_DECODE_2026-09-08.md) records the
-instrument study's detection floor and the current delivery constraints.
+[the string-decode report](CLICKBENCH_STRING_DECODE_2026-09-08.md) records that lane's
+delivery constraints.
 
 | leg | build | database | C6A hot geomean | rank / 140 | Σln |
 |---|---|---|---|---|---|
@@ -44,18 +44,28 @@ instrument study's detection floor and the current delivery constraints.
 | SEG3TB (SEG3T with the served q21/q22/q28 spliced in) | segment lane + `a3aed07ec`…`417c62ead` | same | 9.516 | 52 | 96.88 |
 | projection: SEG3TB + q17 (`86d839058`) + q27 (`be5e8232f`) | `be5e8232f` | same | ≈ 7.89 | ≈ 42 | ≈ 88.8 |
 | SEG4T (2026-09-07, measured) | segment lane at the handover (`54b0a059b`) | same | 5.179 | 17 | 70.72 |
-| **SEG5T (2026-09-07, measured)** | segment lane at `de2724c5c` | same | **4.714** | **16** | **66.68** |
+| SEG5T (2026-09-07, measured) | segment lane at `de2724c5c` | same | 4.714 | 16 | 66.68 |
+| **SEG6T (2026-09-08, measured)** | segment lane at `8df0532d6`; leg recorded by `aa4d81d54` | same — provenance from the `sirix-cb-score-3` investigation report, not from the leg JSON | **4.373** | **16** | **63.44** |
 
-**SEG6T is where we stand.** `python3 rank.py SEG6T SEG5T` over the committed
-`rig/legs/query-SEG6T.json` reads **4.373** C6A hot geomean, **rank 16 / 140**, **Σln 63.44**, so
-rank 10 needs ≈ **−11.5 ln** from there. Recompute it from the leg rather than copying it around:
-`mkleg.py` fills a leg's machine, date and data size from the `N1FULL1` template, so a leg JSON's
-only self-describing content is its 43×3 timings. SEG6T was recorded by `aa4d81d54` and therefore
-measures none of the string-decode lane's source changes. The table above is deliberately left as
-history rather than given a SEG6T row: its build and database columns record provenance no
-committed artifact carries for this leg.
+**SEG6T is where we stand**, and rank 10 (Σln ≤ 51.99) needs ≈ **−11.5 ln** from it.
+`python3 rank.py SEG6T SEG5T` over the committed `rig/legs/query-SEG6T.json` reproduces its row on
+any box — recompute it from the leg rather than copying the number around. Only the row's three
+scored columns come from the artifact: `mkleg.py` fills a leg's machine, date and data size from the
+`N1FULL1` template, so a leg JSON's only self-describing content is its 43×3 timings. The build and
+database columns rest instead on the `sirix-cb-score-3` investigation report, which recorded the run
+against `clickbench-seg100m-20260905-2328` on this box. SEG6T therefore measures none of the
+string-decode lane's source changes.
 
-**SEG5T is the table's last row and this handoff's historical snapshot**: rank 10 (Σln ≤ 51.99) was
+**No row in this table is commensurable with a leg measured after 2026-09-08.** SEG6T is the newest
+of them and still predates both the box's current power cap and the harness variance
+characterization; [the rig README](../bundles/sirix-query/bench/clickbench/rig/README.md) records
+that harness state and its detection floor. Compare a post-cap leg only against another post-cap
+leg. Read the steps between these rows with the same floor in mind: the measured leg-to-leg range on
+**unchanged** code is of the same order as the 3.24 ln between SEG5T and SEG6T, so no single pair of
+legs here attributes its difference to the levers landed between them. The repeated, single-query
+evidence in §4 is what carries a lever's attribution; a one-leg Σln step is not.
+
+**SEG5T is this handoff's historical snapshot**: rank 10 (Σln ≤ 51.99) was
 ≈ **−14.7 ln** away from it (66.676 − 51.99 = 14.686). Its leg JSON is committed as
 `rig/legs/query-SEG5T.json`, so `python3 rank.py SEG5T SEG4T` reproduces both rows — and §4's
 per-query contributions — on any box.
