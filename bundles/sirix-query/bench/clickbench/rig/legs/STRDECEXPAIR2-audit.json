@@ -1,4 +1,11 @@
 {
+ "measurement_status": {
+   "status": "provisional",
+   "reason": "measurement rig declared unreliable; exclusive 100M access held by the rig-repair lane (firstmate instructions 006 and 007)",
+   "accepted_as_performance_result": false,
+   "usable_for_scoring_tuning_or_delivery": false,
+   "note": "every numeric observation and source identity in this file is unchanged; re-measure on the repaired rig before any use"
+ },
  "pair": "STRDECEXPAIR2",
  "baseline_head": "aa4d81d547fb0e2353ede959786d6e8ba442edf2",
  "candidate_head": "ed73b3a48524aa19116bd37827191277892132b6",

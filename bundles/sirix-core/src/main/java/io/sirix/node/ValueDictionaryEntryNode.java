@@ -252,7 +252,9 @@ public final class ValueDictionaryEntryNode implements DataRecord {
     int prefix = mismatch;
     // Back up to the lead byte of the sequence holding the mismatch, so both sides decode whole
     // sequences below; a side that ended at the mismatch shares every earlier byte with the other,
-    // so the surviving side's byte decides. Malformed input still fails closed in the decode loop.
+    // so the surviving side's byte decides. Validation is therefore partial, as the Javadoc states:
+    // only the deciding sequence onwards is decoded and fails closed, while malformation buried in
+    // the byte-identical prefix is never inspected. This is not a UTF-8 validator.
     while (prefix > 0 && isContinuationByte(prefix < leftLength
         ? left[leftOffset + prefix]
         : right[rightOffset + prefix])) {
