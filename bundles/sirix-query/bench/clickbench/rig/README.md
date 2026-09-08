@@ -24,12 +24,16 @@ variable; working files live under `bundles/sirix-query/build/diagnostics/` (git
 
 ## The one loop that matters
 
-**Measurement status, 2026-09-08:** Firstmate's instrument study reports a minimum
-detectable effect of approximately **1.345 summed ln** for this harness. The
-string-decode change makes no performance claim; its performance effect is
-unverified pending measurement resolution. Builds, tests and reviews are released,
-but this lane still needs explicit Firstmate authorization for any 100M work and
-its merge remains held. A free lock does not grant a benchmark window. See
+**Measurement status, 2026-09-08:** Firstmate's 20-leg instrument study reports a
+minimum detectable effect of approximately **1.345 summed ln** for this harness,
+over a **3.023 ln** leg-to-leg range on unchanged code. The box now runs at a flat
+**PL1 = PL2 = 50 W** power cap. `SEG6T` and every earlier campaign leg were measured
+before that cap, so they are **not commensurable** with anything measured after it —
+compare a post-cap leg only against another post-cap leg. The string-decode change
+makes no performance claim; its performance effect is unverified pending measurement
+resolution. Builds, tests and reviews are released, but this lane still needs explicit
+Firstmate authorization for any 100M work and its merge remains held. A free lock does
+not grant a benchmark window. See
 [the string-decode report](../../../../../docs/CLICKBENCH_STRING_DECODE_2026-09-08.md).
 
 The `STRDEC*` records in `legs/` preserve historical observations. They are not

@@ -6,11 +6,12 @@ being delivered on correctness evidence. **Its performance effect is unverified
 pending measurement resolution; no timing, speedup, rank improvement or delivered
 ln gain is claimed.**
 
-Firstmate's instrument-study result, communicated on 2026-09-08, gives this
-harness a minimum detectable effect of approximately **1.345 summed ln** on the
-campaign machine. That measured detection floor is the concrete reason an
-individual paired observation cannot establish this change's performance effect.
-It is a property of the measurement process, not a result for this change.
+Firstmate's instrument study, communicated on 2026-09-08, measured this harness's
+detection floor; that floor and the power cap now in force are recorded in the
+[rig README](../bundles/sirix-query/bench/clickbench/rig/README.md). The floor is the
+concrete reason an individual paired observation cannot establish this change's
+performance effect. It is a property of the measurement process, not a result for
+this change.
 Continuing JIT compilation during timed tries remains an unresolved hypothesis;
 the study has not established the cause of the harness variability.
 
@@ -162,3 +163,12 @@ interrupted by the instruction to idle was preserved in
 `strdec/stop-20260908-075759/`; its applicable diagnostic and test documentation is
 retained here, while proposed historical score updates are superseded by the
 correctness-only delivery instruction.
+
+## Deferred follow-up
+
+`docs/README.md` does not index the segment-lane arm of the campaign, this report
+included, and 26 of the 79 `docs/*.md` files are unindexed in all. Firstmate declined
+widening this delivery to fix it: one added row would make the index less consistent,
+not more, and the sweep needs its own editorial pass over the whole index. The index
+makes no completeness claim, so nothing in it is currently false. Recorded here so the
+sweep is not lost.
