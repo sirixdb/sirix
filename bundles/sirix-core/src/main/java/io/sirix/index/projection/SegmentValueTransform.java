@@ -62,6 +62,17 @@ final class SegmentValueTransform implements CellResolver {
         : valueOfCell(cell);
   }
 
+  /** Snapshot under the canonicaliser's monitor; a retained String is immutable. */
+  @Nullable
+  String cachedRepresentative(final long cell) {
+    return representatives.get(cell);
+  }
+
+  /** Snapshot under the canonicaliser's monitor; an identity representative never changes. */
+  boolean isIdentity(final int canonical) {
+    return unchanged.get(canonical);
+  }
+
   /**
    * Cache by representative CELL, not every input cell. Above the budget equality rereads only the
    * representative; the incoming value is still evaluated once. Even with no cache this performs

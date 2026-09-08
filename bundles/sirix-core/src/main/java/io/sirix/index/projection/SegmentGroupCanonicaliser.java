@@ -694,11 +694,16 @@ public final class SegmentGroupCanonicaliser {
     }
     checkRowKeep(slices, rowKeep);
     requireNonNull(runner, "runner must not be null");
+    if (isOrderPreserving()) {
+      // A sealed space cannot gain ranks. Read its memo directly; an unseen cell uses the serial
+      // fallback, which can find an existing value but must refuse a value outside the sealed set.
+      return canonicaliseMemoised(slices, keep, rowKeep, true, runner);
+    }
     final Marked marked = markReferenced(slices, keep, rowKeep);
     if (marked != null && !mergeColumn(marked, runner)) {
       walkMarked(marked, runner);
     }
-    return canonicaliseMemoised(slices, keep, rowKeep, true);
+    return canonicaliseMemoised(slices, keep, rowKeep, true, runner);
   }
 
   /**
@@ -887,7 +892,9 @@ public final class SegmentGroupCanonicaliser {
     if (markedCount == 0) {
       return 0;
     }
-    final WalkBatch batch = new WalkBatch(segment);
+    final long probe = ProjectionIndexRowGroupPage.packSegmentCell(segment, 1);
+    final SegmentRunCursor cursor = transformed == null ? null : storageResolver.cursorOfSegment(probe);
+    final WalkBatch batch = new WalkBatch(segment, cursor);
     if ((long) markedCount * SPARSE_WALK_RATIO < entries) {
       // SPARSE: a selective predicate marked a few hundred cells of a many-million-entry segment.
       // Visiting every position to find them costs one rank-table lookup per ENTRY; ordering the
@@ -907,16 +914,16 @@ public final class SegmentGroupCanonicaliser {
       }
       Arrays.sort(byPosition, 0, n);
       for (int i = 0; i < n; i++) {
-        batch.add((int) byPosition[i]);
+        batch.add((int) byPosition[i], (int) (byPosition[i] >>> 32));
       }
     } else {
-      final long probe = ProjectionIndexRowGroupPage.packSegmentCell(segment, 1);
       for (int position = 1; position <= entries; position++) {
-        final int mint = storageResolver.mintAtPosition(probe, position);
+        final int mint = cursor == null
+            ? storageResolver.mintAtPosition(probe, position) : cursor.mintAt(position);
         if (mint < 1 || mint >= marked.length << 6 || (marked[mint >>> 6] & 1L << (mint & 63)) == 0L) {
           continue;
         }
-        batch.add(mint);
+        batch.add(mint, position);
       }
     }
     return batch.finish();
@@ -931,6 +938,7 @@ public final class SegmentGroupCanonicaliser {
   /** A walk's batch of hashed mints on its way into the memo: the monitor is taken once per batch. */
   private final class WalkBatch {
     private final int segment;
+    private final @Nullable SegmentRunCursor cursor;
     private final int[] ids = new int[WALK_BATCH];
     private final long[] hashes = new long[WALK_BATCH];
     private final String @Nullable [] values = transformed == null
@@ -939,16 +947,21 @@ public final class SegmentGroupCanonicaliser {
     private final boolean @Nullable [] identities = transformed == null
         ? null
         : new boolean[WALK_BATCH];
+    private final int @Nullable [] candidates = transformed == null ? null : new int[WALK_BATCH];
+    private final long @Nullable [] candidateCells = transformed == null ? null : new long[WALK_BATCH];
+    private final String @Nullable [] candidateValues = transformed == null ? null : new String[WALK_BATCH];
+    private final boolean @Nullable [] candidateIdentities = transformed == null ? null : new boolean[WALK_BATCH];
     private int filled;
     private int resolved;
     private long valueBytes;
 
-    WalkBatch(final int segment) {
+    WalkBatch(final int segment, final @Nullable SegmentRunCursor cursor) {
       this.segment = segment;
+      this.cursor = cursor;
     }
 
     /** Hash {@code mint} unless it is settled already, and land the batch when it is full. */
-    void add(final int mint) {
+    void add(final int mint, final int position) {
       final int[][] tables = memo;
       final int[] table = segment < tables.length
           ? tables[segment]
@@ -962,7 +975,13 @@ public final class SegmentGroupCanonicaliser {
         if (values == null) {
           hash = resolver.hashOfCell(cell);
         } else {
-          final String raw = storageResolver.valueOfCell(cell);
+          final String raw;
+          if (cursor != null && position > 0) {
+            cursor.seek(position);
+            raw = cursor.valueAsString();
+          } else {
+            raw = storageResolver.valueOfCell(cell);
+          }
           values[filled] = raw == null
               ? null
               : transformed.apply(raw);
@@ -981,7 +1000,7 @@ public final class SegmentGroupCanonicaliser {
         valueBytes += 64L + 2L * values[filled].length();
       }
       if (++filled == WALK_BATCH || valueBytes >= TRANSFORM_BATCH_BYTES) {
-        memoiseBatch(segment, ids, hashes, values, identities, filled);
+        flush();
         filled = 0;
         valueBytes = 0;
       }
@@ -991,16 +1010,58 @@ public final class SegmentGroupCanonicaliser {
     /** Land the last partial batch; how many cells the walk resolved. */
     int finish() {
       if (filled > 0) {
-        memoiseBatch(segment, ids, hashes, values, identities, filled);
+        flush();
         filled = 0;
       }
       return resolved;
+    }
+
+    private void flush() {
+      if (values != null) {
+        snapshotCandidates(hashes, candidates, candidateCells, candidateValues, candidateIdentities, filled);
+        for (int i = 0; i < filled; i++) {
+          if (candidates[i] == 0) {
+            continue;
+          }
+          final String cached = candidateValues[i];
+          final String representative = cached != null ? cached
+              : candidateIdentities[i] ? storageResolver.valueOfCell(candidateCells[i])
+                  : transformed.valueOfCell(candidateCells[i]);
+          if (!values[i].equals(representative)) {
+            candidates[i] = 0;
+          }
+        }
+        Arrays.fill(candidateValues, 0, filled, null);
+      }
+      memoiseBatch(segment, ids, hashes, values, identities, candidates, filled);
+    }
+  }
+
+  /**
+   * Capture an existing representative per hash while holding the map's monitor. The worker then
+   * resolves and compares its immutable value outside the monitor. Canonical IDs and their first
+   * representative cells never change during a walk, so a proven match stays valid. A hash
+   * collision or an arrival after this snapshot uses the ordinary exact check when publishing.
+   */
+  private synchronized void snapshotCandidates(final long[] hashes, final int[] candidates, final long[] cells,
+      final String[] values, final boolean[] identities, final int n) {
+    for (int i = 0; i < n; i++) {
+      final int[] existing = hashes[i] == 0L ? null : idsByHash.get(hashes[i]);
+      final int candidate = existing == null ? 0 : existing[0];
+      candidates[i] = candidate;
+      if (candidate != 0) {
+        final long cell = representativeCell.getLong(candidate - 1);
+        cells[i] = cell;
+        identities[i] = transformed.isIdentity(candidate);
+        values[i] = transformed.cachedRepresentative(cell);
+      }
     }
   }
 
   /** {@link #memoise} for a walk's batch: the monitor is taken once for {@code n} cells. */
   private synchronized void memoiseBatch(final int segment, final int[] ids, final long[] hashes,
-      final String @Nullable [] values, final boolean @Nullable [] identities, final int n) {
+      final String @Nullable [] values, final boolean @Nullable [] identities, final int @Nullable [] candidates,
+      final int n) {
     int[][] tables = memo;
     if (segment >= tables.length) {
       tables = Arrays.copyOf(tables, segment + 1);
@@ -1027,7 +1088,8 @@ public final class SegmentGroupCanonicaliser {
       final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, id);
       table[id] = values == null
           ? issueCanonical(cell, hashes[i])
-          : issueTransformedCanonical(cell, hashes[i], values[i], identities[i]);
+          : candidates[i] != 0 ? candidates[i]
+              : issueTransformedCanonical(cell, hashes[i], values[i], identities[i]);
     }
     if (values != null) {
       Arrays.fill(values, 0, n, null);
@@ -1104,6 +1166,13 @@ public final class SegmentGroupCanonicaliser {
     return canonicaliseMemoised(slices, keep, rowKeep, false);
   }
 
+  /** Leaves per mapping task: enough work to amortise scheduling, small enough to balance masks. */
+  private static final int CANONICAL_MAP_MORSEL = 128;
+
+  private record CanonicalAllocation(long sourceLongs, long allocatedLongs, long allocatedPresenceWords,
+      int reusedEmptyLeaves, int reusedEmptyPresence) {
+  }
+
   /**
    * The row loop: every kept present cell to the id the memo holds for it, or the slow path once.
    *
@@ -1114,8 +1183,60 @@ public final class SegmentGroupCanonicaliser {
    */
   private ColumnSlice @Nullable [] canonicaliseMemoised(final ColumnSlice[] slices, final long @Nullable [] keep,
       final long @Nullable [] @Nullable [] rowKeep, final boolean wholeColumn) {
+    return canonicaliseMemoised(slices, keep, rowKeep, wholeColumn, SERIAL_SEGMENTS);
+  }
+
+  /**
+   * A whole-column mapping uses the caller's workers only to read settled IDs. Each task owns a
+   * contiguous output range. If any cell still needs resolution, discard the incomplete output and
+   * use the original serial mapping, preserving its arrival order and refusal behavior.
+   */
+  private ColumnSlice @Nullable [] canonicaliseMemoised(final ColumnSlice[] slices, final long @Nullable [] keep,
+      final long @Nullable [] @Nullable [] rowKeep, final boolean wholeColumn, final SegmentRunner runner) {
+    final boolean parallel = wholeColumn && runner != SERIAL_SEGMENTS
+        && slices.length >= 2 * CANONICAL_MAP_MORSEL;
+    final int ranges = parallel ? 1 + (slices.length - 1) / CANONICAL_MAP_MORSEL : 1;
     final ColumnSlice[] out = new ColumnSlice[slices.length];
-    final boolean diag = PROJ_DIAG && wholeColumn;
+    final CanonicalAllocation[] stats = PROJ_DIAG && wholeColumn ? new CanonicalAllocation[ranges] : null;
+    if (parallel) {
+      final boolean[] complete = new boolean[ranges];
+      runner.forEach(ranges, range -> {
+        final int from = range * CANONICAL_MAP_MORSEL;
+        final int to = from + Math.min(CANONICAL_MAP_MORSEL, slices.length - from);
+        complete[range] = canonicaliseMemoisedRange(slices, keep, rowKeep, out, from, to, true, stats, range);
+      });
+      for (final boolean completed : complete) {
+        if (!completed) {
+          return canonicaliseMemoised(slices, keep, rowKeep, wholeColumn, SERIAL_SEGMENTS);
+        }
+      }
+    } else if (!canonicaliseMemoisedRange(slices, keep, rowKeep, out, 0, slices.length, false, stats, 0)) {
+      return null;
+    }
+    if (stats != null) {
+      long sourceLongs = 0;
+      long allocatedLongs = 0;
+      long allocatedPresenceWords = 0;
+      int reusedEmptyLeaves = 0;
+      int reusedEmptyPresence = 0;
+      for (final CanonicalAllocation allocation : stats) {
+        sourceLongs += allocation.sourceLongs();
+        allocatedLongs += allocation.allocatedLongs();
+        allocatedPresenceWords += allocation.allocatedPresenceWords();
+        reusedEmptyLeaves += allocation.reusedEmptyLeaves();
+        reusedEmptyPresence += allocation.reusedEmptyPresence();
+      }
+      System.err.println("[proj] canonical lanes: sourceLongs=" + sourceLongs + " allocatedLongs=" + allocatedLongs
+          + " reusedEmptyLeaves=" + reusedEmptyLeaves + " allocatedPresenceWords=" + allocatedPresenceWords
+          + " reusedEmptyPresence=" + reusedEmptyPresence + " mapRanges=" + ranges);
+    }
+    return out;
+  }
+
+  private boolean canonicaliseMemoisedRange(final ColumnSlice[] slices, final long @Nullable [] keep,
+      final long @Nullable [] @Nullable [] rowKeep, final ColumnSlice[] out, final int from, final int to,
+      final boolean settledOnly, final CanonicalAllocation @Nullable [] stats, final int range) {
+    final boolean diag = stats != null;
     long[] emptyCanonical = null;
     long[] emptyPresence = null;
     long sourceLongs = 0;
@@ -1123,7 +1244,7 @@ public final class SegmentGroupCanonicaliser {
     long allocatedPresenceWords = 0;
     int reusedEmptyLeaves = 0;
     int reusedEmptyPresence = 0;
-    for (int i = 0; i < slices.length; i++) {
+    for (int i = from; i < to; i++) {
       final ColumnSlice slice = slices[i];
       if (slice == null || keep != null && (keep[i >>> 6] & 1L << (i & 63)) == 0L) {
         continue;
@@ -1151,7 +1272,7 @@ public final class SegmentGroupCanonicaliser {
         // then group BESIDE canonical ids from the leaves that were canonicalised, and a segment-0
         // cell is a small integer — exactly the space canonical ids occupy. Unrelated values would
         // silently land in the same group.
-        return null;
+        return false;
       }
       final int rows = slice.rowCount();
       final int words = (rows + 63) >>> 6;
@@ -1247,12 +1368,15 @@ public final class SegmentGroupCanonicaliser {
           final int arrival = cellId >= 0 && cellId < settled.length
               ? settled[cellId]
               : 0;
+          if (settledOnly && arrival == 0) {
+            return false; // never issue IDs from parallel mapping: preserve serial fallback order
+          }
           final int id = arrival != 0
               ? rankOf(arrival, ranks, rankedLimit)
               : laneIdOf(cell);
           if (id == UNRESOLVABLE) {
             reportUnresolvable(i, row, cell);
-            return null;
+            return false;
           }
           canonical[row] = id;
           present++;
@@ -1274,11 +1398,10 @@ public final class SegmentGroupCanonicaliser {
           slice.stringDictIds(), slice.dictBytes(), slice.dictOffsets(), slice.setCounts(), slice.dictHashes());
     }
     if (diag) {
-      System.err.println("[proj] canonical lanes: sourceLongs=" + sourceLongs + " allocatedLongs=" + allocatedLongs
-          + " reusedEmptyLeaves=" + reusedEmptyLeaves + " allocatedPresenceWords=" + allocatedPresenceWords
-          + " reusedEmptyPresence=" + reusedEmptyPresence);
+      stats[range] = new CanonicalAllocation(sourceLongs, allocatedLongs, allocatedPresenceWords,
+          reusedEmptyLeaves, reusedEmptyPresence);
     }
-    return out;
+    return true;
   }
 
   /**
@@ -1675,7 +1798,7 @@ public final class SegmentGroupCanonicaliser {
           ? UNRESOLVABLE
           : arrival;
     }
-    return arrival > ranks.length
+    return arrival < 1 || arrival > ranks.length
         ? UNRESOLVABLE
         : ranks[arrival - 1];
   }
