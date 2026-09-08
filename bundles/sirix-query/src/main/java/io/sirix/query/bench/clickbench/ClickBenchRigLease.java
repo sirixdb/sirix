@@ -20,6 +20,7 @@ import java.util.stream.Stream;
 
 /** Process-lifetime Linux flock leases for the benchmark, outside query execution. */
 final class ClickBenchRigLease implements AutoCloseable {
+  private static final String CAMPAIGN_DIRECTORY = "CB100M_DIR";
   private static final long GIB = 1L << 30;
   private static final int LOCK_SH = 1;
   private static final int LOCK_EX = 2;
@@ -41,37 +42,59 @@ final class ClickBenchRigLease implements AutoCloseable {
   }
 
   /**
-   * Whether {@code database} is the campaign database named by {@code campaign}. A stale or removed
-   * campaign pointer answers {@code false} rather than failing: {@link Files#isSameFile} throws when
-   * either operand is absent, and an unrelated small run must not die on a variable it never used.
+   * Whether {@code database} is the campaign database named by {@code campaign}. Identity decides
+   * while both exist; otherwise the resolved paths do, because the campaign load names its target
+   * before creating it. A stale or removed campaign pointer answers {@code false} rather than
+   * failing: {@link Files#isSameFile} throws when either operand is absent, and an unrelated small
+   * run must not die on a variable it never used.
    */
   static boolean isCampaignDatabase(final String campaign, final Path database) throws IOException {
-    if (campaign == null || campaign.isBlank()) {
+    if (campaign == null || campaign.isBlank() || database == null) {
       return false;
     }
     final Path campaignDatabase = Path.of(campaign).resolve("db");
-    return Files.exists(campaignDatabase) && Files.exists(database) && Files.isSameFile(database, campaignDatabase);
+    if (Files.exists(campaignDatabase) && Files.exists(database)) {
+      return Files.isSameFile(database, campaignDatabase);
+    }
+    return campaignDatabase.toAbsolutePath().normalize().equals(database.toAbsolutePath().normalize());
   }
 
   static void holdForQueryProcess(final long arenaBytes, final Path database) throws IOException {
-    final boolean campaignDatabase = isCampaignDatabase(System.getenv("CB100M_DIR"), database);
-    final boolean large = campaignDatabase || Runtime.getRuntime().maxMemory() >= 12 * GIB || arenaBytes >= 10 * GIB;
+    holdForQueryProcess(System.getenv(CAMPAIGN_DIRECTORY), arenaBytes, database);
+  }
+
+  /**
+   * Exclusivity follows the database, never the JVM's size: only a query against the campaign 100M
+   * database takes the host lease alone, and only that run must match the 100M envelope.
+   */
+  static void holdForQueryProcess(final String campaign, final long arenaBytes, final Path database)
+      throws IOException {
+    final boolean large = isCampaignDatabase(campaign, database);
     if (large) {
       validateQueryEnvelope(arenaBytes);
     }
     holdForProcess(large, true);
   }
 
-  static void holdForLoadProcess() throws IOException {
+  static void holdForLoadProcess(final Path database) throws IOException {
+    holdForLoadProcess(System.getenv(CAMPAIGN_DIRECTORY), database);
+  }
+
+  /**
+   * Only the campaign 100M load is exclusive; a 1M or unrelated load shares the host lease so the
+   * parallel validation lanes keep running.
+   */
+  static void holdForLoadProcess(final String campaign, final Path database) throws IOException {
     // Existing load wrappers retain their legacy shell lease. The JVM owns the host lease,
     // so losing that shell cannot expose a still-running loader to another large JVM.
-    holdForProcess(true, false);
+    holdForProcess(isCampaignDatabase(campaign, database), false);
   }
 
   private static void holdForProcess(final boolean large, final boolean includeLegacy) throws IOException {
     if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("linux")) {
       if (large) {
-        throw new IOException("The 100M rig requires Linux process-owned flock leases");
+        System.out.println("# rig lease: NOT exclusive — process-owned flock leases require Linux. This "
+            + "campaign-scale run is not protected against a concurrent benchmark and is not rig evidence.");
       }
       return;
     }

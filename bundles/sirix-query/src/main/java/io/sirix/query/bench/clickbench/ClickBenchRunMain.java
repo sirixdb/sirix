@@ -427,11 +427,12 @@ public final class ClickBenchRunMain {
     }
   }
 
-  /** Runs the selected queries according to their timing-array lengths. */
+  /** Runs the selected queries, every one of them for the configured number of tries. */
   private static void runSuite(final Options options, final SirixCompileChain chain, final SirixQueryContext ctx,
       final JsonResourceSession session, final int revision, final boolean fastPaths, final double[][] timings)
       throws IOException {
     final List<String> proofFailures = new ArrayList<>();
+    final int tries = options.tries();
     System.out.printf("%-4s | %10s | %10s | %10s | %s%n", "q", "try1(s)", "hot(s)", "rows", "note");
     for (final ClickBenchQueries.Query query : ClickBenchQueries.all()) {
       if (options.selected() != null && !options.selected().contains(query.index())) {
@@ -443,8 +444,7 @@ public final class ClickBenchRunMain {
       long rows = -1L;
       boolean completed = true;
       final EnumSet<ServingRoute> queryRoutes = EnumSet.noneOf(ServingRoute.class);
-      final int queryTries = timings[query.index()].length;
-      for (int t = 0; t < queryTries; t++) {
+      for (int t = 0; t < tries; t++) {
         SirixVectorizedExecutor perTry = null;
         if (!options.reuseExecutor() && fastPaths) {
           perTry = new SirixVectorizedExecutor(session, revision, options.threads());
@@ -467,7 +467,7 @@ public final class ClickBenchRunMain {
           if (tryProofFailure != null) {
             proofFailures.add(tryProofFailure);
           }
-          if (t == queryTries - 1 && options.dumpDir() != null) {
+          if (t == tries - 1 && options.dumpDir() != null) {
             rows = dump(options.dumpDir(), query.index(), serialized);
           }
         } catch (final Exception e) {
