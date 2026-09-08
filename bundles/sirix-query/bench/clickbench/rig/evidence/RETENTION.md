@@ -57,10 +57,72 @@ Validation was performed at **`4d497c91694f28fbadf451ccc7767ad40dc8721a`**, in n
 The original `aa4d81d54` campaign ancestor remains the parent, so collapsing the history does not
 turn the older validated tree into a reversion of other lanes' later changes.
 
-This retention correction is a separate documentation-only follow-up to that exact-tree commit.
-It is the sole content difference from the validated tree: the measurement harness, query engine,
-tests and retained measurement evidence are unchanged. The validation attestation refers to
-`4d497c91`, not to the new delivery commit SHA.
+The first retention correction, `15d6c5562d22f4aa2c3f32d4b2a4a116bcd5f2b1`, was a separate
+follow-up changing only this document. The subsequent base integration below is a normal merge;
+it does not claim whole-tree identity with the earlier validation. The original validation and
+live-smoke attestation refer to `4d497c91`, not to the eventual pushed commit SHA.
+
+## Integration and validation boundary
+
+Merge **`578b15247510c648579763bd545c0796983614ad`** integrates campaign base
+**`ba384e5a8ce9c4468afae492a55b64daef9120bd`** into `15d6c5562`. It imports the campaign's
+string-decode engine changes, their tests, historical observations and documentation. Of the
+30 files changed by this integration, **28 match the base byte for byte**. Only the following
+two documentation files conflicted; their resolutions are the only differences from those imports:
+
+- `rig/README.md`: keep the validated paired command, ownership rules, scoring and uncertainty
+  explanations. Add the string-decode report link and historical-observation caveat, clarify that
+  1.345 ln uses ten pairs rather than one, distinguish the twenty-leg range, and require a
+  Firstmate window independently of lock availability. Relative to the validated README, this
+  is one eight-line paragraph after the variance-study links.
+- `docs/HANDOFF_SEGMENT_LANE_2026-09-06.md`, section 2: attribute SEG6T's build and database to
+  the campaign base's investigation-report account, distinguish that account from missing capture
+  fields in the leg JSON, and retain the recording-commit time bound. Preserve the standing score
+  and clarify pre-cap versus capped comparisons, variable MMIO limits, and why neither the
+  ten-pair MDE nor the individual-leg range qualifies historical single-pair lever claims.
+- The same handoff, section 5: retain the base's q35-fold provenance attribution and absence of a
+  string-decode performance claim, point to the paired-command operating manual, and require a
+  benchmark window. Nonconflicting imports elsewhere in this handoff retain the string-decode
+  update, diagnostic `mapRanges` description, route-test links and q35 attribution limits.
+
+No conflict resolution changes an engine, runner, test, timing or retained measurement artifact.
+This document's containment and integration attestations are the additional documentation changes
+relative to the earlier validated tree. The exact imported file list and the resolution hunks can
+be recovered from commits carried by the delivered branch (the collapsed commit has the original
+validated tree):
+
+```sh
+git diff --name-status 15d6c5562 578b15247
+git diff 3c9bc7b58 578b15247 -- bundles/sirix-query/bench/clickbench/rig/README.md docs/HANDOFF_SEGMENT_LANE_2026-09-06.md
+```
+
+Integration validation uses the merged engine at `578b15247`; it does not transfer the old
+100M smoke or the variance study onto that engine. The focused Java run completed successfully
+in 38 seconds with Graal JDK 25.0.3. Fresh JUnit XML, checked against the run's start time with
+`junit.py`, records 11 passing tests: `ClickBenchRunMainTryScheduleTest` (3),
+`ClickBenchRigLeaseCampaignPathTest` (4), and `ClickBenchStringDecodeRouteEvidenceTest` (4).
+The Java command was:
+
+```sh
+./gradlew :sirix-query:test --no-daemon --max-workers=2 \
+  --tests io.sirix.query.bench.clickbench.ClickBenchRunMainTryScheduleTest \
+  --tests io.sirix.query.bench.clickbench.ClickBenchRigLeaseCampaignPathTest \
+  --tests io.sirix.query.bench.clickbench.ClickBenchStringDecodeRouteEvidenceTest
+```
+
+The merged rig's **56 Python tests passed**, unchanged, using Python 3.12.3, SciPy 1.18.1 and
+NumPy 2.5.3 in the worktree-local analysis venv. The first fully loaded run passed 55 tests;
+one simulated profiling fixture was refused by the live-process guard while another lane ran
+its 1M correctness gate. After that process exited naturally, the same suite passed all 56:
+
+```sh
+bundles/sirix-query/build/diagnostics/rig-trust/analysis-venv/bin/python \
+  -m unittest discover -s bundles/sirix-query/bench/clickbench/rig -p 'test_*.py' -v
+```
+
+These are integration and fixture results, not a new performance measurement. No additional 100M
+run was taken for this integration. The metadata follow-up containing this record changes only
+`RETENTION.md`; pipeline validation and the pushed commit identity must be reported separately.
 
 Against campaign base `ba384e5a8ce9c4468afae492a55b64daef9120bd`, the exact-tree collapse reduced
 unique Git objects from 46,890,074 to 4,895,739 bytes, including a reduction in unique blobs from
