@@ -69,11 +69,11 @@ final class ClickBenchRigLease implements AutoCloseable {
    */
   static void holdForQueryProcess(final String campaign, final long arenaBytes, final Path database)
       throws IOException {
-    final boolean large = isCampaignDatabase(campaign, database);
-    if (large) {
+    final boolean exclusive = isCampaignDatabase(campaign, database);
+    if (exclusive) {
       validateQueryEnvelope(arenaBytes);
     }
-    holdForProcess(large, true);
+    holdForProcess(campaign, exclusive, true);
   }
 
   static void holdForLoadProcess(final Path database) throws IOException {
@@ -87,14 +87,16 @@ final class ClickBenchRigLease implements AutoCloseable {
   static void holdForLoadProcess(final String campaign, final Path database) throws IOException {
     // Existing load wrappers retain their legacy shell lease. The JVM owns the host lease,
     // so losing that shell cannot expose a still-running loader to another large JVM.
-    holdForProcess(isCampaignDatabase(campaign, database), false);
+    holdForProcess(campaign, isCampaignDatabase(campaign, database), false);
   }
 
-  private static void holdForProcess(final boolean large, final boolean includeLegacy) throws IOException {
+  private static void holdForProcess(final String campaign, final boolean exclusive, final boolean includeLegacy)
+      throws IOException {
     if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("linux")) {
-      if (large) {
-        System.out.println("# rig lease: NOT exclusive — process-owned flock leases require Linux. This "
-            + "campaign-scale run is not protected against a concurrent benchmark and is not rig evidence.");
+      if (exclusive) {
+        System.out.println("# rig lease: NOT exclusive — process-owned flock leases require Linux. This run "
+            + "against the campaign database is not protected against a concurrent benchmark, and is not "
+            + "rig evidence.");
       }
       return;
     }
@@ -105,19 +107,22 @@ final class ClickBenchRigLease implements AutoCloseable {
     try {
       final String uid = Integer.toUnsignedString(Native.uid());
       final Path hostLock = Path.of("/tmp", "sirix-clickbench-" + uid + ".lock");
-      acquired.add(acquire(hostLock, large, System.getenv("CB_RIG_HOST_LOCK_FD")));
-      if (large) {
+      acquired.add(acquire(hostLock, exclusive, System.getenv("CB_RIG_HOST_LOCK_FD")));
+      if (exclusive) {
         refuseLegacyBenchmarkProcess();
       }
       final String work = System.getenv("CB_RIG_WORK");
-      if (large && includeLegacy && work != null && !work.isBlank()) {
+      if (exclusive && includeLegacy && work != null && !work.isBlank()) {
         final Path legacyLock = Path.of(work).resolve("leg.lock");
         acquired.add(acquire(legacyLock, true, System.getenv("CB_RIG_LEGACY_LOCK_FD")));
       }
       processLeases = acquired;
-      System.out.printf("# rig lease: pid=%d mode=%s host=%s%n", ProcessHandle.current().pid(), large
+      // A shared mode against a 100M database means this pointer is unset or names another directory.
+      System.out.printf("# rig lease: pid=%d mode=%s %s=%s host=%s%n", ProcessHandle.current().pid(), exclusive
           ? "exclusive"
-          : "shared-small-validation", hostLock);
+          : "shared", CAMPAIGN_DIRECTORY, campaign == null || campaign.isBlank()
+              ? "unset"
+              : campaign, hostLock);
     } catch (final IOException | RuntimeException | Error failure) {
       for (final ClickBenchRigLease lease : acquired) {
         try {
