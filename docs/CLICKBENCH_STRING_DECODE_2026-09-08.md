@@ -3,19 +3,65 @@
 Base: `aa4d81d547fb0e2353ede959786d6e8ba442edf2` (`SEG6T`).
 Worktree: `fm/sirix-cb-strdec-1`.
 
-The shared canonicalisation change improves q28 from **9.365 to 6.322 s** in
-the second exclusive pair, consistent with the publication-monitor profile.
-Four subsequent q33-only pairs all favor the candidate, by a geometric **1.061x**.
-The full-suite q33 doubling does not reproduce in isolation, but its cause
-remains unresolved. The twofold string-query target and top-10 goal are not reached.
+> **EVERY 100M NUMBER IN THIS DOCUMENT IS PROVISIONAL.** Firstmate instructions
+> 006 and 007 declared the campaign's measurement rig unreliable and handed
+> exclusive 100M access to a separate rig-repair lane. That applies without
+> exception to every profile, isolated q33 pair, full-suite pair, per-query time,
+> ratio, geomean and summed ln below — including the legs this lane measured
+> under a continuously held lock. None of them is an accepted performance result.
+> None may be used to tune an implementation, to claim a campaign gain, or to
+> score a leg until the rig is repaired and the figures are re-measured on it.
+> They are retained unchanged as raw historical observations, nothing more.
 
-`STRDECEXPAIR2` observes C6A hot geomean **4.782 to 4.535**, or **2.281 ln** lower,
-with both legs rank 16 of 140. All 43 result files are byte-identical and all
-routes answer. This single-pair difference is not established causal credit for
-the lane: it includes an unattributed 0.644 ln q31 difference and a large q33
-regression. Subtracting q31 alone does not establish attribution for the remainder.
+## What this lane delivers
 
-## Exclusive full-suite measurement (STRDECEXPAIR2)
+**A mechanism and its correctness evidence. No performance claim.** The change
+decodes a transformed dictionary walk through the segment cursor, resolves and
+compares representatives on segment workers outside the publication monitor, and
+rewrites an already-resolved column's row IDs in disjoint parallel ranges with a
+serial fallback. [Mechanisms](#mechanisms) states each in full.
+
+Correctness is what has been established:
+
+- The refreshed C2 1M oracle gate passed on the revised runtime: 33 matches,
+  10 strongly verified legal tie windows, zero mismatch, zero missing, zero
+  unverifiable, zero route declines, and all 43 query dumps byte-identical to the
+  pristine Sirix 1M outputs.
+- Every 100M output comparison passed: all 43 result files byte-identical to
+  pristine in the exclusive pair, and all eight q33 runs byte-identical in the
+  repeat check.
+
+Those are corpus checks over two fixed ClickBench corpora. They are strong
+evidence that the retained code answers identically on the data actually
+exercised; they are **not** a proof of equivalence over all possible inputs, and
+this document does not claim one.
+
+**The performance effect is unverified, pending measurement-rig repair.** No ln
+figure is delivered — not the 2.281 ln the exclusive pair observed, not the
+1.637 ln that remains once q31 is subtracted. The reason is recorded in this
+lane's own data: the *unchanged* pristine baseline measured q31 at 1.500 s in
+`STRDECEXBASE1` and 3.191 s in `STRDECEXBASE2`. Identical code, identical flags,
+2.1x apart. An instrument with that spread cannot resolve the effects this lane
+is being asked to detect, so no gain and no regression is established here.
+
+Declining to bank the unattributed 0.644 ln q31 credit was the judgement that
+made an evidence-based decision possible at all. Had that credit been claimed,
+the q31 baseline discrepancy would have been buried inside a headline number
+instead of exposing the instrument. Record it as the right call.
+
+The full-suite q33 result remains an **open question**, not a settled regression
+and not a dismissed artifact. Its evidence and its unknown cause are preserved in
+full below, together with the four isolated repeats that do not reproduce it.
+
+## Provisional exclusive full-suite measurement (STRDECEXPAIR2)
+
+Provisional, per the banner above. `STRDECEXPAIR2` observed C6A hot geomean
+**4.782 to 4.535**, or **2.281 ln** lower, with both legs rank 16 of 140. All 43
+result files are byte-identical and all routes answer. This single-pair
+difference is not established causal credit for the lane, and is not accepted as
+a measurement at all pending rig repair: it includes an unattributed 0.644 ln
+q31 difference and a large q33 regression. Subtracting q31 alone does not
+establish attribution for the remainder.
 
 Pristine `aa4d81d54` and the revised candidate run back to back under one
 continuously held `$CB_RIG_WORK/leg.lock` (inode 36438151, single acquisition),
@@ -75,10 +121,10 @@ Three caveats bound what this pair establishes.
 contained the ASCII comparison shortcut. Their pair (4.513 to 4.399, 1.1062 ln)
 is retained as history and no longer describes the delivered source.
 
-## Repeated q33 isolation check
+## Provisional repeated q33 isolation check
 
-Firstmate requested repeated q33-only pairs after the exclusive full-suite
-regression. The revised candidate first passed a refreshed complete 1M oracle
+Provisional, per the banner above. Firstmate requested repeated q33-only pairs
+after the exclusive full-suite regression. The revised candidate first passed a refreshed complete 1M oracle
 gate. The following eight JVMs then ran under one continuously held rig lock,
 using the same preserved pristine and revised runtime snapshots as pair2,
 identical external dependencies, the fixed C2 envelope, and three tries each.
@@ -116,11 +162,27 @@ across all 43. Halving those 14 saves about 9.59 ln against an 11.45 ln gap.
 Subset gains from parallel workers must not be added when they overlap; the
 combined head needs its own scored leg. This lane claims no q31/q32 gain.
 
-## Profile evidence
+**Hot suite seconds and the score are separate measures and can move in opposite
+directions.** The score is a geometric mean of `(0.01 + ours) / (0.01 + best)`
+per query, so it weighs each query against its board leader, and the campaign is
+relatively furthest behind on the *fast* queries. A candidate last night cut
+total hot time from 40.357 to 34.970 s — 13% faster — and scored 0.815 ln
+*worse*. Read both columns of the tables below; neither substitutes for the
+other, and seconds saved is not the campaign's objective.
+
+## Provisional profile evidence
+
+Provisional, per the banner above: these profiles and the q28 timings beside them
+were taken on the same unrepaired rig and carry the same status as every other
+100M figure here.
 
 CPU profiles use async-profiler 4.2 at 1 ms over tries 2 and 3. Percentages are
 inclusive CPU samples, **not wall-time shares**. The publication monitor is a
 serial bottleneck even when its share of total worker CPU looks small.
+
+A profile ranks where CPU is spent; it does not rank return on effort. A large
+inclusive share is a reason to look at a path, never on its own a reason to
+credit a change that touched it.
 
 | Profile | Hot, min(tries 2, 3) | Samples | `memoiseBatch` samples | `snapshotCandidates` samples |
 | --- | ---: | ---: | ---: | ---: |
@@ -144,9 +206,9 @@ same string-key canonicalisation as q13, q28, q33, and q34. Changes in its timin
 cannot be attributed to this work without a separate profile.
 
 
-## Historical six-query diagnostic (not the acceptance pair)
+## Provisional historical six-query diagnostic (not the acceptance pair)
 
-Both legs run q5, q12, q13, q28, q33, and q34, in that order, with four tries and
+Provisional, per the banner above. Both legs run q5, q12, q13, q28, q33, and q34, in that order, with four tries and
 identical C2 diagnostic settings. Hot still means min(tries 2, 3). The fourth try
 is not used. All six 100M result files are byte-identical.
 
@@ -172,9 +234,9 @@ also guards an unresolved memo entry when translating arrival IDs through a
 sealed rank table; repeated unresolvable inputs decline instead of indexing a
 rank array with a negative ID. That guard does not change these corpus results.
 
-## Historical full-suite legs and merge ablation
+## Provisional historical full-suite legs and merge ablation
 
-All legs below contain all 43 queries and all three scored tries. The C6A hot
+Provisional, per the banner above. All legs below contain all 43 queries and all three scored tries. The C6A hot
 board is the campaign filter, with 140 entries. These measurements have material
 variation; they are reported individually rather than selecting per-query wins
 from different JVMs.
@@ -253,6 +315,10 @@ change restores the original merge and removes every prefix-history API.
 
 ## Rejected experiments
 
+The 100M timings cited as grounds for each rejection are provisional, per the
+banner above. The rejections themselves stand: none of these components earned
+its place, and an unrepaired rig is not a reason to revive one.
+
 - Prefix-history loser tree and its first-byte shortcut: helped the six-query
   subset, but repeated full-suite regressions and the better no-prefix scored
   ablation did not justify keeping it. Removed, including its extra APIs. The
@@ -288,12 +354,27 @@ only and are not compared with the campaign. All profiles and scored legs named
 
 ## Delivery validation constraint
 
-Firstmate's 02:50:48 UTC decision authorized the replacement full-suite pair
-after removing the comparison shortcut. Their 03:08:32 UTC follow-up authorized
-the repeated q33-only checks above. Both requests are complete. Any additional
-100M work during delivery needs coordination with firstmate and the same rig
-lock and process checks. The refreshed 1M oracle result is complete; no database
-rebuild was performed or is needed.
+**This lane no longer owns the rig, and must not take it.** A separate lane holds
+exclusive 100M access on the captain's instruction while it repairs the
+measurement rig itself. Any future 100M window for this lane — a leg, a profile,
+an ablation, a rebuild — must be allocated by firstmate before it starts. Do not
+begin one on the strength of a released lock or an absent lock file.
+
+This lane's 100M operations are complete and its lock is released; the last one
+ended 2026-09-08T03:13:35.547312+00:00, and none of the driver's 100M JVMs is in
+flight. Firstmate's 02:50:48 UTC decision authorized the replacement full-suite
+pair after removing the comparison shortcut, and their 03:08:32 UTC follow-up
+authorized the repeated q33-only checks above. Both requests are **fulfilled**,
+and neither authorizes any further 100M work now.
+
+Correctness work continues without a window: focused tests and the 1M oracle gate
+need no 100M run. The refreshed 1M oracle result is complete; no database rebuild
+was performed or is needed.
+
+**This change is banked on correctness, and its PR waits on the rig lane's
+verdict before any merge.** Firstmate has handed the rig lane the q33 suite-order
+anomaly below as a named target. No merge is authorized on the numbers in this
+document.
 
 ## Correctness and reproducibility
 
@@ -318,6 +399,12 @@ query dumps are byte-identical to the pristine Sirix 1M outputs. The strong
 DuckDB oracle uses `duckdb_reference.py --candidate-reference` and
 `compare-results.py --strong --bounded-oracle` as described in
 [the operating manual](HANDOFF_SEGMENT_LANE_2026-09-06.md).
+
+The 1M oracle gate and the 100M output comparisons both passed. They are checks
+over two fixed corpora and the tests listed above, not a proof that the retained
+code answers identically on every possible input; read them as the strong
+empirical evidence they are and no further. The performance effect of the same
+code is unverified pending measurement-rig repair.
 
 The 100M runs acquire `$CB_RIG_WORK/leg.lock` with `flock`, retain its inode, and
 release it when the JVM exits. The database and both source corpora are read-only;
