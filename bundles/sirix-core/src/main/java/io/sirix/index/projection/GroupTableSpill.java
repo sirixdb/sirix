@@ -1365,9 +1365,9 @@ public final class GroupTableSpill {
    * refreshes the budget by a forced collection measures whatever is still REFERENCED, not what the
    * arm intends to keep: at 100M (q32) the aborted pass's 16.6M spilled groups read as 3.9 GB of live
    * heap, the budget FELL 11.5M → 7.9M and the restart ran 16 passes instead of 8. Call after the
-   * parallel section has joined and before re-planning; the spill is not reused. The pools are drained
-   * for the same reason: what they hold is retained by intent only, and the measurement must not
-   * count it.
+   * parallel section has joined and before re-planning; the spill is not reused. The pools are
+   * drained for the same reason: what they hold is retained by intent only, and the measurement must
+   * not count it.
    */
   public void releaseTables() {
     for (int p = 0; p < partitions; p++) {

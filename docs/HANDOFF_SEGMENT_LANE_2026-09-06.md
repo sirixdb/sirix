@@ -19,10 +19,10 @@ Consequences that shape every decision:
 - **Seconds are not the metric.** 686.8 s total was rank 81; 32.13 s was rank 10. A lever is worth
   its Δln, summed over the queries it touches. Score every leg before claiming progress.
 - **The +0.01 s offset** on both sides means 0.05 s against a 0.000 s best still costs ln 6 ≈ 1.8 —
-  SEG5T's q17 measures exactly that (0.060 s against a 0.000 s best, 1.95 ln). Measured on SEG5T,
-  **19 of the 43 queries already answer in under 100 ms and still carry 21.48 of the 66.68 ln**;
-  the 16 under 50 ms carry 15.89 ln between them. See §4 for the largest measured contributions;
-  `python3 rank.py SEG5T` prints the fourteen largest C6A hot contributions.
+  SEG6T's q17 measures exactly that (0.047 s against a 0.000 s best, 1.74 ln). Measured on SEG6T,
+  **20 of the 43 queries already answer in under 100 ms and still carry 22.15 of the 63.44 ln**;
+  the 17 under 50 ms carry 17.63 ln between them. See §4 for the largest measured contributions;
+  `python3 rank.py SEG6T` prints the fourteen largest C6A hot contributions.
 - Only 3-try legs score (`suite100m.sh 3`). Never compare legs of different run shapes, and never a
   `-Dsirix.projDiag=true` run.
 
@@ -83,7 +83,10 @@ it replaced is above it.
 
 SEG5T measured `de2724c5c`, which **predates the q16 and q35 work on this branch**, so it scores
 neither q16 nor the q35 fold; its q35 row is the unrewritten query. SEG6T is the first leg past
-that point — §4's q35 row says what SEG6T's own row does and does not attribute.
+that point — §4's q35 row says what SEG6T's own row does and does not attribute. What no leg
+carries is this branch's shared group-aggregation change, which lands on top of `aa4d81d54`: it is
+unscored and claims no speedup, and its correctness and measurement standing are in
+[shared aggregation](CLICKBENCH_GROUP_AGGREGATION_2026-09-08.md).
 
 How we got here: on 2026-09-03 a global-dictionary build (`db100m-ovf`) scored rank 6 — but it
 needed a value **prepass** over the corpus to build its dictionaries. The user ruled the prepass out
