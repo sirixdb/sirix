@@ -41,8 +41,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * End-to-end route witness for the string DECODE and canonicalisation path: the queries that group
- * by a {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SEGMENT} column, which is the shape the
- * 100M ClickBench database is built with and the only shape that reaches
+ * by a {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SEGMENT} column, which is the shape
+ * the 100M ClickBench database is built with and the only shape that reaches
  * {@code SegmentGroupCanonicaliser}.
  *
  * <p>
@@ -63,16 +63,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * The fixture is deliberately WIDER than the 60,000 rows q21/q22 use: at
- * {@link ProjectionIndexRowGroupPage#MAX_ROWS} rows per leaf, {@value #ROWS} rows give more than 256
- * leaves, which is the threshold above which a whole-column mapping is split into disjoint parallel
- * ranges. A narrower fixture would map serially and would witness nothing about that split.
+ * {@link ProjectionIndexRowGroupPage#MAX_ROWS} rows per leaf, {@value #ROWS} rows give more than
+ * 256 leaves, which is the threshold above which a whole-column mapping is split into disjoint
+ * parallel ranges. A narrower fixture would map serially and would witness nothing about that
+ * split.
  *
  * <p>
  * Every leg asserts the PRECONDITION (the columns really are segment-scoped, the query really was
- * served by the group-aggregate route) before it asserts the ANSWER, because a silent decline to the
- * generic interpreter would make an equality against the interpreter vacuous. The query text is the
- * SHIPPED ClickBench text ({@link ClickBenchQueries#byIndex(int)}), so a query edit cannot drift
- * away from what the campaign measures.
+ * served by the group-aggregate route) before it asserts the ANSWER, because a silent decline to
+ * the generic interpreter would make an equality against the interpreter vacuous. The query text is
+ * the SHIPPED ClickBench text ({@link ClickBenchQueries#byIndex(int)}), so a query edit cannot
+ * drift away from what the campaign measures.
  */
 public final class ClickBenchStringDecodeRouteEvidenceTest {
 
@@ -97,8 +98,8 @@ public final class ClickBenchStringDecodeRouteEvidenceTest {
 
   /**
    * q28's shipped {@code HAVING COUNT(*) > 100000} keeps nothing on a fixture this size, so the
-   * shipped text alone would compare two empty answers and witness no decoded key. The same text
-   * with the threshold scaled to the fixture returns the real regex-keyed groups; both are run.
+   * shipped text alone would compare two empty answers and witness no decoded key. The same text with
+   * the threshold scaled to the fixture returns the real regex-keyed groups; both are run.
    */
   private static final String Q28_SHIPPED_HAVING = "$c > 100000";
 
@@ -128,13 +129,14 @@ public final class ClickBenchStringDecodeRouteEvidenceTest {
     ProjectionIndexRegistry.clear();
 
     dbDir = Files.createTempDirectory("sirix-cb-strdec-");
-    try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                  .location(dbDir)
-                                                  .buildPathSummary(true)
-                                                  .versioningType(VersioningType.FULL)
-                                                  .hashType(HashType.NONE)
-                                                  .storeNodeHistory(false)
-                                                  .build();
+    try (
+        BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                 .location(dbDir)
+                                                 .buildPathSummary(true)
+                                                 .versioningType(VersioningType.FULL)
+                                                 .hashType(HashType.NONE)
+                                                 .storeNodeHistory(false)
+                                                 .build();
         Reader source = ClickBenchSource.open("generate:" + ROWS + ":42")) {
       store.createParallel(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, source,
           ClickBenchProjection.spec(ROWS));
@@ -176,8 +178,8 @@ public final class ClickBenchStringDecodeRouteEvidenceTest {
   }
 
   /**
-   * The precondition of every witness below: the columns really are segment-scoped, and the column
-   * is wide enough that a whole-column mapping is split into parallel ranges.
+   * The precondition of every witness below: the columns really are segment-scoped, and the column is
+   * wide enough that a whole-column mapping is split into parallel ranges.
    */
   @Test
   void theFixtureIsSegmentScopedAndWideEnoughForAParallelColumnMapping() throws Exception {

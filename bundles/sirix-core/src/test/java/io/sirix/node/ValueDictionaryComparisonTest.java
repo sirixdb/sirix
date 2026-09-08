@@ -16,13 +16,14 @@ final class ValueDictionaryComparisonTest {
 
   @Test
   void byteRangesPreserveUtf16OrderIncludingSharedPartialCharacters() {
-    final int[] alphabet = {0, 65, 127, 128, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFF,
-        0x10000, 0x10001, 0x1F642, 0x10FFFF};
+    final int[] alphabet = {0, 65, 127, 128, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFF, 0x10000, 0x10001, 0x1F642, 0x10FFFF};
     final SplittableRandom random = new SplittableRandom(0xC011A710);
     for (int iteration = 0; iteration < 2_000; iteration++) {
       final String prefix = value(random, alphabet);
       final String left = prefix + value(random, alphabet);
-      final String right = iteration % 7 == 0 ? left : prefix + value(random, alphabet);
+      final String right = iteration % 7 == 0
+          ? left
+          : prefix + value(random, alphabet);
       final byte[] a = left.getBytes(StandardCharsets.UTF_8);
       final byte[] b = right.getBytes(StandardCharsets.UTF_8);
       final byte[] paddedA = new byte[a.length + 13];
@@ -32,8 +33,8 @@ final class ValueDictionaryComparisonTest {
       final ValueDictionaryEntryNode first = new ValueDictionaryEntryNode(1, a);
       final ValueDictionaryEntryNode second = new ValueDictionaryEntryNode(2, b);
       final int expected = Integer.signum(left.compareTo(right));
-      assertEquals(expected, Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(paddedA, 3, a.length,
-          paddedB, 7, b.length)));
+      assertEquals(expected,
+          Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(paddedA, 3, a.length, paddedB, 7, b.length)));
       assertEquals(expected, Integer.signum(first.compareValueUtf16(second)));
       assertEquals(expected, Integer.signum(first.compareToRange(paddedB, 7, b.length)));
     }
@@ -63,15 +64,16 @@ final class ValueDictionaryComparisonTest {
   void asciiMismatchAfterAMultibyteLeadIsSettledByTheDecidingByte() {
     final byte[] wellFormedLeft = "\u00e9A".getBytes(StandardCharsets.UTF_8);
     final byte[] wellFormedRight = "\u00e9B".getBytes(StandardCharsets.UTF_8);
-    assertEquals(Integer.signum("\u00e9A".compareTo("\u00e9B")), Integer.signum(ValueDictionaryEntryNode
-        .compareUtf16Range(wellFormedLeft, 0, wellFormedLeft.length, wellFormedRight, 0, wellFormedRight.length)));
+    assertEquals(Integer.signum("\u00e9A".compareTo("\u00e9B")),
+        Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(wellFormedLeft, 0, wellFormedLeft.length,
+            wellFormedRight, 0, wellFormedRight.length)));
 
     final byte[] left = {(byte) 0xC3, 65};
     final byte[] right = {(byte) 0xC3, 66};
-    assertEquals(-1, Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(left, 0, left.length, right, 0,
-        right.length)));
-    assertEquals(1, Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(right, 0, right.length, left, 0,
-        left.length)));
+    assertEquals(-1,
+        Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(left, 0, left.length, right, 0, right.length)));
+    assertEquals(1,
+        Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(right, 0, right.length, left, 0, left.length)));
     assertEquals(0, ValueDictionaryEntryNode.compareUtf16Range(left, 0, left.length, Arrays.copyOf(left, left.length),
         0, left.length));
   }

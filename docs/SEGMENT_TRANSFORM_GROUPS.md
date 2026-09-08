@@ -7,29 +7,42 @@ format and load path are unchanged.
 
 The physical resolver marks only present cells selected by the predicate, then reads those entries
 in storage order on segment workers. Sparse selections sort their marked positions instead of
-walking every dictionary entry. Workers transform and hash into bounded batches before publishing
-canonical group ids. Rows retain their original positions, presence and multiplicity; the existing
-aggregate tables retain the document ordinal that breaks ordering ties.
+walking every dictionary entry. A walk already knows each entry's physical position, so it reads the
+bytes through the underlying STORAGE resolver's segment cursor — a decode, never an ordering — and
+skips translating the mint back to a position; a cell the walk cannot place resolves the ordinary
+way. Workers transform and hash into bounded batches before publishing canonical group ids. Rows
+retain their original positions, presence and multiplicity; the existing aggregate tables retain the
+document ordinal that breaks ordering ties.
 
 Physical order never becomes transformed value order. The value resolver deliberately exposes no
 sorted-run cursor or source-position ordering. Original string MIN/MAX operands still use the
 existing `SegmentValueMerge` and fold its canonical ranks, not packed cells or segment-local ids.
 
-Equality compares the already transformed input with the group's representative. Identity results
-are read directly from the original dictionary; their markers retain at most 4 MiB. Other
-representatives use a cache charged conservatively at 128 bytes plus two bytes per UTF-16 unit,
-capped at 64 MiB per canonicaliser. Over budget, equality reevaluates only the representative. Thus
-cache refusal costs at most one extra transform per equality candidate; the old resolver transformed
-both candidate values again after hashing the input. Batches flush at 4,096 entries or a 1 MiB
-string charge, plus the single output crossing that byte limit. Ordinary untransformed keys allocate
-neither transform cache nor transform batches.
+Equality compares the already transformed input with the group's representative. Before a batch is
+published, the canonicaliser snapshots one candidate representative per hash under its monitor; the
+worker then resolves that immutable value and compares it OUTSIDE the monitor, so representative
+resolution no longer serialises behind publication. A canonical id and its first representative cell
+never change once issued, so a proven match stays valid; a hash collision, a new arrival, or a cell
+settled after the snapshot falls through to the unchanged exact check under the monitor. The
+snapshot arrays are bounded by the existing walk batch. Identity results are read directly from the
+original dictionary; their markers retain at most 4 MiB. Other representatives use a cache charged
+conservatively at 128 bytes plus two bytes per UTF-16 unit, capped at 64 MiB per canonicaliser. Over
+budget, equality reevaluates only the representative. Thus cache refusal costs at most one extra
+transform per equality candidate; the old resolver transformed both candidate values again after
+hashing the input. Batches flush at 4,096 entries or a 1 MiB string charge, plus the single output
+crossing that byte limit. Ordinary untransformed keys allocate neither transform cache nor transform
+batches.
 
 Tests live in `SegmentGroupCanonicaliserTest` (parallel evaluation counts, selective predicates,
-identity outputs, bounded cache refusal, missing values, transformed ordering, and cross-segment
-MIN) and `SegmentLengthLaneQueryTest` (regex grouping with AVG length, MIN, multiplicity and stable
-count ties against the interpreter). `GroupTopKDifferentialTest` covers the neighboring group shapes.
-The physical-walk witness was mutation-tested by substituting the transformed resolver for the
-storage resolver: it failed with 0 physical visits instead of 20,000, then passed after restoration.
+identity outputs, bounded cache refusal, missing values, transformed ordering, cross-segment MIN,
+hash-chain landings on duplicate values, simultaneous transformed walks, and representative reads
+taken outside the publication monitor) and `SegmentLengthLaneQueryTest` (regex grouping with AVG
+length, MIN, multiplicity and stable count ties against the interpreter).
+`GroupTopKDifferentialTest` covers the neighboring group shapes, and
+`ClickBenchStringDecodeRouteEvidenceTest` is the end-to-end witness that q28's transformed regex-key
+group is actually served by this route. The physical-walk witness was mutation-tested by
+substituting the transformed resolver for the storage resolver: it failed with 0 physical visits
+instead of 20,000, then passed after restoration.
 
 ## q28 diagnostic evidence
 

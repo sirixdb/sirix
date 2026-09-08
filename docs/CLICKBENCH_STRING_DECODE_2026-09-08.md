@@ -22,17 +22,14 @@ checks and the PR, without adding a benchmark run or a performance claim.
 
 ## Implemented mechanisms
 
-- A transformed dictionary walk already knows each physical position. It decodes
-  through its segment cursor directly, avoiding the inverse mint-to-position
-  lookup and redundant read-view lookup. Unwalkable cells retain the resolver
-  fallback.
-- Before publishing a transformed batch, the canonicaliser snapshots an existing
-  representative per hash under its monitor. A segment worker resolves the
-  immutable representative value and checks exact equality outside the monitor.
-  Publication still occurs under the monitor. Hash collisions, new arrivals and
-  concurrently settled cells retain the original exact-value publication checks.
-  The representative cache keeps its existing byte bound; snapshot arrays are
-  bounded by the existing walk batch.
+- The transformed dictionary walk reads its bytes through the storage resolver's
+  segment cursor instead of translating a mint back to a position, and it
+  snapshots one candidate representative per hash before publishing a batch, so
+  representative resolution and equality run off the publication monitor.
+  Publication, hash collisions, new arrivals and concurrently settled cells keep
+  the original exact-value checks under the monitor.
+  [Grouping by transformed segment values](SEGMENT_TRANSFORM_GROUPS.md) owns both
+  mechanisms and their retention bounds.
 - Whole-column row mapping reads already-settled canonical IDs on the caller's
   workers, with each task owning a disjoint output range. An unresolved cell
   causes the incomplete output to be discarded and the original serial mapping
@@ -108,8 +105,10 @@ sibling `ClickBenchQ21Q22SegmentRouteEvidenceTest`, along with:
 
 - `SegmentGroupCanonicaliserTest`: parallel/serial equivalence, sparse masks,
   range boundaries, immutable inputs, serial fallback arrival order, sealed
-  values, hash collisions, simultaneous transformed walks and representative
-  reads outside the publication monitor.
+  values, hash-chain landings on duplicate values, simultaneous transformed walks
+  and representative reads outside the publication monitor. No test forces two
+  distinct values onto one hash, so the collision branch of the snapshot check is
+  reasoned from the retained exact comparison, not witnessed.
 - `RankTableReadViewTest` and `SegmentValueMergeTest`: physical cursor decoding,
   packed and spilled entries, sparse/range traversal, Unicode ordering and
   multiplicity.
