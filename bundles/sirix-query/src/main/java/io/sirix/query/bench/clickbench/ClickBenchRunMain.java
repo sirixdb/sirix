@@ -182,6 +182,7 @@ public final class ClickBenchRunMain {
     validateServingProofConfiguration(options.servingProof(), fastPaths, options.adHoc() != null);
 
     final long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
+    ClickBenchRigLease.holdForQueryProcess(offheap, options.dbDir());
     Allocators.getInstance().init(offheap);
 
     // Corpora loaded before the projection became part of the load have none, and re-ingesting a
@@ -192,10 +193,7 @@ public final class ClickBenchRunMain {
           seconds);
     }
 
-    final double[][] timings = new double[QUERY_COUNT][options.tries()];
-    for (final double[] row : timings) {
-      Arrays.fill(row, Double.NaN);
-    }
+    final double[][] timings = initializeTimings(options.tries());
 
     // A serving-proof run must FAIL where a serving arm fails: the executor's fail-soft fallback would
     // otherwise answer the query through the interpreter — invisible until it finishes, which at
@@ -302,6 +300,18 @@ public final class ClickBenchRunMain {
     }
     return validate(new Options(dbDir, tries, variant, threads, loadTime, reuseExecutor, dumpDir, jsonOut, comment,
         adHoc, selected, buildProjection, servingProof, histogramAfter));
+  }
+
+  static double[][] initializeTimings(final int tries) {
+    if (tries < 1) {
+      throw new IllegalArgumentException("positive default tries required");
+    }
+    final double[][] timings = new double[QUERY_COUNT][];
+    for (int query = 0; query < QUERY_COUNT; query++) {
+      timings[query] = new double[tries];
+      Arrays.fill(timings[query], Double.NaN);
+    }
+    return timings;
   }
 
   private static ServingProof selectServingProof(final ServingProof current, final ServingProof requested,
@@ -417,7 +427,7 @@ public final class ClickBenchRunMain {
     }
   }
 
-  /** Runs the selected queries {@code --tries} times each, filling {@code timings} in place. */
+  /** Runs the selected queries according to their timing-array lengths. */
   private static void runSuite(final Options options, final SirixCompileChain chain, final SirixQueryContext ctx,
       final JsonResourceSession session, final int revision, final boolean fastPaths, final double[][] timings)
       throws IOException {
@@ -433,7 +443,8 @@ public final class ClickBenchRunMain {
       long rows = -1L;
       boolean completed = true;
       final EnumSet<ServingRoute> queryRoutes = EnumSet.noneOf(ServingRoute.class);
-      for (int t = 0; t < options.tries(); t++) {
+      final int queryTries = timings[query.index()].length;
+      for (int t = 0; t < queryTries; t++) {
         SirixVectorizedExecutor perTry = null;
         if (!options.reuseExecutor() && fastPaths) {
           perTry = new SirixVectorizedExecutor(session, revision, options.threads());
@@ -456,7 +467,7 @@ public final class ClickBenchRunMain {
           if (tryProofFailure != null) {
             proofFailures.add(tryProofFailure);
           }
-          if (t == options.tries() - 1 && options.dumpDir() != null) {
+          if (t == queryTries - 1 && options.dumpDir() != null) {
             rows = dump(options.dumpDir(), query.index(), serialized);
           }
         } catch (final Exception e) {
@@ -896,8 +907,8 @@ public final class ClickBenchRunMain {
   }
 
   /** Writes the ClickBench {@code results/YYYYMMDD/<machine>.json} payload. */
-  private static void writeResultsJson(final Path out, final double[][] timings, final double loadTime,
-      final long dataSize, final String comment) throws IOException {
+  static void writeResultsJson(final Path out, final double[][] timings, final double loadTime, final long dataSize,
+      final String comment) throws IOException {
     final JsonObject root = new JsonObject();
     root.addProperty("system", "SirixDB");
     root.addProperty("date", LocalDate.now(ZoneOffset.UTC).toString());

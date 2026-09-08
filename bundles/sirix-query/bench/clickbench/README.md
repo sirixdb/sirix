@@ -103,7 +103,10 @@ java -Dclickbench.expectedRows=99997497 -Dclickbench.projection=true \
      -Dclickbench.projection.incremental=true -DbuildPathSummary=true \
      -cp <sirix-query classpath> io.sirix.query.bench.clickbench.ClickBenchLoadMain \
      /var/tmp/sirix-clickbench hits.json
-java -cp <sirix-query classpath> io.sirix.query.bench.clickbench.ClickBenchRunMain \
+java -Xms6g -Xmx14g -Dsirix.offheap.bytes=10737418240 \
+     -XX:+UnlockExperimentalVMOptions -XX:-UseJVMCICompiler \
+     -Dsirix.projection.eagerMaterializeBytes=5368709120 \
+     -cp <sirix-query classpath> io.sirix.query.bench.clickbench.ClickBenchRunMain \
      /var/tmp/sirix-clickbench --tries 3 --dump results-sirix
 
 # 4. DuckDB, over the SAME JSON file, so the differential compares identical data
@@ -123,6 +126,13 @@ DUCKDB_DB="$work/hits.duckdb" DUCKDB_TEMP_DIRECTORY="$work/duckdb-tmp" \
 DUCKDB_MEMORY_LIMIT=12GB DUCKDB_THREADS=4 \
 ./run-differential.sh 99997497 "$work"
 ```
+
+Both Java mains take a process-lifetime rig lease before reserving memory, so one host runs one
+ClickBench JVM at a time and a killed wrapper cannot leave the lease dangling. A query JVM counts as
+*large* when it opens the campaign database, has a heap ≥ 12 GiB, or reserves an off-heap arena
+≥ 10 GiB — the main's own 24 GiB arena default is enough on its own — and a large one must match the
+100M envelope exactly, which is what the flags above are. A smaller validation JVM only shares the
+host lease. The rig's [`README.md`](rig/README.md) owns that contract and the measurement protocol.
 
 The default parallel path requires `hashType=NONE` and `storeNodeHistory=false`; both are already the
 ClickBench defaults. A non-standard hashed or temporal-history load must set
@@ -181,9 +191,11 @@ in production.
 
 `SIRIX_LOAD_JVM_ARGS` and `SIRIX_QUERY_JVM_ARGS` are whitespace-delimited append points for the
 fixed-heap, direct-memory, allocator, off-heap, GC, and HFT flags used by a particular campaign. This
-is necessary because the Gradle tasks' general-purpose defaults are `-Xmx12g` and both Java mains
-otherwise reserve 24 GiB off heap. A later `-Xmx4g` and `-Dsirix.offheap.bytes=...` in these variables
-override those defaults; the fixed-heap HFT section below gives the complete canonical loader string.
+is necessary because `clickBenchLoad` defaults to `-Xms4g -Xmx12g` and leaves the loader main's
+24 GiB off-heap default in place, while `clickBench` defaults to the campaign's 100M query envelope
+(`-Xms6g -Xmx14g`, a 10 GiB arena, 5 GiB eager residency, JVMCI compiler off). A later `-Xmx4g` and
+`-Dsirix.offheap.bytes=...` in these variables override those defaults; the fixed-heap HFT section
+below gives the complete canonical loader string.
 The script appends its mandatory expected-row/projection/path-summary properties after
 `SIRIX_LOAD_JVM_ARGS`, and appends `autoVectorize=true` or `false` after `SIRIX_QUERY_JVM_ARGS`, so an
 earlier duplicate cannot silently disable the projection or collapse the two query legs into the
@@ -219,7 +231,9 @@ java -cp "$CP" io.sirix.query.bench.clickbench.ClickBenchGenerateMain hits-1m.js
 
 # 2. SirixDB
 java -cp "$CP" io.sirix.query.bench.clickbench.ClickBenchLoadMain /var/tmp/sirix-cb hits-1m.json
-java -cp "$CP" io.sirix.query.bench.clickbench.ClickBenchRunMain  /var/tmp/sirix-cb \
+# stay under the large-JVM thresholds, so this is a shared small-validation lease
+java -Xms4g -Xmx8g -Dsirix.offheap.bytes=8589934592 \
+     -cp "$CP" io.sirix.query.bench.clickbench.ClickBenchRunMain /var/tmp/sirix-cb \
      --tries 3 --dump results-sirix
 
 # 3. DuckDB over the same file, then diff

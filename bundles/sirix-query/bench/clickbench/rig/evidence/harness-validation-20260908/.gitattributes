@@ -1,0 +1,2 @@
+# Preserve generated evidence bytes, including logger-emitted trailing spaces.
+*.log -text -whitespace

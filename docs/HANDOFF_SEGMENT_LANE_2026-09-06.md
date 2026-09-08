@@ -23,8 +23,9 @@ Consequences that shape every decision:
   **20 of the 43 queries already answer in under 100 ms and still carry 22.15 of the 63.44 ln**;
   the 17 under 50 ms carry 17.63 ln between them. See §4 for the largest measured contributions;
   `python3 rank.py SEG6T` prints the fourteen largest C6A hot contributions.
-- Only 3-try legs score (`suite100m.sh 3`). Never compare legs of different run shapes, and never a
-  `-Dsirix.projDiag=true` run.
+- Only 3-try legs score, and `rank.py` additionally ranks only a curated leg whose provenance states
+  the publication regime — `suite100m.sh 3` now collects a *steering* leg, which never ranks (§5).
+  Never compare legs of different run shapes, and never a `-Dsirix.projDiag=true` run.
 
 Standing secondary target: ~50 GB storage at 100M (met: 48 GB); long-term ≤ 30 GB
 (`docs/ROADMAP_TO_30GB.md`).
@@ -47,29 +48,36 @@ delivery constraints.
 | SEG5T (2026-09-07, measured) | segment lane at `de2724c5c` | same | 4.714 | 16 | 66.68 |
 | **SEG6T (2026-09-08, measured)** | segment lane at `8df0532d6`; leg recorded by `aa4d81d54` | same — provenance from the `sirix-cb-score-3` investigation report, not from the leg JSON | **4.373** | **16** | **63.44** |
 
-**SEG6T is where we stand**, and rank 10 (Σln ≤ 51.99) needs ≈ **−11.5 ln** from it.
-`python3 rank.py SEG6T SEG5T` over the committed `rig/legs/query-SEG6T.json` reproduces its row on
-any box — recompute it from the leg rather than copying the number around. Only the row's three
-scored columns come from the artifact: `mkleg.py` fills a leg's machine, date and data size from the
-`N1FULL1` template, so a leg JSON's only self-describing content is its 43×3 timings. The build and
-database columns rest instead on the `sirix-cb-score-3` investigation report, which recorded the run
-against `clickbench-seg100m-20260905-2328` on this box. SEG6T therefore measures none of the
-string-decode lane's source changes.
+**SEG6T is where we stand**, and rank 10 (Σln ≤ 51.99) needs ≈ **−11.45 ln** from it
+(63.442 − 51.99 = 11.452). `python3 rank.py SEG6T SEG5T` over the committed
+`rig/legs/query-SEG6T.json` reproduces its row on any box — recompute it from the leg rather than
+copying the number around. Only the row's three scored columns come from the artifact: `mkleg.py`
+fills a leg's machine, date and data size from the `N1FULL1` template, so a leg JSON's only
+self-describing content is its 43×3 timings. The build and database columns rest instead on the
+`sirix-cb-score-3` investigation report, which recorded the run against
+`clickbench-seg100m-20260905-2328` on this box. SEG6T therefore measures none of the string-decode
+lane's source changes, and §4's per-query lever values are still drawn from SEG4T.
 
 **No row in this table is commensurable with a leg measured after 2026-09-08.** SEG6T is the newest
 of them and still predates both the box's current power cap and the harness variance
 characterization; [the rig README](../bundles/sirix-query/bench/clickbench/rig/README.md) owns that
-harness state and both of its figures. Compare a post-cap leg only against another post-cap leg.
+harness state and both of its figures. Compare a post-cap leg only against another post-cap leg —
+and note that "post-cap" names the MSR setting alone: the
+[power audit](../bundles/sirix-query/bench/clickbench/rig/evidence/power-audit-20260908/README.md)
+finds 16 of the 20 quiet-control legs were sampled under a platform-managed MMIO limit below that
+cap, so even that cohort was not one power regime.
 
-Read the Σln steps between these rows, and §4's per-lever Δln values, against the **paired** floor.
-Every one of them is a difference taken from a single baseline/candidate leg pair, so the criterion
-is the harness's paired (A/A) minimum detectable effect of ≈ **1.345 summed ln** — not the 3.023 ln
-leg-to-leg range, which is unpaired spread across independent legs and is too harsh a yardstick for
-a paired comparison. Some of §4's levers clear the paired floor and some do not, so its bold Δln
-values are not uniformly established results. Firstmate owns the requalification of §4's rows
-against this floor as a separate task; until it lands, treat §4's repeated single-query diagnostics
-as what carries a lever's attribution. A leg-to-leg Σln step, even one that clears the floor,
-attributes nothing by itself to any single lever landed between the two legs.
+Read the Σln steps between these rows, and §4's per-lever Δln values, against what the harness can
+actually resolve. Every one of them is a difference taken from a **single** baseline/candidate leg
+pair, which is a historical observation rather than the repeated paired evidence the rig now
+collects. The ≈ **1.345 summed ln** figure is the estimated 80%-power detectable effect of a
+**ten-pair** null calibration — it is neither a physical floor nor a criterion a one-pair difference
+can be said to meet. The **3.023 ln** leg-to-leg range is unpaired spread across 20 independent legs
+and is too harsh a yardstick for a paired comparison. Neither number licenses a single-pair step, so
+§4's bold Δln values are not uniformly established results. Firstmate owns their requalification as
+a separate task; until it lands, treat §4's repeated single-query diagnostics as what carries a
+lever's attribution. A leg-to-leg Σln step attributes nothing by itself to any single lever landed
+between the two legs.
 
 **SEG5T is this handoff's historical snapshot**: rank 10 (Σln ≤ 51.99) was
 ≈ **−14.7 ln** away from it (66.676 − 51.99 = 14.686). Its leg JSON is committed as
@@ -190,19 +198,21 @@ Rule of thumb from the ledger: a lever that removes a whole-column canonicalisat
 
 ## 5. Operating protocol
 
-The committed SEG6T record supersedes this handoff's historical SEG5T snapshot and
-contains the q35 fold. No accepted performance result is added for the subsequent
-string-decode change. The commands are "The one loop that matters" in the rig's
-[`README.md`](../bundles/sirix-query/bench/clickbench/rig/README.md); `SEG6T` is
-already taken. Check existing names and obtain a Firstmate benchmark window before
-running any 100M work. The string-decode lane currently has no such authorization.
+The committed SEG6T record (§2) supersedes this handoff's historical SEG5T snapshot and contains
+the q35 fold; the next leg scores whatever lands after it. No accepted performance result is added
+for the subsequent string-decode change. The rig's
+[`README.md`](../bundles/sirix-query/bench/clickbench/rig/README.md) is the operating manual for
+every command below and owns the measurement protocol — tag the next leg `SEG7T`, since `SEG2T`
+through `SEG6T` are taken (`rig/legs/`). Check existing names and obtain a Firstmate benchmark
+window before running any 100M work. The string-decode lane currently has no such authorization.
 
 Per lever, in this order — every step has been skipped once in this campaign and every skip cost
 more than the step:
 
-1. **Read the route first.** `bash diag100m.sh 28` prints `route=` and every `[proj]` decline/
-   counter line; a lever that stops a query from being served appears as a route change, and a
-   served-but-slow query looks identical to a declined one in a timing table.
+1. **Read the route first.** `bash diag100m.sh 28` prints the evidence directory it created; its
+   `diagnostic/suite.log` carries the `route=` and `[proj]` decline/counter lines. A lever that stops
+   a query from being served appears as a route change, and a served-but-slow query looks identical
+   to a declined one in a timing table.
 2. **Profile before designing.** async-profiler on the hot try, `collapsed.py FILE pattern…`.
 3. **Unit-test the kernel with a mutated witness**: a green test that stays green when the
    production line it claims to pin is deleted proves nothing. Read results only via
@@ -211,8 +221,11 @@ more than the step:
 4. **1M gate**: `bash load1m.sh` if the write path changed (a database is a build output with no
    version stamp), then `bash seggate1m.sh` → must print **0 mismatch, 0 missing** against DuckDB
    and 0 declines. Tie-ambiguous rows are ORDER BY ties and fine.
-5. **100M single-query check** (`TRIES=2 bash diag100m.sh N`; try 2 is hot), then the 3-try suite
-   leg, `mkleg.py`, `rank.py`. Report the rank and the Δln, never the seconds alone.
+5. **100M single-query check** (`TRIES=2 bash diag100m.sh N`; try 2 is hot), then a paired
+   `measure.py compare` for the effect and its uncertainty. Report the Δln with its interval and the
+   per-query breakdown, never the seconds alone. The old `suite100m.sh` → `mkleg.py` → `rank.py`
+   route no longer ends in a rank: every leg measured under the capped rig is steering-only, and
+   `rank.py` ranks only a leg whose provenance states the publication regime.
 6. Commit with explicit imports, ≤ 120 columns, tests in the same commit.
 
 Box rules (32 GB, 20 threads): the 100M envelope is `-Xmx14g` + 10 GiB arena and needs
@@ -245,7 +258,8 @@ needs `-Dclickbench.expectedRows=99997497` (the file has 99,997,497 rows, not 10
 - **Stale XML.** A Gradle test run that fails to compile leaves the previous `TEST-*.xml` in place.
 - **The gate recompiles from source.** A mutant left in a source file rides into a 1M gate; check the
   log's `compileJava` line.
-- **Score with rank.py, never seconds.** Said three times in the memory ledger; broken once anyway.
+- **Score in ln, never seconds** — `measure.py compare` for a change, `rank.py` for a curated
+  publication leg. Said three times in the memory ledger; broken once anyway.
 - **Never generalise a cache-resident measurement of an I/O trade** — a lever's query cost inverted
   between 1M and 100M (overflow compression).
 - **1M is not 100M for dictionaries**: distinct values grow ~25× for 100× rows; the segment lane

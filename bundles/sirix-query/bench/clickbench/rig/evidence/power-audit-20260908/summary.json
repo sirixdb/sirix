@@ -1,0 +1,1252 @@
+{
+ "question": "Did any measurement session run under an MMIO long-term power limit below the MSR limit the rig verifies?",
+ "answer": "Yes. The effective envelope is the lower of the two, so several cohorts ran under a tighter cap than their attestation states, and the cohorts differ from each other.",
+ "source": "direct-child */telemetry.jsonl under the worker-local rig-trust diagnostics directory (not committed; large raw telemetry)",
+ "reproduce": "python3 bundles/sirix-query/bench/clickbench/rig/poweraudit.py <RIG_TRUST_DIR>/<leg>/telemetry.jsonl",
+ "fields": {
+  "msr_long": "/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw",
+  "msr_short": "/sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw",
+  "mmio_long": "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw"
+ },
+ "caveats": [
+  "Sampled configured limits, not measured package power, and not proof of enforcement between samples.",
+  "The readings do not identify what changed a limit or when it changed between samples.",
+  "Coverage is the direct-child telemetry files only; nested new-launcher diagnostics were not scanned.",
+  "No timing array, C6A score or archived statistic is altered by this audit.",
+  "cool sampled no powercap path, so its telemetry does not establish its regime; the thermal manifest records MMIO 45 W under both the 200 W and 50 W MSR readings as point observations, not continuous telemetry.",
+  "capped50-01 recorded 65/65 W MSR throughout: it is the 65 W cap experiment, and its mmio_below_msr count is relative to 65 W. Only 224 of its 318 samples were below 50 W."
+ ],
+ "cohorts": {
+  "capped50": {
+   "legs": 1,
+   "samples": 318,
+   "unsampled": 0,
+   "mmio_below_msr": 298,
+   "legs_below": 1
+  },
+  "cool": {
+   "legs": 2,
+   "samples": 688,
+   "unsampled": 688,
+   "mmio_below_msr": 0,
+   "legs_below": 0
+  },
+  "fast33": {
+   "legs": 20,
+   "samples": 664,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "legs_below": 0
+  },
+  "flat50": {
+   "legs": 13,
+   "samples": 3998,
+   "unsampled": 0,
+   "mmio_below_msr": 2874,
+   "legs_below": 13
+  },
+  "gcswitch": {
+   "legs": 1,
+   "samples": 274,
+   "unsampled": 0,
+   "mmio_below_msr": 49,
+   "legs_below": 1
+  },
+  "jvm50": {
+   "legs": 1,
+   "samples": 291,
+   "unsampled": 0,
+   "mmio_below_msr": 61,
+   "legs_below": 1
+  },
+  "placement": {
+   "legs": 4,
+   "samples": 645,
+   "unsampled": 0,
+   "mmio_below_msr": 184,
+   "legs_below": 2
+  },
+  "quiet50": {
+   "legs": 20,
+   "samples": 5714,
+   "unsampled": 0,
+   "mmio_below_msr": 4335,
+   "legs_below": 16
+  },
+  "split50": {
+   "legs": 40,
+   "samples": 5838,
+   "unsampled": 0,
+   "mmio_below_msr": 5413,
+   "legs_below": 39
+  }
+ },
+ "legs": [
+  {
+   "leg": "capped50-01",
+   "cohort": "capped50",
+   "samples": 318,
+   "unsampled": 0,
+   "mmio_below_msr": 298,
+   "observed": {
+    "65/65 W MSR, 45 W MMIO": 207,
+    "65/65 W MSR, 48.75 W MMIO": 10,
+    "65/65 W MSR, 49.25 W MMIO": 7,
+    "65/65 W MSR, 53.25 W MMIO": 10,
+    "65/65 W MSR, 57.25 W MMIO": 64,
+    "65/65 W MSR, 69.625 W MMIO": 20
+   }
+  },
+  {
+   "leg": "cool-01",
+   "cohort": "cool",
+   "samples": 344,
+   "unsampled": 344,
+   "mmio_below_msr": 0,
+   "observed": {}
+  },
+  {
+   "leg": "cool-02",
+   "cohort": "cool",
+   "samples": 344,
+   "unsampled": 344,
+   "mmio_below_msr": 0,
+   "observed": {}
+  },
+  {
+   "leg": "fast33-01",
+   "cohort": "fast33",
+   "samples": 42,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 42
+   }
+  },
+  {
+   "leg": "fast33-02",
+   "cohort": "fast33",
+   "samples": 32,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 32
+   }
+  },
+  {
+   "leg": "fast33-03",
+   "cohort": "fast33",
+   "samples": 32,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 32
+   }
+  },
+  {
+   "leg": "fast33-04",
+   "cohort": "fast33",
+   "samples": 33,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 33
+   }
+  },
+  {
+   "leg": "fast33-05",
+   "cohort": "fast33",
+   "samples": 32,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 32
+   }
+  },
+  {
+   "leg": "fast33-06",
+   "cohort": "fast33",
+   "samples": 33,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 33
+   }
+  },
+  {
+   "leg": "fast33-07",
+   "cohort": "fast33",
+   "samples": 33,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 33
+   }
+  },
+  {
+   "leg": "fast33-08",
+   "cohort": "fast33",
+   "samples": 33,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 33
+   }
+  },
+  {
+   "leg": "fast33-09",
+   "cohort": "fast33",
+   "samples": 34,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 34
+   }
+  },
+  {
+   "leg": "fast33-10",
+   "cohort": "fast33",
+   "samples": 34,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 34
+   }
+  },
+  {
+   "leg": "fast33-11",
+   "cohort": "fast33",
+   "samples": 33,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 33
+   }
+  },
+  {
+   "leg": "fast33-12",
+   "cohort": "fast33",
+   "samples": 33,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 33
+   }
+  },
+  {
+   "leg": "fast33-13",
+   "cohort": "fast33",
+   "samples": 32,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 32
+   }
+  },
+  {
+   "leg": "fast33-14",
+   "cohort": "fast33",
+   "samples": 32,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 32
+   }
+  },
+  {
+   "leg": "fast33-15",
+   "cohort": "fast33",
+   "samples": 32,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 32
+   }
+  },
+  {
+   "leg": "fast33-16",
+   "cohort": "fast33",
+   "samples": 33,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 33
+   }
+  },
+  {
+   "leg": "fast33-17",
+   "cohort": "fast33",
+   "samples": 33,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 33
+   }
+  },
+  {
+   "leg": "fast33-18",
+   "cohort": "fast33",
+   "samples": 32,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 32
+   }
+  },
+  {
+   "leg": "fast33-19",
+   "cohort": "fast33",
+   "samples": 33,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 33
+   }
+  },
+  {
+   "leg": "fast33-20",
+   "cohort": "fast33",
+   "samples": 33,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 33
+   }
+  },
+  {
+   "leg": "flat50-01",
+   "cohort": "flat50",
+   "samples": 326,
+   "unsampled": 0,
+   "mmio_below_msr": 96,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 94,
+    "50/50 W MSR, 49 W MMIO": 2,
+    "50/50 W MSR, 50.125 W MMIO": 9,
+    "50/50 W MSR, 57 W MMIO": 2,
+    "50/50 W MSR, 76 W MMIO": 219
+   }
+  },
+  {
+   "leg": "flat50-02",
+   "cohort": "flat50",
+   "samples": 357,
+   "unsampled": 0,
+   "mmio_below_msr": 187,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 168,
+    "50/50 W MSR, 46.875 W MMIO": 9,
+    "50/50 W MSR, 47.5 W MMIO": 10,
+    "50/50 W MSR, 76 W MMIO": 170
+   }
+  },
+  {
+   "leg": "flat50-03",
+   "cohort": "flat50",
+   "samples": 199,
+   "unsampled": 0,
+   "mmio_below_msr": 110,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 88,
+    "50/50 W MSR, 45.125 W MMIO": 9,
+    "50/50 W MSR, 49 W MMIO": 3,
+    "50/50 W MSR, 49.125 W MMIO": 10,
+    "50/50 W MSR, 54 W MMIO": 1,
+    "50/50 W MSR, 58 W MMIO": 2,
+    "50/50 W MSR, 67 W MMIO": 2,
+    "50/50 W MSR, 76 W MMIO": 84
+   }
+  },
+  {
+   "leg": "flat50-04",
+   "cohort": "flat50",
+   "samples": 324,
+   "unsampled": 0,
+   "mmio_below_msr": 2,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 2,
+    "50/50 W MSR, 76 W MMIO": 322
+   }
+  },
+  {
+   "leg": "flat50-05",
+   "cohort": "flat50",
+   "samples": 292,
+   "unsampled": 0,
+   "mmio_below_msr": 127,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 125,
+    "50/50 W MSR, 46.625 W MMIO": 2,
+    "50/50 W MSR, 50.625 W MMIO": 2,
+    "50/50 W MSR, 58.625 W MMIO": 2,
+    "50/50 W MSR, 66.625 W MMIO": 1,
+    "50/50 W MSR, 76 W MMIO": 160
+   }
+  },
+  {
+   "leg": "flat50-06",
+   "cohort": "flat50",
+   "samples": 289,
+   "unsampled": 0,
+   "mmio_below_msr": 280,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 252,
+    "50/50 W MSR, 46.75 W MMIO": 28,
+    "50/50 W MSR, 52.125 W MMIO": 9
+   }
+  },
+  {
+   "leg": "flat50-07",
+   "cohort": "flat50",
+   "samples": 285,
+   "unsampled": 0,
+   "mmio_below_msr": 256,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 212,
+    "50/50 W MSR, 45.5 W MMIO": 8,
+    "50/50 W MSR, 46.75 W MMIO": 27,
+    "50/50 W MSR, 47.25 W MMIO": 9,
+    "50/50 W MSR, 51.25 W MMIO": 29
+   }
+  },
+  {
+   "leg": "flat50-08",
+   "cohort": "flat50",
+   "samples": 288,
+   "unsampled": 0,
+   "mmio_below_msr": 232,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 222,
+    "50/50 W MSR, 46.75 W MMIO": 10,
+    "50/50 W MSR, 50.75 W MMIO": 47,
+    "50/50 W MSR, 51.25 W MMIO": 9
+   }
+  },
+  {
+   "leg": "flat50-09",
+   "cohort": "flat50",
+   "samples": 383,
+   "unsampled": 0,
+   "mmio_below_msr": 383,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 383
+   }
+  },
+  {
+   "leg": "flat50-10",
+   "cohort": "flat50",
+   "samples": 334,
+   "unsampled": 0,
+   "mmio_below_msr": 334,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 334
+   }
+  },
+  {
+   "leg": "flat50-11",
+   "cohort": "flat50",
+   "samples": 311,
+   "unsampled": 0,
+   "mmio_below_msr": 311,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 311
+   }
+  },
+  {
+   "leg": "flat50-12",
+   "cohort": "flat50",
+   "samples": 309,
+   "unsampled": 0,
+   "mmio_below_msr": 299,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 273,
+    "50/50 W MSR, 46 W MMIO": 9,
+    "50/50 W MSR, 48.25 W MMIO": 8,
+    "50/50 W MSR, 49.625 W MMIO": 9,
+    "50/50 W MSR, 50.25 W MMIO": 10
+   }
+  },
+  {
+   "leg": "flat50-13",
+   "cohort": "flat50",
+   "samples": 301,
+   "unsampled": 0,
+   "mmio_below_msr": 257,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 238,
+    "50/50 W MSR, 47.125 W MMIO": 10,
+    "50/50 W MSR, 48.625 W MMIO": 9,
+    "50/50 W MSR, 52.625 W MMIO": 44
+   }
+  },
+  {
+   "leg": "gcswitch-01-on",
+   "cohort": "gcswitch",
+   "samples": 274,
+   "unsampled": 0,
+   "mmio_below_msr": 49,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 30,
+    "50/50 W MSR, 47 W MMIO": 10,
+    "50/50 W MSR, 49.5 W MMIO": 9,
+    "50/50 W MSR, 76 W MMIO": 225
+   }
+  },
+  {
+   "leg": "jvm50-01",
+   "cohort": "jvm50",
+   "samples": 291,
+   "unsampled": 0,
+   "mmio_below_msr": 61,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 43,
+    "50/50 W MSR, 48.25 W MMIO": 9,
+    "50/50 W MSR, 49.875 W MMIO": 9,
+    "50/50 W MSR, 76 W MMIO": 230
+   }
+  },
+  {
+   "leg": "placement-01-full",
+   "cohort": "placement",
+   "samples": 287,
+   "unsampled": 0,
+   "mmio_below_msr": 51,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 34,
+    "50/50 W MSR, 47.125 W MMIO": 8,
+    "50/50 W MSR, 49 W MMIO": 9,
+    "50/50 W MSR, 76 W MMIO": 236
+   }
+  },
+  {
+   "leg": "placement-02-fast",
+   "cohort": "placement",
+   "samples": 43,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 43
+   }
+  },
+  {
+   "leg": "placement-03-fast",
+   "cohort": "placement",
+   "samples": 37,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 37
+   }
+  },
+  {
+   "leg": "placement-04-full",
+   "cohort": "placement",
+   "samples": 278,
+   "unsampled": 0,
+   "mmio_below_msr": 133,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 131,
+    "50/50 W MSR, 49 W MMIO": 2,
+    "50/50 W MSR, 57 W MMIO": 2,
+    "50/50 W MSR, 65 W MMIO": 2,
+    "50/50 W MSR, 73 W MMIO": 2,
+    "50/50 W MSR, 76 W MMIO": 139
+   }
+  },
+  {
+   "leg": "quiet50-01",
+   "cohort": "quiet50",
+   "samples": 294,
+   "unsampled": 0,
+   "mmio_below_msr": 294,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 294
+   }
+  },
+  {
+   "leg": "quiet50-02",
+   "cohort": "quiet50",
+   "samples": 289,
+   "unsampled": 0,
+   "mmio_below_msr": 289,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 270,
+    "50/50 W MSR, 45.25 W MMIO": 9,
+    "50/50 W MSR, 47.875 W MMIO": 10
+   }
+  },
+  {
+   "leg": "quiet50-03",
+   "cohort": "quiet50",
+   "samples": 290,
+   "unsampled": 0,
+   "mmio_below_msr": 290,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 223,
+    "50/50 W MSR, 47.875 W MMIO": 36,
+    "50/50 W MSR, 49 W MMIO": 21,
+    "50/50 W MSR, 49.75 W MMIO": 10
+   }
+  },
+  {
+   "leg": "quiet50-04",
+   "cohort": "quiet50",
+   "samples": 285,
+   "unsampled": 0,
+   "mmio_below_msr": 275,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 215,
+    "50/50 W MSR, 47.125 W MMIO": 8,
+    "50/50 W MSR, 47.25 W MMIO": 9,
+    "50/50 W MSR, 48.125 W MMIO": 10,
+    "50/50 W MSR, 49 W MMIO": 33,
+    "50/50 W MSR, 50.5 W MMIO": 10
+   }
+  },
+  {
+   "leg": "quiet50-05",
+   "cohort": "quiet50",
+   "samples": 284,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 51.125 W MMIO": 284
+   }
+  },
+  {
+   "leg": "quiet50-06",
+   "cohort": "quiet50",
+   "samples": 283,
+   "unsampled": 0,
+   "mmio_below_msr": 234,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 215,
+    "50/50 W MSR, 48.375 W MMIO": 10,
+    "50/50 W MSR, 49.25 W MMIO": 9,
+    "50/50 W MSR, 51.125 W MMIO": 22,
+    "50/50 W MSR, 52.375 W MMIO": 27
+   }
+  },
+  {
+   "leg": "quiet50-07",
+   "cohort": "quiet50",
+   "samples": 284,
+   "unsampled": 0,
+   "mmio_below_msr": 236,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 226,
+    "50/50 W MSR, 49 W MMIO": 10,
+    "50/50 W MSR, 52.375 W MMIO": 48
+   }
+  },
+  {
+   "leg": "quiet50-08",
+   "cohort": "quiet50",
+   "samples": 284,
+   "unsampled": 0,
+   "mmio_below_msr": 272,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 213,
+    "50/50 W MSR, 46 W MMIO": 7,
+    "50/50 W MSR, 48.25 W MMIO": 10,
+    "50/50 W MSR, 48.625 W MMIO": 42,
+    "50/50 W MSR, 50 W MMIO": 12
+   }
+  },
+  {
+   "leg": "quiet50-09",
+   "cohort": "quiet50",
+   "samples": 283,
+   "unsampled": 0,
+   "mmio_below_msr": 234,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 225,
+    "50/50 W MSR, 48.625 W MMIO": 9,
+    "50/50 W MSR, 50 W MMIO": 23,
+    "50/50 W MSR, 52.625 W MMIO": 26
+   }
+  },
+  {
+   "leg": "quiet50-10",
+   "cohort": "quiet50",
+   "samples": 289,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 52.625 W MMIO": 289
+   }
+  },
+  {
+   "leg": "quiet50-11",
+   "cohort": "quiet50",
+   "samples": 286,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 52.625 W MMIO": 286
+   }
+  },
+  {
+   "leg": "quiet50-12",
+   "cohort": "quiet50",
+   "samples": 294,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 52.625 W MMIO": 294
+   }
+  },
+  {
+   "leg": "quiet50-13",
+   "cohort": "quiet50",
+   "samples": 283,
+   "unsampled": 0,
+   "mmio_below_msr": 232,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 213,
+    "50/50 W MSR, 48.125 W MMIO": 9,
+    "50/50 W MSR, 48.625 W MMIO": 10,
+    "50/50 W MSR, 52.125 W MMIO": 34,
+    "50/50 W MSR, 52.625 W MMIO": 17
+   }
+  },
+  {
+   "leg": "quiet50-14",
+   "cohort": "quiet50",
+   "samples": 282,
+   "unsampled": 0,
+   "mmio_below_msr": 282,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 273,
+    "50/50 W MSR, 48.125 W MMIO": 9
+   }
+  },
+  {
+   "leg": "quiet50-15",
+   "cohort": "quiet50",
+   "samples": 286,
+   "unsampled": 0,
+   "mmio_below_msr": 286,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 286
+   }
+  },
+  {
+   "leg": "quiet50-16",
+   "cohort": "quiet50",
+   "samples": 292,
+   "unsampled": 0,
+   "mmio_below_msr": 292,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 284,
+    "50/50 W MSR, 46 W MMIO": 8
+   }
+  },
+  {
+   "leg": "quiet50-17",
+   "cohort": "quiet50",
+   "samples": 283,
+   "unsampled": 0,
+   "mmio_below_msr": 283,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 283
+   }
+  },
+  {
+   "leg": "quiet50-18",
+   "cohort": "quiet50",
+   "samples": 281,
+   "unsampled": 0,
+   "mmio_below_msr": 274,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 255,
+    "50/50 W MSR, 47.75 W MMIO": 10,
+    "50/50 W MSR, 48.25 W MMIO": 9,
+    "50/50 W MSR, 50.5 W MMIO": 7
+   }
+  },
+  {
+   "leg": "quiet50-19",
+   "cohort": "quiet50",
+   "samples": 278,
+   "unsampled": 0,
+   "mmio_below_msr": 278,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 242,
+    "50/50 W MSR, 45.375 W MMIO": 10,
+    "50/50 W MSR, 48 W MMIO": 10,
+    "50/50 W MSR, 48.625 W MMIO": 7,
+    "50/50 W MSR, 49.5 W MMIO": 9
+   }
+  },
+  {
+   "leg": "quiet50-20",
+   "cohort": "quiet50",
+   "samples": 284,
+   "unsampled": 0,
+   "mmio_below_msr": 284,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 284
+   }
+  },
+  {
+   "leg": "split50-01-a",
+   "cohort": "split50",
+   "samples": 119,
+   "unsampled": 0,
+   "mmio_below_msr": 0,
+   "observed": {
+    "50/50 W MSR, 76 W MMIO": 119
+   }
+  },
+  {
+   "leg": "split50-01-b",
+   "cohort": "split50",
+   "samples": 190,
+   "unsampled": 0,
+   "mmio_below_msr": 96,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 82,
+    "50/50 W MSR, 45.5 W MMIO": 3,
+    "50/50 W MSR, 49 W MMIO": 2,
+    "50/50 W MSR, 49.5 W MMIO": 2,
+    "50/50 W MSR, 49.875 W MMIO": 7,
+    "50/50 W MSR, 57 W MMIO": 2,
+    "50/50 W MSR, 58.5 W MMIO": 2,
+    "50/50 W MSR, 65 W MMIO": 2,
+    "50/50 W MSR, 66.5 W MMIO": 2,
+    "50/50 W MSR, 76 W MMIO": 86
+   }
+  },
+  {
+   "leg": "split50-02-a",
+   "cohort": "split50",
+   "samples": 123,
+   "unsampled": 0,
+   "mmio_below_msr": 113,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 106,
+    "50/50 W MSR, 48.75 W MMIO": 7,
+    "50/50 W MSR, 51.375 W MMIO": 10
+   }
+  },
+  {
+   "leg": "split50-02-b",
+   "cohort": "split50",
+   "samples": 184,
+   "unsampled": 0,
+   "mmio_below_msr": 184,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 156,
+    "50/50 W MSR, 45.125 W MMIO": 10,
+    "50/50 W MSR, 45.375 W MMIO": 10,
+    "50/50 W MSR, 49.375 W MMIO": 8
+   }
+  },
+  {
+   "leg": "split50-03-a",
+   "cohort": "split50",
+   "samples": 120,
+   "unsampled": 0,
+   "mmio_below_msr": 94,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 75,
+    "50/50 W MSR, 48.125 W MMIO": 19,
+    "50/50 W MSR, 53.375 W MMIO": 26
+   }
+  },
+  {
+   "leg": "split50-03-b",
+   "cohort": "split50",
+   "samples": 183,
+   "unsampled": 0,
+   "mmio_below_msr": 173,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 145,
+    "50/50 W MSR, 47.875 W MMIO": 9,
+    "50/50 W MSR, 48.375 W MMIO": 19,
+    "50/50 W MSR, 50 W MMIO": 10
+   }
+  },
+  {
+   "leg": "split50-04-a",
+   "cohort": "split50",
+   "samples": 121,
+   "unsampled": 0,
+   "mmio_below_msr": 121,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 102,
+    "50/50 W MSR, 47 W MMIO": 9,
+    "50/50 W MSR, 49.75 W MMIO": 10
+   }
+  },
+  {
+   "leg": "split50-04-b",
+   "cohort": "split50",
+   "samples": 185,
+   "unsampled": 0,
+   "mmio_below_msr": 185,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 176,
+    "50/50 W MSR, 45.5 W MMIO": 9
+   }
+  },
+  {
+   "leg": "split50-05-a",
+   "cohort": "split50",
+   "samples": 118,
+   "unsampled": 0,
+   "mmio_below_msr": 109,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 101,
+    "50/50 W MSR, 47.375 W MMIO": 8,
+    "50/50 W MSR, 52 W MMIO": 9
+   }
+  },
+  {
+   "leg": "split50-05-b",
+   "cohort": "split50",
+   "samples": 178,
+   "unsampled": 0,
+   "mmio_below_msr": 178,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 178
+   }
+  },
+  {
+   "leg": "split50-06-a",
+   "cohort": "split50",
+   "samples": 117,
+   "unsampled": 0,
+   "mmio_below_msr": 117,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 117
+   }
+  },
+  {
+   "leg": "split50-06-b",
+   "cohort": "split50",
+   "samples": 188,
+   "unsampled": 0,
+   "mmio_below_msr": 188,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 188
+   }
+  },
+  {
+   "leg": "split50-07-a",
+   "cohort": "split50",
+   "samples": 118,
+   "unsampled": 0,
+   "mmio_below_msr": 118,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 118
+   }
+  },
+  {
+   "leg": "split50-07-b",
+   "cohort": "split50",
+   "samples": 180,
+   "unsampled": 0,
+   "mmio_below_msr": 180,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 180
+   }
+  },
+  {
+   "leg": "split50-08-a",
+   "cohort": "split50",
+   "samples": 113,
+   "unsampled": 0,
+   "mmio_below_msr": 113,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 113
+   }
+  },
+  {
+   "leg": "split50-08-b",
+   "cohort": "split50",
+   "samples": 175,
+   "unsampled": 0,
+   "mmio_below_msr": 175,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 175
+   }
+  },
+  {
+   "leg": "split50-09-a",
+   "cohort": "split50",
+   "samples": 113,
+   "unsampled": 0,
+   "mmio_below_msr": 113,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 93,
+    "50/50 W MSR, 45.625 W MMIO": 10,
+    "50/50 W MSR, 47.375 W MMIO": 10
+   }
+  },
+  {
+   "leg": "split50-09-b",
+   "cohort": "split50",
+   "samples": 174,
+   "unsampled": 0,
+   "mmio_below_msr": 174,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 174
+   }
+  },
+  {
+   "leg": "split50-10-a",
+   "cohort": "split50",
+   "samples": 110,
+   "unsampled": 0,
+   "mmio_below_msr": 110,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 90,
+    "50/50 W MSR, 45.625 W MMIO": 10,
+    "50/50 W MSR, 49.625 W MMIO": 10
+   }
+  },
+  {
+   "leg": "split50-10-b",
+   "cohort": "split50",
+   "samples": 176,
+   "unsampled": 0,
+   "mmio_below_msr": 176,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 176
+   }
+  },
+  {
+   "leg": "split50-11-a",
+   "cohort": "split50",
+   "samples": 114,
+   "unsampled": 0,
+   "mmio_below_msr": 105,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 105,
+    "50/50 W MSR, 50.375 W MMIO": 9
+   }
+  },
+  {
+   "leg": "split50-11-b",
+   "cohort": "split50",
+   "samples": 175,
+   "unsampled": 0,
+   "mmio_below_msr": 175,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 166,
+    "50/50 W MSR, 49.125 W MMIO": 9
+   }
+  },
+  {
+   "leg": "split50-12-a",
+   "cohort": "split50",
+   "samples": 110,
+   "unsampled": 0,
+   "mmio_below_msr": 110,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 110
+   }
+  },
+  {
+   "leg": "split50-12-b",
+   "cohort": "split50",
+   "samples": 174,
+   "unsampled": 0,
+   "mmio_below_msr": 174,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 174
+   }
+  },
+  {
+   "leg": "split50-13-a",
+   "cohort": "split50",
+   "samples": 110,
+   "unsampled": 0,
+   "mmio_below_msr": 110,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 101,
+    "50/50 W MSR, 48.25 W MMIO": 9
+   }
+  },
+  {
+   "leg": "split50-13-b",
+   "cohort": "split50",
+   "samples": 173,
+   "unsampled": 0,
+   "mmio_below_msr": 173,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 173
+   }
+  },
+  {
+   "leg": "split50-14-a",
+   "cohort": "split50",
+   "samples": 111,
+   "unsampled": 0,
+   "mmio_below_msr": 101,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 92,
+    "50/50 W MSR, 46.375 W MMIO": 9,
+    "50/50 W MSR, 50.375 W MMIO": 10
+   }
+  },
+  {
+   "leg": "split50-14-b",
+   "cohort": "split50",
+   "samples": 174,
+   "unsampled": 0,
+   "mmio_below_msr": 174,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 174
+   }
+  },
+  {
+   "leg": "split50-15-a",
+   "cohort": "split50",
+   "samples": 112,
+   "unsampled": 0,
+   "mmio_below_msr": 112,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 102,
+    "50/50 W MSR, 48.5 W MMIO": 10
+   }
+  },
+  {
+   "leg": "split50-15-b",
+   "cohort": "split50",
+   "samples": 173,
+   "unsampled": 0,
+   "mmio_below_msr": 173,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 148,
+    "50/50 W MSR, 48 W MMIO": 9,
+    "50/50 W MSR, 48.375 W MMIO": 7,
+    "50/50 W MSR, 49.25 W MMIO": 9
+   }
+  },
+  {
+   "leg": "split50-16-a",
+   "cohort": "split50",
+   "samples": 111,
+   "unsampled": 0,
+   "mmio_below_msr": 111,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 101,
+    "50/50 W MSR, 46.625 W MMIO": 10
+   }
+  },
+  {
+   "leg": "split50-16-b",
+   "cohort": "split50",
+   "samples": 174,
+   "unsampled": 0,
+   "mmio_below_msr": 64,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 64,
+    "50/50 W MSR, 50.625 W MMIO": 110
+   }
+  },
+  {
+   "leg": "split50-17-a",
+   "cohort": "split50",
+   "samples": 111,
+   "unsampled": 0,
+   "mmio_below_msr": 93,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 73,
+    "50/50 W MSR, 48.125 W MMIO": 10,
+    "50/50 W MSR, 49.375 W MMIO": 10,
+    "50/50 W MSR, 50.625 W MMIO": 18
+   }
+  },
+  {
+   "leg": "split50-17-b",
+   "cohort": "split50",
+   "samples": 175,
+   "unsampled": 0,
+   "mmio_below_msr": 175,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 175
+   }
+  },
+  {
+   "leg": "split50-18-a",
+   "cohort": "split50",
+   "samples": 112,
+   "unsampled": 0,
+   "mmio_below_msr": 102,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 92,
+    "50/50 W MSR, 48.25 W MMIO": 10,
+    "50/50 W MSR, 50.625 W MMIO": 10
+   }
+  },
+  {
+   "leg": "split50-18-b",
+   "cohort": "split50",
+   "samples": 173,
+   "unsampled": 0,
+   "mmio_below_msr": 173,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 173
+   }
+  },
+  {
+   "leg": "split50-19-a",
+   "cohort": "split50",
+   "samples": 113,
+   "unsampled": 0,
+   "mmio_below_msr": 113,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 113
+   }
+  },
+  {
+   "leg": "split50-19-b",
+   "cohort": "split50",
+   "samples": 173,
+   "unsampled": 0,
+   "mmio_below_msr": 173,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 167,
+    "50/50 W MSR, 47 W MMIO": 6
+   }
+  },
+  {
+   "leg": "split50-20-a",
+   "cohort": "split50",
+   "samples": 111,
+   "unsampled": 0,
+   "mmio_below_msr": 111,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 102,
+    "50/50 W MSR, 48.5 W MMIO": 9
+   }
+  },
+  {
+   "leg": "split50-20-b",
+   "cohort": "split50",
+   "samples": 174,
+   "unsampled": 0,
+   "mmio_below_msr": 174,
+   "observed": {
+    "50/50 W MSR, 45 W MMIO": 174
+   }
+  }
+ ],
+ "excluded": {
+  "reason": "baseline is a background system-monitor log, not a measurement leg: its rows carry cpu, cpu_stat, java, loadavg, meminfo, pressure and vmstat at roughly 5 s intervals, with no powercap, temperature or throttle reading. Counting it would inflate the leg count.",
+  "records": [
+   {
+    "leg": "baseline",
+    "cohort": "baseline",
+    "samples": 519,
+    "unsampled": 519,
+    "mmio_below_msr": 0,
+    "observed": {}
+   }
+  ]
+ }
+}

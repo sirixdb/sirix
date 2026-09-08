@@ -1,0 +1,249 @@
+WARNING: Using incubator modules: jdk.incubator.vector
+05:52:56,064 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found logback-core version 1.5.34
+05:52:56,064 |-INFO in ch.qos.logback.classic.util.ContextInitializer@327b636c - No custom configurators were discovered as a service.
+05:52:56,065 |-INFO in ch.qos.logback.classic.util.ContextInitializer@327b636c - Trying to configure with ch.qos.logback.classic.util.DefaultJoranConfigurator
+05:52:56,065 |-INFO in ch.qos.logback.classic.util.ContextInitializer@327b636c - Constructed configurator of type class ch.qos.logback.classic.util.DefaultJoranConfigurator
+05:52:56,066 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.xml]
+05:52:56,067 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found resource [logback.xml] at [file:/home/johannes/.treehouse/sirix-cdde48/3/sirix/bundles/sirix-query/build/resources/main/logback.xml]
+05:52:56,067 |-WARN in ch.qos.logback.classic.util.DefaultJoranConfigurator@45dd4eda - Resource [logback.xml] occurs multiple times on the classpath.
+05:52:56,067 |-WARN in ch.qos.logback.classic.util.DefaultJoranConfigurator@45dd4eda - Resource [logback.xml] occurs at [jar:file:/home/johannes/.treehouse/sirix-cdde48/3/sirix/bundles/sirix-core/build/libs/sirix-core-1.0.0-beta7.jar!/logback.xml]
+05:52:56,067 |-WARN in ch.qos.logback.classic.util.DefaultJoranConfigurator@45dd4eda - Resource [logback.xml] occurs at [file:/home/johannes/.treehouse/sirix-cdde48/3/sirix/bundles/sirix-query/build/resources/main/logback.xml]
+05:52:56,145 |-INFO in ch.qos.logback.classic.model.processor.ConfigurationModelHandlerFull - Scan attribute not set or set to unrecognized value.
+05:52:56,148 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - Processing appender named [STDOUT]
+05:52:56,148 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - About to instantiate appender of type [ch.qos.logback.core.ConsoleAppender]
+05:52:56,152 |-INFO in ch.qos.logback.core.model.processor.ImplicitModelHandler - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+05:52:56,178 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT] - NOTE: Writing to the console can be slow. Try to avoid logging to the 
+05:52:56,178 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT] - console in production environments, especially in high volume systems.
+05:52:56,178 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT] - See also https://logback.qos.ch/codes.html#slowConsole
+05:52:56,178 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [io.sirix.rest] to INFO
+05:52:56,178 |-INFO in ch.qos.logback.classic.model.processor.RootLoggerModelHandler - Setting level of ROOT logger to ERROR
+05:52:56,179 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [STDOUT] to Logger[ROOT]
+05:52:56,179 |-INFO in ch.qos.logback.core.model.processor.DefaultProcessor@60611244 - End of configuration.
+05:52:56,179 |-INFO in ch.qos.logback.classic.joran.JoranConfigurator@3745e5c6 - Registering current configuration as safe fallback point
+05:52:56,180 |-INFO in ch.qos.logback.classic.util.ContextInitializer@327b636c - ch.qos.logback.classic.util.DefaultJoranConfigurator.configure() call lasted 114 milliseconds. ExecutionStatus=DO_NOT_INVOKE_NEXT_IF_ANY
+
+# ClickBench run: db=/home/johannes/.treehouse/sirix-cdde48/3/sirix/bundles/sirix-query/build/diagnostics/rig-trust/cool-01/db tries=3 variant=0 threads=20 freshExecutor=true fastPaths=true strictServing=false
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by net.openhft.hashing.UnsafeAccess (file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/zero-allocation-hashing/2026.0/2447494f7842ca377b4ccdba2089a8da5c1d1b50/zero-allocation-hashing-2026.0.jar)
+WARNING: Please consider reporting this to the maintainers of class net.openhft.hashing.UnsafeAccess
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+q    |    try1(s) |     hot(s) |       rows | note
+# q0 try 1: wall=0.050 s cpu=0.1 s util=1.8/20 gc=0 pauses 0.00 s
+# q0 try 2: wall=0.003 s cpu=0.0 s util=3.4/20 gc=0 pauses 0.00 s
+# q0 try 3: wall=0.002 s cpu=0.0 s util=5.9/20 gc=0 pauses 0.00 s
+0    |      0.050 |      0.002 |          - | route=structural-array-size
+# q1 try 1: wall=0.309 s cpu=3.6 s util=11.7/20 gc=0 pauses 0.00 s
+# q1 try 2: wall=0.039 s cpu=0.4 s util=10.1/20 gc=0 pauses 0.00 s
+# q1 try 3: wall=0.033 s cpu=0.3 s util=7.8/20 gc=0 pauses 0.00 s
+1    |      0.309 |      0.033 |          - | route=predicate-count
+# q2 try 1: wall=0.251 s cpu=3.1 s util=12.5/20 gc=0 pauses 0.00 s
+# q2 try 2: wall=0.060 s cpu=0.7 s util=12.3/20 gc=0 pauses 0.00 s
+# q2 try 3: wall=0.036 s cpu=0.3 s util=9.1/20 gc=0 pauses 0.00 s
+2    |      0.251 |      0.036 |          - | route=structural-array-size+projection-aggregate
+# q3 try 1: wall=0.954 s cpu=7.2 s util=7.6/20 gc=1 pauses 0.11 s
+# q3 try 2: wall=0.085 s cpu=1.3 s util=15.6/20 gc=0 pauses 0.00 s
+# q3 try 3: wall=0.029 s cpu=0.3 s util=10.8/20 gc=0 pauses 0.00 s
+3    |      0.954 |      0.029 |          - | route=projection-aggregate
+# q4 try 1: wall=0.374 s cpu=5.0 s util=13.4/20 gc=0 pauses 0.00 s
+# q4 try 2: wall=0.468 s cpu=7.0 s util=14.9/20 gc=3 pauses 0.09 s
+# q4 try 3: wall=0.276 s cpu=3.6 s util=13.1/20 gc=0 pauses 0.00 s
+4    |      0.374 |      0.276 |          - | route=projection-count-distinct
+# q5 try 1: wall=2.758 s cpu=37.3 s util=13.5/20 gc=5 pauses 0.11 s
+# q5 try 2: wall=0.716 s cpu=7.5 s util=10.4/20 gc=1 pauses 0.01 s
+# q5 try 3: wall=0.601 s cpu=6.2 s util=10.3/20 gc=2 pauses 0.03 s
+5    |      2.758 |      0.601 |          - | route=projection-count-distinct
+# q6 try 1: wall=0.044 s cpu=0.3 s util=6.1/20 gc=1 pauses 0.00 s
+# q6 try 2: wall=0.023 s cpu=0.2 s util=6.4/20 gc=0 pauses 0.00 s
+# q6 try 3: wall=0.022 s cpu=0.1 s util=2.7/20 gc=1 pauses 0.00 s
+6    |      0.044 |      0.022 |          - | route=string-min-max
+# q7 try 1: wall=0.230 s cpu=2.3 s util=10.1/20 gc=0 pauses 0.00 s
+# q7 try 2: wall=0.034 s cpu=0.4 s util=10.9/20 gc=0 pauses 0.00 s
+# q7 try 3: wall=0.022 s cpu=0.2 s util=11.1/20 gc=0 pauses 0.00 s
+7    |      0.230 |      0.022 |          - | route=group-aggregate+numeric-group-by
+# q8 try 1: wall=1.667 s cpu=23.1 s util=13.8/20 gc=5 pauses 0.12 s
+# q8 try 2: wall=0.595 s cpu=9.1 s util=15.3/20 gc=1 pauses 0.02 s
+# q8 try 3: wall=0.602 s cpu=8.8 s util=14.6/20 gc=0 pauses 0.00 s
+8    |      1.667 |      0.595 |          - | route=group-aggregate+numeric-group-by+group-distinct
+# q9 try 1: wall=1.001 s cpu=14.7 s util=14.6/20 gc=4 pauses 0.10 s
+# q9 try 2: wall=0.753 s cpu=11.0 s util=14.6/20 gc=1 pauses 0.03 s
+# q9 try 3: wall=0.669 s cpu=10.5 s util=15.6/20 gc=0 pauses 0.00 s
+9    |      1.001 |      0.669 |          - | route=group-aggregate+numeric-group-by+group-distinct
+# q10 try 1: wall=1.790 s cpu=14.7 s util=8.2/20 gc=5 pauses 0.20 s
+# q10 try 2: wall=0.426 s cpu=3.7 s util=8.7/20 gc=2 pauses 0.10 s
+# q10 try 3: wall=0.241 s cpu=1.6 s util=6.8/20 gc=2 pauses 0.00 s
+10   |      1.790 |      0.241 |          - | route=group-aggregate+numeric-group-by+group-distinct
+# q11 try 1: wall=1.665 s cpu=22.7 s util=13.7/20 gc=3 pauses 0.18 s
+# q11 try 2: wall=0.249 s cpu=1.8 s util=7.0/20 gc=2 pauses 0.00 s
+# q11 try 3: wall=0.242 s cpu=1.6 s util=6.6/20 gc=1 pauses 0.02 s
+11   |      1.665 |      0.242 |          - | route=group-aggregate+group-distinct
+# q12 try 1: wall=1.555 s cpu=21.2 s util=13.6/20 gc=4 pauses 0.11 s
+# q12 try 2: wall=0.721 s cpu=9.2 s util=12.7/20 gc=1 pauses 0.03 s
+# q12 try 3: wall=0.736 s cpu=9.1 s util=12.3/20 gc=1 pauses 0.02 s
+12   |      1.555 |      0.721 |          - | route=group-aggregate+numeric-group-by
+# q13 try 1: wall=2.624 s cpu=30.7 s util=11.7/20 gc=8 pauses 0.46 s
+# q13 try 2: wall=2.708 s cpu=33.3 s util=12.3/20 gc=14 pauses 0.52 s
+# q13 try 3: wall=2.445 s cpu=27.9 s util=11.4/20 gc=12 pauses 0.40 s
+13   |      2.624 |      2.445 |          - | route=group-aggregate+numeric-group-by+group-distinct
+# q14 try 1: wall=1.959 s cpu=29.5 s util=15.0/20 gc=6 pauses 0.11 s
+# q14 try 2: wall=1.052 s cpu=14.7 s util=14.0/20 gc=2 pauses 0.11 s
+# q14 try 3: wall=0.884 s cpu=12.2 s util=13.8/20 gc=3 pauses 0.02 s
+14   |      1.959 |      0.884 |          - | route=group-aggregate
+# q15 try 1: wall=1.136 s cpu=19.9 s util=17.5/20 gc=5 pauses 0.15 s
+# q15 try 2: wall=0.456 s cpu=8.3 s util=18.2/20 gc=1 pauses 0.03 s
+# q15 try 3: wall=0.422 s cpu=8.0 s util=19.0/20 gc=0 pauses 0.00 s
+15   |      1.136 |      0.422 |          - | route=group-aggregate+numeric-group-by
+# q16 try 1: wall=3.981 s cpu=58.4 s util=14.7/20 gc=6 pauses 0.23 s
+# q16 try 2: wall=2.009 s cpu=27.8 s util=13.9/20 gc=3 pauses 0.03 s
+# q16 try 3: wall=2.005 s cpu=27.8 s util=13.9/20 gc=1 pauses 0.01 s
+16   |      3.981 |      2.005 |          - | route=group-aggregate
+# q17 try 1: wall=0.532 s cpu=8.6 s util=16.2/20 gc=1 pauses 0.01 s
+# q17 try 2: wall=0.045 s cpu=0.3 s util=6.7/20 gc=0 pauses 0.00 s
+# q17 try 3: wall=0.051 s cpu=0.3 s util=6.2/20 gc=0 pauses 0.00 s
+17   |      0.532 |      0.045 |          - | route=group-aggregate
+# q18 try 1: wall=6.492 s cpu=98.1 s util=15.1/20 gc=6 pauses 0.46 s
+# q18 try 2: wall=3.934 s cpu=64.2 s util=16.3/20 gc=3 pauses 0.01 s
+# q18 try 3: wall=4.008 s cpu=63.7 s util=15.9/20 gc=1 pauses 0.01 s
+18   |      6.492 |      3.934 |          - | route=group-aggregate
+# q19 try 1: wall=0.034 s cpu=0.1 s util=1.5/20 gc=0 pauses 0.00 s
+# q19 try 2: wall=0.016 s cpu=0.0 s util=1.8/20 gc=0 pauses 0.00 s
+# q19 try 3: wall=0.013 s cpu=0.0 s util=2.4/20 gc=0 pauses 0.00 s
+19   |      0.034 |      0.013 |          - | route=predicate-value-emission
+# q20 try 1: wall=2.547 s cpu=20.6 s util=8.1/20 gc=6 pauses 0.09 s
+# q20 try 2: wall=0.038 s cpu=0.5 s util=13.0/20 gc=0 pauses 0.00 s
+# q20 try 3: wall=0.035 s cpu=0.4 s util=12.7/20 gc=0 pauses 0.00 s
+20   |      2.547 |      0.035 |          - | route=predicate-count
+# q21 try 1: wall=0.265 s cpu=2.5 s util=9.5/20 gc=0 pauses 0.00 s
+# q21 try 2: wall=0.220 s cpu=2.4 s util=10.9/20 gc=0 pauses 0.00 s
+# q21 try 3: wall=0.203 s cpu=2.6 s util=12.5/20 gc=0 pauses 0.00 s
+21   |      0.265 |      0.203 |          - | route=group-aggregate+numeric-group-by
+# q22 try 1: wall=6.908 s cpu=24.4 s util=3.5/20 gc=5 pauses 0.11 s
+# q22 try 2: wall=0.390 s cpu=2.8 s util=7.1/20 gc=0 pauses 0.00 s
+# q22 try 3: wall=0.341 s cpu=2.9 s util=8.4/20 gc=0 pauses 0.00 s
+22   |      6.908 |      0.341 |          - | route=group-aggregate+numeric-group-by+group-distinct
+# q23 try 1: wall=0.574 s cpu=3.7 s util=6.5/20 gc=0 pauses 0.00 s
+# q23 try 2: wall=0.149 s cpu=0.5 s util=3.2/20 gc=0 pauses 0.00 s
+# q23 try 3: wall=0.134 s cpu=0.4 s util=2.9/20 gc=0 pauses 0.00 s
+23   |      0.574 |      0.134 |          - | route=sorted-scan
+# q24 try 1: wall=0.105 s cpu=0.2 s util=1.8/20 gc=0 pauses 0.00 s
+# q24 try 2: wall=0.110 s cpu=1.4 s util=12.6/20 gc=1 pauses 0.09 s
+# q24 try 3: wall=0.026 s cpu=0.2 s util=6.1/20 gc=0 pauses 0.00 s
+24   |      0.105 |      0.026 |          - | route=sorted-scan
+# q25 try 1: wall=0.364 s cpu=3.3 s util=9.1/20 gc=2 pauses 0.00 s
+# q25 try 2: wall=0.103 s cpu=0.8 s util=7.9/20 gc=0 pauses 0.00 s
+# q25 try 3: wall=0.087 s cpu=0.6 s util=7.4/20 gc=0 pauses 0.00 s
+25   |      0.364 |      0.087 |          - | route=sorted-scan
+# q26 try 1: wall=0.037 s cpu=0.1 s util=1.9/20 gc=0 pauses 0.00 s
+# q26 try 2: wall=0.022 s cpu=0.1 s util=3.2/20 gc=0 pauses 0.00 s
+# q26 try 3: wall=0.020 s cpu=0.1 s util=2.5/20 gc=0 pauses 0.00 s
+26   |      0.037 |      0.020 |          - | route=sorted-scan
+# q27 try 1: wall=1.463 s cpu=22.7 s util=15.5/20 gc=2 pauses 0.12 s
+# q27 try 2: wall=0.227 s cpu=3.8 s util=16.6/20 gc=0 pauses 0.00 s
+# q27 try 3: wall=0.200 s cpu=3.6 s util=18.1/20 gc=0 pauses 0.00 s
+27   |      1.463 |      0.200 |          - | route=group-aggregate+numeric-group-by
+# q28 try 1: wall=15.198 s cpu=181.1 s util=11.9/20 gc=31 pauses 0.68 s
+# q28 try 2: wall=9.167 s cpu=81.6 s util=8.9/20 gc=22 pauses 0.49 s
+# q28 try 3: wall=9.108 s cpu=78.7 s util=8.6/20 gc=20 pauses 0.45 s
+28   |     15.198 |      9.108 |          - | route=group-aggregate+numeric-group-by
+# q29 try 1: wall=0.661 s cpu=2.5 s util=3.7/20 gc=0 pauses 0.00 s
+# q29 try 2: wall=0.033 s cpu=0.3 s util=8.4/20 gc=0 pauses 0.00 s
+# q29 try 3: wall=0.032 s cpu=0.3 s util=8.7/20 gc=0 pauses 0.00 s
+29   |      0.661 |      0.032 |          - | route=const-group-aggregate
+# q30 try 1: wall=2.524 s cpu=28.8 s util=11.4/20 gc=4 pauses 0.34 s
+# q30 try 2: wall=0.537 s cpu=9.4 s util=17.6/20 gc=0 pauses 0.00 s
+# q30 try 3: wall=0.546 s cpu=9.3 s util=17.0/20 gc=0 pauses 0.00 s
+30   |      2.524 |      0.537 |          - | route=group-aggregate
+# q31 try 1: wall=3.144 s cpu=26.5 s util=8.4/20 gc=0 pauses 0.00 s
+# q31 try 2: wall=2.982 s cpu=26.0 s util=8.7/20 gc=1 pauses 0.14 s
+# q31 try 3: wall=3.003 s cpu=23.7 s util=7.9/20 gc=3 pauses 0.06 s
+31   |      3.144 |      2.982 |          - | route=group-aggregate
+# q32 try 1: wall=10.429 s cpu=154.3 s util=14.8/20 gc=6 pauses 0.53 s
+# q32 try 2: wall=7.110 s cpu=126.9 s util=17.8/20 gc=0 pauses 0.00 s
+# q32 try 3: wall=7.097 s cpu=129.2 s util=18.2/20 gc=3 pauses 0.01 s
+32   |     10.429 |      7.097 |          - | route=group-aggregate
+# q33 try 1: wall=3.527 s cpu=39.3 s util=11.1/20 gc=11 pauses 0.15 s
+# q33 try 2: wall=2.623 s cpu=33.6 s util=12.8/20 gc=7 pauses 0.16 s
+# q33 try 3: wall=2.299 s cpu=31.3 s util=13.6/20 gc=4 pauses 0.05 s
+33   |      3.527 |      2.299 |          - | route=group-aggregate+numeric-group-by
+# q34 try 1: wall=2.249 s cpu=31.0 s util=13.8/20 gc=5 pauses 0.07 s
+# q34 try 2: wall=2.189 s cpu=29.6 s util=13.5/20 gc=2 pauses 0.04 s
+# q34 try 3: wall=2.265 s cpu=30.9 s util=13.7/20 gc=4 pauses 0.08 s
+34   |      2.249 |      2.189 |          - | route=group-aggregate+numeric-group-by
+# q35 try 1: wall=0.726 s cpu=13.6 s util=18.7/20 gc=0 pauses 0.00 s
+# q35 try 2: wall=0.405 s cpu=7.6 s util=18.7/20 gc=0 pauses 0.00 s
+# q35 try 3: wall=0.401 s cpu=7.5 s util=18.7/20 gc=0 pauses 0.00 s
+35   |      0.726 |      0.401 |          - | route=group-aggregate+numeric-group-by
+# q36 try 1: wall=0.244 s cpu=1.7 s util=7.0/20 gc=0 pauses 0.00 s
+# q36 try 2: wall=0.067 s cpu=0.4 s util=5.6/20 gc=0 pauses 0.00 s
+# q36 try 3: wall=0.066 s cpu=0.4 s util=6.0/20 gc=0 pauses 0.00 s
+36   |      0.244 |      0.066 |          - | route=group-aggregate+numeric-group-by
+# q37 try 1: wall=0.810 s cpu=2.8 s util=3.5/20 gc=0 pauses 0.00 s
+# q37 try 2: wall=0.040 s cpu=0.2 s util=5.5/20 gc=0 pauses 0.00 s
+# q37 try 3: wall=0.042 s cpu=0.2 s util=5.2/20 gc=0 pauses 0.00 s
+37   |      0.810 |      0.040 |          - | route=group-aggregate+numeric-group-by
+# q38 try 1: wall=0.722 s cpu=2.8 s util=3.8/20 gc=0 pauses 0.00 s
+# q38 try 2: wall=0.038 s cpu=0.2 s util=6.4/20 gc=0 pauses 0.00 s
+# q38 try 3: wall=0.041 s cpu=0.3 s util=6.9/20 gc=0 pauses 0.00 s
+38   |      0.722 |      0.038 |          - | route=group-aggregate+numeric-group-by
+# q39 try 1: wall=0.541 s cpu=5.9 s util=11.0/20 gc=0 pauses 0.00 s
+# q39 try 2: wall=0.493 s cpu=6.5 s util=13.1/20 gc=4 pauses 0.12 s
+# q39 try 3: wall=0.378 s cpu=4.3 s util=11.4/20 gc=0 pauses 0.00 s
+39   |      0.541 |      0.378 |          - | route=group-aggregate
+# q40 try 1: wall=0.135 s cpu=0.5 s util=3.8/20 gc=0 pauses 0.00 s
+# q40 try 2: wall=0.031 s cpu=0.2 s util=6.4/20 gc=0 pauses 0.00 s
+# q40 try 3: wall=0.030 s cpu=0.2 s util=5.9/20 gc=0 pauses 0.00 s
+40   |      0.135 |      0.030 |          - | route=group-aggregate
+# q41 try 1: wall=0.085 s cpu=0.3 s util=3.8/20 gc=0 pauses 0.00 s
+# q41 try 2: wall=0.049 s cpu=0.2 s util=4.3/20 gc=0 pauses 0.00 s
+# q41 try 3: wall=0.042 s cpu=0.2 s util=5.0/20 gc=0 pauses 0.00 s
+41   |      0.085 |      0.042 |          - | route=group-aggregate
+# q42 try 1: wall=0.362 s cpu=2.3 s util=6.3/20 gc=0 pauses 0.00 s
+# q42 try 2: wall=0.049 s cpu=0.3 s util=5.9/20 gc=0 pauses 0.00 s
+# q42 try 3: wall=0.043 s cpu=0.3 s util=6.5/20 gc=0 pauses 0.00 s
+42   |      0.362 |      0.043 |          - | route=group-aggregate
+# served: structuralArraySizes=6 predicateCounts=6 projectionAggregates=9 projectionCountDistinct=6 stringMinMax=6 doubleAggregates=0 binaryAggregates=0 computedAggregates=0 pathSummaryStats=0 groupAggregates=87 constGroupAggregates=3 numericGroupBys=51 groupDistinct=18 denseGlobalGroups=0 groupSliced=87 groupWindowedSlices=12 sortedScans=12 predicateScans=0 valueEmissions=3 rowMaterializations=0
+# chunked: lazyLoads=0 chunkMaterializations=0 eagerFallbacks=0
+
+Data size: 0
+[0.050, 0.003, 0.002],
+[0.309, 0.039, 0.033],
+[0.251, 0.060, 0.036],
+[0.954, 0.085, 0.029],
+[0.374, 0.468, 0.276],
+[2.758, 0.716, 0.601],
+[0.044, 0.023, 0.022],
+[0.230, 0.034, 0.022],
+[1.667, 0.595, 0.602],
+[1.001, 0.753, 0.669],
+[1.790, 0.426, 0.241],
+[1.665, 0.249, 0.242],
+[1.555, 0.721, 0.736],
+[2.624, 2.708, 2.445],
+[1.959, 1.052, 0.884],
+[1.136, 0.456, 0.422],
+[3.981, 2.009, 2.005],
+[0.532, 0.045, 0.051],
+[6.492, 3.934, 4.008],
+[0.034, 0.016, 0.013],
+[2.547, 0.038, 0.035],
+[0.265, 0.220, 0.203],
+[6.908, 0.390, 0.341],
+[0.574, 0.149, 0.134],
+[0.105, 0.110, 0.026],
+[0.364, 0.103, 0.087],
+[0.037, 0.022, 0.020],
+[1.463, 0.227, 0.200],
+[15.198, 9.167, 9.108],
+[0.661, 0.033, 0.032],
+[2.524, 0.537, 0.546],
+[3.144, 2.982, 3.003],
+[10.429, 7.110, 7.097],
+[3.527, 2.623, 2.299],
+[2.249, 2.189, 2.265],
+[0.726, 0.405, 0.401],
+[0.244, 0.067, 0.066],
+[0.810, 0.040, 0.042],
+[0.722, 0.038, 0.041],
+[0.541, 0.493, 0.378],
+[0.135, 0.031, 0.030],
+[0.085, 0.049, 0.042],
+[0.362, 0.049, 0.043],

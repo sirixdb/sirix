@@ -1,0 +1,11 @@
+{
+  "scope": "one diagnostic-only full-suite JVM; not a variance calibration",
+  "source_runtime": "original-runtime-frozen/runtime.json",
+  "engine_commit": "aa4d81d547fb0e2353ede959786d6e8ba442edf2",
+  "change": "-Xbatch blocks application progress for compilation instead of background compiler scheduling; all other engine flags and envelope retained",
+  "recording": "same JFR profile as earlier diagnostic, no perf sampler to avoid its observed timing perturbation",
+  "question": "Does blocking compilation move C2 work out of the selected hot tries or merely move cost into them?",
+  "limits": "An effective synchronization mechanism is not proof of lower leg-to-leg variance. No default change or0.5ln resolution claim from one diagnostic.",
+  "authority": "Firstmate017 ordinary-GC and continuing-JIT investigation",
+  "epoch": 1788872662.531846
+}

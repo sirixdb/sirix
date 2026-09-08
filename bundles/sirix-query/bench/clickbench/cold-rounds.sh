@@ -9,15 +9,15 @@
 # options
 #   --arm NAME=PATH   an ahead-of-time image to measure, repeatable. With two or
 #                     more arms the rounds are INTERLEAVED (A B A B), never
-#                     blocked (A A B B) -- see below. With no --arm the JVM is
-#                     measured through gradle as a single arm.
+#                     blocked (A A B B) -- see below. With no --arm a single JVM
+#                     arm is measured from a runtime frozen by rig/measure.py.
 #   --rounds N        rounds per arm (default 4; the shipped figure is the best
 #                     of 4 and the median is reported alongside it)
 #   --tries N         tries per query inside a round (default 3)
 #   --queries LIST    subset, ZERO-BASED (ClickBench convention: `--queries 18`
 #                     is Q19 in the docs). JSONBench's runner is one-based --
 #                     the two do not agree, and mixing them up costs a run.
-#   --out DIR         per-round JSON + logs (default <db>-cold-results)
+#   --out DIR         per-round JSON + logs, must not exist (default <db>-cold-results)
 #   --duckdb-cold S   DuckDB reference cold suite seconds (default 0.520)
 #   --duckdb-hot S    DuckDB reference hot suite seconds  (default 0.351)
 #
@@ -39,6 +39,14 @@
 # first-touch and JIT/AOT setup are part of what "cold" means here. Each round
 # is therefore a new process, and the suite figure is try 1.
 set -u
+
+# Acquire before any eviction or benchmark work. Descriptors survive into every arm,
+# including native executables, and keep ownership if the wrapper is terminated.
+RIG="$(cd "$(dirname "${BASH_SOURCE[0]}")/rig" && pwd)"
+if [ -z "${CB_RIG_HOST_LOCK_FD:-}" ]; then
+  exec python3 "$RIG/rig_lock.py" -- bash "$0" "$@"
+fi
+python3 "$RIG/rig_lock.py" --check || exit 2
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../common" && pwd)/bench-common.sh"
 
@@ -88,6 +96,7 @@ case "${TRIES}"  in ''|*[!0-9]*) die "--tries must be a positive integer" ;; esa
 [ "${ROUNDS}" -ge 1 ] || die "--rounds must be >= 1"
 
 OUT="${OUT:-${DB%/}-cold-results}"
+[ ! -e "${OUT}" ] || die "output already exists; choose a fresh --out directory"
 mkdir -p "${OUT}" || die "cannot create output directory: ${OUT}"
 
 QUERY_ARG=""
@@ -96,7 +105,7 @@ QUERY_ARG=""
 if [ "${#ARM_NAMES[@]}" -eq 0 ]; then
   ARM_NAMES=("jvm")
   ARM_PATHS=("")
-  log "no --arm given: measuring the JVM through gradle."
+  log "no --arm given: preparing a frozen JVM runtime before the cold rounds."
   log "The published ClickBench figures are from an ahead-of-time image; a JVM run"
   log "pays classload and JIT warm-up on top and is NOT comparable to them."
 else
@@ -105,7 +114,11 @@ else
   done
 fi
 
-GRADLE_LAUNCHER="$(gradle_cmd)"
+if [ -z "${ARM_PATHS[0]}" ]; then
+  python3 "$RIG/measure.py" prepare --out "${OUT}/runtime" \
+    --jvm-args="${EXTRA:-}" > "${OUT}/runtime-prepare.log" 2>&1 \
+    || die "runtime preparation failed; inspect ${OUT}/runtime-prepare.log"
+fi
 
 run_arm() {  # run_arm <index> <round>
   local idx="$1" round="$2"
@@ -119,14 +132,22 @@ run_arm() {  # run_arm <index> <round>
       || { echo "--- last 40 lines of ${logf} ---" >&2; tail -40 "${logf}" >&2;
            die "arm '${name}' failed in round ${round}"; }
   else
-    [ -x "${GRADLE_LAUNCHER}" ] || die "gradle launcher is not executable: ${GRADLE_LAUNCHER} (set GRADLE=<path>)"
-    "${GRADLE_LAUNCHER}" --console=plain ${GRADLE_FLAGS:-} -p "${REPO_ROOT}" \
-        :sirix-query:clickBench \
-        -Pclickbench.args="${DB} --tries ${TRIES} --json ${json}${QUERY_ARG}" \
+    python3 "$RIG/launch-runtime.py" --runtime "${OUT}/runtime/frozen/runtime.json" \
+        --db "${DB}" --tries "${TRIES}" --json "${json}" --queries "${QUERIES}" \
         > "${logf}" 2>&1 \
       || { echo "--- last 40 lines of ${logf} ---" >&2; tail -40 "${logf}" >&2;
            die "the JVM arm failed in round ${round}"; }
   fi
+  # Keep every native/JVM cold arm outside the campaign's published-board ranking.
+  python3 - "${json}" "${name}" "${round}" <<'PYMETA' || die "cannot record cold-arm provenance"
+import json,sys
+from pathlib import Path
+path=Path(sys.argv[1])
+document=json.loads(path.read_text())
+document.setdefault('rig',{}).update(scope='steering', protocol='historical cold-round driver',
+                                    arm=sys.argv[2], round=int(sys.argv[3]))
+path.write_text(json.dumps(document,indent=2)+'\n')
+PYMETA
   grep -h '^# served' "${logf}" | sed 's/^/      /' || true
 }
 

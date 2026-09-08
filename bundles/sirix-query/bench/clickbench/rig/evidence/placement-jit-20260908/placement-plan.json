@@ -1,0 +1,31 @@
+{
+  "processes": [
+    {
+      "tag": "placement-01-full",
+      "cohort": "full"
+    },
+    {
+      "tag": "placement-02-fast",
+      "cohort": "fast33"
+    },
+    {
+      "tag": "placement-03-fast",
+      "cohort": "fast33"
+    },
+    {
+      "tag": "placement-04-full",
+      "cohort": "full"
+    }
+  ],
+  "scope": "four diagnostic processes only; not a noise calibration and not pooled with scored cohorts",
+  "rationale": "Ordinary GC and continuing JIT need alignment with timed tries; q6 had zero collections across660 fast33 attempts but retained process-level timing plateaus. Hybrid CPU placement is an additional falsifiable explanation to inspect, not an assumed cause.",
+  "protocol": "Original envelope50W/55Cgate/engine; JFRsameprofileasjvm01, perf999HzmainTIDonly/monotonicclock/lightreceiptboundaries; no affinity, cache, GC-policy or engine changes",
+  "questions": [
+    "Which timed tries overlap ordinary GC pauses, and do those explain selected hot attempts?",
+    "Which C2 compilation completions coincide with within-query warmup transitions?",
+    "Do q6 timing plateaus align with P-core versus E-core placement, sustained JIT warmup, or neither?"
+  ],
+  "limits": "Receipt windows approximate; profiling affects execution. Four processes cannot establish variance reduction. A promising control requires fixed repeated unprofiled confirmation.",
+  "stopping": "fixed four diagnostics; abort on owner/power/query/profiler failure; no extending based on observed timings",
+  "authority": "Firstmate017 ordinary-GC/JIT steer, with residual q6 mechanism investigation"
+}
