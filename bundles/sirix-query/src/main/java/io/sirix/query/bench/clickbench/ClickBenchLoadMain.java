@@ -337,6 +337,7 @@ public final class ClickBenchLoadMain {
 
     // Configuration refusals above deliberately run first: a bad benchmark invocation must fail
     // before reserving a multi-gigabyte native pool or opening/replacing its target database.
+    ClickBenchRigLease.holdForLoadProcess();
     final var allocator = Allocators.getInstance();
     allocator.init(offheap);
 

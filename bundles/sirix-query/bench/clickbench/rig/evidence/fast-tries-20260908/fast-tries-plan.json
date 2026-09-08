@@ -1,0 +1,30 @@
+{
+  "planned_processes": 20,
+  "queries": [
+    2,
+    3,
+    6,
+    21,
+    42
+  ],
+  "tries_per_query": 33,
+  "checkpoints": [
+    3,
+    5,
+    9,
+    17,
+    33
+  ],
+  "source": "aa4d81d54 original compiled runtime",
+  "sampling": "one JVM per five-query cohort, all tries adjacent per query; same original 55C cooldown and 50W cap; full envelope unchanged",
+  "metrics": [
+    "historical C6A projection using only tries2,3 for the five-query subset (not a full score)",
+    "internal minimum over tries2..k",
+    "internal median over tries2..k",
+    "internal median of final half of tries2..k to screen warmup drift"
+  ],
+  "scope": "steering-only selected-query stability experiment; never rank or claim full-suite resolution",
+  "stopping": "fixed20 independent JVMs, no extension based on score; stop on execution/power/ownership failure or Firstmate steer",
+  "interpretation": "Post-hoc per-k stability curves are descriptive; selecting k needs an independent full-context validation. Query covariance shares overlap; do not add 45.6% and46.1%.",
+  "authority": "Firstmate015 after014 variance decomposition"
+}

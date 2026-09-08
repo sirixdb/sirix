@@ -1,0 +1,34 @@
+{
+  "telemetry_samples": 334,
+  "duration_s": 169.651,
+  "cooldown_samples": 4,
+  "cooldown_s": 15.013,
+  "launch_recheck_C": 45.0,
+  "gated_msr_limits_uw": [
+    50000000
+  ],
+  "msr_limit_constant": true,
+  "observed_mmio_pl1_uw": [
+    "45000000",
+    "45750000",
+    "49000000",
+    "49375000",
+    "58000000",
+    "66000000",
+    "76000000"
+  ],
+  "mmio_changes_recorded": 7,
+  "max_package_C": 100.0,
+  "mean_package_C": 95.38,
+  "mean_reported_MHz": 2573.8,
+  "peak_rss_bytes": 17050497024,
+  "peak_cpu_s": 2038.98,
+  "major_faults": 14,
+  "read_bytes": 34495078400,
+  "cpu0_throttle_delta": {
+    "core_throttle_count": 561,
+    "package_throttle_count": 11252
+  },
+  "observer_issues": [],
+  "exit_code": 0
+}

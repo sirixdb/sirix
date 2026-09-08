@@ -1,0 +1,1 @@
+Wiring validation only on the existing1M database with the full JVM envelope. Two pairs intentionally below precision minimum. Exit3 UNRESOLVED expected. These timings are not100M calibration or a candidate performance claim. Both historical/current engines use identical benchmark-main/guard overlays.

@@ -1,0 +1,34 @@
+import groovy.json.JsonOutput
+import java.io.File
+import org.gradle.api.GradleException
+
+// Export historical Gradle task settings after the explicit measurement-harness overlay.
+gradle.projectsEvaluated {
+    def query = gradle.rootProject.findProject(':sirix-query')
+    if (query == null) {
+        throw new GradleException('No :sirix-query project in this revision')
+    }
+    query.tasks.register('exportRigRuntime') {
+        dependsOn(query.tasks.named('classes'))
+        if (query.tasks.findByName('generateHftBuildIdentity') != null) {
+            dependsOn(query.tasks.named('generateHftBuildIdentity'))
+        }
+        doLast {
+            def target = query.findProperty('rig.runtimeOut')
+            if (target == null) {
+                throw new GradleException('Supply -Prig.runtimeOut=<fresh JSON path>')
+            }
+            def output = new File(target.toString())
+            if (output.exists()) {
+                throw new GradleException('Refusing to overwrite runtime export: ' + output)
+            }
+            def bench = query.tasks.named('clickBench').get()
+            def document = [java: bench.javaLauncher.get().executablePath.asFile.absolutePath,
+                            jvm_args: bench.allJvmArgs,
+                            classpath: bench.classpath.files.collect { it.absolutePath },
+                            main_class: bench.mainClass.get()]
+            output.parentFile.mkdirs()
+            output.text = JsonOutput.prettyPrint(JsonOutput.toJson(document)) + '\n'
+        }
+    }
+}

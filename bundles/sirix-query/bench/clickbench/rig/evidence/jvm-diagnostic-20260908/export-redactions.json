@@ -1,0 +1,9 @@
+{
+  "removed_event_types": [
+    "jdk.InitialEnvironmentVariable",
+    "jdk.InitialSystemProperty"
+  ],
+  "reason": "Unrelated process environment and system-property metadata; no query/JIT/GC observations removed",
+  "original_recording_sha256": "a228d11f835f28ebc4f7d9a65059e8d20e93a096ed2c14df3108c0f4be766023",
+  "export_recording_sha256": "7e7d8bf3863ca20ea6e51d73612ea6047621b34f5f62e0f31b05d8475853569c"
+}

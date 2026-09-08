@@ -1,0 +1,7 @@
+# Ordinary GC, JIT and CPU-placement diagnostics
+
+These are diagnostic processes, not a variance calibration or an A/B performance claim. The original failed observer verdict for placement-01-full is retained; it lacks CPU sample ids and is reconciled explicitly. The remaining three placement recordings completed, as did the separate one-process synchronous-compilation test. The original runtime was frozen before later harness compilation.
+
+`raw.tar.gz` held the JFR recordings and `perf` CPU samples behind an explicit file whitelist. **It was discarded from this deliverable and cannot be regenerated**; see [RETENTION.md](../RETENTION.md). `raw-members.json` still records every member and its hash. `analyze.py` is retained as the provenance of the analysis, but the JFR/`perf` replay it performs has no input here and can no longer be run. `placement-summary.json` and `xbatch-summary.json` are the retained outputs of that analysis, which verified that the sampled native thread matched JFR's main thread; placement01's recording never included CPU ids and never supported placement inference.
+
+The inferred query windows use output receipt minus rounded wall time, so event overlaps are approximate. Allocation weights are sampling estimates. Raw controller paths preserve provenance and are not portable launch instructions. Read the [report](../../../../../../../docs/CLICKBENCH_RIG_JIT_GC_2026-09-08.md) before interpreting these observations.
