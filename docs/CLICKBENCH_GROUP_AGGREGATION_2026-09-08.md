@@ -1,6 +1,8 @@
-# Shared aggregation: correctness banked, performance pending
+# Shared aggregation: correctness validation, performance unverified
 
-**All 100M timings collected before the rig repair are provisional.** They are not delivery evidence, and this change has no accepted performance gain or ranking claim. Firstmate's 8 September rig-handover instruction supersedes the earlier measurement acceptance: nominally comparable runs varied too much to establish the effect of these changes. Performance acceptance and delivery await the repaired rig and a new window granted by Firstmate.
+**The performance effect is unverified pending rig repair.** All earlier 100M timings are provisional; this change makes no accepted speedup or ranking claim. Correctness review, tests and CI may proceed to a green PR now. Firstmate will hold the merge until a new measurement window on the repaired rig establishes whether to land or withdraw the change.
+
+Firstmate's rig audit reports three legs of unchanged code at **65.398, 66.156 and 69.803 sum-ln**, a **4.405 sum-ln spread**, with every leg reaching **100 °C**. These are observations of rig instability, not performance results for this change. Thermal throttling and the resulting run-to-run variation prevent the pre-repair measurements from establishing an optimization's effect. The audit supersedes the earlier acceptance of those measurements.
 
 ## Implementation
 
@@ -21,7 +23,7 @@ The [provisional evidence JSON](CLICKBENCH_GROUP_AGGREGATION_2026-09-08.json) re
 
 ## Rig ownership and measurement requirements
 
-The last completed pair released the rig lock at **2026-09-08T03:39:26.704902+00:00**. The rig-repair lane owns 100M access until Firstmate grants another window. Do not run another 100M leg, tune against these provisional timings, or ship a performance claim from them.
+The last completed pair released the rig lock at **2026-09-08T03:39:26.704902+00:00**. The rig-repair lane owns 100M access until Firstmate grants another window. This validation run must not launch another 100M leg, tune against provisional timings, or publish a performance claim. Focused tests and 1M correctness validation remain authorized.
 
 Exclusive access remains necessary: hold one shared rig lock continuously across baseline and candidate, inspect live database JVMs after acquisition and between legs, and inherit the lock in child JVMs. A lock file's existence does not prove a live holder; never unlink a potentially held lock. Preserve the **6/14 GiB heap and 10 GiB arena** envelope, freeze the artifacts before measurement, and record source/artifact identity, complete flags and lock times. The rig repair must additionally establish repeatability; exclusivity alone did not make the collected timings dependable.
 
