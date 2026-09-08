@@ -76,6 +76,32 @@ final class GroupDistinctAccumulatorTest {
   }
 
   @Test
+  @DisplayName("a group is exact on either side of the promoted set's sizing, and pairs are counted once")
+  void groupsRemainExactAcrossThePromotedSetSizing() {
+    // Cover singleton, small and larger groups; values are distributed across the value stripes.
+    final int[] distinctPerGroup = {1, 2, 17, 24, 25, 200};
+    final GroupDistinctAccumulator acc = new GroupDistinctAccumulator(3, Long.MAX_VALUE);
+    long expectedEntries = 0L;
+    for (int group = 0; group < distinctPerGroup.length; group++) {
+      expectedEntries += distinctPerGroup[group];
+      for (int value = 0; value < distinctPerGroup[group]; value++) {
+        // Every worker sees every value: the stripe keeps the pair once however often it arrives.
+        for (int worker = 0; worker < 3; worker++) {
+          acc.worker(worker).sinkFor(group).add(value);
+          acc.worker(worker).sinkFor(group).add(value);
+        }
+      }
+    }
+    acc.finish();
+    assertFalse(acc.exceeded());
+    assertEquals(expectedEntries, acc.entries(), "one entry per distinct pair, whatever the group's size");
+    assertEquals(distinctPerGroup.length, acc.groupSizes().size());
+    for (int group = 0; group < distinctPerGroup.length; group++) {
+      assertEquals(distinctPerGroup[group], acc.groupSizes().get(group), "group " + group);
+    }
+  }
+
+  @Test
   void parallelCountPublicationVisitsEveryGroupOnceAndResets() {
     final GroupDistinctAccumulator acc = new GroupDistinctAccumulator(3, Long.MAX_VALUE);
     assertThrows(IllegalStateException.class, () -> acc.forEachGroupSize((group, count) -> {

@@ -439,9 +439,11 @@ public final class NumericGroupAggTable {
 
   /**
    * Use a compact hash index and append accumulators densely. Each index entry holds a 32-bit hash
-   * tag and a record handle; the complete key and identity still prove equality. At the maximum load,
-   * count-only stripes plus their index use fewer lanes than the six charged by the pass budget.
-   * Wider stripes save space over the interleaved sparse layout. Must be enabled before the first
+   * tag and a record handle; the complete key and identity still prove equality. Packed stripes plus
+   * one index lane per bucket hold {@code stride + 4/3} lanes per live group at the growth threshold,
+   * against the interleaved layout's {@code (4/3) * stride}, so this saves lanes only for stripes
+   * wider than four — see {@link GroupTableSpill#DENSE_INDEX_MIN_STRIDE} for the gate that applies
+   * it. Narrower stripes remain correct here and are used by tests. Must be enabled before the first
    * insertion or pool attachment.
    */
   public NumericGroupAggTable useDenseIndex() {
@@ -1349,14 +1351,16 @@ public final class NumericGroupAggTable {
    * Blocks of different widths would fold lane-misaligned, and an aux-less destination has no lane to
    * carry a source reference INTO — its neighbour's key lane sits there instead. A source that folded
    * a lane the destination does not (or the reverse) would merge a real sum into an unread lane, or
-   * an unfolded zero into a real one — both silent.
+   * an unfolded zero into a real one — both silent. The compact and ordinary layouts can reach the
+   * SAME slotWidth at different column counts, and their operand blocks are two lanes wide against
+   * four, so the flag is checked (and reported) in its own right.
    */
   private static void requireMergeable(final NumericGroupAggTable src, final NumericGroupAggTable into) {
     if (src.slotWidth != into.slotWidth || src.withAux != into.withAux || src.sumExactMask != into.sumExactMask
         || src.idWidth != into.idWidth || src.sumsOnly != into.sumsOnly) {
       throw new IllegalStateException("incompatible group tables: slotWidth " + src.slotWidth + "/" + into.slotWidth
           + ", aux " + src.withAux + "/" + into.withAux + ", sumExactMask " + src.sumExactMask + "/" + into.sumExactMask
-          + ", idWidth " + src.idWidth + "/" + into.idWidth);
+          + ", idWidth " + src.idWidth + "/" + into.idWidth + ", sumsOnly " + src.sumsOnly + "/" + into.sumsOnly);
     }
   }
 
