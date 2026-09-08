@@ -58,7 +58,9 @@ final class SegmentValueMergeTest {
       for (int run = 0; run < count; run++) {
         final TreeSet<String> mine = new TreeSet<>();
         for (int i = 0; i < 800; i++) {
-          final int number = i < 400 ? run * 1_000 + i : random.nextInt(12_000);
+          final int number = i < 400
+              ? run * 1_000 + i
+              : random.nextInt(12_000);
           mine.add("prefix/" + String.format(Locale.ROOT, "%05d", number));
         }
         values[run] = mine.toArray(String[]::new);
@@ -70,8 +72,7 @@ final class SegmentValueMergeTest {
 
   @Test
   void mixedUtf8WidthsKeepUtf16OrderAcrossInterleavedRuns() {
-    final int[] alphabet = {0, 65, 127, 128, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFF,
-        0x10000, 0x10001, 0x1F642, 0x10FFFF};
+    final int[] alphabet = {0, 65, 127, 128, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFF, 0x10000, 0x10001, 0x1F642, 0x10FFFF};
     final SplittableRandom random = new SplittableRandom(0x16C011A7);
     final String[][] values = new String[7][];
     for (int run = 0; run < values.length; run++) {
@@ -102,8 +103,7 @@ final class SegmentValueMergeTest {
       for (int mint = 1; mint <= counts[run]; mint++) {
         if (!sparse || mint % 29 == 0) {
           marks[run][mint >>> 6] |= 1L << mint;
-          expected.putIfAbsent(values[run][counts[run] - mint],
-              ProjectionIndexRowGroupPage.packSegmentCell(run, mint));
+          expected.putIfAbsent(values[run][counts[run] - mint], ProjectionIndexRowGroupPage.packSegmentCell(run, mint));
         }
       }
     }
@@ -116,8 +116,7 @@ final class SegmentValueMergeTest {
 
       @Override
       public int positionOfCell(final long cell) {
-        return counts[ProjectionIndexRowGroupPage.segmentOfCell(cell)]
-            - ProjectionIndexRowGroupPage.idOfCell(cell) + 1;
+        return counts[ProjectionIndexRowGroupPage.segmentOfCell(cell)] - ProjectionIndexRowGroupPage.idOfCell(cell) + 1;
       }
 
       @Override

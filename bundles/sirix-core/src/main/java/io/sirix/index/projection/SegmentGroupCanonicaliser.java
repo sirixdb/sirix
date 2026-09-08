@@ -893,7 +893,9 @@ public final class SegmentGroupCanonicaliser {
       return 0;
     }
     final long probe = ProjectionIndexRowGroupPage.packSegmentCell(segment, 1);
-    final SegmentRunCursor cursor = transformed == null ? null : storageResolver.cursorOfSegment(probe);
+    final SegmentRunCursor cursor = transformed == null
+        ? null
+        : storageResolver.cursorOfSegment(probe);
     final WalkBatch batch = new WalkBatch(segment, cursor);
     if ((long) markedCount * SPARSE_WALK_RATIO < entries) {
       // SPARSE: a selective predicate marked a few hundred cells of a many-million-entry segment.
@@ -919,7 +921,8 @@ public final class SegmentGroupCanonicaliser {
     } else {
       for (int position = 1; position <= entries; position++) {
         final int mint = cursor == null
-            ? storageResolver.mintAtPosition(probe, position) : cursor.mintAt(position);
+            ? storageResolver.mintAtPosition(probe, position)
+            : cursor.mintAt(position);
         if (mint < 1 || mint >= marked.length << 6 || (marked[mint >>> 6] & 1L << (mint & 63)) == 0L) {
           continue;
         }
@@ -947,10 +950,18 @@ public final class SegmentGroupCanonicaliser {
     private final boolean @Nullable [] identities = transformed == null
         ? null
         : new boolean[WALK_BATCH];
-    private final int @Nullable [] candidates = transformed == null ? null : new int[WALK_BATCH];
-    private final long @Nullable [] candidateCells = transformed == null ? null : new long[WALK_BATCH];
-    private final String @Nullable [] candidateValues = transformed == null ? null : new String[WALK_BATCH];
-    private final boolean @Nullable [] candidateIdentities = transformed == null ? null : new boolean[WALK_BATCH];
+    private final int @Nullable [] candidates = transformed == null
+        ? null
+        : new int[WALK_BATCH];
+    private final long @Nullable [] candidateCells = transformed == null
+        ? null
+        : new long[WALK_BATCH];
+    private final String @Nullable [] candidateValues = transformed == null
+        ? null
+        : new String[WALK_BATCH];
+    private final boolean @Nullable [] candidateIdentities = transformed == null
+        ? null
+        : new boolean[WALK_BATCH];
     private int filled;
     private int resolved;
     private long valueBytes;
@@ -1024,8 +1035,10 @@ public final class SegmentGroupCanonicaliser {
             continue;
           }
           final String cached = candidateValues[i];
-          final String representative = cached != null ? cached
-              : candidateIdentities[i] ? storageResolver.valueOfCell(candidateCells[i])
+          final String representative = cached != null
+              ? cached
+              : candidateIdentities[i]
+                  ? storageResolver.valueOfCell(candidateCells[i])
                   : transformed.valueOfCell(candidateCells[i]);
           if (!values[i].equals(representative)) {
             candidates[i] = 0;
@@ -1040,14 +1053,18 @@ public final class SegmentGroupCanonicaliser {
   /**
    * Capture an existing representative per hash while holding the map's monitor. The worker then
    * resolves and compares its immutable value outside the monitor. Canonical IDs and their first
-   * representative cells never change during a walk, so a proven match stays valid. A hash
-   * collision or an arrival after this snapshot uses the ordinary exact check when publishing.
+   * representative cells never change during a walk, so a proven match stays valid. A hash collision
+   * or an arrival after this snapshot uses the ordinary exact check when publishing.
    */
   private synchronized void snapshotCandidates(final long[] hashes, final int[] candidates, final long[] cells,
       final String[] values, final boolean[] identities, final int n) {
     for (int i = 0; i < n; i++) {
-      final int[] existing = hashes[i] == 0L ? null : idsByHash.get(hashes[i]);
-      final int candidate = existing == null ? 0 : existing[0];
+      final int[] existing = hashes[i] == 0L
+          ? null
+          : idsByHash.get(hashes[i]);
+      final int candidate = existing == null
+          ? 0
+          : existing[0];
       candidates[i] = candidate;
       if (candidate != 0) {
         final long cell = representativeCell.getLong(candidate - 1);
@@ -1088,7 +1105,8 @@ public final class SegmentGroupCanonicaliser {
       final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, id);
       table[id] = values == null
           ? issueCanonical(cell, hashes[i])
-          : candidates[i] != 0 ? candidates[i]
+          : candidates[i] != 0
+              ? candidates[i]
               : issueTransformedCanonical(cell, hashes[i], values[i], identities[i]);
     }
     if (values != null) {
@@ -1193,11 +1211,14 @@ public final class SegmentGroupCanonicaliser {
    */
   private ColumnSlice @Nullable [] canonicaliseMemoised(final ColumnSlice[] slices, final long @Nullable [] keep,
       final long @Nullable [] @Nullable [] rowKeep, final boolean wholeColumn, final SegmentRunner runner) {
-    final boolean parallel = wholeColumn && runner != SERIAL_SEGMENTS
-        && slices.length >= 2 * CANONICAL_MAP_MORSEL;
-    final int ranges = parallel ? 1 + (slices.length - 1) / CANONICAL_MAP_MORSEL : 1;
+    final boolean parallel = wholeColumn && runner != SERIAL_SEGMENTS && slices.length >= 2 * CANONICAL_MAP_MORSEL;
+    final int ranges = parallel
+        ? 1 + (slices.length - 1) / CANONICAL_MAP_MORSEL
+        : 1;
     final ColumnSlice[] out = new ColumnSlice[slices.length];
-    final CanonicalAllocation[] stats = PROJ_DIAG && wholeColumn ? new CanonicalAllocation[ranges] : null;
+    final CanonicalAllocation[] stats = PROJ_DIAG && wholeColumn
+        ? new CanonicalAllocation[ranges]
+        : null;
     if (parallel) {
       final boolean[] complete = new boolean[ranges];
       runner.forEach(ranges, range -> {
@@ -1398,8 +1419,8 @@ public final class SegmentGroupCanonicaliser {
           slice.stringDictIds(), slice.dictBytes(), slice.dictOffsets(), slice.setCounts(), slice.dictHashes());
     }
     if (diag) {
-      stats[range] = new CanonicalAllocation(sourceLongs, allocatedLongs, allocatedPresenceWords,
-          reusedEmptyLeaves, reusedEmptyPresence);
+      stats[range] = new CanonicalAllocation(sourceLongs, allocatedLongs, allocatedPresenceWords, reusedEmptyLeaves,
+          reusedEmptyPresence);
     }
     return true;
   }

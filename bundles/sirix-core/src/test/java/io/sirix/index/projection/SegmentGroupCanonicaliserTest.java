@@ -740,9 +740,16 @@ final class SegmentGroupCanonicaliserTest {
     final long[] keep = new long[(slices.length + 63) >>> 6];
     Arrays.fill(keep, -1L);
     for (int leaf = 0; leaf < slices.length; leaf++) {
-      slices[leaf] = leaf % 11 == 0 ? null : leaf % 13 == 0 ? sliceOf()
-          : sliceWithAbsent(base[leaf % base.length].numericValues().clone(), leaf % 19);
-      rowKeep[leaf] = leaf % 7 == 0 ? null : new long[] {leaf % 5 == 0 ? 0L : 0x55555L};
+      slices[leaf] = leaf % 11 == 0
+          ? null
+          : leaf % 13 == 0
+              ? sliceOf()
+              : sliceWithAbsent(base[leaf % base.length].numericValues().clone(), leaf % 19);
+      rowKeep[leaf] = leaf % 7 == 0
+          ? null
+          : new long[] {leaf % 5 == 0
+              ? 0L
+              : 0x55555L};
       if (leaf % 17 == 0) {
         keep[leaf >>> 6] &= ~(1L << (leaf & 63));
       }
@@ -815,7 +822,9 @@ final class SegmentGroupCanonicaliserTest {
       @Override
       public String valueOfCell(final long cell) {
         assertSame(planning, Thread.currentThread(), "unsettled values must use the original serial fallback");
-        return cell == first ? "b" : "a";
+        return cell == first
+            ? "b"
+            : "a";
       }
 
       @Override
@@ -825,7 +834,9 @@ final class SegmentGroupCanonicaliserTest {
     };
     final ColumnSlice[] slices = new ColumnSlice[513];
     for (int leaf = 0; leaf < slices.length; leaf++) {
-      slices[leaf] = sliceOf(leaf % 2 == 0 ? first : second);
+      slices[leaf] = sliceOf(leaf % 2 == 0
+          ? first
+          : second);
     }
     final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(source, 2);
     final ColumnSlice[] out;
@@ -889,7 +900,9 @@ final class SegmentGroupCanonicaliserTest {
   void sealedColumnRepeatedlyRefusesAnUnresolvableMemoEntry() {
     final long known = ProjectionIndexRowGroupPage.packSegmentCell(0, 1);
     final long unknown = ProjectionIndexRowGroupPage.packSegmentCell(0, 2);
-    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(cell -> cell == known ? "known" : null, 1);
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(cell -> cell == known
+        ? "known"
+        : null, 1);
     assertNotNull(groups.canonicalise(new ColumnSlice[] {sliceOf(known)}));
     assertTrue(groups.sealOrderPreserving());
     for (int attempt = 0; attempt < 2; attempt++) {

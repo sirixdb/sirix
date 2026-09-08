@@ -145,10 +145,19 @@ timings rest entirely on the committed transcript and the retained artifacts abo
 They are also **not a score**. Those are unscored single-query diagnostic medians;
 SEG4T's 1.319 s / 0.123 s and 2.302 ln remain q35's scored baseline, and the
 authoritative replacement must come from a separately scheduled full-suite campaign
-leg, not from this branch's diagnostic. No in-flight leg is claimed to have validated
-this rewrite: a leg validates it only if its head contains the executor change.
-SEG5T does not — it measured `de2724c5c`, which predates `87a5f04be`, so its q35 row
-rescores the **unrewritten** query.
+leg, not from this branch's diagnostic. A leg scores this rewrite only if its head
+contains the executor change. SEG5T does not — it measured `de2724c5c`, which
+predates `87a5f04be`, so its q35 row rescores the **unrewritten** query.
+
+The committed **SEG6T** leg is the first that does: its head is `aa4d81d54`,
+whose ancestry carries this executor change as `1cc53ec75` — the same rewrite
+`87a5f04be` names on the sibling branch. `python3 rank.py SEG6T SEG5T` reads the
+leg from `rig/legs/query-SEG6T.json` without a new run. That makes SEG6T the
+scored row for the *rewritten* query — and nothing more. It is **not** a Δln for
+the fold: `de2724c5c`…`aa4d81d54` also carries the composite fold guards, the
+empty-lane reuse and the q16 work, so a SEG5T→SEG6T q35 difference has several
+candidate causes and this document attributes it to none of them. Isolating the
+fold's own scored contribution still needs a paired leg around it alone.
 
 What a repository test run does establish is the route and the answers, at a size CI
 can afford: see Validation above.
