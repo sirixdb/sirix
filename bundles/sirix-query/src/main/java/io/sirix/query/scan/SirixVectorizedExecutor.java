@@ -1013,6 +1013,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return GROUP_AGG_SERVED.sum();
   }
 
+  /** Completed group scans using compact operand state — test observability. */
+  private static final LongAdder COMPACT_SUM_GROUPS_SERVED = new LongAdder();
+
+  /** Completed group scans that used the count-and-sum accumulator layout. */
+  public static long compactSumGroupsServedCount() {
+    return COMPACT_SUM_GROUPS_SERVED.sum();
+  }
+
   /** Of those, servings whose scan read column SLICES instead of whole-leaf payloads. */
   private static final LongAdder GROUP_AGG_SLICED_SERVED = new LongAdder();
 
@@ -13490,6 +13498,25 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /** Shared empty result of {@link #summedColumns} — no allocation on the min/max/count-only path. */
   private static final int[] EMPTY_INT_ARRAY = new int[0];
 
+  /** Only row-count ordering reads no operand lanes while the selector retains compact state. */
+  private static boolean countOrderedSums(final String[] funcs, final String[] aggFields, final int[] orderIndexes,
+      final int keyCount) {
+    if (orderIndexes == null || orderIndexes.length != 1) {
+      return false;
+    }
+    final int order = orderIndexes[0] - keyCount;
+    if (order < 0 || order >= funcs.length || !"count".equals(funcs[order]) || aggFields[order] != null) {
+      return false;
+    }
+    for (final String function : funcs) {
+      final String base = baseFunc(function);
+      if (!"count".equals(base) && !"sum".equals(base) && !"avg".equals(base)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /**
    * The subset of {@code aggCols} that an ACCUMULATING function reads — the only columns whose group
    * sums must be proven to fit a long. {@code min}/{@code max}/{@code count} never add, so a column
@@ -15878,7 +15905,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               eagerIdentity = true;
             }
           }
-          final int slotWidth = 2 + 4 * aggColsFlat.length;
+          final boolean compactSums = compositeSlicedArm && aggColsFlat.length > 0 && cdBlock < 0 && having == null
+              && !anyStringLengthAgg && !anyDeferred && countOrderedSums(funcs, aggFields, orderIndexes, keyCount);
+          final int slotWidth = 2 + (compactSums
+              ? 2
+              : 4) * aggColsFlat.length;
           // ORD_KEY on THIS arm: the key lane is a source reference, so the order value comes from
           // the group's EXACT identity, which for a monotonic transformed key (the only shape whose
           // plan can carry an ORD_KEY here — a composite key's component never resolves one) is a
@@ -15899,7 +15930,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // ONE stride for both consumers: it fixes the budget here and is stored on the plan below,
           // where refreshBudget charges groupBudgetCeiling(strideLanes). Two expressions that must
           // agree are two expressions that can drift.
-          final int strideLanes = NumericGroupAggTable.strideFor(aggColsFlat.length, true, compositeIdWidth);
+          final int strideLanes =
+              NumericGroupAggTable.strideFor(aggColsFlat.length, true, compositeIdWidth, compactSums);
           final long groupBudget = plannedGroupBudget(strideLanes);
           // Set when a key-ordered pass meets a ZERO group, which an identity-mode table cannot hold
           // (acquireZero refuses one) and whose side slot carries no identity lanes to order on.
@@ -15940,8 +15972,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 cdAcc.setPassRange(shift, passLo, passHi);
               }
             }
-            final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift,
-                hint -> new NumericGroupAggTable(aggColsFlat.length, hint, true, sumExactMask, compositeIdWidth),
+            final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift, hint -> compactSums
+                ? NumericGroupAggTable.sumsOnly(aggColsFlat.length, hint, true, sumExactMask, compositeIdWidth)
+                : new NumericGroupAggTable(aggColsFlat.length, hint, true, sumExactMask, compositeIdWidth),
                 plan.plannedGroups(), passLo, passHi, plan.passBudget());
             final long[] scanNanos = PROJ_DIAG
                 ? new long[eff]
@@ -16097,7 +16130,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               return declineGroupAgg("composite key transform raised on a matching row");
             }
             if (cdAcc != null) {
-              cdAcc.finish();
+              cdAcc.finish((tasks, task) -> parallel(tasks, task::accept));
               if (cdAcc.exceeded()) {
                 return declineGroupAgg("count(distinct) exact-set budget exceeded (composite arm)");
               }
@@ -16135,9 +16168,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 plan.notePartition(part, 0);
                 return; // nothing landed here: the merge split is sized for the largest shapes
               }
-              final NumericGroupAggTable into =
-                  spill.takeOrCreate(part, () -> new NumericGroupAggTable(aggColsFlat.length,
-                      (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask, compositeIdWidth));
+              final NumericGroupAggTable into = spill.takeOrCreate(part, () -> compactSums
+                  ? NumericGroupAggTable.sumsOnly(aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate),
+                      true, sumExactMask, compositeIdWidth)
+                  : new NumericGroupAggTable(aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate), true,
+                      sumExactMask, compositeIdWidth));
               NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
               if (cdAcc != null) {
                 // The per-group COUNT(DISTINCT) sets are keyed by the probe hash alone, which is
@@ -16344,10 +16379,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   longParts, present, isLong, effKeyOffsets, effKeySubstr, keyCondCols, keyCondLits, keySubstLit,
                   effKeyDivMod, winnerGlobalKeyViews);
             }
-            out.add(groupAggRecordComposite(keyNames, present, isLong, strParts, longParts, finalSel.accAt(i), funcs,
+            final long[] accumulator = compactSums
+                ? NumericGroupAggTable.expandSumsAccumulator(finalSel.accAt(i), finalSel.baseAt(i), aggColsFlat.length)
+                : finalSel.accAt(i);
+            out.add(groupAggRecordComposite(keyNames, present, isLong, strParts, longParts, accumulator, funcs,
                 aggFields, outNames, distinctFields, cdBase, keyDisplays, rankStringViews));
           }
           GROUP_AGG_SERVED.increment();
+          if (compactSums) {
+            COMPACT_SUM_GROUPS_SERVED.increment();
+          }
           if (compositeSlicedArm) {
             GROUP_AGG_SLICED_SERVED.increment();
           }
@@ -16722,7 +16763,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             return declineGroupAgg("regex key over a row missing the key field");
           }
           if (cdAcc != null) {
-            cdAcc.finish();
+            cdAcc.finish((tasks, task) -> parallel(tasks, task::accept));
             if (cdAcc.exceeded()) {
               return declineGroupAgg("count(distinct) exact-set budget exceeded (string arm)");
             }
@@ -18423,7 +18464,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           continue;
         }
         if (cdAcc != null) {
-          cdAcc.finish();
+          cdAcc.finish((tasks, task) -> parallel(tasks, task::accept));
           if (cdAcc.exceeded()) {
             return declineGroupAgg("count(distinct) exact-set budget exceeded (numeric arm)");
           }
@@ -21008,23 +21049,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * <p>
    * Each partition used to filter the WHOLE map itself, which is {@code partitions × groups} work and
    * is why the count-distinct arms were pinned to a narrow split while everything else merged over a
-   * thousand partitions. Bucketing is two passes over the map and lets those arms take the same split
-   * — q13's merge was half its wall at 100M.
+   * thousand partitions. Bucketing visits the disjoint count shards twice and lets those arms take
+   * the same split — q13's merge was half its wall at 100M.
    */
   private static long[][] bucketDistinctSizes(final GroupDistinctAccumulator distinct, final int partitions,
       final int shift) {
-    final Long2LongOpenHashMap sizes = distinct.groupSizes();
     final int[] lanes = new int[partitions];
-    for (final Long2LongMap.Entry entry : sizes.long2LongEntrySet()) {
-      lanes[NumericGroupAggTable.partitionOf(entry.getLongKey(), shift)] += 2;
-    }
+    distinct.forEachGroupSize((group, size) -> lanes[NumericGroupAggTable.partitionOf(group, shift)] += 2);
     final long[][] out = newDistinctBuckets(lanes);
-    for (final Long2LongMap.Entry entry : sizes.long2LongEntrySet()) {
-      final int part = NumericGroupAggTable.partitionOf(entry.getLongKey(), shift);
+    distinct.forEachGroupSize((group, size) -> {
+      final int part = NumericGroupAggTable.partitionOf(group, shift);
       final long[] bucket = out[part];
-      bucket[lanes[part]++] = entry.getLongKey();
-      bucket[lanes[part]++] = entry.getLongValue();
-    }
+      bucket[lanes[part]++] = group;
+      bucket[lanes[part]++] = size;
+    });
     return out;
   }
 

@@ -2,13 +2,16 @@ package io.sirix.index.projection;
 
 import it.unimi.dsi.fastutil.HashCommon;
 
+import java.util.Arrays;
+
 /**
- * Flat open-addressed hash table for per-group aggregates keyed by a single {@code long} group
- * value, with each key INTERLEAVED with its own accumulator in one stripe so that a group's probe
- * and its fold touch the same cache line.
+ * Open-addressed hash table for per-group aggregates keyed by a {@code long} value or an exact
+ * tuple identity. Each storage stripe contains the key and its accumulator. By default, stripes
+ * occupy hash buckets; {@link #useDenseIndex()} instead stores them sequentially behind a compact
+ * hash index, so collisions probe tags and handles before loading a complete stripe.
  *
  * <p>
- * Logical bucket {@code b} owns one contiguous stripe within one fixed-size storage chunk:
+ * Each record owns one contiguous stripe within one fixed-size storage chunk:
  *
  * <pre>
  *   lane 0                : key         — {@code
@@ -26,13 +29,16 @@ import it.unimi.dsi.fastutil.HashCommon;
  * probe AND the fold AND the winner decode.
  *
  * <p>
- * The accumulator block's INTERNAL layout is byte-for-byte
+ * The ordinary accumulator layout is byte-for-byte
  * {@link ProjectionIndexByteScan#newGroupAggAcc}'s, unchanged by the interleave, which is why
  * {@link #acquire} hands back an encoded accumulator handle. Callers resolve it once through
  * {@link #storageAtAccBase} and {@link #offsetAtAccBase}; the resulting array and offset have the
  * same block layout as a STANDALONE {@code long[]} (the missing-key and constant-group accumulators
  * keep that standalone shape). From a handle, the key is one load BELOW the resolved offset
  * ({@link #keyAtAccBase}) and the aux lane one {@code slotWidth} ABOVE it ({@link #auxAtAccBase}).
+ * {@link #sumsOnly(int, int, boolean, long, int)} omits operand extrema and uses present-count/sum
+ * pairs; callers must use its matching fold and expand selected results with
+ * {@link #expandSumsAccumulator(long[], int, int)}.
  *
  * <h2>Non-humongous storage</h2>
  *
@@ -44,7 +50,11 @@ import it.unimi.dsi.fastutil.HashCommon;
  * crosses a chunk boundary. The fixed chunk ceiling is below G1's 2-MiB humongous threshold with
  * the canonical 4-MiB regions, including array-header and alignment margin. High-cardinality scans
  * retain their full up-front capacity (and therefore avoid incremental rehashing); only the
- * physical allocation changes.
+ * physical allocation changes. Dense indexing retains the same chunk ceiling and load factor, but
+ * allocates payload chunks in insertion order. Its index stores a 32-bit hash tag and a record
+ * ordinal; full keys and identity lanes still prove equality. Growing that index preserves record
+ * handles, while backing arrays for small payloads can still move. Callers must always re-resolve
+ * the array and offset after an acquisition that can grow the table.
  *
  * <p>
  * Chunks may come from a {@link LongChunkPool} attached before the first insertion
@@ -93,6 +103,7 @@ public final class NumericGroupAggTable {
   private final int slotWidth;
   private final int stride;
   private final int aggColumns;
+  private final boolean sumsOnly;
   /**
    * Bit {@code a} set ⇒ aggregate column {@code a}'s SUM lane is read by the query (a {@code sum} or
    * {@code avg}), so it folds and merges under {@link Math#addExact} and an overflow declines. Bit
@@ -129,6 +140,13 @@ public final class NumericGroupAggTable {
   /** Lane distance from a stripe's accumulator base to its first identity lane. */
   private final int idOffsetFromAcc;
   private long[][] storage;
+  /** Null for interleaved buckets; otherwise hash-tag/record-handle entries in bounded chunks. */
+  private long[][] probeIndex;
+  /** Separate, scan-local recycler: payload and index chunks must never share live ownership. */
+  private LongChunkPool probePool;
+  private static final int PROBE_CHUNK_SHIFT = 14;
+  private static final int PROBE_CHUNK_MASK = (1 << PROBE_CHUNK_SHIFT) - 1;
+  private static final long PROBE_TAG_MASK = 0xFFFF_FFFF_0000_0000L;
   /** Chunk recycler, or {@code null} for plain allocation. Set once, before the first insertion. */
   private LongChunkPool pool;
   private int bucketsPerChunk;
@@ -199,6 +217,20 @@ public final class NumericGroupAggTable {
    */
   public NumericGroupAggTable(final int aggColumns, final int expectedEntries, final boolean withAux,
       final long sumExactMask, final int idWidth) {
+    this(aggColumns, expectedEntries, withAux, sumExactMask, idWidth, false);
+  }
+
+  /**
+   * Count-and-sum layout: each operand stores its present count and exact sum, with no extrema.
+   * Callers must use the compact fold and expand winners before reading the ordinary layout.
+   */
+  public static NumericGroupAggTable sumsOnly(final int aggColumns, final int expectedEntries, final boolean withAux,
+      final long sumExactMask, final int idWidth) {
+    return new NumericGroupAggTable(aggColumns, expectedEntries, withAux, sumExactMask, idWidth, true);
+  }
+
+  private NumericGroupAggTable(final int aggColumns, final int expectedEntries, final boolean withAux,
+      final long sumExactMask, final int idWidth, final boolean sumsOnly) {
     if (aggColumns < 0) {
       throw new IllegalArgumentException("aggColumns must be >= 0");
     }
@@ -207,13 +239,16 @@ public final class NumericGroupAggTable {
     }
     this.aggColumns = aggColumns;
     this.sumExactMask = sumExactMask;
-    this.slotWidth = 2 + 4 * aggColumns;
+    this.sumsOnly = sumsOnly;
+    this.slotWidth = 2 + (sumsOnly
+        ? 2
+        : 4) * aggColumns;
     this.withAux = withAux;
     this.idWidth = idWidth;
     this.idOffsetFromAcc = slotWidth + (withAux
         ? 1
         : 0);
-    this.stride = strideFor(aggColumns, withAux, idWidth);
+    this.stride = strideFor(aggColumns, withAux, idWidth, sumsOnly);
     if (stride > MAX_STORAGE_CHUNK_LANES) {
       throw new IllegalArgumentException(
           "aggregate stripe of " + stride + " lanes exceeds the non-humongous chunk ceiling");
@@ -228,7 +263,7 @@ public final class NumericGroupAggTable {
     installEmptyStorage(cap);
     this.mask = cap - 1;
     this.growAt = cap - (cap >>> 2);
-    this.zeroSlot = newAcc(slotWidth);
+    this.zeroSlot = newAcc(slotWidth, sumsOnly);
   }
 
   /**
@@ -250,15 +285,27 @@ public final class NumericGroupAggTable {
    * @throws IllegalArgumentException if any argument is negative
    */
   public static int strideFor(final int aggColumns, final boolean withAux, final int idWidth) {
+    return strideFor(aggColumns, withAux, idWidth, false);
+  }
+
+  /** Storage lanes per group, including the optional count-and-sum layout. */
+  public static int strideFor(final int aggColumns, final boolean withAux, final int idWidth, final boolean sumsOnly) {
     if (aggColumns < 0) {
       throw new IllegalArgumentException("aggColumns must be >= 0: " + aggColumns);
     }
     if (idWidth < 0) {
       throw new IllegalArgumentException("idWidth must be >= 0: " + idWidth);
     }
-    return 1 + (2 + 4 * aggColumns) + (withAux
-        ? 1
-        : 0) + idWidth;
+    final long lanes = 3L + (sumsOnly
+        ? 2L
+        : 4L) * aggColumns + (withAux
+            ? 1L
+            : 0L)
+        + idWidth;
+    if (lanes > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("group stripe has too many lanes: " + lanes);
+    }
+    return (int) lanes;
   }
 
   /**
@@ -277,14 +324,36 @@ public final class NumericGroupAggTable {
         : cap;
   }
 
-  private static long[] newAcc(final int slotWidth) {
+  private static long[] newAcc(final int slotWidth, final boolean sumsOnly) {
     final long[] acc = new long[slotWidth];
     acc[1] = Long.MAX_VALUE;
-    for (int base = 2; base < slotWidth; base += 4) {
+    for (int base = 2; !sumsOnly && base < slotWidth; base += 4) {
       acc[base + 2] = Long.MAX_VALUE;
       acc[base + 3] = Long.MIN_VALUE;
     }
     return acc;
+  }
+
+  /** Whether operand blocks contain only a present count and a sum. */
+  public boolean sumsOnly() {
+    return sumsOnly;
+  }
+
+  /** Expand one selected compact accumulator to the ordinary result-emission layout. */
+  public static long[] expandSumsAccumulator(final long[] source, final int base, final int aggColumns) {
+    final long expandedWidth = 2L + 4L * aggColumns;
+    if (aggColumns < 0 || base < 0 || (long) base + 2L + 2L * aggColumns > source.length
+        || expandedWidth > MAX_ARRAY_LENGTH) {
+      throw new IllegalArgumentException("compact accumulator outside source bounds");
+    }
+    final long[] expanded = newAcc((int) expandedWidth, false);
+    expanded[0] = source[base];
+    expanded[1] = source[base + 1];
+    for (int a = 0; a < aggColumns; a++) {
+      expanded[2 + 4 * a] = source[base + 2 + 2 * a];
+      expanded[3 + 4 * a] = source[base + 3 + 2 * a];
+    }
+    return expanded;
   }
 
   /** Aggregate columns this table's accumulator blocks carry. */
@@ -368,6 +437,57 @@ public final class NumericGroupAggTable {
     return this;
   }
 
+  /**
+   * Use a compact hash index and append accumulators densely. Each index entry holds a 32-bit hash
+   * tag and a record handle; the complete key and identity still prove equality. At the maximum load,
+   * count-only stripes plus their index use fewer lanes than the six charged by the pass budget.
+   * Wider stripes save space over the interleaved sparse layout. Must be enabled before the first
+   * insertion or pool attachment.
+   */
+  public NumericGroupAggTable useDenseIndex() {
+    if (size != 0 || hasZeroKey || pool != null) {
+      throw new IllegalStateException("dense index enabled after table use");
+    }
+    if (stride < 3) {
+      throw new IllegalArgumentException("dense indexing needs a stripe of at least three lanes");
+    }
+    probeIndex = new long[(int) (((long) mask + 1L + PROBE_CHUNK_MASK) >>> PROBE_CHUNK_SHIFT)][];
+    return this;
+  }
+
+  /** Attach the spill's separate recycler for compact index chunks. */
+  NumericGroupAggTable attachProbePool(final LongChunkPool recycler) {
+    if (size != 0 || hasZeroKey || recycler.chunkLanes() != 1 << PROBE_CHUNK_SHIFT) {
+      throw new IllegalArgumentException("incompatible or late probe pool");
+    }
+    probePool = recycler;
+    return this;
+  }
+
+  private long[] newProbeChunk(final int capacity) {
+    final int lanes = Math.min(capacity, 1 << PROBE_CHUNK_SHIFT);
+    return probePool != null && lanes == 1 << PROBE_CHUNK_SHIFT
+        ? probePool.take()
+        : new long[lanes];
+  }
+
+  private void recycleProbeIndex(final long[][] index) {
+    if (probePool != null) {
+      for (final long[] chunk : index) {
+        if (chunk != null && chunk.length == 1 << PROBE_CHUNK_SHIFT) {
+          probePool.give(chunk);
+        }
+      }
+    }
+  }
+
+  private long probeEntry(final int bucket) {
+    final long[] chunk = probeIndex[bucket >>> PROBE_CHUNK_SHIFT];
+    return chunk == null
+        ? 0L
+        : chunk[bucket & PROBE_CHUNK_MASK];
+  }
+
   /** The attached chunk recycler, or {@code null}. */
   public LongChunkPool chunkPool() {
     return pool;
@@ -390,6 +510,10 @@ public final class NumericGroupAggTable {
       }
     }
     storage = RELEASED_STORAGE;
+    if (probeIndex != null) {
+      recycleProbeIndex(probeIndex);
+      probeIndex = RELEASED_STORAGE;
+    }
   }
 
   /** Whether {@link #release} has run. */
@@ -480,6 +604,21 @@ public final class NumericGroupAggTable {
     final long key = probeHash == 0L
         ? ZERO_PROBE_SUBSTITUTE
         : probeHash;
+    if (probeIndex != null) {
+      final long hash = HashCommon.mix(key);
+      int bucket = (int) hash & mask;
+      while (true) {
+        final long entry = probeEntry(bucket);
+        if (entry == 0L) {
+          throw new IllegalStateException("no group carries probe key " + probeHash);
+        }
+        final int handle = (int) entry - 1;
+        if (((entry ^ hash) & PROBE_TAG_MASK) == 0L && keyAtAccBase(handle) == key) {
+          return handle;
+        }
+        bucket = bucket + 1 & mask;
+      }
+    }
     final int start = (int) HashCommon.mix(key) & mask;
     int bucket = start;
     do {
@@ -520,6 +659,12 @@ public final class NumericGroupAggTable {
    * Key of bucket {@code bucket}; {@code 0} = empty (the real key 0 lives in {@link #zeroSlot()}).
    */
   public long keyAtBucket(final int bucket) {
+    if (probeIndex != null) {
+      final long entry = probeEntry(bucket);
+      return entry == 0L
+          ? 0L
+          : keyAtAccBase((int) entry - 1);
+    }
     final int chunk = bucket >>> chunkBucketShift;
     final int off = (bucket & chunkBucketMask) * stride;
     final long[] block = storage[chunk];
@@ -530,7 +675,9 @@ public final class NumericGroupAggTable {
 
   /** Encoded accumulator handle of {@code bucket} — valid only when its key lane is non-zero. */
   public int accBaseOfBucket(final int bucket) {
-    return bucket;
+    return probeIndex == null
+        ? bucket
+        : (int) probeEntry(bucket) - 1;
   }
 
   /**
@@ -626,6 +773,9 @@ public final class NumericGroupAggTable {
     if (outOfPass(key)) {
       return DISCARD_HANDLE;
     }
+    if (probeIndex != null) {
+      return acquireDense(key, firstSeenOrdinal, null, 0);
+    }
     final long[][] chunks = storage;
     final int st = stride;
     final int bucketShift = chunkBucketShift;
@@ -654,7 +804,7 @@ public final class NumericGroupAggTable {
       chunks[chunkIndex] = chunk;
     }
     chunk[off] = key;
-    initBlock(chunk, off + 1, firstSeenOrdinal, slotWidth);
+    initBlock(chunk, off + 1, firstSeenOrdinal, slotWidth, sumsOnly);
     if (++size > growAt) {
       rehash();
       // The stripe moved with its key; re-probe in the grown table (guaranteed present).
@@ -692,6 +842,9 @@ public final class NumericGroupAggTable {
     if (outOfPass(key)) {
       return DISCARD_HANDLE;
     }
+    if (probeIndex != null) {
+      return acquireDense(key, firstSeenOrdinal, identity, identityOffset);
+    }
     final long[][] chunks = storage;
     final int st = stride;
     final int bucketShift = chunkBucketShift;
@@ -725,13 +878,105 @@ public final class NumericGroupAggTable {
       chunks[chunkIndex] = chunk;
     }
     chunk[off] = key;
-    initBlock(chunk, off + 1, firstSeenOrdinal, slotWidth);
+    initBlock(chunk, off + 1, firstSeenOrdinal, slotWidth, sumsOnly);
     System.arraycopy(identity, identityOffset, chunk, off + idOff, width);
     if (++size > growAt) {
       rehash();
       return findExact(key, identity, identityOffset);
     }
     return bucket;
+  }
+
+  private int acquireDense(final long key, final long firstSeenOrdinal, final long[] identity,
+      final int identityOffset) {
+    final long hash = HashCommon.mix(key);
+    int bucket = (int) hash & mask;
+    while (true) {
+      final int indexChunk = bucket >>> PROBE_CHUNK_SHIFT;
+      long[] index = probeIndex[indexChunk];
+      final int indexOffset = bucket & PROBE_CHUNK_MASK;
+      final long entry = index == null
+          ? 0L
+          : index[indexOffset];
+      if (entry == 0L) {
+        final int handle = size;
+        final int chunkIndex = handle >>> chunkBucketShift;
+        long[] chunk = storage[chunkIndex];
+        if (chunk == null) {
+          chunk = newChunk(bucketsPerChunk * stride);
+          storage[chunkIndex] = chunk;
+        }
+        final int offset = (handle & chunkBucketMask) * stride;
+        chunk[offset] = key;
+        initBlock(chunk, offset + 1, firstSeenOrdinal, slotWidth, sumsOnly);
+        if (idWidth != 0) {
+          System.arraycopy(identity, identityOffset, chunk, offset + 1 + idOffsetFromAcc, idWidth);
+        }
+        if (index == null) {
+          index = newProbeChunk(mask + 1);
+          probeIndex[indexChunk] = index;
+        }
+        index[indexOffset] = (hash & PROBE_TAG_MASK) | (handle + 1L);
+        if (++size > growAt) {
+          rehash();
+        }
+        return handle;
+      }
+      if (((entry ^ hash) & PROBE_TAG_MASK) == 0L) {
+        final int handle = (int) entry - 1;
+        final long[] chunk = storage[handle >>> chunkBucketShift];
+        final int offset = (handle & chunkBucketMask) * stride;
+        if (chunk[offset] == key) {
+          if (idWidth == 0 || identityMatches(chunk, offset + 1 + idOffsetFromAcc, identity, identityOffset, idWidth)) {
+            return handle;
+          }
+          probeKeyCollision = true;
+        }
+      }
+      bucket = bucket + 1 & mask;
+    }
+  }
+
+  /** Rebuild only the compact index; accumulator handles remain dense record ordinals. */
+  private void rehashDense(final int capacity) {
+    final int newMask = capacity - 1;
+    final long[][] grownIndex = new long[(int) (((long) capacity + PROBE_CHUNK_MASK) >>> PROBE_CHUNK_SHIFT)][];
+    for (int handle = 0; handle < size; handle++) {
+      final long key = keyAtAccBase(handle);
+      final long hash = HashCommon.mix(key);
+      int bucket = (int) hash & newMask;
+      while (true) {
+        final int chunkIndex = bucket >>> PROBE_CHUNK_SHIFT;
+        long[] index = grownIndex[chunkIndex];
+        final int offset = bucket & PROBE_CHUNK_MASK;
+        if (index == null) {
+          index = newProbeChunk(capacity);
+          grownIndex[chunkIndex] = index;
+        }
+        if (index[offset] == 0L) {
+          index[offset] = (hash & PROBE_TAG_MASK) | (handle + 1L);
+          break;
+        }
+        bucket = bucket + 1 & newMask;
+      }
+    }
+    final int chunkBuckets = bucketsPerChunk(capacity);
+    if (chunkBuckets != bucketsPerChunk) {
+      final long[] grown = newChunk(chunkBuckets * stride);
+      System.arraycopy(storage[0], 0, grown, 0, size * stride);
+      recycle(storage[0]);
+      storage = new long[][] {grown};
+    } else {
+      storage = Arrays.copyOf(storage, capacity / chunkBuckets);
+    }
+    recycleProbeIndex(probeIndex);
+    probeIndex = grownIndex;
+    bucketsPerChunk = chunkBuckets;
+    chunkBucketMask = chunkBuckets - 1;
+    chunkBucketShift = Integer.numberOfTrailingZeros(chunkBuckets);
+    mask = newMask;
+    growAt = capacity - (capacity >>> 2);
+    rehashes++;
   }
 
   private static boolean identityMatches(final long[] chunk, final int base, final long[] identity,
@@ -796,9 +1041,14 @@ public final class NumericGroupAggTable {
     return bucket;
   }
 
-  private static void initBlock(final long[] t, final int accBase, final long firstSeenOrdinal, final int slotWidth) {
+  private static void initBlock(final long[] t, final int accBase, final long firstSeenOrdinal, final int slotWidth,
+      final boolean sumsOnly) {
     t[accBase] = 0L;
     t[accBase + 1] = firstSeenOrdinal;
+    if (sumsOnly) {
+      Arrays.fill(t, accBase + 2, accBase + slotWidth, 0L);
+      return;
+    }
     for (int b = accBase + 2; b < accBase + slotWidth; b += 4) {
       t[b] = 0L;
       t[b + 1] = 0L;
@@ -816,6 +1066,10 @@ public final class NumericGroupAggTable {
     final long newLength = (long) newCap * stride;
     if (newLength > MAX_ARRAY_LENGTH) {
       throw new IllegalStateException("group table exceeds " + MAX_ARRAY_LENGTH + " lanes");
+    }
+    if (probeIndex != null) {
+      rehashDense(newCap);
+      return;
     }
     final int newMask = newCap - 1;
     final int st = stride;
@@ -850,6 +1104,7 @@ public final class NumericGroupAggTable {
           grown[chunkIndex] = targetChunk;
         }
         System.arraycopy(oldChunk, o, targetChunk, to, st);
+
       }
       recycle(oldChunk);
     }
@@ -960,7 +1215,7 @@ public final class NumericGroupAggTable {
         if (aux && dstTable[dstBase] == 0L) {
           dstTable[dstBase + slotWidth] = srcTable[srcBase + slotWidth];
         }
-        mergeBlock(dstTable, dstBase, srcTable, srcBase, slotWidth, into.sumExactMask);
+        mergeBlock(dstTable, dstBase, srcTable, srcBase, slotWidth, into.sumExactMask, into.sumsOnly);
       }
       mergeZeroGroup(src, into, slotWidth, partition);
     }
@@ -1011,7 +1266,7 @@ public final class NumericGroupAggTable {
             // same group value, so first-arrival is as good as first-seen).
             dstTable[dstBase + slotWidth] = srcTable[srcBase + slotWidth];
           }
-          mergeBlock(dstTable, dstBase, srcTable, srcBase, slotWidth, into.sumExactMask);
+          mergeBlock(dstTable, dstBase, srcTable, srcBase, slotWidth, into.sumExactMask, into.sumsOnly);
         }
       }
       mergeZeroGroup(src, into, slotWidth, partition);
@@ -1059,7 +1314,7 @@ public final class NumericGroupAggTable {
       if (aux && dst[dstBase] == 0L) {
         dst[dstBase + width] = stripes[srcBase + width];
       }
-      mergeBlock(dst, dstBase, stripes, srcBase, width, exact);
+      mergeBlock(dst, dstBase, stripes, srcBase, width, exact, sumsOnly);
     }
   }
 
@@ -1087,7 +1342,7 @@ public final class NumericGroupAggTable {
     if (fresh && src.withAux) {
       into.zeroAux = src.zeroAux;
     }
-    mergeBlock(dst, 0, src.zeroSlot, 0, slotWidth, into.sumExactMask);
+    mergeBlock(dst, 0, src.zeroSlot, 0, slotWidth, into.sumExactMask, into.sumsOnly);
   }
 
   /**
@@ -1098,7 +1353,7 @@ public final class NumericGroupAggTable {
    */
   private static void requireMergeable(final NumericGroupAggTable src, final NumericGroupAggTable into) {
     if (src.slotWidth != into.slotWidth || src.withAux != into.withAux || src.sumExactMask != into.sumExactMask
-        || src.idWidth != into.idWidth) {
+        || src.idWidth != into.idWidth || src.sumsOnly != into.sumsOnly) {
       throw new IllegalStateException("incompatible group tables: slotWidth " + src.slotWidth + "/" + into.slotWidth
           + ", aux " + src.withAux + "/" + into.withAux + ", sumExactMask " + src.sumExactMask + "/" + into.sumExactMask
           + ", idWidth " + src.idWidth + "/" + into.idWidth);
@@ -1106,10 +1361,19 @@ public final class NumericGroupAggTable {
   }
 
   private static void mergeBlock(final long[] dst, final int dstBase, final long[] src, final int srcBase,
-      final int slotWidth, final long sumExactMask) {
+      final int slotWidth, final long sumExactMask, final boolean sumsOnly) {
     dst[dstBase] += src[srcBase];
     if (src[srcBase + 1] < dst[dstBase + 1]) {
       dst[dstBase + 1] = src[srcBase + 1];
+    }
+    if (sumsOnly) {
+      for (int off = 2, a = 0; off < slotWidth; off += 2, a++) {
+        dst[dstBase + off] += src[srcBase + off];
+        if (sumsExact(sumExactMask, a)) {
+          dst[dstBase + off + 1] = Math.addExact(dst[dstBase + off + 1], src[srcBase + off + 1]);
+        }
+      }
+      return;
     }
     for (int off = 2, a = 0; off < slotWidth; off += 4, a++) {
       dst[dstBase + off] += src[srcBase + off];

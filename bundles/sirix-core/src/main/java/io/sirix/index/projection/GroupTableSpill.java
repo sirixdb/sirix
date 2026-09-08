@@ -32,7 +32,9 @@ import static java.util.Objects.requireNonNull;
  * recycles the ones it outgrew, and the caller releases the merged tables once a pass has emitted
  * its candidates — so a pass allocates its storage once and G1 promotes it once, instead of copying
  * ≈ 9 GB of short-lived tables through the young generation per pass (the q32 profile at 100M).
- * Kill switch {@code -Dsirix.projection.groupTable.chunkPool=false}.
+ * Kill switch {@code -Dsirix.projection.groupTable.chunkPool=false}. Dense table indexes use a
+ * separate recycler scoped to this spill. Payload recycling retains the existing policy; index
+ * chunks never enter a new global pool. The group budget is unchanged.
  * </p>
  *
  * <p>
@@ -60,6 +62,13 @@ import static java.util.Objects.requireNonNull;
  * </p>
  */
 public final class GroupTableSpill {
+
+  /** Use compact hash indexes and dense accumulator records (default on). */
+  public static final String DENSE_INDEX_PROPERTY = "sirix.projection.groupTable.denseIndex";
+
+  private static boolean denseIndexEnabled(final int stride) {
+    return stride >= 3 && Boolean.parseBoolean(System.getProperty(DENSE_INDEX_PROPERTY, "true"));
+  }
 
   /** Configured flush threshold in groups per worker table. */
   public static final String FLUSH_GROUPS_PROPERTY = "sirix.projection.groupTable.flushGroups";
@@ -801,6 +810,8 @@ public final class GroupTableSpill {
   private final long budget;
   /** Shared by every table of this spill, or {@code null} when the pool is switched off. */
   private final LongChunkPool pool;
+  private final LongChunkPool probePool;
+  private final boolean denseIndex;
   private final LongAdder spilled = new LongAdder();
   /**
    * Stripes sitting in the partition buffers: resident state the abort must price, not yet
@@ -876,6 +887,7 @@ public final class GroupTableSpill {
         : flushGroups();
     // One probe table fixes the layout every table of this spill shares; it never holds a group.
     final int stride = factory.apply(workerTableHint()).stride();
+    this.denseIndex = denseIndexEnabled(stride);
     this.stripeStride = stride;
     if (stripeSpill) {
       this.stripeBuffers = new StripeBuffer[partitions];
@@ -897,11 +909,17 @@ public final class GroupTableSpill {
       final int capacity = poolCapacityChunks(budget, threshold, stride, chunkLanes);
       // The shared pool outlives this pass: the chunks the previous pass (or the previous query)
       // handed back are this pass's tables, and nothing is allocated for them.
+      final int probeChunks =
+          (int) Math.max(1L, Math.min(Integer.MAX_VALUE, budget / (NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES / 2L)));
+      this.probePool = denseIndex
+          ? new LongChunkPool(NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES, probeChunks)
+          : null;
       this.pool = LongChunkPool.retainAcrossScans()
           ? LongChunkPool.shared(chunkLanes, capacity)
           : new LongChunkPool(chunkLanes, capacity);
     } else {
       this.pool = null;
+      this.probePool = null;
     }
   }
 
@@ -921,6 +939,12 @@ public final class GroupTableSpill {
 
   /** Attach this spill's pool to a table that holds no group yet. */
   private NumericGroupAggTable adopt(final NumericGroupAggTable table) {
+    if (denseIndex) {
+      table.useDenseIndex();
+      if (probePool != null) {
+        table.attachProbePool(probePool);
+      }
+    }
     return pool == null
         ? table
         : table.attachChunkPool(pool);

@@ -183,7 +183,11 @@ public final class ProjectionColumnGroupScan {
           final long[] slotArr;
           final int base;
           GroupDistinctAccumulator.Sink dset = null;
-          if ((groupPresWord & 1L << bit) == 0L) {
+          final boolean groupMissing = (groupPresWord & 1L << bit) == 0L;
+          final long distinctGroup = groupMissing
+              ? 0L
+              : groupValues[rowIdx];
+          if (groupMissing) {
             slotArr = missingAcc;
             base = 0;
             if (slotArr[0] == 0) {
@@ -191,7 +195,7 @@ public final class ProjectionColumnGroupScan {
             }
             dset = distinctMissing;
           } else {
-            final long gv = groupValues[rowIdx];
+            final long gv = distinctGroup;
             if (gv == 0L) {
               slotArr = out.acquireZero(leafOrdinalBase | rowIdx);
               base = 0;
@@ -200,13 +204,13 @@ public final class ProjectionColumnGroupScan {
               slotArr = out.storageAtAccBase(handle);
               base = out.offsetAtAccBase(handle);
             }
-            if (distinctBlock >= 0) {
-              dset = distinctOut.sinkFor(gv);
-            }
           }
           foldSliced(slotArr, base, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
               bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null, sumExactMask,
-              leafLengthTables);
+              leafLengthTables, groupMissing
+                  ? null
+                  : distinctOut,
+              distinctGroup);
         }
       }
     }
@@ -778,6 +782,23 @@ public final class ProjectionColumnGroupScan {
     }
   }
 
+  /** Fold integral operands into present-count/sum pairs; missing operands retain a zero count. */
+  private static void foldSumsSliced(final long[] accumulator, final int base, final long[][] values,
+      final long[][] presence, final int columns, final int word, final int bit, final int row,
+      final long sumExactMask) {
+    accumulator[base]++;
+    final long presentBit = 1L << bit;
+    for (int a = 0; a < columns; a++) {
+      if ((presence[a][word] & presentBit) != 0L) {
+        final int at = base + 2 + 2 * a;
+        accumulator[at]++;
+        if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
+          accumulator[at + 1] = Math.addExact(accumulator[at + 1], values[a][row]);
+        }
+      }
+    }
+  }
+
   /**
    * One row's aggregate fold over hoisted slice arrays — the byte kernel's foldRow twin.
    *
@@ -797,6 +818,18 @@ public final class ProjectionColumnGroupScan {
       final GroupDistinctAccumulator.Sink dset, final long[] budget, final byte[] cdDictBytes,
       final int[] cdDictOffsets, final long[] cdHash, final GroupDistinctBitmaps bitmaps, final long[] dwords,
       final long sumExactMask, final int[][] leafLengthTables) {
+    foldSliced(slotArr, base, aggValues, aggPresence, aggIds, stringLengths, stringLengthModes, aggCount, w, bit,
+        rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, bitmaps, dwords, sumExactMask,
+        leafLengthTables, null, 0L);
+  }
+
+  private static void foldSliced(final long[] slotArr, final int base, final long[][] aggValues,
+      final long[][] aggPresence, final int[][] aggIds, final int[][] stringLengths, final byte[] stringLengthModes,
+      final int aggCount, final int w, final int bit, final int rowIdx, final int distinctBlock,
+      final GroupDistinctAccumulator.Sink dset, final long[] budget, final byte[] cdDictBytes,
+      final int[] cdDictOffsets, final long[] cdHash, final GroupDistinctBitmaps bitmaps, final long[] dwords,
+      final long sumExactMask, final int[][] leafLengthTables, final GroupDistinctAccumulator.Worker directDistinct,
+      final long distinctGroup) {
     slotArr[base]++;
     for (int a = 0; a < aggCount; a++) {
       final boolean stringLengthAgg =
@@ -838,8 +871,11 @@ public final class ProjectionColumnGroupScan {
           if (!bitmaps.set(dwords, v)) {
             budget[1] = 1; // id outside the sized range — decline; a dropped id is a low count
           }
-        } else
+        } else if (directDistinct != null) {
+          directDistinct.addToGroup(distinctGroup, v);
+        } else {
           dset.add(v); // exact and bounded inside the shared accumulator; its overrun declines the arm
+        }
         continue;
       }
       final int aggBase = base + 2 + 4 * a;
@@ -1307,12 +1343,11 @@ public final class ProjectionColumnGroupScan {
             }
             if (countOnly) {
               slotArr[base]++;
+            } else if (out.sumsOnly()) {
+              foldSumsSliced(slotArr, base, aggValues, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
             } else {
               foldSliced(slotArr, base, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
-                  distinctBlock, distinctBlock >= 0
-                      ? distinctOut.sinkFor(h)
-                      : null,
-                  budget, null, null, null, null, null, sumExactMask, null);
+                  distinctBlock, null, budget, null, null, null, null, null, sumExactMask, null, distinctOut, h);
             }
           }
         }
@@ -1474,12 +1509,11 @@ public final class ProjectionColumnGroupScan {
           }
           if (countOnly) {
             slotArr[base]++;
+          } else if (out.sumsOnly()) {
+            foldSumsSliced(slotArr, base, aggValues, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
           } else {
             foldSliced(slotArr, base, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowIdx, distinctBlock,
-                distinctBlock >= 0
-                    ? distinctOut.sinkFor(h)
-                    : null,
-                budget, null, null, null, null, null, sumExactMask, null);
+                null, budget, null, null, null, null, null, sumExactMask, null, distinctOut, h);
           }
         }
       }

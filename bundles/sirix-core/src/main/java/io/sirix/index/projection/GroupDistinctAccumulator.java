@@ -1,13 +1,17 @@
 package io.sirix.index.projection;
 
 import it.unimi.dsi.fastutil.HashCommon;
+import it.unimi.dsi.fastutil.longs.Long2LongMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongLongBiConsumer;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.objects.ObjectIterator;
 
 import java.util.Arrays;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.IntConsumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -38,7 +42,8 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * Thread contract: {@link #worker(int)} hands each parallel slot its own single-threaded
  * {@link Worker}; {@link #finish()} runs on the coordinating thread after the parallel section has
- * joined and publishes the sizes.
+ * joined and publishes the sizes. Its parallel overload uses the caller's joined task runner to
+ * combine the disjoint group stripes independently.
  */
 public final class GroupDistinctAccumulator {
 
@@ -107,8 +112,34 @@ public final class GroupDistinctAccumulator {
     return STRIPES;
   }
 
+  /** The common singleton group needs no hash table or backing array. */
+  private static final class DistinctValues {
+    private final long first;
+    private LongOpenHashSet rest;
+
+    DistinctValues(final long first) {
+      this.first = first;
+    }
+
+    boolean add(final long value) {
+      if (value == first) {
+        return false;
+      }
+      if (rest == null) {
+        rest = new LongOpenHashSet(1);
+      }
+      return rest.add(value);
+    }
+
+    long size() {
+      return 1L + (rest == null
+          ? 0L
+          : rest.size());
+    }
+  }
+
   private static final class Stripe {
-    final Long2ObjectOpenHashMap<LongOpenHashSet> groups = new Long2ObjectOpenHashMap<>();
+    final Long2ObjectOpenHashMap<DistinctValues> groups = new Long2ObjectOpenHashMap<>();
     LongOpenHashSet missing;
   }
 
@@ -167,6 +198,17 @@ public final class GroupDistinctAccumulator {
       return sink;
     }
 
+    /** Record a numeric group directly, without retaining a per-group sink object. */
+    void addToGroup(final long group, final long value) {
+      if (passShift < 64) {
+        final int p = (int) (HashCommon.mix(group) >>> passShift);
+        if (p < passLo || p >= passHi) {
+          return;
+        }
+      }
+      add(group, value);
+    }
+
     /** The sink for rows whose group key is missing — owned by the pass holding partition 0. */
     public Sink missing() {
       return passShift < 64 && passLo > 0
@@ -221,15 +263,16 @@ public final class GroupDistinctAccumulator {
       int added = 0;
       synchronized (target) {
         long lastGroup = 0L;
-        LongOpenHashSet lastSet = null;
+        DistinctValues lastSet = null;
         for (int i = 0; i < fill; i++) {
           final long group = groups[i];
-          LongOpenHashSet set = lastSet;
+          DistinctValues set = lastSet;
           if (set == null || group != lastGroup) {
             set = target.groups.get(group);
             if (set == null) {
-              set = new LongOpenHashSet(16);
+              set = new DistinctValues(values[i]);
               target.groups.put(group, set);
+              added++;
             }
             lastGroup = group;
             lastSet = set;
@@ -286,6 +329,7 @@ public final class GroupDistinctAccumulator {
   private final LongAdder entries = new LongAdder();
   private volatile boolean exceeded;
   private Long2LongOpenHashMap sizes;
+  private Long2LongOpenHashMap[] sizesByGroupStripe;
   private long missingSize;
   private boolean finished;
 
@@ -358,6 +402,7 @@ public final class GroupDistinctAccumulator {
     entries.reset();
     exceeded = false;
     sizes = null;
+    sizesByGroupStripe = null;
     missingSize = 0L;
     finished = false;
   }
@@ -387,34 +432,102 @@ public final class GroupDistinctAccumulator {
    * after the parallel section has joined; idempotent.
    */
   public void finish() {
+    finish((tasks, task) -> {
+      for (int i = 0; i < tasks; i++) {
+        task.accept(i);
+      }
+    });
+  }
+
+  /**
+   * Runs every indexed task exactly once and joins all accepted tasks before returning or throwing.
+   */
+  @FunctionalInterface
+  public interface ParallelTasks {
+    void run(int tasks, IntConsumer task);
+  }
+
+  /**
+   * Publish counts using the caller's existing worker pool. Group stripes own disjoint keys, so each
+   * task combines only its value stripes and needs no shared output map or lock. Call only after all
+   * scan workers have joined; the dispatcher must join its tasks too.
+   */
+  public void finish(final ParallelTasks parallel) {
+    requireNonNull(parallel, "parallel");
     if (finished) {
       return;
     }
     for (final Worker w : workers) {
       w.flushAll();
     }
-    final Long2LongOpenHashMap out = new Long2LongOpenHashMap();
-    out.defaultReturnValue(0L);
-    long missing = 0L;
-    for (final Stripe stripe : stripes) {
-      synchronized (stripe) {
-        for (final Long2ObjectMap.Entry<LongOpenHashSet> e : stripe.groups.long2ObjectEntrySet()) {
-          out.addTo(e.getLongKey(), e.getValue().size());
+    final int groups = 1 << GROUP_STRIPE_BITS;
+    final Long2LongOpenHashMap[] counts = new Long2LongOpenHashMap[groups];
+    final long[] missing = new long[groups];
+    parallel.run(groups, group -> {
+      final int first = group << VALUE_STRIPE_BITS;
+      final int end = first + (1 << VALUE_STRIPE_BITS);
+      int expected = 0;
+      for (int stripe = first; stripe < end; stripe++) {
+        expected = Math.max(expected, stripes[stripe].groups.size());
+      }
+      final Long2LongOpenHashMap out = new Long2LongOpenHashMap(expected);
+      for (int stripe = first; stripe < end; stripe++) {
+        final Stripe source = stripes[stripe];
+        final ObjectIterator<Long2ObjectMap.Entry<DistinctValues>> entries =
+            source.groups.long2ObjectEntrySet().fastIterator();
+        while (entries.hasNext()) {
+          final Long2ObjectMap.Entry<DistinctValues> entry = entries.next();
+          out.addTo(entry.getLongKey(), entry.getValue().size());
         }
-        if (stripe.missing != null) {
-          missing += stripe.missing.size();
+        if (source.missing != null) {
+          missing[group] += source.missing.size();
         }
       }
+      counts[group] = out;
+    });
+    long missingTotal = 0L;
+    for (int group = 0; group < groups; group++) {
+      if (counts[group] == null) {
+        throw new IllegalStateException("distinct-count publication did not complete stripe " + group);
+      }
+      missingTotal += missing[group];
     }
-    sizes = out;
-    missingSize = missing;
+    sizesByGroupStripe = counts;
+    missingSize = missingTotal;
     finished = true;
   }
 
-  /** Exact distinct count per group (0 for an unseen group), after {@link #finish()}. */
+  /** Visit each completed group once without constructing a combined hash map. */
+  public void forEachGroupSize(final LongLongBiConsumer consumer) {
+    requireNonNull(consumer, "consumer");
+    if (!finished) {
+      throw new IllegalStateException("finish() has not run");
+    }
+    for (final Long2LongOpenHashMap stripe : sizesByGroupStripe) {
+      final ObjectIterator<Long2LongMap.Entry> entries = stripe.long2LongEntrySet().fastIterator();
+      while (entries.hasNext()) {
+        final Long2LongMap.Entry entry = entries.next();
+        consumer.accept(entry.getLongKey(), entry.getLongValue());
+      }
+    }
+  }
+
+  /**
+   * Exact distinct count per group (0 for an unseen group), after {@link #finish()}. Materializes a
+   * combined map lazily; {@link #forEachGroupSize} visits published counts without that allocation.
+   */
   public Long2LongOpenHashMap groupSizes() {
     if (!finished) {
       throw new IllegalStateException("finish() has not run");
+    }
+    if (sizes == null) {
+      int groups = 0;
+      for (final Long2LongOpenHashMap stripe : sizesByGroupStripe) {
+        groups = Math.addExact(groups, stripe.size());
+      }
+      final Long2LongOpenHashMap combined = new Long2LongOpenHashMap(groups);
+      forEachGroupSize((group, count) -> combined.put(group, count));
+      sizes = combined;
     }
     return sizes;
   }
