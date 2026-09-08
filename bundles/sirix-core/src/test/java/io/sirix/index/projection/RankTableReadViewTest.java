@@ -575,6 +575,7 @@ final class RankTableReadViewTest {
           assertArrayEquals(stored, cursor.copyValue(), at);
           assertArrayEquals(stored, viaUnion.copyValue(), at + " through the union");
           assertEquals(0, SegmentRunCursor.compareToRange(cursor, stored, 0, stored.length), at);
+          assertEquals(new String(stored, StandardCharsets.UTF_8), cursor.valueAsString(), at);
           assertEquals(0, SegmentRunCursor.compare(cursor, viaUnion), at + ": two cursors at one position are equal");
           if (position > 1) {
             final byte[] previous = sorted.get(position - 2);

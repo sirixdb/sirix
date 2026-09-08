@@ -6,6 +6,8 @@ package io.sirix.index.projection;
 import io.sirix.node.ValueDictionaryEntryNode;
 import org.jspecify.annotations.Nullable;
 
+import java.nio.charset.StandardCharsets;
+
 /**
  * A sequential reader over ONE segment dictionary's storage positions, for a merge that walks every
  * segment in collation order at once.
@@ -161,6 +163,13 @@ public abstract class SegmentRunCursor {
       }
     }
     return codePoints;
+  }
+
+  /** Decode the positioned value directly, without translating its mint back to this position. */
+  public final String valueAsString() {
+    return spill == null
+        ? new String(backing, offset, length, StandardCharsets.UTF_8)
+        : new String(spill.getValue(), StandardCharsets.UTF_8);
   }
 
   /**

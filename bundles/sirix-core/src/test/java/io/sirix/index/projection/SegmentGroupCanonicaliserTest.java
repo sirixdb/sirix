@@ -6,6 +6,7 @@ package io.sirix.index.projection;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
+import io.sirix.index.projection.SegmentGroupCanonicaliser.CellResolver;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +24,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -518,7 +520,8 @@ final class SegmentGroupCanonicaliserTest {
     }
     assertNotNull(out);
     assertEquals(segments * entries, transforms.get(), "one transform per distinct selected cell");
-    assertEquals(segments * entries, corpus.reads().get(), "no dictionary re-reads for equality");
+    assertEquals(0, corpus.reads().get(), "physical walks must not translate mints back to their known positions");
+    assertEquals(segments * entries, corpus.seeks().get(), "one positioned decode per selected cell");
     assertEquals(segments * entries, corpus.positionWalks().get(), "walk physical positions before mapping rows");
     assertEquals(10, groups.size());
     final long[] counts = new long[groups.size() + 1];
@@ -647,6 +650,251 @@ final class SegmentGroupCanonicaliserTest {
     for (int row = 0; row < 100; row++) {
       assertEquals(out[0].numericValues()[row], out[1].numericValues()[row]);
       assertEquals(out[0].numericValues()[row], out[2].numericValues()[row]);
+    }
+  }
+
+  @Test
+  void existingTransformRepresentativesAreResolvedOutsideThePublicationMonitor() {
+    final PositionedCorpus corpus = positionedCorpus(3, 5_000, true);
+    final AtomicReference<SegmentGroupCanonicaliser> owner = new AtomicReference<>();
+    final CellResolver source = new CellResolver() {
+      @Override
+      public String valueOfCell(final long cell) {
+        assertFalse(Thread.holdsLock(owner.get()), "dictionary reads must run on the segment worker");
+        return corpus.valueOfCell(cell);
+      }
+
+      @Override
+      public int positionOfCell(final long cell) {
+        return corpus.positionOfCell(cell);
+      }
+
+      @Override
+      public int entryCountOfSegment(final long cell) {
+        return corpus.entryCountOfSegment(cell);
+      }
+
+      @Override
+      public int mintAtPosition(final long cell, final int position) {
+        return corpus.mintAtPosition(cell, position);
+      }
+
+      @Override
+      public SegmentRunCursor cursorOfSegment(final long cell) {
+        return corpus.cursorOfSegment(cell);
+      }
+    };
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(source, 3, value -> value, 0);
+    owner.set(groups);
+    final ColumnSlice[] out = groups.canonicaliseColumn(leavesInMintOrder(corpus, 3, 5_000), null, null,
+        SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    assertNotNull(out);
+    assertEquals(5_000, groups.size());
+    assertEquals(10_000, corpus.reads().get(), "each uncached identity representative is read once per duplicate");
+    assertArrayEquals(out[0].numericValues(), out[1].numericValues());
+    assertArrayEquals(out[0].numericValues(), out[2].numericValues());
+    assertEquals(0, groups.retainedTransformBytes());
+  }
+
+  @Test
+  void simultaneousTransformedWalksPublishOneIdPerValueWithoutACache() throws Exception {
+    final int segments = 4;
+    final int entries = 5_000;
+    final PositionedCorpus corpus = positionedCorpus(segments, entries, true);
+    final SegmentGroupCanonicaliser groups =
+        new SegmentGroupCanonicaliser(corpus, segments, value -> "mapped-" + value, 0);
+    final ColumnSlice[] slices = leavesInMintOrder(corpus, segments, entries);
+    final CountDownLatch start = new CountDownLatch(1);
+    try (ExecutorService workers = Executors.newFixedThreadPool(segments)) {
+      final List<Future<Boolean>> results = new ArrayList<>();
+      for (int i = 0; i < segments; i++) {
+        results.add(workers.submit(() -> {
+          start.await();
+          return groups.canonicaliseColumn(slices, null, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS) != null;
+        }));
+      }
+      start.countDown();
+      for (final Future<Boolean> result : results) {
+        assertTrue(result.get(30, TimeUnit.SECONDS));
+      }
+    }
+    assertEquals(entries, groups.size());
+    final ColumnSlice[] out = groups.canonicalise(slices);
+    assertNotNull(out);
+    for (int segment = 0; segment < segments; segment++) {
+      assertArrayEquals(out[0].numericValues(), out[segment].numericValues());
+      for (int row = 0; row < entries; row++) {
+        assertEquals("mapped-" + corpus.values().get(slices[segment].numericValues()[row]),
+            groups.valueOf((int) out[segment].numericValues()[row]));
+      }
+    }
+    assertEquals(0, groups.retainedTransformBytes());
+  }
+
+  @Test
+  void parallelColumnMappingMatchesSerialAcrossMasksAndNeverChangesItsInput() throws Exception {
+    final PositionedCorpus corpus = positionedCorpus(3, 19, true);
+    final ColumnSlice[] base = leavesInMintOrder(corpus, 3, 19);
+    final ColumnSlice[] slices = new ColumnSlice[513];
+    final long[][] rowKeep = new long[slices.length][];
+    final long[] keep = new long[(slices.length + 63) >>> 6];
+    Arrays.fill(keep, -1L);
+    for (int leaf = 0; leaf < slices.length; leaf++) {
+      slices[leaf] = leaf % 11 == 0 ? null : leaf % 13 == 0 ? sliceOf()
+          : sliceWithAbsent(base[leaf % base.length].numericValues().clone(), leaf % 19);
+      rowKeep[leaf] = leaf % 7 == 0 ? null : new long[] {leaf % 5 == 0 ? 0L : 0x55555L};
+      if (leaf % 17 == 0) {
+        keep[leaf >>> 6] &= ~(1L << (leaf & 63));
+      }
+    }
+    final long[][] originalCells = new long[slices.length][];
+    final long[][] originalPresence = new long[slices.length][];
+    for (int leaf = 0; leaf < slices.length; leaf++) {
+      if (slices[leaf] != null) {
+        originalCells[leaf] = slices[leaf].numericValues().clone();
+        originalPresence[leaf] = slices[leaf].presenceWords().clone();
+      }
+    }
+    final SegmentGroupCanonicaliser serial = new SegmentGroupCanonicaliser(corpus, 3);
+    final ColumnSlice[] expected =
+        serial.canonicaliseColumn(slices, keep, rowKeep, SegmentGroupCanonicaliser.SERIAL_SEGMENTS);
+    final SegmentGroupCanonicaliser parallel = new SegmentGroupCanonicaliser(corpus, 3);
+    final ColumnSlice[] actual;
+    try (ExecutorService workers = Executors.newFixedThreadPool(4)) {
+      actual = parallel.canonicaliseColumn(slices, keep, rowKeep, (count, body) -> {
+        final List<Future<?>> tasks = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+          final int task = i;
+          tasks.add(workers.submit(() -> body.accept(task)));
+        }
+        for (final Future<?> task : tasks) {
+          try {
+            task.get(30, TimeUnit.SECONDS);
+          } catch (final Exception failure) {
+            throw new AssertionError(failure);
+          }
+        }
+      });
+    }
+    assertNotNull(expected);
+    assertNotNull(actual);
+    final int reads = corpus.reads().get();
+    final ColumnSlice[] repeated = parallel.canonicaliseColumn(slices, keep, rowKeep, (count, body) -> {
+      for (int range = count - 1; range >= 0; range--) {
+        body.accept(range); // a fully settled column also maps correctly in a different task order
+      }
+    });
+    assertNotNull(repeated);
+    assertEquals(reads, corpus.reads().get(), "mapping settled ranks must not resolve a dictionary cell again");
+    for (int leaf = 0; leaf < slices.length; leaf++) {
+      if (expected[leaf] == null) {
+        assertNull(actual[leaf]);
+        assertNull(repeated[leaf]);
+      } else {
+        assertNotNull(actual[leaf]);
+        assertEquals(expected[leaf].rowCount(), actual[leaf].rowCount());
+        assertEquals(expected[leaf].min(), actual[leaf].min());
+        assertEquals(expected[leaf].max(), actual[leaf].max());
+        assertArrayEquals(expected[leaf].presenceWords(), actual[leaf].presenceWords());
+        assertArrayEquals(expected[leaf].numericValues(), actual[leaf].numericValues());
+        assertArrayEquals(expected[leaf].numericValues(), repeated[leaf].numericValues());
+      }
+      if (slices[leaf] != null) {
+        assertArrayEquals(originalCells[leaf], slices[leaf].numericValues());
+        assertArrayEquals(originalPresence[leaf], slices[leaf].presenceWords());
+      }
+    }
+  }
+
+  @Test
+  void incompleteParallelMappingFallsBackToSerialArrivalOrder() {
+    final Thread planning = Thread.currentThread();
+    final long first = ProjectionIndexRowGroupPage.packSegmentCell(0, 1);
+    final long second = ProjectionIndexRowGroupPage.packSegmentCell(1, 1);
+    final CellResolver source = new CellResolver() {
+      @Override
+      public String valueOfCell(final long cell) {
+        assertSame(planning, Thread.currentThread(), "unsettled values must use the original serial fallback");
+        return cell == first ? "b" : "a";
+      }
+
+      @Override
+      public int entryCountOfSegment(final long cell) {
+        return 1; // marks are valid, but no cursor or inverse lookup can settle them in the walk
+      }
+    };
+    final ColumnSlice[] slices = new ColumnSlice[513];
+    for (int leaf = 0; leaf < slices.length; leaf++) {
+      slices[leaf] = sliceOf(leaf % 2 == 0 ? first : second);
+    }
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(source, 2);
+    final ColumnSlice[] out;
+    try (ExecutorService workers = Executors.newFixedThreadPool(4)) {
+      out = groups.canonicaliseColumn(slices, null, null, (count, body) -> {
+        final List<Future<?>> tasks = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+          final int task = i;
+          tasks.add(workers.submit(() -> body.accept(task)));
+        }
+        for (final Future<?> task : tasks) {
+          try {
+            task.get(30, TimeUnit.SECONDS);
+          } catch (final Exception failure) {
+            throw new IllegalStateException(failure);
+          }
+        }
+      });
+    }
+    assertNotNull(out);
+    assertEquals(2, groups.size());
+    assertEquals("b", groups.valueOf(1));
+    assertEquals("a", groups.valueOf(2));
+    for (int leaf = 0; leaf < slices.length; leaf++) {
+      assertEquals(leaf % 2 + 1, out[leaf].numericValues()[0]);
+    }
+  }
+
+  @Test
+  void sealedColumnMapsKnownRanksAndRefusesNewValuesAcrossPreviouslyUnseenSegments() {
+    final PositionedCorpus corpus = positionedCorpus(3, 2, true);
+    final ColumnSlice[] segments = leavesInMintOrder(corpus, 3, 2);
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(corpus, 3);
+    assertTrue(groups.observeColumn(new ColumnSlice[] {segments[0]}, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
+    assertTrue(groups.sealOrderPreserving());
+    final ColumnSlice[] slices = new ColumnSlice[513];
+    for (int i = 0; i < slices.length; i++) {
+      slices[i] = segments[i % segments.length];
+    }
+    final SegmentGroupCanonicaliser.SegmentRunner reversed = (count, body) -> {
+      for (int i = count - 1; i >= 0; i--) {
+        body.accept(i);
+      }
+    };
+    final ColumnSlice[] out = groups.canonicaliseColumn(slices, null, null, reversed);
+    assertNotNull(out);
+    assertEquals(2, groups.size(), "new segment cells naming sealed values must reuse their ranks");
+    for (final ColumnSlice slice : out) {
+      assertArrayEquals(new long[] {2, 1}, slice.numericValues());
+    }
+    final int reads = corpus.reads().get();
+    assertNotNull(groups.canonicaliseColumn(slices, null, null, reversed));
+    assertEquals(reads, corpus.reads().get());
+    final long unseen = ProjectionIndexRowGroupPage.packSegmentCell(3, 1);
+    corpus.values().put(unseen, "new unranked value");
+    slices[400] = sliceOf(unseen);
+    assertNull(groups.canonicaliseColumn(slices, null, null, reversed));
+  }
+
+  @Test
+  void sealedColumnRepeatedlyRefusesAnUnresolvableMemoEntry() {
+    final long known = ProjectionIndexRowGroupPage.packSegmentCell(0, 1);
+    final long unknown = ProjectionIndexRowGroupPage.packSegmentCell(0, 2);
+    final SegmentGroupCanonicaliser groups = new SegmentGroupCanonicaliser(cell -> cell == known ? "known" : null, 1);
+    assertNotNull(groups.canonicalise(new ColumnSlice[] {sliceOf(known)}));
+    assertTrue(groups.sealOrderPreserving());
+    for (int attempt = 0; attempt < 2; attempt++) {
+      assertNull(groups.canonicaliseColumn(new ColumnSlice[] {sliceOf(known, unknown)}, null, null,
+          SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
     }
   }
 

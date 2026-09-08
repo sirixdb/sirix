@@ -243,11 +243,20 @@ public final class ValueDictionaryEntryNode implements DataRecord {
     // vectorised mismatch scan and only the sequence the first differing byte falls in is decoded.
     // Comparisons in a merge or a sort share long prefixes (URLs share their host), which made the
     // per-code-point loop the hot instruction stream of every ordered dictionary operation.
-    final int mismatch = Arrays.mismatch(left, leftOffset, leftLimit, right, rightOffset, rightLimit);
+    final int mismatch = leftLength > 0 && rightLength > 0 && left[leftOffset] != right[rightOffset]
+        ? 0 : Arrays.mismatch(left, leftOffset, leftLimit, right, rightOffset, rightLimit);
     if (mismatch < 0) {
       return 0;
     }
     int prefix = mismatch;
+    if (prefix < leftLength && prefix < rightLength) {
+      final byte first = left[leftOffset + prefix];
+      final byte second = right[rightOffset + prefix];
+      if (first >= 0 && second >= 0) {
+        // ASCII is one UTF-16 unit; multibyte differences still use the validating decoder below.
+        return first - second;
+      }
+    }
     // Back up to the lead byte of the sequence holding the mismatch, so both sides decode whole
     // sequences below; a side that ended at the mismatch shares every earlier byte with the other,
     // so the surviving side's byte decides. Malformed input still fails closed in the decode loop.
