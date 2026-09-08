@@ -7,6 +7,7 @@ import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.GroupTableSpill;
+import io.sirix.index.projection.NumericGroupAggTable;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -164,6 +165,43 @@ public final class GroupTopKDifferentialTest {
       GroupTableSpill.setFlushGroupsForTesting(threshold);
       GroupTableSpill.setSubChunkLeavesForTesting(morsel);
     }
+  }
+
+  @Test
+  void theDenseIndexKillSwitchAnswersIdenticallyThroughTheQueryEngine() throws Exception {
+    // A composite key with two operands is far above the dense gate's crossing, so the default run
+    // folds its groups into dense records behind the compact index while the kill-switch run keeps
+    // interleaved buckets. The recovery lever is only a recovery lever if BOTH layouts hand the
+    // engine the same window, in the same emission order, as the interpreter.
+    final String query = "subsequence(for $u in " + SRC + " let $a := $u.k40, $b := $u.dept group by $a, $b"
+        + " let $c := count($u), $s := sum($u.amount), $m := max($u.id)"
+        + " order by $c descending return {\"a\":$a,\"b\":$b,\"c\":$c,\"s\":$s,\"m\":$m},1,16)";
+    // Two full operand blocks alone already clear the crossing, whatever the key width and aux lane
+    // add on top, so this query cannot silently fall below the gate and make the comparison vacuous.
+    assertTrue(NumericGroupAggTable.strideFor(2, false, 0) >= GroupTableSpill.DENSE_INDEX_MIN_STRIDE,
+        "this shape must be one the dense gate admits, or the differential proves nothing");
+
+    final String interpreted = run(query, false);
+    final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    final String dense = run(query, true);
+    final long servedAfterDense = SirixVectorizedExecutor.groupAggServedCount();
+    assertTrue(servedAfterDense > servedBefore, "the default layout must serve, or agreement is vacuous");
+
+    final String previous = System.setProperty(GroupTableSpill.DENSE_INDEX_PROPERTY, "false");
+    final String interleaved;
+    try {
+      interleaved = run(query, true);
+    } finally {
+      if (previous == null) {
+        System.clearProperty(GroupTableSpill.DENSE_INDEX_PROPERTY);
+      } else {
+        System.setProperty(GroupTableSpill.DENSE_INDEX_PROPERTY, previous);
+      }
+    }
+    assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedAfterDense,
+        "the kill switch must keep the group-aggregate route, not decline the query to the interpreter");
+    assertEquals(interpreted, dense, "dense records changed the served window");
+    assertEquals(dense, interleaved, "the kill switch changed the served window");
   }
 
   @Test
