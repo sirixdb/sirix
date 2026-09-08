@@ -24,9 +24,14 @@ variable; working files live under `bundles/sirix-query/build/diagnostics/` (git
 
 ## The one loop that matters
 
-**Measurement status, 2026-09-08:** Firstmate's 20-leg instrument study reports a
-minimum detectable effect of approximately **1.345 summed ln** for this harness,
-over a **3.023 ln** leg-to-leg range on unchanged code. The box now runs at a flat
+**Measurement status, 2026-09-08:** Firstmate's 20-leg instrument study reports two
+distinct figures for this harness, and they answer different questions. The **paired**
+(A/A) minimum detectable effect is approximately **1.345 summed ln**: that is the
+criterion for a difference read off one baseline/candidate leg pair, where pairing
+cancels the common-mode component. The **3.023 ln** leg-to-leg range on unchanged code
+is **unpaired** spread across those 20 independent legs — how far apart two unrelated
+legs can land, not what a paired comparison can resolve. Do not judge a paired result
+against the unpaired range. The box now runs at a flat
 **PL1 = PL2 = 50 W** power cap. `SEG6T` and every earlier campaign leg were measured
 before that cap, so they are **not commensurable** with anything measured after it —
 compare a post-cap leg only against another post-cap leg. The string-decode change

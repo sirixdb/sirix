@@ -58,12 +58,18 @@ string-decode lane's source changes.
 
 **No row in this table is commensurable with a leg measured after 2026-09-08.** SEG6T is the newest
 of them and still predates both the box's current power cap and the harness variance
-characterization; [the rig README](../bundles/sirix-query/bench/clickbench/rig/README.md) records
-that harness state and its detection floor. Compare a post-cap leg only against another post-cap
-leg. Read the steps between these rows with the same floor in mind: the measured leg-to-leg range on
-**unchanged** code is of the same order as the 3.24 ln between SEG5T and SEG6T, so no single pair of
-legs here attributes its difference to the levers landed between them. The repeated, single-query
-evidence in §4 is what carries a lever's attribution; a one-leg Σln step is not.
+characterization; [the rig README](../bundles/sirix-query/bench/clickbench/rig/README.md) owns that
+harness state and both of its figures. Compare a post-cap leg only against another post-cap leg.
+
+Read the Σln steps between these rows, and §4's per-lever Δln values, against the **paired** floor.
+Every one of them is a difference taken from a single baseline/candidate leg pair, so the criterion
+is the harness's paired (A/A) minimum detectable effect of ≈ **1.345 summed ln** — not the 3.023 ln
+leg-to-leg range, which is unpaired spread across independent legs and is too harsh a yardstick for
+a paired comparison. Some of §4's levers clear the paired floor and some do not, so its bold Δln
+values are not uniformly established results. Firstmate owns the requalification of §4's rows
+against this floor as a separate task; until it lands, treat §4's repeated single-query diagnostics
+as what carries a lever's attribution. A leg-to-leg Σln step, even one that clears the floor,
+attributes nothing by itself to any single lever landed between the two legs.
 
 **SEG5T is this handoff's historical snapshot**: rank 10 (Σln ≤ 51.99) was
 ≈ **−14.7 ln** away from it (66.676 − 51.99 = 14.686). Its leg JSON is committed as
