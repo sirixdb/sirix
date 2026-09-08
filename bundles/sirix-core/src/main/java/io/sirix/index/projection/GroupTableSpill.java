@@ -949,6 +949,14 @@ public final class GroupTableSpill {
     return pool;
   }
 
+  /**
+   * The recycler for the dense layout's compact index chunks, or {@code null} when this spill's
+   * stripe stays interleaved or the pool is switched off (test observability).
+   */
+  LongChunkPool probeChunkPool() {
+    return probePool;
+  }
+
   /** Attach this spill's pool to a table that holds no group yet. */
   private NumericGroupAggTable adopt(final NumericGroupAggTable table) {
     if (denseIndex) {
@@ -1357,9 +1365,9 @@ public final class GroupTableSpill {
    * refreshes the budget by a forced collection measures whatever is still REFERENCED, not what the
    * arm intends to keep: at 100M (q32) the aborted pass's 16.6M spilled groups read as 3.9 GB of live
    * heap, the budget FELL 11.5M → 7.9M and the restart ran 16 passes instead of 8. Call after the
-   * parallel section has joined and before re-planning; the spill is not reused. The pool is drained
-   * for the same reason: what it holds is retained by intent only, and the measurement must not count
-   * it.
+   * parallel section has joined and before re-planning; the spill is not reused. The pools are drained
+   * for the same reason: what they hold is retained by intent only, and the measurement must not
+   * count it.
    */
   public void releaseTables() {
     for (int p = 0; p < partitions; p++) {
@@ -1390,6 +1398,10 @@ public final class GroupTableSpill {
     if (pool != null && !pool.isShared()) {
       // A per-scan pool is invisible to the budget; a shared one is added back to the headroom.
       pool.drain();
+    }
+    if (probePool != null) {
+      // Always per-scan, so never added back: the released tables' index chunks must go too.
+      probePool.drain();
     }
     RELEASES.increment();
   }
