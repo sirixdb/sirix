@@ -63,11 +63,23 @@ import static java.util.Objects.requireNonNull;
  */
 public final class GroupTableSpill {
 
-  /** Use compact hash indexes and dense accumulator records (default on). */
+  /** Use compact hash indexes and dense accumulator records (default on above the crossover). */
   public static final String DENSE_INDEX_PROPERTY = "sirix.projection.groupTable.denseIndex";
 
+  /**
+   * The narrowest stripe the dense layout is worth, from the lanes each layout holds per LIVE group
+   * at the 3/4 growth threshold. The interleaved layout reserves a whole stripe in every bucket, so
+   * it holds {@code stride / (3/4) = (4/3) * stride} lanes per live group. The dense layout packs the
+   * stripes with no holes and adds one index lane per bucket, so it holds {@code stride + 4/3}. Those
+   * are equal at {@code stride == 4} and the dense form is larger below it: at the three lanes of
+   * {@code GROUP BY x ORDER BY count(*)} it is 4.33 lanes against 4.0, and it charges a second
+   * dependent load per probe to prove the key behind the index hit. So dense saves lanes only for
+   * {@code stride > 4}, and the gate admits exactly those shapes.
+   */
+  public static final int DENSE_INDEX_MIN_STRIDE = 5;
+
   private static boolean denseIndexEnabled(final int stride) {
-    return stride >= 3 && Boolean.parseBoolean(System.getProperty(DENSE_INDEX_PROPERTY, "true"));
+    return stride >= DENSE_INDEX_MIN_STRIDE && Boolean.parseBoolean(System.getProperty(DENSE_INDEX_PROPERTY, "true"));
   }
 
   /** Configured flush threshold in groups per worker table. */

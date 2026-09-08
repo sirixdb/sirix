@@ -74,7 +74,10 @@ final class NumericGroupSumTableTest {
     final NumericGroupAggTable compact = NumericGroupAggTable.sumsOnly(2, 16, false, 1L, 0);
     final NumericGroupAggTable ordinary = new NumericGroupAggTable(1, 16, false, 1L);
     assertEquals(compact.slotWidth(), ordinary.slotWidth());
-    assertThrows(IllegalStateException.class,
+    final IllegalStateException refused = assertThrows(IllegalStateException.class,
         () -> NumericGroupAggTable.mergePartition(new NumericGroupAggTable[] {ordinary}, 0, 64, compact));
+    // The layout flag is the ONLY difference here, so a diagnostic that omits it names no cause at all.
+    assertTrue(refused.getMessage().contains("sumsOnly false/true"),
+        "the refusal must name the mismatch: " + refused.getMessage());
   }
 }

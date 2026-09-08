@@ -112,6 +112,12 @@ public final class GroupDistinctAccumulator {
     return STRIPES;
   }
 
+  /**
+   * Retain the previous set sizing after leaving the inline singleton case, avoiding repeated
+   * small-table growth while holding the stripe monitor.
+   */
+  private static final int PROMOTED_SET_ENTRIES = 16;
+
   /** The common singleton group needs no hash table or backing array. */
   private static final class DistinctValues {
     private final long first;
@@ -126,7 +132,7 @@ public final class GroupDistinctAccumulator {
         return false;
       }
       if (rest == null) {
-        rest = new LongOpenHashSet(1);
+        rest = new LongOpenHashSet(PROMOTED_SET_ENTRIES);
       }
       return rest.add(value);
     }
