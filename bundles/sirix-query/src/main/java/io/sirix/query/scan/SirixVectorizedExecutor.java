@@ -13637,6 +13637,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         table.release(); // its chunks are the restart's tables
       }
     }
+    // After the loop: releaseTables() drains the per-scan pools, which the releases above refill.
     spill.releaseTables();
     Arrays.fill(tables, null);
     Arrays.fill(partIdx, null);

@@ -86,7 +86,7 @@ final class GroupAbortedPassReleaseTest {
       assertNotNull(probes, "a stripe above the dense crossing gets an index recycler");
       assertTrue(payload.isShared(), "retention on: the payload pool outlives the scan and IS added back");
 
-      final NumericGroupAggTable[] tables = { spill.freshLocal() };
+      final NumericGroupAggTable[] tables = {spill.freshLocal()};
       for (long key = 1L; key <= 20_000L; key++) {
         tables[0].acquire(key, key);
       }
