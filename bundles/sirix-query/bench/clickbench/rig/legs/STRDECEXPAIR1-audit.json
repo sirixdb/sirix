@@ -1,0 +1,80 @@
+{
+  "baseline_head": "aa4d81d547fb0e2353ede959786d6e8ba442edf2",
+  "candidate_head": "562d0b522d22feb9157810939c5dedaba7ffbd35",
+  "lock_acquired": "2026-09-08T02:18:51.320036+00:00",
+  "lock_released": "2026-09-08T02:24:06.989085+00:00",
+  "lock_inode": 36438151,
+  "lock_acquisitions": 1,
+  "database_jvm_audit_samples": 310,
+  "maximum_concurrent_database_jvms": 1,
+  "legs": [
+    {
+      "at": "2026-09-08T02:18:51.337330+00:00",
+      "event": "leg-start",
+      "tag": "exclusive1-base-c2",
+      "pid": 430805,
+      "other_database_jvms": [],
+      "MemAvailable_KiB": 27789424
+    },
+    {
+      "at": "2026-09-08T02:21:31.962378+00:00",
+      "event": "leg-finish",
+      "tag": "exclusive1-base-c2",
+      "code": 0,
+      "conflicts": []
+    },
+    {
+      "at": "2026-09-08T02:21:31.982886+00:00",
+      "event": "leg-start",
+      "tag": "exclusive1-candidate-c2",
+      "pid": 439484,
+      "other_database_jvms": [],
+      "MemAvailable_KiB": 28878412
+    },
+    {
+      "at": "2026-09-08T02:24:06.979592+00:00",
+      "event": "leg-finish",
+      "tag": "exclusive1-candidate-c2",
+      "code": 0,
+      "conflicts": []
+    }
+  ],
+  "jvm_flags": [
+    "--add-opens",
+    "java.base/sun.nio.ch=ALL-UNNAMED",
+    "--add-opens",
+    "java.base/java.nio=ALL-UNNAMED",
+    "--add-modules",
+    "jdk.incubator.vector",
+    "--enable-native-access=ALL-UNNAMED",
+    "--enable-preview",
+    "-XX:+UnlockExperimentalVMOptions",
+    "-XX:-UseJVMCICompiler",
+    "-Dsirix.projection.eagerMaterializeBytes=5368709120",
+    "-Xms6g",
+    "-Xmx14g",
+    "-Dsirix.offheap.bytes=10737418240",
+    "-Dsirix.query.autoVectorize=true",
+    "-Dsirix.chunkedBody.enable=true",
+    "-Dsirix.chunkedBody.targetChunkBytes=16384"
+  ],
+  "score": [
+    {
+      "tag": "STRDECEXBASE1",
+      "geomean": 4.513386942263534,
+      "sum_ln": 64.80305783583367,
+      "hot_sum_seconds": 37.399
+    },
+    {
+      "tag": "STRDECEXCAND1",
+      "geomean": 4.398761319710164,
+      "sum_ln": 63.6968882708415,
+      "hot_sum_seconds": 35.247
+    }
+  ],
+  "geometric_speedup": 1.026058613828341,
+  "sum_ln_reduction": 1.1061695649921717,
+  "byte_identical_queries": 43,
+  "route_declines": 0,
+  "identical_external_classpath_dependencies": 41
+}
