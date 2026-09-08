@@ -3,47 +3,77 @@
 Base: `aa4d81d547fb0e2353ede959786d6e8ba442edf2` (`SEG6T`).
 Worktree: `fm/sirix-cb-strdec-1`.
 
-The controlled exclusive-rig pair improves C6A hot geomean from **4.513 to
-4.399**, a **1.0261x** geometric speedup and **1.1062 ln** reduction. Both rank
-16 of 140. The earlier large late-query regression does not recur. All 43 result
-files are byte-identical and all routes answer. The twofold string-query target
-and top-10 campaign goal are not reached.
+The current accepted measurement is the second exclusive pair, `STRDECEXPAIR2`,
+which improves C6A hot geomean from **4.782 to 4.535**, a **1.0545x** geometric
+speedup and **2.281 ln** reduction. Both rank 16 of 140. All 43 result files are
+byte-identical and all routes answer. The twofold string-query target and the
+top-10 campaign goal are not reached. **That headline number overstates this
+lane's contribution and must not be quoted alone**: 0.644 ln of it comes from
+q31, which this lane does not claim, and the same pair contains a large q33
+regression. See the caveats below the table.
 
-## Exclusive-rig acceptance measurement
+## Exclusive-rig acceptance measurement (STRDECEXPAIR2)
 
-Pristine `aa4d81d54` and candidate `562d0b522` run back to back under one
-continuously held `$CB_RIG_WORK/leg.lock`, with identical fixed C2 settings,
-three tries, all 43 queries, no profiler and no diagnostic flag. Firstmate had
-stopped the other lane's 100M work before this pair. The launcher confirmed no
-other database JVM before each leg; 310 audit samples throughout the pair found
-at most one. The 41 external runtime dependencies match. The lock spans
-2026-09-08 02:18:51 UTC through 02:24:06 UTC; the exact timestamps and checks are
-in `legs/STRDECEXPAIR1-audit.json` under the rig directory.
+Pristine `aa4d81d54` and the revised candidate run back to back under one
+continuously held `$CB_RIG_WORK/leg.lock` (inode 36438151, single acquisition),
+with identical fixed C2 settings, three tries, all 43 queries, no profiler and no
+diagnostic flag. The launcher confirmed no other database JVM before each leg;
+336 audit samples throughout the pair found at most one, our own. The 41 external
+runtime dependencies match, and the baseline leg uses the preserved pristine
+runtime snapshot, not a rebuild. The lock spans 2026-09-08 02:57:53 UTC through
+03:03:40 UTC. The candidate is `ed73b3a48` plus the review fix that removes the
+ASCII comparison shortcut; its worktree diff is recorded by SHA-256 in
+`legs/STRDECEXPAIR2-audit.json`, together with the per-query table and every
+check named here.
+
+The audit also records class digests proving which source each leg ran. In the
+candidate runtime `SegmentGroupCanonicaliser` and `SegmentRunCursor` match the
+superseded candidate and differ from pristine, so the lane's canonicalisation work
+is present; `ValueDictionaryEntryNode` matches neither, because the fix restores
+`compareUtf16Range` to its pristine body while the class keeps this lane's other
+additions.
 
 | Leg | C6A hot geomean | Sum ln | Rank | Hot seconds |
 | --- | ---: | ---: | ---: | ---: |
-| STRDECEXBASE1 | 4.513 | 64.80 | 16 | 37.4 |
-| STRDECEXCAND1 | 4.399 | 63.70 | 16 | 35.2 |
+| STRDECEXBASE2 | 4.782 | 67.29 | 16 | 40.5 |
+| STRDECEXCAND2 | 4.535 | 65.01 | 16 | 37.7 |
 
-| Query | Pristine hot | Candidate hot | Ratio |
-| --- | ---: | ---: | ---: |
-| q5 | 0.624 s | 0.707 s | 0.883x |
-| q12 | 0.738 s | 0.716 s | 1.031x |
-| q13 | 2.401 s | 2.536 s | 0.947x |
-| q28 | 8.625 s | 6.756 s | 1.277x |
-| q33 | 2.324 s | 2.045 s | 1.136x |
-| q34 | 2.179 s | 2.038 s | 1.069x |
+| Query | Pristine hot | Candidate hot | Ratio | Δ ln |
+| --- | ---: | ---: | ---: | ---: |
+| q5 | 0.610 s | 0.705 s | 0.865x | -0.143 |
+| q12 | 0.754 s | 0.714 s | 1.056x | +0.054 |
+| q13 | 2.731 s | 2.514 s | 1.086x | +0.083 |
+| q28 | 9.365 s | 6.322 s | 1.481x | +0.392 |
+| q31 | 3.191 s | 1.671 s | 1.910x | +0.644 |
+| q32 | 6.815 s | 7.003 s | 0.973x | -0.027 |
+| q33 | 2.311 s | 4.929 s | 0.469x | -0.755 |
+| q34 | 2.279 s | 2.027 s | 1.124x | +0.117 |
 
-This is a modest measured full-suite gain, not a uniform speedup. In particular,
-q5 and q13 regress in this pair. No q31/q32 improvement is attributed to the
-string path, and this lane's ln reduction must not be added to the aggregation
-lane's overlapping gains. The combined head needs its own scored leg.
+Three caveats bound what this pair establishes.
+
+- **q31 is not this lane's gain.** Its 3.191 s pristine hot is an outlier: the
+  earlier pristine leg `STRDECEXBASE1` measured 1.500 s and this candidate 1.671 s
+  for the same query. q31 groups numeric keys and this lane claims no q31/q32
+  improvement. Excluding q31 the pair reduces sum ln by **1.637**, and that is the
+  number to carry forward for this lane.
+- **q33 regressed by more than the whole lane's gain on any other single query**,
+  2.311 s to 4.929 s. The previous pair measured 2.324 s to 2.045 s for a candidate
+  that differs only by the removed shortcut, and the differential fuzz shows that
+  shortcut cannot change any comparison result. This is therefore the unexplained
+  late-query variation recorded further down this document recurring, not a defect
+  the removal introduced. It is unresolved.
+- **The pristine baseline itself drifted between the two pairs**, 4.513 to 4.782
+  geomean and 37.4 to 40.5 hot seconds for the identical `aa4d81d54` runtime and
+  flags 40 minutes apart. Only within-pair deltas are meaningful here; absolute
+  geomeans from different pairs are not comparable.
+
+`STRDECEXBASE1`/`STRDECEXCAND1` measured a superseded candidate that still
+contained the ASCII comparison shortcut. Their pair (4.513 to 4.399, 1.1062 ln)
+is retained as history and no longer describes the delivered source.
 
 The earlier logs below remain for audit, but Firstmate identified potential
 contention during those windows. They do not settle acceptance and were not used
-to tune the retained implementation after exclusive access was granted. The
-code measured here is unchanged from the candidate that passed 132 focused
-tests and the complete 1M correctness gate.
+to tune the retained implementation after exclusive access was granted.
 
 This investigation owns dictionary decoding and value canonicalisation. It does not
 change hash aggregation, top-N, query text, stored formats, or the database. All
@@ -189,10 +219,6 @@ change restores the original merge and removes every prefix-history API.
   this phase. Missing rows, row masks, value ranks, per-slice min/max, and immutable
   source lanes are preserved. Sealed spaces also skip redundant row marking and
   go directly to the memo, with the same fallback for previously unseen cells.
-- In ordinary byte-range comparison, different initial bytes bypass the mismatch
-  scanner. ASCII differences compare directly; multibyte differences retain the
-  validating UTF-16 decoder. The existing loser tree and its tie ordering remain
-  in use.
 
 ## Rejected experiments
 
@@ -200,6 +226,22 @@ change restores the original merge and removes every prefix-history API.
   subset, but repeated full-suite regressions and the better no-prefix scored
   ablation did not justify keeping it. Removed, including its extra APIs. The
   final cleaned run still regressed, so removal is not credited as a fix.
+- First-byte shortcut and ASCII mismatch fast path in `compareUtf16Range`:
+  bypassed `Arrays.mismatch` when the leading bytes already differed, and returned
+  the byte difference directly when both mismatching bytes were ASCII. Its
+  isolated q33 hot time was 2.174 s pristine against 2.170 s, i.e. noise, while
+  the accepted gain belongs to the canonicalisation work. **Removed during review.**
+  A 3,000,000-case differential fuzz over random and deliberately malformed byte
+  ranges found the shortcut and the general path to agree on every input, so its
+  removal is behaviour-preserving and no regression test can distinguish the two.
+  What the review did surface is a real documentation defect, now fixed:
+  `compareValueUtf16` promised `IllegalStateException` for any malformed payload,
+  but the byte-identical prefix has been settled without decoding since
+  `a3aed07ec`, well before this lane. `{C3,41}` against `{C3,42}` therefore
+  orders by the deciding ASCII byte and does not throw, on the pristine base as
+  much as here. `asciiMismatchAfterAMultibyteLeadIsSettledByTheDecidingByte` and
+  `malformationAtTheDecidingSequenceFailsClosedWhicheverSideCarriesIt` pin both
+  halves of the corrected contract.
 - Galloping over consecutive wins: an exploratory diagnostic batched only 12.5%
   of q33 cells and increased record loads from 256,893 to 280,621. Dropped.
 - Fixed eight-byte normalized ordering prefixes: correct on Unicode and spilled
@@ -215,23 +257,28 @@ only and are not compared with the campaign. All profiles and scored legs named
 
 ## Delivery validation constraint
 
-Firstmate accepted the exclusive measurement and assigned the 100M rig to the
-aggregation lane. **No further 100M operation is authorized for this delivery:**
-no profiling, ablations, benchmark legs, loads, or rebuilds. If validation appears
-to require one, stop and escalate to firstmate before running it. Use the
-committed exclusive pair as performance evidence and the focused unit/query
-checks below for delivery validation. The existing 1M oracle result is complete;
-no database rebuild is needed.
+Firstmate's 2026-09-08T02:50:48Z review decision supersedes the earlier
+no-further-100M constraint and authorized exactly one replacement pair, because
+removing the ASCII comparison shortcut invalidated `STRDECEXCAND1`. That pair ran
+as `STRDECEXPAIR2` above and is the performance evidence for delivery. **No
+further 100M operation is authorized:** no profiling, ablations, additional
+benchmark legs, loads, or rebuilds. If validation appears to require one, stop and
+escalate to firstmate before running it. The existing 1M oracle result is
+complete; no database rebuild was performed or is needed.
 
 ## Correctness and reproducibility
 
-The final candidate passes 132 focused tests. Shared row-mapping coverage includes
+The candidate that `STRDECEXPAIR1` measured passed 132 focused tests. The review
+fix adds two comparison tests and re-runs the 64 tests covering the touched files
+(`ValueDictionaryComparisonTest`, `SegmentValueMergeTest`,
+`SegmentGroupCanonicaliserTest`), all green. Shared row-mapping coverage includes
 real worker scheduling, sparse masks, range boundaries, unchanged input arrays,
 serial fallback arrival order, already-sealed ranks, and repeated unresolvable
 inputs. These cover UTF-16 ordering,
-shared UTF-8 prefixes, malformed differing suffixes, packed and spilled entries,
-sparse/range merges, multiplicity, physical cursor reads, simultaneous transformed
-walks, and reads outside the publication monitor. Query checks include
+shared UTF-8 prefixes, malformed differing suffixes, an ASCII mismatch behind a
+multibyte lead byte, malformation on either side of the deciding sequence, packed
+and spilled entries, sparse/range merges, multiplicity, physical cursor reads,
+simultaneous transformed walks, and reads outside the publication monitor. Query checks include
 `SegmentLengthLaneQueryTest`, `GroupTopKDifferentialTest`, and
 `AnyKGroupsSegmentKeyRewriteTest`.
 
@@ -279,7 +326,10 @@ reversed-prefix-order mutation with four failing tests.
 
 Raw logs, preserved pristine/candidate runtimes, profiles, mutation logs, 1M
 oracle results, and the local launchers are under
-`bundles/sirix-query/build/diagnostics/strdec/` in this worktree. Scored triples
+`bundles/sirix-query/build/diagnostics/strdec/` in this worktree;
+`STRDECEXPAIR2`'s launcher, audit stream, runtime snapshot, per-leg logs and
+result dumps are under `strdec2/` beside it, written with new names so no earlier
+artifact is overwritten. Scored triples
 are persisted in `bundles/sirix-query/bench/clickbench/rig/legs/`; use that rig's
 `mkleg.py` and `rank.py`. Use paired full-suite legs rather than summing apparent
 wins from isolated profiles or selecting the fourth try.
