@@ -7,11 +7,12 @@ pending measurement resolution; no timing, speedup, rank improvement or delivere
 ln gain is claimed.**
 
 Firstmate's instrument study, communicated on 2026-09-08, measured this harness's
-detection floor; that floor and the power cap now in force are recorded in the
-[rig README](../bundles/sirix-query/bench/clickbench/rig/README.md). The floor is the
-concrete reason an individual paired observation cannot establish this change's
-performance effect. It is a property of the measurement process, not a result for
-this change.
+detection floor; that floor — in both its paired and its unpaired form — and the power
+cap now in force are recorded in the
+[rig README](../bundles/sirix-query/bench/clickbench/rig/README.md). That floor,
+together with the unchanged baseline moving between nominally comparable runs (below),
+is why an individual paired observation cannot establish this change's performance
+effect. Both are properties of the measurement process, not results for this change.
 Continuing JIT compilation during timed tries remains an unresolved hypothesis;
 the study has not established the cause of the harness variability.
 
