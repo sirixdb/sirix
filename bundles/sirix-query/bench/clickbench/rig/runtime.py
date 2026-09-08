@@ -13,7 +13,7 @@ MAIN = 'io.sirix.query.bench.clickbench.ClickBenchRunMain'
 JVM_ENV_OPTIONS = ('JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS')
 JDK_FILES = ('bin/java', 'lib/modules', 'lib/server/libjvm.so', 'release')
 BENCH_SOURCES = Path('bundles/sirix-query/src/main/java/io/sirix/query/bench/clickbench')
-HARNESS_SOURCES = ('ClickBenchRunMain.java', 'ClickBenchRigLease.java')
+HARNESS_SOURCES = ('ClickBenchRunMain.java', 'ClickBenchLoadMain.java', 'ClickBenchRigLease.java')
 CANONICAL_ARGS = [
     '-Xms6g', '-Xmx14g', '-Dsirix.offheap.bytes=10737418240',
     '-XX:+UnlockExperimentalVMOptions', '-XX:-UseJVMCICompiler',
@@ -78,6 +78,8 @@ def prepare_revision(reference, output, extra_args=()):
                        stdout=log, stderr=subprocess.STDOUT, check=True)
         # Both engines must start through the same instrumentation. Otherwise an old
         # baseline omits the process guard and its JVM startup differs from the candidate.
+        # The loader is overlaid too: it never runs here, but it calls the guard, so leaving it
+        # at source_commit fails the arm's compile whenever that call's signature has moved.
         for name in HARNESS_SOURCES:
             shutil.copyfile(ROOT/BENCH_SOURCES/name, source/BENCH_SOURCES/name)
         provenance = harness_provenance(source)
@@ -93,7 +95,7 @@ def prepare_revision(reference, output, extra_args=()):
     runtime['source_commit'] = commit
     runtime['source_worktree'] = str(source)
     runtime.update(provenance)
-    runtime['harness_overlay'] = 'current benchmark main and process guard only; engine sources stay at source_commit'
+    runtime['harness_overlay'] = 'current benchmark mains and process guard only; engine sources stay at source_commit'
     return freeze_runtime(runtime, output/'frozen')
 
 

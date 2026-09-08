@@ -220,6 +220,7 @@ class HostLeaseTest(unittest.TestCase):
         prepared = dict(runtime_id='prepared', jvm_args=['-Xms6g'])
         announced = io.StringIO()
         with patch('rig_lock.lock_paths', return_value=[(HOST_FD, self.lock)]), \
+                patch('measure.require_no_benchmark'), \
                 patch('measure.prepare_current', return_value=prepared), \
                 patch('measure.run_part', side_effect=observe), \
                 contextlib.redirect_stdout(announced):
