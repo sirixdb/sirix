@@ -236,6 +236,46 @@ final class GroupTableSpillPassPlanTest {
   }
 
   @Test
+  @DisplayName("the dense layout's index recycler follows the payload pool: retained across tables, drained by the release")
+  void releaseTablesDrainsTheProbePool() {
+    final int previous = GroupTableSpill.setChunkPoolForTesting(1);
+    final int retainBefore = LongChunkPool.setRetainForTesting(0);
+    try {
+      // Eight lanes per stripe is above the dense crossing, and a hint whose capacity spans whole
+      // index chunks is what makes those chunks recyclable at all.
+      final GroupTableSpill spill =
+          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 14, true, 0L, 0), 0, 32, 50L);
+      final LongChunkPool probes = spill.probeChunkPool();
+      assertTrue(probes != null, "a stripe above the dense crossing gets an index recycler");
+      assertFalse(probes.isShared(), "the index recycler is per-scan, so nothing adds it back to the headroom");
+
+      final NumericGroupAggTable local = spill.freshLocal();
+      for (long key = 1; key <= 5_000; key++) {
+        local.acquire(key, key);
+      }
+      spill.flush(local);
+      assertTrue(local.released(), "the flush releases the worker table it spilled");
+      assertTrue(probes.pooled() > 0, "the released table's index chunks sit in the recycler: " + probes);
+
+      final long hitsBefore = probes.hits();
+      final NumericGroupAggTable next = spill.freshLocal();
+      for (long key = 5_001; key <= 10_000; key++) {
+        next.acquire(key, key);
+      }
+      assertTrue(probes.hits() > hitsBefore, "the next worker table's index is a recycled chunk: " + probes);
+      spill.flush(next);
+
+      assertTrue(spill.aborted());
+      assertTrue(probes.pooled() > 0, "index chunks are still held when the aborted pass is released: " + probes);
+      spill.releaseTables();
+      assertEquals(0, probes.pooled(), "no index chunk survives into the restart's budget measurement");
+    } finally {
+      LongChunkPool.setRetainForTesting(retainBefore);
+      GroupTableSpill.setChunkPoolForTesting(previous);
+    }
+  }
+
+  @Test
   @DisplayName("the shared pool outlives the spill: an aborted pass's tables and a finished pass's chunks are the next spill's tables")
   void sharedPoolOutlivesTheSpill() {
     final int previous = GroupTableSpill.setChunkPoolForTesting(1);
