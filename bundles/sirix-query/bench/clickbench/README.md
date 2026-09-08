@@ -127,12 +127,14 @@ DUCKDB_MEMORY_LIMIT=12GB DUCKDB_THREADS=4 \
 ./run-differential.sh 99997497 "$work"
 ```
 
-Both Java mains take a process-lifetime rig lease before reserving memory, so one host runs one
-ClickBench JVM at a time and a killed wrapper cannot leave the lease dangling. A query JVM counts as
-*large* when it opens the campaign database, has a heap ≥ 12 GiB, or reserves an off-heap arena
-≥ 10 GiB — the main's own 24 GiB arena default is enough on its own — and a large one must match the
-100M envelope exactly, which is what the flags above are. A smaller validation JVM only shares the
-host lease. The rig's [`README.md`](rig/README.md) owns that contract and the measurement protocol.
+Both Java mains take a process-lifetime rig lease before reserving memory, so a killed wrapper cannot
+leave the lease dangling. Only the campaign 100M run is *exclusive*: the lease is exclusive exactly
+when the JVM's database is the one `CB100M_DIR` names, and only such a query JVM must match the 100M
+envelope exactly, which is what the flags above are. Every other load or query — 1M validation, a
+scratch database, the commands in this file — only shares the host lease, so the small lanes keep
+running next to each other. The lease itself is Linux-only; elsewhere a campaign-scale run prints
+that it is not exclusive and continues, which makes its timings unusable as rig evidence. The rig's
+[`README.md`](rig/README.md) owns that contract and the measurement protocol.
 
 The default parallel path requires `hashType=NONE` and `storeNodeHistory=false`; both are already the
 ClickBench defaults. A non-standard hashed or temporal-history load must set
@@ -231,7 +233,7 @@ java -cp "$CP" io.sirix.query.bench.clickbench.ClickBenchGenerateMain hits-1m.js
 
 # 2. SirixDB
 java -cp "$CP" io.sirix.query.bench.clickbench.ClickBenchLoadMain /var/tmp/sirix-cb hits-1m.json
-# stay under the large-JVM thresholds, so this is a shared small-validation lease
+# not the campaign database, so this shares the host lease with the other validation lanes
 java -Xms4g -Xmx8g -Dsirix.offheap.bytes=8589934592 \
      -cp "$CP" io.sirix.query.bench.clickbench.ClickBenchRunMain /var/tmp/sirix-cb \
      --tries 3 --dump results-sirix

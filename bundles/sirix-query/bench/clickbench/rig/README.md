@@ -210,9 +210,11 @@ set, the launcher also holds its legacy `leg.lock`. Kernel flock ownership is au
 an empty or stale file does not block a run. Never unlink lock files. The launcher passes open
 descriptors directly to Java, which verifies the inode and kernel lock and retains ownership
 until process exit. Raw Java/Gradle benchmark entry points also acquire a process-lifetime
-lease. Large query JVMs require the full campaign envelope; smaller validation JVMs use shared
-host ownership and cannot overlap an exclusive 100M process. Losing a wrapper does not release
-the lease while its JVM survives. Legacy executables must use `rig_lock.py -- COMMAND...`.
+lease. A JVM is exclusive exactly when its database is the campaign one `CB100M_DIR` names, and
+only such a query JVM must match the full campaign envelope; every other load or query keeps shared
+host ownership, cannot overlap an exclusive 100M process, and leaves the 1M lanes free to run.
+Losing a wrapper does not release the lease while its JVM survives. Legacy executables must use
+`rig_lock.py -- COMMAND...`.
 
 The 100M database and both source corpora are irreplaceable and read-only for this campaign.
 Never run `load100m.sh`, rebuild projection indexes, shrink the query envelope, or delete shared

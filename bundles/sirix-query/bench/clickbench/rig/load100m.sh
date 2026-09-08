@@ -17,6 +17,7 @@ FREE_GB=$(df --output=avail -BG "$ROOT" | tail -1 | tr -dc '0-9')
 take_lock 120
 refuse_live_jvm
 echo "$D" > "$WORK/current-100m-dir.txt"
+export CB100M_DIR="$D"
 echo "start $(date +%H:%M:%S) memAvail=$((AVAIL_KB/1024))MB freeDisk=${FREE_GB}GB dir=$D" | tee "$D/watch.txt"
 # Liveness = file growth. A watcher line every minute; a load whose db stops growing is dead.
 ( while [ ! -f "$D/LOAD100M_DONE" ]; do
