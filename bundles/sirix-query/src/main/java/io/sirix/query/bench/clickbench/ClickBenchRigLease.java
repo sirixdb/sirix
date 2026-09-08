@@ -124,7 +124,8 @@ final class ClickBenchRigLease implements AutoCloseable {
           : "shared", database.toAbsolutePath().normalize(), CAMPAIGN_DIRECTORY,
           campaign == null || campaign.isBlank()
               ? "unset"
-              : campaign, hostLock);
+              : campaign,
+          hostLock);
     } catch (final IOException | RuntimeException | Error failure) {
       for (final ClickBenchRigLease lease : acquired) {
         try {

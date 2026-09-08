@@ -61,7 +61,8 @@ Both mains take a process-lifetime flock lease on the host before reserving memo
 *exclusive* only for a run against the campaign 100M database — the one `CB100M_DIR` names — which
 must additionally match that campaign's JVM envelope; every command above shares the lease and runs
 alongside other validation work. The leases are Linux-only: on another platform a run against the
-campaign database prints that it is not exclusive instead of taking one. The 100M measurement protocol lives in
+campaign database prints that it is not exclusive instead of taking one. The 100M measurement
+protocol lives in
 [`bench/clickbench/rig/README.md`](../bundles/sirix-query/bench/clickbench/rig/README.md).
 
 ### Import and decomposition harnesses
