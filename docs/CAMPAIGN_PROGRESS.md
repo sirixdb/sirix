@@ -2755,3 +2755,24 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   storing an object's scalars as ONE record with an internal layout (the parked data-model change), with
   column-major leaf grouping as the less invasive middle step. Sequence recorded as dictionaries → column-major
   leaves → fewer records per row, each with its own rebuild-and-leg gate and the standing per-query latency rule.
+
+
+## 2026-09-09 — MEASURED NEGATIVE: shared group aggregation
+
+A generic shared group-aggregate and numeric-group-by fast path was built at `a483a0df0` and
+paired-tested against `b815d459d` for the prespecified **12 pairs**. All 43 answers were byte-identical
+in all 24 legs. The targeted q7–q18 and q28–q42 family benefit was **+0.005 ln**, indistinguishable
+from zero (nominal 95% interval **[-0.512162, +0.521744]**). Suite sum-ln was 58.166314 → 57.783069
+and total hot suite time 27.800750 → 27.574333 s; the observed **+0.383245-ln** suite benefit is
+**UNRESOLVED**, with interval [-0.237177, +1.003666] and an 80%-power detection floor of 0.867747 ln.
+Resolving that observed magnitude would require **54–126 pairs** under the rig's post hoc estimates.
+
+The preceding per-cluster dense group-index work
+(https://github.com/sirixdb/sirix/pull/1201) showed about **4.5 ln** on queries in this same family;
+that earlier single-leg result is also formally UNRESOLVED. The contrast suggests that the readily
+available gain in this seam may already have been taken. This is a measured negative for this candidate,
+not proof that every shared aggregation approach is exhausted. Firstmate's decision is to retain the
+[complete paired study](../bundles/sirix-query/bench/clickbench/rig/evidence/aggregate-generic-20260909/RESULT.md)
+and its 24 legs, and revert the mechanism and its tests in a new commit. It contains no independent
+correctness fix to retain. **No further 100M runs are authorized, including validation or fix agents:
+all 12 pairs have been consumed.** The retained study is historical evidence and must remain unchanged.

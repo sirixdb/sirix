@@ -38,9 +38,6 @@ public final class ProjectionColumnGroupScan {
   private static final ThreadLocal<long[]> MASK =
       ThreadLocal.withInitial(() -> new long[(ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6]);
 
-  private static final ThreadLocal<NumericGroupLookup> NUMERIC_GROUP_LOOKUP =
-      ThreadLocal.withInitial(NumericGroupLookup::new);
-
   /**
    * Sliced twin of {@link ProjectionIndexByteScan#conjunctiveAggregateByGroupNumericFlat}. Leaf range
    * {@code [fromLeaf, toLeaf)} in ABSOLUTE store indices; the caller resolves every column ONCE
@@ -75,7 +72,6 @@ public final class ProjectionColumnGroupScan {
     // on — see NumericGroupAggTable#sumsExact for the rule the merge obeys too.
     final long sumExactMask = out.sumExactMask();
     final DictScratch ds = DICT_SCRATCH.get();
-    final NumericGroupLookup groupLookup = NUMERIC_GROUP_LOOKUP.get();
     final int aggCount = aggCols.length;
     ProjectionIndexByteScan.validateStringLengthModes(stringLengthModes, aggCount);
     // COUNT-ONLY: no aggregate lanes and no distinct set, so a row is one increment into a
@@ -103,7 +99,6 @@ public final class ProjectionColumnGroupScan {
       final ColumnSlice group = groupCol[leaf];
       final long[] groupValues = group.numericValues();
       final long[] groupPresence = group.presenceWords();
-      groupLookup.beginLeaf(group.min(), group.max(), rowCount, out);
       byte[] cdDictBytes = null;
       int[] cdDictOffsets = null;
       long[] cdHash = null;
@@ -168,7 +163,7 @@ public final class ProjectionColumnGroupScan {
                 out.acquireZero(leafOrdinalBase | rowIdx)[0]++;
               } else {
                 // Resolve storage AFTER acquire: growth can move the stripe to another chunk.
-                final int handle = groupLookup.acquire(out, gv, leafOrdinalBase | rowIdx);
+                final int handle = out.acquire(gv, leafOrdinalBase | rowIdx);
                 final long[] block = out.storageAtAccBase(handle);
                 block[out.offsetAtAccBase(handle)]++;
               }
@@ -205,7 +200,7 @@ public final class ProjectionColumnGroupScan {
               slotArr = out.acquireZero(leafOrdinalBase | rowIdx);
               base = 0;
             } else {
-              final int handle = groupLookup.acquire(out, gv, leafOrdinalBase | rowIdx);
+              final int handle = out.acquire(gv, leafOrdinalBase | rowIdx);
               slotArr = out.storageAtAccBase(handle);
               base = out.offsetAtAccBase(handle);
             }
@@ -306,9 +301,8 @@ public final class ProjectionColumnGroupScan {
       final long[][] aggPresence, final int aggCount, final int w, final int bit, final int rowIdx,
       final long sumExactMask) {
     acc[base]++;
-    final long presentBit = 1L << bit;
     for (int a = 0; a < aggCount; a++) {
-      if ((aggPresence[a][w] & presentBit) == 0L) {
+      if ((aggPresence[a][w] & 1L << bit) == 0L) {
         continue;
       }
       final long v = aggValues[a][rowIdx];
@@ -830,22 +824,6 @@ public final class ProjectionColumnGroupScan {
   }
 
   private static void foldSliced(final long[] slotArr, final int base, final long[][] aggValues,
-      final long[][] aggPresence, final int[][] aggIds, final int[][] stringLengths, final byte[] stringLengthModes,
-      final int aggCount, final int w, final int bit, final int rowIdx, final int distinctBlock,
-      final GroupDistinctAccumulator.Sink dset, final long[] budget, final byte[] cdDictBytes,
-      final int[] cdDictOffsets, final long[] cdHash, final GroupDistinctBitmaps bitmaps, final long[] dwords,
-      final long sumExactMask, final int[][] leafLengthTables, final GroupDistinctAccumulator.Worker directDistinct,
-      final long distinctGroup) {
-    if (distinctBlock < 0 && stringLengthModes == null) {
-      foldNumericPlain(slotArr, base, aggValues, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
-      return;
-    }
-    foldGeneralSliced(slotArr, base, aggValues, aggPresence, aggIds, stringLengths, stringLengthModes, aggCount, w, bit,
-        rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, bitmaps, dwords, sumExactMask,
-        leafLengthTables, directDistinct, distinctGroup);
-  }
-
-  private static void foldGeneralSliced(final long[] slotArr, final int base, final long[][] aggValues,
       final long[][] aggPresence, final int[][] aggIds, final int[][] stringLengths, final byte[] stringLengthModes,
       final int aggCount, final int w, final int bit, final int rowIdx, final int distinctBlock,
       final GroupDistinctAccumulator.Sink dset, final long[] budget, final byte[] cdDictBytes,

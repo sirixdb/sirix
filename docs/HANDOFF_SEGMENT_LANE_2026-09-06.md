@@ -134,6 +134,11 @@ a test is one `-Dsirix.projDiag=true` away from its reason.
 
 ## 4. The lever queue (C6A hot ln; ours s / board best s)
 
+**2026-09-09 update:** the generic shared group-aggregate/numeric-group-by candidate is a
+[MEASURED NEGATIVE](CAMPAIGN_PROGRESS.md#2026-09-09--measured-negative-shared-group-aggregation)
+after 12 pairs: its target family benefit is indistinguishable from zero. The mechanism is reverted;
+the paired evidence is retained. Consult that result before reopening this seam.
+
 Every ln below is the **measured** SEG4T contribution — `python3 rank.py SEG4T`, `[C6A] hot` block,
 from the committed `rig/legs/query-SEG4T.json`. The ≈ 88.8 projection that used to fill this table is
 retired: SEG4T was a complete 43-query three-try leg, so no row here is arithmetic any more.
