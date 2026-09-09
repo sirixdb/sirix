@@ -1,1 +1,0 @@
-subsequence(for $r in jn:doc('partial','records')[] let $id := $r.id, $bucket := $r.bucket group by $id, $bucket let $s := sum($r.value) order by $s descending return {"id":$id,"bucket":$bucket,"s":$s,"lo":min($r.value),"hi":max($r.value)},1,17)

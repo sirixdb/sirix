@@ -1,7 +1,0 @@
-{
-  "removed_event_types": [
-    "jdk.InitialEnvironmentVariable",
-    "jdk.InitialSystemProperty"
-  ],
-  "reason": "Unrelated process metadata removed; timing, JIT, GC, allocation and CPU observations retained"
-}

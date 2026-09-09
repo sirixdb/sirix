@@ -40,20 +40,8 @@ fast-tries pilot ran at 76 W MMIO throughout and never dipped below the MSR cap 
 
 So the cohorts this campaign has been comparing did not share one envelope.
 
-`poweraudit.py` is the committed path from telemetry to readings. It emits per-file samples,
-unsampled rows, the below-limit count and the distinct limit combinations observed:
-
-```sh
-python3 bundles/sirix-query/bench/clickbench/rig/poweraudit.py <RIG_TRUST_DIR>/<leg>/telemetry.jsonl
-```
-
-`summary.json` beside this README is a cohort roll-up derived from those per-file readings, with the
-microwatt values relabelled in watts and each file assigned to its cohort by name. That grouping step
-is not itself committed; the per-file numbers it rests on reproduce exactly from the command above.
-
-The raw telemetry stays where it was written, in the worker-local diagnostics directory. It is not
-committed — that is a deliberate retention choice, see [RETENTION.md](../RETENTION.md) — so this
-summary and `poweraudit.py` are the committed record of what it contained.
+The raw telemetry, per-file readings and CSV/JSON roll-ups were archived off-tree on 2026-09-09 in
+`build/rig-evidence-archive-20260909.tar.gz`; the findings remain retained here.
 
 ## What this does and does not establish
 

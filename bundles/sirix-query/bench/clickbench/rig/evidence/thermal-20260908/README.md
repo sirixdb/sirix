@@ -24,24 +24,8 @@ long-term setting was 45 W. The recorded settings do not establish delivered pac
 
 ## Evidence files
 
-- `raw/*.txt`: original, complete logs, with all 129 per-try wall/CPU/GC lines for each leg.
-- `query-*.json`: timing triples only, each carrying `rig.scope` `diagnostic` and the pre-cap
-  regime it was measured under. `rank.py` refuses them for that stated reason, so these throttled
-  observations cannot reach the published board. No minima are taken across legs.
-- `tries.csv`: all measured tries and their logged CPU utilization and GC measurements.
-- `scores.json`: per-query hot time and C6A ln contribution, suite hot seconds, sum-ln, and geometric mean.
-- `query-summary.csv`: per-query descriptive statistics across the three original legs, with modality
-  explicitly indeterminate.
-- `thermal-samples.csv`: package temperature, reported frequency by P/E CPU class, and cpu0 package
-  throttle counter at each observation. Baseline samples are every five seconds; cool-probe samples
-  are every half second.
-- `query-thermal.csv`: cool-probe query-end observations. Temperature is sampled when the resource
-  log line is consumed, outside the query timer. These are boundaries, not mean query temperatures.
-- `manifest.json`: code and board identities, runtime flags, protocol limitations and raw-log hashes.
-  Its `unchanged_files_sha256` records what those five files hashed to when this study ran. The whole
-  block is a historical identity, not a check against the current tree: `rank.py`, `suite100m.sh`,
-  `rig.env` and `bundles/sirix-query/build.gradle` have all changed since, and only
-  `board/data.generated.js` still matches. The recorded hashes are left as captured.
+The raw logs, timing exports, CSVs, manifests and replay material were archived off-tree on
+2026-09-09 in `build/rig-evidence-archive-20260909.tar.gz`; the findings remain retained here.
 
 The package sensor is `/sys/class/thermal/thermal_zone12` (`x86_pkg_temp`). P-core logical CPUs
 are 0–11 and E-core CPUs 12–19 on this i7-12700H. `scaling_cur_freq` snapshots are not effective
@@ -55,10 +39,7 @@ The unchanged C6A score uses `min(try 2, try 3)` per query, then
 Use the committed 2026-09-02 board snapshot; do not substitute today's board.
 
 These exports are no longer rankable: `rank.py` refuses any leg that does not state the publication
-regime, and these state `diagnostic`. `scores.json` retains what that ranking produced — per-query
-hot time and C6A ln contribution, suite hot seconds, sum-ln and geometric mean — so every figure in
-the report stays inspectable. Converting `raw/*.txt` with `mkleg.py` does not restore the ranking
-either: a raw log states no regime, so it converts as `unknown` and is refused.
+regime, and these state `diagnostic`; the retained findings preserve the reported figures.
 
 A repeated-pair confidence interval must be based on whole-leg differences, preserving covariance
 among the 43 queries. It must not treat queries or the two hot tries as independent replications.

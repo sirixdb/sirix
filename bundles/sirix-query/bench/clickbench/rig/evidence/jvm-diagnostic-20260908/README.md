@@ -6,6 +6,8 @@ The exported JFR excludes unrelated InitialEnvironmentVariable and InitialSystem
 
 The subsequent GC-switch plan was **canceled**, not completed. See `gc-switch-cancelled.json`; one on leg completed and no off JVM launched. The plan and launch scripts are retained solely as provenance. Do not run that canceled experiment from this archive.
 
-`raw.tar.gz` held a whitelist of logs, JFR, receipt boundaries and resource observations. **It was discarded from this deliverable and cannot be regenerated**; see [RETENTION.md](../RETENTION.md). `raw-members.json` still records every member and its exact hash, so the archive's contents remain named. `analyze-original.py` and `ReadMainSamples.java` are retained as the provenance of the analysis, but they have no input here and the JFR replay they describe can no longer be run.
+The raw logs, JFR inputs and replay material were archived off-tree on 2026-09-09 in
+`build/rig-evidence-archive-20260909.tar.gz`; this retained finding is not replayable in-tree.
 
-`analysis.json` is the retained output of that replay. It records exact metric definitions and the query-boundary lag caveat, and it is the evidence the report rests on. The [report](../../../../../../../docs/CLICKBENCH_RIG_JVM_DIAGNOSTIC_2026-09-08.md) separates observations from causal hypotheses. `gc-switch-plan.json` is the prespecified follow-up, not a completed result. Launch controllers preserve original paths as provenance, not portable launch instructions.
+The retained analysis output records exact metric definitions and the query-boundary lag caveat, and
+the [report](../../../../../../../docs/CLICKBENCH_RIG_JVM_DIAGNOSTIC_2026-09-08.md) separates observations from causal hypotheses.

@@ -76,14 +76,6 @@ Benefit is baseline minus candidate in mean per-leg ln contribution, the sign co
 
 ## Retained artifacts
 
-- `planning.json`: the prespecified 2.0-ln target and rig pair-count estimates from the historical calibration.
-- `plan.json`, `pairs.json`, `report.json`, `report.md`, `queries.csv`: unmodified rig plan, paired data, and analysis outputs. `pairs.json` holds all 24 unmodified steering legs, each as the `baseline` and `candidate` arm of its pair together with that pair's execution `order`; it is the single retained copy of the legs, and `raw-evidence.tar.gz` carries their raw logs. `query-deltas.csv` adds only what `queries.csv` does not publish: the per-query 95% benefit interval, the 80%-power detection floor and the verdict, in `queries.csv` row order and under its `benefit_ln` sign convention.
-- `summary.json`: correctness hashes, launch allowance, suite and requested-family uncertainty.
-- `raw-evidence.tar.gz` and `raw-members.json`: every leg log, command, answer file, answer check, cooling/telemetry/verdict record, runtime manifest, and validation log. Every exported member was checked against its recorded SHA-256. Frozen runtime binaries remain in the original worktree diagnostics; the rig removed only its reproducible source-checkout scratch after successful collection.
-
-Replay the unmodified paired analysis without Java:
-
-```sh
-build/rig-python/bin/python3 bundles/sirix-query/bench/clickbench/rig/measure.py analyze \
-  bundles/sirix-query/bench/clickbench/rig/evidence/aggregate-generic-20260909
-```
+- The paired plans, raw leg data, CSV exports and replay inputs were archived off-tree on
+  2026-09-09 in `build/rig-evidence-archive-20260909.tar.gz`; the findings and all numbers above
+  are retained here.

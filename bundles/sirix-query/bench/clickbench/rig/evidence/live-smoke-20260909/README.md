@@ -52,7 +52,7 @@ demoted run silently skips.
   close, never by unlinking.
 - **`require_no_benchmark` / `wait_for_quiet_java`.** Passed with no other JVM alive.
 - **Cooldown and launch recheck.** Released after three consecutive package readings below 55 C,
-  five seconds apart, with the final recheck at 45.0 C (`leg-cooling.jsonl`, 15.0 s).
+  five seconds apart, with the final recheck at 45.0 C (15.0 s).
 - **MSR power gate.** Both pinned limits read 50 W in every one of the 25 samples; `check_power`
   ran at every cooldown sample, every telemetry tick and once more after exit.
 - **Platform-domain observation.** No platform-managed limit moved during this run — every RAPL

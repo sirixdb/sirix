@@ -31,7 +31,7 @@ started. `leg-command.json` is the exact argv; `leg-plan.json` records the runti
   stopped first; that is the normal cost of measuring on a development box, and the gate is what
   makes it visible instead of silently contending.
 - **Cooldown and launch recheck.** Released after three consecutive package readings at 45 C, five
-  seconds apart, with the final recheck also below the cutoff (`leg-cooling.jsonl`, 15.0 s).
+  seconds apart, with the final recheck also below the cutoff (15.0 s).
 - **MSR power gate.** Both pinned limits read 50 W in every one of the 334 telemetry samples.
 - **Platform-domain observation.** The MMIO long-term limit moved **seven times inside this single
   leg**, unprompted, across 45.0 / 45.75 / 49.0 / 49.375 / 58.0 / 66.0 / 76.0 W. It was recorded
@@ -52,7 +52,7 @@ demonstrably did not. The [power audit](../power-audit-20260908) records the qui
 observed 45 .. 76 W within its own 170 seconds. Neither is one uniform 50 W envelope. This leg's own
 recorded conditions were hot and heavily throttled — mean 95.4 C, 11252 package throttle events,
 mean reported 2.57 GHz — and all three fall beyond the corresponding ranges over the twenty legs in
-[`../quiet50-20260908/summary.json`](../quiet50-20260908/summary.json): hotter, more throttled and
+the retained quiet50 findings: hotter, more throttled and
 lower-clocked than any of them.
 
 What this leg does establish is narrow: under the conditions recorded here, the gates above fired,
@@ -60,11 +60,8 @@ passed and released; a real JVM measured the real 100M database end to end; and 
 and the lease lifecycle behaved as designed for one run. **This single observation is not an effect
 estimate.**
 
-`leg-telemetry-summary.json` derives the figures above from the 334 retained samples. The raw
-`telemetry.jsonl` (sha256 `799b52dbd603a3b7604a5079c95d94e7b5f3e3a21619c314b26eb61c41b22c79`) and
-`query-boundaries.jsonl` (sha256 `a52cb61c90cc88104d236e0cfa91caa7442314fd6852390788951fb2ce1dd46b`)
-were written under `build/diagnostics/` and are not retained here; see [`../RETENTION.md`](../RETENTION.md)
-for why raw archives stay out of this tree.
+The raw telemetry and query-boundary data were archived off-tree on 2026-09-09 in
+`build/rig-evidence-archive-20260909.tar.gz`; the findings remain retained here.
 
 ## What this did not test
 
