@@ -1,0 +1,82 @@
+{
+  "started_epoch": 1788956852.072415,
+  "classes": [
+    {
+      "class": "io.sirix.index.projection.BoundedGroupBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.index.projection.HeapHeadroomBudgetTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.index.projection.GroupTableDenseIndexGateTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.index.projection.DenseGroupIndexTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.index.projection.NumericGroupSumTableTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.query.scan.GroupPassesBudgetRefreshTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.query.scan.GroupHashRangePassTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.query.scan.GroupPassOutOfMemoryRestartTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.query.scan.GroupAbortedPassReleaseTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.query.scan.GroupTopKDifferentialTest",
+      "tests": 57,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.query.scan.SparseSumOrderingOriginTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1
+    }
+  ]
+}

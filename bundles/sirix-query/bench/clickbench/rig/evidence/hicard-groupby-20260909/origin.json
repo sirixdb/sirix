@@ -1,0 +1,33 @@
+{
+  "baseline": "b815d459d1218ab9081f360257ae6f16eff9f476",
+  "baseline_engine_diff_empty": true,
+  "branch": "2(b): pre-existing defect",
+  "baseline_test": "FAILED",
+  "prototype_test": "FAILED",
+  "actual_byte_identical": true,
+  "actual_bytes": 812,
+  "sha256": {
+    "SparseSumOrderingOriginTest.java.txt": "d2ce9e7dfe8b0b1dade5e5d51c844939dffc195df77349b2738fcb4549ed71c3",
+    "baseline/query-0-actual.txt": "82bf6d72f77c3fb921d7fe3a7bfe171ce788f85c46c712d114be751be2ed8ca1",
+    "baseline/query-0-expected.txt": "82bf6d72f77c3fb921d7fe3a7bfe171ce788f85c46c712d114be751be2ed8ca1",
+    "baseline/query-0-query.txt": "43de447bae36d0ba4e1b97dd8734fdb06b07f51e76b1532ece0ac8e3dbe38dac",
+    "baseline/query-1-actual.txt": "d0c31a93f14f701cbe291b525c18a1bc182a1639a935d6bf239b9208e600a8a0",
+    "baseline/query-1-expected.txt": "d0c31a93f14f701cbe291b525c18a1bc182a1639a935d6bf239b9208e600a8a0",
+    "baseline/query-1-query.txt": "ded42bef1a362fed8fd06eaf8da12b912bcc061f2d58c7a91878bff0e669fd12",
+    "baseline/query-2-actual.txt": "a66ecfd207d469cf2284d7691b0896755a9d65653b7ed6ad4beb6ad3d2c49293",
+    "baseline/query-2-expected.txt": "ac4d44a12c190749b6377d6d15acab95837d8b491ea784c1102e79b1a7a115ca",
+    "baseline/query-2-query.txt": "71e2c82d2847a58398936d904e10225eebd03f3824e4a009902a918686f4a502",
+    "baseline-test.log": "1866d2585e06b01f7535b784f61e2330e765be60eaa6d575f97150be0f09a473",
+    "prototype/query-0-actual.txt": "82bf6d72f77c3fb921d7fe3a7bfe171ce788f85c46c712d114be751be2ed8ca1",
+    "prototype/query-0-expected.txt": "82bf6d72f77c3fb921d7fe3a7bfe171ce788f85c46c712d114be751be2ed8ca1",
+    "prototype/query-0-query.txt": "43de447bae36d0ba4e1b97dd8734fdb06b07f51e76b1532ece0ac8e3dbe38dac",
+    "prototype/query-1-actual.txt": "d0c31a93f14f701cbe291b525c18a1bc182a1639a935d6bf239b9208e600a8a0",
+    "prototype/query-1-expected.txt": "d0c31a93f14f701cbe291b525c18a1bc182a1639a935d6bf239b9208e600a8a0",
+    "prototype/query-1-query.txt": "ded42bef1a362fed8fd06eaf8da12b912bcc061f2d58c7a91878bff0e669fd12",
+    "prototype/query-2-actual.txt": "a66ecfd207d469cf2284d7691b0896755a9d65653b7ed6ad4beb6ad3d2c49293",
+    "prototype/query-2-expected.txt": "ac4d44a12c190749b6377d6d15acab95837d8b491ea784c1102e79b1a7a115ca",
+    "prototype/query-2-query.txt": "71e2c82d2847a58398936d904e10225eebd03f3824e4a009902a918686f4a502",
+    "prototype-test.log": "30e389f4b9d5579b04af3c5b06d6345331731a10c70a58eefcdef2e2739bea4f"
+  },
+  "benchmark_jvms_used": 0
+}

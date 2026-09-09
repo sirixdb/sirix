@@ -1,0 +1,1 @@
+subsequence(for $r in jn:doc('partial','records')[] let $id := $r.id, $bucket := $r.bucket group by $id, $bucket let $n := count($r) order by $n descending return {"id":$id,"bucket":$bucket,"n":$n},1,13)

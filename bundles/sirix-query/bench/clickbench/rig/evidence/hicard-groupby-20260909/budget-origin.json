@@ -1,0 +1,6 @@
+{
+  "exit_code": 1,
+  "known_baseline_defect_identical": true,
+  "actual_sha256": "a66ecfd207d469cf2284d7691b0896755a9d65653b7ed6ad4beb6ad3d2c49293",
+  "source_sha256": "d2ce9e7dfe8b0b1dade5e5d51c844939dffc195df77349b2738fcb4549ed71c3"
+}

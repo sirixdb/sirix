@@ -668,6 +668,99 @@ public final class GroupTableSpill {
     return groupBudgetFor(maxMemory, maxMemory, strideLanes);
   }
 
+  /** Restore the shared-consumer budget for bounded aggregates when disabled. */
+  public static final String BOUNDED_BUDGET_PROPERTY = "sirix.projection.groupTable.boundedBudget";
+
+  private static boolean boundedBudgetEnabled(final int strideLanes) {
+    return denseIndexEnabled(strideLanes) && stripeSpillEnabled()
+        && Boolean.parseBoolean(System.getProperty(BOUNDED_BUDGET_PROPERTY, "true"));
+  }
+
+  /**
+   * Charge a dense stripe once, plus three eight-byte index lanes. A power-of-two index growing at
+   * 3/4 load has fewer than 8/3 entries per live group; rounding that up leaves room for array
+   * headers. Buffers use the same payload stripe without an index. The remaining headroom reserve
+   * covers workers, chunk tails and overlapping partition merges. Interleaved or non-buffered tables
+   * retain their existing budget.
+   *
+   * @param strideLanes positive lanes per record
+   * @return bytes charged per resident group
+   */
+  public static long boundedBytesPerGroup(final int strideLanes) {
+    if (strideLanes <= 0) {
+      throw new IllegalArgumentException("strideLanes must be positive: " + strideLanes);
+    }
+    return boundedBudgetEnabled(strideLanes)
+        ? ((long) strideLanes + 3L) * Long.BYTES
+        : bytesPerGroup(strideLanes);
+  }
+
+  /**
+   * Budget for a bounded aggregate whose completed partitions can be selected and released
+   * independently. Callers must exclude grouped distinct state and key ordering. This allowance
+   * belongs to the aggregation, not to the column-fill or distinct-set consumers of HeapHeadroom. The
+   * fixed operator budget and test override retain precedence.
+   */
+  public static long boundedGroupBudget(final int strideLanes) {
+    if (!boundedBudgetEnabled(strideLanes)) {
+      return groupBudget(strideLanes);
+    }
+    final long testing = groupBudgetForTesting;
+    if (testing >= 0L) {
+      return testing;
+    }
+    final long configured = Long.getLong(GROUP_BUDGET_PROPERTY, -1L);
+    if (configured > 0L) {
+      return configured;
+    }
+    final long maxMemory = Runtime.getRuntime().maxMemory();
+    final long headroom = Math.min(maxMemory, HeapHeadroom.headroomBytes());
+    final long reusable = Math.min(maxMemory - headroom, LongChunkPool.retainedBytes());
+    return boundedGroupBudgetFor(maxMemory, headroom + reusable, strideLanes);
+  }
+
+  /** Clean-heap counterpart of {@link #boundedGroupBudget}, for the same refresh decision. */
+  public static long boundedGroupBudgetCeiling(final int strideLanes) {
+    if (!boundedBudgetEnabled(strideLanes)) {
+      return groupBudgetCeiling(strideLanes);
+    }
+    final long testing = groupBudgetForTesting;
+    if (testing >= 0L) {
+      return testing;
+    }
+    final long configured = Long.getLong(GROUP_BUDGET_PROPERTY, -1L);
+    if (configured > 0L) {
+      return configured;
+    }
+    final long maxMemory = Runtime.getRuntime().maxMemory();
+    return boundedGroupBudgetFor(maxMemory, maxMemory, strideLanes);
+  }
+
+  /**
+   * Pure bounded-aggregation budget: at most half the heap and three quarters of effective headroom,
+   * charged for the actual dense layout. Keep a quarter outside the allowance for scan workers,
+   * transient copies and the collector. A pass still aborts on excess cardinality or allocation
+   * failure; this is a planning allowance, not a reservation against concurrent queries.
+   *
+   * @param maxMemory non-negative maximum heap bytes
+   * @param headroom non-negative available bytes, including reusable table chunks
+   * @param strideLanes positive lanes per record
+   * @return group allowance, with the existing floor and ceiling
+   */
+  public static long boundedGroupBudgetFor(final long maxMemory, final long headroom, final int strideLanes) {
+    if (maxMemory < 0L || headroom < 0L || strideLanes <= 0) {
+      throw new IllegalArgumentException(
+          "invalid heap, headroom or stride: " + maxMemory + ", " + headroom + ", " + strideLanes);
+    }
+    if (!boundedBudgetEnabled(strideLanes)) {
+      return groupBudgetFor(maxMemory, headroom, strideLanes);
+    }
+    final long available = Math.min(maxMemory, headroom);
+    final long share = Math.min(maxMemory / 2L, available / 4L * 3L);
+    final long planned = share / boundedBytesPerGroup(strideLanes);
+    return Math.max(1L << 20, Math.min(1L << 26, planned));
+  }
+
   /**
    * Partitions the largest of {@code passes} BALANCED hash-range passes over {@code partitions} owns:
    * pass {@code p} owns {@code [passLo(p), passHi(p))}, consecutive ranges whose sizes differ by at
