@@ -12110,19 +12110,24 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * and exists to MEASURE how far the records overstate after a large query, never to run by default.
    */
   private static final boolean GROUP_BUDGET_GC_PROBE = Boolean.getBoolean("sirix.projection.groupPasses.gcProbe");
+  /** One summary per completed group plan; no per-row or per-partition logging. */
+  private static final boolean GROUP_PLAN_DIAG = Boolean.getBoolean("sirix.projection.groupPasses.planDiag");
 
   /**
    * The per-pass group budget of one grouped arm, read once per plan, with the heap figures it
    * derives from beside it under {@code sirix.projDiag} — see {@link HeapHeadroom#describe()}.
    */
-  private static long plannedGroupBudget(final int strideLanes) {
+  private static long plannedGroupBudget(final int strideLanes, final boolean bounded) {
     if (GROUP_BUDGET_GC_PROBE) {
       System.gc();
     }
-    final long budget = GroupTableSpill.groupBudget(strideLanes);
+    final long budget = bounded
+        ? GroupTableSpill.boundedGroupBudget(strideLanes)
+        : GroupTableSpill.groupBudget(strideLanes);
     if (PROJ_DIAG) {
-      System.err.println("[groupBudget] budget=" + budget + " stride=" + strideLanes + " perGroup="
-          + GroupTableSpill.bytesPerGroup(strideLanes) + " " + HeapHeadroom.describe());
+      System.err.println("[groupBudget] budget=" + budget + " stride=" + strideLanes + " perGroup=" + (bounded
+          ? GroupTableSpill.boundedBytesPerGroup(strideLanes)
+          : GroupTableSpill.bytesPerGroup(strideLanes)) + " bounded=" + bounded + " " + HeapHeadroom.describe());
     }
     return budget;
   }
@@ -13841,6 +13846,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     private int aborts;
     /** Lanes per group stripe; what {@link #refreshBudget} charges a group when it re-reads. */
     private final int strideLanes;
+    private final boolean bounded;
 
     GroupPasses(final ProjectionIndexRegistry.Handle handle, final long fingerprint, final long budget,
         final int partitions) {
@@ -13853,6 +13859,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
      */
     GroupPasses(final ProjectionIndexRegistry.Handle handle, final long fingerprint, final long budget,
         final int partitions, final int strideLanes) {
+      this(handle, fingerprint, budget, partitions, strideLanes, false);
+    }
+
+    GroupPasses(final ProjectionIndexRegistry.Handle handle, final long fingerprint, final long budget,
+        final int partitions, final int strideLanes, final boolean bounded) {
+      this.bounded = bounded;
       this.strideLanes = strideLanes;
       this.handle = handle;
       this.fingerprint = fingerprint;
@@ -13923,7 +13935,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final long testingCeiling = ceilingForTesting;
       final long ceiling = testingCeiling >= 0L
           ? testingCeiling
-          : GroupTableSpill.groupBudgetCeiling(strideLanes);
+          : bounded
+              ? GroupTableSpill.boundedGroupBudgetCeiling(strideLanes)
+              : GroupTableSpill.groupBudgetCeiling(strideLanes);
       if (!refreshWorthIt(groups, budget, ceiling, partitions)) {
         return;
       }
@@ -13934,7 +13948,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         budget = refreshed.getAsLong();
       } else {
         System.gc();
-        budget = GroupTableSpill.groupBudget(strideLanes);
+        budget = bounded
+            ? GroupTableSpill.boundedGroupBudget(strideLanes)
+            : GroupTableSpill.groupBudget(strideLanes);
       }
       BUDGET_REFRESHES.increment();
       if (PROJ_DIAG) {
@@ -14047,6 +14063,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       long total = 0L;
       for (final long groups : partitionGroups) {
         total += groups;
+      }
+      if (GROUP_PLAN_DIAG) {
+        System.err.println("[groupPlan] groups=" + total + " passes=" + passes + " budget=" + budget + " passBudget="
+            + passBudget + " stride=" + strideLanes + " bounded=" + bounded + " aborts=" + aborts);
       }
       if (completedSeedAborted) {
         // The count alone re-seeds the pass count that just aborted; record the smallest count that
@@ -15933,7 +15953,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // agree are two expressions that can drift.
           final int strideLanes =
               NumericGroupAggTable.strideFor(aggColsFlat.length, true, compositeIdWidth, compactSums);
-          final long groupBudget = plannedGroupBudget(strideLanes);
+          final boolean boundedBudget = cdBlock < 0 && limit >= 1 && orderPlan.kinds.length > 0 && !orderOnKeyLane;
+          final long groupBudget = plannedGroupBudget(strideLanes, boundedBudget);
           // Set when a key-ordered pass meets a ZERO group, which an identity-mode table cannot hold
           // (acquireZero refuses one) and whose side slot carries no identity lanes to order on.
           final long[] zeroGroupWithoutIdentity = new long[1];
@@ -15947,7 +15968,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // by a previous execution — a wrong seed is corrected by the same abort machinery, so the
           // memo can only cost passes, never answers.
           final GroupPasses plan = new GroupPasses(handle, groupShapeFingerprint(groupCols, preds, tree, cdBlock),
-              groupBudget, partitionsF, strideLanes);
+              groupBudget, partitionsF, strideLanes, boundedBudget);
           int passes = plan.passes();
           for (int pass = 0; pass < passes; pass++) {
             final long passStartNanos = System.nanoTime();
@@ -16577,7 +16598,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             : null;
         final int slotWidth = 2 + 4 * aggColsFlat.length;
         final int strideLanes = NumericGroupAggTable.strideFor(aggColsFlat.length, true, 0);
-        final long groupBudget = plannedGroupBudget(strideLanes);
+        final boolean boundedBudget =
+            cdBlock < 0 && limit >= 1 && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
+        final long groupBudget = plannedGroupBudget(strideLanes, boundedBudget);
         final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
         long[] missingMergedFlatHeld = null;
         // A GLOBAL regex key gets its transformed-key hash PRECOMPUTED for every id by one
@@ -16618,7 +16641,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
         // HASH-RANGE PASSES — see the composite arm; seeded from the same handle memo.
         final GroupPasses plan = new GroupPasses(handle, groupShapeFingerprint(groupCols, preds, tree, cdBlock),
-            groupBudget, partitionsF, strideLanes);
+            groupBudget, partitionsF, strideLanes, boundedBudget);
         int passes = plan.passes();
         for (int pass = 0; pass < passes; pass++) {
           final long passStartNanos = System.nanoTime();
@@ -17804,11 +17827,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         : null;
     final int slotWidth = 2 + 4 * aggCols.length;
     final int strideLanes = NumericGroupAggTable.strideFor(aggCols.length, true, 0);
-    final long groupBudget = plannedGroupBudget(strideLanes);
+    final boolean boundedBudget = limit >= 1 && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
+    final long groupBudget = plannedGroupBudget(strideLanes, boundedBudget);
     final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
     final NumericGroupAggTable[] partTables = new NumericGroupAggTable[partitions];
     // HASH-RANGE PASSES — see the composite arm; seeded from the same handle memo.
-    final GroupPasses plan = new GroupPasses(handle, groupShapeFp, groupBudget, partitionsF, strideLanes);
+    final GroupPasses plan =
+        new GroupPasses(handle, groupShapeFp, groupBudget, partitionsF, strideLanes, boundedBudget);
     int passes = plan.passes();
     for (int pass = 0; pass < passes; pass++) {
       final long passStartNanos = System.nanoTime();
@@ -18326,13 +18351,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           : null;
       final int slotWidth = 2 + 4 * aggCols.length;
       final int strideLanes = NumericGroupAggTable.strideFor(aggCols.length, false, 0);
-      final long groupBudget = plannedGroupBudget(strideLanes);
+      final boolean boundedBudget =
+          cdBlockIdx < 0 && limit >= 1 && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
+      final long groupBudget = plannedGroupBudget(strideLanes, boundedBudget);
       final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
       long[] missingMergedHeld = null;
       // HASH-RANGE PASSES — see the composite arm: past the per-pass group budget the scan restarts
       // with P passes over partition ranges; the selectors persist, the missing-key rows are taken
       // from the pass that owns partition 0. Seeded from the same handle memo.
-      final GroupPasses plan = new GroupPasses(handle, groupShapeFp, groupBudget, partitionsF, strideLanes);
+      final GroupPasses plan =
+          new GroupPasses(handle, groupShapeFp, groupBudget, partitionsF, strideLanes, boundedBudget);
       int passes = plan.passes();
       for (int pass = 0; pass < passes; pass++) {
         final long passStartNanos = System.nanoTime();

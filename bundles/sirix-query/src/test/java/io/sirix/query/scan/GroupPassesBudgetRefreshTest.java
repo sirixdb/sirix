@@ -33,6 +33,28 @@ final class GroupPassesBudgetRefreshTest {
   }
 
   @Test
+  void boundedPlanRecoversFromAnUnderestimateWithoutWideningTheAllowance() {
+    final long budget = GroupTableSpill.boundedGroupBudgetFor(14L << 30, 1L << 30, 11);
+    SirixVectorizedExecutor.GroupPasses.setBudgetRefreshForTesting(budget, () -> budget);
+    final ProjectionIndexRegistry.Handle handle = new ProjectionIndexRegistry.Handle(new String[] {"a"}, List.of());
+    handle.noteCompletedGroupScan(FINGERPRINT, 1_000L, 1);
+    final SirixVectorizedExecutor.GroupPasses plan =
+        new SirixVectorizedExecutor.GroupPasses(handle, FINGERPRINT, budget, 1024, 11, true);
+    assertEquals(1, plan.passes(), "the stale small estimate initially fits");
+    final GroupTableSpill spill = new GroupTableSpill(1024, 54, () -> new NumericGroupAggTable(2, 16), 0, 1024, budget);
+    spill.noteLeavesScanned(10);
+    spill.noteAbandonedLocal(10_000_000);
+    plan.restart(spill, 100);
+    assertEquals(100_000_000L, plan.plannedGroups());
+    assertEquals(budget, plan.budget());
+    assertEquals(budget, plan.passBudget());
+    assertTrue(plan.passes() > 2, "tight headroom must increase passes after an underestimated plan");
+    assertTrue(GroupTableSpill.expectedLargestPass(plan.plannedGroups(), plan.passes(), 1024) <= budget);
+    assertFalse(plan.seededCompleted(), "the failed completed-plan seed must be discarded");
+    spill.releaseTables();
+  }
+
+  @Test
   @DisplayName("a refresh is worth a collection only when the clean-heap ceiling plans fewer passes")
   void refreshWorthItTruthTable() {
     // Nothing known about the shape: nothing to plan, nothing to refresh.

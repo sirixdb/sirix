@@ -51,6 +51,10 @@ final class GroupPassOutOfMemoryRestartTest {
       // string arm
       "subsequence(for $h in " + DOC + " let $k := $h.s group by $k let $c := count($h) "
           + "order by $c descending return {\"s\": $k, \"c\": $c}, 1, 12)",
+      // bounded composite arm, two aggregate columns and the compact sum layout
+      "subsequence(for $h in " + DOC + " let $a := $h.k7, $b := $h.k40 group by $a, $b let $c := count($h) "
+          + "order by $c descending return {\"k7\": $a, \"k40\": $b, \"c\": $c, "
+          + "\"sum\": sum($h.amount), \"avg\": avg($h.u)}, 1, 12)",
       // composite arm with a grouped COUNT(DISTINCT)
       "subsequence(for $h in " + DOC + " let $a := $h.k7, $b := $h.k40 group by $a, $b "
           + "let $u := count(distinct-values($h.u)) order by $u descending return {\"k7\": $a, \"k40\": $b, \"u\": $u}, 1, 12)",
