@@ -16015,11 +16015,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 cdAcc.setPassRange(shift, passLo, passHi);
               }
             }
+            // PARTIAL grouping shares the bounded budget's gate on purpose: it is a targeting choice,
+            // measured only on bounded, ordered top-k shapes. A partial worker table retains duplicate
+            // records, and a selection that keeps every group is the memory-growth shape the unbounded
+            // selection budget defect had, so extending it to unordered or unlimited GROUP BY needs
+            // its own paired study and memory-pressure fixtures first.
             final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift, hint -> compactSums
                 ? NumericGroupAggTable.sumsOnly(aggColsFlat.length, hint, true, sumExactMask, compositeIdWidth)
                 : new NumericGroupAggTable(aggColsFlat.length, hint, true, sumExactMask, compositeIdWidth),
-                plan.plannedGroups(), passLo, passHi, plan.passBudget(),
-                cdBlock < 0 && limit >= 1 && orderPlan.kinds.length > 0 && !orderOnKeyLane);
+                plan.plannedGroups(), passLo, passHi, plan.passBudget(), boundedBudget);
             final long[] scanNanos = PROJ_DIAG
                 ? new long[eff]
                 : null;
@@ -16131,6 +16135,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               }
             }
             final long scanEndNanos = System.nanoTime();
+            GROUP_PARTIAL_WORKERS.add(spill.partialWorkerTables());
             if (spill.aborted()) {
               noteAbandonedLocals(spill, tables);
               if (PROJ_DIAG) {
@@ -16680,10 +16685,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               cdAcc.setPassRange(shift, passLo, passHi);
             }
           }
+          // PARTIAL grouping shares the bounded budget's gate on purpose: it is a targeting choice,
+          // measured only on bounded, ordered top-k shapes. A partial worker table retains duplicate
+          // records, and a selection that keeps every group is the memory-growth shape the unbounded
+          // selection budget defect had, so extending it to unordered or unlimited GROUP BY needs
+          // its own paired study and memory-pressure fixtures first.
           final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift,
               hint -> new NumericGroupAggTable(aggColsFlat.length, hint, true, sumExactMask), plan.plannedGroups(),
-              passLo, passHi, plan.passBudget(),
-              cdBlock < 0 && limit >= 1 && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey());
+              passLo, passHi, plan.passBudget(), boundedBudget);
           final long[] scanNanos = PROJ_DIAG
               ? new long[eff]
               : null;
@@ -16785,6 +16794,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
           }
           final long scanEndNanos = System.nanoTime();
+          GROUP_PARTIAL_WORKERS.add(spill.partialWorkerTables());
           if (spill.aborted()) {
             noteAbandonedLocals(spill, tables);
             if (PROJ_DIAG) {
@@ -20929,6 +20939,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /** Restarts of a group arm with more hash-range passes (test observability). */
   private static final LongAdder GROUP_PASS_RESTARTS = new LongAdder();
+
+  /**
+   * Worker tables the composite and string group arms handed out with partial grouping enabled. A
+   * gate that silently flips off answers identically through exact worker tables, so only this seam
+   * distinguishes "partial grouping ran" from "the gate was never taken" (test observability).
+   */
+  private static final LongAdder GROUP_PARTIAL_WORKERS = new LongAdder();
+
+  /** Test observability for {@link #GROUP_PARTIAL_WORKERS}. */
+  public static long groupPartialWorkersCount() {
+    return GROUP_PARTIAL_WORKERS.sum();
+  }
 
   /** Composite serves whose string components were ALL pre-proven from the handle's column memo. */
   private static final LongAdder GROUP_IDENTITY_PREPROVEN = new LongAdder();

@@ -127,9 +127,11 @@ final class PartialGroupAggregationTest {
       }
     }
     assertTrue(first.usesPartialGroups());
+    assertEquals(1L, spill.partialWorkerTables());
     spill.flush(first);
     assertTrue(first.released());
     final NumericGroupAggTable last = spill.freshLocal();
+    assertEquals(2L, spill.partialWorkerTables());
     for (int group = 0; group < 30_000; group++) {
       if (fold(last, group, 30_000L + group, true) != NumericGroupAggTable.DISCARD_HANDLE) {
         fold(expected, group, 30_000L + group, true);
@@ -154,6 +156,56 @@ final class PartialGroupAggregationTest {
     assertFalse(spill.aborted());
     last.release();
     spill.releaseTables();
+  }
+
+  @Test
+  void propertySwitchesPartialGroupsOffWithoutLeavingTheDenseLayout() {
+    final String previous = System.setProperty(GroupTableSpill.PARTIAL_GROUPS_PROPERTY, "false");
+    final int exactGroups;
+    try {
+      final GroupTableSpill spill =
+          new GroupTableSpill(16, 60, hint -> table(true, hint), 30_000, 4, 12, 100_000, true);
+      final NumericGroupAggTable exact = spill.freshLocal();
+      exactGroups = foldTwice(exact);
+      assertFalse(exact.usesPartialGroups());
+      assertEquals(0L, spill.partialWorkerTables());
+      assertEquals(exactGroups, exact.size(), "an exact dense worker holds one record per group");
+      exact.release();
+      spill.releaseTables();
+    } finally {
+      if (previous == null) {
+        System.clearProperty(GroupTableSpill.PARTIAL_GROUPS_PROPERTY);
+      } else {
+        System.setProperty(GroupTableSpill.PARTIAL_GROUPS_PROPERTY, previous);
+      }
+    }
+    final GroupTableSpill spill = new GroupTableSpill(16, 60, hint -> table(true, hint), 30_000, 4, 12, 100_000, true);
+    final NumericGroupAggTable partial = spill.freshLocal();
+    assertEquals(exactGroups, foldTwice(partial));
+    assertTrue(partial.usesPartialGroups(), "the property defaults to the measured behaviour");
+    assertEquals(1L, spill.partialWorkerTables());
+    assertTrue(partial.size() > exactGroups, "a partial worker keeps the second sighting as another record");
+    partial.release();
+    spill.releaseTables();
+  }
+
+  /**
+   * Fold every group twice into {@code table}; returns the groups the table's pass range kept. Dense
+   * handles are insertion ordinals, so the layout is proven by the handles the first sightings get.
+   */
+  private static int foldTwice(final NumericGroupAggTable table) {
+    int kept = 0;
+    for (int group = 0; group < 30_000; group++) {
+      final int handle = fold(table, group, group, true);
+      if (handle != NumericGroupAggTable.DISCARD_HANDLE) {
+        assertEquals(kept, handle, "the dense layout hands out record ordinals");
+        kept++;
+      }
+    }
+    for (int group = 0; group < 30_000; group++) {
+      fold(table, group, 30_000L + group, true);
+    }
+    return kept;
   }
 
   @Test

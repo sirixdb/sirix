@@ -6,6 +6,7 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.projection.GroupTableSpill;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Path;
+import java.util.concurrent.Callable;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -62,19 +64,42 @@ final class PartialGroupTopKTest {
         final String query = prefix + suffix;
         final String expected = run(query, false);
         final long serves = SirixVectorizedExecutor.groupAggServedCount();
+        final long partialWorkers = SirixVectorizedExecutor.groupPartialWorkersCount();
         assertEquals(expected, run(query, true), query);
         assertTrue(SirixVectorizedExecutor.groupAggServedCount() > serves,
             "must serve the vectorized group route: " + query);
+        assertTrue(SirixVectorizedExecutor.groupPartialWorkersCount() > partialWorkers,
+            "the bounded top-k gate must hand out partial worker tables: " + query);
+        final long switchedOff = SirixVectorizedExecutor.groupPartialWorkersCount();
+        assertEquals(expected, withPartialGroupsDisabled(() -> run(query, true)), query);
+        assertEquals(switchedOff, SirixVectorizedExecutor.groupPartialWorkersCount(),
+            "the kill switch must keep every worker table exact: " + query);
       }
       final String distinct = prefix + "let $n := count(distinct-values($r.value)) "
           + "order by $n descending return {\"id\":$id,\"bucket\":$bucket,\"n\":$n},1,13)";
       final String expected = run(distinct, false);
       final long serves = SirixVectorizedExecutor.groupAggServedCount();
+      final long partialWorkers = SirixVectorizedExecutor.groupPartialWorkersCount();
       assertEquals(expected, run(distinct, true));
       assertTrue(SirixVectorizedExecutor.groupAggServedCount() > serves,
           "distinct aggregation must serve with exact worker tables");
+      assertEquals(partialWorkers, SirixVectorizedExecutor.groupPartialWorkersCount(),
+          "a distinct sink must never receive a partial worker table");
     } finally {
       ProjectionIndexCatalog.clearCache();
+    }
+  }
+
+  private static String withPartialGroupsDisabled(final Callable<String> body) throws Exception {
+    final String previous = System.setProperty(GroupTableSpill.PARTIAL_GROUPS_PROPERTY, "false");
+    try {
+      return body.call();
+    } finally {
+      if (previous == null) {
+        System.clearProperty(GroupTableSpill.PARTIAL_GROUPS_PROPERTY);
+      } else {
+        System.setProperty(GroupTableSpill.PARTIAL_GROUPS_PROPERTY, previous);
+      }
     }
   }
 

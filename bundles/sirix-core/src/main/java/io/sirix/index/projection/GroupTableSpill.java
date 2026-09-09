@@ -82,6 +82,16 @@ public final class GroupTableSpill {
     return stride >= DENSE_INDEX_MIN_STRIDE && Boolean.parseBoolean(System.getProperty(DENSE_INDEX_PROPERTY, "true"));
   }
 
+  /**
+   * Let dense worker tables of a spill that asked for it keep partial records instead of
+   * deduplicating every group locally (default on; requires the dense index).
+   */
+  public static final String PARTIAL_GROUPS_PROPERTY = "sirix.projection.groupTable.partialGroups";
+
+  private static boolean partialGroupsEnabled() {
+    return Boolean.parseBoolean(System.getProperty(PARTIAL_GROUPS_PROPERTY, "true"));
+  }
+
   /** Configured flush threshold in groups per worker table. */
   public static final String FLUSH_GROUPS_PROPERTY = "sirix.projection.groupTable.flushGroups";
 
@@ -917,6 +927,8 @@ public final class GroupTableSpill {
   private final long budget;
 
   private final boolean partialGroups;
+  /** Worker tables handed out with partial grouping enabled (test observability). */
+  private final LongAdder partialWorkers = new LongAdder();
   /** Shared by every table of this spill, or {@code null} when the pool is switched off. */
   private final LongChunkPool pool;
   private final LongChunkPool probePool;
@@ -969,7 +981,9 @@ public final class GroupTableSpill {
   /**
    * A spill that may relax local deduplication for dense, high-cardinality worker tables. Every
    * partial record still reaches an exact partition table before any group is selected. Callers must
-   * exclude distinct sinks and any other state requiring unique local group handles.
+   * exclude distinct sinks and any other state requiring unique local group handles. Kill switch
+   * {@code -Dsirix.projection.groupTable.partialGroups=false} keeps the dense layout and restores
+   * exact worker tables, so the two can be compared in place.
    */
   public GroupTableSpill(final int partitions, final int shift, final IntFunction<NumericGroupAggTable> factory,
       final long expectedGroups, final int passLo, final int passHi, final long budget, final boolean partialGroups) {
@@ -1007,7 +1021,7 @@ public final class GroupTableSpill {
     // One probe table fixes the layout every table of this spill shares; it never holds a group.
     final int stride = factory.apply(workerTableHint()).stride();
     this.denseIndex = denseIndexEnabled(stride);
-    this.partialGroups = partialGroups && denseIndex;
+    this.partialGroups = partialGroups && denseIndex && partialGroupsEnabled();
     this.stripeStride = stride;
     if (stripeSpill) {
       this.stripeBuffers = new StripeBuffer[partitions];
@@ -1048,11 +1062,17 @@ public final class GroupTableSpill {
     final NumericGroupAggTable table = adopt(factory.apply(workerTableHint()));
     if (partialGroups) {
       table.allowPartialGroups();
+      partialWorkers.increment();
     }
     if (passLo != 0 || passHi != partitions) {
       table.setPassRange(shift, passLo, passHi);
     }
     return table;
+  }
+
+  /** Worker tables this spill handed out with partial grouping enabled (test observability). */
+  public long partialWorkerTables() {
+    return partialWorkers.sum();
   }
 
   /** The chunk pool every table of this spill draws from, or {@code null} when switched off. */
