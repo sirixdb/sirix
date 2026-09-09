@@ -220,24 +220,32 @@ final class GroupHashRangePassTest {
     // million plus the skew margin.
     final long budget = 12_582_912L;
     final long groups = 28_000_000L;
-    assertEquals(2, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, budget, 32));
+    assertEquals(2, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, budget, 32, false));
     final long perPass = SirixVectorizedExecutor.GroupPasses.perPassBudget(groups, 2, 32);
     assertTrue(perPass > 14_000_000L && perPass < 14_000_000L * 107L / 100L, "pass budget: " + perPass);
     // The same count completed in four passes (an overshooting estimate seeded them): the count says
     // three, and three it is — the completed count only ever caps.
-    assertEquals(3, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 4, budget, 32));
+    assertEquals(3, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 4, budget, 32, false));
     // A count that fits ONE pass at the budget seeds one pass however many passes completed: the
     // completed count only ever caps, it never inflates.
-    assertEquals(1, SirixVectorizedExecutor.GroupPasses.seededPasses(6_000_000L, 4, budget, 32));
+    assertEquals(1, SirixVectorizedExecutor.GroupPasses.seededPasses(6_000_000L, 4, budget, 32, false));
     // The budget has since collapsed to five million: replaying two passes of fourteen million groups
     // each would plan almost three times the budget, so the count plans against the budget it has —
     // six balanced passes of at most six partitions (5.25M groups) at the tolerant 5.5M.
-    assertEquals(6, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, 5_000_000L, 32));
+    assertEquals(6, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, 5_000_000L, 32, false));
     // Exactly at the replay limit the completed count still wins.
-    assertEquals(2, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, 7_000_000L, 32));
+    assertEquals(2, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, 7_000_000L, 32, false));
     // A fixture: 280 groups at a budget of 32 completed in sixteen passes; the count says eleven
     // (three partitions per pass, 27 expected groups), and eleven it is.
-    assertEquals(11, SirixVectorizedExecutor.GroupPasses.seededPasses(280L, 16, 32L, 32));
+    assertEquals(11, SirixVectorizedExecutor.GroupPasses.seededPasses(280L, 16, 32L, 32, false));
+    // A BOUNDED plan has no replay multiple: at the collapsed five million the two completed passes of
+    // fourteen million plan the six the count implies, and at the seven million that replayed two
+    // above they plan the four the tolerant 7.7M implies (eight partitions hold 7M).
+    assertEquals(6, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, 5_000_000L, 32, true));
+    assertEquals(4, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, 7_000_000L, 32, true));
+    assertEquals(2, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, 12_800_000L, 32, true));
+    assertEquals(3, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 4, budget, 32, true));
+    assertEquals(1, SirixVectorizedExecutor.GroupPasses.seededPasses(6_000_000L, 4, budget, 32, true));
   }
 
   private static String runWith(final JsonResourceSession session, final SirixCompileChain chain,

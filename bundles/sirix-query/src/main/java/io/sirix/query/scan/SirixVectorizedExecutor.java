@@ -13790,7 +13790,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * A completed pass count is replayed only while the per-pass groups it implies stay within
    * {@value #COMPLETED_REPLAY_MAX_BUDGET_MULTIPLE} times the CURRENT budget: what completed once held
    * in the heap of that execution, and a budget that has since halved (residency grew) is a heap that
-   * may not hold it again — the count's own pass count then plans against the budget it has.
+   * may not hold it again — the count's own pass count then plans against the budget it has. That
+   * multiple was calibrated for the shared quarter share; a BOUNDED plan
+   * ({@link GroupTableSpill#boundedGroupBudget}) already takes three quarters of the headroom, so it
+   * replays a completed count only while each pass fits the current budget and otherwise takes the
+   * passes the count implies — the allowance degrades to more passes, never past the heap.
    * </p>
    *
    * <p>
@@ -13880,7 +13884,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       plannedGroups = known;
       refreshBudget(known);
       if (completed != null && this.budget > 0L) {
-        passes = seededPasses(completed.groups(), completed.passes(), this.budget, partitions);
+        passes = seededPasses(completed.groups(), completed.passes(), this.budget, partitions, bounded);
         passBudget = Math.max(this.budget, perPassBudget(completed.groups(), passes, partitions));
         seededCompleted = true;
       } else {
@@ -13962,11 +13966,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     /**
      * The pass count a completed scan of {@code groups} groups in {@code completedPasses} passes seeds
      * at {@code budget}: what the count implies at the tolerant budget, capped by the pass count that
-     * completed while replaying it keeps each pass within the replay multiple of the budget.
+     * completed while replaying it keeps each pass within the replay multiple of the budget. A
+     * {@code bounded} plan has no replay multiple: a completed count that no longer fits the current
+     * budget plans the passes the count implies.
      */
-    static int seededPasses(final long groups, final int completedPasses, final long budget, final int partitions) {
+    static int seededPasses(final long groups, final int completedPasses, final long budget, final int partitions,
+        final boolean bounded) {
       final int implied = seedPasses(groups, tolerantBudget(budget), partitions);
-      if (completedPasses >= implied) {
+      if (bounded || completedPasses >= implied) {
         return implied;
       }
       final long perCompletedPass = GroupTableSpill.expectedLargestPass(groups, completedPasses, partitions);
