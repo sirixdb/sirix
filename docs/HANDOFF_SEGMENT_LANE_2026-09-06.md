@@ -192,6 +192,27 @@ not a proof the seam is exhausted — but it is why every aggregate-family lever
 non-aggregate ones here, and why none should be reopened without a fresh profile naming a cost the
 per-cluster work did not already remove.
 
+**2026-09-09, later — one such profile was taken, and the lever it named paid.** A 100M profile of
+the seven high-cardinality `GROUP BY … ORDER BY count DESC LIMIT` queries at `b815d459d`
+([`PROFILE.md`](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/PROFILE.md))
+found q16/q18/q32 rescanning the input in 2/4/7 hash-range passes because the shared quarter share
+capped their tables at 1.75 GiB of a 14 GiB heap. Planning a bounded top-k aggregate against three
+quarters of the headroom instead (`GroupTableSpill.boundedGroupBudget`; arithmetic in
+[`PASS_BUDGET.md`](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/PASS_BUDGET.md))
+took them to 1/1/2 passes and measured **+0.409 ln on the seven-query family over 12 prespecified
+pairs, 95% interval [+0.349, +0.469]**; the whole-suite score change (+0.290 ln) is **UNRESOLVED**,
+its interval spanning zero. Removing five of q32's seven passes bought 11.8 % of its time, not
+six-sevenths: the per-group table work survives every pass, and the profile puts it — lookup, merge
+acquisition, spill/copy — as the largest shared cost left on q32/q18/q16/q31. No publication leg was
+collected, so SEG7T remains the scored basis of every row in §4b. Result, remaining reference gap
+against DuckDB, the parked probing prototype and the disk-spill scope that was NOT built:
+[`RESULT.md`](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/RESULT.md).
+The same work surfaced a pre-existing wrong-results defect — sparse `SUM` under
+`order by … descending` places the all-missing groups first — which is documented and left
+non-passing in
+[`SUM_ORDERING_DEFECT.md`](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/SUM_ORDERING_DEFECT.md);
+the 43-answer gate cannot see it.
+
 ### 4a. Ranked levers
 
 | # | key = Σ payoff (ln) | k (input) | N (input) | lever | profile the k comes from |
@@ -243,7 +264,9 @@ These cannot be ordered against §4a, and they must not be built on a guessed `k
   2026-09-09 note applies: profile it against what PR 1201 already removed before building.
 - **q31 windowed column read/decode (55 % CPU) and q32 grouping memory stalls.** Both shares were
   measured 2026-09-07 at 3.63 s and 7.34 s hot, before PR 1201 took the queries to 0.908 s and
-  4.236 s. They describe a tree that no longer exists; re-profile before quoting either.
+  4.236 s. They describe a tree that no longer exists. The 2026-09-09 re-profile at `b815d459d`
+  ([`PROFILE.md`](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/PROFILE.md))
+  supersedes them: q32 43.8 % lookup samples and 14.1 % spill/copy, q31 21.1 % lookup — quote those.
 - **q36/q37/q38 residue.** Asserted as fixed cost per query, never profiled. Subsumed by the shared
   fixed-cost entry above.
 

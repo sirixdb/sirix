@@ -280,7 +280,7 @@ final class GroupPassesBudgetRefreshTest {
     final ProjectionIndexRegistry.Handle.CompletedGroupScan memo = handle.completedGroupScanFor(FINGERPRINT);
     assertEquals(4, memo.passes());
     assertEquals(3_201L, memo.groups());
-    assertEquals(4, SirixVectorizedExecutor.GroupPasses.seededPasses(memo.groups(), memo.passes(), 1_000L, PARTITIONS,
-        false));
+    assertEquals(4,
+        SirixVectorizedExecutor.GroupPasses.seededPasses(memo.groups(), memo.passes(), 1_000L, PARTITIONS, false));
   }
 }
