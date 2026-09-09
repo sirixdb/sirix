@@ -16135,7 +16135,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               }
             }
             final long scanEndNanos = System.nanoTime();
-            GROUP_PARTIAL_WORKERS.add(spill.partialWorkerTables());
             if (spill.aborted()) {
               noteAbandonedLocals(spill, tables);
               if (PROJ_DIAG) {
@@ -16794,7 +16793,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
           }
           final long scanEndNanos = System.nanoTime();
-          GROUP_PARTIAL_WORKERS.add(spill.partialWorkerTables());
           if (spill.aborted()) {
             noteAbandonedLocals(spill, tables);
             if (PROJ_DIAG) {
@@ -20939,18 +20937,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /** Restarts of a group arm with more hash-range passes (test observability). */
   private static final LongAdder GROUP_PASS_RESTARTS = new LongAdder();
-
-  /**
-   * Worker tables the composite and string group arms handed out with partial grouping enabled. A
-   * gate that silently flips off answers identically through exact worker tables, so only this seam
-   * distinguishes "partial grouping ran" from "the gate was never taken" (test observability).
-   */
-  private static final LongAdder GROUP_PARTIAL_WORKERS = new LongAdder();
-
-  /** Test observability for {@link #GROUP_PARTIAL_WORKERS}. */
-  public static long groupPartialWorkersCount() {
-    return GROUP_PARTIAL_WORKERS.sum();
-  }
 
   /** Composite serves whose string components were ALL pre-proven from the handle's column memo. */
   private static final LongAdder GROUP_IDENTITY_PREPROVEN = new LongAdder();

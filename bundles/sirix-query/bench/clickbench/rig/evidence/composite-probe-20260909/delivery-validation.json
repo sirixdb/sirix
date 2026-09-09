@@ -5,6 +5,15 @@
     "errors": 0,
     "skipped": 0
   },
+  "local_tests_note": "measured candidate e8633fe92; see validation.json",
+  "local_tests_after_review_corrections": {
+    "tests": 128,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": 12,
+    "note": "same twelve classes as validation.json, run on the landed engine after the review rounds; fixtures only, no 100M run"
+  },
   "format_checks": [
     ":sirix-core:spotlessJavaCheck",
     ":sirix-query:spotlessJavaCheck"

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.SplittableRandom;
+import java.util.concurrent.atomic.LongAdder;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -114,6 +115,16 @@ final class PartialGroupAggregationTest {
 
   @Test
   void spillsAndFinalWorkerRecordsPreservePassOwnershipAndContributions() {
+    final LongAdder partialWorkers = new LongAdder();
+    final LongAdder previous = GroupTableSpill.setPartialWorkersForTesting(partialWorkers);
+    try {
+      spillsAndFinalWorkerRecordsPreservePassOwnershipAndContributions(partialWorkers);
+    } finally {
+      GroupTableSpill.setPartialWorkersForTesting(previous);
+    }
+  }
+
+  private static void spillsAndFinalWorkerRecordsPreservePassOwnershipAndContributions(final LongAdder partialWorkers) {
     final NumericGroupAggTable expected = table(true, 16);
     final GroupTableSpill spill = new GroupTableSpill(16, 60, hint -> table(true, hint), 30_000, 4, 12, 100_000, true);
     final NumericGroupAggTable first = spill.freshLocal();
@@ -127,11 +138,11 @@ final class PartialGroupAggregationTest {
       }
     }
     assertTrue(first.usesPartialGroups());
-    assertEquals(1L, spill.partialWorkerTables());
+    assertEquals(1L, partialWorkers.sum());
     spill.flush(first);
     assertTrue(first.released());
     final NumericGroupAggTable last = spill.freshLocal();
-    assertEquals(2L, spill.partialWorkerTables());
+    assertEquals(2L, partialWorkers.sum());
     for (int group = 0; group < 30_000; group++) {
       if (fold(last, group, 30_000L + group, true) != NumericGroupAggTable.DISCARD_HANDLE) {
         fold(expected, group, 30_000L + group, true);
@@ -160,6 +171,8 @@ final class PartialGroupAggregationTest {
 
   @Test
   void propertySwitchesPartialGroupsOffWithoutLeavingTheDenseLayout() {
+    final LongAdder partialWorkers = new LongAdder();
+    final LongAdder previousCounter = GroupTableSpill.setPartialWorkersForTesting(partialWorkers);
     final String previous = System.setProperty(GroupTableSpill.PARTIAL_GROUPS_PROPERTY, "false");
     final int exactGroups;
     try {
@@ -168,7 +181,7 @@ final class PartialGroupAggregationTest {
       final NumericGroupAggTable exact = spill.freshLocal();
       exactGroups = foldTwice(exact);
       assertFalse(exact.usesPartialGroups());
-      assertEquals(0L, spill.partialWorkerTables());
+      assertEquals(0L, partialWorkers.sum());
       assertEquals(exactGroups, exact.size(), "an exact dense worker holds one record per group");
       exact.release();
       spill.releaseTables();
@@ -179,14 +192,24 @@ final class PartialGroupAggregationTest {
         System.setProperty(GroupTableSpill.PARTIAL_GROUPS_PROPERTY, previous);
       }
     }
-    final GroupTableSpill spill = new GroupTableSpill(16, 60, hint -> table(true, hint), 30_000, 4, 12, 100_000, true);
-    final NumericGroupAggTable partial = spill.freshLocal();
-    assertEquals(exactGroups, foldTwice(partial));
-    assertTrue(partial.usesPartialGroups(), "the property defaults to the measured behaviour");
-    assertEquals(1L, spill.partialWorkerTables());
-    assertTrue(partial.size() > exactGroups, "a partial worker keeps the second sighting as another record");
-    partial.release();
-    spill.releaseTables();
+    try {
+      final GroupTableSpill spill =
+          new GroupTableSpill(16, 60, hint -> table(true, hint), 30_000, 4, 12, 100_000, true);
+      final NumericGroupAggTable partial = spill.freshLocal();
+      assertEquals(exactGroups, foldTwice(partial));
+      assertTrue(partial.usesPartialGroups(), "the property defaults to the measured behaviour");
+      assertEquals(1L, partialWorkers.sum());
+      assertTrue(partial.size() > exactGroups, "a partial worker keeps the second sighting as another record");
+      partial.release();
+      spill.releaseTables();
+    } finally {
+      GroupTableSpill.setPartialWorkersForTesting(previousCounter);
+    }
+    final GroupTableSpill unobserved =
+        new GroupTableSpill(16, 60, hint -> table(true, hint), 30_000, 4, 12, 100_000, true);
+    unobserved.freshLocal().release();
+    unobserved.releaseTables();
+    assertEquals(1L, partialWorkers.sum(), "a removed seam observes nothing");
   }
 
   /**
