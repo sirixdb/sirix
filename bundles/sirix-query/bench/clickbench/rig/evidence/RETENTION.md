@@ -138,3 +138,49 @@ git rev-list --objects HEAD --not ba384e5a8ce9c4468afae492a55b64daef9120bd |
 The validated history remains under a private local audit ref for recovery and is not part of the
 delivery branch's ancestry. This is a reachability guarantee for the branch being delivered, not
 a claim that old objects have been erased from every local clone or from an earlier failed upload.
+
+## Rebase onto campaign base `60768f13` (2026-09-09)
+
+The delivered branch was replayed onto campaign base
+**`60768f13990ef7bc1dca53760550f6cc2ca0175b`**, from submitted head
+`17f85e5e7a950c31f47018606433ef2d5fccf396`. All eight non-merge commits are preserved in order;
+none was squashed, reset or dropped.
+
+The replay is linear, so it does not carry merge `578b15247` itself. That merge's second parent
+`ba384e5a8` is an ancestor of the new base, so every file it imported now arrives through the base
+instead, at the base's current content — which for the shared group-aggregation work is newer than
+the submitted head. What a linear replay cannot carry is a resolution present in neither parent.
+That set is exactly two files (`git show --cc --name-only 578b15247`): the rig README and this
+campaign handoff. Both audited resolutions were restored explicitly and are unchanged in substance:
+
+- `rig/README.md` is byte-identical to the submitted head. The base made no change to this file
+  between `ba384e5a8` and `60768f13`, so the audited resolution still applies as written — including
+  the eight-line paragraph that states 1.345 ln uses ten pairs rather than one, distinguishes the
+  twenty-leg range, and requires a Firstmate window independently of lock availability.
+- `docs/HANDOFF_SEGMENT_LANE_2026-09-06.md` is the audited resolution plus exactly the two hunks the
+  base added since `ba384e5a8`: section 1's per-query contribution figures move from SEG5T to SEG6T
+  (q17 0.047 s / 1.74 ln; 20 queries under 100 ms carrying 22.15 of 63.44 ln; 17 under 50 ms
+  carrying 17.63 ln), and section 2 gains the pointer to this branch's unscored shared
+  group-aggregation change. Section 2's SEG6T provenance wording, the pre-cap comparison and
+  variable-MMIO caveats, the ten-pair MDE framing and section 5's operating protocol are the
+  audited text, not re-resolved.
+
+`.github/workflows/gradle.yml` matches the campaign base byte for byte; the deferred `TestRig` job
+remains only in the rig README for `sirix-ci-campaign-branch-coverage`. No engine, runner, test,
+timing or retained measurement artifact was changed by this integration beyond what the new base
+carries. No 100M run, corpus or database write, power change or shared-diagnostics deletion was
+performed for it.
+
+The attestation above stands as written for merge `578b15247`. Its validation is **not** transferred
+to the engine at this base: the earlier 100M smoke, the variance study and the merged-engine Java
+and Python runs describe the trees they were taken on. The rig tests must be rerun against this
+integrated result, and pipeline validation and the pushed commit identity reported separately.
+
+The imported base and the resolution hunks can be recovered with:
+
+```sh
+git diff ba384e5a8ce9c4468afae492a55b64daef9120bd 60768f13990ef7bc1dca53760550f6cc2ca0175b \
+  -- docs/HANDOFF_SEGMENT_LANE_2026-09-06.md
+git diff 17f85e5e7a950c31f47018606433ef2d5fccf396 HEAD \
+  -- bundles/sirix-query/bench/clickbench/rig/README.md docs/HANDOFF_SEGMENT_LANE_2026-09-06.md
+```
