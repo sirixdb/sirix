@@ -43,7 +43,8 @@ def main():
     with RigLease() as lease:
         require_no_benchmark()
         wait_for_quiet_java()
-        process = subprocess.Popen(argv, env=lease.child_environment(), pass_fds=lease.pass_fds)
+        process = subprocess.Popen(argv, env=lease.child_environment(runtime.get('campaign_classification')),
+                                   pass_fds=lease.pass_fds)
         try:
             return process.wait()
         except BaseException:
