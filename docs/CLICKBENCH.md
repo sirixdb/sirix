@@ -58,9 +58,11 @@ bundles/sirix-query/bench/clickbench/run-differential.sh 200000
 ```
 
 Both mains take a process-lifetime flock lease on the host before reserving memory. It is
-*exclusive* only for a run against the campaign 100M database — the one `CB100M_DIR` names — which
-must additionally match that campaign's JVM envelope; every command above shares the lease and runs
-alongside other validation work. The leases are Linux-only: on another platform a run against the
+*exclusive* only for a run against the campaign 100M database — the one the rig's campaign-identity
+chain names, which is the pointer file `load100m.sh` rewrites and then `CB100M_DIR` — which must
+additionally match that campaign's JVM envelope; every command above shares the lease and runs
+alongside other validation work. The JVM resolves that chain itself, so a raw `java` or Gradle run
+against the campaign database is exclusive even from a shell that never sourced `rig.env`. The leases are Linux-only: on another platform a run against the
 campaign database prints that it is not exclusive instead of taking one. The 100M measurement
 protocol lives in
 [`bench/clickbench/rig/README.md`](../bundles/sirix-query/bench/clickbench/rig/README.md).

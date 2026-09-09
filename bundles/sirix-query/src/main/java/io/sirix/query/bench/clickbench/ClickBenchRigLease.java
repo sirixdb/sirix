@@ -21,6 +21,11 @@ import java.util.stream.Stream;
 /** Process-lifetime Linux flock leases for the benchmark, outside query execution. */
 final class ClickBenchRigLease implements AutoCloseable {
   private static final String CAMPAIGN_DIRECTORY = "CB100M_DIR";
+  private static final String RIG_WORK = "CB_RIG_WORK";
+  private static final String POINTER_FILE = "current-100m-dir.txt";
+  private static final String RIG_MARKER = "bundles/sirix-query/bench/clickbench/rig/rig.env";
+  private static final String DEFAULT_WORK = "bundles/sirix-query/build/diagnostics/rig";
+  private static final String UNSET = "unset";
   private static final long GIB = 1L << 30;
   private static final int LOCK_SH = 1;
   private static final int LOCK_EX = 2;
@@ -39,6 +44,70 @@ final class ClickBenchRigLease implements AutoCloseable {
 
   private ClickBenchRigLease(final int descriptor) {
     this.descriptor = descriptor;
+  }
+
+  /** One directory named as the campaign 100M database, and the source that named it. */
+  record CampaignPointer(String named, String source) {
+  }
+
+  /**
+   * The rig working directory holding the campaign pointer file, resolved as rig.env resolves it. A
+   * rig-launched JVM inherits {@code CB_RIG_WORK}; a raw one finds the enclosing checkout, so the two
+   * entry points read the same file.
+   */
+  static Path rigWork() {
+    final String configured = System.getenv(RIG_WORK);
+    if (configured != null && !configured.isBlank()) {
+      return Path.of(configured.strip());
+    }
+    final Path start = Path.of("").toAbsolutePath();
+    for (Path directory = start; directory != null; directory = directory.getParent()) {
+      if (Files.isRegularFile(directory.resolve(RIG_MARKER))) {
+        return directory.resolve(DEFAULT_WORK);
+      }
+    }
+    return start.resolve(DEFAULT_WORK);
+  }
+
+  static List<CampaignPointer> campaignPointers() {
+    return campaignPointers(rigWork());
+  }
+
+  /**
+   * Every place the rig names the campaign 100M database, most authoritative first: the pointer file
+   * the campaign load rewrites on every reload, then {@code CB100M_DIR}. This is the same chain and
+   * the same precedence the Python rig applies; see bench/clickbench/rig/README.md.
+   */
+  static List<CampaignPointer> campaignPointers(final Path work) {
+    final List<CampaignPointer> found = new ArrayList<>(2);
+    final Path pointer = work.resolve(POINTER_FILE);
+    try {
+      final String named = Files.readString(pointer).strip();
+      if (!named.isEmpty()) {
+        found.add(new CampaignPointer(named, pointer.toString()));
+      }
+    } catch (final IOException absent) {
+      // No pointer file is ordinary on a box that never loaded the campaign corpus.
+    }
+    final String variable = System.getenv(CAMPAIGN_DIRECTORY);
+    if (variable != null && !variable.isBlank()) {
+      found.add(new CampaignPointer(variable.strip(), CAMPAIGN_DIRECTORY));
+    }
+    return found;
+  }
+
+  /**
+   * The pointer naming {@code database} as the campaign 100M database, or {@code null}. A match
+   * against any consulted source wins, including a stale one, so a rotated pointer can never demote a
+   * campaign run to a shared lease.
+   */
+  static CampaignPointer campaignMatch(final List<CampaignPointer> consulted, final Path database) throws IOException {
+    for (final CampaignPointer pointer : consulted) {
+      if (isCampaignDatabase(pointer.named(), database)) {
+        return pointer;
+      }
+    }
+    return null;
   }
 
   /**
@@ -60,38 +129,44 @@ final class ClickBenchRigLease implements AutoCloseable {
   }
 
   static void holdForQueryProcess(final long arenaBytes, final Path database) throws IOException {
-    holdForQueryProcess(System.getenv(CAMPAIGN_DIRECTORY), arenaBytes, database);
+    holdForQueryProcess(campaignPointers(), arenaBytes, database);
   }
 
   /**
    * Exclusivity follows the database, never the JVM's size: only a query against the campaign 100M
    * database takes the host lease alone, and only that run must match the 100M envelope.
    */
-  static void holdForQueryProcess(final String campaign, final long arenaBytes, final Path database)
+  static void holdForQueryProcess(final List<CampaignPointer> consulted, final long arenaBytes, final Path database)
       throws IOException {
-    final boolean exclusive = isCampaignDatabase(campaign, database);
-    if (exclusive) {
+    final CampaignPointer matched = campaignMatch(consulted, database);
+    if (matched != null) {
       validateQueryEnvelope(arenaBytes);
     }
-    holdForProcess(campaign, database, exclusive, true);
+    holdForProcess(consulted, matched, database, true);
   }
 
   static void holdForLoadProcess(final Path database) throws IOException {
-    holdForLoadProcess(System.getenv(CAMPAIGN_DIRECTORY), database);
+    holdForLoadProcess(campaignPointers(), database);
   }
 
   /**
    * Only the campaign 100M load is exclusive; a 1M or unrelated load shares the host lease so the
    * parallel validation lanes keep running.
    */
-  static void holdForLoadProcess(final String campaign, final Path database) throws IOException {
+  static void holdForLoadProcess(final List<CampaignPointer> consulted, final Path database) throws IOException {
     // Existing load wrappers retain their legacy shell lease. The JVM owns the host lease,
     // so losing that shell cannot expose a still-running loader to another large JVM.
-    holdForProcess(campaign, database, isCampaignDatabase(campaign, database), false);
+    holdForProcess(consulted, campaignMatch(consulted, database), database, false);
   }
 
-  private static void holdForProcess(final String campaign, final Path database, final boolean exclusive,
-      final boolean includeLegacy) throws IOException {
+  private static void holdForProcess(final List<CampaignPointer> consulted, final CampaignPointer matched,
+      final Path database, final boolean includeLegacy) throws IOException {
+    final boolean exclusive = matched != null;
+    final CampaignPointer announced = matched != null
+        ? matched
+        : consulted.isEmpty()
+            ? null
+            : consulted.get(0);
     if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("linux")) {
       if (exclusive) {
         System.out.println("# rig lease: NOT exclusive — process-owned flock leases require Linux. This run "
@@ -117,14 +192,18 @@ final class ClickBenchRigLease implements AutoCloseable {
         acquired.add(acquire(legacyLock, true, System.getenv("CB_RIG_LEGACY_LOCK_FD")));
       }
       processLeases = acquired;
-      // Both operands of the classification: a shared mode against a 100M database means this pointer
-      // is unset or names another directory, and only the pair shows which.
-      System.out.printf("# rig lease: pid=%d mode=%s db=%s %s=%s host=%s%n", ProcessHandle.current().pid(), exclusive
-          ? "exclusive"
-          : "shared", database.toAbsolutePath().normalize(), CAMPAIGN_DIRECTORY,
-          campaign == null || campaign.isBlank()
-              ? "unset"
-              : campaign,
+      // Both operands of the classification, plus which source named the campaign database: a shared
+      // mode against a 100M database means no consulted source placed it, and only the trio shows why.
+      System.out.printf("# rig lease: pid=%d mode=%s db=%s campaign=%s via=%s host=%s%n", ProcessHandle.current().pid(),
+          exclusive
+              ? "exclusive"
+              : "shared",
+          database.toAbsolutePath().normalize(), announced == null
+              ? UNSET
+              : announced.named(),
+          announced == null
+              ? UNSET
+              : announced.source(),
           hostLock);
     } catch (final IOException | RuntimeException | Error failure) {
       for (final ClickBenchRigLease lease : acquired) {

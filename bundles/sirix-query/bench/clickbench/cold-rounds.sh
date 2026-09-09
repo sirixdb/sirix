@@ -20,23 +20,22 @@
 #   --out DIR         per-round JSON + logs, must not exist (default <db>-cold-results)
 #   --duckdb-cold S   DuckDB reference cold suite seconds (default 0.520)
 #   --duckdb-hot S    DuckDB reference hot suite seconds  (default 0.351)
-#   --declare-envelope  assert <sirix-db-dir> is NOT the campaign 100M database
-#                     and freeze the envelope EXTRA resolves to. Only needed
-#                     when no campaign pointer resolves; see below.
+#   --declare-envelope  assert <sirix-db-dir> is NOT the campaign 100M database,
+#                     so EXTRA fixes the envelope. Only needed where no campaign
+#                     pointer resolves; refused when one names this database.
 #
 # WHICH JVM ENVELOPE THE ARM IS FROZEN AT
 # ---------------------------------------
-# The rig decides from the database, not from this script's environment. It
-# reads the campaign pointer file that load100m.sh writes
-# ($CB_RIG_WORK/current-100m-dir.txt, else build/diagnostics/rig/), then
-# CB100M_DIR. If <sirix-db-dir> is the campaign 100M database, the campaign
-# envelope is MANDATORY and EXTRA cannot shrink it. If it is some other
-# database, EXTRA sizes the runtime and the frozen runtime declares that
-# envelope for every round to verify:
-#   EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" ./cold-rounds.sh DB
-# If NEITHER pointer resolves the rig cannot tell the two apart and REFUSES
-# rather than guess. Then either make a pointer resolvable, or -- on a box that
-# has no campaign database at all -- pass --declare-envelope.
+# The rig decides from the database, through the one campaign-identity contract
+# in rig/README.md; this script states no rule of its own. If <sirix-db-dir> is
+# the campaign 100M database, the campaign envelope is MANDATORY and EXTRA
+# cannot shrink it. If a resolved pointer proves it is a different database,
+# EXTRA sizes the runtime and the frozen runtime declares that envelope for
+# every round to verify. Where no pointer resolves -- a box that never loaded
+# the campaign corpus -- the arm still gets the campaign envelope, so the plain
+# command below needs no flag. To size it down there, say so:
+#   EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" \
+#     ./cold-rounds.sh DB --declare-envelope
 #
 # WHY INTERLEAVED, AND WHY THE COOL GATE
 # --------------------------------------

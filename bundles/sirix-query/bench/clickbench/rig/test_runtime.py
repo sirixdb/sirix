@@ -208,6 +208,7 @@ class EnvelopeScopeTest(unittest.TestCase):
             self.assertEqual(decided['classification'], 'campaign')
             self.assertEqual(decided['campaign_pointer'], str(self.campaign))
             self.assertEqual(decided['pointer_source'], str(self.work/POINTER_FILE))
+            self.assertEqual(decided['pointer_state'], 'resolved')
             self.assertEqual(classify_target(self.scratch)['classification'], 'other')
 
     def test_a_shell_holding_a_rotated_pointer_cannot_demote_the_campaign_database(self):
@@ -219,20 +220,56 @@ class EnvelopeScopeTest(unittest.TestCase):
                     self.assertEqual(classify_target(database)['classification'], 'campaign')
             self.assertEqual(classify_target(self.scratch)['classification'], 'other')
 
-    def test_an_unclassifiable_named_target_is_refused_rather_than_guessed(self):
+    def test_a_target_no_pointer_can_place_falls_back_to_the_campaign_envelope(self):
+        """The campaign envelope is safe on any database; the smaller one is not. So a box that has
+        never loaded the corpus still runs the documented scratch gate, at the campaign envelope."""
         with self.rig_environment():
-            with self.assertRaisesRegex(ValueError, 'cannot classify'):
-                classify_target(self.campaign/'db')
-            with self.assertRaisesRegex(ValueError, 'cannot classify'):
-                classify_target(self.scratch)
-            # An unnamed preparation stays fail-closed rather than refusing.
+            for database in (self.campaign/'db', self.scratch):
+                with self.subTest(database=database):
+                    decided = classify_target(database)
+                    self.assertEqual((decided['classification'], decided['decided_by']),
+                                     ('campaign', 'unresolved-pointer'))
+                    self.assertEqual(decided['pointer_state'], 'unset')
             self.assertEqual(classify_target(None)['classification'], 'campaign')
+
+    def test_a_stale_pointer_is_recorded_apart_from_no_pointer_and_never_proves_a_target_unrelated(self):
+        rotated = self.root/'rotated-away'
+        self.assertFalse(rotated.exists())
+        with self.rig_environment(pointer=str(rotated)):
+            decided = classify_target(self.scratch)
+            self.assertEqual((decided['classification'], decided['decided_by'], decided['pointer_state']),
+                             ('campaign', 'unresolved-pointer', 'stale'))
+            self.assertEqual(decided['campaign_pointer'], str(rotated))
+            # A stale pointer still identifies its own database, and a resolved source still places
+            # an unrelated one as a different database.
+            self.assertEqual(classify_target(rotated/'db')['classification'], 'campaign')
+        with self.rig_environment(pointer=str(rotated), campaign=str(self.campaign)):
+            decided = classify_target(self.scratch)
+            self.assertEqual((decided['classification'], decided['decided_by'], decided['pointer_state']),
+                             ('other', 'campaign-database', 'resolved'))
+            self.assertEqual(decided['campaign_pointer'], str(self.campaign))
+
+    def test_a_small_envelope_over_the_campaign_database_is_refused_with_no_pointer_at_all(self):
+        """The round-2 sequence: campaign database, no pointer resolves, EXTRA shrinking the heap and
+        arena. Two guards must hold. Classification cannot place the database, so it demands the
+        campaign envelope and the shrunk flags are refused; and a runtime frozen below the campaign
+        envelope for some other database cannot open this one either."""
+        with self.rig_environment():
+            with self.assertRaisesRegex(ValueError, 'envelope mismatch'):
+                self.freeze('campaign-unplaceable', SMALL_ARGS,
+                            classify_target(self.campaign/'db'))
+            elsewhere = self.freeze('elsewhere', SMALL_ARGS,
+                                    classify_target(self.scratch, declared=True))
+            self.assertEqual(elsewhere['envelope'], SMALL_ENVELOPE)
+            with self.assertRaisesRegex(ValueError, 'must not open'):
+                command(elsewhere, self.campaign/'db')
 
     def test_an_explicit_declaration_opens_a_scratch_gate_but_never_the_campaign_database(self):
         with self.rig_environment():
             declared = classify_target(self.scratch, declared=True)
             self.assertEqual((declared['classification'], declared['decided_by'], declared['campaign_pointer']),
                              ('other', 'operator-declaration', 'unset'))
+            self.assertEqual(self.freeze('declared', SMALL_ARGS, declared)['envelope'], SMALL_ENVELOPE)
         with self.rig_environment(pointer=str(self.campaign)):
             with self.assertRaisesRegex(ValueError, 'cannot be declared away'):
                 classify_target(self.campaign/'db', declared=True)

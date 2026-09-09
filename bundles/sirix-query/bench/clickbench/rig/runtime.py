@@ -83,9 +83,10 @@ def rig_work():
 
 def campaign_pointers():
     """Every place the rig names the campaign 100M database, most authoritative first: the pointer
-    file `load100m.sh` rewrites on each reload, then `CB100M_DIR`. Classification accepts a match
-    against any of them, so a shell still exporting a rotated pointer cannot demote a campaign run
-    to a negotiable envelope."""
+    file `load100m.sh` rewrites on each reload, then `CB100M_DIR`. Each entry carries the source that
+    named it and whether it still resolves. A pointer naming a directory that no longer exists is
+    `stale`: it can still identify the campaign database, but it can never prove that some other
+    target is not it."""
     found = []
     pointer = rig_work()/POINTER_FILE
     try:
@@ -93,10 +94,10 @@ def campaign_pointers():
     except OSError:
         named = ''
     if named:
-        found.append((named, str(pointer)))
+        found.append((named, str(pointer), 'resolved' if Path(named).is_dir() else 'stale'))
     named = (os.environ.get(CAMPAIGN_DIRECTORY) or '').strip()
     if named:
-        found.append((named, CAMPAIGN_DIRECTORY))
+        found.append((named, CAMPAIGN_DIRECTORY, 'resolved' if Path(named).is_dir() else 'stale'))
     return found
 
 
@@ -113,34 +114,37 @@ def classify_target(database, *, declared=False):
     """Decide which JVM envelope a preparation for `database` must freeze, and record the evidence
     for that decision so the frozen manifest can show a classification happened and what it saw.
 
-    The campaign 100M database pins the published envelope and never negotiates it. Any other
-    resolved target declares whatever its own flags ask for, so a 1M or scratch gate is not made to
-    reserve the campaign's twenty gibibytes. A preparation naming no database at all is treated as
-    the campaign one. A NAMED target that no pointer can classify is refused rather than guessed:
-    the caller either makes a pointer resolvable or declares the envelope explicitly.
+    A target the rig can place as the campaign 100M database pins the published envelope and never
+    negotiates it. A target some resolved pointer proves is a different database declares whatever
+    its own flags ask for, so a 1M or scratch gate is not made to reserve the campaign's twenty
+    gibibytes. Anything the rig cannot place -- a preparation naming no database, or a named one
+    while every pointer is unset or stale -- gets the campaign envelope, because that default is
+    safe on any database while the smaller one is not. `declared` is the operator asserting the
+    target is not the campaign database; it is refused when a pointer says otherwise.
     """
     consulted = campaign_pointers()
-    record = dict(target=None if database is None else os.path.normpath(Path(database).absolute()),
-                  campaign_pointer=consulted[0][0] if consulted else 'unset',
-                  pointer_source=consulted[0][1] if consulted else 'unset')
+    target = None if database is None else os.path.normpath(Path(database).absolute())
+
+    def evidence(entry, classification, decided_by):
+        named, source, state = entry if entry else ('unset', 'unset', 'unset')
+        return dict(target=target, campaign_pointer=named, pointer_source=source, pointer_state=state,
+                    classification=classification, decided_by=decided_by)
+
     if database is None:
-        return dict(record, classification='campaign', decided_by='unnamed-target')
-    for named, source in consulted:
-        if same_database(Path(named)/'db', database):
+        return evidence(None, 'campaign', 'unnamed-target')
+    for entry in consulted:
+        if same_database(Path(entry[0])/'db', database):
             if declared:
-                raise ValueError(f'{record["target"]} is the campaign 100M database, named by {source}; '
-                                 'its envelope is mandatory and cannot be declared away')
-            return dict(record, campaign_pointer=named, pointer_source=source,
-                        classification='campaign', decided_by='campaign-database')
-    if consulted:
-        return dict(record, classification='other', decided_by='campaign-database')
+                raise ValueError(f'{target} is the campaign 100M database, named by {entry[1]}; its '
+                                 'envelope is mandatory and cannot be declared away')
+            return evidence(entry, 'campaign', 'campaign-database')
+    placed = next((entry for entry in consulted if entry[2] == 'resolved'), None)
+    if placed:
+        return evidence(placed, 'other', 'campaign-database')
+    unplaced = consulted[0] if consulted else None
     if declared:
-        return dict(record, classification='other', decided_by='operator-declaration')
-    raise ValueError(
-        f'cannot classify {record["target"]}: no campaign pointer resolves, so this may or may not be '
-        f'the 100M database and guessing either envelope is wrong. Either make the pointer resolvable '
-        f'-- {rig_work()/POINTER_FILE} is what load100m.sh writes, or export {CAMPAIGN_DIRECTORY} -- or, '
-        f'if this target is not the campaign database, declare its envelope with --declare-envelope.')
+        return evidence(unplaced, 'other', 'operator-declaration')
+    return evidence(unplaced, 'campaign', 'unresolved-pointer')
 
 
 def prepare_revision(reference, output, extra_args=(), classification=None):
@@ -361,7 +365,7 @@ def command(runtime, database, *, queries=None, tries=3):
         if target is None or not same_database(target, database):
             raise ValueError(f'this runtime was frozen below the campaign envelope for {target}; it must '
                              f'not open {database}. Prepare a runtime for this database instead.')
-        for named, source in campaign_pointers():
+        for named, source, _ in campaign_pointers():
             if same_database(Path(named)/'db', database):
                 raise ValueError(f'{database} is the campaign 100M database, named by {source}; it requires '
                                  f'a runtime frozen at the campaign envelope {CAMPAIGN_ENVELOPE}')
