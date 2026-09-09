@@ -2851,7 +2851,13 @@ resolved-positive-family rule. **Whole-suite benefit -0.245162 ln is UNRESOLVED*
 claimed. The 0.181907-ln family point estimate is about one quarter of the earlier 0.721-ln working
 hypothesis; saved probes do not remove record initialization, exact merging, or stripe copying.
 
-127 local tests pass with no skips, including the unchanged, enabled sparse SUM regression.
+127 local tests passed for the measured candidate with no skips, including the unchanged, enabled
+sparse SUM regression. The review rounds then corrected the landed engine after measurement, with
+fixtures only: a default-on `sirix.projection.groupTable.partialGroups` kill switch beside the
+dense-index lever, executor gates that share the bounded-budget predicate (`boundedSelection(limit)`
+in place of `limit >= 1`), and an opt-in test seam that production never allocates or updates. The
+measured default path is unchanged; the landed engine is no longer source-identical to `e8633fe92`;
+no new 100M run was made. The same twelve test classes now pass 128 tests with no skips.
 The [complete study](../bundles/sirix-query/bench/clickbench/rig/evidence/composite-probe-20260909/RESULT.md)
 retains the fresh profile, fixed plan, all-query deltas, runtime provenance, byte proofs, and verified
 raw archives. The twenty original `rig/legs/query-SEGCP-P*.json` legs carry `steering` provenance.

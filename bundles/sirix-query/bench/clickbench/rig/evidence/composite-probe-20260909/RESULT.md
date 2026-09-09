@@ -62,7 +62,23 @@ DuckDB parity, or top-ten result is claimed.
 The baseline is `2016aa8d31fc97022c5341e56b0056f73f44958d`, verified as the campaign
 head before work. Candidate engine `e8633fe92` adapts parked prototype `1703ebe2d`
 to that head. The landed pass-count budget and SUM ordering fix remain intact.
-The only later engine edits are the repository formatter's whitespace changes.
+Every paired estimate, interval, and 43/43 byte proof in this document applies
+to that measured candidate. The landed engine is that candidate plus the
+repository formatter's whitespace changes and the review corrections below; it
+is not source-identical to `e8633fe92`, and no further 100M run was made.
+
+**Review corrections after measurement** (the no-mistakes review rounds on
+2026-09-09, validated with local fixtures only): a default-on kill switch,
+`sirix.projection.groupTable.partialGroups`, read in the `GroupTableSpill`
+constructor beside the dense-index lever, which restores exact worker tables
+without leaving the dense layout; both executor gates now pass the arm's
+bounded-budget predicate itself, so the limit term is `boundedSelection(limit)`
+instead of `limit >= 1`, which is identical for every limit the composite and
+string arms receive today; and an opt-in test seam on the spill that a test
+installs to count partial worker tables and that production never allocates or
+updates. The measured default path is unchanged by construction: the property
+defaults on, the gate is equal on every reachable input, and the seam is a null
+reference in production.
 
 The [fresh profile](PROFILE.md), collected before candidate timing, confirms hot
 pass counts q16/q18/q31/q32 = 1/1/1/2. Lookup shares are respectively
@@ -78,7 +94,11 @@ record still reaches an exact partition table before selection. Distinct sinks
 are excluded. There is no input prepass, query identifier or literal in the
 engine mechanism, global data structure, or persistent-format change. The
 prototype's global diagnostic activation counter was removed; core tests observe
-the state of their own tables.
+the state of their own tables. After measurement the review round added the
+opt-in seam described above, through which `PartialGroupTopKTest` asserts that
+the executor's bounded top-k gate hands out partial worker tables, that the kill
+switch keeps every worker table exact with byte-equal answers, and that a
+distinct sink never receives one.
 
 The original 0.721-ln working payoff was a hypothesis, not a result. The observed
 0.181907-ln point estimate is about one quarter of it. The fresh worker-only
@@ -110,12 +130,15 @@ included here.
 
 ## Correctness, conditions, and allowance
 
-- **127 local tests pass, zero failures/errors/skips**, covering dense tables,
-  displaced partial records, exact identity collisions, SUM overflow, spill and
-  pass ownership, budget planning, top-K, and differential execution.
-  `SparseSumOrderingOriginTest` remains enabled and passing, unchanged from the
-  landed fix. Its sparse SUM cases are essential because the 43 benchmark queries
-  do not expose that prior defect.
+- **127 local tests passed for the measured candidate, zero failures/errors/skips**
+  (`validation.json`), covering dense tables, displaced partial records, exact
+  identity collisions, SUM overflow, spill and pass ownership, budget planning,
+  top-K, and differential execution. After the review corrections the same twelve
+  classes pass **128 tests, zero failures/errors/skips**
+  (`delivery-validation.json`); the added test proves the kill switch and the
+  seam. `SparseSumOrderingOriginTest` remains enabled and passing, unchanged from
+  the landed fix. Its sparse SUM cases are essential because the 43 benchmark
+  queries do not expose that prior defect.
 - **Twenty of twenty legs pass all 43 answer comparisons.** Retention independently
   re-read every answer and checked its SHA-256 against the per-leg proof and
   baseline reference. It verified every one of 1,120 archive members.

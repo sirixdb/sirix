@@ -246,7 +246,12 @@ partition indexing and stripe copying alongside probes is a follow-up to investi
 fallback, and exact final merging. Re-profile a new candidate before assigning it post-probing
 cost shares. The remaining ranked table below contains the still-unmeasured quantified lever.
 
-127 local tests pass with no skips, including the unchanged enabled sparse SUM regression.
+127 local tests passed for the measured candidate with no skips, including the unchanged enabled
+sparse SUM regression. The review rounds then corrected the landed engine after measurement with
+fixtures only (default-on `sirix.projection.groupTable.partialGroups` kill switch, executor gates
+sharing the bounded-budget predicate, an opt-in test seam that production never allocates or
+updates); the measured default path is unchanged, the landed engine is no longer source-identical
+to `e8633fe92`, and the same twelve classes now pass 128 tests with no skips.
 **One profile and ten pairs were used. No additional 100M collection is prescribed, including
 pipeline verification; ask Firstmate before a new collection.** Two pairs of the twelve-pair
 cap remain unspent, not a reason to extend a completed plan. Campaign CI runs no checks, so

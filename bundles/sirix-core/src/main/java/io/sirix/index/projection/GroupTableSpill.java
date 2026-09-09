@@ -92,6 +92,23 @@ public final class GroupTableSpill {
     return Boolean.parseBoolean(System.getProperty(PARTIAL_GROUPS_PROPERTY, "true"));
   }
 
+  /** Test seam: receives one increment per partial worker table handed out; {@code null} = off. */
+  private static volatile LongAdder partialWorkersForTesting;
+
+  /**
+   * Test seam for the partial-grouping gate: while {@code counter} is installed, every worker table a
+   * spill hands out with partial grouping enabled increments it once. Production installs nothing and
+   * pays one volatile read per worker table.
+   *
+   * @param counter the counter to install, or {@code null} to stop observing
+   * @return the previous counter, for restoring in a finally block
+   */
+  public static LongAdder setPartialWorkersForTesting(final LongAdder counter) {
+    final LongAdder previous = partialWorkersForTesting;
+    partialWorkersForTesting = counter;
+    return previous;
+  }
+
   /** Configured flush threshold in groups per worker table. */
   public static final String FLUSH_GROUPS_PROPERTY = "sirix.projection.groupTable.flushGroups";
 
@@ -927,8 +944,6 @@ public final class GroupTableSpill {
   private final long budget;
 
   private final boolean partialGroups;
-  /** Worker tables handed out with partial grouping enabled (test observability). */
-  private final LongAdder partialWorkers = new LongAdder();
   /** Shared by every table of this spill, or {@code null} when the pool is switched off. */
   private final LongChunkPool pool;
   private final LongChunkPool probePool;
@@ -1062,17 +1077,15 @@ public final class GroupTableSpill {
     final NumericGroupAggTable table = adopt(factory.apply(workerTableHint()));
     if (partialGroups) {
       table.allowPartialGroups();
-      partialWorkers.increment();
+      final LongAdder observer = partialWorkersForTesting;
+      if (observer != null) {
+        observer.increment();
+      }
     }
     if (passLo != 0 || passHi != partitions) {
       table.setPassRange(shift, passLo, passHi);
     }
     return table;
-  }
-
-  /** Worker tables this spill handed out with partial grouping enabled (test observability). */
-  public long partialWorkerTables() {
-    return partialWorkers.sum();
   }
 
   /** The chunk pool every table of this spill draws from, or {@code null} when switched off. */
