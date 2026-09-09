@@ -1,5 +1,10 @@
 # Generic numeric grouping experiment
 
+**Completed outcome: UNRESOLVED.** [The result](RESULT.md) records all 12 pairs, byte-identical
+answers for all 43 queries in every leg, and a suite benefit interval spanning zero. The requested
+aggregation family also has no resolved benefit. All 24 authorized benchmark JVMs have been used;
+validation agents need Firstmate authorization for any additional 100M run.
+
 The candidate adds a bounded, worker-local handle cache for numeric group keys. Existing leaf
 zone bounds enable direct addressing only when their range fits 4096 entries and at least two
 rows per possible key. Wide ranges use the existing hash table. Growth invalidates cached handles;
