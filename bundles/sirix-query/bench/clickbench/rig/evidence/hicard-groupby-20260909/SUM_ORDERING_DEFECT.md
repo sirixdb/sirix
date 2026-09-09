@@ -1,5 +1,13 @@
 # Pre-existing sparse SUM ordering defect
 
+**Resolution (2026-09-09): FIXED** on `fm/sirix-sparse-sum-ordering-1` (`de268a8c0`), as its own
+wrong-results change. The in-kernel group ORDER BY comparator (`GroupOrderPlan#compare` in
+`SirixVectorizedExecutor`) had treated an all-missing group's `sum` as EMPTY; `fn:sum(())` is 0, so
+`sum` now always compares as a value while `min`/`max`/`avg` keep empty placement.
+`SparseSumOrderingOriginTest` is enabled and is the regression authority from here on. Everything
+below is the unchanged record of the defect as observed on the baseline; where it says the
+regression "remains disabled", it describes that state, not the current one.
+
 Observed on unmodified campaign baseline `b815d459d1218ab9081f360257ae6f16eff9f476` and on the partial-group prototype. Both tests FAILED the same interpreter-equivalence assertion. Their wrong result is byte-identical: SHA-256 `a66ecfd207d469cf2284d7691b0896755a9d65653b7ed6ad4beb6ad3d2c49293`.
 
 This is Firstmate's decision branch 2(b), not a passing correctness test. No engine fix is included in this performance lever. The regression remains explicitly disabled as a known baseline failure in `SparseSumOrderingOriginTest`, with this report as its authority. The baseline/prototype byte comparison establishes unchanged behavior on this case; it does not establish correct SUM ordering.
