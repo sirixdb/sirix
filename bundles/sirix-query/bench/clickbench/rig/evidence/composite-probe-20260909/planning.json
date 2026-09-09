@@ -1,0 +1,40 @@
+{
+  "primary_queries": [
+    16,
+    18,
+    31,
+    32
+  ],
+  "target_ln": 0.25,
+  "target_meaning": "planning scale, not a claimed or predicted benefit",
+  "source": "bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/pairs.json",
+  "source_sha256": "fa3d5e6e0a709ad048069f33428831a898d544f723086fec6b84a59d983eb286",
+  "reference_uncertainty": {
+    "pairs": 12,
+    "benefit_ln": 0.406804929564694,
+    "target_ln": 0.25,
+    "confidence": 0.95,
+    "planning_power": 0.8,
+    "ci95": [
+      0.3497330982365177,
+      0.4638767608928703
+    ],
+    "half_width_ln": 0.057071831328176274,
+    "detectable_ln_80pct": 0.07982301854998722,
+    "required_pairs": 10,
+    "conservative_required_pairs": 10,
+    "resolution": "TARGET RESOLVED UNDER THE NOISE MODEL",
+    "paired_sd_ln": 0.08982460521204673,
+    "paired_sd_upper95_ln": 0.13928520337421887,
+    "interval_excludes_zero": true,
+    "reason": "actual change remains subject to its confidence interval",
+    "assumptions": "Prespecified count, independent approximately normal whole-pair differences, stable conditions. Planning estimates are not guarantees; do not extend until significant."
+  },
+  "selected_pairs": 10,
+  "maximum_authorized_pairs": 12,
+  "profiling_jvms_used": 1,
+  "seed": 0,
+  "stopping_rule": "10 balanced pairs, no extension until significant, stop on answer mismatch",
+  "worker_half_removable_hypothesis_ln": 0.42460373624018993,
+  "worker_all_removable_ceiling_ln": 0.9012758746189429
+}

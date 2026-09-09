@@ -69,6 +69,12 @@ import java.util.Arrays;
  * live in a bucket (its key lane would read as empty), so it takes a dedicated side slot.
  *
  * <p>
+ * A worker owned by {@link GroupTableSpill} may opt into {@link #allowPartialGroups()}. Its
+ * accumulators then remain exact partial sums, but several records can describe the same group.
+ * Such a table is consumed through its storage records and must merge into an ordinary exact table
+ * before selecting or emitting groups. Its partial cache is never a complete enumeration of groups.
+ *
+ * <p>
  * NOT thread-safe by design: the kernel builds one table per worker and merges by hash partition,
  * so no table is ever written from two threads.
  */
@@ -85,6 +91,8 @@ public final class NumericGroupAggTable {
 
   /** Spine of a {@link #release released} table: no chunk, so any probe fails loudly. */
   private static final long[][] RELEASED_STORAGE = new long[0][];
+
+  private static final long[][] NO_PROBE_CACHE = new long[0][];
 
   /**
    * The partition index's entry for a partition holding no key (see {@link #buildPartitionIndex}).
@@ -142,6 +150,18 @@ public final class NumericGroupAggTable {
   private long[][] storage;
   /** Null for interleaved buckets; otherwise hash-tag/record-handle entries in bounded chunks. */
   private long[][] probeIndex;
+
+  /** Initial ordinary acquisitions used to decide whether a worker benefits from partial grouping. */
+  private static final int PARTIAL_PROBE_SAMPLE = 8_192;
+
+  /** Negative: exact probing; positive: sampling; zero: partial cache or append-only acquisition. */
+  private int partialProbeBudget = -1;
+
+  /** A small direct cache for partial groups; negative when the sample found almost no reuse. */
+  private int partialProbeMask;
+
+  /** Only intermediate worker tables may contain multiple records for the same exact group. */
+  private boolean partialGroupsAllowed;
   /** Separate, scan-local recycler: payload and index chunks must never share live ownership. */
   private LongChunkPool probePool;
   private static final int PROBE_CHUNK_SHIFT = 14;
@@ -457,6 +477,30 @@ public final class NumericGroupAggTable {
     return this;
   }
 
+  /**
+   * Allow incomplete local deduplication, before the first insertion into a dense worker table.
+   * After a sample with at least one distinct group per two acquisitions, limit each lookup to one
+   * bucket in a 32-KiB direct cache. With at least seven distinct groups per eight acquisitions,
+   * append without probing. A cache miss appends an accumulator and replaces only the index entry: the
+   * displaced record remains in storage. The partition merge MUST consume every storage record
+   * into an exact table before selection or emission. No group or aggregate contribution is lost.
+   * Low-cardinality samples retain ordinary probing. This mode is not suitable for distinct sinks
+   * or consumers requiring one local record per group.
+   */
+  NumericGroupAggTable allowPartialGroups() {
+    if (probeIndex == null || size != 0 || hasZeroKey || released()) {
+      throw new IllegalStateException("partial grouping requires an unused dense worker table");
+    }
+    partialGroupsAllowed = true;
+    partialProbeBudget = PARTIAL_PROBE_SAMPLE;
+    return this;
+  }
+
+  /** Whether the sample selected bounded probing (test observability). */
+  boolean usesPartialGroups() {
+    return partialProbeBudget == 0;
+  }
+
   /** Attach the spill's separate recycler for compact index chunks. */
   NumericGroupAggTable attachProbePool(final LongChunkPool recycler) {
     if (size != 0 || hasZeroKey || recycler.chunkLanes() != 1 << PROBE_CHUNK_SHIFT) {
@@ -567,7 +611,7 @@ public final class NumericGroupAggTable {
     return mask + 1;
   }
 
-  /** Distinct non-zero keys inserted. */
+  /** Stored non-zero records; partial worker tables can hold several records for one group. */
   public int size() {
     return size;
   }
@@ -586,6 +630,7 @@ public final class NumericGroupAggTable {
    * identity mode, where a shared key IS a shared group.
    */
   public boolean hasProbeKeyCollision() {
+    requireCompleteIndex();
     return probeKeyCollision;
   }
 
@@ -600,6 +645,7 @@ public final class NumericGroupAggTable {
    *         the key ambiguous
    */
   public int handleOfProbeKey(final long probeHash) {
+    requireCompleteIndex();
     if (probeKeyCollision) {
       throw new IllegalStateException("probe key is ambiguous: two groups share it");
     }
@@ -650,7 +696,7 @@ public final class NumericGroupAggTable {
     return zeroSlot;
   }
 
-  /** Distinct groups including the zero key. */
+  /** Stored records including the zero key; partial worker counts are upper bounds on groups. */
   public int sizeIncludingZero() {
     return size + (hasZeroKey
         ? 1
@@ -661,6 +707,7 @@ public final class NumericGroupAggTable {
    * Key of bucket {@code bucket}; {@code 0} = empty (the real key 0 lives in {@link #zeroSlot()}).
    */
   public long keyAtBucket(final int bucket) {
+    requireCompleteIndex();
     if (probeIndex != null) {
       final long entry = probeEntry(bucket);
       return entry == 0L
@@ -677,6 +724,7 @@ public final class NumericGroupAggTable {
 
   /** Encoded accumulator handle of {@code bucket} — valid only when its key lane is non-zero. */
   public int accBaseOfBucket(final int bucket) {
+    requireCompleteIndex();
     return probeIndex == null
         ? bucket
         : (int) probeEntry(bucket) - 1;
@@ -776,7 +824,9 @@ public final class NumericGroupAggTable {
       return DISCARD_HANDLE;
     }
     if (probeIndex != null) {
-      return acquireDense(key, firstSeenOrdinal, null, 0);
+      return partialProbeBudget >= 0
+          ? acquirePartial(key, firstSeenOrdinal, null, 0)
+          : acquireDense(key, firstSeenOrdinal, null, 0);
     }
     final long[][] chunks = storage;
     final int st = stride;
@@ -845,7 +895,9 @@ public final class NumericGroupAggTable {
       return DISCARD_HANDLE;
     }
     if (probeIndex != null) {
-      return acquireDense(key, firstSeenOrdinal, identity, identityOffset);
+      return partialProbeBudget >= 0
+          ? acquirePartial(key, firstSeenOrdinal, identity, identityOffset)
+          : acquireDense(key, firstSeenOrdinal, identity, identityOffset);
     }
     final long[][] chunks = storage;
     final int st = stride;
@@ -887,6 +939,68 @@ public final class NumericGroupAggTable {
       return findExact(key, identity, identityOffset);
     }
     return bucket;
+  }
+
+  private int acquirePartial(final long key, final long firstSeenOrdinal, final long[] identity,
+      final int identityOffset) {
+    if (partialProbeBudget > 0) {
+      final int handle = acquireDense(key, firstSeenOrdinal, identity, identityOffset);
+      if (--partialProbeBudget == 0) {
+        if (size < PARTIAL_PROBE_SAMPLE / 2) {
+          partialProbeBudget = -1;
+        } else {
+          partialProbeMask = size >= PARTIAL_PROBE_SAMPLE * 7 / 8 ? -1 : Math.min(mask, 4_095);
+          recycleProbeIndex(probeIndex);
+          probeIndex = partialProbeMask < 0 ? NO_PROBE_CACHE : new long[][] {new long[partialProbeMask + 1]};
+        }
+      }
+      return handle;
+    }
+    final long hash;
+    final int bucket;
+    if (partialProbeMask >= 0) {
+      hash = HashCommon.mix(key);
+      bucket = (int) hash & partialProbeMask;
+      final long entry = probeEntry(bucket);
+      if (entry != 0L && ((entry ^ hash) & PROBE_TAG_MASK) == 0L) {
+        final int handle = (int) entry - 1;
+        final long[] chunk = storage[handle >>> chunkBucketShift];
+        final int offset = (handle & chunkBucketMask) * stride;
+        if (chunk[offset] == key
+            && (idWidth == 0 || identityMatches(chunk, offset + 1 + idOffsetFromAcc, identity, identityOffset, idWidth))) {
+          return handle;
+        }
+      }
+    } else {
+      hash = 0L;
+      bucket = -1;
+    }
+    final int handle = size;
+    final int chunkIndex = handle >>> chunkBucketShift;
+    long[] chunk = storage[chunkIndex];
+    if (chunk == null) {
+      chunk = newChunk(bucketsPerChunk * stride);
+      storage[chunkIndex] = chunk;
+    }
+    final int offset = (handle & chunkBucketMask) * stride;
+    chunk[offset] = key;
+    initBlock(chunk, offset + 1, firstSeenOrdinal, slotWidth, sumsOnly);
+    if (idWidth != 0) {
+      System.arraycopy(identity, identityOffset, chunk, offset + 1 + idOffsetFromAcc, idWidth);
+    }
+    if (bucket >= 0) {
+      final int indexChunk = bucket >>> PROBE_CHUNK_SHIFT;
+      long[] index = probeIndex[indexChunk];
+      if (index == null) {
+        index = newProbeChunk(mask + 1);
+        probeIndex[indexChunk] = index;
+      }
+      index[bucket & PROBE_CHUNK_MASK] = (hash & PROBE_TAG_MASK) | (handle + 1L);
+    }
+    if (++size > growAt) {
+      rehash();
+    }
+    return handle;
   }
 
   private int acquireDense(final long key, final long firstSeenOrdinal, final long[] identity,
@@ -941,6 +1055,12 @@ public final class NumericGroupAggTable {
 
   /** Rebuild only the compact index; accumulator handles remain dense record ordinals. */
   private void rehashDense(final int capacity) {
+    if (partialProbeBudget == 0) {
+      // The fixed cache holds record ordinals, which survive payload growth. It is intentionally
+      // incomplete, so rebuilding a full index would pay to deduplicate only the next probe again.
+      growDenseStorage(capacity);
+      return;
+    }
     final int newMask = capacity - 1;
     final long[][] grownIndex = new long[(int) (((long) capacity + PROBE_CHUNK_MASK) >>> PROBE_CHUNK_SHIFT)][];
     for (int handle = 0; handle < size; handle++) {
@@ -962,6 +1082,12 @@ public final class NumericGroupAggTable {
         bucket = bucket + 1 & newMask;
       }
     }
+    growDenseStorage(capacity);
+    recycleProbeIndex(probeIndex);
+    probeIndex = grownIndex;
+  }
+
+  private void growDenseStorage(final int capacity) {
     final int chunkBuckets = bucketsPerChunk(capacity);
     if (chunkBuckets != bucketsPerChunk) {
       final long[] grown = newChunk(chunkBuckets * stride);
@@ -971,12 +1097,10 @@ public final class NumericGroupAggTable {
     } else {
       storage = Arrays.copyOf(storage, capacity / chunkBuckets);
     }
-    recycleProbeIndex(probeIndex);
-    probeIndex = grownIndex;
     bucketsPerChunk = chunkBuckets;
     chunkBucketMask = chunkBuckets - 1;
     chunkBucketShift = Integer.numberOfTrailingZeros(chunkBuckets);
-    mask = newMask;
+    mask = capacity - 1;
     growAt = capacity - (capacity >>> 2);
     rehashes++;
   }
@@ -1291,6 +1415,7 @@ public final class NumericGroupAggTable {
    *        multiple of the stride
    */
   public void mergeStripes(final long[] stripes, final int fromLane, final int toLane) {
+    requireExactMergeTarget();
     final int st = stride;
     if (fromLane < 0 || toLane > stripes.length || (toLane - fromLane) % st != 0) {
       throw new IllegalArgumentException(
@@ -1356,11 +1481,24 @@ public final class NumericGroupAggTable {
    * four, so the flag is checked (and reported) in its own right.
    */
   private static void requireMergeable(final NumericGroupAggTable src, final NumericGroupAggTable into) {
+    into.requireExactMergeTarget();
     if (src.slotWidth != into.slotWidth || src.withAux != into.withAux || src.sumExactMask != into.sumExactMask
         || src.idWidth != into.idWidth || src.sumsOnly != into.sumsOnly) {
       throw new IllegalStateException("incompatible group tables: slotWidth " + src.slotWidth + "/" + into.slotWidth
           + ", aux " + src.withAux + "/" + into.withAux + ", sumExactMask " + src.sumExactMask + "/" + into.sumExactMask
           + ", idWidth " + src.idWidth + "/" + into.idWidth + ", sumsOnly " + src.sumsOnly + "/" + into.sumsOnly);
+    }
+  }
+
+  private void requireExactMergeTarget() {
+    if (partialGroupsAllowed) {
+      throw new IllegalStateException("partial worker records must merge into an exact group table");
+    }
+  }
+
+  private void requireCompleteIndex() {
+    if (partialGroupsAllowed) {
+      throw new IllegalStateException("partial worker groups must be read through their storage records");
     }
   }
 
