@@ -33,8 +33,9 @@ Standing secondary target: ~50 GB storage at 100M (met: 48 GB); long-term ≤ 30
 ## 2. Where we stand
 
 **Update, 2026-09-09:** the committed `query-SEG7T.json` supersedes every snapshot below,
-including SEG6T. The 2026-09-08 string-decode change SEG6T carried is correctness-only and adds no
-accepted performance result; its effect remains unverified pending measurement resolution, and
+including SEG6T. The 2026-09-08 string-decode change is correctness-only and adds no accepted
+performance result: SEG6T predates it, SEG7T's head is the first scored leg to contain it, and a
+single leg attributes nothing to it, so its effect remains unverified pending measurement resolution;
 [the string-decode report](CLICKBENCH_STRING_DECODE_2026-09-08.md) records that lane's delivery
 constraints.
 
@@ -83,9 +84,10 @@ is above it.
 
 SEG5T measured `de2724c5c`, which **predates the q16 and q35 work on this branch**, so it scores
 neither q16 nor the q35 fold; its q35 row is the unrewritten query. SEG6T is the first leg past
-that point — §4's q35 row says what SEG6T's own row does and does not attribute. What no leg
-carries is this branch's shared group-aggregation change, which lands on top of `aa4d81d54`: it is
-unscored and claims no speedup, and its correctness and measurement standing are in
+that point — §4's q35 row says what SEG6T's own row does and does not attribute. This branch's
+shared group-aggregation change lands on top of `aa4d81d54`, after SEG6T; SEG7T is the first leg
+whose head carries it. One leg attributes no Δln to it, so it still claims no speedup of its own,
+and its correctness and measurement standing are in
 [shared aggregation](CLICKBENCH_GROUP_AGGREGATION_2026-09-08.md).
 
 How we got here: on 2026-09-03 a global-dictionary build (`db100m-ovf`) scored rank 6 — but it
@@ -212,7 +214,7 @@ Columns: C6A hot ln; ours s / board best s.
 | q22 | 2.299 | 0.299 / 0.021 | LIKE predicates + string `MIN` and distinct UserIDs | **Its duplicate-mask cost is the #1 ranked lever in §4a. Advertised MIN/verdict lever already spent:** verdict sharing (`921c3f811`) and `MIN` over canonical collation ranks already serve this query (since `a3aed07ec`). Hot 100M profile (initial diagnostic): **68.9% of CPU is duplicate predicate-mask evaluation; COUNT(DISTINCT) is 0.13%** — the `b00ed9e4` capture re-reads the same shape at 68.8% and 0.23%. Its hot min(tries 2,3) read 0.278 s in the earlier capture and 0.316 s at `b00ed9e4` — a raw range across two unscored diagnostics, **no timing claim in either direction**. Mask reuse is deferred as its own task; see [evidence and remaining target](SEGMENT_LIKE_GROUPS.md). |
 | q33 / q34 | 2.092 / 2.032 | 2.152, 2.027 / 0.257 | `GROUP BY URL ORDER BY c LIMIT 10` on an 18.3M-distinct column | Aggregate **inside the merge**: counts per cell are known per segment; the merge emits canonical groups in order and a bounded top-K needs no hash table. Same lever serves q12 (1.404 ln, 0.686 / 0.161) and q5 `COUNT(DISTINCT SearchPhrase)` (2.047 ln, 0.656 / 0.076 — the 5th largest SEG7T contribution; the distinct count is the merge's output length). No hot profile share has ever been committed for this lever, so it is unranked in §4c. |
 | q16 / q14 / q18 | 2.007 / 1.318 / 1.248 | 1.500, 0.711, 2.972 / 0.193, 0.183, 0.846 | composite keys `(UserID, SearchPhrase)` etc. | **q14 collapsed 2.32 ln below its projection and is no longer a lever**; q16 leads the group. **The canonicalisation-first lever is refuted as q16's dominant cost**: in the 10,597-sample hot 100M CPU capture, canonicalisation is 21.8 % (counting `SegmentGroupCanonicaliser` *and* its parallel `SegmentValueMerge` dictionary-merge workers — the canonicaliser class alone reads as a misleading 2.2 %), while table and spill frames are 53.9 % inclusive with `identityMatches` alone at 33.3 % self time. The earlier proposal — a cell is already a unique id **within** a segment, so aggregate per segment on the packed cell and merge the per-segment tables by canonical id — therefore targets the minority cost; investigate the table/spill path first. If segment-local preaggregation is built anyway, `a-segment-scoped-id-is-a-preaggregation-not-a-group` still binds: **all** partial groups must be canonicalised and merged **before** top-K pruning, because segment-local winners alone can lose the global winner. The profile is q16's alone — q14 and q18 were not profiled — and no q16 speedup or new score is claimed. Evidence: [dependent numeric group keys](DEPENDENT_NUMERIC_GROUP_KEYS.md). |
-| q10 / q11 / q13 | 1.896 / 1.533 / 1.317 | 0.223, 0.166, 1.181 / 0.025, 0.028, 0.309 | `COUNT(DISTINCT UserID)` grouped by SearchPhrase / MobilePhoneModel / `(MobilePhone, MobilePhoneModel)` | Served; the group key is a segment string and the aggregate is a distinct count per group. Under SEG7T only q10 (#8) and q11 (#13) remain in the top 14 — q13 has fallen to ≈ #23 after PR 1201 took it 2.786 → 1.181 s — so the distinct-count representation is worth a profile before any of it is redesigned; it has none today and therefore no ranked entry in §4a. q10 was **not** profiled in the q21/q22 follow-up; do not infer its bottleneck from those queries. |
+| q10 / q11 / q13 | 1.896 / 1.533 / 1.317 | 0.223, 0.166, 1.181 / 0.025, 0.028, 0.309 | `COUNT(DISTINCT UserID)` grouped by MobilePhoneModel / `(MobilePhone, MobilePhoneModel)` / SearchPhrase | Served; the group key is a segment string and the aggregate is a distinct count per group. Under SEG7T only q10 (#8) and q11 (#13) remain in the top 14 — q13 has fallen to ≈ #23 after PR 1201 took it 2.786 → 1.181 s — so the distinct-count representation is worth a profile before any of it is redesigned; it has none today and therefore no ranked entry in §4a. q10 was **not** profiled in the q21/q22 follow-up; do not infer its bottleneck from those queries. |
 | q39 | 1.759 | 0.170 / 0.021 | 5-column group with `CASE` on Referer/URL + tight `WHERE` | **Collapsed 2.16 ln below its projection (1.44 s → 0.157 s); SEG7T reads 0.170 s and 1.759 ln, the 11th largest contribution.** It is unprofiled, so it has no ranked entry in §4a. If it is ever picked up again: the predicate keeps few rows, so look at what runs before it. |
 | q28 | 1.532 | 6.039 / 1.297 | `REGEXP_REPLACE(Referer, …)` group + `AVG(STRLEN(Referer))` + `MIN(Referer)` | **Landed** (`095be6eb3`): the regex now runs **once per distinct value per segment** (≤ dictionary size, not 100M rows), STRLEN comes from the length table (`be5e8232f`), and `MIN(Referer)` folds the merge's canonical ranks rather than comparing strings. Mechanism, retention bounds and profiling evidence: `docs/SEGMENT_TRANSFORM_GROUPS.md`. That evidence is a 100M **diagnostic** hot time of 60.728 s → 8.616 s, and SEG5T has since scored it: **57.9 s → 9.178 s hot, −1.840 ln**. PR 1201's dense group index moved it again, 8.982 → 6.039 s, which is the SEG7T figure in this row. |
 | q36 / q37 / q38 | 1.308 / 1.299 / 1.327 | 0.064, 0.045, 0.039 / 0.010, 0.005, 0.003 | few-row predicates on URL/Title | Already predicate-first (`5026b239e`); all three now answer in 39–64 ms and have fallen out of the top tier (projected 3.08/2.62, SEG7T ≈ 1.31). The residue is fixed cost per query. The ln shown is what **matching the current board best** would recover — ≈ 1.3 ln per query, not 1.3 ln for the three together. It is not a zero-latency ceiling: rank.py's +0.01 s offset applies to *both* sides of the ratio, so driving our own time to 0 s would recover ≈ 2.00 / 1.70 / 1.59 ln. No profile attributes that residue to a shared fixed cost, so it is unranked in §4c rather than a lever. |
@@ -261,12 +263,13 @@ These cannot be ordered against §4a, and they must not be built on a guessed `k
 
 ## 5. Operating protocol
 
-The committed SEG6T record supersedes this handoff's historical SEG5T snapshot; the campaign
-base's investigation-report attribution places it after the q35 fold (§2 and §4). No accepted
-performance result is added for the subsequent string-decode change. The rig's
+The committed SEG7T record is the current standing and supersedes this handoff's historical SEG5T
+and SEG6T snapshots (§2 and §4). No accepted performance result is added for the string-decode
+change SEG7T's head carries. The rig's
 [`README.md`](../bundles/sirix-query/bench/clickbench/rig/README.md) is the operating manual for
-the paired measurement command and every entry point below. `SEG6T` is already taken: check
-existing names and obtain a Firstmate window before any 100M work. A free lock is not authorization.
+the paired measurement command and every entry point below. `SEG7T` is already taken, and
+`mkleg.py` overwrites an existing `legs/query-<TAG>.json` without asking: check existing names and
+obtain a Firstmate window before any 100M work. A free lock is not authorization.
 
 Per lever, in this order — every step has been skipped once in this campaign and every skip cost
 more than the step:

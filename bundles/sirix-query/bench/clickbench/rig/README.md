@@ -148,17 +148,21 @@ ranking without anyone having to remember to mark them. `rig.regime` separately 
 and it is printed with every rank, because a board position quoted without its measurement
 conditions is not a result. A regime never justifies a scope.
 
-Six of the seven curated legs under `legs/` carry `publication`: N1FULL1, SEG2T, SEG3T, SEG4T, SEG5T
-and SEG6T. The seventh, SEG3TB, carries `composed` and is refused: it is SEG3T with q21/q22/q28
-spliced in from separate runs, not one measured leg. All seven were collected before the 50 W cap of
-2026-09-08T03:58Z, and none of them recorded a temperature, power or exclusivity observation, so each
-one's regime says so and names what could not be established. Their collection paths differ and are
-mostly unrecorded: N1FULL1 predates `suite100m.sh` by three days and came from the out-of-repo
-N-series tooling, SEG2T identifies no run at all, SEG3T falls on the day the script first appears,
-and SEG4T/SEG5T/SEG6T postdate it but were never observed using it. SEG2T's measurement date and
-SEG6T's exact run time are bounded by their commits, not observed, and the fields no leg ever
-recorded — `machine`, `load_time` and `data_size` — are null rather than carrying a placeholder or an
-inherited value. The throttled exports under
+Seven of the eight curated legs under `legs/` carry `publication`: N1FULL1, SEG2T, SEG3T, SEG4T,
+SEG5T, SEG6T and SEG7T. The eighth, SEG3TB, carries `composed` and is refused: it is SEG3T with
+q21/q22/q28 spliced in from separate runs, not one measured leg. The seven through SEG6T were
+collected before the 50 W cap of 2026-09-08T03:58Z, and none of them recorded a temperature, power
+or exclusivity observation, so each one's regime says so and names what could not be established.
+SEG7T (2026-09-09T10:55:40) is the first publication leg collected under the cap, and the first to
+record its conditions: an exclusive rig lease, a passed cooldown gate, the 50 W gated limit under
+`observed_power`, and one MMIO platform limit moving 76 W → 45 W mid-run, which its regime states.
+The earlier collection paths differ and are mostly unrecorded: N1FULL1 predates `suite100m.sh` by
+three days and came from the out-of-repo N-series tooling, SEG2T identifies no run at all, SEG3T
+falls on the day the script first appears, and SEG4T/SEG5T/SEG6T postdate it but were never
+observed using it. SEG2T's measurement date and SEG6T's exact run time are bounded by their
+commits, not observed. The fields no curated leg ever recorded — `machine`, `load_time` and
+`data_size` — are null in all eight rather than carrying a placeholder or an inherited value. The
+throttled exports under
 `evidence/thermal-20260908/` carry `diagnostic` and are refused as protocol experiments; their
 regime is directly observed rather than inferred.
 Provenance also travels with the log, not only with the JSON: every `suite.log` the runner writes
