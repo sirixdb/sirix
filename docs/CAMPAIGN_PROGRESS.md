@@ -2790,8 +2790,9 @@ byte-identical in all 24 legs: q16/q18/q32 ran 1/1/2 passes; the seven-query fam
 **+0.409295 ln, 95% interval [+0.349424, +0.469166]**, 1.137 s; the suite benefit of **+0.289810 ln
 is UNRESOLVED**, interval [-0.670193, +1.249813]. Two review fixes followed, neither changing a
 measured leg: a bounded plan refuses to replay a memoed pass count that no longer fits the current
-budget (the candidate legs record q32's bounded budget at 60.56M groups or more, where a 50.0M-group
-pass fits outright, so both policies plan the same two passes), and the flat arms no longer read the
+budget (the candidate legs record q32's bounded budget at 51.37M groups or more, about 7.14 GiB of
+effective headroom at the minimum, where a 50.0M-group pass fits outright, so both policies plan the
+same two passes; the full range is in PASS_BUDGET.md), and the flat arms no longer read the
 dispatcher's unbounded-selection sentinel as a bound (all seven campaign queries are capped by
 `LIMIT 10`, so every measured plan was and remains bounded). A pre-existing sparse `SUM` ordering
 defect was found and left non-passing, not fixed. **No further 100M runs are authorized: all 12
