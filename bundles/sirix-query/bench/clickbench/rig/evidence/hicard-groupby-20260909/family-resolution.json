@@ -1,0 +1,70 @@
+{
+  "purpose": "post-study resolution check for reporting the prespecified family, not an extension or changed stopping target",
+  "reporting_scale_ln": 0.4,
+  "results": {
+    "seven": {
+      "pairs": 12,
+      "benefit_ln": 0.409294740096195,
+      "target_ln": 0.4,
+      "confidence": 0.95,
+      "planning_power": 0.8,
+      "ci95": [
+        0.34942380766023456,
+        0.4691656725321554
+      ],
+      "half_width_ln": 0.05987093243596041,
+      "detectable_ln_80pct": 0.08373795687332843,
+      "required_pairs": 10,
+      "conservative_required_pairs": 10,
+      "resolution": "TARGET RESOLVED UNDER THE NOISE MODEL",
+      "paired_sd_ln": 0.09423007365600715,
+      "paired_sd_upper95_ln": 0.14611647824291638,
+      "interval_excludes_zero": true,
+      "reason": "actual change remains subject to its confidence interval",
+      "assumptions": "Prespecified count, independent approximately normal whole-pair differences, stable conditions. Planning estimates are not guarantees; do not extend until significant."
+    },
+    "composite": {
+      "pairs": 12,
+      "benefit_ln": 0.406804929564694,
+      "target_ln": 0.4,
+      "confidence": 0.95,
+      "planning_power": 0.8,
+      "ci95": [
+        0.3497330982365177,
+        0.4638767608928703
+      ],
+      "half_width_ln": 0.057071831328176274,
+      "detectable_ln_80pct": 0.07982301854998722,
+      "required_pairs": 10,
+      "conservative_required_pairs": 10,
+      "resolution": "TARGET RESOLVED UNDER THE NOISE MODEL",
+      "paired_sd_ln": 0.08982460521204673,
+      "paired_sd_upper95_ln": 0.13928520337421887,
+      "interval_excludes_zero": true,
+      "reason": "actual change remains subject to its confidence interval",
+      "assumptions": "Prespecified count, independent approximately normal whole-pair differences, stable conditions. Planning estimates are not guarantees; do not extend until significant."
+    }
+  },
+  "whole_suite_reporting_scale_ln": 0.29,
+  "whole_suite": {
+    "pairs": 12,
+    "benefit_ln": 0.28980976910940254,
+    "target_ln": 0.29,
+    "confidence": 0.95,
+    "planning_power": 0.8,
+    "ci95": [
+      -0.6701931112868265,
+      1.2498126495056314
+    ],
+    "half_width_ln": 0.9600028803962289,
+    "detectable_ln_80pct": 1.3426996461576146,
+    "required_pairs": 216,
+    "conservative_required_pairs": 516,
+    "resolution": "UNRESOLVED",
+    "paired_sd_ln": 1.5109359157964577,
+    "paired_sd_upper95_ln": 2.342910562426795,
+    "interval_excludes_zero": false,
+    "reason": "requested effect is smaller than the estimated 80%-power resolution at this repetition count",
+    "assumptions": "Prespecified count, independent approximately normal whole-pair differences, stable conditions. Planning estimates are not guarantees; do not extend until significant."
+  }
+}

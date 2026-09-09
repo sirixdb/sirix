@@ -19,7 +19,7 @@ subsequence(for $r in jn:doc('partial','records')[]
   return {"id":$id,"bucket":$bucket,"s":$s,"lo":min($r.value),"hi":max($r.value)},1,17)
 ```
 
-The interpreter starts with `{ "id":30, "bucket":30, "s":30, "lo":5, "hi":15 }`. Both baseline and prototype instead start with `{ "id":0, "bucket":0, "s":0, "lo":null, "hi":null }`, followed by the other all-missing operand groups. The complete expected and actual outputs, exact queries and Gradle failure logs are retained under `origin/`; `origin.json` records their hashes.
+The interpreter starts with `{ "id":30, "bucket":30, "s":30, "lo":5, "hi":15 }`. Both baseline and prototype instead start with `{ "id":0, "bucket":0, "s":0, "lo":null, "hi":null }`, followed by the other all-missing operand groups. The complete expected and actual outputs and exact queries are retained under `origin/`; `origin.json` records their hashes. The baseline/prototype Gradle failure logs are archived under `controller/` in `comparison.tar.gz`. The pass-budget candidate reproduced the same wrong bytes separately; see `budget-origin.json` and `budget-origin.tar.gz`.
 
 To reproduce with an unmodified baseline checkout: copy the archived Java source to `bundles/sirix-query/src/test/java/io/sirix/query/scan/SparseSumOrderingOriginTest.java`, set `SIRIX_ORIGIN_EVIDENCE` to a writable evidence directory, then run `./gradlew --no-daemon --console=plain :sirix-query:test --tests io.sirix.query.scan.SparseSumOrderingOriginTest`. The test is expected to fail. This is a small synthetic integration test and opens no campaign database.
 
