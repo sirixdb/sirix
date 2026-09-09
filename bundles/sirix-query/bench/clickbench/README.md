@@ -759,10 +759,17 @@ and median suite time per arm against the DuckDB reference (0.520 s cold / 0.351
 campaign box; override with `--duckdb-cold` / `--duckdb-hot`).
 
 The JVM arm is a runtime frozen by `rig/measure.py prepare` for the database under test, and every
-round re-verifies against it. Only the campaign 100M database named by `CB100M_DIR` pins the campaign
-envelope, which nothing may shrink. Against a 1M or scratch database like the one above, `EXTRA` sizes
-the JVM — `EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" ./cold-rounds.sh /var/tmp/sirix-clickbench`
-— and the frozen runtime declares that envelope for the rounds to hold to.
+round re-verifies against it. Which envelope it is frozen at is decided from the database, not from
+the caller's environment: the rig reads the campaign pointer file `load100m.sh` writes
+(`$CB_RIG_WORK/current-100m-dir.txt`, else `build/diagnostics/rig/`), then `CB100M_DIR`. For the
+campaign 100M database the campaign envelope is mandatory and nothing may shrink it. For any other
+resolved database, `EXTRA` sizes the JVM —
+`EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" ./cold-rounds.sh /var/tmp/sirix-clickbench`
+— and the frozen runtime declares that envelope for the rounds to hold to. If neither pointer
+resolves, the rig cannot tell a scratch database from the campaign one and **refuses** rather than
+guess; make a pointer resolvable, or pass `--declare-envelope` on a box that has no campaign database
+at all. Each round's JSON records the classification, the pointer consulted, the `runtime_id` and the
+command that produced it.
 
 **The published ClickBench numbers, for reference:** cold suite **0.986 s** best of 4 rounds (median
 1.050) vs DuckDB 0.520 s — **1.90×**; hot suite **0.600–0.615 s** vs 0.351 s — **1.71–1.75×**. Both

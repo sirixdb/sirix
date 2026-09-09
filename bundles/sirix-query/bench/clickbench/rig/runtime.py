@@ -15,6 +15,9 @@ JDK_FILES = ('bin/java', 'lib/modules', 'lib/server/libjvm.so', 'release')
 BENCH_SOURCES = Path('bundles/sirix-query/src/main/java/io/sirix/query/bench/clickbench')
 HARNESS_SOURCES = ('ClickBenchRunMain.java', 'ClickBenchLoadMain.java', 'ClickBenchRigLease.java')
 CAMPAIGN_DIRECTORY = 'CB100M_DIR'
+RIG_WORK = 'CB_RIG_WORK'
+DEFAULT_WORK = Path('bundles/sirix-query/build/diagnostics/rig')
+POINTER_FILE = 'current-100m-dir.txt'
 CAMPAIGN_ENVELOPE = dict(initial_heap=6 << 30, maximum_heap=14 << 30, arena=10 << 30, eager=5 << 30,
                          jvmci_compiler=False)
 CANONICAL_ARGS = [
@@ -71,30 +74,76 @@ def harness_provenance(source):
                 query_catalog_sha256=file_hash(Path(source)/BENCH_SOURCES/'ClickBenchQueries.java'))
 
 
-def campaign_database(database, campaign=None):
-    """Whether `database` is the campaign 100M database, by the same rule the JVM lease applies in
-    ClickBenchRigLease.isCampaignDatabase: the pointer names a parent whose `db` child is the
-    database. Identity decides while both exist, the normalized paths decide otherwise, and an unset
-    or stale pointer simply answers False rather than failing an unrelated small run."""
-    if campaign is None:
-        campaign = os.environ.get(CAMPAIGN_DIRECTORY, '')
-    if database is None or not campaign or not campaign.strip():
-        return False
-    named, target = Path(campaign)/'db', Path(database)
-    if named.exists() and target.exists():
-        return os.path.samefile(named, target)
-    return os.path.normpath(named.absolute()) == os.path.normpath(target.absolute())
+def rig_work():
+    """The rig working directory, resolved exactly as rig.env resolves it, so an entry point that
+    never sources rig.env still finds the pointer file the campaign load wrote."""
+    work = os.environ.get(RIG_WORK)
+    return Path(work) if work and work.strip() else ROOT/DEFAULT_WORK
 
 
-def envelope_for(database):
-    """The envelope a preparation for `database` must freeze. The campaign 100M database pins the
-    published envelope and never negotiates it; every other target -- a 1M lane, a scratch database,
-    an unnamed preparation -- declares whatever its own flags ask for, so a general gate is not made
-    to reserve the campaign's twenty gibibytes. An unknown target is treated as the campaign one."""
-    return CAMPAIGN_ENVELOPE if database is None or campaign_database(database) else None
+def campaign_pointers():
+    """Every place the rig names the campaign 100M database, most authoritative first: the pointer
+    file `load100m.sh` rewrites on each reload, then `CB100M_DIR`. Classification accepts a match
+    against any of them, so a shell still exporting a rotated pointer cannot demote a campaign run
+    to a negotiable envelope."""
+    found = []
+    pointer = rig_work()/POINTER_FILE
+    try:
+        named = pointer.read_text().strip()
+    except OSError:
+        named = ''
+    if named:
+        found.append((named, str(pointer)))
+    named = (os.environ.get(CAMPAIGN_DIRECTORY) or '').strip()
+    if named:
+        found.append((named, CAMPAIGN_DIRECTORY))
+    return found
 
 
-def prepare_revision(reference, output, extra_args=(), envelope=CAMPAIGN_ENVELOPE):
+def same_database(left, right):
+    """Identity decides while both exist, as ClickBenchRigLease.isCampaignDatabase does; otherwise
+    the normalized paths do, because the campaign load names its target before creating it."""
+    left, right = Path(left), Path(right)
+    if left.exists() and right.exists():
+        return os.path.samefile(left, right)
+    return os.path.normpath(left.absolute()) == os.path.normpath(right.absolute())
+
+
+def classify_target(database, *, declared=False):
+    """Decide which JVM envelope a preparation for `database` must freeze, and record the evidence
+    for that decision so the frozen manifest can show a classification happened and what it saw.
+
+    The campaign 100M database pins the published envelope and never negotiates it. Any other
+    resolved target declares whatever its own flags ask for, so a 1M or scratch gate is not made to
+    reserve the campaign's twenty gibibytes. A preparation naming no database at all is treated as
+    the campaign one. A NAMED target that no pointer can classify is refused rather than guessed:
+    the caller either makes a pointer resolvable or declares the envelope explicitly.
+    """
+    consulted = campaign_pointers()
+    record = dict(target=None if database is None else os.path.normpath(Path(database).absolute()),
+                  campaign_pointer=consulted[0][0] if consulted else 'unset',
+                  pointer_source=consulted[0][1] if consulted else 'unset')
+    if database is None:
+        return dict(record, classification='campaign', decided_by='unnamed-target')
+    for named, source in consulted:
+        if same_database(Path(named)/'db', database):
+            if declared:
+                raise ValueError(f'{record["target"]} is the campaign 100M database, named by {source}; '
+                                 'its envelope is mandatory and cannot be declared away')
+            return dict(record, campaign_pointer=named, pointer_source=source,
+                        classification='campaign', decided_by='campaign-database')
+    if consulted:
+        return dict(record, classification='other', decided_by='campaign-database')
+    if declared:
+        return dict(record, classification='other', decided_by='operator-declaration')
+    raise ValueError(
+        f'cannot classify {record["target"]}: no campaign pointer resolves, so this may or may not be '
+        f'the 100M database and guessing either envelope is wrong. Either make the pointer resolvable '
+        f'-- {rig_work()/POINTER_FILE} is what load100m.sh writes, or export {CAMPAIGN_DIRECTORY} -- or, '
+        f'if this target is not the campaign database, declare its envelope with --declare-envelope.')
+
+
+def prepare_revision(reference, output, extra_args=(), classification=None):
     output = Path(output).resolve()
     output.mkdir(exist_ok=False, parents=True)
     commit = resolve_revision(reference)
@@ -122,7 +171,7 @@ def prepare_revision(reference, output, extra_args=(), envelope=CAMPAIGN_ENVELOP
     runtime['source_worktree'] = str(source)
     runtime.update(provenance)
     runtime['harness_overlay'] = 'current benchmark mains and process guard only; engine sources stay at source_commit'
-    return freeze_runtime(runtime, output/'frozen', envelope)
+    return freeze_runtime(runtime, output/'frozen', classification)
 
 
 def remove_source_worktree(repository, source):
@@ -131,10 +180,12 @@ def remove_source_worktree(repository, source):
                    cwd=repository, check=True, capture_output=True, text=True)
 
 
-def freeze_runtime(runtime, output, envelope=CAMPAIGN_ENVELOPE):
-    """`envelope` is the memory and compiler settings this runtime is frozen at, recorded in the
-    manifest and hashed into its identity so every later round verifies against the envelope this
-    run actually declared. Pass None to declare whatever the prepared flags resolve to."""
+def freeze_runtime(runtime, output, classification=None):
+    """`classification` is what classify_target decided about this runtime's database. Both the
+    decision and the envelope it implies are recorded in the manifest and hashed into its identity,
+    so every later round verifies against the envelope this run actually declared and the artifact
+    carries the evidence for its own classification. The default is an unnamed target."""
+    classification = classify_target(None) if classification is None else dict(classification)
     output = Path(output).resolve()
     output.mkdir(exist_ok=False, parents=True)
     copied = []
@@ -158,14 +209,16 @@ def freeze_runtime(runtime, output, envelope=CAMPAIGN_ENVELOPE):
     frozen['java_sha256'] = file_hash(frozen['java'])
     frozen['jdk_sha256'] = jdk_hashes(frozen['java'])
     frozen['java_version'] = subprocess.check_output([frozen['java'], '-version'], stderr=subprocess.STDOUT, text=True)
-    frozen['envelope'] = dict(envelope) if envelope is not None else scan_jvm_arguments(frozen['jvm_args'])
+    frozen['campaign_classification'] = classification
+    frozen['envelope'] = (dict(CAMPAIGN_ENVELOPE) if classification['classification'] == 'campaign'
+                          else scan_jvm_arguments(frozen['jvm_args']))
     frozen['runtime_id'] = hashlib.sha256(json.dumps(frozen, sort_keys=True).encode()).hexdigest()
     validate_runtime(frozen)
     (output/'runtime.json').write_text(json.dumps(frozen, indent=2)+'\n')
     return frozen
 
 
-def prepare_current(output, extra_args=(), envelope=CAMPAIGN_ENVELOPE):
+def prepare_current(output, extra_args=(), classification=None):
     """Freeze the current worktree, including local changes, for wrapper scripts."""
     output = Path(output).resolve()
     output.mkdir(exist_ok=False, parents=True)
@@ -183,7 +236,7 @@ def prepare_current(output, extra_args=(), envelope=CAMPAIGN_ENVELOPE):
                    tracked_diff_sha256=hashlib.sha256(subprocess.check_output(['git', 'diff', 'HEAD', '--'], cwd=ROOT)).hexdigest(),
                    source_status=subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True))
     runtime.update(harness_provenance(ROOT))
-    return freeze_runtime(runtime, output/'frozen', envelope)
+    return freeze_runtime(runtime, output/'frozen', classification)
 
 
 def parse_bytes(text):
@@ -301,9 +354,17 @@ def command(runtime, database, *, queries=None, tries=3):
     database = Path(database).resolve(strict=True)
     if not database.is_dir():
         raise ValueError('database must be an existing directory; no load or build-projection is permitted')
-    if campaign_database(database) and runtime.get('envelope') != CAMPAIGN_ENVELOPE:
-        raise ValueError('the campaign 100M database requires a runtime frozen at the campaign envelope '
-                         f'{CAMPAIGN_ENVELOPE}; prepare one instead of shrinking the envelope to fit')
+    if runtime.get('envelope') != CAMPAIGN_ENVELOPE:
+        # A runtime below the campaign envelope may only open the database it was classified and
+        # frozen for. That binding needs no pointer, so it still holds where classification cannot.
+        target = (runtime.get('campaign_classification') or {}).get('target')
+        if target is None or not same_database(target, database):
+            raise ValueError(f'this runtime was frozen below the campaign envelope for {target}; it must '
+                             f'not open {database}. Prepare a runtime for this database instead.')
+        for named, source in campaign_pointers():
+            if same_database(Path(named)/'db', database):
+                raise ValueError(f'{database} is the campaign 100M database, named by {source}; it requires '
+                                 f'a runtime frozen at the campaign envelope {CAMPAIGN_ENVELOPE}')
     argv = [runtime['java'], *runtime['jvm_args'], '-cp', os.pathsep.join(runtime['classpath']),
             runtime['main_class'], str(database), '--tries', str(tries)]
     if queries is not None:

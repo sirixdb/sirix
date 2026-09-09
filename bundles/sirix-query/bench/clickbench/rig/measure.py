@@ -29,7 +29,7 @@ from runtime import verify_runtime
 from runtime import verify_shared_dependencies
 from runtime import verify_shared_harness
 from runtime import validate_environment
-from runtime import envelope_for
+from runtime import classify_target
 from runtime import file_hash
 from runtime import CAMPAIGN_DIRECTORY
 from runtime import RIG
@@ -72,7 +72,7 @@ def protocol_for(args):
                                  'rig_lock.py')})
 
 
-def runtime_for(args, arm, output):
+def runtime_for(args, arm, output, classification):
     manifest = getattr(args, arm+'_runtime')
     if manifest:
         if getattr(args, arm+'_jvm_arg'):
@@ -81,7 +81,7 @@ def runtime_for(args, arm, output):
         verify_runtime(runtime)
         return runtime
     return prepare_revision(getattr(args, arm), output/('runtime-'+arm), getattr(args, arm+'_jvm_arg'),
-                            envelope_for(args.db))
+                            classification)
 
 
 def owned_scratch(args, output):
@@ -132,6 +132,7 @@ def compare(args):
     if not math.isfinite(args.effect_ln) or args.effect_ln <= 0:
         raise ValueError('effect size must be finite and positive')
     protocol = protocol_for(args)
+    classification = classify_target(args.db, declared=args.declare_envelope)
     seed = args.seed if args.seed is not None else secrets.randbits(32)
     orders = paired_orders(args.pairs, seed)
     output = Path(args.out).resolve()
@@ -139,8 +140,8 @@ def compare(args):
     try:
         with RigLease(timeout=args.lock_timeout) as lease:
             require_no_benchmark()
-            baseline = runtime_for(args, 'baseline', output)
-            candidate = runtime_for(args, 'candidate', output)
+            baseline = runtime_for(args, 'baseline', output, classification)
+            candidate = runtime_for(args, 'candidate', output, classification)
             if (baseline['java_version'] != candidate['java_version']
                     or baseline['jdk_sha256'] != candidate['jdk_sha256']):
                 raise ValueError('paired runtimes use different JDKs; this protocol requires the same JDK')
@@ -202,9 +203,9 @@ def prepare(args):
     flags = shlex.split(args.jvm_args)
     with RigLease(timeout=args.lock_timeout):
         require_no_benchmark()
-        envelope = envelope_for(args.db)
-        runtime = (prepare_revision(args.revision, output, flags, envelope) if args.revision
-                   else prepare_current(output, flags, envelope))
+        classification = classify_target(args.db, declared=args.declare_envelope)
+        runtime = (prepare_revision(args.revision, output, flags, classification) if args.revision
+                   else prepare_current(output, flags, classification))
     print(json.dumps(runtime, indent=2))
     print(f"Prepared manifest: {output/'frozen/runtime.json'}")
 
@@ -222,11 +223,13 @@ def run(args):
         require_no_benchmark()
         if args.runtime:
             runtime = json.loads(Path(args.runtime).read_text())
-            if args.jvm_args:
-                raise ValueError('runtime manifests already fix JVM flags; use --diagnostic-arg for a diagnostic overlay')
+            if args.jvm_args or args.declare_envelope:
+                raise ValueError('runtime manifests already fix the JVM flags and the classified envelope; '
+                                 'use --diagnostic-arg for a diagnostic overlay')
             verify_runtime(runtime)
         else:
-            runtime = prepare_current(output/'runtime', shlex.split(args.jvm_args), envelope_for(args.db))
+            runtime = prepare_current(output/'runtime', shlex.split(args.jvm_args),
+                                      classify_target(args.db, declared=args.declare_envelope))
         plan = dict(runtime=runtime, protocol=protocol, diagnostic=args.diagnostic)
         overlay = (runtime['jvm_args']+args.diagnostic_arg+shlex.split(args.diagnostic_args)
                    if args.diagnostic else None)
@@ -286,6 +289,10 @@ def main():
         child.add_argument('--jvm-args', default='', help='shell-like argument text, parsed without shell execution')
     preparation.set_defaults(function=prepare)
     single.set_defaults(function=run)
+    for child in (comparison, preparation, single):
+        child.add_argument('--declare-envelope', action='store_true',
+                           help='assert this target is not the campaign 100M database and freeze the envelope '
+                                'its flags resolve to; only needed when no campaign pointer resolves')
     analysis = commands.add_parser('analyze', help='recompute a completed collection without running a JVM')
     analysis.add_argument('input')
     analysis.set_defaults(function=analyze)
