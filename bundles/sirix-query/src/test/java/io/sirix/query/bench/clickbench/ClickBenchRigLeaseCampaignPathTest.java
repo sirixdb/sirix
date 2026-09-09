@@ -67,15 +67,15 @@ class ClickBenchRigLeaseCampaignPathTest {
     final Path campaign = directory.resolve("campaign");
     Files.createDirectories(campaign.resolve("db"));
     final Path small = Files.createDirectories(directory.resolve("seg1m/db"));
-    assertEquals("", withoutFlockLeases(() -> ClickBenchRigLease.holdForLoadProcess(derived(pointers(campaign), small), small)));
+    assertEquals("",
+        withoutFlockLeases(() -> ClickBenchRigLease.holdForLoadProcess(derived(pointers(campaign), small), small)));
   }
 
   @Test
   void theCampaignLoadTakesTheCampaignLease() throws IOException {
     final Path campaign = Files.createDirectories(directory.resolve("clickbench-seg100m-20260908-1200"));
-    final String announced =
-        withoutFlockLeases(() -> ClickBenchRigLease.holdForLoadProcess(derived(pointers(campaign), campaign.resolve("db")),
-            campaign.resolve("db")));
+    final String announced = withoutFlockLeases(() -> ClickBenchRigLease.holdForLoadProcess(
+        derived(pointers(campaign), campaign.resolve("db")), campaign.resolve("db")));
     assertTrue(announced.contains("rig lease") && announced.contains("Linux"), announced);
   }
 
@@ -84,17 +84,16 @@ class ClickBenchRigLeaseCampaignPathTest {
     final Path campaign = directory.resolve("campaign");
     Files.createDirectories(campaign.resolve("db"));
     final Path small = Files.createDirectories(directory.resolve("seg1m/db"));
-    assertEquals("",
-        withoutFlockLeases(() -> ClickBenchRigLease.holdForQueryProcess(derived(pointers(campaign), small), 24 * GIB, small)));
+    assertEquals("", withoutFlockLeases(
+        () -> ClickBenchRigLease.holdForQueryProcess(derived(pointers(campaign), small), 24 * GIB, small)));
   }
 
   @Test
   void aCampaignQueryRunMustMatchTheHundredMillionEnvelope() throws IOException {
     final Path campaign = directory.resolve("campaign");
     final Path database = Files.createDirectories(campaign.resolve("db"));
-    final IOException refused = assertThrows(IOException.class,
-        () -> withoutFlockLeases(
-            () -> ClickBenchRigLease.holdForQueryProcess(derived(pointers(campaign), database), 24 * GIB, database)));
+    final IOException refused = assertThrows(IOException.class, () -> withoutFlockLeases(
+        () -> ClickBenchRigLease.holdForQueryProcess(derived(pointers(campaign), database), 24 * GIB, database)));
     assertTrue(refused.getMessage().contains("100M query envelope"), refused.getMessage());
   }
 
@@ -125,16 +124,16 @@ class ClickBenchRigLeaseCampaignPathTest {
     assertFalse(Files.exists(rotatedAway));
     final List<ClickBenchRigLease.CampaignPointer> consulted = pointers(rotatedAway, campaign);
     assertEquals(campaign.toString(), ClickBenchRigLease.campaignMatch(consulted, database).named());
-    final IOException refused = assertThrows(IOException.class,
-        () -> withoutFlockLeases(
-            () -> ClickBenchRigLease.holdForQueryProcess(derived(consulted, database), 24 * GIB, database)));
+    final IOException refused = assertThrows(IOException.class, () -> withoutFlockLeases(
+        () -> ClickBenchRigLease.holdForQueryProcess(derived(consulted, database), 24 * GIB, database)));
     assertTrue(refused.getMessage().contains("100M query envelope"), refused.getMessage());
   }
 
   @Test
   void aRawRunTheChainCannotPlaceStaysShared() throws IOException {
     final Path database = Files.createDirectories(directory.resolve("scratch/db"));
-    assertEquals("", withoutFlockLeases(() -> ClickBenchRigLease.holdForQueryProcess(derived(List.of(), database), 24 * GIB, database)));
+    assertEquals("", withoutFlockLeases(
+        () -> ClickBenchRigLease.holdForQueryProcess(derived(List.of(), database), 24 * GIB, database)));
   }
 
   /** The decision the pointer chain alone implies, as a raw entry point with no parent reaches it. */
@@ -153,7 +152,7 @@ class ClickBenchRigLeaseCampaignPathTest {
     Files.createDirectories(previous.resolve("db"));
     final Path database = Files.createDirectories(campaign.resolve("db"));
     assertFalse(ClickBenchRigLease.decide(pointers(previous), database).campaign(),
-                "the chain the JVM can see must be the one that would demote this run");
+        "the chain the JVM can see must be the one that would demote this run");
 
     final ClickBenchRigLease.Decision inherited =
         ClickBenchRigLease.inheritedDecision("campaign", database.toString(), database);
@@ -171,7 +170,7 @@ class ClickBenchRigLeaseCampaignPathTest {
     final Path elsewhere = Files.createDirectories(campaign.resolve("db"));
     final Path small = Files.createDirectories(directory.resolve("seg1m/db"));
     assertNull(ClickBenchRigLease.inheritedDecision("campaign", elsewhere.toString(), small),
-               "a decision naming another database must be ignored, not applied");
+        "a decision naming another database must be ignored, not applied");
     // Ignored means this run resolves for itself, and the chain places it as an unrelated database.
     assertEquals("", withoutFlockLeases(
         () -> ClickBenchRigLease.holdForQueryProcess(derived(pointers(campaign), small), 24 * GIB, small)));
@@ -214,7 +213,7 @@ class ClickBenchRigLeaseCampaignPathTest {
     Files.delete(alias);
     Files.createSymbolicLink(directory.resolve("current"), campaign);
     assertNull(ClickBenchRigLease.inheritedDecision("other", decided, alias.resolve("db")),
-               "a repointed alias must not carry an `other` verdict onto the campaign database");
+        "a repointed alias must not carry an `other` verdict onto the campaign database");
     // Ignored means this run derives for itself, and the chain places it as the campaign database.
     final ClickBenchRigLease.Decision derived = derived(pointers(campaign), alias.resolve("db"));
     assertTrue(derived.campaign());

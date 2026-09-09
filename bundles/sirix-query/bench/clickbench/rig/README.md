@@ -8,7 +8,9 @@ reduced sum-ln. Seconds and per-query ln contributions are reported alongside it
 
 Install the analysis dependency once in your Python environment:
 `python3 -m pip install -r bundles/sirix-query/bench/clickbench/rig/requirements.txt`.
-Set `CB100M_DIR` to the existing database's parent directory and reserve a quiet rig window.
+Point the rig at the existing database and reserve a quiet rig window: every `load100m.sh`
+writes the pointer file that names it, and `CB100M_DIR` names it where none was written —
+the campaign-identity contract below owns that chain.
 Then run from this checkout, substituting the two revisions and a fresh output path:
 
 ```sh
@@ -237,10 +239,11 @@ resolves — it takes a shared lease and announces `campaign=unset`. `load100m.s
 as part of every load, so this is the state of a checkout that has never loaded the corpus.
 
 **Evidence.** Every frozen runtime records the decision next to `envelope` as
-`campaign_classification`: the target, the consulted pointer and its source (or `unset`), whether
-that pointer was `resolved` or `stale`, the classification (`campaign`, `other` or `unplaceable`),
-and what decided it (`campaign-database`, `inherited-decision`, `unnamed-target`,
-`unresolved-pointer` or `operator-declaration`).
+`campaign_classification`: the target, the source consulted and what it named — a pointer, or
+`CB_RIG_CLASSIFICATION` and the database the inherited conclusion applies to, or `unset` when
+neither — that source's state (`resolved`, `stale`, `inherited` or `unset`), the classification
+(`campaign`, `other` or `unplaceable`), and what decided it (`campaign-database`,
+`inherited-decision`, `unnamed-target`, `unresolved-pointer` or `operator-declaration`).
 `runtime_id` hashes it, so `plan.json` and the cold-round stamp carry it too.
 
 **Consumers.** Each of these implements the contract above and defines no rule of its own:
@@ -270,7 +273,7 @@ changes. `--revision COMMIT` prepares an isolated revision instead. A later comp
 use `--baseline-runtime MANIFEST --candidate-runtime MANIFEST`. Runtime hashes are verified, and so
 is the JVM envelope the manifest declares.
 
-`--db` decides which envelope that is, through the campaign-identity contract below. Every later
+`--db` decides which envelope that is, through the campaign-identity contract above. Every later
 round re-verifies against the envelope its run declared, and both arms of a comparison must declare
 the same envelope.
 Use `--baseline-jvm-arg=-Dproperty=value` (and candidate equivalent) for
@@ -299,15 +302,15 @@ another fresh output directory. Advanced profiling uses `measure.py run --diagno
 with repeated `--diagnostic-arg=-XX:...` arguments, an explicit `--out`, `--queries`, and `--tries`.
 
 The host lease is `/tmp/sirix-clickbench-<uid>.lock`, stable across worktrees. With `CB_RIG_WORK`
-set, the launcher also holds its legacy `leg.lock`. Kernel flock ownership is authoritative;
-an empty or stale file does not block a run. Never unlink lock files. The launcher passes open
-descriptors directly to Java, which verifies the inode and kernel lock and retains ownership
-until process exit. Raw Java/Gradle benchmark entry points also acquire a process-lifetime
-lease. A JVM is exclusive exactly when its database is the campaign one `CB100M_DIR` names, and
-only such a query JVM must match the full campaign envelope; every other load or query keeps shared
-host ownership and cannot overlap an exclusive 100M process, so two small JVMs no longer exclude
-each other. Their wrappers stay stricter: `load1m.sh` and `seggate1m.sh` hold `leg.lock` exclusively
-and refuse any live benchmark JVM, so the 1M lanes still run one at a time, and
+set, the launcher also holds its legacy `leg.lock`. Kernel flock ownership is authoritative; an
+empty or stale file does not block a run. Never unlink lock files. The launcher passes open
+descriptors directly to Java, which verifies the inode and kernel lock and retains ownership until
+process exit. Raw Java/Gradle benchmark entry points also acquire a process-lifetime lease. A JVM is
+exclusive exactly when its database is the campaign one, by the campaign-identity contract above,
+and only such a query JVM must match the full campaign envelope; every other load or query keeps
+shared host ownership and cannot overlap an exclusive 100M process, so two small JVMs no longer
+exclude each other. Their wrappers stay stricter: `load1m.sh` and `seggate1m.sh` hold `leg.lock`
+exclusively and refuse any live benchmark JVM, so the 1M lanes still run one at a time, and
 `rig_lock.py -- COMMAND...` — which every legacy executable must use — takes the host lease
 exclusively whatever database the command opens. Losing a wrapper does not release the lease while
 its JVM survives.

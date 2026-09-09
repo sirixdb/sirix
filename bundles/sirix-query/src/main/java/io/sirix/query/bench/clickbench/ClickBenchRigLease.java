@@ -109,13 +109,13 @@ final class ClickBenchRigLease implements AutoCloseable {
 
   /**
    * This run's campaign-identity decision. A rig launcher resolves identity once and exports the
-   * conclusion it reached; this process honours that conclusion and consults no pointer at all, so
-   * it cannot reach a different answer than the parent whose lease it holds. Deriving the answer is
-   * what a raw {@code java -cp} or Gradle run does, having no parent that decided for it.
+   * conclusion it reached; this process honours that conclusion and consults no pointer at all, so it
+   * cannot reach a different answer than the parent whose lease it holds. Deriving the answer is what
+   * a raw {@code java -cp} or Gradle run does, having no parent that decided for it.
    */
   static Decision decide(final Path database) throws IOException {
-    final Decision inherited = inheritedDecision(System.getenv(CLASSIFICATION), System.getenv(CLASSIFIED_DATABASE),
-        database);
+    final Decision inherited =
+        inheritedDecision(System.getenv(CLASSIFICATION), System.getenv(CLASSIFIED_DATABASE), database);
     return inherited != null
         ? inherited
         : decide(campaignPointers(), database);
@@ -131,7 +131,8 @@ final class ClickBenchRigLease implements AutoCloseable {
             : consulted.get(0);
     return new Decision(matched != null, announced == null
         ? UNSET
-        : announced.named(), announced == null
+        : announced.named(),
+        announced == null
             ? UNSET
             : announced.source());
   }
@@ -183,9 +184,9 @@ final class ClickBenchRigLease implements AutoCloseable {
 
   /**
    * The name an identity comparison must use: absolute, with every symlink resolved as far as the
-   * path exists. Operators keep a stable alias pointing at whichever campaign directory the last
-   * load wrote, so an unresolved alias is a name that can come to mean a different database than the
-   * one it named when a decision was reached about it. This is {@code runtime.canonical}.
+   * path exists. Operators keep a stable alias pointing at whichever campaign directory the last load
+   * wrote, so an unresolved alias is a name that can come to mean a different database than the one
+   * it named when a decision was reached about it. This is {@code runtime.canonical}.
    */
   static Path canonical(final Path path) {
     final Path absolute = path.toAbsolutePath();
