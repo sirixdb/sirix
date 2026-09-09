@@ -129,8 +129,11 @@ DUCKDB_MEMORY_LIMIT=12GB DUCKDB_THREADS=4 \
 
 Both Java mains take a process-lifetime rig lease before reserving memory, so a killed wrapper cannot
 leave the lease dangling. Only the campaign 100M run is *exclusive*: the lease is exclusive exactly
-when the JVM's database is the one `CB100M_DIR` names, and only such a query JVM must match the 100M
-envelope exactly, which is what the flags above are. Every other load or query — 1M validation, a
+when the JVM's database is the one the rig's campaign-identity chain names — the pointer file
+`load100m.sh` rewrites, then `CB100M_DIR` — and only such a query JVM must match the 100M envelope
+exactly, which is what the flags above are. The JVM resolves that chain itself rather than trusting
+its caller, so a raw `java` or `./gradlew :sirix-query:clickBench` run against the campaign database
+is exclusive from any shell. Every other load or query — 1M validation, a
 scratch database, the commands above — only shares the host lease, so the small lanes keep running
 next to each other. `cold-rounds.sh` below is the exception: it re-execs under `rig/rig_lock.py`,
 which takes the host lease exclusively for any database, because a cold round must own the box. The
@@ -760,15 +763,20 @@ campaign box; override with `--duckdb-cold` / `--duckdb-hot`).
 
 The JVM arm is a runtime frozen by `rig/measure.py prepare` for the database under test, and every
 round re-verifies against it. Which envelope it is frozen at is decided from the database, not from
-the caller's environment: the rig reads the campaign pointer file `load100m.sh` writes
-(`$CB_RIG_WORK/current-100m-dir.txt`, else `build/diagnostics/rig/`), then `CB100M_DIR`. For the
-campaign 100M database the campaign envelope is mandatory and nothing may shrink it. For any other
-resolved database, `EXTRA` sizes the JVM —
-`EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" ./cold-rounds.sh /var/tmp/sirix-clickbench`
-— and the frozen runtime declares that envelope for the rounds to hold to. If neither pointer
-resolves, the rig cannot tell a scratch database from the campaign one and **refuses** rather than
-guess; make a pointer resolvable, or pass `--declare-envelope` on a box that has no campaign database
-at all. Each round's JSON records the classification, the pointer consulted, the `runtime_id` and the
+the caller's environment, through the one campaign-identity chain
+[`rig/README.md`](rig/README.md) defines. For the campaign 100M database the campaign envelope is
+mandatory and nothing may shrink it. For a database some resolved pointer proves is a different one,
+`EXTRA` sizes the JVM and the frozen runtime declares that envelope for the rounds to hold to. On a
+box where no pointer resolves — no campaign corpus has ever been loaded here — the arm still gets
+the campaign envelope, which is why the command above needs no extra flag; to size it down there,
+say the target is not the campaign database:
+
+```bash
+EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" \
+    ./cold-rounds.sh /var/tmp/sirix-clickbench --declare-envelope
+```
+
+Each round's JSON records the classification and the pointer consulted, the `runtime_id` and the
 command that produced it.
 
 **The published ClickBench numbers, for reference:** cold suite **0.986 s** best of 4 rounds (median

@@ -6,12 +6,16 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -63,14 +67,14 @@ class ClickBenchRigLeaseCampaignPathTest {
     final Path campaign = directory.resolve("campaign");
     Files.createDirectories(campaign.resolve("db"));
     final Path small = Files.createDirectories(directory.resolve("seg1m/db"));
-    assertEquals("", withoutFlockLeases(() -> ClickBenchRigLease.holdForLoadProcess(campaign.toString(), small)));
+    assertEquals("", withoutFlockLeases(() -> ClickBenchRigLease.holdForLoadProcess(pointers(campaign), small)));
   }
 
   @Test
   void theCampaignLoadTakesTheCampaignLease() throws IOException {
     final Path campaign = Files.createDirectories(directory.resolve("clickbench-seg100m-20260908-1200"));
     final String announced =
-        withoutFlockLeases(() -> ClickBenchRigLease.holdForLoadProcess(campaign.toString(), campaign.resolve("db")));
+        withoutFlockLeases(() -> ClickBenchRigLease.holdForLoadProcess(pointers(campaign), campaign.resolve("db")));
     assertTrue(announced.contains("rig lease") && announced.contains("Linux"), announced);
   }
 
@@ -80,16 +84,60 @@ class ClickBenchRigLeaseCampaignPathTest {
     Files.createDirectories(campaign.resolve("db"));
     final Path small = Files.createDirectories(directory.resolve("seg1m/db"));
     assertEquals("",
-        withoutFlockLeases(() -> ClickBenchRigLease.holdForQueryProcess(campaign.toString(), 24 * GIB, small)));
+        withoutFlockLeases(() -> ClickBenchRigLease.holdForQueryProcess(pointers(campaign), 24 * GIB, small)));
   }
 
   @Test
   void aCampaignQueryRunMustMatchTheHundredMillionEnvelope() throws IOException {
     final Path campaign = directory.resolve("campaign");
     final Path database = Files.createDirectories(campaign.resolve("db"));
-    final IOException refused = assertThrows(IOException.class, () -> withoutFlockLeases(
-        () -> ClickBenchRigLease.holdForQueryProcess(campaign.toString(), 24 * GIB, database)));
+    final IOException refused = assertThrows(IOException.class,
+        () -> withoutFlockLeases(() -> ClickBenchRigLease.holdForQueryProcess(pointers(campaign), 24 * GIB, database)));
     assertTrue(refused.getMessage().contains("100M query envelope"), refused.getMessage());
+  }
+
+  @Test
+  void thePointerFileNamesTheCampaignDatabaseAheadOfTheEnvironmentVariable() throws IOException {
+    final Path work = Files.createDirectories(directory.resolve("rig-work"));
+    final Path campaign = Files.createDirectories(directory.resolve("clickbench-seg100m-20260908-1200"));
+    Files.writeString(work.resolve("current-100m-dir.txt"), campaign + "\n");
+    final List<ClickBenchRigLease.CampaignPointer> consulted = ClickBenchRigLease.campaignPointers(work);
+    assertEquals(campaign.toString(), consulted.get(0).named());
+    assertEquals(work.resolve("current-100m-dir.txt").toString(), consulted.get(0).source());
+    assertNotNull(ClickBenchRigLease.campaignMatch(consulted, campaign.resolve("db")));
+    assertNull(ClickBenchRigLease.campaignMatch(consulted, Files.createDirectories(directory.resolve("seg1m/db"))));
+  }
+
+  @Test
+  void aBoxWithNoPointerFileConsultsNothingFromDisk() throws IOException {
+    final Path work = Files.createDirectories(directory.resolve("empty-work"));
+    final Path database = Files.createDirectories(directory.resolve("scratch/db"));
+    assertNull(ClickBenchRigLease.campaignMatch(ClickBenchRigLease.campaignPointers(work), database));
+  }
+
+  @Test
+  void aRotatedPointerDoesNotStopALaterSourceFromMakingTheRunExclusive() throws IOException {
+    final Path rotatedAway = directory.resolve("clickbench-seg100m-20260905-2328");
+    final Path campaign = Files.createDirectories(directory.resolve("clickbench-seg100m-20260908-1200"));
+    final Path database = Files.createDirectories(campaign.resolve("db"));
+    assertFalse(Files.exists(rotatedAway));
+    final List<ClickBenchRigLease.CampaignPointer> consulted = pointers(rotatedAway, campaign);
+    assertEquals(campaign.toString(), ClickBenchRigLease.campaignMatch(consulted, database).named());
+    final IOException refused = assertThrows(IOException.class,
+        () -> withoutFlockLeases(() -> ClickBenchRigLease.holdForQueryProcess(consulted, 24 * GIB, database)));
+    assertTrue(refused.getMessage().contains("100M query envelope"), refused.getMessage());
+  }
+
+  @Test
+  void aRawRunTheChainCannotPlaceStaysShared() throws IOException {
+    final Path database = Files.createDirectories(directory.resolve("scratch/db"));
+    assertEquals("", withoutFlockLeases(() -> ClickBenchRigLease.holdForQueryProcess(List.of(), 24 * GIB, database)));
+  }
+
+  private static List<ClickBenchRigLease.CampaignPointer> pointers(final Path... named) {
+    return Arrays.stream(named)
+                 .map(path -> new ClickBenchRigLease.CampaignPointer(path.toString(), "CB100M_DIR"))
+                 .toList();
   }
 
   /**

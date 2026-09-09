@@ -7,10 +7,16 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from rig_lock import HOST_FD
+from rig_lock import LEGACY_FD
 from rig_lock import RigLease
+from rig_lock import lock_paths
 from rig_lock import verify_descriptor
+from runtime import CAMPAIGN_DIRECTORY
+from runtime import POINTER_FILE
+from runtime import RIG_WORK
 
 
 class RigLockTest(unittest.TestCase):
@@ -27,6 +33,35 @@ class RigLockTest(unittest.TestCase):
                   ' except BlockingIOError: sys.exit(7)\n')
         return subprocess.run([sys.executable, '-c', script, str(self.path), '1' if shared else '2'],
                               check=False).returncode
+
+    def test_the_launcher_pins_the_resolved_campaign_pointer_into_every_child(self):
+        """A rig-launched JVM must classify its database exactly as the launcher did. The JVM
+        resolves the same chain itself, so the launcher hands it the pointer it resolved rather than
+        leaving the JVM to whatever the operator's shell happened to hold -- which is how a campaign
+        round could take a shared lease while its own manifest recorded it as campaign."""
+        work = Path(self.directory.name)/'work'
+        work.mkdir()
+        campaign = Path(self.directory.name)/'clickbench-seg100m-20260908-1200'
+        (campaign/'db').mkdir(parents=True)
+        (work/POINTER_FILE).write_text(str(campaign)+'\n')
+        with patch.dict(os.environ, {}, clear=True), patch('runtime.rig_work', return_value=work):
+            with RigLease(timeout=0, paths=[(HOST_FD, self.path)]) as lease:
+                child = lease.child_environment()
+        self.assertEqual(child[CAMPAIGN_DIRECTORY], str(campaign))
+        # Only the pointer. Exporting the rig work directory too would silently opt every child into
+        # the legacy leg.lock its parent never took, and rig_lock.py --check would then refuse.
+        self.assertNotIn(RIG_WORK, child)
+        with patch.dict(os.environ, child, clear=True):
+            self.assertEqual([key for key, _ in lock_paths()], [HOST_FD])
+        with patch.dict(os.environ, dict(child, **{RIG_WORK: str(work)}), clear=True):
+            self.assertEqual([key for key, _ in lock_paths()], [HOST_FD, LEGACY_FD])
+
+    def test_a_launcher_that_resolves_no_campaign_pointer_invents_one_for_nobody(self):
+        with patch.dict(os.environ, {}, clear=True), \
+                patch('runtime.rig_work', return_value=Path(self.directory.name)/'absent'):
+            with RigLease(timeout=0, paths=[(HOST_FD, self.path)]) as lease:
+                child = lease.child_environment()
+        self.assertNotIn(CAMPAIGN_DIRECTORY, child)
 
     def test_stale_empty_file_never_blocks_and_is_never_unlinked(self):
         inode = self.path.stat().st_ino

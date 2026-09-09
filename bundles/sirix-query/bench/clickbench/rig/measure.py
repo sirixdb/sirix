@@ -29,6 +29,7 @@ from runtime import verify_runtime
 from runtime import verify_shared_dependencies
 from runtime import verify_shared_harness
 from runtime import validate_environment
+from runtime import campaign_pointers
 from runtime import classify_target
 from runtime import file_hash
 from runtime import CAMPAIGN_DIRECTORY
@@ -54,7 +55,7 @@ def paired_orders(count, seed):
 
 def protocol_for(args):
     if not args.db:
-        raise ValueError('provide --db or export CB100M_DIR; the command never loads a database')
+        raise ValueError('provide --db, or make a campaign pointer resolve; the command never loads a database')
     database = Path(args.db).resolve(strict=True)
     if not database.is_dir():
         raise ValueError('the database must already exist as a directory')
@@ -251,9 +252,10 @@ def common_options(parser, *, collection=True):
     parser.add_argument('--out', required=True, help='fresh output directory; existing evidence is never overwritten')
     parser.add_argument('--lock-timeout', type=float, default=120)
     if collection:
-        database_root = os.environ.get(CAMPAIGN_DIRECTORY)
-        parser.add_argument('--db', default=str(Path(database_root)/'db') if database_root else None,
-                            help='existing database directory; defaults to $CB100M_DIR/db')
+        placed = next((entry[0] for entry in campaign_pointers() if entry[2] == 'resolved'), None)
+        parser.add_argument('--db', default=str(Path(placed)/'db') if placed else None,
+                            help='existing database directory; defaults to the campaign database the '
+                                 'rig resolves, pointer file before $CB100M_DIR')
         parser.add_argument('--power-uw', type=int, default=50_000_000, help='verify both power limits; never changes them')
         parser.add_argument('--cool-below', type=float, default=55)
 
@@ -291,8 +293,9 @@ def main():
     single.set_defaults(function=run)
     for child in (comparison, preparation, single):
         child.add_argument('--declare-envelope', action='store_true',
-                           help='assert this target is not the campaign 100M database and freeze the envelope '
-                                'its flags resolve to; only needed when no campaign pointer resolves')
+                           help='assert this target is not the campaign 100M database, so its own flags fix the '
+                                'envelope; only needed where no campaign pointer resolves, and refused when one '
+                                'names this database')
     analysis = commands.add_parser('analyze', help='recompute a completed collection without running a JVM')
     analysis.add_argument('input')
     analysis.set_defaults(function=analyze)

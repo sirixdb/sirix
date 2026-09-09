@@ -162,6 +162,66 @@ recognize it. No conversion or
 assembly path produces a rankable leg, because no converter mints publication provenance. No
 cross-regime transfer to an uncapped publication run has been established by the quiet control.
 
+## The campaign-identity contract
+
+Everything the rig does differently for the campaign 100M database — the exclusive host lease, the
+mandatory JVM envelope, the legacy-process refusal — hangs off one question: *is this database the
+campaign one?* This section is the only definition of that answer. Every consumer listed at the end
+implements exactly this and nothing of its own.
+
+**Resolution.** Two sources name the campaign database, most authoritative first:
+
+1. the pointer file `$CB_RIG_WORK/current-100m-dir.txt`, defaulting to
+   `bundles/sirix-query/build/diagnostics/rig/current-100m-dir.txt` in the enclosing checkout.
+   `load100m.sh` rewrites it on every reload.
+2. the `CB100M_DIR` environment variable.
+
+The pointer file wins because a shell can still be exporting `CB100M_DIR` from a database that has
+since been replaced, while the file is rewritten by the load itself. A source *resolves* when the
+directory it names exists; one naming a directory that no longer exists is **stale**.
+
+**Matching.** A target is the campaign database when it is the same file as `<named>/db` for *any*
+consulted source, stale ones included — file identity when both paths exist, normalized paths
+otherwise, so a load is recognised before it has created its database. Matching a stale source too
+is deliberate: a rotated pointer must never be able to demote a campaign run.
+
+**When resolution fails.** If no source resolves, the rig cannot place the campaign database at all.
+The *envelope* then fails closed: the target gets the campaign envelope, because over-provisioning is
+safe on any database while under-provisioning the campaign one destroys comparability.
+`--declare-envelope` is the operator asserting the target is *not* the campaign database; it is
+refused whenever a pointer says otherwise.
+
+The *lease* deliberately does not fail closed the same way. An unplaceable target keeps a shared
+lease, because taking the host lease exclusively for every JVM would serialize the 1M validation
+lanes that must keep running in parallel. Contention is still covered for anything the rig launches:
+`rig_lock.py` and `measure.py` hold the host lease exclusively whatever the classification says. The
+residual is a *raw* `java` or Gradle run against the campaign database on a box where no pointer
+resolves — it takes a shared lease and announces `campaign=unset`. `load100m.sh` writes the pointer
+as part of every load, so this is the state of a checkout that has never loaded the corpus.
+
+**Evidence.** Every frozen runtime records the decision next to `envelope` as
+`campaign_classification`: the target, the consulted pointer and its source (or `unset`), whether
+that pointer was `resolved` or `stale`, the classification, and what decided it
+(`campaign-database`, `unnamed-target`, `unresolved-pointer` or `operator-declaration`).
+`runtime_id` hashes it, so `plan.json` and the cold-round stamp carry it too.
+
+**Consumers.** Each of these implements the contract above and defines no rule of its own:
+
+| consumer | what the contract obliges it to do |
+| --- | --- |
+| `runtime.classify_target` (preparation) | campaign target → mandatory envelope; a placed non-campaign target → its own flags; unplaceable → campaign envelope |
+| `runtime.command` (launch guard) | refuse a runtime below the campaign envelope against a database any source names as campaign |
+| `runtime.command` (runtime/database binding) | a runtime below the campaign envelope may open only the database its manifest records — no pointer needed, so it holds where resolution fails |
+| `rig_lock.RigLease.child_environment` | export the resolved work directory and pointer, so a rig-launched JVM evaluates the same chain over the same files |
+| `ClickBenchRigLease` (both Java mains) | resolve the same chain in-process; exclusive lease, envelope validation and legacy-process refusal exactly on a match |
+| raw `java …ClickBenchRunMain` / `./gradlew :sirix-query:clickBench` | nothing of their own — they reach the contract through `ClickBenchRigLease`, so they are exclusive from any shell |
+| `rig.env` (`D100M`) | same two sources in the same precedence, skipping a stale pointer |
+| `cold-rounds.sh` | passes its `--db` and `--declare-envelope` through; states no rule itself |
+| `load100m.sh` | writes source 1 |
+
+Java runs standalone, so the contract has two readers; it has only one definition, and the JVM never
+trusts its caller to have classified correctly.
+
 ## Entry points and ownership
 
 `measure.py prepare --out FRESH_DIR` builds and freezes the current worktree, including local
@@ -169,26 +229,9 @@ changes. `--revision COMMIT` prepares an isolated revision instead. A later comp
 use `--baseline-runtime MANIFEST --candidate-runtime MANIFEST`. Runtime hashes are verified, and so
 is the JVM envelope the manifest declares.
 
-`--db` decides which envelope that is, and the rig decides it from the database rather than from the
-caller's environment. It resolves the campaign 100M database through its own chain — the pointer file
-`load100m.sh` rewrites on every reload (`$CB_RIG_WORK/current-100m-dir.txt`, else
-`build/diagnostics/rig/`), then `CB100M_DIR` — and a target matching *either* is the campaign
-database, so a shell still exporting a rotated pointer cannot demote a campaign run. For the campaign
-database, and for a preparation naming no database at all, the exact 6 GiB initial / 14 GiB maximum
-heap, 10 GiB arena, 5 GiB eager residency and disabled JVMCI compiler are mandatory and no
-`--jvm-args` may shrink them. Any other resolved target — a 1M lane, a scratch database — declares
-whatever its own flags resolve to, so a general gate is not made to reserve the campaign's twenty
-gibibytes. When no pointer resolves at all, a named target cannot be told apart from the campaign
-database and the command refuses rather than guess: make a pointer resolvable, or pass
-`--declare-envelope` to assert the target is not the campaign database. Declaring it away *for* the
-campaign database is refused.
-
-The frozen manifest records that decision next to `envelope` as `campaign_classification` — the
-pointer consulted or an explicit `unset`, which source resolved it, and what it decided — and
-`runtime_id` hashes it, so `plan.json` and the cold-round stamp carry it too. Every later round
-re-verifies against the envelope its run declared. A runtime frozen below the campaign envelope may
-only open the database it was classified for, which holds with no pointer at all, and both arms of a
-comparison must declare the same envelope.
+`--db` decides which envelope that is, through the campaign-identity contract below. Every later
+round re-verifies against the envelope its run declared, and both arms of a comparison must declare
+the same envelope.
 Use `--baseline-jvm-arg=-Dproperty=value` (and candidate equivalent) for
 explicit mechanism ablations prepared from revisions; profiling options require diagnostics.
 Original classpath provenance also detects an external snapshot JAR changing in place between

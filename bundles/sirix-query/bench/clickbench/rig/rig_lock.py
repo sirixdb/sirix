@@ -13,13 +13,17 @@ import subprocess
 import sys
 import time
 
+from runtime import CAMPAIGN_DIRECTORY
+from runtime import RIG_WORK
+from runtime import campaign_pointers
+
 HOST_FD = 'CB_RIG_HOST_LOCK_FD'
 LEGACY_FD = 'CB_RIG_LEGACY_LOCK_FD'
 
 
 def lock_paths():
     paths = [(HOST_FD, Path('/tmp')/f'sirix-clickbench-{os.getuid()}.lock')]
-    work = os.environ.get('CB_RIG_WORK')
+    work = os.environ.get(RIG_WORK)
     if work:
         paths.append((LEGACY_FD, Path(work).resolve()/'leg.lock'))
     return paths
@@ -78,9 +82,15 @@ class RigLease:
             raise
 
     def child_environment(self):
+        """Pin the campaign pointer this process resolved into every child, so a rig-launched JVM
+        classifies its database exactly as the launcher did instead of re-resolving from whatever
+        the operator's shell happened to hold."""
         env = os.environ.copy()
         for key in (HOST_FD, LEGACY_FD):
             env.pop(key, None)
+        consulted = campaign_pointers()
+        if consulted:
+            env[CAMPAIGN_DIRECTORY] = consulted[0][0]
         env.update({key: str(fd) for key, fd in self.descriptors.items()})
         return env
 
