@@ -230,3 +230,34 @@ Five raw evidence archives were discarded from `evidence/`; what was dropped, wh
 replayed, and what cannot be recaptured are recorded in [`evidence/RETENTION.md`](evidence/RETENTION.md).
 Campaign context is in
 [`HANDOFF_SEGMENT_LANE_2026-09-06.md`](../../../../../docs/HANDOFF_SEGMENT_LANE_2026-09-06.md).
+
+## Deferred CI job for sirix-ci-campaign-branch-coverage
+
+Add the following exact job YAML to `.github/workflows/gradle.yml` as part of
+`sirix-ci-campaign-branch-coverage`, once workflow scope is available and that task widens
+the pull-request triggers to include the campaign branch.
+
+This delivery could not push the job because the pipeline OAuth token lacks `workflow` scope.
+
+```yaml
+  TestRig:
+    name: Test the ClickBench measurement rig
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install rig analysis dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r bundles/sirix-query/bench/clickbench/rig/requirements.txt
+      # Pure-Python scoring, uncertainty, provenance and kernel-lock regressions. No JVM, database
+      # or benchmark run is involved, so this gate does not depend on the Gradle build.
+      - name: Test the rig harness
+        run: python -m unittest discover -s bundles/sirix-query/bench/clickbench/rig -p 'test_*.py' -v
+
+```
