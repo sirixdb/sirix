@@ -915,6 +915,8 @@ public final class GroupTableSpill {
   private final int passLo;
   private final int passHi;
   private final long budget;
+
+  private final boolean partialGroups;
   /** Shared by every table of this spill, or {@code null} when the pool is switched off. */
   private final LongChunkPool pool;
   private final LongChunkPool probePool;
@@ -961,6 +963,16 @@ public final class GroupTableSpill {
    */
   public GroupTableSpill(final int partitions, final int shift, final IntFunction<NumericGroupAggTable> factory,
       final long expectedGroups, final int passLo, final int passHi, final long budget) {
+    this(partitions, shift, factory, expectedGroups, passLo, passHi, budget, false);
+  }
+
+  /**
+   * A spill that may relax local deduplication for dense, high-cardinality worker tables. Every
+   * partial record still reaches an exact partition table before any group is selected. Callers
+   * must exclude distinct sinks and any other state requiring unique local group handles.
+   */
+  public GroupTableSpill(final int partitions, final int shift, final IntFunction<NumericGroupAggTable> factory,
+      final long expectedGroups, final int passLo, final int passHi, final long budget, final boolean partialGroups) {
     if (partitions <= 0 || (partitions & (partitions - 1)) != 0) {
       throw new IllegalArgumentException("partitions must be a power of two: " + partitions);
     }
@@ -995,6 +1007,7 @@ public final class GroupTableSpill {
     // One probe table fixes the layout every table of this spill shares; it never holds a group.
     final int stride = factory.apply(workerTableHint()).stride();
     this.denseIndex = denseIndexEnabled(stride);
+    this.partialGroups = partialGroups && denseIndex;
     this.stripeStride = stride;
     if (stripeSpill) {
       this.stripeBuffers = new StripeBuffer[partitions];
@@ -1033,6 +1046,9 @@ public final class GroupTableSpill {
   /** A fresh worker table from the factory, restricted to this pass's partitions. */
   public NumericGroupAggTable freshLocal() {
     final NumericGroupAggTable table = adopt(factory.apply(workerTableHint()));
+    if (partialGroups) {
+      table.allowPartialGroups();
+    }
     if (passLo != 0 || passHi != partitions) {
       table.setPassRange(shift, passLo, passHi);
     }

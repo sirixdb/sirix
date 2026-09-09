@@ -16018,7 +16018,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift, hint -> compactSums
                 ? NumericGroupAggTable.sumsOnly(aggColsFlat.length, hint, true, sumExactMask, compositeIdWidth)
                 : new NumericGroupAggTable(aggColsFlat.length, hint, true, sumExactMask, compositeIdWidth),
-                plan.plannedGroups(), passLo, passHi, plan.passBudget());
+                plan.plannedGroups(), passLo, passHi, plan.passBudget(),
+                cdBlock < 0 && limit >= 1 && orderPlan.kinds.length > 0 && !orderOnKeyLane);
             final long[] scanNanos = PROJ_DIAG
                 ? new long[eff]
                 : null;
@@ -16681,7 +16682,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
           final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift,
               hint -> new NumericGroupAggTable(aggColsFlat.length, hint, true, sumExactMask), plan.plannedGroups(),
-              passLo, passHi, plan.passBudget());
+              passLo, passHi, plan.passBudget(),
+              cdBlock < 0 && limit >= 1 && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey());
           final long[] scanNanos = PROJ_DIAG
               ? new long[eff]
               : null;

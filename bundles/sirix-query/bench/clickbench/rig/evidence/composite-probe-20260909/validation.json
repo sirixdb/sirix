@@ -1,0 +1,106 @@
+{
+  "suites": [
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.NumericGroupAggTableTest",
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.PartialGroupAggregationTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-query",
+      "name": "io.sirix.query.scan.PartialGroupTopKTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-query",
+      "name": "io.sirix.query.scan.SparseSumOrderingOriginTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.BoundedGroupBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.CompositeGroupIdentityCollisionTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.DenseGroupIndexTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.GroupStripeSpillTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.GroupTableSpillPassPlanTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-query",
+      "name": "io.sirix.query.scan.GroupHashRangePassTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-query",
+      "name": "io.sirix.query.scan.GroupTableSpillDifferentialTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-query",
+      "name": "io.sirix.query.scan.GroupTopKDifferentialTest",
+      "tests": 57,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "totals": {
+    "tests": 127,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}
