@@ -4,30 +4,39 @@ import io.brackit.query.atomic.QNm;
 import io.sirix.JsonTestHelper;
 import io.sirix.XmlTestHelper;
 import io.sirix.access.Databases;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.Database;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.cache.IndexLogKey;
+import io.sirix.index.IndexType;
+import io.sirix.node.NodeKind;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
  * Regression tests for #1076: values whose serialized size exceeds the slotted-page capacity
- * ceiling ({@link KeyValueLeafPage#MAX_SLOTTED_PAGE_CAPACITY}, the largest allocator size class)
- * or the per-record threshold ({@code PageConstants.MAX_RECORD_SIZE}) must be stored in
+ * ceiling ({@link KeyValueLeafPage#MAX_SLOTTED_PAGE_CAPACITY}, the largest allocator size class) or
+ * the per-record threshold ({@code PageConstants.MAX_RECORD_SIZE}) must be stored in
  * {@link OverflowPage}s and round-trip through commit, fresh read-only transactions, and a full
  * database reopen (cold read from disk). Previously such inserts/updates crashed with
  * {@code IllegalArgumentException: requested size ... exceeds largest class} from the frame-slot
  * allocator, and the (unreachable) overflow branch never persisted its pages.
  *
- * <p>Note: the test-helper databases are process-cached — they must not be closed directly;
+ * <p>
+ * Note: the test-helper databases are process-cached — they must not be closed directly;
  * {@code closeEverything()} closes and evicts them, which is what the cold-reopen phases rely on.
  */
 public final class LargeValueOverflowTest {
@@ -62,16 +71,43 @@ public final class LargeValueOverflowTest {
     }
   }
 
+  private static void assertJsonValueAndStorageShape(final JsonResourceSession session, final int revision,
+      final long nodeKey, final String expected, final boolean overflow) {
+    try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+      assertTrue(rtx.moveTo(nodeKey));
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, rtx.getKind());
+      assertEquals(expected, rtx.getValue());
+
+      final StorageEngineReader reader = rtx.getStorageEngineReader();
+      final long recordPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
+      final var loaded = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, recordPageKey, 0, revision));
+      assertNotNull("record page must exist", loaded);
+      final KeyValueLeafPage page = (KeyValueLeafPage) loaded.page();
+      final int slot = StorageEngineReader.recordPageOffset(nodeKey);
+      if (overflow) {
+        assertNotNull("overflow fused record must retain its scan-visible metadata descriptor", page.getSlot(slot));
+        assertTrue("overflow fused record slot must be marked as a descriptor",
+            page.isFusedObjectNamedStringOverflowDescriptor(slot));
+        assertNotNull("overflow record must own a page reference", page.getPageReference(nodeKey));
+      } else {
+        assertNotNull("inline record must have slot bytes", page.getSlot(slot));
+        assertFalse("inline fused record must not be marked as an overflow descriptor",
+            page.isFusedObjectNamedStringOverflowDescriptor(slot));
+        assertNull("inline record must not retain a stale overflow reference", page.getPageReference(nodeKey));
+      }
+    }
+  }
+
   @Test
   public void jsonInsertLargeStringValuesRoundTrip() {
-    // Just over the 150k per-record overflow threshold, ~1 MiB, and ~5 MiB.
-    final String big200k = bigValue(200_000, 'a');
+    // Just over the 512-byte encoded-record ceiling, ~1 MiB, and ~5 MiB.
+    final String justOverInlineLimit = bigValue(PageConstants.MAX_RECORD_SIZE + 1, 'a');
     final String big1M = bigValue(1_048_576, 'b');
     final String big5M = bigValue(5 * 1_048_576, 'c');
     final String small = "small-value";
 
     final long smallKey;
-    final long big200kKey;
+    final long justOverInlineLimitKey;
     final long big1MKey;
     final long big5MKey;
 
@@ -81,10 +117,10 @@ public final class LargeValueOverflowTest {
         wtx.insertArrayAsFirstChild();
         wtx.insertStringValueAsFirstChild(small);
         smallKey = wtx.getNodeKey();
-        wtx.insertStringValueAsRightSibling(big200k);
-        big200kKey = wtx.getNodeKey();
+        wtx.insertStringValueAsRightSibling(justOverInlineLimit);
+        justOverInlineLimitKey = wtx.getNodeKey();
         // In-transaction visibility before commit (record lives as a heap object).
-        assertEquals(big200k, wtx.getValue());
+        assertEquals(justOverInlineLimit, wtx.getValue());
         wtx.insertStringValueAsRightSibling(big1M);
         big1MKey = wtx.getNodeKey();
         wtx.insertStringValueAsRightSibling(big5M);
@@ -94,7 +130,7 @@ public final class LargeValueOverflowTest {
 
       // Fresh read-only trx against the committed revision.
       assertJsonValue(session, smallKey, small);
-      assertJsonValue(session, big200kKey, big200k);
+      assertJsonValue(session, justOverInlineLimitKey, justOverInlineLimit);
       assertJsonValue(session, big1MKey, big1M);
       assertJsonValue(session, big5MKey, big5M);
     }
@@ -105,9 +141,54 @@ public final class LargeValueOverflowTest {
     final Database<JsonResourceSession> reopened = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final JsonResourceSession session = reopened.beginResourceSession(JsonTestHelper.RESOURCE)) {
       assertJsonValue(session, smallKey, small);
-      assertJsonValue(session, big200kKey, big200k);
+      assertJsonValue(session, justOverInlineLimitKey, justOverInlineLimit);
       assertJsonValue(session, big1MKey, big1M);
       assertJsonValue(session, big5MKey, big5M);
+    }
+  }
+
+  @Test
+  public void fusedNamedStringTransitionsInlineOverflowInlineAcrossColdReopen() {
+    final String firstInline = "first-inline";
+    final String overflowValue = bigValue(PageConstants.MAX_RECORD_SIZE + 128, 'f');
+    final String secondInline = "second-inline";
+    final long nodeKey;
+
+    final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertObjectAsFirstChild();
+        wtx.insertObjectRecordAsFirstChild("payload", new StringValue(firstInline));
+        assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind());
+        nodeKey = wtx.getNodeKey();
+        wtx.commit();
+      }
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        assertTrue(wtx.moveTo(nodeKey));
+        wtx.setStringValue(overflowValue);
+        assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind());
+        assertEquals(overflowValue, wtx.getValue());
+        wtx.commit();
+      }
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        assertTrue(wtx.moveTo(nodeKey));
+        wtx.setStringValue(secondInline);
+        assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind());
+        wtx.commit();
+      }
+
+      assertJsonValueAndStorageShape(session, 1, nodeKey, firstInline, false);
+      assertJsonValueAndStorageShape(session, 2, nodeKey, overflowValue, true);
+      assertJsonValueAndStorageShape(session, 3, nodeKey, secondInline, false);
+    }
+
+    JsonTestHelper.closeEverything();
+    Databases.getGlobalBufferManager().clearAllCaches();
+    final Database<JsonResourceSession> reopened = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = reopened.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      assertJsonValueAndStorageShape(session, 1, nodeKey, firstInline, false);
+      assertJsonValueAndStorageShape(session, 2, nodeKey, overflowValue, true);
+      assertJsonValueAndStorageShape(session, 3, nodeKey, secondInline, false);
     }
   }
 

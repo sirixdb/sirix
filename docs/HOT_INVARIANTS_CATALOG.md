@@ -1,5 +1,11 @@
 # HOT Invariants Catalog (Stage A — Multi-Session Formal Verification)
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Purpose**: enumerate every invariant the HOT design requires, sourced from primary references, with precise predicates and Sirix-coverage status. This is the source of truth for Stage B (operations × invariants matrix), Stage C (complete validator), and beyond.
 
 **Sources cross-referenced**:
@@ -14,7 +20,7 @@
 2. **Sirix design doc** — `docs/HOT_STRICT_BINNA_DESIGN.md`. Sirix-specific deviations + phase plan.
 3. **Phase 4b diagnosis** — `docs/HOT_PHASE_4B_DIAGNOSIS.md`. Empirical findings from the campaign.
 4. **Existing Sirix validator** — `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidator.java` (732 lines).
-5. **Sirix writer** — `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`. Existing inline asserts + invariant comments.
+5. **Sirix writer** — `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`, the source of the inline asserts + invariant comments cited throughout. Removed in `09a20540c`; that role now sits in `bundles/sirix-core/src/main/java/io/sirix/index/hot/AbstractHOTIndexWriter.java`.
 
 **Methodology**: every invariant is given a stable name (Sirix-side I-prefix where possible), a formal predicate, the operation(s) that must preserve it, and explicit current-coverage status. The catalog is exhaustive — any invariant in any source must appear here. Missing invariants are flagged for Stage C.
 
@@ -211,7 +217,7 @@ if (partials != null && partials.length > 0 && partials[0] != 0) {
 
 ### I9 — Height-Bounded
 
-**Predicate**: tree.height ≤ MAX_TREE_HEIGHT (currently 64 in `HOTTrieWriter`).
+**Predicate**: tree.height ≤ MAX_TREE_HEIGHT (currently 64, in `HOTTrieReader.java:92`).
 
 **Source**: C++ overall design.
 
@@ -325,13 +331,17 @@ for (int depth = 0; depth < pathDepth; depth++) {
 `Long.compress(Long.expand(X, M), M) == X & ((1 << popcount(M)) - 1)`
 `Long.expand(Long.compress(X, M), M) == X & M`
 
-**Source**: C++ D.7 — bit manipulation soundness. Sirix's Phase 4b.0 round-trip test (= `MultiMaskSubLayoutTest`).
+**Source**: C++ D.7 — bit manipulation soundness. Discharged historically by Sirix's Phase 4b.0 round-trip test (`MultiMaskSubLayoutTest`).
 
 **Preservation operations**: tested by unit tests, not at runtime.
 
 **Current coverage**:
 - Validator: N/A (algebraic property, tested separately).
-- Tests: ✅ `MultiMaskSubLayoutTest` (12 tests).
+- Tests: ❌ none. `MultiMaskSubLayoutTest` (12 tests) was removed in `09a20540c` together with the
+  `HOTTrieWriter` helpers it exercised (`extractMultiMaskSubset`, `computePartialKeyMultiMaskDirect`,
+  `MultiMaskSubLayout`) — no symbol of that sub-layout repositioning path survives, so the identity has
+  no consumer left to break. `PartialKeyMappingTest` and `HOTInvariantValidator` still use
+  `Long.compress` for partial-key extraction, but neither asserts the compress→expand round trip.
 - Writer: relies on JDK 21+'s correct `Long.compress` / `Long.expand` implementations.
 
 ---

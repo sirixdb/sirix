@@ -1,0 +1,479 @@
+{
+  "result": [
+    [
+      0.038,
+      0.001,
+      0.001
+    ],
+    [
+      0.36,
+      0.034,
+      0.03
+    ],
+    [
+      0.321,
+      0.059,
+      0.038
+    ],
+    [
+      0.481,
+      0.098,
+      0.027
+    ],
+    [
+      0.411,
+      0.444,
+      0.302
+    ],
+    [
+      2.366,
+      0.715,
+      0.645
+    ],
+    [
+      0.035,
+      0.025,
+      0.027
+    ],
+    [
+      0.198,
+      0.026,
+      0.029
+    ],
+    [
+      1.465,
+      0.65,
+      0.637
+    ],
+    [
+      1.235,
+      0.744,
+      0.772
+    ],
+    [
+      1.198,
+      0.272,
+      0.234
+    ],
+    [
+      1.05,
+      0.254,
+      0.215
+    ],
+    [
+      1.961,
+      0.67,
+      0.745
+    ],
+    [
+      1.72,
+      1.239,
+      1.319
+    ],
+    [
+      1.493,
+      0.788,
+      0.734
+    ],
+    [
+      1.008,
+      0.445,
+      0.448
+    ],
+    [
+      1.879,
+      1.525,
+      1.431
+    ],
+    [
+      0.237,
+      0.043,
+      0.051
+    ],
+    [
+      3.665,
+      2.622,
+      2.422
+    ],
+    [
+      0.029,
+      0.012,
+      0.012
+    ],
+    [
+      1.855,
+      0.047,
+      0.021
+    ],
+    [
+      0.172,
+      0.121,
+      0.106
+    ],
+    [
+      5.152,
+      0.292,
+      0.286
+    ],
+    [
+      0.497,
+      0.203,
+      0.124
+    ],
+    [
+      0.068,
+      0.019,
+      0.018
+    ],
+    [
+      0.305,
+      0.082,
+      0.085
+    ],
+    [
+      0.037,
+      0.023,
+      0.019
+    ],
+    [
+      1.397,
+      0.227,
+      0.212
+    ],
+    [
+      9.315,
+      6.365,
+      6.117
+    ],
+    [
+      0.218,
+      0.035,
+      0.037
+    ],
+    [
+      2.173,
+      0.334,
+      0.331
+    ],
+    [
+      1.128,
+      1.133,
+      0.887
+    ],
+    [
+      7.163,
+      3.699,
+      3.822
+    ],
+    [
+      2.585,
+      2.164,
+      2.033
+    ],
+    [
+      2.029,
+      1.975,
+      2.004
+    ],
+    [
+      0.717,
+      0.42,
+      0.409
+    ],
+    [
+      0.22,
+      0.086,
+      0.08
+    ],
+    [
+      0.242,
+      0.044,
+      0.045
+    ],
+    [
+      0.252,
+      0.042,
+      0.042
+    ],
+    [
+      0.758,
+      0.253,
+      0.252
+    ],
+    [
+      0.081,
+      0.023,
+      0.026
+    ],
+    [
+      0.068,
+      0.036,
+      0.038
+    ],
+    [
+      0.207,
+      0.032,
+      0.033
+    ]
+  ],
+  "rig": {
+    "scope": "steering",
+    "complete": true,
+    "protocol": {
+      "queries": "all 43 in one JVM, inherited OS page cache",
+      "tries": 3,
+      "power_limit_uw": 50000000,
+      "cool_below_C": 55,
+      "cool_consecutive": 3,
+      "cool_sample_seconds": 5,
+      "launch_recheck": true,
+      "cpu_policy": {
+        "/sys/devices/system/cpu/cpufreq/policy11/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy8/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy6/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy18/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy4/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy16/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy2/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy14/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy0/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy12/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy9/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy10/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy7/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy19/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy5/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy17/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy3/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy15/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy1/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy13/scaling_driver": "intel_pstate",
+        "/sys/devices/system/cpu/cpufreq/policy11/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy8/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy6/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy18/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy4/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy16/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy2/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy14/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy0/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy12/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy9/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy10/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy7/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy19/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy5/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy17/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy3/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy15/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy1/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy13/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy11/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy8/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy6/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy18/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy4/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy16/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy2/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy14/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy12/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy9/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy10/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy7/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy19/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy5/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy17/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy3/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy15/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy1/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy13/scaling_min_freq": "400000",
+        "/sys/devices/system/cpu/cpufreq/policy11/scaling_max_freq": "4600000",
+        "/sys/devices/system/cpu/cpufreq/policy8/scaling_max_freq": "4600000",
+        "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq": "4700000",
+        "/sys/devices/system/cpu/cpufreq/policy18/scaling_max_freq": "3500000",
+        "/sys/devices/system/cpu/cpufreq/policy4/scaling_max_freq": "4700000",
+        "/sys/devices/system/cpu/cpufreq/policy16/scaling_max_freq": "3500000",
+        "/sys/devices/system/cpu/cpufreq/policy2/scaling_max_freq": "4600000",
+        "/sys/devices/system/cpu/cpufreq/policy14/scaling_max_freq": "3500000",
+        "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq": "4600000",
+        "/sys/devices/system/cpu/cpufreq/policy12/scaling_max_freq": "3500000",
+        "/sys/devices/system/cpu/cpufreq/policy9/scaling_max_freq": "4600000",
+        "/sys/devices/system/cpu/cpufreq/policy10/scaling_max_freq": "4600000",
+        "/sys/devices/system/cpu/cpufreq/policy7/scaling_max_freq": "4700000",
+        "/sys/devices/system/cpu/cpufreq/policy19/scaling_max_freq": "3500000",
+        "/sys/devices/system/cpu/cpufreq/policy5/scaling_max_freq": "4700000",
+        "/sys/devices/system/cpu/cpufreq/policy17/scaling_max_freq": "3500000",
+        "/sys/devices/system/cpu/cpufreq/policy3/scaling_max_freq": "4600000",
+        "/sys/devices/system/cpu/cpufreq/policy15/scaling_max_freq": "3500000",
+        "/sys/devices/system/cpu/cpufreq/policy1/scaling_max_freq": "4600000",
+        "/sys/devices/system/cpu/cpufreq/policy13/scaling_max_freq": "3500000",
+        "/sys/devices/system/cpu/cpufreq/policy11/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy8/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy6/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy18/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy4/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy16/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy2/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy14/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy0/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy12/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy9/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy10/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy7/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy19/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy5/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy17/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy3/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy15/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy1/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/cpufreq/policy13/energy_performance_preference": "balance_performance",
+        "/sys/devices/system/cpu/intel_pstate/no_turbo": "0"
+      },
+      "database": "/home/johannes/IdeaProjects/sirix/bundles/sirix-query/build/diagnostics/clickbench-seg100m-20260905-2328/db",
+      "database_device": 61,
+      "database_inode": 36446235,
+      "score": "C6A hot min(try2,try3), +0.01 offset, unchanged board snapshot",
+      "board_best_hot": [
+        0,
+        0.001,
+        0,
+        0.005,
+        0.076,
+        0.076,
+        0,
+        0.004,
+        0.16,
+        0.227,
+        0.025,
+        0.028,
+        0.161,
+        0.309,
+        0.183,
+        0.149,
+        0.193,
+        0.0,
+        0.846,
+        0.0,
+        0.059,
+        0.025,
+        0.021,
+        0.024,
+        0.0,
+        0.0,
+        0.0,
+        0.084,
+        1.297,
+        0.005,
+        0.084,
+        0.129,
+        0.338,
+        0.257,
+        0.257,
+        0.123,
+        0.01,
+        0.005,
+        0.003,
+        0.021,
+        0.002,
+        0.003,
+        0.004
+      ],
+      "board_sha256": "e78fb72e777931f6b6047823566543e5f30f037abb6091c2d35137633c2e6cca",
+      "harness_sha256": {
+        "measure.py": "2404e9f4062d2da8d6c68c76798f438b4fc059cb39e7d70de84816332755c799",
+        "measurement.py": "2e29270dd4a5e7902ad3af419696dd897b3a5f75fc2ce912c5da343e3a9c36f4",
+        "rank.py": "520e3f62d06f123a318a85a9464b678d708e7ae413af7be91fe9b1f0d92751d0",
+        "runner.py": "456262275cf69b39a74df56fca4bbff375c61680537e1e4f69c5e21f854387ea",
+        "runtime.py": "535c1af6a2622e3a84b29afc52fdd12b1c01b3e6d4f115134e88dfa3a00a7186",
+        "rig_lock.py": "c86080b1ee075377a5ada6fe78d8b3692c05368ef353159c363bc8995b36e52b"
+      },
+      "answer_validation": {
+        "dump": "after timed query, on final try, in both arms",
+        "comparison": "all 43 lossless JSONL files byte-identical to first baseline",
+        "controller_sha256": "3e746682e12691eb2335b378d2fce78987d0c7409ccf49ebf6111d7abb3febf4",
+        "minimum_available_bytes": 27917287424,
+        "maximum_legs": 24,
+        "profiling_jvms_already_used": 2
+      }
+    },
+    "run_id": "3232aef1-fb4c-4a40-a190-6c7c0b9e194f",
+    "runtime_id": "d057e8e943e7ee39165b4464156fc174be44dec6163b20f602943bc55d33dd88",
+    "source_commit": "ddf3f2794bec3feb483ed4bba9e08e3cb8c87c85",
+    "observed_power": {
+      "gated_limits_uw": 50000000,
+      "start": {
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": "45000000",
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw": "115000000",
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_2_power_limit_uw": "215000000",
+        "/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw": "50000000",
+        "/sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw": "50000000",
+        "/sys/class/powercap/intel-rapl:0/constraint_2_power_limit_uw": "215000000",
+        "/sys/class/powercap/intel-rapl:0:0/constraint_0_power_limit_uw": "0",
+        "/sys/class/powercap/intel-rapl:0:1/constraint_0_power_limit_uw": "0",
+        "/sys/class/powercap/intel-rapl:1/constraint_0_power_limit_uw": "0",
+        "/sys/class/powercap/intel-rapl:1/constraint_1_power_limit_uw": "238000000"
+      },
+      "end": {
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": "45000000",
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw": "115000000",
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_2_power_limit_uw": "215000000",
+        "/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw": "50000000",
+        "/sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw": "50000000",
+        "/sys/class/powercap/intel-rapl:0/constraint_2_power_limit_uw": "215000000",
+        "/sys/class/powercap/intel-rapl:0:0/constraint_0_power_limit_uw": "0",
+        "/sys/class/powercap/intel-rapl:0:1/constraint_0_power_limit_uw": "0",
+        "/sys/class/powercap/intel-rapl:1/constraint_0_power_limit_uw": "0",
+        "/sys/class/powercap/intel-rapl:1/constraint_1_power_limit_uw": "238000000"
+      },
+      "changes": [
+        {
+          "monotonic": 932543.850109407,
+          "changed": {
+            "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+              "45000000",
+              "48500000"
+            ]
+          }
+        },
+        {
+          "monotonic": 932549.437057135,
+          "changed": {
+            "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+              "48500000",
+              "47250000"
+            ]
+          }
+        },
+        {
+          "monotonic": 932554.510852878,
+          "changed": {
+            "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+              "47250000",
+              "45000000"
+            ]
+          }
+        },
+        {
+          "monotonic": 932579.896012601,
+          "changed": {
+            "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+              "45000000",
+              "45250000"
+            ]
+          }
+        },
+        {
+          "monotonic": 932584.462812007,
+          "changed": {
+            "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+              "45250000",
+              "45000000"
+            ]
+          }
+        }
+      ]
+    },
+    "output": "/home/johannes/.treehouse/sirix-cdde48/2/sirix/build/hicard/comparison-01/pair-0011-candidate"
+  }
+}

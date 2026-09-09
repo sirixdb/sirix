@@ -14,7 +14,9 @@ rewrites one segment page and unchanged segments are shared across revisions by 
 Bit-packed segments come to roughly **5% of the in-memory size**, so the on-disk tax over the
 versioned document store stays ~10%. Double columns store exact values in an order-preserving
 encoding; value-exact consumers decline columns tainted by lossy decimal conversions
-(fail-closed).
+(fail-closed). A column declared `timestamp` or `date` stores the epoch instead of the text, which
+requires every value to be exactly `YYYY-MM-DDTHH:MM:SS` or `YYYY-MM-DD`;
+`-Dsirix.projection.temporalKinds=false` builds and serves it as an ordinary string column.
 
 For the internals, see [`PROJECTION_INDEX_DEEP_DIVE.md`](PROJECTION_INDEX_DEEP_DIVE.md),
 [`PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md`](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md)
@@ -39,7 +41,7 @@ jn:store('mydb', 'sales.jn', '[
 let $doc := jn:doc('mydb', 'sales.jn')
 let $stats := jn:create-projection-index($doc, '/[]',
     ('/[]/age', '/[]/active', '/[]/dept', '/[]/city'),
-    ('long', 'boolean', 'string', 'string'))   (: also: 'double' / 'decimal' columns :)
+    ('long', 'boolean', 'string', 'string'))   (: also: 'double'/'decimal', 'timestamp'/'date' :)
 return {"revision": sdb:commit($doc)}
 ```
 
@@ -81,8 +83,11 @@ dictionary that hits its byte budget mid-build abandons the projection rather th
 prints `[proj] PROJECTION ABANDONED` on stderr (unconditionally — the warning alone is invisible
 under the shipped log configuration), and the tombstone records the reason plus its remedy: give
 the loader an expected-row-count hint so the oversized column is declined up front and the rest of
-the projection still builds, or raise `-Dsirix.projection.globalDict.budgetBytes`, then rebuild
-with `jn:create-projection-index`.
+the projection still builds, or raise `-Dsirix.projection.globalDict.budgetBytes`. An abandoned
+projection is then replaced, never repaired: `jn:create-projection-index` over the still-catalogued
+definition fails loudly ("catalogued but its store is missing, stale, or unreadable"), so the route
+is `jn:drop-projection-index`, `sdb:commit($doc)`, and only then create it again — the replacement
+gets a new, empty projection tree.
 
 ## Querying
 
@@ -161,9 +166,11 @@ committed readers keep their isolated snapshots.
 
 The full function family matches the other index types:
 `jn:find-projection-index($doc, $rootPath, $fields)` returns a projection's definition id
-(or `-1`), and `jn:drop-projection-index($doc[, $idx-no])` drops one or all projections
-(tombstoning the stored columns so a later same-shape re-creation rebuilds instead of
-serving leftovers).
+(or `-1`), and `jn:drop-projection-index($doc[, $idx-no])` drops one or all projections. A drop
+removes the definition from the catalogue and leaves its immutable historical tree untouched, so
+revisions committed before it keep being served; projection tree ids are never reused while their
+physical reference exists, so a later same-shape creation gets a new, empty tree and cannot mistake
+unmaintained pre-drop columns for current data.
 
 ## REST serving
 

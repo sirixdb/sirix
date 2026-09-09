@@ -10,9 +10,13 @@ import io.sirix.settings.Constants;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
+import it.unimi.dsi.fastutil.ints.Int2ObjectLinkedOpenHashMap;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
@@ -222,20 +226,15 @@ public final class ProjectionColumnStore {
    */
   private ProjectionBloomChunks.ColumnEvidence @Nullable [] bloomBlocks;
 
-  /** See {@link ProjectionIndexColumnSegmentCodec#encodeBloomBlock}. Catalog-attach, set once. */
-  public void attachBloomBlocks(final byte @Nullable [] @Nullable [] blocks) {
-    this.bloomBlocks = ProjectionBloomChunks.fromLegacyBlocks(blocks, directories.size());
-  }
-
-  /** Attach manifest-backed chunks (or validated legacy blocks) loaded by the catalog. */
+  /** Attach manifest-backed chunks loaded by the catalog. */
   public void attachBloomBlocks(final ProjectionBloomChunks.ColumnEvidence @Nullable [] blocks) {
     this.bloomBlocks = blocks;
   }
 
   /**
    * Clear {@code keep} bits for leaves whose string-column fingerprint PROVES the literal absent.
-   * Evidence order: the contiguous block (already in memory, zero I/O), else the per-leaf chain
-   * (cached after the first fetch), else nothing — leaves without evidence stay kept.
+   * Evidence order: chunk-manifest blocks, else the per-leaf chain (cached after the first fetch),
+   * else nothing — leaves without evidence stay kept.
    *
    * @return number of leaves newly dropped
    */
@@ -248,16 +247,7 @@ public final class ProjectionColumnStore {
         ? blocks[col]
         : null;
     if (block != null) {
-      final int blockDropped = block.prune(literalHash, keep, n, fetcher);
-      if (blockDropped >= 0) {
-        return blockDropped;
-      }
-      // A referenced legacy root is typed only when its deferred payload is fetched. If it is not
-      // an exact PBLM block, fall through to the per-leaf chain just like an inline malformed root.
-      // Manifest-backed chunks never return this sentinel: a bad chunk keeps only its own span.
-      if (blockDropped != ProjectionBloomChunks.EVIDENCE_UNUSABLE) {
-        throw new IllegalStateException("Unknown Bloom evidence result " + blockDropped);
-      }
+      return block.prune(literalHash, keep, n, fetcher);
     }
     final byte[][] chain = stringBloomSegments(col, fetcher);
     if (chain == null) {
@@ -274,6 +264,116 @@ public final class ProjectionColumnStore {
     }
     return dropped;
   }
+
+  /**
+   * {@link #applyBloomPrune} for MANY literals of ONE column in ONE evidence walk: {@code keeps[j]}
+   * is narrowed by {@code hashes[j]}. The chunk blocks are fetched once for all literals (the walk is
+   * the whole cost of a prune; probing is three bit tests per literal), so a disjunction of
+   * equalities or a planner pricing candidate values costs one prune instead of one per literal.
+   * Splits the chunk walk over the common pool when the column spans enough chunks and the fetcher
+   * permits concurrent ranged fetches — chunks own disjoint 256-leaf ranges, so two ranges never
+   * write the same keep word.
+   *
+   * @return number of bits newly cleared, summed over every mask
+   */
+  public long applyBloomPruneMany(final int col, final long[] hashes, final long[][] keeps,
+      final ColumnSegmentFetcher fetcher) {
+    if (hashes == null || keeps == null || hashes.length != keeps.length) {
+      throw new IllegalArgumentException("hashes and keeps must pair up");
+    }
+    if (fetcher == null) {
+      throw new IllegalArgumentException("fetcher is required");
+    }
+    final int n = directories.size();
+    final int words = (n + 63) >>> 6;
+    for (final long[] keep : keeps) {
+      if (keep == null || keep.length < words) {
+        throw new IllegalArgumentException("every keep mask must cover " + n + " leaves");
+      }
+    }
+    if (hashes.length == 0) {
+      return 0L;
+    }
+    final ProjectionBloomChunks.ColumnEvidence[] blocks = bloomBlocks;
+    final ProjectionBloomChunks.ColumnEvidence block = blocks != null
+        ? blocks[col]
+        : null;
+    if (block != null) {
+      final int chunkCount = block.chunkCount();
+      final int ranges = chunkCount < BLOOM_MANY_PARALLEL_MIN_CHUNKS || !fetcher.rangedFetchIsConcurrent()
+          ? 1
+          : Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), chunkCount / BLOOM_MANY_CHUNKS_PER_RANGE));
+      if (ranges <= 1) {
+        return block.pruneMany(hashes, keeps, n, fetcher, 0, chunkCount);
+      }
+      final long[] droppedByRange = new long[ranges];
+      final int rangeLen = (chunkCount + ranges - 1) / ranges;
+      final AtomicReference<RuntimeException> failed = new AtomicReference<>();
+      IntStream.range(0, ranges).parallel().forEach(r -> {
+        final int from = r * rangeLen;
+        final int to = Math.min(from + rangeLen, chunkCount);
+        if (from >= to || failed.get() != null) {
+          return;
+        }
+        try {
+          droppedByRange[r] = block.pruneMany(hashes, keeps, n, fetcher, from, to);
+        } catch (final RuntimeException rangeFailed) {
+          failed.compareAndSet(null, rangeFailed);
+        }
+      });
+      final RuntimeException rangeFailed = failed.get();
+      if (rangeFailed != null) {
+        throw rangeFailed;
+      }
+      long dropped = 0L;
+      for (final long d : droppedByRange) {
+        dropped += d;
+      }
+      return dropped;
+    }
+    final byte[][] chain = stringBloomSegments(col, fetcher);
+    if (chain == null) {
+      return 0L;
+    }
+    long dropped = 0L;
+    final int literals = hashes.length;
+    for (int i = 0; i < n; i++) {
+      final byte[] segment = chain[i];
+      if (segment == null) {
+        continue;
+      }
+      final int word = i >>> 6;
+      final long bit = 1L << (i & 63);
+      long packed = 0L;
+      boolean located = false;
+      for (int j = 0; j < literals; j++) {
+        final long[] keep = keeps[j];
+        if ((keep[word] & bit) == 0) {
+          continue;
+        }
+        if (!located) {
+          packed = ProjectionIndexColumnSegmentCodec.bloomSegmentWords(segment);
+          located = true;
+          if (packed == ProjectionIndexColumnSegmentCodec.NO_FINGERPRINT) {
+            break;
+          }
+        }
+        if (!ProjectionIndexColumnSegmentCodec.bloomWordsMayContainHash(segment, packed, hashes[j])) {
+          keep[word] &= ~bit;
+          dropped++;
+        }
+      }
+    }
+    return dropped;
+  }
+
+  /** Below this many bloom chunks a multi-literal prune stays serial (the fan-out costs more). */
+  private static final int BLOOM_MANY_PARALLEL_MIN_CHUNKS = 32;
+
+  /**
+   * At least this many chunks per parallel range of a multi-literal prune (one range ≈ 4 fetches).
+   */
+  private static final int BLOOM_MANY_CHUNKS_PER_RANGE = 16;
 
   /**
    * Per-column permanent-corruption memo (1 = a fill hit a decode/hash/missing-segment failure, which
@@ -293,11 +393,27 @@ public final class ProjectionColumnStore {
   private volatile boolean keysCorrupt;
 
   /**
-   * Lazily computed per STRING_DICT column: {@code [2 * leaf]} = dict id of the leaf's SMALLEST
-   * present value, {@code [2 * leaf + 1]} = its LARGEST, both {@code -1} for a leaf with no present
-   * value. See {@link #stringValueExtrema}.
+   * Lazily computed per STRING_DICT column: the two smallest and two largest REFERENCED values of
+   * every leaf, as dict ids and materialized bytes. See {@link #stringValueExtrema}.
    */
-  private volatile int[] @Nullable [] stringExtrema;
+  private volatile StringValueExtrema @Nullable [] stringExtrema;
+
+  /**
+   * Lazily computed per numeric-lane column (the ordered-long kinds and STRING_GLOBAL): the two
+   * smallest and two largest PRESENT long values of every leaf. See {@link #longValueExtrema}.
+   */
+  private volatile LongValueExtrema @Nullable [] longExtrema;
+
+  /**
+   * Lazily computed per column: bit {@code leaf} set when the column is ALL-PRESENT on that leaf
+   * (rowless leaves vacuously). See {@link #allPresentLeaves}.
+   */
+  private volatile long[] @Nullable [] allPresentLeaves;
+
+  /**
+   * Lazily computed per column: the descriptors' zone mirrors, leaf-indexed. See {@link #zoneIndex}.
+   */
+  private volatile ZoneIndex @Nullable [] zoneIndices;
 
   /**
    * Lazily computed per STRING_DICT column: {@code 0} = not yet swept, {@code 1} = no dictionary
@@ -315,6 +431,7 @@ public final class ProjectionColumnStore {
       this.columnKinds = new byte[0];
     } else {
       final byte[] d0 = this.directories.get(0).descriptor();
+      RowGroupDescriptor.validate(d0);
       final int columnCount = RowGroupDescriptor.columnCount(d0);
       this.columnKinds = new byte[columnCount];
       for (int c = 0; c < columnCount; c++) {
@@ -335,9 +452,16 @@ public final class ProjectionColumnStore {
     this.identityColumns = new ColumnSlice[columnKinds.length][];
     this.columnBytes = new byte[columnKinds.length][][];
     this.bloomBytes = new byte[columnKinds.length][][];
-    this.stringExtrema = new int[columnKinds.length][];
+    this.stringExtrema = new StringValueExtrema[columnKinds.length];
+    this.longExtrema = new LongValueExtrema[columnKinds.length];
+    this.allPresentLeaves = new long[columnKinds.length][];
+    this.zoneIndices = new ZoneIndex[columnKinds.length];
     this.stringSupplementary = new byte[columnKinds.length];
     this.corruptColumns = new byte[columnKinds.length];
+    this.residencyPins = new AtomicIntegerArray(columnKinds.length + 1);
+    this.chargedSliceBytes = new long[columnKinds.length];
+    this.chargedIdentityBytes = new long[columnKinds.length];
+    this.chargedBodyBytes = new long[columnKinds.length];
   }
 
   /**
@@ -359,6 +483,7 @@ public final class ProjectionColumnStore {
     final int leaves = directories.size();
     for (int leaf = 1; leaf < leaves; leaf++) {
       final byte[] di = directories.get(leaf).descriptor();
+      RowGroupDescriptor.validate(di);
       if (!RowGroupDescriptor.kindsAgree(d0, di)) {
         throw new ProjectionStoreInconsistentException(leaf, describeDisagreement(d0, di));
       }
@@ -419,97 +544,447 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * Per-leaf VALUE extrema of a STRING_DICT column, as dict ids: {@code [2 * leaf]} the smallest
-   * present value's id, {@code [2 * leaf + 1]} the largest', {@code -1} when the leaf holds no
-   * present value. A slice's own {@code min()}/{@code max()} are dict IDS for this kind — meaningless
-   * for value order — so an order-aware caller (the sorted scan's leaf pruning) needs this instead.
+   * Per-leaf VALUE extrema of a STRING_DICT column — the two smallest and the two largest REFERENCED
+   * values of every leaf, as dict ids and as materialized bytes ({@link StringValueExtrema}). A
+   * slice's own {@code min()}/{@code max()} are dict IDS for this kind — meaningless for value order
+   * — so an order-aware caller (the sorted scan's best-first plan) needs this instead, and it needs
+   * the BYTES: a plan over 97,654 leaves compares extrema ACROSS leaves, and resolving each one
+   * through its own leaf's dictionary would need every dictionary decoded — the whole column
+   * resident, which is exactly what a bounded top-k must never require.
+   *
+   * <p>
+   * The SECOND extremum is what makes a same-column {@code <>} predicate prunable: under
+   * {@code WHERE c <> lit ORDER BY c} a leaf's best MATCHING value is its second-smallest whenever
+   * its smallest is the excluded literal (ClickBench q25: the empty string is every leaf's minimum,
+   * so on first extrema alone every leaf ties and nothing can be skipped).
+   * </p>
    *
    * <p>
    * Referenced-and-present gated, like {@link ProjectionColumnScan#stringDictMinMax}: a dictionary
    * can hold PHANTOM entries no live row points at, and a phantom extremum would weaken every prune
    * built on it. Data-derived and literal-independent, so it is memoized per column and shared by
-   * every query — the same publication discipline as {@link #column}.
+   * every query — the same publication discipline as {@link #column}. The walk reads the retained
+   * slices when the column is resident and otherwise decodes leaf ranges through the fetcher and
+   * drops them — it never holds the column — fanned out over the common pool in 64-aligned leaf
+   * ranges when the store is large enough for the fan-out to pay ({@link #memoPassRanges}) and, for a
+   * fetching pass, the fetcher permits concurrent ranged fetches.
+   * </p>
    *
    * @throws IllegalStateException if {@code col} is not a STRING_DICT column
    */
-  public int[] stringValueExtrema(final int col, final ColumnSegmentFetcher fetcher) {
+  public StringValueExtrema stringValueExtrema(final int col, final ColumnSegmentFetcher fetcher) {
     if (col < 0 || col >= columnKinds.length
         || columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
       throw new IllegalStateException("Column " + col + " is not STRING_DICT");
     }
-    final int[][] cached = stringExtrema;
-    final int[] hit = cached[col];
+    if (fetcher == null) {
+      throw new IllegalArgumentException("fetcher must not be null");
+    }
+    final StringValueExtrema hit = stringExtrema[col];
     if (hit != null) {
       return hit;
     }
-    final ColumnSlice[] slices = column(col, fetcher);
-    final int n = slices.length;
-    final int[] extrema = new int[2 * n];
-    // The collation gate, hoisted out of the comparisons and recorded for later callers: whether a
-    // supplementary character is in play is a property of the DICTIONARY, and re-deriving it per
-    // comparison rescans both operands' bytes every time. The verdict rides along on this walk
-    // because a sweep of its own costs about as much as the extrema themselves.
-    final boolean[] leafSupplementary = new boolean[n];
-    // SERIAL on purpose, though the leaves are independent and {@link #fillColumn} fans its decode
-    // out over the very same shape. Measured on the 1M ClickBench corpus (977 leaves, min of three
-    // interleaved full-suite rounds), the cold walk costs 44 ms serially and 91 ms across the common
-    // pool — a fan-out here LOSES, and loses again with a serial warmup prefix in front of it. The
-    // per-leaf body chases byte[] dictionary entries all over the heap, so it is memory-bound rather
-    // than compute-bound, and the pool is already carrying this store's column decodes beside it.
-    for (int leaf = 0; leaf < n; leaf++) {
-      extremaOfLeaf(slices[leaf], leaf, extrema, leafSupplementary);
-    }
+    final long t0 = MEMO_DIAG
+        ? System.nanoTime()
+        : 0L;
+    final int n = directories.size();
+    final ColumnSlice[] resident = columns[col];
+    final int ranges = resident != null || fetcher.rangedFetchIsConcurrent()
+        ? memoPassRanges(n)
+        : 1;
+    final ExtremaRange[] parts = new ExtremaRange[ranges];
+    forEachMemoRange(n, ranges, (from, to, r) -> parts[r] = extremaOfRange(col, from, to, resident, fetcher));
+    // Stitch the ranges' entries into one leaf-indexed table: ids and lengths land at 4 * leaf, the
+    // bytes at a running prefix, each range's bytes copied once as a block (they are already in
+    // entry order within the range).
+    long totalBytes = 0L;
     boolean anySupplementary = false;
-    for (final boolean leafHasOne : leafSupplementary) {
-      anySupplementary |= leafHasOne;
+    for (final ExtremaRange part : parts) {
+      if (part == null) {
+        continue; // a trailing range the 64-alignment left empty
+      }
+      totalBytes += part.byteLen;
+      anySupplementary |= part.supplementary;
+    }
+    if (totalBytes > Integer.MAX_VALUE - 16) {
+      throw new IllegalStateException("String extrema of column " + col + " exceed " + totalBytes + " bytes");
+    }
+    final int[] ids = new int[4 * n];
+    final int[] offsets = new int[4 * n + 1];
+    final byte[] bytes = new byte[(int) totalBytes];
+    int entry = 0;
+    int running = 0;
+    for (final ExtremaRange part : parts) {
+      if (part == null) {
+        continue;
+      }
+      final int entries = part.ids.length;
+      System.arraycopy(part.ids, 0, ids, entry, entries);
+      System.arraycopy(part.bytes, 0, bytes, running, part.byteLen);
+      for (int e = 0; e < entries; e++) {
+        offsets[entry + e] = running;
+        running += part.lengths[e];
+      }
+      entry += entries;
+    }
+    offsets[4 * n] = running;
+    if (running != totalBytes) {
+      throw new IllegalStateException("String extrema stitch mismatch: " + running + " of " + totalBytes + " bytes");
     }
     // A leaf whose sweep short-circuited leaves the column verdict at PRESENT, which is exactly
     // right; NONE is only recorded after every entry of every leaf was read.
     stringSupplementary[col] = anySupplementary
         ? SUPPLEMENTARY_PRESENT
         : SUPPLEMENTARY_NONE;
+    final StringValueExtrema built = new StringValueExtrema(n, ids, bytes, offsets);
+    final StringValueExtrema published;
     synchronized (this) {
-      final int[] existing = stringExtrema[col];
+      final StringValueExtrema existing = stringExtrema[col];
       if (existing != null) {
-        return existing;
+        published = existing;
+      } else {
+        final StringValueExtrema[] next = stringExtrema.clone();
+        next[col] = built;
+        stringExtrema = next;
+        published = built;
       }
-      final int[][] next = stringExtrema.clone();
-      next[col] = extrema;
-      stringExtrema = next;
     }
-    return extrema;
+    if (MEMO_DIAG) {
+      System.err.printf("[memo] stringExtrema col=%d leaves=%d ranges=%d resident=%b bytes=%d ms=%.2f%n", col, n,
+          ranges, resident != null, running, (System.nanoTime() - t0) / 1e6);
+    }
+    return published;
   }
 
   /**
-   * One leaf's contribution to {@link #stringValueExtrema}: its smallest and largest REFERENCED
-   * dictionary entry into {@code extrema[2 * leaf]} / {@code [2 * leaf + 1]} ({@code -1} when the
-   * leaf has no present value), and whether its dictionary holds a supplementary character into
-   * {@code leafSupplementary[leaf]}.
+   * The memoized value extrema of one STRING_DICT column
+   * ({@link ProjectionColumnStore#stringValueExtrema}): four slots per leaf — {@link #MIN1} the
+   * smallest referenced value, {@link #MIN2} the second-smallest DISTINCT one, {@link #MAX1} the
+   * largest, {@link #MAX2} the second-largest distinct one — each as the leaf's dict id ({@code -1}
+   * when the leaf has no such value) with its bytes materialized in one shared array, so two leaves'
+   * extrema compare without either leaf's dictionary in memory. Immutable once published.
+   */
+  public static final class StringValueExtrema {
+    public static final int MIN1 = 0;
+    public static final int MIN2 = 1;
+    public static final int MAX1 = 2;
+    public static final int MAX2 = 3;
+    private final int leafCount;
+    private final int[] ids;
+    private final byte[] bytes;
+    private final int[] offsets;
+
+    StringValueExtrema(final int leafCount, final int[] ids, final byte[] bytes, final int[] offsets) {
+      if (ids.length != 4 * leafCount || offsets.length != 4 * leafCount + 1) {
+        throw new IllegalArgumentException("Extrema table shape does not match " + leafCount + " leaves");
+      }
+      this.leafCount = leafCount;
+      this.ids = ids;
+      this.bytes = bytes;
+      this.offsets = offsets;
+    }
+
+    public int leafCount() {
+      return leafCount;
+    }
+
+    /** The leaf's dict id in {@code slot}, or {@code -1} when the leaf has no such value. */
+    public int id(final int leaf, final int slot) {
+      return ids[4 * leaf + slot];
+    }
+
+    public boolean has(final int leaf, final int slot) {
+      return ids[4 * leaf + slot] >= 0;
+    }
+
+    /** Start of the slot's value in {@link #bytes()}. */
+    public int offset(final int leaf, final int slot) {
+      return offsets[4 * leaf + slot];
+    }
+
+    /** Length of the slot's value in {@link #bytes()} ({@code 0} for an absent slot). */
+    public int length(final int leaf, final int slot) {
+      final int e = 4 * leaf + slot;
+      return offsets[e + 1] - offsets[e];
+    }
+
+    /** The shared value bytes, addressed through {@link #offset}/{@link #length}. Never modified. */
+    public byte[] bytes() {
+      return bytes;
+    }
+  }
+
+  /**
+   * Per-leaf extrema of a column's LONG lane — the two smallest and the two largest DISTINCT present
+   * values of every leaf ({@link LongValueExtrema}) — for the ordered-long kinds and for
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL}, whose lane holds dictionary ids.
+   * The numeric twin of {@link #stringValueExtrema}: the descriptor zone already gives a leaf's first
+   * extremum for free, but the SECOND one is what a same-column {@code <>} predicate needs to bound
+   * what remains ({@code WHERE c <> lit ORDER BY c} with {@code lit} every leaf's minimum — the empty
+   * string's id, under a rank-ordered global dictionary, is exactly that at 100M rows), and no
+   * descriptor carries it. Exact where the zone may be loose: read from the decoded lane itself.
    *
    * <p>
-   * Writes only its own three disjoint slots and reads only its own immutable slice, so nothing here
-   * forces the walk to be serial — see the caller for why it is anyway.
+   * Data-derived and literal-independent, so it is memoized per column and shared by every query. The
+   * walk reads the retained slices when the column is resident and otherwise decodes leaf ranges
+   * through the fetcher and drops them — it never holds the column — fanned out like
+   * {@link #stringValueExtrema}. Rowless and all-missing leaves have no slot set.
+   * </p>
+   *
+   * @throws IllegalStateException if {@code col}'s long lane is not an order
    */
-  private static void extremaOfLeaf(final @Nullable ColumnSlice slice, final int leaf, final int[] extrema,
-      final boolean[] leafSupplementary) {
-    extrema[2 * leaf] = -1;
-    extrema[2 * leaf + 1] = -1;
+  public LongValueExtrema longValueExtrema(final int col, final ColumnSegmentFetcher fetcher) {
+    if (col < 0 || col >= columnKinds.length || !ProjectionColumnScan.zonePrunableKind(columnKinds[col])) {
+      throw new IllegalStateException("Column " + col + " has no ordered long lane");
+    }
+    if (fetcher == null) {
+      throw new IllegalArgumentException("fetcher must not be null");
+    }
+    final LongValueExtrema hit = longExtrema[col];
+    if (hit != null) {
+      return hit;
+    }
+    final long t0 = MEMO_DIAG
+        ? System.nanoTime()
+        : 0L;
+    final int n = directories.size();
+    final ColumnSlice[] resident = columns[col];
+    final int ranges = resident != null || fetcher.rangedFetchIsConcurrent()
+        ? memoPassRanges(n)
+        : 1;
+    // Every range writes only its own leaves' four slots and its own presence words (range bounds
+    // are multiples of 64 leaves, so 4 * leaf slots never share a word across ranges either).
+    final long[] values = new long[4 * n];
+    final long[] present = new long[(4 * n + 63) >>> 6];
+    forEachMemoRange(n, ranges, (from, to, r) -> longExtremaOfRange(col, from, to, resident, fetcher, values, present));
+    final LongValueExtrema built = new LongValueExtrema(n, values, present);
+    final LongValueExtrema published;
+    synchronized (this) {
+      final LongValueExtrema existing = longExtrema[col];
+      if (existing != null) {
+        published = existing;
+      } else {
+        final LongValueExtrema[] next = longExtrema.clone();
+        next[col] = built;
+        longExtrema = next;
+        published = built;
+      }
+    }
+    if (MEMO_DIAG) {
+      System.err.printf("[memo] longExtrema col=%d leaves=%d ranges=%d resident=%b ms=%.2f%n", col, n, ranges,
+          resident != null, (System.nanoTime() - t0) / 1e6);
+    }
+    return published;
+  }
+
+  /**
+   * The memoized long-lane extrema of one column ({@link ProjectionColumnStore#longValueExtrema}):
+   * four slots per leaf in {@link StringValueExtrema}'s slot order — {@link StringValueExtrema#MIN1}
+   * the smallest present value, {@link StringValueExtrema#MIN2} the second-smallest DISTINCT one,
+   * {@link StringValueExtrema#MAX1} the largest, {@link StringValueExtrema#MAX2} the second-largest
+   * distinct one — each flagged present or absent. Immutable once published.
+   */
+  public static final class LongValueExtrema {
+    private final int leafCount;
+    private final long[] values;
+    private final long[] present;
+
+    LongValueExtrema(final int leafCount, final long[] values, final long[] present) {
+      if (values.length != 4 * leafCount || present.length != (4 * leafCount + 63) >>> 6) {
+        throw new IllegalArgumentException("Extrema table shape does not match " + leafCount + " leaves");
+      }
+      this.leafCount = leafCount;
+      this.values = values;
+      this.present = present;
+    }
+
+    public int leafCount() {
+      return leafCount;
+    }
+
+    /**
+     * Whether the leaf has a value in {@code slot} (a leaf with one distinct value has no second slot).
+     */
+    public boolean has(final int leaf, final int slot) {
+      final int e = 4 * leaf + slot;
+      return (present[e >>> 6] & 1L << (e & 63)) != 0L;
+    }
+
+    /** The leaf's value in {@code slot}; meaningful only when {@link #has} holds. */
+    public long value(final int leaf, final int slot) {
+      return values[4 * leaf + slot];
+    }
+  }
+
+  private void longExtremaOfRange(final int col, final int from, final int to, final ColumnSlice @Nullable [] resident,
+      final ColumnSegmentFetcher fetcher, final long[] values, final long[] present) {
+    if (resident != null) {
+      for (int leaf = from; leaf < to; leaf++) {
+        longExtremaOfLeaf(resident[leaf], leaf, values, present);
+      }
+      return;
+    }
+    for (int w = from; w < to; w += MEMO_DECODE_WINDOW) {
+      final int wTo = Math.min(w + MEMO_DECODE_WINDOW, to);
+      final ColumnSlice[] decoded = decodeLeafSlices(col, null, w, wTo - w, fetcher);
+      for (int i = 0; i < decoded.length; i++) {
+        longExtremaOfLeaf(decoded[i], w + i, values, present);
+      }
+    }
+  }
+
+  /**
+   * One leaf's contribution to {@link #longValueExtrema}: its smallest, second-smallest, largest and
+   * second-largest DISTINCT present long values into slots {@code 4 * leaf + slot}. Writes only its
+   * own slots and presence bits (a range owns whole 64-leaf blocks, hence whole presence words), so
+   * ranges run concurrently without coordination. One pass over the lane, branch-light: the two
+   * candidates per side are kept as running values and a distinct-count of how many are set.
+   */
+  private static void longExtremaOfLeaf(final @Nullable ColumnSlice slice, final int leaf, final long[] values,
+      final long[] present) {
+    if (slice == null || slice.rowCount() <= 0) {
+      return;
+    }
+    final long[] lane = slice.numericValues();
+    if (lane == null) {
+      return; // no long lane: the caller sees the slots absent and treats the leaf as unbounded
+    }
+    final long[] presence = slice.presenceWords();
+    final int rowCount = slice.rowCount();
+    long min1 = Long.MAX_VALUE;
+    long min2 = Long.MAX_VALUE;
+    long max1 = Long.MIN_VALUE;
+    long max2 = Long.MIN_VALUE;
+    int distinctSeen = 0; // 0, 1, or 2+ — enough to tell whether a second slot exists
+    for (int r = 0; r < rowCount; r++) {
+      if (presence != null && (presence[r >>> 6] & 1L << (r & 63)) == 0L) {
+        continue;
+      }
+      final long v = lane[r];
+      if (distinctSeen == 0) {
+        min1 = v;
+        max1 = v;
+        distinctSeen = 1;
+        continue;
+      }
+      if (v < min1) {
+        min2 = min1;
+        min1 = v;
+        distinctSeen = 2;
+      } else if (v > min1 && v < min2) {
+        min2 = v;
+        distinctSeen = 2;
+      }
+      if (v > max1) {
+        max2 = max1;
+        max1 = v;
+        distinctSeen = 2;
+      } else if (v < max1 && v > max2) {
+        max2 = v;
+        distinctSeen = 2;
+      }
+    }
+    if (distinctSeen == 0) {
+      return;
+    }
+    final int base = 4 * leaf;
+    values[base + StringValueExtrema.MIN1] = min1;
+    values[base + StringValueExtrema.MAX1] = max1;
+    setSlot(present, base + StringValueExtrema.MIN1);
+    setSlot(present, base + StringValueExtrema.MAX1);
+    if (distinctSeen == 2) {
+      // With two distinct values both second slots are set: the second-smallest and the
+      // second-largest exist (they may be the same value, or the other side's first).
+      values[base + StringValueExtrema.MIN2] = min2;
+      values[base + StringValueExtrema.MAX2] = max2;
+      setSlot(present, base + StringValueExtrema.MIN2);
+      setSlot(present, base + StringValueExtrema.MAX2);
+    }
+  }
+
+  private static void setSlot(final long[] present, final int slot) {
+    present[slot >>> 6] |= 1L << (slot & 63);
+  }
+
+  /** One contiguous leaf range's share of a {@link #stringValueExtrema} pass. */
+  private static final class ExtremaRange {
+    /** Four per leaf of the range ({@link StringValueExtrema} slot order), {@code -1} when absent. */
+    final int[] ids;
+    /** Byte length of each entry ({@code 0} when absent), parallel to {@link #ids}. */
+    final int[] lengths;
+    /** The entries' bytes in entry order; {@code byteLen} of them are live. */
+    byte[] bytes;
+    int byteLen;
+    /** Whether any dictionary entry of the range holds a supplementary character. */
+    boolean supplementary;
+
+    ExtremaRange(final int leaves) {
+      this.ids = new int[4 * leaves];
+      this.lengths = new int[4 * leaves];
+      this.bytes = new byte[Math.max(256, 64 * leaves)];
+    }
+
+    void append(final byte[] src, final int off, final int len) {
+      if (byteLen + len > bytes.length) {
+        bytes = Arrays.copyOf(bytes, Math.max(bytes.length << 1, byteLen + len));
+      }
+      System.arraycopy(src, off, bytes, byteLen, len);
+      byteLen += len;
+    }
+  }
+
+  /**
+   * Leaves per decode batch of a memo pass that has to fetch: bounds the bytes a worker holds at
+   * once.
+   */
+  private static final int MEMO_DECODE_WINDOW = 256;
+
+  private ExtremaRange extremaOfRange(final int col, final int from, final int to,
+      final ColumnSlice @Nullable [] resident, final ColumnSegmentFetcher fetcher) {
+    final ExtremaRange part = new ExtremaRange(to - from);
+    if (resident != null) {
+      for (int leaf = from; leaf < to; leaf++) {
+        extremaOfLeaf(resident[leaf], leaf - from, part);
+      }
+      return part;
+    }
+    for (int w = from; w < to; w += MEMO_DECODE_WINDOW) {
+      final int wTo = Math.min(w + MEMO_DECODE_WINDOW, to);
+      final ColumnSlice[] decoded = decodeLeafSlices(col, null, w, wTo - w, fetcher);
+      for (int i = 0; i < decoded.length; i++) {
+        extremaOfLeaf(decoded[i], w + i - from, part);
+      }
+    }
+    return part;
+  }
+
+  /**
+   * One leaf's contribution to {@link #stringValueExtrema}: its smallest, second-smallest, largest
+   * and second-largest REFERENCED dictionary entries into the range's slots {@code 4 * local + slot}
+   * ({@code -1} where the leaf has no such value), their bytes appended in slot order, and whether
+   * its dictionary holds a supplementary character folded into the range's verdict. Writes only its
+   * own slots and reads only its own immutable slice, so ranges run concurrently without
+   * coordination.
+   */
+  private static void extremaOfLeaf(final @Nullable ColumnSlice slice, final int local, final ExtremaRange part) {
+    final int base = 4 * local;
+    Arrays.fill(part.ids, base, base + 4, -1);
     if (slice == null || slice.rowCount() <= 0) {
       return;
     }
     final byte[] dictBytes = slice.dictBytes();
     final int[] dictOffsets = slice.dictOffsets();
-    final int[] ids = slice.stringDictIds();
-    if (dictBytes == null || dictOffsets == null || ids == null) {
-      return; // no dict lanes: the caller sees -1 and declines to prune this leaf
+    final int[] rowIds = slice.stringDictIds();
+    if (dictBytes == null || dictOffsets == null || rowIds == null) {
+      return; // no dict lanes: the caller sees -1 and treats the leaf as unbounded
     }
     final int dictSize = dictOffsets.length - 1;
     if (dictSize == 0) {
       return;
     }
     // Scratch is per leaf rather than reused across them: the walk runs once per column, so a
-    // 128-byte bitset per leaf costs nothing, and sharing one would be the only thing standing
-    // between this and running the leaves concurrently.
+    // 128-byte bitset per leaf costs nothing, and sharing one is the only thing that would stand
+    // between the ranges and running concurrently.
     final long[] referenced = new long[(dictSize + 63) >>> 6];
     final long[] presence = slice.presenceWords();
     final int rowCount = slice.rowCount();
@@ -517,7 +992,7 @@ public final class ProjectionColumnStore {
       if (presence != null && (presence[r >>> 6] & 1L << (r & 63)) == 0L) {
         continue;
       }
-      final int id = ids[r];
+      final int id = rowIds[r];
       referenced[id >>> 6] |= 1L << (id & 63);
     }
     // One pass over this leaf's entries settles the collation gate for all of its comparisons.
@@ -526,42 +1001,342 @@ public final class ProjectionColumnStore {
       supplementary =
           ProjectionIndexScan.hasFourByteUtf8(dictBytes, dictOffsets[i], dictOffsets[i + 1] - dictOffsets[i]);
     }
-    leafSupplementary[leaf] = supplementary;
-    int minId = -1;
-    int maxId = -1;
+    part.supplementary |= supplementary;
+    int min1 = -1;
+    int min2 = -1;
+    int max1 = -1;
+    int max2 = -1;
     for (int i = 0; i < dictSize; i++) {
       if ((referenced[i >>> 6] & 1L << (i & 63)) == 0L) {
         continue;
       }
-      if (minId < 0) {
-        minId = i;
-        maxId = i;
+      if (min1 < 0) {
+        min1 = i;
+        max1 = i;
         continue;
       }
-      final int off = dictOffsets[i];
-      final int len = dictOffsets[i + 1] - off;
-      if (supplementary) {
-        if (ProjectionIndexByteScan.compareStrSlices(dictBytes, off, len, dictBytes, dictOffsets[minId],
-            dictOffsets[minId + 1] - dictOffsets[minId]) < 0) {
-          minId = i;
-        }
-        if (ProjectionIndexByteScan.compareStrSlices(dictBytes, off, len, dictBytes, dictOffsets[maxId],
-            dictOffsets[maxId + 1] - dictOffsets[maxId]) > 0) {
-          maxId = i;
-        }
-      } else {
-        if (Arrays.compareUnsigned(dictBytes, off, off + len, dictBytes, dictOffsets[minId],
-            dictOffsets[minId + 1]) < 0) {
-          minId = i;
-        }
-        if (Arrays.compareUnsigned(dictBytes, off, off + len, dictBytes, dictOffsets[maxId],
-            dictOffsets[maxId + 1]) > 0) {
-          maxId = i;
-        }
+      // Two DISTINCT extrema per side: an entry equal to the current first stays out of the second
+      // slot (a dictionary is not obliged to be duplicate-free), and an entry equal to the current
+      // second changes nothing.
+      final int cmpMin = compareDictEntries(dictBytes, dictOffsets, i, min1, supplementary);
+      if (cmpMin < 0) {
+        min2 = min1;
+        min1 = i;
+      } else if (cmpMin > 0 && (min2 < 0 || compareDictEntries(dictBytes, dictOffsets, i, min2, supplementary) < 0)) {
+        min2 = i;
+      }
+      final int cmpMax = compareDictEntries(dictBytes, dictOffsets, i, max1, supplementary);
+      if (cmpMax > 0) {
+        max2 = max1;
+        max1 = i;
+      } else if (cmpMax < 0 && (max2 < 0 || compareDictEntries(dictBytes, dictOffsets, i, max2, supplementary) > 0)) {
+        max2 = i;
       }
     }
-    extrema[2 * leaf] = minId;
-    extrema[2 * leaf + 1] = maxId;
+    part.ids[base + StringValueExtrema.MIN1] = min1;
+    part.ids[base + StringValueExtrema.MIN2] = min2;
+    part.ids[base + StringValueExtrema.MAX1] = max1;
+    part.ids[base + StringValueExtrema.MAX2] = max2;
+    for (int slot = 0; slot < 4; slot++) {
+      final int id = part.ids[base + slot];
+      if (id < 0) {
+        continue;
+      }
+      final int off = dictOffsets[id];
+      final int len = dictOffsets[id + 1] - off;
+      part.lengths[base + slot] = len;
+      part.append(dictBytes, off, len);
+    }
+  }
+
+  /**
+   * Order of two entries of ONE dictionary under the interpreter's collation: unsigned UTF-8 bytes,
+   * decoded comparison as soon as a supplementary character is in the dictionary — the gate every
+   * dict kernel uses.
+   */
+  private static int compareDictEntries(final byte[] dictBytes, final int[] dictOffsets, final int a, final int b,
+      final boolean supplementary) {
+    final int aOff = dictOffsets[a];
+    final int aLen = dictOffsets[a + 1] - aOff;
+    final int bOff = dictOffsets[b];
+    final int bLen = dictOffsets[b + 1] - bOff;
+    return supplementary
+        ? ProjectionIndexByteScan.compareStrSlices(dictBytes, aOff, aLen, dictBytes, bOff, bLen)
+        : Arrays.compareUnsigned(dictBytes, aOff, aOff + aLen, dictBytes, bOff, bOff + bLen);
+  }
+
+  /**
+   * Bitset over leaves: bit {@code leaf} set when {@code col} is ALL-PRESENT on the leaf — every row
+   * carries a value (a rowless leaf vacuously). The truth costs ONE read of the column's BODY chain
+   * the first time it is asked per column: the encoder writes a one-byte presence marker ahead of the
+   * payload ({@link ProjectionIndexColumnSegmentCodec#bodyAllPresent}), so the pass reads the marker
+   * of each verified segment and retains nothing; a resident column answers from its slices, a
+   * byte-cached one from its cached segments, at no I/O. Memoized per column: the answer is a
+   * property of the data, shared by every query.
+   *
+   * <p>
+   * What it buys: the sorted scan's best-first plan may skip a leaf on its zone bound only once it
+   * knows no matching row there can hide a MISSING order key (such a row obliges the whole scan to
+   * decline to the interpreter). That precondition used to be established by DECODING every leaf's
+   * order columns — the whole column, window by window, before a single row was compared — which is
+   * what made a windowed top-k over 97,654 leaves cost seconds for ten rows.
+   * </p>
+   */
+  public long[] allPresentLeaves(final int col, final ColumnSegmentFetcher fetcher) {
+    if (col < 0 || col >= columnKinds.length) {
+      throw new IllegalArgumentException("column " + col + " of " + columnKinds.length);
+    }
+    if (fetcher == null) {
+      throw new IllegalArgumentException("fetcher must not be null");
+    }
+    final long[] hit = allPresentLeaves[col];
+    if (hit != null) {
+      return hit;
+    }
+    final long t0 = MEMO_DIAG
+        ? System.nanoTime()
+        : 0L;
+    final int n = directories.size();
+    final long[] bits = new long[(n + 63) >>> 6];
+    final ColumnSlice[] resident = columns[col];
+    final byte[][] retainedBytes = resident == null
+        ? completeChainOrNull(columnBytes[col], n)
+        : null;
+    final String source;
+    if (resident != null) {
+      source = "slices";
+      forEachMemoRange(n, memoPassRanges(n), (from, to, r) -> {
+        for (int leaf = from; leaf < to; leaf++) {
+          final ColumnSlice slice = resident[leaf];
+          if (slice.rowCount() <= 0
+              || ProjectionIndexColumnSegmentCodec.allPresent(slice.presenceWords(), slice.rowCount())) {
+            bits[leaf >>> 6] |= 1L << (leaf & 63);
+          }
+        }
+      });
+    } else if (retainedBytes != null) {
+      source = "bytes";
+      forEachMemoRange(n, memoPassRanges(n), (from, to, r) -> {
+        for (int leaf = from; leaf < to; leaf++) {
+          if (RowGroupDescriptor.rowCount(directories.get(leaf).descriptor()) <= 0
+              || ProjectionIndexColumnSegmentCodec.bodyAllPresent(retainedBytes[leaf])) {
+            bits[leaf >>> 6] |= 1L << (leaf & 63);
+          }
+        }
+      });
+    } else {
+      source = "fetch";
+      final int segId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
+      final int ranges = fetcher.rangedFetchIsConcurrent()
+          ? memoPassRanges(n)
+          : 1;
+      forEachMemoRange(n, ranges, (from, to, r) -> {
+        for (int w = from; w < to; w += MEMO_FETCH_WINDOW) {
+          final int wTo = Math.min(w + MEMO_FETCH_WINDOW, to);
+          final byte[][] bodies = fetchLeafSegments(null, w, wTo - w, segId,
+              ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher);
+          for (int i = 0; i < bodies.length; i++) {
+            final int leaf = w + i;
+            if (RowGroupDescriptor.rowCount(directories.get(leaf).descriptor()) <= 0
+                || ProjectionIndexColumnSegmentCodec.bodyAllPresent(bodies[i])) {
+              bits[leaf >>> 6] |= 1L << (leaf & 63);
+            }
+          }
+        }
+      });
+    }
+    final long[] published;
+    synchronized (this) {
+      final long[] existing = allPresentLeaves[col];
+      if (existing != null) {
+        published = existing;
+      } else {
+        final long[][] next = allPresentLeaves.clone();
+        next[col] = bits;
+        allPresentLeaves = next;
+        published = bits;
+      }
+    }
+    if (MEMO_DIAG) {
+      int set = 0;
+      for (final long word : bits) {
+        set += Long.bitCount(word);
+      }
+      System.err.printf("[memo] allPresent col=%d leaves=%d allPresent=%d source=%s ms=%.2f%n", col, n, set, source,
+          (System.nanoTime() - t0) / 1e6);
+    }
+    return published;
+  }
+
+  /** Leaves per fetch batch of a marker pass: one ranged fetch, then the segments are dropped. */
+  private static final int MEMO_FETCH_WINDOW = 1024;
+
+  /** {@code chain} when it holds a segment for every one of {@code n} leaves, else {@code null}. */
+  private static byte @Nullable [][] completeChainOrNull(final byte @Nullable [][] chain, final int n) {
+    if (chain == null || chain.length != n) {
+      return null;
+    }
+    for (final byte[] segment : chain) {
+      if (segment == null) {
+        return null;
+      }
+    }
+    return chain;
+  }
+
+  /**
+   * Leaf-indexed mirrors of one column's descriptor entries
+   * ({@link ProjectionColumnStore#zoneIndex}): the zone {@code min}/{@code max} the encoder wrote
+   * beside each BODY segment, the column flags, and whether the entry exists at all. A
+   * {@code min > max} pair is the format's all-missing marker (rowless leaf, or every cell missing),
+   * never a real range. Immutable once published.
+   */
+  public static final class ZoneIndex {
+    private final long[] min;
+    private final long[] max;
+    private final byte[] flags;
+    private final long[] known;
+
+    ZoneIndex(final long[] min, final long[] max, final byte[] flags, final long[] known) {
+      this.min = min;
+      this.max = max;
+      this.flags = flags;
+      this.known = known;
+    }
+
+    /** Whether the leaf's descriptor lists the column's BODY entry (the range is UNKNOWN otherwise). */
+    public boolean known(final int leaf) {
+      return (known[leaf >>> 6] & 1L << (leaf & 63)) != 0L;
+    }
+
+    public long min(final int leaf) {
+      return min[leaf];
+    }
+
+    public long max(final int leaf) {
+      return max[leaf];
+    }
+
+    public byte flags(final int leaf) {
+      return flags[leaf];
+    }
+
+    /** The format's all-missing marker: no present value on the leaf, so no range to reason with. */
+    public boolean allMissing(final int leaf) {
+      return min[leaf] > max[leaf];
+    }
+  }
+
+  /**
+   * The column's zone mirrors for every leaf, gathered ONCE from the descriptors into leaf-indexed
+   * arrays. {@link #columnZoneRange} answers the same question for one leaf at the price of a
+   * descriptor binary search plus two dependent loads; a plan that asks it for all 97,654 leaves of a
+   * 100M-row store pays tens of milliseconds per column per query for what is a constant of the
+   * build. Memoized per column, published like {@link #column}.
+   */
+  public ZoneIndex zoneIndex(final int col) {
+    if (col < 0 || col >= columnKinds.length) {
+      throw new IllegalArgumentException("column " + col + " of " + columnKinds.length);
+    }
+    final ZoneIndex hit = zoneIndices[col];
+    if (hit != null) {
+      return hit;
+    }
+    final int n = directories.size();
+    final long[] min = new long[n];
+    final long[] max = new long[n];
+    final byte[] flags = new byte[n];
+    final long[] known = new long[(n + 63) >>> 6];
+    final int segId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
+    forEachMemoRange(n, memoPassRanges(n), (from, to, r) -> {
+      for (int leaf = from; leaf < to; leaf++) {
+        final byte[] descriptor = directories.get(leaf).descriptor();
+        final int entry = RowGroupDescriptor.entryIndexOf(descriptor, segId);
+        if (entry < 0) {
+          min[leaf] = Long.MAX_VALUE;
+          max[leaf] = Long.MIN_VALUE;
+          flags[leaf] = ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE;
+          continue;
+        }
+        min[leaf] = RowGroupDescriptor.entryMin(descriptor, entry);
+        max[leaf] = RowGroupDescriptor.entryMax(descriptor, entry);
+        flags[leaf] = RowGroupDescriptor.entryColFlags(descriptor, entry);
+        known[leaf >>> 6] |= 1L << (leaf & 63);
+      }
+    });
+    final ZoneIndex built = new ZoneIndex(min, max, flags, known);
+    synchronized (this) {
+      final ZoneIndex existing = zoneIndices[col];
+      if (existing != null) {
+        return existing;
+      }
+      final ZoneIndex[] next = zoneIndices.clone();
+      next[col] = built;
+      zoneIndices = next;
+    }
+    return built;
+  }
+
+  /** Diagnostics of the memo passes ({@code -Dsirix.projDiag}), read once. */
+  private static final boolean MEMO_DIAG = Boolean.getBoolean("sirix.projDiag");
+
+  /** Below this many leaves a memo pass stays serial: the fan-out's fixed cost exceeds the work. */
+  private static final int MEMO_PASS_MIN = 4096;
+
+  /**
+   * At most one memo-pass range per this many leaves, so a range amortizes its fetch and its task.
+   */
+  private static final int MEMO_RANGE_MIN = 512;
+
+  /**
+   * How many ranges a memo pass over {@code n} leaves splits into: one below {@link #MEMO_PASS_MIN},
+   * else one per {@link #MEMO_RANGE_MIN} leaves and never more than there are cores.
+   */
+  private static int memoPassRanges(final int n) {
+    if (n < MEMO_PASS_MIN) {
+      return 1;
+    }
+    return Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), n / MEMO_RANGE_MIN));
+  }
+
+  /**
+   * A memo pass's work on one contiguous leaf range {@code [from, to)}, the range's index beside it.
+   */
+  @FunctionalInterface
+  private interface LeafRangeTask {
+    void run(int from, int to, int range);
+  }
+
+  /**
+   * Run {@code task} over {@code n} leaves split into {@code ranges} contiguous ranges whose bounds
+   * are multiples of 64 — so two ranges never share a bitset word and can OR into one {@code long[]}
+   * without coordination. One range runs on the calling thread; more fan out over the common pool,
+   * the first failure rethrown on the caller after every range stopped. A range that ends up empty
+   * (more ranges than 64-leaf blocks) is skipped, and its part stays {@code null}.
+   */
+  private static void forEachMemoRange(final int n, final int ranges, final LeafRangeTask task) {
+    if (ranges <= 1) {
+      task.run(0, n, 0);
+      return;
+    }
+    final int rangeLen = ((n + ranges - 1) / ranges + 63) & ~63;
+    final AtomicReference<RuntimeException> failed = new AtomicReference<>();
+    IntStream.range(0, ranges).parallel().forEach(r -> {
+      final int from = r * rangeLen;
+      final int to = Math.min(from + rangeLen, n);
+      if (from >= to || failed.get() != null) {
+        return;
+      }
+      try {
+        task.run(from, to, r);
+      } catch (final RuntimeException rangeFailed) {
+        failed.compareAndSet(null, rangeFailed);
+      }
+    });
+    final RuntimeException rangeFailed = failed.get();
+    if (rangeFailed != null) {
+      throw rangeFailed;
+    }
   }
 
   /** Whether a fill of {@code col} hit permanent decode corruption (memoized fail-fast). */
@@ -787,7 +1562,7 @@ public final class ProjectionColumnStore {
    */
   public boolean columnFillWithinBudget(final int col) {
     return col >= 0 && col < columnKinds.length
-        && retainedFillBytes.get() + incrementalFillBytes(col, projectedColumnFillBytes(col)) <= columnFillBudgetBytes;
+        && fitsMakingRoom(incrementalFillBytes(col, projectedColumnFillBytes(col)), new int[] {col}, false);
   }
 
   /**
@@ -828,6 +1603,7 @@ public final class ProjectionColumnStore {
     final ColumnSlice[][] slots = columns;
     ColumnSlice[] slices = slots[col];
     if (slices != null) {
+      pinResident(col); // this query is now serving from these arrays — no close may release them
       return slices;
     }
     if (corruptColumns[col] != 0) {
@@ -847,6 +1623,7 @@ public final class ProjectionColumnStore {
     // serialize other columns (or evidence readers) behind it. A same-column race does the
     // work twice with identical results — first publish wins.
     slices = fillColumn(col, fetcher);
+    pinResident(col);
     synchronized (this) {
       final ColumnSlice[] existing = columns[col];
       if (existing != null) {
@@ -858,7 +1635,9 @@ public final class ProjectionColumnStore {
       columns = next;
       // Re-priced HERE, not reused from the check: the fill above ran the inner raw-BODY door,
       // which may have published and charged that chain in between. Same helper, later moment.
-      retainedFillBytes.addAndGet(incrementalFillBytes(col, projected));
+      final long charged = incrementalFillBytes(col, projected);
+      chargedSliceBytes[col] = charged;
+      retainedFillBytes.addAndGet(charged);
     }
     return slices;
   }
@@ -886,6 +1665,108 @@ public final class ProjectionColumnStore {
     final long previous = columnFillBudgetBytes;
     columnFillBudgetBytes = value;
     return previous;
+  }
+
+  /**
+   * Kill switch: {@code false} restores the static budget with retention for the store's lifetime.
+   */
+  public static final String RESIDENCY_HEADROOM_PROPERTY = "sirix.projection.residency.headroom";
+
+  /**
+   * Whether the headroom share may LOWER what a store retains (R1). Opt-IN, and measured that way.
+   *
+   * <p>
+   * R1 shipped on by default and was reverted to opt-in on the evidence of the 100M leg it was built
+   * for. With it on, the same share gates three consumers at once — this budget, the group table and
+   * the grouped-distinct ceiling — and a pessimistic sample at a query boundary releases what the
+   * query just filled, so the next try re-reads it. Measured at 100M on the 69.6 GB rebuild, same
+   * database and code, only this flag moving: q3 (projection-aggregate) 23.4 s cold / 21.1 s hot with
+   * it on against 2.4 / 0.09 with it off — hot == cold being the signature of retaining nothing — and
+   * q4 ({@code COUNT(DISTINCT UserID)}) never finished, thrashing at 12.6 cores and 16.9 GB RSS with
+   * a 763-second concurrent mark cycle, against 1.50 / 1.46 with it off.
+   * </p>
+   *
+   * <p>
+   * The mechanism, its scope, its pins and its witnesses all stay: a store that genuinely must bound
+   * what it keeps across queries turns it on with {@code -Dsirix.projection.residency.headroom=true}.
+   * What it may not do is decide, from one process-wide sample, that a query should throw away the
+   * column it is about to read again — and the per-consumer accounting that would make it safe (one
+   * accumulator over every claimant of the share, not N independent tests against the whole of it)
+   * does not exist yet.
+   * </p>
+   */
+  private static volatile boolean residencyHeadroom =
+      Boolean.parseBoolean(System.getProperty(RESIDENCY_HEADROOM_PROPERTY, "false"));
+
+  /**
+   * Test seam for the kill switch.
+   *
+   * @param value {@code false} for the pre-R1 behaviour (static budget, no release)
+   * @return the previous value, for restoring in a finally block
+   */
+  public static boolean setResidencyHeadroomForTesting(final boolean value) {
+    final boolean previous = residencyHeadroom;
+    residencyHeadroom = value;
+    return previous;
+  }
+
+  /** Whether headroom-gated residency (R1) is in effect. */
+  public static boolean residencyHeadroomEnabled() {
+    return residencyHeadroom;
+  }
+
+  /**
+   * The heap share the retained fills may occupy, sampled at query-scope boundaries; {@code -1}
+   * before the first sample.
+   *
+   * <p>
+   * Sampled rather than read per call for two reasons. It is CONSTANT within a query, so every
+   * planner predicate and every fill door of one query price against the same figure — a budget that
+   * shrank between the route decision and the route's second fill would produce exactly the mid-route
+   * decline that the combined-fit rule ({@link #columnsFitWithinBudget}) exists to prevent. And the
+   * sample walks the heap pools' post-collection usage, which belongs at a query boundary, not on a
+   * planner path a group arm re-enters per pass.
+   * </p>
+   */
+  private static volatile long headroomShareBytes = -1L;
+
+  /**
+   * Re-read {@link HeapHeadroom#plannedShareBytes()} — called when a query scope opens and when one
+   * closes, and by tests that move the headroom seam without running a query.
+   *
+   * @return the new share in bytes
+   */
+  public static long sampleHeadroomShare() {
+    final long share = HeapHeadroom.plannedShareBytes();
+    headroomShareBytes = share;
+    return share;
+  }
+
+  /**
+   * The budget every residency decision prices against: the static per-store fill budget, and — with
+   * R1 in effect — no more than the shared {@link HeapHeadroom#plannedShareBytes() headroom share}.
+   *
+   * <p>
+   * The SAME figure gates the planner predicates and the fill doors. A planner that priced against a
+   * looser budget than the door enforces would admit a resident route whose second fill then throws
+   * the decline door mid-kernel; the store answers one question with one number so that cannot
+   * happen. Above the budget nothing is refused that is already resident, and nothing fails: the
+   * windowed lanes serve every column without retention, so the budget only ever decides whether
+   * bytes are KEPT.
+   * </p>
+   *
+   * @return the effective residency budget in bytes
+   */
+  public static long residencyBudgetBytes() {
+    final long stat = columnFillBudgetBytes;
+    if (!residencyHeadroom) {
+      return stat;
+    }
+    long share = headroomShareBytes;
+    if (share < 0L) {
+      share = sampleHeadroomShare();
+    }
+    return Math.min(stat, share);
   }
 
   /**
@@ -1009,7 +1890,27 @@ public final class ProjectionColumnStore {
    */
   public boolean columnFilled(final int col) {
     final ColumnSlice[][] slots = columns;
-    return col >= 0 && col < slots.length && slots[col] != null;
+    final boolean filled = col >= 0 && col < slots.length && slots[col] != null;
+    if (filled) {
+      // A POSITIVE residency answer is what a planner turns into a resident route, so it pins for the
+      // asking query exactly like a fill does. Without this a concurrent scope's close could release
+      // the column between the planner's answer and the route's first read — and the route would then
+      // meet the decline door mid-kernel instead of having been sent windowed up front.
+      pinResident(col);
+    }
+    return filled;
+  }
+
+  /**
+   * Whether the KEYS chain is ALREADY decoded and retained — {@link #columnFilled} for record keys: a
+   * positive answer pins the keys for the asking query, since the caller will serve from them.
+   */
+  public boolean recordKeysFilled() {
+    final boolean filled = recordKeySlices != null;
+    if (filled) {
+      pinResident(keysPinSlot());
+    }
+    return filled;
   }
 
   /**
@@ -1059,6 +1960,343 @@ public final class ProjectionColumnStore {
     return retainedFillBytes.get();
   }
 
+  /**
+   * Per-slot pin counts: how many open {@link ProjectionResidencyScope}s have published or observed
+   * this column (or the KEYS lane) resident. A COUNTER per slot, not a list per query: the release
+   * only has to know whether anyone still holds a column, and a counter answers that in one read on a
+   * path that must not allocate.
+   */
+  private final AtomicIntegerArray residencyPins;
+
+  /**
+   * Bytes each published lane charged to {@link #retainedFillBytes}; {@code 0} = not published.
+   * Guarded by {@code this}, like the publish sites that write them.
+   *
+   * <p>
+   * The charge is recorded rather than recomputed, because it is NOT a function of the column alone:
+   * a slice fill that follows a raw-BODY fill of the same column charges only its decoded arrays
+   * ({@link #incrementalFillBytes}). Releasing a lane must return exactly what that lane added, or
+   * the ledger drifts from the heap in the one direction a budget cannot survive — downward.
+   * </p>
+   */
+  private final long[] chargedSliceBytes;
+
+  private final long[] chargedIdentityBytes;
+
+  private final long[] chargedBodyBytes;
+
+  private long chargedKeysBytes;
+
+  /** Bytes returned to the heap by {@link #releaseUnpinnedOverBudget()} process-wide. */
+  private static final LongAdder RESIDENCY_RELEASED_BYTES = new LongAdder();
+
+  /** Lanes released process-wide (one per column-with-its-lanes, or the KEYS lane). */
+  private static final LongAdder RESIDENCY_RELEASES = new LongAdder();
+
+  /**
+   * Kill switch: {@code false} makes a fit door refuse whenever the retained total plus the fill
+   * exceeds the budget, retaining whatever was filled first for the store's lifetime.
+   */
+  public static final String RESIDENCY_EVICT_PROPERTY = "sirix.projection.residency.evict";
+
+  /**
+   * Whether a fit door may EVICT unpinned fills to admit the one being priced
+   * ({@link #fitsMakingRoom}). Without it residency is first-come-first-served: once earlier queries'
+   * columns filled the budget (a leg at 100M sat at 5.07 GB of a 5.37 GB budget from its 19th query
+   * on) every later column was refused for the store's lifetime and re-decoded on every read, while
+   * the columns holding the budget were never read again.
+   */
+  private static volatile boolean residencyEvict =
+      Boolean.parseBoolean(System.getProperty(RESIDENCY_EVICT_PROPERTY, "true"));
+
+  /**
+   * Test seam for the eviction kill switch.
+   *
+   * @param value {@code false} for first-come-first-served retention (no fit door evicts)
+   * @return the previous value, for restoring in a finally block
+   */
+  public static boolean setResidencyEvictForTesting(final boolean value) {
+    final boolean previous = residencyEvict;
+    residencyEvict = value;
+    return previous;
+  }
+
+  /** The empty keep set of a KEYS-lane fill. */
+  private static final int[] NO_COLUMNS = new int[0];
+
+  /** Lanes evicted by a fit door process-wide, to make room for the fill it admitted. */
+  private static final LongAdder RESIDENCY_EVICTIONS = new LongAdder();
+
+  /** Bytes evicted by fit doors process-wide. */
+  private static final LongAdder RESIDENCY_EVICTED_BYTES = new LongAdder();
+
+  /** Test observability: lanes a fit door evicted to admit a fill, process-wide. */
+  public static long residencyEvictionCount() {
+    return RESIDENCY_EVICTIONS.sum();
+  }
+
+  /** Test observability: bytes fit doors evicted, process-wide. */
+  public static long residencyEvictedBytes() {
+    return RESIDENCY_EVICTED_BYTES.sum();
+  }
+
+  /**
+   * Whether {@code needed} more retained bytes fit the budget beside what this store retains,
+   * EVICTING unpinned fills to make room when they do not. The one rule every fit door prices against
+   * ({@link #columnFillWithinBudget}, {@link #columnIdentityFillable},
+   * {@link #columnsFitWithinBudget}, {@link #leafAccess}): a fill that fits the budget on its own is
+   * admitted, and the fills it displaces are those no open query pins and the caller is not about to
+   * read — largest first, like the scope-exit release, so the fewest columns are dropped.
+   *
+   * <p>
+   * Retention is an optimisation (every route also reads through the windowed lanes), so evicting can
+   * cost a re-fetch, never an answer. Nothing is evicted unless the evictable total actually makes
+   * the fill fit: a dry pass sums what could go before a single lane is dropped, so a fill that could
+   * never fit leaves the store exactly as it found it.
+   * </p>
+   *
+   * @param needed the bytes the fill would charge (already-resident lanes excluded)
+   * @param keep columns the caller is about to read — never evicted, even when unpinned
+   * @param keepKeys whether the caller is about to read the resident KEYS lane
+   * @return {@code true} when the fill fits, after any eviction it needed
+   */
+  private boolean fitsMakingRoom(final long needed, final int[] keep, final boolean keepKeys) {
+    final long budget = residencyBudgetBytes();
+    if (retainedFillBytes.get() + needed <= budget) {
+      return true;
+    }
+    if (!residencyEvict || needed > budget) {
+      return false;
+    }
+    long freed = 0L;
+    int evictions = 0;
+    synchronized (this) {
+      long retained = retainedFillBytes.get();
+      if (retained + needed <= budget) {
+        return true;
+      }
+      final boolean[] kept = new boolean[columnKinds.length];
+      for (final int col : keep) {
+        if (col >= 0 && col < kept.length) {
+          kept[col] = true;
+        }
+      }
+      final int keysSlot = keysPinSlot();
+      final boolean keysEvictable = !keepKeys && residencyPins.get(keysSlot) == 0;
+      long evictable = keysEvictable
+          ? chargedKeysBytes
+          : 0L;
+      for (int col = 0; col < columnKinds.length; col++) {
+        if (!kept[col] && residencyPins.get(col) == 0) {
+          evictable += chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
+        }
+      }
+      if (retained - evictable + needed > budget) {
+        return false; // could not fit even with everything evictable gone: touch nothing
+      }
+      while (retained + needed > budget) {
+        int bestColumn = -1;
+        long bestBytes = 0L;
+        for (int col = 0; col < columnKinds.length; col++) {
+          if (kept[col] || residencyPins.get(col) != 0) {
+            continue;
+          }
+          final long bytes = chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
+          if (bytes > bestBytes) {
+            bestBytes = bytes;
+            bestColumn = col;
+          }
+        }
+        final boolean keys = keysEvictable && chargedKeysBytes > bestBytes;
+        if (keys) {
+          bestBytes = chargedKeysBytes;
+          recordKeySlices = null;
+          chargedKeysBytes = 0L;
+        } else if (bestColumn < 0 || bestBytes <= 0L) {
+          break; // the dry pass admitted this fit, so this is unreachable; fail closed if it is not
+        } else {
+          releaseColumnLanes(bestColumn);
+        }
+        retained = retainedFillBytes.addAndGet(-bestBytes);
+        freed += bestBytes;
+        evictions++;
+      }
+      if (retained + needed > budget) {
+        return false;
+      }
+    }
+    RESIDENCY_EVICTIONS.add(evictions);
+    RESIDENCY_EVICTED_BYTES.add(freed);
+    if (Boolean.getBoolean("sirix.projDiag")) {
+      System.err.println("[proj] residency evict: " + evictions + " lane(s), " + (freed >> 20)
+          + " MB returned to admit a " + (needed >> 20) + " MB fill; retained " + (retainedFillBytes.get() >> 20)
+          + " MB of a " + (budget >> 20) + " MB budget");
+    }
+    return true;
+  }
+
+  /** Test observability: bytes released at query-scope exits process-wide. */
+  public static long residencyReleasedBytes() {
+    return RESIDENCY_RELEASED_BYTES.sum();
+  }
+
+  /** Test observability: released columns (and KEYS lanes) process-wide. */
+  public static long residencyReleaseCount() {
+    return RESIDENCY_RELEASES.sum();
+  }
+
+  /** Pin slots: one per column plus one for the store-wide KEYS lane. */
+  int pinSlotCount() {
+    return columnKinds.length + 1;
+  }
+
+  /** The pin slot of the store-wide KEYS lane. */
+  public int keysPinSlot() {
+    return columnKinds.length;
+  }
+
+  /** Pin {@code slot} for one open scope. */
+  void acquirePin(final int slot) {
+    residencyPins.incrementAndGet(slot);
+  }
+
+  /** Drop the pins one closing scope holds, named by the set bits of {@code bits}. */
+  void dropPins(final long[] bits) {
+    final int slots = pinSlotCount();
+    for (int word = 0; word < bits.length; word++) {
+      long remaining = bits[word];
+      while (remaining != 0) {
+        final int bit = Long.numberOfTrailingZeros(remaining);
+        remaining &= remaining - 1;
+        final int slot = (word << 6) + bit;
+        if (slot < slots) {
+          residencyPins.decrementAndGet(slot);
+        }
+      }
+    }
+  }
+
+  /** Test observability: scopes currently pinning {@code slot}. */
+  public int residencyPins(final int slot) {
+    return slot >= 0 && slot < residencyPins.length()
+        ? residencyPins.get(slot)
+        : 0;
+  }
+
+  /**
+   * Pin the column (or KEYS) slot in every open query scope — see {@link ProjectionResidencyScope}.
+   */
+  private void pinResident(final int slot) {
+    ProjectionResidencyScope.pin(this, slot);
+  }
+
+  /**
+   * Release published fills that no open query pins, largest first, until this store's retained total
+   * is back within {@link #residencyBudgetBytes()}. Called at a query-scope exit — never on a timer,
+   * never from a cache listener, never while a query that observed a column resident is still open.
+   *
+   * <p>
+   * Retention is an OPTIMISATION: every route that reads a resident column also reads it through the
+   * windowed lanes ({@link #leafAccess}, {@link WindowedLeafAccess}), which retain nothing. So
+   * releasing can cost a re-fetch, never an answer — and keeping instead is what made a leg's later
+   * queries plan their group tables against a heap the earlier queries' fills had already taken.
+   * </p>
+   *
+   * <p>
+   * A column's lanes are released TOGETHER (slices, distinct-identity slices, raw BODY bytes). They
+   * are one column's residency, priced incrementally against each other, and releasing the raw bytes
+   * out from under the decoded slices they were decoded from would leave the ledger describing a
+   * combination that never existed. The store-wide KEYS lane is its own unit. Fingerprint chains are
+   * deliberately NOT released: they are what lets a predicate prune leaves before a single BODY byte
+   * is fetched, so dropping them to save their own bytes would cost the pruning that keeps the fills
+   * small — the same economics that made them charged-but-never-refused.
+   * </p>
+   */
+  void releaseUnpinnedOverBudget() {
+    if (!residencyHeadroom) {
+      return; // kill switch: retain for the store's lifetime, exactly as before R1
+    }
+    final long budget = residencyBudgetBytes();
+    if (retainedFillBytes.get() <= budget) {
+      return;
+    }
+    long freed = 0L;
+    int releases = 0;
+    synchronized (this) {
+      long retained = retainedFillBytes.get();
+      final int keysSlot = keysPinSlot();
+      while (retained > budget) {
+        // Largest releasable unit first: not an LRU (no recency is consulted, and none is recorded),
+        // simply the choice that reaches the budget in the fewest drops and therefore re-fetches the
+        // fewest columns if they are wanted again.
+        int bestColumn = -1;
+        long bestBytes = 0L;
+        for (int col = 0; col < columnKinds.length; col++) {
+          if (residencyPins.get(col) != 0) {
+            continue;
+          }
+          final long bytes = chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
+          if (bytes > bestBytes) {
+            bestBytes = bytes;
+            bestColumn = col;
+          }
+        }
+        final boolean keys = residencyPins.get(keysSlot) == 0 && chargedKeysBytes > bestBytes;
+        if (keys) {
+          bestBytes = chargedKeysBytes;
+        } else if (bestColumn < 0) {
+          break; // everything left is pinned or already released
+        }
+        if (bestBytes <= 0L) {
+          break;
+        }
+        if (keys) {
+          recordKeySlices = null;
+          chargedKeysBytes = 0L;
+        } else {
+          releaseColumnLanes(bestColumn);
+        }
+        retained = retainedFillBytes.addAndGet(-bestBytes);
+        freed += bestBytes;
+        releases++;
+      }
+    }
+    if (freed > 0L) {
+      RESIDENCY_RELEASED_BYTES.add(freed);
+      RESIDENCY_RELEASES.add(releases);
+      if (Boolean.getBoolean("sirix.projDiag")) {
+        System.err.println(
+            "[proj] residency release: " + releases + " column(s), " + (freed >> 20) + " MB returned, retained "
+                + (retainedFillBytes.get() >> 20) + " MB of a " + (budget >> 20) + " MB budget");
+      }
+    }
+  }
+
+  /**
+   * Drop every published lane of {@code col}; the caller holds the monitor and does the accounting.
+   */
+  private void releaseColumnLanes(final int col) {
+    assert Thread.holdsLock(this);
+    if (chargedSliceBytes[col] != 0L) {
+      final ColumnSlice[][] next = columns.clone();
+      next[col] = null;
+      columns = next;
+      chargedSliceBytes[col] = 0L;
+    }
+    if (chargedIdentityBytes[col] != 0L) {
+      final ColumnSlice[][] next = identityColumns.clone();
+      next[col] = null;
+      identityColumns = next;
+      chargedIdentityBytes[col] = 0L;
+    }
+    if (chargedBodyBytes[col] != 0L) {
+      final byte[][][] next = columnBytes.clone();
+      next[col] = null;
+      columnBytes = next;
+      chargedBodyBytes[col] = 0L;
+    }
+  }
+
   /** Whether {@code col}'s raw BODY chain is already published — and therefore already charged. */
   private boolean columnBytesFilled(final int col) {
     final byte[][][] slots = columnBytes;
@@ -1103,7 +2341,8 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * Refuse a fill whose bytes would not fit beside what this store already retains.
+   * Refuse a fill whose bytes would not fit beside what this store already retains, after
+   * {@link #fitsMakingRoom} has evicted what it may to admit it.
    *
    * @param col the column
    * @param projected the fill's projected bytes
@@ -1111,21 +2350,31 @@ public final class ProjectionColumnStore {
    * @throws FillBudgetExceededException when the cumulative cap would be exceeded
    */
   private void checkFillBudget(final int col, final long projected, final String mode) {
-    final long retained = retainedFillBytes.get();
-    if (retained + projected > columnFillBudgetBytes) {
-      throw new FillBudgetExceededException((col < 0
-          ? "The store's "
-          : "Column " + col + " ") + mode + " adds " + projected + " B beside " + retained
-          + " B already retained, over the " + columnFillBudgetBytes
-          + " B budget (sirix.projection.eagerMaterializeBytes) — declining the fill; the caller falls back to the "
-          + "whole-leaf windowed route");
+    if (fitsMakingRoom(projected, col < 0
+        ? NO_COLUMNS
+        : new int[] {col}, col < 0)) {
+      return;
     }
+    final long retained = retainedFillBytes.get();
+    final long budget = residencyBudgetBytes();
+    throw new FillBudgetExceededException((col < 0
+        ? "The store's "
+        : "Column " + col + " ") + mode + " adds " + projected + " B beside " + retained
+        + " B already retained, over the " + budget + " B residency budget (min of " + columnFillBudgetBytes
+        + " B sirix.projection.eagerMaterializeBytes and the " + (residencyHeadroom
+            ? headroomShareBytes + " B heap headroom share"
+            : "static budget: " + RESIDENCY_HEADROOM_PROPERTY + "=false")
+        + ") — declining the fill; the caller falls back to the whole-leaf windowed route");
   }
 
   /** Whether {@code col}'s DISTINCT-IDENTITY slices are already filled and cached. */
   public boolean columnIdentityFilled(final int col) {
     final ColumnSlice[][] slots = identityColumns;
-    return col >= 0 && col < slots.length && slots[col] != null;
+    final boolean filled = col >= 0 && col < slots.length && slots[col] != null;
+    if (filled) {
+      pinResident(col); // see columnFilled: a positive residency answer pins for the asking query
+    }
+    return filled;
   }
 
   /** Lazily-computed per-column projected DISTINCT-IDENTITY fill bytes; 0 = not yet computed. */
@@ -1201,6 +2450,60 @@ public final class ProjectionColumnStore {
   }
 
   /**
+   * Whether the WHOLE-COLUMN fills of every not-yet-resident column in {@code columns} fit the budget
+   * TOGETHER — the route-level twin of {@link #columnFillWithinBudget}, which prices ONE column
+   * against the remainder. Two columns that each fit the remainder need not fit together: the first
+   * fill would succeed and retain its bytes, the second would throw the budget door mid-route (a
+   * whole-leaf re-entry, or a decline). {@code identityColumn} ({@code -1} for none) is priced in
+   * DISTINCT-IDENTITY mode, as {@link #columnIdentityFillable} prices it; a column already resident
+   * in either mode costs nothing; a repeated column counts once.
+   *
+   * @param columns the columns a route would fill resident (predicates, keys, aggregates, conditions)
+   * @param identityColumn the {@code COUNT(DISTINCT)} operand filled in identity mode, or {@code -1}
+   * @return {@code true} when the combined fill fits beside what the store already retains
+   */
+  public boolean columnsFitWithinBudget(final int[] columns, final int identityColumn) {
+    long needed = 0L;
+    final boolean[] counted = new boolean[columnKinds.length];
+    final StringBuilder diag = Boolean.getBoolean("sirix.projDiag")
+        ? new StringBuilder()
+        : null;
+    for (final int col : columns) {
+      if (col < 0 || col >= columnKinds.length) {
+        return false;
+      }
+      if (counted[col] || columnFilled(col)) {
+        continue;
+      }
+      counted[col] = true;
+      final long priced;
+      if (col == identityColumn) {
+        priced = columnIdentityFilled(col)
+            ? 0L
+            : incrementalFillBytes(col, projectedColumnIdentityFillBytes(col));
+      } else {
+        priced = incrementalFillBytes(col, projectedColumnFillBytes(col));
+      }
+      needed += priced;
+      if (diag != null) {
+        diag.append(" col=")
+            .append(col)
+            .append(":kind=")
+            .append(columnKinds[col])
+            .append(":")
+            .append(priced >> 20)
+            .append("MB");
+      }
+    }
+    final boolean fits = fitsMakingRoom(needed, columns, false);
+    if (diag != null && !fits) {
+      System.err.println("[store] combined fit REFUSED: needed=" + (needed >> 20) + "MB retained="
+          + (retainedFillBytes.get() >> 20) + "MB budget=" + (residencyBudgetBytes() >> 20) + "MB" + diag);
+    }
+    return fits;
+  }
+
+  /**
    * Whether the sliced route is VIABLE for {@code col} when it will be filled in DISTINCT-IDENTITY
    * mode — the {@code COUNT(DISTINCT)} operand's mode. Asking {@link #columnFillable} instead rejects
    * a fat dictionary column on a projection the identity fill never fetches.
@@ -1209,8 +2512,8 @@ public final class ProjectionColumnStore {
    * @return {@code true} when the identity fill can actually serve this column
    */
   public boolean columnIdentityFillable(final int col) {
-    return columnSliceable(col) && (columnFilled(col) || columnIdentityFilled(col) || retainedFillBytes.get()
-        + incrementalFillBytes(col, projectedColumnIdentityFillBytes(col)) <= columnFillBudgetBytes);
+    return columnSliceable(col) && (columnFilled(col) || columnIdentityFilled(col)
+        || fitsMakingRoom(incrementalFillBytes(col, projectedColumnIdentityFillBytes(col)), new int[] {col}, false));
   }
 
   /**
@@ -1249,11 +2552,13 @@ public final class ProjectionColumnStore {
     // hash on the fly), and reusing them beats fetching a second chain.
     final ColumnSlice[][] full = columns;
     if (full[col] != null) {
+      pinResident(col);
       return full[col];
     }
     final ColumnSlice[][] slots = identityColumns;
     ColumnSlice[] slices = slots[col];
     if (slices != null) {
+      pinResident(col);
       return slices;
     }
     if (corruptColumns[col] != 0) {
@@ -1265,6 +2570,7 @@ public final class ProjectionColumnStore {
     if (slices == null) {
       return column(col, fetcher); // no leaf carries hashes — the whole column falls back
     }
+    pinResident(col);
     synchronized (this) {
       final ColumnSlice[] existing = identityColumns[col];
       if (existing != null) {
@@ -1273,7 +2579,9 @@ public final class ProjectionColumnStore {
       final ColumnSlice[][] next = identityColumns.clone();
       next[col] = slices;
       identityColumns = next;
-      retainedFillBytes.addAndGet(incrementalFillBytes(col, projectedIdentity));
+      final long charged = incrementalFillBytes(col, projectedIdentity);
+      chargedIdentityBytes[col] = charged;
+      retainedFillBytes.addAndGet(charged);
     }
     return slices;
   }
@@ -1456,6 +2764,39 @@ public final class ProjectionColumnStore {
    * {@code rowCount == 0} slice that every evaluator already skips. The result is predicate-specific,
    * so it is NOT published to the column cache.
    */
+  /**
+   * The keep-masked slices of {@code col} WITHOUT a second fetch or a second budget charge when the
+   * column is already resident: the retained slices behind a mask (dropped leaves yield the shared
+   * {@code rowCount == 0} sentinel, exactly what {@link #columnMasked} decodes to). A column that is
+   * not resident takes the masked fill. The residency decisions price a resident column's fill at
+   * zero, so re-fetching it masked — and pricing the masked bytes against a budget the column's own
+   * body already fills — declined q19 at 100M/8 GB ("masked slice fill adds 117 MB beside 2,118 MB
+   * already retained") on every try inside a leg, while it served alone in a fresh JVM.
+   *
+   * @param col the column
+   * @param fetcher the caller's own live fetcher (used only when the column is not resident)
+   * @param keepWords the leaf keep mask, or {@code null} for every leaf
+   * @return one slice per leaf
+   */
+  public ColumnSlice[] columnMaskedView(final int col, final ColumnSegmentFetcher fetcher,
+      final long @Nullable [] keepWords) {
+    if (keepWords == null) {
+      return column(col, fetcher);
+    }
+    if (!columnFilled(col)) {
+      return columnMasked(col, fetcher, keepWords);
+    }
+    final ColumnSlice[] resident = column(col, fetcher);
+    final ColumnSlice[] view = new ColumnSlice[resident.length];
+    for (int i = 0; i < resident.length; i++) {
+      final int word = i >>> 6;
+      view[i] = word < keepWords.length && (keepWords[word] & 1L << (i & 63)) != 0L
+          ? resident[i]
+          : PRUNED_SLICE;
+    }
+    return view;
+  }
+
   public ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher, final long[] keepWords) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable (kind="
@@ -1467,7 +2808,10 @@ public final class ProjectionColumnStore {
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
     }
-    checkFillBudget(col, projectedMaskedFillBytes(col, keepWords), "masked slice fill");
+    // Priced INCREMENTALLY, like every residency decision: a column whose body bytes are already
+    // retained (an identity fill, a previous plain fill) adds nothing the ledger has not counted, and
+    // re-charging its masked projection against a budget it already fills declined q19 at 100M/8 GB.
+    checkFillBudget(col, incrementalFillBytes(col, projectedMaskedFillBytes(col, keepWords)), "masked slice fill");
     final byte[][] segments = fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
         ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher, keepWords);
     final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
@@ -1681,10 +3025,10 @@ public final class ProjectionColumnStore {
    * Per-leaf {@link ProjectionIndexColumnSegmentCodec#SEG_KIND_SET_COUNTS} payloads.
    *
    * <p>
-   * These segments are forced INLINE, so their bytes live in the descriptors this store already holds
-   * and {@code fetchAll} is handed nothing to fetch — the whole chain resolves without a page read.
-   * That is the difference between this and {@link #dictRowCounts}, which needs the dictionary
-   * segment and therefore a page per leaf.
+   * These segments are bounded by the 512-byte segment-slot inline threshold, so their bytes are
+   * captured with the directories and {@code fetchAll} is handed nothing to fetch — the whole chain
+   * resolves without an overflow-page read. That is the difference between this and
+   * {@link #dictRowCounts}, which needs the dictionary segment and therefore a page per leaf.
    *
    * @return one payload per leaf, or {@code null} when the column has none
    */
@@ -1746,6 +3090,7 @@ public final class ProjectionColumnStore {
     final byte[][][] slots = columnBytes;
     byte[][] segments = slots[col];
     if (segments != null) {
+      pinResident(col);
       return segments;
     }
     if (corruptColumns[col] != 0) {
@@ -1754,6 +3099,7 @@ public final class ProjectionColumnStore {
     final long projectedBody = projectedColumnBodyFillBytes(col);
     checkFillBudget(col, projectedBody, "raw BODY fill");
     segments = fetchColumnBytes(col, fetcher);
+    pinResident(col);
     synchronized (this) {
       final byte[][] existing = columnBytes[col];
       if (existing != null) {
@@ -1762,6 +3108,7 @@ public final class ProjectionColumnStore {
       final byte[][][] next = columnBytes.clone();
       next[col] = segments;
       columnBytes = next;
+      chargedBodyBytes[col] = projectedBody;
       retainedFillBytes.addAndGet(projectedBody);
     }
     return segments;
@@ -1799,15 +3146,9 @@ public final class ProjectionColumnStore {
         }
         throw new IllegalStateException("Descriptor of leaf " + dir.rowGroupId() + " lists no segment id " + segId);
       }
-      // Segment-slot layout: a bare INLINE segment's bytes were captured at directory build (its
-      // zone-map-only descriptor carries no inline region), so they come straight from the directory.
-      // Descriptor layout: an inline segment's bytes ride the descriptor's trailing region.
-      final byte[] dirInline = dir.inlineBytesAt(entry);
-      final byte[] inlineForEntry = dirInline != null
-          ? dirInline
-          : RowGroupDescriptor.entryIsInline(desc, entry)
-              ? RowGroupDescriptor.inlineColumnSegmentBytes(desc, entry)
-              : null;
+      // A small segment lives inline in its OWN segment slot and was captured while the directory
+      // was built. The descriptor never carries segment payload bytes.
+      final byte[] inlineForEntry = dir.inlineBytesAt(entry);
       if (inlineForEntry != null) {
         if (inlineBytes == null) {
           inlineBytes = new byte[n][];
@@ -1887,7 +3228,10 @@ public final class ProjectionColumnStore {
       final boolean optional, final boolean[] absent, final int workers) {
     final int n = directories.size();
     final int chunk = (n + workers - 1) / workers;
-    final AtomicReference<byte[][]> inline = new AtomicReference<>();
+    // One carrier for the whole fan-out. Allocating lazily inside each worker let CAS losers discard
+    // one n-entry array apiece under an inline-heavy first touch.
+    final byte[][] inline = new byte[n][];
+    final AtomicBoolean hasInline = new AtomicBoolean();
     final AtomicReference<RuntimeException> failed = new AtomicReference<>();
     IntStream.range(0, workers).parallel().forEach(w -> {
       final int from = w * chunk;
@@ -1896,7 +3240,7 @@ public final class ProjectionColumnStore {
         return;
       }
       try {
-        collectColumnOffsetsRange(segId, offsets, optional, absent, from, to, inline, n);
+        collectColumnOffsetsRange(segId, offsets, optional, absent, from, to, inline, hasInline);
       } catch (final RuntimeException malformed) {
         failed.compareAndSet(null, malformed);
       }
@@ -1905,13 +3249,14 @@ public final class ProjectionColumnStore {
     if (malformed != null) {
       throw malformed;
     }
-    return inline.get();
+    return hasInline.get()
+        ? inline
+        : null;
   }
 
   /** One worker's leaf range of {@link #collectColumnOffsetsParallel}. */
   private void collectColumnOffsetsRange(final int segId, final long[] offsets, final boolean optional,
-      final boolean[] absent, final int from, final int to, final AtomicReference<byte[][]> inline, final int n) {
-    byte[][] inlineBytes = inline.get();
+      final boolean[] absent, final int from, final int to, final byte[][] inlineBytes, final AtomicBoolean hasInline) {
     for (int i = from; i < to; i++) {
       final RowGroupDirectory dir = directories.get(i);
       final byte[] desc = dir.descriptor();
@@ -1924,23 +3269,10 @@ public final class ProjectionColumnStore {
         }
         throw new IllegalStateException("Descriptor of leaf " + dir.rowGroupId() + " lists no segment id " + segId);
       }
-      final byte[] dirInline = dir.inlineBytesAt(entry);
-      final byte[] inlineForEntry = dirInline != null
-          ? dirInline
-          : RowGroupDescriptor.entryIsInline(desc, entry)
-              ? RowGroupDescriptor.inlineColumnSegmentBytes(desc, entry)
-              : null;
+      final byte[] inlineForEntry = dir.inlineBytesAt(entry);
       if (inlineForEntry != null) {
-        if (inlineBytes == null) {
-          // First inline entry seen by ANY worker allocates the shared carrier; the losers of the
-          // race adopt the winner's array. Every later write lands at this worker's own index, so
-          // the array is only ever written disjointly.
-          final byte[][] fresh = new byte[n][];
-          inlineBytes = inline.compareAndSet(null, fresh)
-              ? fresh
-              : inline.get();
-        }
         inlineBytes[i] = inlineForEntry;
+        hasInline.set(true);
         offsets[i] = Constants.NULL_ID_LONG;
       } else {
         offsets[i] = dir.columnSegmentOffsets()[entry];
@@ -2025,6 +3357,7 @@ public final class ProjectionColumnStore {
   public long[][] recordKeys(final ColumnSegmentFetcher fetcher) {
     long[][] slices = recordKeySlices;
     if (slices != null) {
+      pinResident(keysPinSlot());
       return slices;
     }
     if (keysCorrupt) {
@@ -2045,12 +3378,14 @@ public final class ProjectionColumnStore {
       keysCorrupt = true;
       throw corrupt;
     }
+    pinResident(keysPinSlot());
     synchronized (this) {
       slices = recordKeySlices;
       if (slices != null) {
         return slices;
       }
       recordKeySlices = decoded;
+      chargedKeysBytes = projectedKeys;
       retainedFillBytes.addAndGet(projectedKeys);
     }
     return decoded;
@@ -2067,8 +3402,8 @@ public final class ProjectionColumnStore {
 
   /**
    * As above, but when {@code keepWords} is non-null, leaves whose bit is clear are neither fetched
-   * (their offset is replaced by the no-page sentinel), patched from the inline region, nor verified
-   * — a leaf the caller has already proven irrelevant costs zero I/O and zero CPU.
+   * (their offset is replaced by the no-page sentinel), filled from an inline segment slot, nor
+   * verified — a leaf the caller has already proven irrelevant costs zero I/O and zero CPU.
    */
   private byte[][] fetchSegmentChain(final int col, final int segId, final byte segKind, final boolean optional,
       final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
@@ -2076,9 +3411,9 @@ public final class ProjectionColumnStore {
     // Leaf order IS file order to within noise: the builder persists leaves 1..N in one
     // sequential commit, so a column's segment offsets ascend with the leaf index — no
     // explicit sort needed for read locality. One batched fetch = one read transaction.
-    // Hybrid: an inline segment carries no page — its bytes come straight from the descriptor, so
-    // it is skipped in the offset batch (the NULL_ID_LONG sentinel → the fetcher yields null there)
-    // and filled in afterwards. inlineBytes stays null when the whole column is referenced.
+    // A segment stored inline in its own slot carries no page; its bytes were captured with the
+    // directory, so it is skipped in the offset batch (NULL_ID_LONG makes the fetcher yield null)
+    // and filled afterwards. inlineBytes stays null when the whole column is referenced.
     final long[] offsets = new long[n];
     final boolean[] absent = optional
         ? new boolean[n]
@@ -2263,6 +3598,573 @@ public final class ProjectionColumnStore {
       final long doneNanos = System.nanoTime();
       System.err.printf("[prefetchAll] swept segment chains: %d pages=%d in %.1f ms | t=%.1f..%.1f%n",
           sweptSegmentChains, hintedPages, (doneNanos - startNanos) / 1e6, startNanos / 1e6, doneNanos / 1e6);
+    }
+  }
+
+
+  // ==================== per-leaf column access (resident or windowed) ====================
+
+  /**
+   * Per-leaf access to a column store for kernels that visit ONE leaf at a time — the sorted top-k
+   * scan and its kin. The resident form hands out the store's retained slices; the windowed form
+   * decodes leaves per window through the caller's fetcher and keeps a handful of windows in a small
+   * clock cache, so a column whose whole-column fill would exceed the heap budget (a fat string
+   * column at 100M rows, ~8 GB of per-leaf dictionaries) still serves the kernel exactly, at a
+   * bounded working set. Single-threaded by contract: the kernels that take it run on one thread.
+   */
+  public interface LeafColumnAccess {
+    /**
+     * The slice of {@code col} on {@code leaf}, never masked — sort keys, best-first and zone reads.
+     */
+    ColumnSlice slice(int col, int leaf);
+
+    /**
+     * The slice of predicate column {@code col} on {@code leaf}: the pruned sentinel when the zone-map
+     * keep mask dropped the leaf, exactly as the masked resident fill hands it out.
+     */
+    ColumnSlice predicateSlice(int col, int leaf);
+
+    /** The record keys of {@code leaf} in row order. */
+    long[] recordKeys(int leaf);
+
+    /** Whether leaves are decoded per window instead of held resident. */
+    boolean windowed();
+  }
+
+  private static final LongAdder WINDOWED_LEAF_ACCESSES = new LongAdder();
+
+  /** Test observability: how often a kernel took the windowed (non-retaining) access. */
+  public static long windowedLeafAccessCount() {
+    return WINDOWED_LEAF_ACCESSES.sum();
+  }
+
+  /** Leaves per decoded window of the windowed access — the LRU keeps a few of these per column. */
+  public static final int LEAF_ACCESS_WINDOW = 64;
+
+  /**
+   * Resident when every one of {@code columns} (and the KEYS chain, when {@code needKeys}) fits the
+   * fill budget or is already filled — the retained slices serve as always; otherwise the windowed
+   * access, which retains nothing.
+   */
+  public LeafColumnAccess leafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
+      final int[] columns, final boolean needKeys) {
+    // The COMBINED projected fill of everything not yet resident, against what the budget has left —
+    // not each column alone. Two fat columns that each fit the remainder do not fit together: the
+    // first fill would succeed and the second throw the budget door mid-kernel, declining the try to
+    // the interpreter, while the next try (first column now retained) would go windowed and serve.
+    boolean resident = true;
+    long needed = 0L;
+    final boolean[] counted = new boolean[columnKinds.length];
+    for (final int col : columns) {
+      if (!columnSliceable(col)) {
+        resident = false;
+        break;
+      }
+      if (counted[col] || columnFilled(col)) {
+        continue;
+      }
+      counted[col] = true;
+      needed += incrementalFillBytes(col, projectedColumnFillBytes(col));
+    }
+    if (resident && needKeys && recordKeySlices == null) {
+      needed += projectedRecordKeysFillBytes();
+    }
+    if (resident && !fitsMakingRoom(needed, columns, needKeys)) {
+      resident = false;
+    }
+    if (resident) {
+      // Admitted as resident: pin every lane the access will fill, so a concurrent scope's close
+      // cannot release one of them between this decision and the access's first read.
+      for (final int col : columns) {
+        pinResident(col);
+      }
+      if (needKeys) {
+        pinResident(keysPinSlot());
+      }
+      return new ResidentLeafAccess(fetcher, keepWords);
+    }
+    WINDOWED_LEAF_ACCESSES.increment();
+    return new WindowedLeafAccess(fetcher, keepWords, LEAF_ACCESS_WINDOW, WindowedLeafAccess.DEFAULT_LEAVES_PER_COLUMN,
+        false);
+  }
+
+  /** The resident access regardless of budget (tests and callers that already hold the fills). */
+  public LeafColumnAccess residentLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
+    return new ResidentLeafAccess(fetcher, keepWords);
+  }
+
+  /** The windowed access regardless of budget (tests), with the default per-column leaf cache. */
+  public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
+      final int windowLeaves) {
+    return windowedLeafAccess(fetcher, keepWords, windowLeaves, WindowedLeafAccess.DEFAULT_LEAVES_PER_COLUMN);
+  }
+
+  /**
+   * The windowed access with an explicit per-column leaf cache: a sequential kernel that consumes one
+   * sub-chunk at a time needs only a couple of windows, a top-k heap wants room for its entries.
+   */
+  public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
+      final int windowLeaves, final int cacheLeaves) {
+    return windowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves, false);
+  }
+
+  /**
+   * The windowed access with, when {@code recycleSlices}, the long-lane arrays of an EVICTED slice
+   * recycled into the next window's decode. That makes a slice's arrays valid only while the slice is
+   * in the access's cache, so it is for callers whose consumers finish with a window before the
+   * access moves {@code cacheLeaves} past it — the sliced group kernels' fill / kernel / release
+   * discipline ({@link WindowedSliceArrays}). A caller that keeps slices across windows (a top-k heap
+   * resolving old entries) must not ask for it.
+   */
+  public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
+      final int windowLeaves, final int cacheLeaves, final boolean recycleSlices) {
+    WINDOWED_LEAF_ACCESSES.increment();
+    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves, recycleSlices);
+  }
+
+  /** Test observability: presence/value arrays a windowed access reused instead of allocating. */
+  public static long recycledSliceArraysCount() {
+    return SliceArrayPool.reusedCount();
+  }
+
+  /**
+   * Count a kernel's use of a NON-RETAINING access that is not one of the store's own windowed
+   * accesses — the sorted scan's per-slab leaf-set accesses, counted once per scan rather than once
+   * per slab, so the witness keeps meaning "the kernel did not fill a column for this".
+   */
+  static void noteWindowedLeafAccess() {
+    WINDOWED_LEAF_ACCESSES.increment();
+  }
+
+  /**
+   * An access over an explicit SET of leaves — {@code leaves[from..to)}, ascending and distinct —
+   * that decodes each column it is asked for exactly once, for exactly those leaves, in ONE batched
+   * fetch per chain. The shape a best-first top-k hands each of its workers: a handful of leaves
+   * scattered across the store, rarely two in the same window, so a windowed access would decode a
+   * 64-leaf window per leaf and a resident one would fill the whole column for ten rows. Columns the
+   * store already holds resident are read from the retained slices, captured once at construction
+   * (the caller pinned what it observed resident, see {@link #columnFilled}); everything else is
+   * decoded into arrays owned by this access and dropped with it. {@link LeafColumnAccess#windowed()}
+   * is {@code true}: nothing is retained in the store.
+   *
+   * <p>
+   * Not thread-safe — one instance per worker, like every access in this file.
+   * </p>
+   *
+   * @throws IllegalArgumentException when the leaves are not strictly ascending or out of range
+   */
+  public LeafColumnAccess leafSetAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
+      final int[] leaves, final int from, final int to) {
+    if (fetcher == null) {
+      throw new IllegalArgumentException("fetcher must not be null");
+    }
+    if (leaves == null || from < 0 || to > leaves.length || from > to) {
+      throw new IllegalArgumentException("leaf range [" + from + ", " + to + ") of " + (leaves == null
+          ? "null"
+          : leaves.length));
+    }
+    final int leafCount = directories.size();
+    for (int i = from; i < to; i++) {
+      final int leaf = leaves[i];
+      if (leaf < 0 || leaf >= leafCount) {
+        throw new IllegalArgumentException("leaf " + leaf + " of " + leafCount);
+      }
+      if (i > from && leaves[i - 1] >= leaf) {
+        throw new IllegalArgumentException("leaves must be strictly ascending: " + leaves[i - 1] + " before " + leaf);
+      }
+    }
+    return new LeafSetAccess(fetcher, keepWords, leaves, from, to);
+  }
+
+  /**
+   * Fetch, verify and hand back one chain's segments for {@code len} leaves — leaf {@code i} of the
+   * batch is {@code leaves[base + i]} when {@code leaves} is given (ascending, distinct), else
+   * {@code base + i} (a contiguous window). Absent optional segments (a rowless leaf's DICT) are
+   * {@code null} in the result; a missing REQUIRED one throws.
+   *
+   * <p>
+   * The offsets are collected HERE, for these leaves only: an access used to collect the chain of
+   * every leaf of the store once per column (97,654 descriptor binary searches per column at 100M)
+   * and every worker builds its own access, so a pruned scan that touched twelve windows still paid
+   * twenty whole-column collections — ~100 ms per column per worker, the entire cost of a pruned
+   * q36–q42 once the fetch itself was gone. Per batch the collection is {@code len} lookups and the
+   * fetch arrays are batch-sized instead of {@code leafCount} entries zeroed per call.
+   * </p>
+   */
+  private byte[][] fetchLeafSegments(final int @Nullable [] leaves, final int base, final int len, final int segId,
+      final byte segKind, final boolean optional, final ColumnSegmentFetcher fetcher) {
+    final long[] offsets = new long[len];
+    byte[][] inlineBytes = null;
+    boolean[] absent = null;
+    boolean any = false;
+    for (int i = 0; i < len; i++) {
+      final int leaf = leaves == null
+          ? base + i
+          : leaves[base + i];
+      final RowGroupDirectory dir = directories.get(leaf);
+      final int entry = RowGroupDescriptor.entryIndexOf(dir.descriptor(), segId);
+      if (entry < 0) {
+        if (!optional) {
+          throw new IllegalStateException("Descriptor of leaf " + dir.rowGroupId() + " lists no segment id " + segId);
+        }
+        if (absent == null) {
+          absent = new boolean[len];
+        }
+        absent[i] = true;
+        offsets[i] = Constants.NULL_ID_LONG;
+        continue;
+      }
+      // A small segment lives inline in its OWN segment slot, captured while the directory was built.
+      final byte[] inlineForEntry = dir.inlineBytesAt(entry);
+      if (inlineForEntry != null) {
+        if (inlineBytes == null) {
+          inlineBytes = new byte[len][];
+        }
+        inlineBytes[i] = inlineForEntry;
+        offsets[i] = Constants.NULL_ID_LONG;
+      } else {
+        offsets[i] = dir.columnSegmentOffsets()[entry];
+        any = true;
+      }
+    }
+    final byte[][] out = new byte[len][];
+    if (any) {
+      // Pruned leaves of a window are fetched with it (their offsets stay real); the kernel never
+      // reads them, and the window's contiguity is what the backend's run coalescing lives on.
+      try {
+        fetcher.fetchRange(offsets, 0, len, out);
+      } catch (final RuntimeException fetchFailed) {
+        throw new IllegalStateException(
+            "Segment fetch failed for segment id " + segId + ": " + fetchFailed.getMessage(), fetchFailed);
+      }
+    }
+    for (int i = 0; i < len; i++) {
+      if (absent != null && absent[i]) {
+        out[i] = null;
+        continue;
+      }
+      byte[] segment = out[i];
+      if (inlineBytes != null && inlineBytes[i] != null) {
+        segment = inlineBytes[i];
+        out[i] = segment;
+      }
+      final int leaf = leaves == null
+          ? base + i
+          : leaves[base + i];
+      if (segment == null) {
+        throw new IllegalStateException("Fetch returned no segment " + segId + " for leaf " + leaf);
+      }
+      ProjectionIndexColumnSegmentCodec.verifyColumnSegment(directories.get(leaf).descriptor(), segment, segId,
+          segKind);
+    }
+    return out;
+  }
+
+  /**
+   * Decode {@code col}'s slices for a batch of leaves (addressed as in {@link #fetchLeafSegments}):
+   * the BODY chain, plus the DICT chain for the string kinds. Every leaf of the batch is decoded;
+   * pruning is the predicate view's business ({@link LeafColumnAccess#predicateSlice}).
+   */
+  private ColumnSlice[] decodeLeafSlices(final int col, final int @Nullable [] leaves, final int base, final int len,
+      final ColumnSegmentFetcher fetcher) {
+    return decodeLeafSlices(col, leaves, base, len, fetcher, null);
+  }
+
+  /**
+   * {@link #decodeLeafSlices(int, int[], int, int, ColumnSegmentFetcher)} with the long-lane arrays
+   * of the body-only kinds taken from {@code pool} — the windowed access's recycling seam; string
+   * kinds decode as before.
+   */
+  private ColumnSlice[] decodeLeafSlices(final int col, final int @Nullable [] leaves, final int base, final int len,
+      final ColumnSegmentFetcher fetcher, final @Nullable SliceArrayPool pool) {
+    if (!columnSliceable(col)) {
+      throw new IllegalStateException("Column " + col + " is not sliceable");
+    }
+    final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
+    final boolean string = set || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+    final byte[][] bodies =
+        fetchLeafSegments(leaves, base, len, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
+            ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher);
+    final byte[][] dicts = string
+        ? fetchLeafSegments(leaves, base, len, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col),
+            ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true, fetcher)
+        : null;
+    final ColumnSlice[] decoded = new ColumnSlice[len];
+    for (int i = 0; i < len; i++) {
+      final int leaf = leaves == null
+          ? base + i
+          : leaves[base + i];
+      final byte[] descriptor = directories.get(leaf).descriptor();
+      final byte[] bodySeg = bodies[i];
+      final byte[] dictSeg = dicts != null
+          ? dicts[i]
+          : null;
+      decoded[i] = set
+          ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, bodySeg, dictSeg, col)
+          : string
+              ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, bodySeg, dictSeg, col)
+              : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col, pool);
+    }
+    return decoded;
+  }
+
+  /** Decode the record keys of a batch of leaves (addressed as in {@link #fetchLeafSegments}). */
+  private long[][] decodeLeafKeys(final int @Nullable [] leaves, final int base, final int len,
+      final ColumnSegmentFetcher fetcher) {
+    final byte[][] segments =
+        fetchLeafSegments(leaves, base, len, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+            ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS, false, fetcher);
+    final long[][] decoded = new long[len][];
+    for (int i = 0; i < len; i++) {
+      final int leaf = leaves == null
+          ? base + i
+          : leaves[base + i];
+      decoded[i] = ProjectionIndexColumnSegmentCodec.decodeKeysSlice(directories.get(leaf).descriptor(), segments[i]);
+    }
+    return decoded;
+  }
+
+  /** See {@link #leafSetAccess}. */
+  private final class LeafSetAccess implements LeafColumnAccess {
+    private final ColumnSegmentFetcher fetcher;
+    private final long @Nullable [] keepWords;
+    private final int[] leaves;
+    private final int from;
+    private final int to;
+    /** The store's retained slices per column at construction ({@code null} where not resident). */
+    private final ColumnSlice[][] retained;
+    private final long @Nullable [][] retainedKeys;
+    /**
+     * Per column, the set's decoded slices aligned to {@code leaves[from..to)}; built on first touch.
+     */
+    private final ColumnSlice[][] decoded = new ColumnSlice[columnKinds.length][];
+    private long @Nullable [][] decodedKeys;
+
+    LeafSetAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int[] leaves,
+        final int from, final int to) {
+      this.fetcher = fetcher;
+      this.keepWords = keepWords;
+      this.leaves = leaves;
+      this.from = from;
+      this.to = to;
+      this.retained = columns;
+      this.retainedKeys = recordKeySlices;
+    }
+
+    @Override
+    public boolean windowed() {
+      return true;
+    }
+
+    private int position(final int leaf) {
+      final int pos = Arrays.binarySearch(leaves, from, to, leaf);
+      if (pos < 0) {
+        throw new IllegalArgumentException("leaf " + leaf + " is not in this access's set");
+      }
+      return pos - from;
+    }
+
+    @Override
+    public ColumnSlice slice(final int col, final int leaf) {
+      final ColumnSlice[] resident = retained[col];
+      if (resident != null) {
+        return resident[leaf];
+      }
+      ColumnSlice[] set = decoded[col];
+      if (set == null) {
+        set = decodeLeafSlices(col, leaves, from, to - from, fetcher);
+        decoded[col] = set;
+      }
+      return set[position(leaf)];
+    }
+
+    @Override
+    public ColumnSlice predicateSlice(final int col, final int leaf) {
+      if (keepWords != null && (keepWords[leaf >>> 6] & 1L << (leaf & 63)) == 0L) {
+        return PRUNED_SLICE;
+      }
+      return slice(col, leaf);
+    }
+
+    @Override
+    public long[] recordKeys(final int leaf) {
+      if (retainedKeys != null) {
+        return retainedKeys[leaf];
+      }
+      long[][] set = decodedKeys;
+      if (set == null) {
+        set = decodeLeafKeys(leaves, from, to - from, fetcher);
+        decodedKeys = set;
+      }
+      return set[position(leaf)];
+    }
+  }
+
+  private final class ResidentLeafAccess implements LeafColumnAccess {
+    private final ColumnSegmentFetcher fetcher;
+    private final long @Nullable [] keepWords;
+    private final ColumnSlice[][] byColumn = new ColumnSlice[columnKinds.length][];
+    private final ColumnSlice[][] byPredicateColumn = new ColumnSlice[columnKinds.length][];
+    private long @Nullable [][] keys;
+
+    ResidentLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
+      this.fetcher = fetcher;
+      this.keepWords = keepWords;
+    }
+
+    @Override
+    public ColumnSlice slice(final int col, final int leaf) {
+      ColumnSlice[] slices = byColumn[col];
+      if (slices == null) {
+        slices = column(col, fetcher);
+        byColumn[col] = slices;
+      }
+      return slices[leaf];
+    }
+
+    @Override
+    public ColumnSlice predicateSlice(final int col, final int leaf) {
+      if (keepWords == null) {
+        return slice(col, leaf);
+      }
+      ColumnSlice[] slices = byPredicateColumn[col];
+      if (slices == null) {
+        slices = columnMaskedView(col, fetcher, keepWords);
+        byPredicateColumn[col] = slices;
+      }
+      return slices[leaf];
+    }
+
+    @Override
+    public long[] recordKeys(final int leaf) {
+      long[][] k = keys;
+      if (k == null) {
+        k = ProjectionColumnStore.this.recordKeys(fetcher);
+        keys = k;
+      }
+      return k[leaf];
+    }
+
+    @Override
+    public boolean windowed() {
+      return false;
+    }
+  }
+
+  private final class WindowedLeafAccess implements LeafColumnAccess {
+    /**
+     * Decoded leaves kept per column, LRU. A miss decodes the leaf's whole window (sequential scans
+     * then touch each window once), and the capacity is well above a top-k heap's size plus a window,
+     * so the heap comparisons that resolve OTHER leaves' entries hit the cache instead of re-decoding a
+     * window per comparison — the pathology that made a 100M sorted scan slower than the interpreter.
+     */
+    static final int DEFAULT_LEAVES_PER_COLUMN = 512;
+    private final int cacheLeaves;
+    private final ColumnSegmentFetcher fetcher;
+    private final long @Nullable [] keepWords;
+    private final int windowLeaves;
+    private final int leafCount = directories.size();
+    @SuppressWarnings("unchecked")
+    private final Int2ObjectLinkedOpenHashMap<ColumnSlice>[] leafCache =
+        new Int2ObjectLinkedOpenHashMap[columnKinds.length];
+    private final Int2ObjectLinkedOpenHashMap<long[]> keyCache = new Int2ObjectLinkedOpenHashMap<>();
+    /** Recycles an evicted slice's long-lane arrays into the next decode; {@code null} = allocate. */
+    private final @Nullable SliceArrayPool slicePool;
+
+    WindowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int windowLeaves,
+        final int cacheLeaves, final boolean recycleSlices) {
+      if (windowLeaves <= 0) {
+        throw new IllegalArgumentException("windowLeaves must be positive: " + windowLeaves);
+      }
+      if (cacheLeaves < windowLeaves) {
+        throw new IllegalArgumentException("cacheLeaves " + cacheLeaves + " below one window of " + windowLeaves);
+      }
+      this.fetcher = fetcher;
+      this.keepWords = keepWords;
+      this.windowLeaves = windowLeaves;
+      this.cacheLeaves = cacheLeaves;
+      this.slicePool = recycleSlices
+          ? new SliceArrayPool()
+          : null;
+    }
+
+    @Override
+    public boolean windowed() {
+      return true;
+    }
+
+    private boolean pruned(final int leaf) {
+      return keepWords != null && (keepWords[leaf >>> 6] & 1L << (leaf & 63)) == 0L;
+    }
+
+    @Override
+    public ColumnSlice predicateSlice(final int col, final int leaf) {
+      if (leaf >= 0 && leaf < leafCount && pruned(leaf)) {
+        return PRUNED_SLICE;
+      }
+      return slice(col, leaf);
+    }
+
+    @Override
+    public ColumnSlice slice(final int col, final int leaf) {
+      if (leaf < 0 || leaf >= leafCount) {
+        throw new IndexOutOfBoundsException("leaf " + leaf + " of " + leafCount);
+      }
+      if (!columnSliceable(col)) {
+        throw new IllegalStateException("Column " + col + " is not sliceable");
+      }
+      Int2ObjectLinkedOpenHashMap<ColumnSlice> cache = leafCache[col];
+      if (cache == null) {
+        cache = new Int2ObjectLinkedOpenHashMap<>(cacheLeaves * 2);
+        leafCache[col] = cache;
+      }
+      final ColumnSlice hit = cache.getAndMoveToLast(leaf);
+      if (hit != null) {
+        return hit;
+      }
+      final int window = leaf / windowLeaves;
+      final ColumnSlice[] decoded = decodeWindow(col, window);
+      final int from = window * windowLeaves;
+      for (int i = 0; i < decoded.length; i++) {
+        cache.putAndMoveToLast(from + i, decoded[i]);
+      }
+      while (cache.size() > cacheLeaves) {
+        // Eviction is the arrays' death under the windowed contract: a recycling access hands them to
+        // its pool here and the NEXT window's decode takes them back instead of allocating.
+        final ColumnSlice evicted = cache.removeFirst();
+        if (slicePool != null) {
+          slicePool.recycle(evicted);
+        }
+      }
+      return decoded[leaf - from];
+    }
+
+    private ColumnSlice[] decodeWindow(final int col, final int window) {
+      final int from = window * windowLeaves;
+      final int to = Math.min(from + windowLeaves, leafCount);
+      return decodeLeafSlices(col, null, from, to - from, fetcher, slicePool);
+    }
+
+    @Override
+    public long[] recordKeys(final int leaf) {
+      if (leaf < 0 || leaf >= leafCount) {
+        throw new IndexOutOfBoundsException("leaf " + leaf + " of " + leafCount);
+      }
+      final long[] hit = keyCache.getAndMoveToLast(leaf);
+      if (hit != null) {
+        return hit;
+      }
+      final int window = leaf / windowLeaves;
+      final int from = window * windowLeaves;
+      final int to = Math.min(from + windowLeaves, leafCount);
+      final long[][] decoded = decodeLeafKeys(null, from, to - from, fetcher);
+      for (int i = from; i < to; i++) {
+        keyCache.putAndMoveToLast(i, decoded[i - from]);
+      }
+      while (keyCache.size() > cacheLeaves) {
+        keyCache.removeFirst();
+      }
+      return decoded[leaf - from];
     }
   }
 

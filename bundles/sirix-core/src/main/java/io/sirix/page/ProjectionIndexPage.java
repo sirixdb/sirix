@@ -3,7 +3,6 @@
  */
 package io.sirix.page;
 
-import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
@@ -13,65 +12,50 @@ import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.utils.ToStringHelper;
-import it.unimi.dsi.fastutil.ints.Int2IntMap;
-import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
+import org.jspecify.annotations.Nullable;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Container page for projection indexes, keyed by {@code IndexDef#getID()}.
  *
  * <p>
- * Structurally identical to {@link CASPage} / {@link PathPage} / {@link NamePage}: the page
- * delegate holds one {@link PageReference} per registered projection index, each rooting a
- * versioned HOT sub-tree whose leaves are
- * {@link io.sirix.index.projection.ProjectionIndexRowGroupRecord} entries. Per-index book-keeping
- * mirrors the other secondary indexes:
- *
- * <ul>
- * <li>{@link #maxNodeKeys}: largest leaf-record nodeKey ever allocated in index {@code i}. Used by
- * the builder to stamp sequential leaf ids without a full trie walk.</li>
- * <li>{@link #maxHotPageKeys}: largest HOT page-key ever allocated, matches the persistence layer's
- * {@code HOTTrieWriter}.</li>
- * <li>{@link #currentMaxLevelsOfIndirectPages}: depth of the indirect-page chain per index. The
- * executor uses this to short-circuit empty indexes.</li>
- * </ul>
+ * The delegate holds one {@link PageReference} per registered projection index, each rooting a
+ * versioned HOT tree whose leaves are
+ * {@link io.sirix.index.projection.ProjectionIndexRowGroupRecord} entries. The sparse
+ * {@code maxHotPageKeys} map is the only per-index metadata and persists each tree's HOT page-key
+ * allocator. Projection rows use their logical row-group key directly; they do not need a second
+ * leaf-record id allocator or keyed-trie level metadata.
  *
  * <p>
  * Placement in {@link RevisionRootPage} matches the CAS/PATH/NAME pattern: one sibling reference
- * offset, populated on fresh revisions via {@link RevisionRootPage#getProjectionPageReference()}.
+ * offset, populated on fresh revisions via
+ * {@link RevisionRootPage#getProjectionIndexPageReference()}.
  */
 public final class ProjectionIndexPage extends AbstractForwardingPage {
 
   private Page delegate;
 
-  private final Int2LongMap maxNodeKeys;
-
   private final Int2LongMap maxHotPageKeys;
-
-  private final Int2IntMap currentMaxLevelsOfIndirectPages;
 
   public ProjectionIndexPage() {
     delegate = new ReferencesPage4();
-    maxNodeKeys = new Int2LongOpenHashMap();
     maxHotPageKeys = new Int2LongOpenHashMap();
-    currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
   }
 
-  ProjectionIndexPage(final Page delegate, final Int2LongMap maxNodeKeys, final Int2LongMap maxHotPageKeys,
-      final Int2IntMap currentMaxLevelsOfIndirectPages) {
-    this.delegate = delegate;
-    this.maxNodeKeys = maxNodeKeys;
-    this.maxHotPageKeys = maxHotPageKeys;
-    this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
+  ProjectionIndexPage(final Page delegate, final Int2LongMap maxHotPageKeys) {
+    this.delegate = requireNonNull(delegate);
+    this.maxHotPageKeys = requireValidAllocatorMap(maxHotPageKeys);
   }
 
   /**
    * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}: the
    * underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so mutations
    * to a child reference (key, pageFragments, swizzled page) cannot bleed back into the historical
-   * revision's view through cache aliasing. The bookkeeping maps are duplicated to decouple
-   * writer-side mutations from the prior-revision's instance.
+   * revision's view through cache aliasing. The allocator map is duplicated to decouple writer-side
+   * mutations from the prior-revision's instance.
    */
   public ProjectionIndexPage(final ProjectionIndexPage other) {
     final Page otherDelegate = other.delegate;
@@ -85,23 +69,86 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
       throw new IllegalStateException(
           "Unknown ProjectionIndexPage delegate type, cannot clone: " + otherDelegate.getClass().getName());
     }
-    this.maxNodeKeys = new Int2LongOpenHashMap(other.maxNodeKeys);
     this.maxHotPageKeys = new Int2LongOpenHashMap(other.maxHotPageKeys);
-    this.currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(other.currentMaxLevelsOfIndirectPages);
   }
 
   @Override
-  public boolean setOrCreateReference(int offset, PageReference pageReference) {
+  public boolean setOrCreateReference(final int offset, final PageReference pageReference) {
+    checkIndex(offset);
     delegate = PageUtils.setReference(delegate, offset, pageReference);
     return false;
   }
 
   /**
-   * Get the indirect-page reference for the projection index with the given {@code IndexDef} id.
+   * Get the HOT-tree root reference for the projection index with the given {@code IndexDef} id.
    * Creates an empty reference slot if none exists yet.
    */
-  public PageReference getIndirectPageReference(int index) {
+  public PageReference getIndirectPageReference(final int index) {
     return getOrCreateProjectionReference(index);
+  }
+
+  /** Return an existing projection-tree reference without materializing a read-side placeholder. */
+  public @Nullable PageReference getIndexReference(final int index) {
+    checkIndex(index);
+    return switch (delegate) {
+      case ReferencesPage4 references -> references.referenceAtOffset(index);
+      case BitmapReferencesPage references -> references.referenceAtOffset(index);
+      case FullReferencesPage references -> references.referenceAt(index);
+      default ->
+        throw new IllegalStateException("Unknown ProjectionIndexPage delegate type: " + delegate.getClass().getName());
+    };
+  }
+
+  /**
+   * Return the first projection-index number whose physical tree has never been initialized.
+   *
+   * <p>
+   * A catalog entry is not an allocation witness: dropping an index removes its catalog definition
+   * while its versioned tree and bookkeeping entries remain reserved for historical revisions.
+   * Conversely, a read-side structural placeholder is not an initialized tree and must not burn an
+   * id. Either persisted bookkeeping or a non-virgin root reference is the physical initialization
+   * witness. The lookup is non-mutating and allocation-free on the normal sparse and full paths.
+   * </p>
+   *
+   * @return the first physically unallocated projection-index number
+   * @throws IllegalStateException if all projection-index reference slots are allocated
+   */
+  public int nextUnallocatedIndex() {
+    return nextUnallocatedIndex(0);
+  }
+
+  /**
+   * Return the first uninitialized physical projection-tree id at or after {@code fromInclusive}.
+   *
+   * <p>
+   * The scan is read-only: neither sparse nor full delegates gain placeholder references.
+   * </p>
+   *
+   * @param fromInclusive first physical id to inspect
+   * @return the first uninitialized id
+   * @throws IllegalStateException if the remaining reference space is exhausted
+   */
+  public int nextUnallocatedIndex(final int fromInclusive) {
+    checkIndex(fromInclusive);
+    for (int index = fromInclusive; index < Constants.INP_REFERENCE_COUNT; index++) {
+      if (!isIndexInitializedUnchecked(index)) {
+        return index;
+      }
+    }
+    throw new IllegalStateException("Projection index reference space exhausted: all " + Constants.INP_REFERENCE_COUNT
+        + " physical tree ids are initialized");
+  }
+
+  /**
+   * Determine whether a physical projection-tree id has ever been initialized without creating a
+   * structural reference.
+   *
+   * @param index the physical index number
+   * @return {@code true} if allocator metadata or a non-virgin root reserves the id
+   */
+  public boolean isIndexInitialized(final int index) {
+    checkIndex(index);
+    return isIndexInitializedUnchecked(index);
   }
 
   @Override
@@ -110,50 +157,14 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
   }
 
   /**
-   * Initialise the HOT sub-tree for a projection index. Mirrors
-   * {@link CASPage#createHOTCASIndexTree}.
+   * Initialize the projection index's HOT tree.
    */
   public void createProjectionIndexTree(final StorageEngineReader storageEngineReader, final int index,
       final TransactionIntentLog log) {
     final PageReference reference = getOrCreateProjectionReference(index);
-    if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-        && reference.getLogKey() == Constants.NULL_ID_INT) {
+    if (reference.isVirginStructuralPlaceholder()) {
+      refuseAllocatorOnlyState(index);
       PageUtils.createHOTTree(reference, IndexType.PROJECTION, storageEngineReader, log);
-      if (maxNodeKeys.get(index) == 0L) {
-        maxNodeKeys.put(index, 0L);
-      } else {
-        maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
-      }
-      currentMaxLevelsOfIndirectPages.put(index, 0);
-    }
-  }
-
-  /** Swap in a fresh empty sub-tree for {@code index}, preserving earlier revisions through CoW. */
-  public void resetProjectionIndexTree(final StorageEngineReader storageEngineReader, final int index,
-      final TransactionIntentLog log) {
-    getOrCreateProjectionReference(index);
-    final PageReference fresh = new PageReference();
-    delegate = PageUtils.setReference(delegate, index, fresh);
-    PageUtils.createHOTTree(fresh, IndexType.PROJECTION, storageEngineReader, log);
-    maxNodeKeys.put(index, 0L);
-    maxHotPageKeys.put(index, 0L);
-    currentMaxLevelsOfIndirectPages.put(index, 0);
-  }
-
-  // Kept for parity with CASPage — used by legacy index creation paths.
-  @SuppressWarnings("unused")
-  public void createLegacyProjectionIndexTree(final DatabaseType databaseType,
-      final StorageEngineReader storageEngineReader, final int index, final TransactionIntentLog log) {
-    final PageReference reference = getOrCreateProjectionReference(index);
-    if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-        && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.PROJECTION, storageEngineReader, log);
-      if (maxNodeKeys.get(index) == 0L) {
-        maxNodeKeys.put(index, 0L);
-      } else {
-        maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
-      }
-      currentMaxLevelsOfIndirectPages.put(index, 0);
     }
   }
 
@@ -169,9 +180,7 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
    * </p>
    */
   private PageReference getOrCreateProjectionReference(final int index) {
-    if (index < 0 || index >= Constants.INP_REFERENCE_COUNT) {
-      throw new IndexOutOfBoundsException("projection index number out of range: " + index);
-    }
+    checkIndex(index);
     final PageReference existingOrCreated = delegate.getOrCreateReference(index);
     if (existingOrCreated != null) {
       return existingOrCreated;
@@ -181,33 +190,8 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
     return created;
   }
 
-  public int getCurrentMaxLevelOfIndirectPages(int index) {
-    return currentMaxLevelsOfIndirectPages.get(index);
-  }
-
-  public int getCurrentMaxLevelOfIndirectPagesSize() {
-    return currentMaxLevelsOfIndirectPages.size();
-  }
-
-  public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
-    return currentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
-  }
-
-  public long getMaxNodeKey(final int indexNo) {
-    return maxNodeKeys.get(indexNo);
-  }
-
-  public int getMaxNodeKeySize() {
-    return maxNodeKeys.size();
-  }
-
-  public long incrementAndGetMaxNodeKey(final int indexNo) {
-    final long newMaxNodeKey = maxNodeKeys.get(indexNo) + 1;
-    maxNodeKeys.put(indexNo, newMaxNodeKey);
-    return newMaxNodeKey;
-  }
-
   public long getMaxHotPageKey(final int indexNo) {
+    checkIndex(indexNo);
     return maxHotPageKeys.get(indexNo);
   }
 
@@ -215,10 +199,50 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
     return maxHotPageKeys.size();
   }
 
+  Int2LongMap maxHotPageKeysForSerialization() {
+    return maxHotPageKeys;
+  }
+
   public long incrementAndGetMaxHotPageKey(final int indexNo) {
-    final long newKey = maxHotPageKeys.get(indexNo) + 1;
+    checkIndex(indexNo);
+    final long newKey = Math.incrementExact(maxHotPageKeys.get(indexNo));
     maxHotPageKeys.put(indexNo, newKey);
     return newKey;
+  }
+
+  private boolean isIndexInitializedUnchecked(final int index) {
+    if (maxHotPageKeys.containsKey(index)) {
+      return true;
+    }
+    final PageReference reference = getIndexReference(index);
+    return reference != null && !reference.isVirginStructuralPlaceholder();
+  }
+
+  private static void checkIndex(final int index) {
+    if (index < 0 || index >= Constants.INP_REFERENCE_COUNT) {
+      throw new IndexOutOfBoundsException("Projection index number out of range: " + index);
+    }
+  }
+
+  private void refuseAllocatorOnlyState(final int index) {
+    if (maxHotPageKeys.containsKey(index)) {
+      throw new IllegalStateException(
+          "Projection index " + index + " has HOT allocator metadata but no physical root reference");
+    }
+  }
+
+  private static Int2LongMap requireValidAllocatorMap(final Int2LongMap allocatorMap) {
+    requireNonNull(allocatorMap);
+    if (allocatorMap.defaultReturnValue() != 0L) {
+      throw new IllegalArgumentException("Projection HOT allocator map must default to zero");
+    }
+    for (final Int2LongMap.Entry entry : allocatorMap.int2LongEntrySet()) {
+      checkIndex(entry.getIntKey());
+      if (entry.getLongValue() < 0L) {
+        throw new IllegalArgumentException("Negative projection HOT page-key high-water mark: " + entry.getLongValue());
+      }
+    }
+    return allocatorMap;
   }
 
   @Override

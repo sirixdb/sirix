@@ -26,6 +26,7 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -211,7 +212,7 @@ final class ChunkedBodyWireFormatTest {
     final MemorySegment wire = serialize(config, original, true);
 
     // 1. the probe: page identity plus, on a chunked page only, the dictionary id.
-    final long[] probe = new long[4];
+    final long[] probe = new long[5];
     final long[] bitmap = new long[PageLayout.BITMAP_WORDS];
     final MemorySegmentBytesIn probeIn = new MemorySegmentBytesIn(wire);
     probeIn.readByte(); // page-kind id
@@ -227,15 +228,18 @@ final class ChunkedBodyWireFormatTest {
     assertEquals(probe[0], regionsOnly.getPageKey(), "regions-only: page key");
     assertEquals((int) probe[2], regionsOnly.getPopulatedSlotCount(), "regions-only: populated count");
     assertEquals(dictId, regionsOnly.getFsstSymbolTableId(), "regions-only: FSST dictionary id");
+    assertTrue(regionsOnly.hasCompleteColumnCoverage(), "full image tail certifies no overflow values");
+    assertEquals(1L, probe[4], "bounded probe did not see the positive column-coverage bit");
 
     // 3. the region-table decoder, fed the offset and the id the probe reported: the pairing the
     // bounded read actually performs.
     final MemorySegmentBytesIn tailIn = new MemorySegmentBytesIn(wire);
     tailIn.position(regionTableOffset);
     final RegionsOnlyPage fromTail = PageKind.KEYVALUELEAFPAGE.deserializeRegionTableAt(config, tailIn, probe[0],
-        (int) probe[1], (int) probe[2], probe[3], RegionTable.ALL_KINDS, 0, bitmap.clone());
+        (int) probe[1], (int) probe[2], probe[3], RegionTable.ALL_KINDS, 0, bitmap.clone(), probe[4] != 0L);
     assertEquals(dictId, fromTail.getFsstSymbolTableId(), "region-table decoder: FSST dictionary id");
     assertEquals(regionsOnly.getPopulatedSlotCount(), fromTail.getPopulatedSlotCount());
+    assertTrue(fromTail.hasCompleteColumnCoverage(), "probe certificate was not propagated");
 
     // 4. the full deserializer.
     final KeyValueLeafPage full = deserialize(config, wire);
@@ -246,6 +250,45 @@ final class ChunkedBodyWireFormatTest {
     } finally {
       original.close();
       full.close();
+      fromTail.close();
+      regionsOnly.close();
+    }
+  }
+
+  @Test
+  @DisplayName("an image without the positive coverage bit is bounded-unknown but full-tail safe")
+  void absentCoverageCertificateIsConservative() {
+    final ResourceConfiguration config = newConfig();
+    final KeyValueLeafPage original = populatedPage(config);
+    final byte[] legacyLike = toArray(serialize(config, original, true));
+    // PAGE_KEY is a one-byte varlong in this fixture. The existing inner-header flag byte follows
+    // {kind, version, envelope flags, page key, revision, index type}.
+    final int innerFlagsOffset = 1 + 2 + 1 + Integer.BYTES + 1 + PageLayout.OFF_FLAGS;
+    legacyLike[innerFlagsOffset] &= (byte) ~PageLayout.FLAG_COMPLETE_COLUMN_COVERAGE;
+    final MemorySegment wire = MemorySegment.ofArray(legacyLike);
+
+    final long[] probe = new long[5];
+    final long[] bitmap = new long[PageLayout.BITMAP_WORDS];
+    final MemorySegmentBytesIn probeIn = new MemorySegmentBytesIn(wire);
+    probeIn.readByte();
+    final long regionTableOffset = PageKind.KEYVALUELEAFPAGE.probeRegionTableOffset(probeIn, probe, bitmap);
+    assertEquals(0L, probe[4], "missing positive bit must remain unknown to a bounded read");
+
+    final MemorySegmentBytesIn tailIn = new MemorySegmentBytesIn(wire);
+    tailIn.position(regionTableOffset);
+    final RegionsOnlyPage bounded = PageKind.KEYVALUELEAFPAGE.deserializeRegionTableAt(config, tailIn, probe[0],
+        (int) probe[1], (int) probe[2], probe[3], RegionTable.ALL_KINDS, 0, bitmap, false);
+    final MemorySegmentBytesIn fullIn = new MemorySegmentBytesIn(wire);
+    fullIn.readByte();
+    final RegionsOnlyPage full =
+        PageKind.KEYVALUELEAFPAGE.deserializeRegionsOnlyPage(config, fullIn, RegionTable.ALL_KINDS, 0);
+    try {
+      assertFalse(bounded.hasCompleteColumnCoverage(), "bounded read trusted an uncertified image");
+      assertTrue(full.hasCompleteColumnCoverage(), "full read did not recover completeness from the existing tail");
+    } finally {
+      bounded.close();
+      full.close();
+      original.close();
     }
   }
 

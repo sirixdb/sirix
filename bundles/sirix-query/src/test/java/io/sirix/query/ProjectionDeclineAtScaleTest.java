@@ -6,6 +6,7 @@ import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.access.Databases;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * A projection route that DECLINES must fall back at every corpus size.
@@ -106,8 +108,11 @@ final class ProjectionDeclineAtScaleTest {
     // The other side of the same column kind. Every string route needs a dictionary, so this used
     // to leave the projection and rescan the corpus — invisible warm, where a memo answered, and
     // the whole document one-shot.
+    final long servedBefore = SirixVectorizedExecutor.projectionCountDistinctServedCount();
     assertEquals(120L,
         count("count(for $m in jn:doc('" + DB + "','" + RES + "')[]" + " let $y := $m.year group by $y return $y)"));
+    assertTrue(SirixVectorizedExecutor.projectionCountDistinctServedCount() > servedBefore,
+        "a correct answer is not route evidence: the projection count-distinct outcome counter must move");
   }
 
   @Test

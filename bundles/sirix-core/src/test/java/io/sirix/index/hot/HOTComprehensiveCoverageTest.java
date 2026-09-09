@@ -583,85 +583,6 @@ class HOTComprehensiveCoverageTest {
   }
 
   @Nested
-  @DisplayName("ChunkDirectory Full Coverage")
-  class ChunkDirectoryFullCoverageTests {
-
-    @Test
-    @DisplayName("Full lifecycle test")
-    void testFullLifecycle() {
-      ChunkDirectory dir = new ChunkDirectory();
-      assertTrue(dir.isEmpty());
-      assertFalse(dir.isModified());
-      assertEquals(0, dir.chunkCount());
-
-      // Add first chunk
-      PageReference ref1 = dir.getOrCreateChunkRef(0);
-      ref1.setKey(100);
-      assertEquals(1, dir.chunkCount());
-      assertTrue(dir.isModified());
-
-      // Add more chunks
-      for (int i = 1; i <= 5; i++) {
-        PageReference ref = dir.getOrCreateChunkRef(i * 1000);
-        ref.setKey(100 + i);
-      }
-      assertEquals(6, dir.chunkCount());
-
-      // Clear modified flag
-      dir.clearModified();
-      assertFalse(dir.isModified());
-
-      // Copy and verify
-      ChunkDirectory copy = dir.copy();
-      assertEquals(dir.chunkCount(), copy.chunkCount());
-
-      // Verify toString
-      String str = dir.toString();
-      assertNotNull(str);
-      assertTrue(str.contains("ChunkDirectory"));
-    }
-
-    @Test
-    @DisplayName("Test chunk index calculation")
-    void testChunkIndexCalculation() {
-      for (long docKey : new long[] {0, 1000, 65536, 100000, 1000000}) {
-        int chunkIdx = ChunkDirectory.chunkIndexFor(docKey);
-        assertTrue(chunkIdx >= 0);
-      }
-    }
-
-    @Test
-    @DisplayName("Test get and set chunk refs")
-    void testGetSetChunkRefs() {
-      ChunkDirectory dir = new ChunkDirectory();
-
-      // Set refs at various indices
-      for (int idx : new int[] {0, 5, 10, 100}) {
-        PageReference ref = new PageReference();
-        ref.setKey(idx * 10);
-        dir.setChunkRef(idx, ref);
-
-        PageReference retrieved = dir.getChunkRef(idx);
-        assertNotNull(retrieved);
-        assertEquals(idx * 10, retrieved.getKey());
-      }
-    }
-
-    @Test
-    @DisplayName("Test equals and hashCode")
-    void testEqualsHashCode() {
-      ChunkDirectory dir1 = new ChunkDirectory();
-      dir1.getOrCreateChunkRef(0).setKey(100);
-
-      ChunkDirectory dir2 = new ChunkDirectory();
-      dir2.getOrCreateChunkRef(0).setKey(100);
-
-      // Test equality properties
-      assertEquals(dir1.chunkCount(), dir2.chunkCount());
-    }
-  }
-
-  @Nested
   @DisplayName("DiscriminativeBitComputer Full Coverage")
   class DiscriminativeBitComputerFullCoverageTests {
 
@@ -807,4 +728,3 @@ class HOTComprehensiveCoverageTest {
     }
   }
 }
-

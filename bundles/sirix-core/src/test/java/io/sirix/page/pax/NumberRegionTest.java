@@ -1,5 +1,6 @@
 package io.sirix.page.pax;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -20,6 +21,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @DisplayName("NumberRegion")
 final class NumberRegionTest {
+
+  /**
+   * The encoder's write-path toggles are static, so a test that pins one must not leak it into the
+   * next: several cases here pin the page-wide layouts the per-tag election would otherwise win.
+   */
+  @AfterEach
+  void clearEncoderOverrides() {
+    NumberRegion.clearPerTagWidthOverride();
+    NumberRegion.clearCompactWriteOverride();
+    NumberRegion.clearDeltaWriteOverride();
+  }
 
   private static final Base64.Decoder BASE64 = Base64.getDecoder();
   private static final byte[] GOLDEN_PLAIN = BASE64.decode(
@@ -43,6 +55,9 @@ final class NumberRegionTest {
   @Test
   @DisplayName("single-tag values pick BIT_PACKED and occupy full range")
   void singleTagBitPacked() {
+    // The subject is the page-wide BIT_PACKED_ZM layout, so the per-tag election is pinned off;
+    // NumberRegionPerTagForTest covers the same values under the default encoder.
+    NumberRegion.setPerTagWidthEnabled(false);
     final long[] values = {18, 42, 66, 30, 55, 20};
     final int[] tags = {7, 7, 7, 7, 7, 7};
     final byte[] wire = NumberRegion.encode(values, tags, values.length);
@@ -129,6 +144,9 @@ final class NumberRegionTest {
   @Test
   @DisplayName("wide-range longs fall back to PLAIN_LONG")
   void wideRangeUsesPlainLong() {
+    // Pinned to the page-wide layout: the point is that a spread wider than the packer's ceiling
+    // falls back to PLAIN_LONG. The per-tag layout answers the same shape with a width-64 tag.
+    NumberRegion.setPerTagWidthEnabled(false);
     final long[] values = {0L, Long.MAX_VALUE, -1L, 42L};
     final int[] tags = {3, 3, 3, 3};
     final byte[] wire = NumberRegion.encode(values, tags, values.length);
@@ -212,6 +230,7 @@ final class NumberRegionTest {
   @Test
   @DisplayName("ENC_COMPACT_ZM round-trips single-tag narrow range")
   void compactZmSingleTagBitPacked() {
+    NumberRegion.setPerTagWidthEnabled(false);
     NumberRegion.setCompactWriteEnabled(true);
     try {
       final long[] values = {18, 42, 66, 30, 55, 20};
@@ -238,6 +257,7 @@ final class NumberRegionTest {
   @Test
   @DisplayName("ENC_COMPACT_ZM round-trips constant-run (bitWidth=0)")
   void compactZmConstantRun() {
+    NumberRegion.setPerTagWidthEnabled(false);
     NumberRegion.setCompactWriteEnabled(true);
     try {
       final long[] values = {42L, 42L, 42L, 42L, 42L};
@@ -265,6 +285,7 @@ final class NumberRegionTest {
   @Test
   @DisplayName("ENC_COMPACT_ZM round-trips multi-tag grouping with per-tag zone maps")
   void compactZmMultiTagGrouping() {
+    NumberRegion.setPerTagWidthEnabled(false);
     NumberRegion.setCompactWriteEnabled(true);
     try {
       final long[] values = {18, 100, 30, 200, 42};
@@ -301,6 +322,7 @@ final class NumberRegionTest {
   @Test
   @DisplayName("ENC_COMPACT_ZM falls back to plain-long for wide ranges")
   void compactZmWideRangeFallsBackToPlain() {
+    NumberRegion.setPerTagWidthEnabled(false);
     NumberRegion.setCompactWriteEnabled(true);
     try {
       final long[] values = {0L, Long.MAX_VALUE, -1L, 42L};
@@ -439,6 +461,9 @@ final class NumberRegionTest {
   @Test
   @DisplayName("reusable encoder preserves fixed plain, packed, compact and delta wire bytes")
   void reusableEncoderPreservesWire() {
+    // These are the golden wires of the page-wide layouts, which the kill switch pins the encoder
+    // to; the per-tag wire has its own pin in NumberRegionPerTagForTest.
+    NumberRegion.setPerTagWidthEnabled(false);
     final NumberRegion.Encoder encoder = new NumberRegion.Encoder(1024);
     final int n = 1024;
     final int[] distinctTags = new int[n];

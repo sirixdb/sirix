@@ -41,6 +41,41 @@ import java.util.Objects;
  *                             //    BIT_PACKED: count × valueBitWidth bits)
  * </pre>
  *
+ * <h2>Wire format — {@link #ENC_PER_TAG_FOR} (6)</h2>
+ *
+ * <p>
+ * One width for the whole page is the wrong unit: the values are already grouped by tag, and a page
+ * of a record-shaped corpus holds an 8-bit flag beside a 64-bit hash. The page-wide frame of
+ * reference made the flag cost what the hash costs — and, because the spread of a 64-bit hash
+ * exceeds what a bit-packed layout can express at all, it forced every tag on the page back to
+ * plain longs. The per-tag layout gives each tag its own frame: its own base, its own width, its
+ * own byte-aligned run of packed values.
+ *
+ * <p>
+ * The zone map is not stored beside the frame of reference — it <em>is</em> the frame of reference.
+ * A tag's header is {@code (min, spread)}; the zone map reads {@code [min, min + spread]} and the
+ * decoder reads {@code width = bits(spread)}. Nothing is written twice.
+ *
+ * <pre>
+ * byte   encodingKind = 6
+ * byte   tagKind
+ * uvarint dictSize
+ * per tag, in tag-id order:
+ *   svarint dictDelta          // dict[i] - dict[i-1]; dict[-1] = 0
+ *   uvarint tagCount           // values with this tag (tagStart is the running sum)
+ *   svarint tagMin             // frame-of-reference base AND the zone-map lower bound
+ *   uvarint tagSpread          // tagMax - tagMin, unsigned; width = 0 when it is 0
+ * // then, per tag in the same order, BYTE-ALIGNED:
+ * //   width w = spread == 0 ? 0 : 64 - numberOfLeadingZeros(spread), rounded up to 64 above 56
+ * //   ceil(tagCount × w / 8) bytes of (value - min) packed at w bits, low bits first
+ * //   w == 0  writes nothing (every value equals min)
+ * //   w == 64 writes the RAW values (base 0), so the plain-long kernels read them unchanged
+ * </pre>
+ *
+ * <p>
+ * {@code count}, {@code tagStart}, {@code tagMax}, {@code valueMin} and {@code valueMax} are all
+ * derived at parse time, which is why they are absent from the wire.
+ *
  * <h2>HFT-grade scan loop</h2> A scan on field {@code F} looks up the tag id (O(dictSize)), reads
  * {@code tagStart[tag]} + {@code tagCount[tag]}, then iterates a tight range of
  * {@link #decodeValueAt(byte[], Header, int)} calls. No conditional per iteration, no tag decode,
@@ -76,6 +111,102 @@ public final class NumberRegion {
    * kernels (they fall back to the scalar {@link #decodeValueAt} / {@link #decodeAllValues} loop).
    */
   public static final byte ENC_DELTA_ZM = 5;
+
+  /**
+   * Per-TAG frame of reference: every tag carries its own {@code (min, spread)} and its values are
+   * packed at its own width in a byte-aligned run. The per-tag zone map and the frame of reference
+   * are the same two numbers, stored once. See the class comment for the wire layout.
+   *
+   * <p>
+   * Elected per page against the whole-region encodings and written only when it is strictly smaller,
+   * so a page the older layouts encode better keeps them.
+   */
+  public static final byte ENC_PER_TAG_FOR = 6;
+
+  /**
+   * {@link #ENC_PER_TAG_FOR} with its per-tag directory stored ONCE, in
+   * {@link RegionTable#KIND_NUMBER_ZONEMAP}, rather than a second time here.
+   *
+   * <p>
+   * The zone map was already a copy of this region's per-tag header — the same tag ids, counts,
+   * minima and maxima — because a predicate has to read the bounds without decompressing the values
+   * they summarise. Once the frame of reference IS the zone map, keeping both is writing the page's
+   * directory twice: at 1M it cost 0.38 B/record, 36 % of what the number column and its summary
+   * spend together.
+   *
+   * <p>
+   * So the directory lives in the summary, which is small, usually uncompressed, and read first; the
+   * value region keeps only its two-byte prefix and the packed values, and derives each tag's base,
+   * width and byte offset from the summary. A prune still costs a couple of comparisons against
+   * header longs — and now never materializes the value region at all.
+   *
+   * <p>
+   * The coupling is one-directional and declared: decoding these values REQUIRES the zone map, so a
+   * reader must request the pair. A writer that cannot publish a zone map falls back to
+   * {@link #ENC_PER_TAG_FOR}, which carries its own directory — no page is ever undecodable, only
+   * occasionally larger.
+   */
+  public static final byte ENC_PER_TAG_FOR_EXTERNAL = 7;
+
+  /**
+   * Widths above this are rounded up to 64 and stored as raw longs. 57..63 would need a
+   * read-modify-write packer and are not vector-unpackable either ({@link BitUnpackSimd#supports}
+   * stops at 56), so the ≤ 12 % they could save on the widest columns is not worth a second packing
+   * path — at 64 the values ARE plain longs and every plain-long kernel reads them as they lie.
+   */
+  private static final int MAX_PACKED_BIT_WIDTH = BitUnpackSimd.MAX_BIT_WIDTH;
+
+  /**
+   * {@link Header#valueBytesOffset} for a per-tag payload, where no single offset describes the
+   * values. A reader that reaches for the page-wide offset on such a payload gets an out-of-bounds
+   * access rather than another tag's bytes decoded as this one's.
+   */
+  public static final int PER_TAG_NO_PAGE_WIDE_OFFSET = -1;
+
+  /**
+   * Write {@link #ENC_PER_TAG_FOR} when it is smaller than the whole-region encodings. Off pins the
+   * encoder to the pre-per-tag layouts byte for byte.
+   */
+  private static volatile Boolean PER_TAG_WRITE_OVERRIDE = null;
+
+  /** Test hook: force-enable/disable per-tag FOR writes without restarting the JVM. */
+  public static void setPerTagWidthEnabled(final boolean enabled) {
+    PER_TAG_WRITE_OVERRIDE = enabled;
+  }
+
+  /** Test hook: clear the override and fall back to the system property. */
+  public static void clearPerTagWidthOverride() {
+    PER_TAG_WRITE_OVERRIDE = null;
+  }
+
+  /** Kill switch {@code -Dsirix.page.numberRegion.perTagWidth=false}; on by default. */
+  public static boolean perTagWidthEnabled() {
+    final Boolean override = PER_TAG_WRITE_OVERRIDE;
+    if (override != null) {
+      return override;
+    }
+    return !"false".equalsIgnoreCase(System.getProperty("sirix.page.numberRegion.perTagWidth"));
+  }
+
+  /**
+   * Bits needed for a residual of {@code spread}, with the rounding {@link #MAX_PACKED_BIT_WIDTH}
+   * describes. {@code spread} is read as unsigned, so a spread that wraps the signed range answers
+   * 64.
+   */
+  public static int widthForSpread(final long spread) {
+    if (spread == 0L) {
+      return 0;
+    }
+    final int bits = 64 - Long.numberOfLeadingZeros(spread);
+    return bits > MAX_PACKED_BIT_WIDTH
+        ? 64
+        : bits;
+  }
+
+  /** Bytes a tag's byte-aligned packed run occupies. */
+  public static int packedBytes(final int valueCount, final int bitWidth) {
+    return (int) (((long) valueCount * bitWidth + 7L) >>> 3);
+  }
 
   /**
    * Write {@link #ENC_COMPACT_ZM} instead of {@link #ENC_BIT_PACKED_ZM} on the bit-packed path when
@@ -176,6 +307,55 @@ public final class NumberRegion {
     return encodingKind == ENC_DELTA_ZM;
   }
 
+  /**
+   * @return true iff every tag carries its own frame of reference and width
+   *         ({@link #ENC_PER_TAG_FOR}). Such a payload has no page-wide base, width or value offset;
+   *         it is read through {@link Header#tagWidth}/{@link Header#tagDecodeBase}/
+   *         {@link Header#tagValueOffset}, which is why {@link #isBitPacked} answers false for it.
+   */
+  public static boolean isPerTagFor(final byte encodingKind) {
+    return encodingKind == ENC_PER_TAG_FOR || encodingKind == ENC_PER_TAG_FOR_EXTERNAL;
+  }
+
+  /**
+   * Whether this payload's per-tag directory lives in {@link RegionTable#KIND_NUMBER_ZONEMAP} and
+   * must be supplied to {@link Header#parseInto(MemorySegment, MemorySegment)}.
+   *
+   * <p>
+   * Callers that may legitimately hold the value region without its summary — a region-only read
+   * whose mask asked for one and not the other — check this and DECLINE, falling back to the record
+   * path. Passing a null directory to the parse instead is a programming error and says so.
+   */
+  public static boolean needsExternalDirectory(final MemorySegment payload) {
+    return payload != null && payload.byteSize() > 0
+        && payload.get(ValueLayout.JAVA_BYTE, 0L) == ENC_PER_TAG_FOR_EXTERNAL;
+  }
+
+  /**
+   * Write {@link #ENC_PER_TAG_FOR_EXTERNAL} when the caller also publishes the zone map. Off keeps
+   * the directory inside the value region, i.e. {@link #ENC_PER_TAG_FOR}.
+   */
+  private static volatile Boolean EXTERNAL_HEADER_OVERRIDE = null;
+
+  /** Test hook: force-enable/disable the external directory without restarting the JVM. */
+  public static void setExternalHeaderEnabled(final boolean enabled) {
+    EXTERNAL_HEADER_OVERRIDE = enabled;
+  }
+
+  /** Test hook: clear the override and fall back to the system property. */
+  public static void clearExternalHeaderOverride() {
+    EXTERNAL_HEADER_OVERRIDE = null;
+  }
+
+  /** Kill switch {@code -Dsirix.page.numberRegion.externalHeader=false}; on by default. */
+  public static boolean externalHeaderEnabled() {
+    final Boolean override = EXTERNAL_HEADER_OVERRIDE;
+    if (override != null) {
+      return override;
+    }
+    return !"false".equalsIgnoreCase(System.getProperty("sirix.page.numberRegion.externalHeader"));
+  }
+
   private NumberRegion() {}
 
   // ───────────────────────────────────────────────────────────────── header
@@ -207,18 +387,76 @@ public final class NumberRegion {
     public long[] tagMin;
     /** Per-tag maximum value. Populated only when {@link #hasZoneMap(byte)}; else null. */
     public long[] tagMax;
+    /**
+     * First byte of the value area, or {@link #PER_TAG_NO_PAGE_WIDE_OFFSET} for
+     * {@link #ENC_PER_TAG_FOR}, where each tag has its own.
+     */
     public int valueBytesOffset;
     public int valueBytesLength;
+    /**
+     * Bits per value for each tag; {@code 0} means constant, {@code 64} means raw longs. Populated only
+     * for {@link #ENC_PER_TAG_FOR}; else null.
+     */
+    public byte[] tagWidth;
+    /**
+     * Frame-of-reference base each tag's residuals are decoded against — {@link #tagMin} except at
+     * width 64, where the values are stored raw and the base is 0. Populated only for
+     * {@link #ENC_PER_TAG_FOR}; else null.
+     */
+    public long[] tagDecodeBase;
+    /**
+     * First byte of each tag's packed run, absolute within the payload. Populated only for
+     * {@link #ENC_PER_TAG_FOR}; else null.
+     */
+    public int[] tagValueOffset;
     /**
      * Nested delta header. Populated only for {@link #ENC_DELTA_ZM}; null otherwise. Carries
      * {@code firstValue}/{@code firstDelta}/{@code bodyOffset} needed to replay the delta prefix sum.
      */
     public NumberRegionDelta.Header deltaHeader;
 
+    /** @return true iff this header describes a per-tag frame-of-reference payload. */
+    public boolean isPerTag() {
+      return isPerTagFor(encodingKind);
+    }
+
+    /**
+     * Parse a self-contained payload.
+     *
+     * @throws IllegalArgumentException when the payload's directory is external — such a region can
+     *         only be read together with its zone map, and reading it without one would be a silent
+     *         mis-decode rather than a missing region
+     */
     public Header parseInto(final MemorySegment payload) {
+      return parseInto(payload, null);
+    }
+
+    /**
+     * Parse, taking the per-tag directory from {@code directoryPayload} when the payload says its
+     * directory is external. The directory is ignored for every self-contained encoding, so a caller
+     * that holds both may always use this form.
+     *
+     * @param directoryPayload the page's {@link RegionTable#KIND_NUMBER_ZONEMAP} payload, or
+     *        {@code null} when the caller holds none
+     */
+    public Header parseInto(final MemorySegment payload, final MemorySegment directoryPayload) {
       final RegionReader bb = new RegionReader(payload);
       encodingKind = bb.readByte();
       tagKind = bb.readByte();
+      if (encodingKind == ENC_PER_TAG_FOR_EXTERNAL) {
+        if (directoryPayload == null) {
+          throw new IllegalArgumentException(
+              "this number region's per-tag directory is external; read it together with KIND_NUMBER_ZONEMAP "
+                  + "(NumberRegion.needsExternalDirectory answers whether a payload needs one)");
+        }
+        return parsePerTagForExternal(payload, bb.position(), directoryPayload);
+      }
+      if (encodingKind == ENC_PER_TAG_FOR) {
+        return parsePerTagFor(payload, bb.position());
+      }
+      tagWidth = null;
+      tagDecodeBase = null;
+      tagValueOffset = null;
       count = bb.readInt();
       valueMin = bb.readLong();
       valueMax = bb.readLong();
@@ -291,6 +529,157 @@ public final class NumberRegion {
             : 64));
       }
       return this;
+    }
+
+    /**
+     * Parse a {@link #ENC_PER_TAG_FOR} payload whose two-byte prefix has already been consumed.
+     *
+     * <p>
+     * Everything the older layouts wrote out — {@code count}, {@code tagStart}, {@code tagMax}, the
+     * page-global bounds — is reconstructed here from the per-tag {@code (min, spread)} pairs, so a
+     * reader of this header sees exactly the fields it saw before and no consumer outside this class
+     * learns that the layout changed.
+     *
+     * @param valuePrefix byte offset just past the {@code encodingKind}/{@code tagKind} prefix
+     */
+    private Header parsePerTagFor(final MemorySegment payload, final int valuePrefix) {
+      deltaHeader = null;
+      valueBase = 0L;
+      valueBitWidth = 0;
+      long position = valuePrefix;
+      final long declaredDictSize = VarInt.readUnsigned(payload, position);
+      position += VarInt.sizeOfUnsigned(declaredDictSize);
+      if (declaredDictSize < 0L || declaredDictSize > Integer.MAX_VALUE) {
+        throw new IllegalArgumentException("per-tag number region declares dictSize=" + declaredDictSize);
+      }
+      dictSize = (int) declaredDictSize;
+      ensureTagCapacity(dictSize);
+
+      int previousTag = 0;
+      int running = 0;
+      long globalMin = Long.MAX_VALUE;
+      long globalMax = Long.MIN_VALUE;
+      for (int i = 0; i < dictSize; i++) {
+        final long tagDelta = VarInt.readSigned(payload, position);
+        position += VarInt.sizeOfSigned(tagDelta);
+        previousTag = (int) (previousTag + tagDelta);
+        dict[i] = previousTag;
+
+        final long valueCount = VarInt.readUnsigned(payload, position);
+        position += VarInt.sizeOfUnsigned(valueCount);
+        if (valueCount < 0L || valueCount > Integer.MAX_VALUE - running) {
+          throw new IllegalArgumentException(
+              "per-tag number region: tag " + i + " declares " + valueCount + " values, which overruns the region");
+        }
+        tagCount[i] = (int) valueCount;
+        tagStart[i] = running;
+        running += (int) valueCount;
+
+        final long min = VarInt.readSigned(payload, position);
+        position += VarInt.sizeOfSigned(min);
+        final long spread = VarInt.readUnsigned(payload, position);
+        position += VarInt.sizeOfUnsigned(spread);
+        tagMin[i] = min;
+        tagMax[i] = min + spread;
+        if (min < globalMin) {
+          globalMin = min;
+        }
+        if (tagMax[i] > globalMax) {
+          globalMax = tagMax[i];
+        }
+      }
+      count = running;
+      valueMin = dictSize == 0
+          ? 0L
+          : globalMin;
+      valueMax = dictSize == 0
+          ? 0L
+          : globalMax;
+      return deriveTagFrames(payload, position);
+    }
+
+    /**
+     * Parse a {@link #ENC_PER_TAG_FOR_EXTERNAL} payload: the directory comes from the zone map, the
+     * values from this payload, and everything else is derived exactly as for the self-contained form.
+     */
+    private Header parsePerTagForExternal(final MemorySegment payload, final int valuePrefix,
+        final MemorySegment directoryPayload) {
+      deltaHeader = null;
+      valueBase = 0L;
+      valueBitWidth = 0;
+      final byte directoryTagKind = NumberZoneMapRegion.readDirectoryInto(directoryPayload, this);
+      if (directoryTagKind != tagKind) {
+        // The two regions disagree about what their tags MEAN — a nameKey read as a pathNodeKey
+        // would prune and scan against a different column. Never a shape to work around.
+        throw new IllegalArgumentException(
+            "number region declares tagKind=" + tagKind + " but its directory declares " + directoryTagKind);
+      }
+      return deriveTagFrames(payload, valuePrefix);
+    }
+
+    /**
+     * Turn a filled per-tag directory into decode frames: each tag's width from its spread, its base
+     * (the minimum, or zero where the values are stored raw) and its byte-aligned start.
+     *
+     * @param valuesStart first byte of the packed value area within {@code payload}
+     */
+    private Header deriveTagFrames(final MemorySegment payload, final long valuesStart) {
+      long offset = valuesStart;
+      for (int i = 0; i < dictSize; i++) {
+        final long spread = tagMax[i] - tagMin[i];
+        final int width = widthForSpread(spread);
+        tagWidth[i] = (byte) width;
+        tagDecodeBase[i] = width == 64
+            ? 0L
+            : tagMin[i];
+        tagValueOffset[i] = (int) offset;
+        offset += packedBytes(tagCount[i], width);
+      }
+      if (offset > payload.byteSize()) {
+        throw new IllegalArgumentException(
+            "per-tag number region needs " + offset + " bytes but the payload holds " + payload.byteSize());
+      }
+      valueBytesOffset = PER_TAG_NO_PAGE_WIDE_OFFSET;
+      valueBytesLength = (int) (offset - valuesStart);
+      return this;
+    }
+
+    /**
+     * Fill the directory fields from a zone map, for {@link #parsePerTagForExternal}. Package-private
+     * so the zone map's parser can write them without a second copy.
+     */
+    void acceptDirectory(final int size) {
+      ensureTagCapacity(size);
+      dictSize = size;
+    }
+
+    /** Grow every per-tag array to hold {@code size} entries, the per-tag-only ones included. */
+    private void ensureTagCapacity(final int size) {
+      final int capacity = Math.max(4, size);
+      if (dict == null || dict.length < size) {
+        dict = new int[capacity];
+      }
+      if (tagStart == null || tagStart.length < size) {
+        tagStart = new int[capacity];
+      }
+      if (tagCount == null || tagCount.length < size) {
+        tagCount = new int[capacity];
+      }
+      if (tagMin == null || tagMin.length < size) {
+        tagMin = new long[capacity];
+      }
+      if (tagMax == null || tagMax.length < size) {
+        tagMax = new long[capacity];
+      }
+      if (tagWidth == null || tagWidth.length < size) {
+        tagWidth = new byte[capacity];
+      }
+      if (tagDecodeBase == null || tagDecodeBase.length < size) {
+        tagDecodeBase = new long[capacity];
+      }
+      if (tagValueOffset == null || tagValueOffset.length < size) {
+        tagValueOffset = new int[capacity];
+      }
     }
 
     /** Per-tag minimum, or the page-global {@link #valueMin} if no per-tag map is present. */
@@ -379,6 +768,17 @@ public final class NumberRegion {
     private long[] sortedValues;
     private long[] tagMin;
     private long[] tagMax;
+    /** Per-tag packing width, filled by {@link #measurePerTagFor} and consumed by the writer. */
+    private byte[] tagWidths;
+    /** Bytes the packed runs occupy, filled by {@link #measurePerTagFor}. */
+    private long perTagValueBytes;
+    /** The directory of the most recent encode, for {@link #directoryInto}. */
+    private int lastCount;
+    private int lastDictSize;
+    private long lastValueMin;
+    private long lastValueMax;
+    private byte lastTagKind;
+    private byte lastEncodingKind;
     private byte[] output;
     private MemorySegment outputView;
     private int encodedLength;
@@ -396,6 +796,20 @@ public final class NumberRegion {
      * @return exact encoded length; only this prefix of {@link #output()} is valid
      */
     public int encodeInto(final long[] values, final int[] parentTags, final int count, final byte tagKind) {
+      return encodeInto(values, parentTags, count, tagKind, false);
+    }
+
+    /**
+     * Encode into this instance's reusable output buffer.
+     *
+     * @param directoryIsExternal the caller undertakes to publish this region's per-tag directory as
+     *        the page's {@link RegionTable#KIND_NUMBER_ZONEMAP}, from {@link #directoryInto}. Only then
+     *        may the encoder omit the directory here; a caller that cannot promise it gets the
+     *        self-contained form, which every reader can decode alone.
+     * @return exact encoded length; only this prefix of {@link #output()} is valid
+     */
+    public int encodeInto(final long[] values, final int[] parentTags, final int count, final byte tagKind,
+        final boolean directoryIsExternal) {
       encodedLength = 0;
       validateEncodeInput(values, parentTags, count, tagKind);
       ensureCapacity(count);
@@ -466,6 +880,7 @@ public final class NumberRegion {
 
       // Delta-of-delta must win on both residual width and exact encoded bytes because selecting it
       // trades away random access and SIMD scans.
+      boolean delta = false;
       if (deltaWriteEnabled() && count >= MIN_DELTA_COUNT) {
         final int forBitWidth = bitPacked
             ? Math.max(1, 64 - Long.numberOfLeadingZeros(spread))
@@ -475,16 +890,182 @@ public final class NumberRegion {
           final long forValueRegionBytes = 9L + bitsToBytes((long) count * forBitWidth);
           final long deltaRegionBytes =
               NumberRegionDelta.headerBytes(count) + NumberRegionDelta.bodyBytes(count, deltaBitWidth);
-          if (deltaRegionBytes < forValueRegionBytes) {
-            return encodeNested(ENC_DELTA_ZM, count, dictSize, min, max, tagKind);
-          }
+          delta = deltaRegionBytes < forValueRegionBytes;
         }
       }
+      final boolean compact = !delta && bitPacked && compactWriteEnabled();
 
-      if (bitPacked && compactWriteEnabled()) {
+      // The per-tag layout is elected on measured bytes, never on shape: a page whose tags share one
+      // narrow width is encoded no worse by the whole-region form, and a page whose values are one
+      // long monotonic run is still delta's. Only a strict win takes the new layout, so the older
+      // ones keep every page they already encode better.
+      if (count > 0 && perTagWidthEnabled()) {
+        final int perTagBytes = measurePerTagFor(count, dictSize);
+        // The zone map is written whatever this region elects, so comparing region bytes alone is
+        // the honest comparison even when the directory moves into it.
+        final boolean external = directoryIsExternal && externalHeaderEnabled();
+        final int perTagCandidate = external
+            ? checkedEncodedLength(2L + perTagValueBytes)
+            : perTagBytes;
+        final long incumbentBytes;
+        if (delta) {
+          incumbentBytes = (long) NESTED_FIXED_HEADER_BYTES + (long) BYTES_PER_TAG * dictSize
+              + NumberRegionDelta.maxEncodedSize(sortedValues, count);
+        } else if (compact) {
+          incumbentBytes = (long) NESTED_FIXED_HEADER_BYTES + (long) BYTES_PER_TAG * dictSize
+              + NumberRegionCompact.maxEncodedSize(sortedValues, count);
+        } else {
+          final int width = bitPacked
+              ? Math.max(1, 64 - Long.numberOfLeadingZeros(spread))
+              : 64;
+          incumbentBytes =
+              (long) PLAIN_FIXED_HEADER_BYTES + (long) BYTES_PER_TAG * dictSize + bitsToBytes((long) count * width);
+        }
+        if (perTagCandidate < incumbentBytes) {
+          rememberDirectory(count, dictSize, min, max, tagKind, external
+              ? ENC_PER_TAG_FOR_EXTERNAL
+              : ENC_PER_TAG_FOR);
+          return external
+              ? encodePerTagForExternal(dictSize, perTagCandidate, tagKind)
+              : encodePerTagFor(count, dictSize, perTagBytes, tagKind);
+        }
+      }
+      rememberDirectory(count, dictSize, min, max, tagKind, delta
+          ? ENC_DELTA_ZM
+          : (compact
+              ? ENC_COMPACT_ZM
+              : (bitPacked
+                  ? ENC_BIT_PACKED_ZM
+                  : ENC_PLAIN_LONG_ZM)));
+
+      if (delta) {
+        return encodeNested(ENC_DELTA_ZM, count, dictSize, min, max, tagKind);
+      }
+      if (compact) {
         return encodeNested(ENC_COMPACT_ZM, count, dictSize, min, max, tagKind);
       }
       return encodePlain(count, dictSize, min, max, spread, bitPacked, tagKind);
+    }
+
+    /**
+     * Size the per-tag layout and fill {@link #tagWidths} for the writer.
+     *
+     * <p>
+     * One pass over the tags, no pass over the values: the per-tag bounds are already computed, and the
+     * width of a tag is a function of its spread alone.
+     *
+     * @return exact bytes {@link #encodePerTagFor} would write
+     */
+    private int measurePerTagFor(final int count, final int dictSize) {
+      long bytes = 2L + VarInt.sizeOfUnsigned(dictSize);
+      perTagValueBytes = 0L;
+      int previousTag = 0;
+      for (int t = 0; t < dictSize; t++) {
+        bytes += VarInt.sizeOfSigned((long) dict[t] - previousTag);
+        previousTag = dict[t];
+        bytes += VarInt.sizeOfUnsigned(tagCount[t]);
+        bytes += VarInt.sizeOfSigned(tagMin[t]);
+        final long tagSpread = tagMax[t] - tagMin[t];
+        bytes += VarInt.sizeOfUnsigned(tagSpread);
+        final int width = widthForSpread(tagSpread);
+        tagWidths[t] = (byte) width;
+        perTagValueBytes += packedBytes(tagCount[t], width);
+      }
+      return checkedEncodedLength(bytes + perTagValueBytes);
+    }
+
+    /**
+     * Record what {@link #directoryInto} will hand the zone-map writer. Kept from the encode rather
+     * than re-parsed out of the payload, because the external form no longer has a directory to parse —
+     * and re-parsing what we just wrote was never anything but a second copy of it.
+     */
+    private void rememberDirectory(final int count, final int dictSize, final long min, final long max,
+        final byte tagKind, final byte encodingKind) {
+      lastCount = count;
+      lastDictSize = dictSize;
+      lastValueMin = min;
+      lastValueMax = max;
+      lastTagKind = tagKind;
+      lastEncodingKind = encodingKind;
+    }
+
+    /**
+     * Fill {@code target} with the directory of the region most recently encoded: the tag ids, their
+     * value counts and starts, and their bounds.
+     *
+     * <p>
+     * This is the writer's counterpart to a parse. It exists because {@link #ENC_PER_TAG_FOR_EXTERNAL}
+     * publishes that directory as the zone map instead of inside the value region, so the writer must
+     * hand it over rather than read it back.
+     *
+     * <p>
+     * The decode-side fields are deliberately left cleared: the target describes a directory, not a
+     * decodable region, and a stale width or offset from a previous page is exactly the kind of mixture
+     * that reads as valid.
+     */
+    public void directoryInto(final Header target) {
+      target.encodingKind = lastEncodingKind;
+      target.tagKind = lastTagKind;
+      target.count = lastCount;
+      target.valueMin = lastValueMin;
+      target.valueMax = lastValueMax;
+      target.dictSize = lastDictSize;
+      target.acceptDirectory(lastDictSize);
+      System.arraycopy(dict, 0, target.dict, 0, lastDictSize);
+      System.arraycopy(tagStart, 0, target.tagStart, 0, lastDictSize);
+      System.arraycopy(tagCount, 0, target.tagCount, 0, lastDictSize);
+      System.arraycopy(tagMin, 0, target.tagMin, 0, lastDictSize);
+      System.arraycopy(tagMax, 0, target.tagMax, 0, lastDictSize);
+      target.valueBase = 0L;
+      target.valueBitWidth = 0;
+      target.valueBytesOffset = PER_TAG_NO_PAGE_WIDE_OFFSET;
+      target.valueBytesLength = 0;
+      target.deltaHeader = null;
+    }
+
+    /**
+     * Write {@link #ENC_PER_TAG_FOR_EXTERNAL}: the two-byte prefix and the packed runs, with the
+     * directory left for {@link #directoryInto} to publish as the zone map.
+     */
+    private int encodePerTagForExternal(final int dictSize, final int totalBytes, final byte tagKind) {
+      ensureOutputCapacity(totalBytes);
+      int position = 0;
+      output[position++] = ENC_PER_TAG_FOR_EXTERNAL;
+      output[position++] = tagKind;
+      position = writePackedRuns(position, dictSize);
+      if (position != totalBytes) {
+        throw new IllegalStateException(
+            "external per-tag number region size mismatch: measured=" + totalBytes + " written=" + position);
+      }
+      encodedLength = totalBytes;
+      return totalBytes;
+    }
+
+    /**
+     * Write the per-tag layout. {@link #measurePerTagFor} must have run for this {@code count} /
+     * {@code dictSize} — it owns {@link #tagWidths} and the size this writes to.
+     */
+    private int encodePerTagFor(final int count, final int dictSize, final int totalBytes, final byte tagKind) {
+      ensureOutputCapacity(totalBytes);
+      int position = 0;
+      output[position++] = ENC_PER_TAG_FOR;
+      output[position++] = tagKind;
+      position = VarInt.writeUnsigned(output, position, dictSize);
+      int previousTag = 0;
+      for (int t = 0; t < dictSize; t++) {
+        position = VarInt.writeSigned(output, position, (long) dict[t] - previousTag);
+        previousTag = dict[t];
+        position = VarInt.writeUnsigned(output, position, tagCount[t]);
+        position = VarInt.writeSigned(output, position, tagMin[t]);
+        position = VarInt.writeUnsigned(output, position, tagMax[t] - tagMin[t]);
+      }
+      position = writePackedRuns(position, dictSize);
+      if (position != totalBytes) {
+        throw new IllegalStateException(
+            "per-tag number region size mismatch: measured=" + totalBytes + " written=" + position);
+      }
+      encodedLength = totalBytes;
+      return totalBytes;
     }
 
     /** Mutable scratch buffer. The next call to {@link #encodeInto} overwrites it. */
@@ -534,7 +1115,7 @@ public final class NumberRegion {
           putLong(output, position + (i << 3), sortedValues[i]);
         }
       } else {
-        bitPackLongs(output, position, sortedValues, count, valueBase, valueBitWidth & 0xFF);
+        bitPackLongs(output, position, sortedValues, 0, count, valueBase, valueBitWidth & 0xFF);
       }
       encodedLength = totalBytes;
       return totalBytes;
@@ -575,6 +1156,35 @@ public final class NumberRegion {
       }
       encodedLength = totalBytes;
       return totalBytes;
+    }
+
+    /**
+     * Write every tag's byte-aligned packed run, in tag order, starting at {@code position}.
+     *
+     * @return the offset one past the last byte written
+     */
+    private int writePackedRuns(final int position, final int dictSize) {
+      int cursor = position;
+      for (int t = 0; t < dictSize; t++) {
+        final int width = tagWidths[t] & 0xFF;
+        if (width == 0) {
+          // Constant tag: the directory's min IS the value, so the run is empty.
+          continue;
+        }
+        final int start = tagStart[t];
+        final int n = tagCount[t];
+        if (width == 64) {
+          // Raw longs, so the plain-long kernels read the run with no frame of reference at all.
+          for (int i = 0; i < n; i++) {
+            putLong(output, cursor + (i << 3), sortedValues[start + i]);
+          }
+          cursor += n << 3;
+        } else {
+          bitPackLongs(output, cursor, sortedValues, start, n, tagMin[t], width);
+          cursor += packedBytes(n, width);
+        }
+      }
+      return cursor;
     }
 
     private int writeTagMetadata(final byte[] target, int position, final int dictSize) {
@@ -620,6 +1230,7 @@ public final class NumberRegion {
       sortedValues = new long[capacity];
       tagMin = new long[capacity];
       tagMax = new long[capacity];
+      tagWidths = new byte[capacity];
       final int outputCapacity = checkedEncodedLength(64L + 36L * capacity);
       output = new byte[outputCapacity];
       outputView = MemorySegment.ofArray(output);
@@ -641,6 +1252,13 @@ public final class NumberRegion {
    * delta payloads should use {@link #decodeAllValues} instead.
    */
   public static long decodeValueAt(final MemorySegment payload, final Header h, final int index) {
+    if (h.isPerTag()) {
+      final int tag = tagOfIndex(h, index);
+      if (tag < 0) {
+        throw new IndexOutOfBoundsException("value index " + index + " is outside the region's " + h.count + " values");
+      }
+      return decodeValueInTag(payload, h, tag, index - h.tagStart[tag]);
+    }
     if (isDelta(h.encodingKind)) {
       return NumberRegionDelta.readDelta(payload, h.deltaHeader, index);
     }
@@ -652,6 +1270,52 @@ public final class NumberRegion {
       return h.valueBase;
     }
     return h.valueBase + bitUnpackLong(payload, h.valueBytesOffset, h.valueBitWidth, index);
+  }
+
+  /**
+   * Decode the {@code i}-th value of {@code tag} (relative to {@link Header#tagStart}) from a
+   * {@link #ENC_PER_TAG_FOR} payload.
+   *
+   * <p>
+   * This is the shape every scan already has — look the tag up once, then walk its range — so the
+   * per-tag layout costs a hot loop nothing: the width, base and byte offset are loaded once outside
+   * the loop and the body is the same shift-and-mask it was under one page-wide width.
+   */
+  public static long decodeValueInTag(final MemorySegment payload, final Header h, final int tag, final int i) {
+    final int width = h.tagWidth[tag] & 0xFF;
+    if (width == 0) {
+      return h.tagMin[tag];
+    }
+    final int offset = h.tagValueOffset[tag];
+    if (width == 64) {
+      return readUpToLongLE(payload, (long) offset + ((long) i << 3));
+    }
+    return h.tagDecodeBase[tag] + bitUnpackLong(payload, offset, width, i);
+  }
+
+  /**
+   * The tag whose value range contains {@code index}, or {@code -1} when the index is out of range.
+   *
+   * <p>
+   * Binary search over {@code tagStart}, which is ascending by construction. Only the compatibility
+   * entry points that take an absolute index need it; every scan door knows its tag already.
+   */
+  public static int tagOfIndex(final Header h, final int index) {
+    if (index < 0 || index >= h.count) {
+      return -1;
+    }
+    final int[] starts = h.tagStart;
+    int lo = 0;
+    int hi = h.dictSize - 1;
+    while (lo < hi) {
+      final int mid = (lo + hi + 1) >>> 1;
+      if (starts[mid] <= index) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return lo;
   }
 
   /**
@@ -673,6 +1337,32 @@ public final class NumberRegion {
   /** Bulk-decode all values (across all tags) into {@code out}. */
   public static void decodeAllValues(final MemorySegment payload, final Header h, final long[] out) {
     final int count = h.count;
+    if (h.isPerTag()) {
+      // Tag by tag, so the width, base and offset are hoisted out of the inner loop exactly once.
+      for (int tag = 0; tag < h.dictSize; tag++) {
+        final int width = h.tagWidth[tag] & 0xFF;
+        final int start = h.tagStart[tag];
+        final int n = h.tagCount[tag];
+        if (width == 0) {
+          final long constant = h.tagMin[tag];
+          for (int i = 0; i < n; i++) {
+            out[start + i] = constant;
+          }
+        } else if (width == 64) {
+          final long offset = h.tagValueOffset[tag];
+          for (int i = 0; i < n; i++) {
+            out[start + i] = readUpToLongLE(payload, offset + ((long) i << 3));
+          }
+        } else {
+          final int offset = h.tagValueOffset[tag];
+          final long base = h.tagDecodeBase[tag];
+          for (int i = 0; i < n; i++) {
+            out[start + i] = base + bitUnpackLong(payload, offset, width, i);
+          }
+        }
+      }
+      return;
+    }
     if (isDelta(h.encodingKind)) {
       // Single sequential prefix sum — the fast path for delta payloads.
       NumberRegionDelta.decodeAll(payload, h.deltaHeader, out);
@@ -732,15 +1422,26 @@ public final class NumberRegion {
     return (int) ((bits + 7L) >>> 3);
   }
 
-  private static void bitPackLongs(final byte[] out, final int outOff, final long[] values, final int count,
-      final long base, final int bitWidth) {
+  /**
+   * Pack {@code values[from, from + count)} as {@code bitWidth}-bit residuals of {@code base}, low
+   * bits first, starting at {@code out[outOff]}.
+   *
+   * <p>
+   * Every byte of {@code [outOff, outOff + packedBytes(count, bitWidth))} is assigned, the trailing
+   * partial byte included, so a reused output buffer cannot leak the previous page's bits onto the
+   * wire. Widths above 57 must not come here — {@code v << bitsInBuf} would drop the high bits — and
+   * do not: the callers cap at {@link BitUnpackSimd#MAX_BIT_WIDTH} and store wider tags raw.
+   */
+  private static void bitPackLongs(final byte[] out, final int outOff, final long[] values, final int from,
+      final int count, final long base, final int bitWidth) {
     long buf = 0L;
     int bitsInBuf = 0;
     int writePos = outOff;
     final long mask = bitWidth == 64
         ? ~0L
         : (1L << bitWidth) - 1L;
-    for (int i = 0; i < count; i++) {
+    for (int k = 0; k < count; k++) {
+      final int i = from + k;
       final long v = (values[i] - base) & mask;
       buf |= v << bitsInBuf;
       bitsInBuf += bitWidth;

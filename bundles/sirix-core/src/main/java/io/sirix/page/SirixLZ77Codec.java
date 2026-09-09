@@ -11,20 +11,19 @@ import java.nio.ByteOrder;
 import java.util.Arrays;
 
 /**
- * Schema-aware single-pass LZ77 variant used per-page in Sirix's
- * {@link KeyValueLeafPage} serialization. HFT-grade: zero allocation on
- * the hot path, 8-byte-stride {@link Unsafe} copies, branchless token
- * decode, LZ4-compatible wire format. Targets ≥ 4 GB/s decode and
- * ≥ 500 MB/s encode on record-heap pages.
+ * Schema-aware single-pass LZ77 variant used per-page in Sirix's {@link KeyValueLeafPage}
+ * serialization. HFT-grade: zero allocation on the hot path, 8-byte-stride {@link Unsafe} copies,
+ * branchless token decode, LZ4-compatible wire format. Targets ≥ 4 GB/s decode and ≥ 500 MB/s
+ * encode on record-heap pages.
  *
- * <h2>Why LZ77 vs LZ4?</h2>
- * LZ4 itself is an LZ77 variant. What Sirix's record heaps contain are
+ * <h2>Why LZ77 vs LZ4?</h2> LZ4 itself is an LZ77 variant. What Sirix's record heaps contain are
  * per-page local 4-byte patterns like {@code 0x01 <tid> <NULL varint>
- * <NULL varint>} — record-header bytes that repeat verbatim across
- * consecutive same-kind nodes within one 32 KiB page. A hand-rolled
- * schema-tuned LZ77 matches LZ4's ratio with a leaner decoder.
+ * <NULL varint>} — record-header bytes that repeat verbatim across consecutive same-kind nodes
+ * within one 32 KiB page. A hand-rolled schema-tuned LZ77 matches LZ4's ratio with a leaner
+ * decoder.
  *
  * <h2>Wire format</h2>
+ *
  * <pre>
  *   byte    marker = 0xFD                   // distinguishes from ZeroRunByteCodec (0xFF) and ByteRunCodec (0xFE)
  *   varint  uncompressedSize
@@ -39,38 +38,33 @@ import java.util.Arrays;
  *     // decoded matchLen = matchLenNib + MIN_MATCH (4) + overflow
  * </pre>
  *
- * <p>The format is a near-clone of LZ4's block format. Keeping the wire
- * format stable lets us refactor internals aggressively without breaking
- * already-persisted pages.
+ * <p>
+ * The format is a near-clone of LZ4's block format. Keeping the wire format stable lets us refactor
+ * internals aggressively without breaking already-persisted pages.
  *
  * <h2>HFT optimizations applied</h2>
  * <ul>
- *   <li><b>Unsafe 8-byte stride:</b> all bulk literal / match copies use
- *       {@code Unsafe.getLong} / {@code putLong} in 8-byte strides. Only
- *       the last &lt; 8-byte tail runs through a byte-by-byte loop.</li>
- *   <li><b>Overlap-safe pattern expansion:</b> when {@code distance &lt; 8}
- *       the match source and destination overlap inside a single long
- *       store. We use the LZ4-style {@code DEC_TABLE[distance]} lookup to
- *       expand the short pattern to 8 bytes, then 8-byte stride from
- *       there.</li>
- *   <li><b>Branchless token decode:</b> the common case (both nibbles
- *       {@code &lt; 15}) has zero branches beyond the single nibble test.</li>
- *   <li><b>Scratch-then-bulk-copy output:</b> decode writes to a per-thread
- *       {@code byte[]} scratch (native Unsafe speed, no MemorySegment
- *       safety-check overhead) and finishes with one bulk
- *       {@code MemorySegment.copy} to the caller's output. The
- *       intrinsified memcpy moves the block at ~1600 GB/s so the extra
- *       step is sub-percent.</li>
- *   <li><b>Per-thread generation-tagged hash table</b> — no per-encode
- *       memset, wraps every 65 535 encodes.</li>
- *   <li><b>Byte-array view var-handles on the encode probes:</b> the hash probe, the 4-byte
- *       match test and the 8-byte match extension run several times per input position, so they
- *       read the heap snapshot directly instead of through a {@link MemorySegment} wrapper — the
- *       same single unaligned load, without the foreign-memory checks or the per-encode wrapper
- *       allocation.</li>
- *   <li><b>One thread-local per encode:</b> the hash table, the generation counter and the input
- *       snapshot share a single per-thread holder, so a short page-sized encode pays one
- *       thread-local lookup rather than three.</li>
+ * <li><b>Unsafe 8-byte stride:</b> all bulk literal / match copies use {@code Unsafe.getLong} /
+ * {@code putLong} in 8-byte strides. Only the last &lt; 8-byte tail runs through a byte-by-byte
+ * loop.</li>
+ * <li><b>Overlap-safe pattern expansion:</b> when {@code distance &lt; 8} the match source and
+ * destination overlap inside a single long store. We use the LZ4-style {@code DEC_TABLE[distance]}
+ * lookup to expand the short pattern to 8 bytes, then 8-byte stride from there.</li>
+ * <li><b>Branchless token decode:</b> the common case (both nibbles {@code &lt; 15}) has zero
+ * branches beyond the single nibble test.</li>
+ * <li><b>Scratch-then-bulk-copy output:</b> decode writes to a per-thread {@code byte[]} scratch
+ * (native Unsafe speed, no MemorySegment safety-check overhead) and finishes with one bulk
+ * {@code MemorySegment.copy} to the caller's output. The intrinsified memcpy moves the block at
+ * ~1600 GB/s so the extra step is sub-percent.</li>
+ * <li><b>Per-thread generation-tagged hash table</b> — no per-encode memset, wraps every 65 535
+ * encodes.</li>
+ * <li><b>Byte-array view var-handles on the encode probes:</b> the hash probe, the 4-byte match
+ * test and the 8-byte match extension run several times per input position, so they read the heap
+ * snapshot directly instead of through a {@link MemorySegment} wrapper — the same single unaligned
+ * load, without the foreign-memory checks or the per-encode wrapper allocation.</li>
+ * <li><b>One thread-local per encode:</b> the hash table, the generation counter and the input
+ * snapshot share a single per-thread holder, so a short page-sized encode pays one thread-local
+ * lookup rather than three.</li>
  * </ul>
  */
 public final class SirixLZ77Codec {
@@ -78,16 +72,14 @@ public final class SirixLZ77Codec {
   // ═════════════════════════════════════════════════════════ multi-byte access
 
   /**
-   * Unaligned little-endian value layouts used for the codec's multi-byte loads and
-   * stores. {@code MemorySegment.set/get} with these layouts is JIT-intrinsified to a
-   * single load/store on x86 — equivalent performance to the previous
-   * {@code sun.misc.Unsafe} accesses, without the deprecated dependency. Byte order is
-   * pinned to little-endian to match the on-disk encoding regardless of host endianness.
+   * Unaligned little-endian value layouts used for the codec's multi-byte loads and stores.
+   * {@code MemorySegment.set/get} with these layouts is JIT-intrinsified to a single load/store on
+   * x86 — equivalent performance to the previous {@code sun.misc.Unsafe} accesses, without the
+   * deprecated dependency. Byte order is pinned to little-endian to match the on-disk encoding
+   * regardless of host endianness.
    */
-  private static final ValueLayout.OfLong LE_LONG =
-      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
-  private static final ValueLayout.OfInt LE_INT =
-      ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
+  private static final ValueLayout.OfLong LE_LONG = ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
+  private static final ValueLayout.OfInt LE_INT = ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
   private static final ValueLayout.OfShort LE_SHORT =
       ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
   private static final ValueLayout.OfByte BYTE = ValueLayout.JAVA_BYTE;
@@ -95,15 +87,17 @@ public final class SirixLZ77Codec {
   /**
    * Little-endian multi-byte views over a plain {@code byte[]}, used by the encode probes.
    *
-   * <p>The encode loop reads its input from a heap array, and the hash probe, the 4-byte match test
-   * and the 8-byte match extension are the most frequent reads in an ingest — several per input
-   * position. Reaching them through a {@link MemorySegment} wrapper costs a segment allocation per
-   * encode plus the foreign-memory bounds and alignment checks on every probe. A byte-array view
-   * var-handle is the JDK's intrinsic for exactly this: it compiles to the same single unaligned
-   * load with an ordinary array range check the JIT hoists.
+   * <p>
+   * The encode loop reads its input from a heap array, and the hash probe, the 4-byte match test and
+   * the 8-byte match extension are the most frequent reads in an ingest — several per input position.
+   * Reaching them through a {@link MemorySegment} wrapper costs a segment allocation per encode plus
+   * the foreign-memory bounds and alignment checks on every probe. A byte-array view var-handle is
+   * the JDK's intrinsic for exactly this: it compiles to the same single unaligned load with an
+   * ordinary array range check the JIT hoists.
    *
-   * <p>Decode keeps its {@link MemorySegment} accesses — it writes into caller-supplied segments
-   * that are not always heap-backed, and it is not on the ingest hot path.
+   * <p>
+   * Decode keeps its {@link MemorySegment} accesses — it writes into caller-supplied segments that
+   * are not always heap-backed, and it is not on the ingest hot path.
    */
   private static final VarHandle ARRAY_LE_INT =
       MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
@@ -119,8 +113,8 @@ public final class SirixLZ77Codec {
   public static final int MIN_MATCH = 4;
 
   /**
-   * Upper bound on match length we encode. Matches effectively unlimited
-   * because overflow bytes elongate the match.
+   * Upper bound on match length we encode. Matches effectively unlimited because overflow bytes
+   * elongate the match.
    */
   public static final int MAX_MATCH_LEN = Integer.MAX_VALUE / 2;
 
@@ -134,8 +128,8 @@ public final class SirixLZ77Codec {
   public static final int LZ77_MIN_LENGTH = MFLIMIT + 1;
 
   /**
-   * Hash table size in bits. 16 → 64K entries × 4 bytes = 256 KiB per thread.
-   * A single memset on generation wrap every 65 535 encodes amortises the cost.
+   * Hash table size in bits. 16 → 64K entries × 4 bytes = 256 KiB per thread. A single memset on
+   * generation wrap every 65 535 encodes amortises the cost.
    */
   public static final int HASH_BITS = 16;
   private static final int HASH_SIZE = 1 << HASH_BITS;
@@ -144,21 +138,23 @@ public final class SirixLZ77Codec {
   /**
    * Everything one thread needs to encode, in one object.
    *
-   * <p>Held as a single {@link ThreadLocal} rather than one per array: an encode is a short call
-   * over a page-sized input, so three separate thread-local lookups per call were a measurable
-   * share of the codec's own cost. Fetching the holder once and reading fields off it turns them
-   * into ordinary field loads.
+   * <p>
+   * Held as a single {@link ThreadLocal} rather than one per array: an encode is a short call over a
+   * page-sized input, so three separate thread-local lookups per call were a measurable share of the
+   * codec's own cost. Fetching the holder once and reading fields off it turns them into ordinary
+   * field loads.
    */
   private static final class EncodeScratch {
 
     /**
-     * Generation-tagged hash table. Holds {@code (generation << 16) | (offset & 0xFFFF)}.
-     * Generation bumps on each encode; a real memset runs only on 16-bit wrap.
+     * Generation-tagged hash table. Holds {@code (generation << 16) | (offset & 0xFFFF)}. Generation
+     * bumps on each encode; a real memset runs only on 16-bit wrap.
      *
-     * <p>Allocated on the thread's first match-finding encode rather than with the holder: at
-     * 256 KiB it is by far the largest thing here, and inputs below {@link #LZ77_MIN_LENGTH} or
-     * past the 16-bit offset ceiling never reach the match loop. A thread that only ever encodes
-     * those must not pay for a table it will not use.
+     * <p>
+     * Allocated on the thread's first match-finding encode rather than with the holder: at 256 KiB it
+     * is by far the largest thing here, and inputs below {@link #LZ77_MIN_LENGTH} or past the 16-bit
+     * offset ceiling never reach the match loop. A thread that only ever encodes those must not pay for
+     * a table it will not use.
      */
     private int[] hashTable;
 
@@ -176,40 +172,34 @@ public final class SirixLZ77Codec {
     private int generation;
 
     /**
-     * Snapshot of the input, so the hot loop reads a heap array. Starts at 128 KiB — larger than
-     * any page — and grows only if a caller ever exceeds it.
+     * Snapshot of the input, so the hot loop reads a heap array. Starts at 128 KiB — larger than any
+     * page — and grows only if a caller ever exceeds it.
      */
     private byte[] input = new byte[128 * 1024];
   }
 
   /** Per-thread encode state. */
-  private static final ThreadLocal<EncodeScratch> ENCODE_SCRATCH =
-      ThreadLocal.withInitial(EncodeScratch::new);
+  private static final ThreadLocal<EncodeScratch> ENCODE_SCRATCH = ThreadLocal.withInitial(EncodeScratch::new);
 
   /**
-   * Per-thread decode scratch. Decode writes the decompressed stream into
-   * this byte[] via {@link Unsafe} 8-byte stride, then the final
-   * {@code MemorySegment.copy} delivers to the caller's output. Starts at
-   * 128 KiB and grows as needed.
+   * Per-thread decode scratch. Decode writes the decompressed stream into this byte[] via
+   * {@link Unsafe} 8-byte stride, then the final {@code MemorySegment.copy} delivers to the caller's
+   * output. Starts at 128 KiB and grows as needed.
    */
-  private static final ThreadLocal<byte[]> DECODE_SCRATCH =
-      ThreadLocal.withInitial(() -> new byte[128 * 1024]);
+  private static final ThreadLocal<byte[]> DECODE_SCRATCH = ThreadLocal.withInitial(() -> new byte[128 * 1024]);
 
   /**
-   * Enable lazy-matching strategy: after finding a match at position ip,
-   * probe position ip+1. If ip+1 has a longer match, sacrifice one literal
-   * byte and emit the longer match instead.
+   * Enable lazy-matching strategy: after finding a match at position ip, probe position ip+1. If ip+1
+   * has a longer match, sacrifice one literal byte and emit the longer match instead.
    */
-  private static final boolean LAZY_MATCH =
-      !Boolean.getBoolean("sirix.lz77Codec.greedy");
+  private static final boolean LAZY_MATCH = !Boolean.getBoolean("sirix.lz77Codec.greedy");
 
   /** Maximum number of iterated lazy-match swaps per initial match find. */
-  private static final int LAZY_MAX_STEPS =
-      Math.max(0, Integer.getInteger("sirix.lz77Codec.lazyMaxSteps", 1));
+  private static final int LAZY_MAX_STEPS = Math.max(0, Integer.getInteger("sirix.lz77Codec.lazyMaxSteps", 1));
 
   /**
-   * Worst-case encoded size for {@code uncompressedSize} bytes of input.
-   * Matches LZ4's worst-case formula.
+   * Worst-case encoded size for {@code uncompressedSize} bytes of input. Matches LZ4's worst-case
+   * formula.
    */
   public static int maxEncodedSize(final int uncompressedSize) {
     if (uncompressedSize < 0) {
@@ -224,13 +214,13 @@ public final class SirixLZ77Codec {
   // ══════════════════════════════════════════════════════════════════ ENCODE
 
   /**
-   * Encode {@code inputLength} bytes from {@code input} starting at
-   * {@code inputOff} to {@code output} starting at {@code outputOff}.
+   * Encode {@code inputLength} bytes from {@code input} starting at {@code inputOff} to
+   * {@code output} starting at {@code outputOff}.
    *
    * @return bytes written to {@code output}
    */
-  public static int encode(final MemorySegment input, final long inputOff, final int inputLength,
-      final byte[] output, final int outputOff) {
+  public static int encode(final MemorySegment input, final long inputOff, final int inputLength, final byte[] output,
+      final int outputOff) {
     if (input == null || output == null) {
       throw new IllegalArgumentException("input/output");
     }
@@ -273,12 +263,12 @@ public final class SirixLZ77Codec {
       return outPos - outputOff;
     }
 
-    return outputOff + encodeCore(scratch, src, inputLength, output, outPos) - outputOff;
+    return encodeCore(scratch, src, inputLength, output, outPos) - outputOff;
   }
 
   /**
-   * Core encode loop on the heap-backed snapshot {@code src}. Returns the
-   * final output position (absolute, relative to {@code output[0]}).
+   * Core encode loop on the heap-backed snapshot {@code src}. Returns the final output position
+   * (absolute, relative to {@code output[0]}).
    */
   private static int encodeCore(final EncodeScratch scratch, final byte[] src, final int inputLength,
       final byte[] output, final int outputStartPos) {
@@ -313,8 +303,7 @@ public final class SirixLZ77Codec {
         continue;
       }
       final int candidate = slotValue & 0xFFFF;
-      if ((ip - candidate) > MAX_DISTANCE
-          || !match4Arr(src, candidate, ip)) {
+      if ((ip - candidate) > MAX_DISTANCE || !match4Arr(src, candidate, ip)) {
         ip++;
         continue;
       }
@@ -322,9 +311,8 @@ public final class SirixLZ77Codec {
       // Found a 4-byte match. Extend via 8-byte XOR + trailing-zero count.
       int matchCandidate = candidate;
       int matchIp = ip;
-      int matchLen = MIN_MATCH + extendMatchLen(
-          src, matchCandidate + MIN_MATCH, matchIp + MIN_MATCH,
-          inputLength - matchIp - MIN_MATCH);
+      int matchLen = MIN_MATCH
+          + extendMatchLen(src, matchCandidate + MIN_MATCH, matchIp + MIN_MATCH, inputLength - matchIp - MIN_MATCH);
 
       // Lazy-match: probe matchIp+1 for a strictly longer match.
       if (LAZY_MATCH) {
@@ -332,14 +320,13 @@ public final class SirixLZ77Codec {
         while (lazySteps < LAZY_MAX_STEPS && matchIp + 1 < mflimitPlusOne) {
           final int h2 = hash4Arr(src, matchIp + 1);
           final int slotValue2 = hashTable[h2];
-          if ((slotValue2 & 0xFFFF0000) != genTag) break;
+          if ((slotValue2 & 0xFFFF0000) != genTag)
+            break;
           final int candidate2 = slotValue2 & 0xFFFF;
-          if ((matchIp + 1 - candidate2) > MAX_DISTANCE
-              || !match4Arr(src, candidate2, matchIp + 1)) {
+          if ((matchIp + 1 - candidate2) > MAX_DISTANCE || !match4Arr(src, candidate2, matchIp + 1)) {
             break;
           }
-          final int altLen = MIN_MATCH + extendMatchLen(
-              src, candidate2 + MIN_MATCH, matchIp + 1 + MIN_MATCH,
+          final int altLen = MIN_MATCH + extendMatchLen(src, candidate2 + MIN_MATCH, matchIp + 1 + MIN_MATCH,
               inputLength - (matchIp + 1) - MIN_MATCH);
           if (altLen > matchLen) {
             matchLen = altLen;
@@ -375,12 +362,11 @@ public final class SirixLZ77Codec {
   }
 
   /**
-   * Extend a match starting from {@code (ap, bp)} via 8-byte XOR + tzcount.
-   * Returns the extra byte count matched (not including the initial
-   * {@link #MIN_MATCH} bytes the caller already confirmed).
+   * Extend a match starting from {@code (ap, bp)} via 8-byte XOR + tzcount. Returns the extra byte
+   * count matched (not including the initial {@link #MIN_MATCH} bytes the caller already confirmed).
    *
-   * @param maxExtra maximum extra bytes we can match (i.e. input bytes
-   *                 remaining past the initial 4-byte match).
+   * @param maxExtra maximum extra bytes we can match (i.e. input bytes remaining past the initial
+   *        4-byte match).
    */
   private static int extendMatchLen(final byte[] src, final int ap, final int bp, final int maxExtra) {
     int extra = 0;
@@ -407,9 +393,8 @@ public final class SirixLZ77Codec {
   }
 
   /** Emit a token with literal run + match. */
-  private static int emitToken(final byte[] src, final int literalFrom,
-      final int literalLen, final int distance, final int matchLen,
-      final byte[] output, final int outputOff) {
+  private static int emitToken(final byte[] src, final int literalFrom, final int literalLen, final int distance,
+      final int matchLen, final byte[] output, final int outputOff) {
     int outPos = outputOff;
     final int litNib = Math.min(literalLen, 15);
     final int mlNib = Math.min(matchLen - MIN_MATCH, 15);
@@ -445,8 +430,8 @@ public final class SirixLZ77Codec {
   }
 
   /** Emit a literal-only token (trailing — no match follows). */
-  private static int emitLiteralOnlyTokenArr(final byte[] src, final int literalFrom,
-      final int literalLen, final byte[] output, final int outputOff) {
+  private static int emitLiteralOnlyTokenArr(final byte[] src, final int literalFrom, final int literalLen,
+      final byte[] output, final int outputOff) {
     int outPos = outputOff;
     final int litNib = Math.min(literalLen, 15);
     output[outPos++] = (byte) ((litNib << 4));
@@ -468,9 +453,9 @@ public final class SirixLZ77Codec {
   }
 
   /**
-   * Knuth multiplicative hash on 4 input bytes → HASH_BITS-bit index.
-   * Reads 4 bytes as a little-endian int through {@link #ARRAY_LE_INT} — one memory-load per call,
-   * JIT-intrinsified to a single unaligned load on x86.
+   * Knuth multiplicative hash on 4 input bytes → HASH_BITS-bit index. Reads 4 bytes as a
+   * little-endian int through {@link #ARRAY_LE_INT} — one memory-load per call, JIT-intrinsified to a
+   * single unaligned load on x86.
    */
   private static int hash4Arr(final byte[] src, final int offset) {
     final int w = (int) ARRAY_LE_INT.get(src, offset);
@@ -486,25 +471,24 @@ public final class SirixLZ77Codec {
   // ══════════════════════════════════════════════════════════════════ DECODE
 
   /**
-   * Whether the native FFI decoder should be used when available. Default
-   * on — measured ~2× speedup on typical 32 KiB pages. Gate off with
-   * {@code -Dsirix.lz77Codec.native.disable=true} for A/B comparison.
+   * Whether the native FFI decoder should be used when available. Default on — measured ~2× speedup
+   * on typical 32 KiB pages. Gate off with {@code -Dsirix.lz77Codec.native.disable=true} for A/B
+   * comparison.
    */
   /**
-   * Bytes the native decoder may read past the end of a frame, and therefore the tail slack its
-   * input array must carry. Mirrors the 16-byte chunked literal copy in {@code sirix_lz77.c}.
+   * Bytes the native decoder may read past the end of a frame, and therefore the tail slack its input
+   * array must carry. Mirrors the 16-byte chunked literal copy in {@code sirix_lz77.c}.
    */
   public static final int NATIVE_INPUT_TAIL_SLACK = 16;
 
   /**
-   * Tail slack the native decoder's output buffer must carry — the figure {@code slz_decode_fast}
-   * is documented against. Buffers sized to the exact decoded length take the Java decoder.
+   * Tail slack the native decoder's output buffer must carry — the figure {@code slz_decode_fast} is
+   * documented against. Buffers sized to the exact decoded length take the Java decoder.
    */
   public static final int NATIVE_OUTPUT_TAIL_SLACK = 64;
 
   private static final boolean NATIVE_DECODER_ENABLED =
-      !Boolean.getBoolean("sirix.lz77Codec.native.disable")
-          && SirixLZ77NativeDecoder.isAvailable();
+      !Boolean.getBoolean("sirix.lz77Codec.native.disable") && SirixLZ77NativeDecoder.isAvailable();
 
   static {
     if (Boolean.getBoolean("sirix.lz77Codec.diag")) {
@@ -513,22 +497,20 @@ public final class SirixLZ77Codec {
   }
 
   /**
-   * Whether to increment {@link #NATIVE_CALLS} / {@link #JAVA_CALLS}
-   * counters on every decode. Diagnostic only. Defaults off in production
-   * to avoid AtomicLong contention in the hot path.
+   * Whether to increment {@link #NATIVE_CALLS} / {@link #JAVA_CALLS} counters on every decode.
+   * Diagnostic only. Defaults off in production to avoid AtomicLong contention in the hot path.
    *
-   * <p>Enable via {@code -Dsirix.lz77Codec.diag.counters=true}.
+   * <p>
+   * Enable via {@code -Dsirix.lz77Codec.diag.counters=true}.
    */
-  private static final boolean DIAG_COUNTERS =
-      Boolean.getBoolean("sirix.lz77Codec.diag.counters");
+  private static final boolean DIAG_COUNTERS = Boolean.getBoolean("sirix.lz77Codec.diag.counters");
 
   /** Counter: total native decode dispatches (diagnostic only). */
   private static final java.util.concurrent.atomic.AtomicLong NATIVE_CALLS =
       new java.util.concurrent.atomic.AtomicLong();
 
   /** Counter: total Java decode fallback dispatches (diagnostic only). */
-  private static final java.util.concurrent.atomic.AtomicLong JAVA_CALLS =
-      new java.util.concurrent.atomic.AtomicLong();
+  private static final java.util.concurrent.atomic.AtomicLong JAVA_CALLS = new java.util.concurrent.atomic.AtomicLong();
 
   /** @return number of native-path decode dispatches since JVM start. */
   public static long getNativeCallCount() {
@@ -541,24 +523,23 @@ public final class SirixLZ77Codec {
   }
 
   /**
-   * Decode a frame from {@code input} (starting at {@code inputOff}) into
-   * {@code output} starting at {@code outputOff}. Writes exactly
-   * {@code uncompressedSize} bytes as recorded in the frame header.
+   * Decode a frame from {@code input} (starting at {@code inputOff}) into {@code output} starting at
+   * {@code outputOff}. Writes exactly {@code uncompressedSize} bytes as recorded in the frame header.
    *
-   * <p>Hot path: decode writes directly into {@code output} via
-   * {@link Unsafe}, using the {@code (heapBase, address)} pair to address
-   * both native- and array-backed segments uniformly. Literal / match
-   * copies are 8-byte strided. No scratch buffer, no intermediate copy.
+   * <p>
+   * Hot path: decode writes directly into {@code output} via {@link Unsafe}, using the
+   * {@code (heapBase, address)} pair to address both native- and array-backed segments uniformly.
+   * Literal / match copies are 8-byte strided. No scratch buffer, no intermediate copy.
    *
-   * <p>When the native decoder is available (see {@link SirixLZ77NativeDecoder})
-   * and the output is native-backed with at least 64 bytes of tail slack,
-   * we dispatch to the C implementation which auto-vectorises the memcpy
-   * hot path. Otherwise the Java implementation below runs.
+   * <p>
+   * When the native decoder is available (see {@link SirixLZ77NativeDecoder}) and the output is
+   * native-backed with at least 64 bytes of tail slack, we dispatch to the C implementation which
+   * auto-vectorises the memcpy hot path. Otherwise the Java implementation below runs.
    *
    * @return bytes written to {@code output} (== uncompressedSize)
    */
-  public static int decode(final byte[] input, final int inputOff, final int inputLen,
-      final MemorySegment output, final long outputOff) {
+  public static int decode(final byte[] input, final int inputOff, final int inputLen, final MemorySegment output,
+      final long outputOff) {
     if (input == null || output == null) {
       throw new IllegalArgumentException("input/output");
     }
@@ -568,29 +549,28 @@ public final class SirixLZ77Codec {
     // is handed a length, not a capacity, and its hot loop opens with `(void)in_end` — inside the
     // loop there are no input bounds checks at all.
     //
-    //   1. INPUT has ≥ NATIVE_INPUT_TAIL_SLACK bytes past the frame. The literal path copies in
-    //      16-byte chunks from `input + in_pos`, so a 1..14-byte literal at the end of the frame
-    //      reads up to 15 bytes beyond it.
-    //   2. OUTPUT has ≥ NATIVE_OUTPUT_TAIL_SLACK bytes past the decoded size, the slack the C
-    //      decoder's wildcopy design is documented against.
-    //   3. Frame header is well-formed (0xFD marker + varint). We peek without allocation.
+    // 1. INPUT has ≥ NATIVE_INPUT_TAIL_SLACK bytes past the frame. The literal path copies in
+    // 16-byte chunks from `input + in_pos`, so a 1..14-byte literal at the end of the frame
+    // reads up to 15 bytes beyond it.
+    // 2. OUTPUT has ≥ NATIVE_OUTPUT_TAIL_SLACK bytes past the decoded size, the slack the C
+    // decoder's wildcopy design is documented against.
+    // 3. Frame header is well-formed (0xFD marker + varint). We peek without allocation.
     //
     // Any of these failing means the Java decoder below, which is bounds-checked, runs instead.
     // Getting this wrong is not a wrong answer but a corrupt process: the call is made under
     // Linker.Option.critical(true), which hands C a pointer straight into the Java heap.
-    if (NATIVE_DECODER_ENABLED
-        && inputLen >= 2
-        && input[inputOff] == FRAME_MARKER
+    if (NATIVE_DECODER_ENABLED && inputLen >= 2 && input[inputOff] == FRAME_MARKER
         && inputOff + inputLen + NATIVE_INPUT_TAIL_SLACK <= input.length) {
       final long vrPeek = readVarintPacked(input, inputOff + 1);
       final int uncompressedPeek = (int) vrPeek;
-      if (uncompressedPeek > 0
-          && outputOff + uncompressedPeek + NATIVE_OUTPUT_TAIL_SLACK <= output.byteSize()) {
-        if (DIAG_COUNTERS) NATIVE_CALLS.incrementAndGet();
+      if (uncompressedPeek > 0 && outputOff + uncompressedPeek + NATIVE_OUTPUT_TAIL_SLACK <= output.byteSize()) {
+        if (DIAG_COUNTERS)
+          NATIVE_CALLS.incrementAndGet();
         return SirixLZ77NativeDecoder.decode(input, inputOff, inputLen, output, outputOff);
       }
     }
-    if (DIAG_COUNTERS) JAVA_CALLS.incrementAndGet();
+    if (DIAG_COUNTERS)
+      JAVA_CALLS.incrementAndGet();
 
     int inPos = inputOff;
     final int inEnd = inputOff + inputLen;
@@ -631,28 +611,26 @@ public final class SirixLZ77Codec {
       MemorySegment.copy(scratch, 0, output, ValueLayout.JAVA_BYTE, outputOff, uncompressed);
     }
     if (produced != uncompressed) {
-      throw new IllegalStateException("SirixLZ77Codec: decoded "
-          + produced + " bytes, expected " + uncompressed);
+      throw new IllegalStateException("SirixLZ77Codec: decoded " + produced + " bytes, expected " + uncompressed);
     }
     return uncompressed;
   }
 
   /**
-   * Main decode loop. Writes into {@code (dstBase, dstAddr)} which the
-   * caller has verified has ≥ {@code uncompressed + 16} bytes of
-   * capacity (16-byte wildCopy overshoot slack).
+   * Main decode loop. Writes into {@code (dstBase, dstAddr)} which the caller has verified has ≥
+   * {@code uncompressed + 16} bytes of capacity (16-byte wildCopy overshoot slack).
    *
-   * <p>The loop splits into two regimes:
+   * <p>
+   * The loop splits into two regimes:
    * <ol>
-   *   <li><b>Fast regime</b> — {@code outPos ≤ outLimit} AND input has
-   *       sufficient slack. All literal and match copies use unchecked
-   *       8-byte Unsafe strides. This processes the bulk of every page.</li>
-   *   <li><b>Safe tail regime</b> — {@code outPos > outLimit}. Byte-by-byte
-   *       copies with bounds checks. Typically < 64 bytes per page.</li>
+   * <li><b>Fast regime</b> — {@code outPos ≤ outLimit} AND input has sufficient slack. All literal
+   * and match copies use unchecked 8-byte Unsafe strides. This processes the bulk of every page.</li>
+   * <li><b>Safe tail regime</b> — {@code outPos > outLimit}. Byte-by-byte copies with bounds checks.
+   * Typically < 64 bytes per page.</li>
    * </ol>
    */
-  private static int decodeCore(final byte[] input, final int inputStart, final int inEnd,
-      final MemorySegment dst, final long dstOffset, final int uncompressed) {
+  private static int decodeCore(final byte[] input, final int inputStart, final int inEnd, final MemorySegment dst,
+      final long dstOffset, final int uncompressed) {
     // Fast-path precondition: we know output has >= 16 bytes of tail slack
     // (caller checked). If input also has >= 16 bytes of trailing slack in
     // its backing byte[], we can skip per-token input-bound checks —
@@ -668,23 +646,19 @@ public final class SirixLZ77Codec {
   }
 
   /**
-   * Hottest decode path — both output and input have ≥ 16 byte tail slack.
-   * Per-token input-bound checks are elided; wildCopy8 overshoots harmlessly
-   * into slack.
+   * Hottest decode path — both output and input have ≥ 16 byte tail slack. Per-token input-bound
+   * checks are elided; wildCopy8 overshoots harmlessly into slack.
    *
-   * <p>Loop is split into hot + tail regimes by precomputing
-   * {@code safeLimit = uncompressed - 64}. The hot loop's top-of-iteration
-   * invariant {@code outPos <= safeLimit} guarantees at least 64 B of tail
-   * slack, which lets us elide the per-token
-   * {@code outPos + litLen + 16 <= uncompressed} and
-   * {@code outPos + matchLen + 16 <= uncompressed} checks entirely. Saves
-   * one branch per token and typically 1-2 cycles per iteration. The 64-B
-   * slack covers: literal ≤ 15 + matchLen ≤ 19 + 16-byte stride overshoot
-   * ≤ 50 B, with headroom.
+   * <p>
+   * Loop is split into hot + tail regimes by precomputing {@code safeLimit = uncompressed - 64}. The
+   * hot loop's top-of-iteration invariant {@code outPos <= safeLimit} guarantees at least 64 B of
+   * tail slack, which lets us elide the per-token {@code outPos + litLen + 16 <= uncompressed} and
+   * {@code outPos + matchLen + 16 <= uncompressed} checks entirely. Saves one branch per token and
+   * typically 1-2 cycles per iteration. The 64-B slack covers: literal ≤ 15 + matchLen ≤ 19 + 16-byte
+   * stride overshoot ≤ 50 B, with headroom.
    */
-  private static int decodeCoreFast(final byte[] input, final MemorySegment inputSeg,
-      final int inputStart, final int inEnd,
-      final MemorySegment dst, final long dstOffset, final int uncompressed) {
+  private static int decodeCoreFast(final byte[] input, final MemorySegment inputSeg, final int inputStart,
+      final int inEnd, final MemorySegment dst, final long dstOffset, final int uncompressed) {
     int inPos = inputStart;
     int outPos = 0;
     // Hot regime: 64 B of tail slack guaranteed.
@@ -721,7 +695,8 @@ public final class SirixLZ77Codec {
           }
           inPos += litLen;
           outPos += litLen;
-          if (outPos == uncompressed) break;
+          if (outPos == uncompressed)
+            break;
           // Fall through to the match section normally.
         } else {
           // Literal fits in slack — wildCopy.
@@ -745,7 +720,8 @@ public final class SirixLZ77Codec {
         outPos += litLen;
       }
 
-      if (outPos == uncompressed) break;
+      if (outPos == uncompressed)
+        break;
 
       // Distance (2 B LE).
       final int dist = inputSeg.get(LE_SHORT, inPos) & 0xFFFF;
@@ -869,7 +845,8 @@ public final class SirixLZ77Codec {
         outPos += litLen;
       }
 
-      if (outPos == uncompressed) break;
+      if (outPos == uncompressed)
+        break;
 
       final int dist = inputSeg.get(LE_SHORT, inPos) & 0xFFFF;
       inPos += 2;
@@ -933,13 +910,12 @@ public final class SirixLZ77Codec {
   }
 
   /**
-   * Safe decode variant with full input bounds checking per token. Used when
-   * the caller's input byte[] has &lt; 16 bytes of trailing slack (e.g.,
-   * small test inputs where the buffer is exactly sized).
+   * Safe decode variant with full input bounds checking per token. Used when the caller's input
+   * byte[] has &lt; 16 bytes of trailing slack (e.g., small test inputs where the buffer is exactly
+   * sized).
    */
-  private static int decodeCoreSafe(final byte[] input, final MemorySegment inputSeg,
-      final int inputStart, final int inEnd,
-      final MemorySegment dst, final long dstOffset, final int uncompressed) {
+  private static int decodeCoreSafe(final byte[] input, final MemorySegment inputSeg, final int inputStart,
+      final int inEnd, final MemorySegment dst, final long dstOffset, final int uncompressed) {
     int inPos = inputStart;
     int outPos = 0;
 
@@ -986,7 +962,8 @@ public final class SirixLZ77Codec {
         outPos += litLen;
       }
 
-      if (outPos == uncompressed) break;
+      if (outPos == uncompressed)
+        break;
 
       if (inPos + 2 > inEnd) {
         throw new IllegalStateException("SirixLZ77Codec: distance would overrun input");
@@ -1068,8 +1045,8 @@ public final class SirixLZ77Codec {
   }
 
   /**
-   * Reads a varint into a packed {@code long}: high 32 bits = new position,
-   * low 32 bits = value. Avoids the per-call {@code long[]} allocation.
+   * Reads a varint into a packed {@code long}: high 32 bits = new position, low 32 bits = value.
+   * Avoids the per-call {@code long[]} allocation.
    */
   private static long readVarintPacked(final byte[] input, final int offset) {
     int pos = offset;
@@ -1078,9 +1055,11 @@ public final class SirixLZ77Codec {
     while (true) {
       final byte b = input[pos++];
       result |= (b & 0x7F) << shift;
-      if ((b & 0x80) == 0) break;
+      if ((b & 0x80) == 0)
+        break;
       shift += 7;
-      if (shift > 28) throw new IllegalStateException("varint too long");
+      if (shift > 28)
+        throw new IllegalStateException("varint too long");
     }
     return ((long) pos << 32) | (result & 0xFFFFFFFFL);
   }

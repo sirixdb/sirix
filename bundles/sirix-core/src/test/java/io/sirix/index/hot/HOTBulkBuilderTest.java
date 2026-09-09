@@ -4,6 +4,7 @@
 package io.sirix.index.hot;
 
 import io.sirix.api.StorageEngineReader;
+import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -24,6 +25,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -58,6 +60,25 @@ final class HOTBulkBuilderTest {
 
   /** Tombstone value: a {@code NodeReferences} tagged 0xFE (foundation: tombstones are keys). */
   private static final byte[] TOMBSTONE = {(byte) 0xFE};
+
+  @Test
+  @DisplayName("a later child build failure retires every earlier fresh child")
+  void laterChildFailureClosesEarlierBulkSubtrees() {
+    final HOTLeafPage initializationProbe = new HOTLeafPage(0, 1, IndexType.CAS);
+    initializationProbe.close();
+    final FrameSlotAllocator frameAllocator = FrameSlotAllocator.getInstance();
+    final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
+    final int liveBefore = frameAllocator.liveSlotCount(frameClass);
+    final List<HOTBulkBuilder.Entry> entries = List.of(new HOTBulkBuilder.Entry(beKey(0), new byte[] {1}),
+        new HOTBulkBuilder.Entry(beKey(1), new byte[HOTLeafPage.DEFAULT_SIZE]));
+    final AtomicLong allocator = new AtomicLong(1);
+
+    assertThrows(IllegalArgumentException.class,
+        () -> HOTBulkBuilder.build(entries, 1, IndexType.CAS, allocator::getAndIncrement));
+
+    assertEquals(liveBefore, frameAllocator.liveSlotCount(frameClass),
+        "the successful first child and failed second speculative leaf must both be retired");
+  }
 
   // ======================================================================
   // Adversarial key-set generators (mirrors HOTFormalModelTest), over 8-byte BE keys.

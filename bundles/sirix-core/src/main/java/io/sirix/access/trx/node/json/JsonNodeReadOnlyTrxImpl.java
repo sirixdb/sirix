@@ -3,6 +3,7 @@ package io.sirix.access.trx.node.json;
 import io.sirix.utils.ToStringHelper;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import io.sirix.access.trx.node.InternalResourceSession;
@@ -41,13 +42,14 @@ import io.sirix.node.json.ObjectNamedObjectNode;
 import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.ObjectNode;
 import io.sirix.node.json.StringNode;
+import io.sirix.service.json.BasicJsonDiff;
 import io.sirix.service.xml.xpath.ItemListImpl;
 import io.sirix.settings.Constants;
 import io.brackit.query.atomic.QNm;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -108,17 +110,28 @@ public final class JsonNodeReadOnlyTrxImpl extends
 
     final var diffTuples = new ArrayList<JsonObject>();
 
+    JsonObject jsonObject;
     try {
-      final var jsonObject = JsonDiffSidecar.read(updateOperationsFile, resourceSession.getResourceConfig().getName(),
+      jsonObject = JsonDiffSidecar.read(updateOperationsFile, resourceSession.getResourceConfig().getName(),
           revisionNumber - 1, revisionNumber, resourceSession.getResourceConfig().areDeweyIDsStored);
-      final var diffs = jsonObject.getAsJsonArray("diffs");
-
-      diffs.forEach(serializeJsonFragmentIfNeeded(diffTuples));
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
+    } catch (final IOException | RuntimeException e) {
+      // Sidecars are durable per-resource state; one written before the integrity envelope (or
+      // damaged since) must not brick this API. The sidecar is only a CACHE of the diff, so
+      // recompute it from the two revisions — the same fallback the REST diff handler applies
+      // when it meets an invalid sidecar.
+      jsonObject = recomputeUpdateOperations(revisionNumber);
     }
+    jsonObject.getAsJsonArray("diffs").forEach(serializeJsonFragmentIfNeeded(diffTuples));
 
     return diffTuples;
+  }
+
+  private JsonObject recomputeUpdateOperations(final int revisionNumber) {
+    final Path resourcePath = resourceSession.getResourceConfig().getResource();
+    final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
+    final String diff = new BasicJsonDiff(databaseName).generateDiff((JsonResourceSession) resourceSession,
+        revisionNumber - 1, revisionNumber);
+    return JsonParser.parseString(diff).getAsJsonObject();
   }
 
   private Consumer<JsonElement> serializeJsonFragmentIfNeeded(final List<JsonObject> diffTuples) {

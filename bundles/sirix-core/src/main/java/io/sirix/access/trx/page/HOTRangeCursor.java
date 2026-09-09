@@ -116,25 +116,10 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * iter#08 — when {@code true}, the cursor stays positioned on the current valid entry without
    * materialising a new {@link Entry} record per advance. Callers use {@link #currentKeySlice()} /
    * {@link #currentValueSlice()} / {@link #currentLeafPage()} + {@link #advance()} to walk entries
-   * zero-alloc. The legacy {@link Iterator} API ({@link #hasNext}/{@link #next}) continues to work
+   * zero-alloc. The standard {@link Iterator} API ({@link #hasNext}/{@link #next}) continues to work
    * against the same positional state for callers that prefer it.
    */
   private boolean positionedValid = false;
-
-  /**
-   * End a bounded scan at the first key past {@code toKey} (default), rather than filtering to the
-   * end of the trie.
-   *
-   * <p>
-   * This fast early exit is sound for tries built by the branch-guarded writer
-   * ({@code AbstractHOTIndexWriter#branchIfEscapesRoutedLeaf}), which keeps leaf visits lex-ordered —
-   * validated by {@code HOTBinnaConformanceTest} and the validator's I12 (subtree-ranges-disjoint)
-   * invariant. Resources built BEFORE that guard existed can hold out-of-order leaves; on those, set
-   * {@code -Dsirix.hot.range.scanToEnd=true} for complete bounded scans. Measured cost of opting out
-   * on {@code HOTLeafUseAfterCloseTest}: 23 s to >590 s, because every bounded scan then walks the
-   * whole trie.
-   */
-  private static final boolean EARLY_EXIT_PAST_UPPER_BOUND = !Boolean.getBoolean("sirix.hot.range.scanToEnd");
 
   // Verdicts computed by one batch of unpinned-leaf reads in advanceToValid(), applied only after
   // the batch passes stamp validation.
@@ -221,25 +206,19 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
           verdict = VERDICT_ADVANCE_LEAF;
         } else if (currentIndex == 0 && leafCannotContainInRangeKeys(entryCount)) {
           // Whole-leaf skip. Entries WITHIN a leaf are sorted, so one comparison against each end
-          // rules out every entry in it. This is what keeps "scan to the end of the trie"
-          // affordable: a bounded scan still touches each page once, but does no per-entry work
-          // on the pages that cannot contribute. Ending the scan outright at the first leaf past
-          // {@code toKey} is sound on tries built by the branch-guarded writer
-          // (AbstractHOTIndexWriter.branchIfEscapesRoutedLeaf) — leaf visit order is lex-monotonic
-          // there; pre-guard resources opt out via -Dsirix.hot.range.scanToEnd=true.
-          verdict = EARLY_EXIT_PAST_UPPER_BOUND && toKey != null && currentLeaf.compareKeyWithBound(0, toKey) > 0
+          // rules out every entry in it. Leaf visit order is lex-monotonic by the writer's mandatory
+          // I12 invariant, so the first leaf past {@code toKey} ends the scan.
+          verdict = toKey != null && currentLeaf.compareKeyWithBound(0, toKey) > 0
               ? VERDICT_EXIT_SCAN
               : VERDICT_SKIP_LEAF;
         } else if ((rangeVerdict = classifyAgainstBounds(currentIndex)) != 0) {
           // Per-entry range check — zero-alloc comparison against the pre-supplied bounds,
           // reading the key bytes straight from the HOT leaf's on/off-heap storage. Same
-          // early-exit-vs-skip split as the whole-leaf case above: the first key past
-          // {@code toKey} ends the scan on lex-monotonic tries, and merely skips under
-          // -Dsirix.hot.range.scanToEnd=true.
+          // The first key past {@code toKey} ends the scan on the canonical lex-monotonic trie.
           // rangeVerdict > 0 means "past toKey", which the compare above already established — no
           // second full-key comparison per rejected entry (these run byte-at-a-time over keys up to
           // 256 bytes, so the duplicate doubled the cost of every out-of-range tail).
-          verdict = EARLY_EXIT_PAST_UPPER_BOUND && rangeVerdict > 0
+          verdict = rangeVerdict > 0
               ? VERDICT_EXIT_SCAN
               : VERDICT_SKIP_ENTRY;
         } else {
@@ -326,10 +305,9 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * run byte-at-a-time over the full key.
    *
    * <p>
-   * Both ends are checked. Checking only the upper bound was safe while the cursor could assume it
-   * started exactly at {@code fromKey} and never moved backwards; it cannot — an out-of-order leaf
-   * can present keys BELOW {@code fromKey} after the scan has begun, and those were being returned to
-   * the caller as if they were in range.
+   * Both ends are checked defensively even though canonical HOT traversal is lex-monotonic. The
+   * explicit lower check also keeps this cursor's byte-range contract local instead of relying on
+   * every caller to prove how its composite lower bound was formed.
    */
   private int classifyAgainstBounds(final int index) {
     if (fromKey != null && currentLeaf.compareKeyWithBound(index, fromKey) < 0) {
@@ -344,8 +322,8 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
 
   /**
    * Can the current leaf be skipped whole? True when its lowest key is already past {@code toKey}, or
-   * its highest key is still below {@code fromKey}. Sound because a leaf's own entries are sorted —
-   * it is only the order BETWEEN leaves that is unreliable.
+   * its highest key is still below {@code fromKey}. Sound because entries within leaves and canonical
+   * leaf traversal are both lexicographically ordered.
    */
   private boolean leafCannotContainInRangeKeys(final int entryCount) {
     if (entryCount == 0) {
@@ -450,7 +428,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * }</pre>
    *
    * <p>
-   * Concurrency: single-threaded cursor state; guard lifetime same as the legacy path.
+   * Concurrency: single-threaded cursor state; guard lifetime is the same for both cursor APIs.
    */
   public void advance() {
     if (!positionedValid) {
@@ -582,4 +560,3 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
     reader.clearPath();
   }
 }
-

@@ -32,14 +32,13 @@ import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Stage 3c verification stress test (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §12).
+ * Structural-splice propagation stress test.
  *
  * <p>
- * The Stage 3c propagation (replacement for {@code rebuildSubtree}'s height-escalation cascade) is
- * defensive code: it re-encodes each ancestor in place when a scoped rebuild changes the subtree's
- * height or leftmost firstKey. On the {@link Direction1HitRateProbe} canary the 21 rebuilds per run
- * happen to preserve both, so the propagation walks the spine but never re-encodes -- the loop body
- * is unexercised.
+ * Structural propagation re-encodes each ancestor in place when a frontier splice changes the
+ * subtree's height or leftmost firstKey. On the {@link Direction1HitRateProbe} canary the 21
+ * rebuilds per run happen to preserve both, so the propagation walks the spine but never re-encodes
+ * -- the loop body is unexercised.
  *
  * <p>
  * This test runs a much harder workload than the canary (50 revs × 2000 entries with mixed
@@ -51,9 +50,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * structural-inconsistency exception would propagate).</li>
  * <li>The final tree's range-scan results match the oracle (= the {@code TreeMap} of expected
  * keys/values).</li>
- * <li>Both Stage 3c counters ({@code REBUILD_HEIGHT_ESCALATION_AVOIDED},
- * {@code REBUILD_PROPAGATION_ORDER_FALLBACK}) and the rebuild call count are reported for
- * visibility.</li>
+ * <li>The structural-height re-encode counter is reported for visibility; missed preflights and
+ * post-publication validation failures stay zero.</li>
  * </ul>
  *
  * <p>
@@ -68,9 +66,9 @@ final class HOTRebuildPropagationStressTest {
   @Test
   @Timeout(value = 120, unit = TimeUnit.SECONDS)
   void rebuildPropagationUnderHeavyMutation() throws IOException {
-    final long subtreeCallsBefore = AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get();
-    final long escAvoidedBefore = AbstractHOTIndexWriter.REBUILD_HEIGHT_ESCALATION_AVOIDED.get();
-    final long propOrderFbBefore = AbstractHOTIndexWriter.REBUILD_PROPAGATION_ORDER_FALLBACK.get();
+    final long heightReencodesBefore = AbstractHOTIndexWriter.STRUCTURAL_HEIGHT_REENCODE.get();
+    final long preflightFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
+    final long validationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get();
 
     final int entriesPerRev = 2_000;
     final int totalRevs = 50;
@@ -117,22 +115,21 @@ final class HOTRebuildPropagationStressTest {
       }
     }
 
-    final long subtreeCalls = AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get() - subtreeCallsBefore;
-    final long escAvoided = AbstractHOTIndexWriter.REBUILD_HEIGHT_ESCALATION_AVOIDED.get() - escAvoidedBefore;
-    final long propOrderFb = AbstractHOTIndexWriter.REBUILD_PROPAGATION_ORDER_FALLBACK.get() - propOrderFbBefore;
+    final long heightReencodes = AbstractHOTIndexWriter.STRUCTURAL_HEIGHT_REENCODE.get() - heightReencodesBefore;
+    final long preflightFailures =
+        AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get() - preflightFailuresBefore;
+    final long validationFailures =
+        AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get() - validationFailuresBefore;
 
-    System.err.println("=== Stage 3c Propagation Stress ===");
-    System.err.println("  rebuildSubtree calls : " + subtreeCalls);
-    System.err.println("  propagation re-encodes : " + escAvoided + " ancestors re-encoded in place");
-    System.err.println("  propagation I7 fbs   : " + propOrderFb);
+    System.err.println("=== Structural Splice Propagation Stress ===");
+    System.err.println("  height re-encodes   : " + heightReencodes);
+    System.err.println("  preflight failures  : " + preflightFailures);
+    System.err.println("  validation failures : " + validationFailures);
     System.err.println("=================================");
 
-    // The defensive code being unexercised is acceptable -- it just means this workload's
-    // rebuilds happened to preserve height/firstKey. Either way, no exception escaped
-    // (Stage 3b's catch arms are gone so any structural inconsistency would propagate).
-    assertTrue(subtreeCalls >= 0, "counter should be non-negative");
-    // I7 fallback must be at-most equal to total rebuild calls (it's a SUBSET of them).
-    assertTrue(propOrderFb <= subtreeCalls, "I7 fallback count exceeds total rebuilds");
+    assertTrue(heightReencodes >= 0, "counter should be non-negative");
+    assertTrue(preflightFailures == 0, "a published splice escaped its mandatory propagation preflight");
+    assertTrue(validationFailures == 0, "a malformed structural candidate was published");
   }
 
   /**

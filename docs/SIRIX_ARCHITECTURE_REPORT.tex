@@ -512,8 +512,8 @@ turns node keys into pages. At the bottom the \emph{storage SPI} (\code{IOStorag
 chosen per resource (\code{FILE\_CHANNEL}, \code{MEMORY\_MAPPED}, \code{IO\_URING}, in-memory, or an
 external provider such as S3 discovered through \code{ServiceLoader}); the bytes pass through a
 configurable \code{ByteHandler} pipeline (Deflate or LZ4 compression, optional Tink encryption); and the
-versioning strategy, hash mode, and secondary-index backend are likewise per-resource choices fixed in
-the \code{ResourceConfiguration}.
+versioning strategy and hash mode are likewise per-resource choices fixed in the
+\code{ResourceConfiguration}. Secondary PATH, CAS, and NAME indexes have one implementation: HOT.
 
 Two concerns cut across all three layers. \textbf{Concurrency} is single-writer, many-reader per
 resource: a process-wide registry hands out one write permit per resource path, while readers take no
@@ -2552,7 +2552,7 @@ under \code{SIGKILL} and power-loss fault injection rather than merely assert it
 
 \noindent\textit{(\pp{docs/HOT_*.md}; \pp{io/sirix/page/HOTLeafPage.java},
 \pp{HOTIndirectPage.java}; \pp{io/sirix/access/trx/page/HOTTrieReader.java},
-\pp{HOTTrieWriter.java}, \pp{HOTRangeCursor.java}.)}
+\pp{io/sirix/index/hot/AbstractHOTIndexWriter.java}, \pp{HOTRangeCursor.java}.)}
 
 \section{Motivation}
 
@@ -2745,7 +2745,7 @@ insert 0110_0000:
 
 \section{Lookup, range, and the reader walk-up}
 
-Point lookup routes per level in \code{findChildSpanNode}: compute the dense partial key
+Point lookup routes per level in \code{findChildByPartialKey}: compute the dense partial key
 \code{Long.compress(keyWord, bitMask)}, ask the SIMD \code{SparsePartialKeys} structure for the
 candidate slots, and take the most specific (highest-popcount) subset match, but \emph{prefer} an
 exact match when one exists, a deliberate deviation from pure Binna subset routing that avoids
@@ -2863,10 +2863,10 @@ The DeweyID-HOT secondary index is backed by formal order-preservation and looku
 proofs (Theorem~\ref{thm:dewey} and \pp{docs/DEWEYID_HOT_INDEX_FORMAL_PROOF.md}), including
 tier-boundary and deep-hierarchy edge cases.
 
-\section{HOT as the index backend}
+\section{HOT as the secondary-index structure}
 
-Beyond intra-page navigation, HOT is the \emph{default} backend for the secondary indexes of
-Ch.~\ref{ch:pathsummary} (replacing the legacy red-black tree). A generic \code{HOTIndexWriter<K>}
+Beyond intra-page navigation, HOT is the sole persistent structure for the secondary indexes of
+Ch.~\ref{ch:pathsummary}. A generic \code{HOTIndexWriter<K>}
 serves CAS and NAME through a pluggable key serialiser, while \code{HOTLongIndexWriter} is a
 primitive-\code{long} specialisation for PATH (no boxing). Index keys are made order-preserving by a
 sign-flipped big-endian \code{long} encoding, so a HOT range scan yields results in key order; the
@@ -3133,7 +3133,7 @@ query:  jn:doc('db','catalog')//book          (all nodes named "book")
 
   the NAME index is keyed on the interned name key, not the string
   NameFilter resolves "book" → name key 42
-        │  IndexFilterAxis scans the NAME tree for key 42
+        │  HOTIndexReader performs one exact-key lookup
         ▼
   NodeReferences = { every node named "book" }, returned in document order
 \end{diagram}
@@ -3163,33 +3163,31 @@ field is a different run entirely, never interleaved.
 
 For PATH/CAS/NAME, the value at a key is a \code{NodeReferences} posting list backed by a
 \textbf{\code{Roaring64Bitmap} of node keys}, a compressed multi-valued set rather than a pointer
-chain. Each index can be built on either of two backends, selected by a \code{useHOT} switch
-that every builder and listener threads through:
+chain. Every index uses the same canonical HOT representation from Ch.~\ref{ch:hot}; there is no
+per-resource backend selector. A virgin index may be built in one sorted pass, while all later
+insertions and removals mutate only the affected posting chunk in that same tree.
 
 \begin{itemize}[leftmargin=1.4em]
-\item \textbf{HOT} (the default): the Height-Optimised Trie of Ch.~\ref{ch:hot}, over the
-  index's serialised key.
-\item \textbf{Red-black tree} (\pp{index/redblacktree/}, the legacy/stability fallback): a
-  BaseX-derived balanced BST that splits each entry into an \code{RBNodeKey} (tagged
-  \code{PATHRB}/\allowbreak\code{CASRB}/\allowbreak\code{NAMERB}) pointing at a separate \code{RBNodeValue}.
+\item \textbf{PATH}: primitive path-class key $\to$ chunked posting bitmap.
+\item \textbf{CAS}: order-preserving $(path,type,value)$ key $\to$ chunked posting bitmap.
+\item \textbf{NAME}: serialised qualified name $\to$ chunked posting bitmap.
 \end{itemize}
 
-\dcap{A secondary-index entry: key $\to$ posting list, over HOT or a red-black tree}
+\dcap{A secondary-index entry: key $\to$ posting list in the canonical HOT tree}
 \begin{diagramS}
 CAS index on /store/book/price (a value index):
    key (value, type, path-class)   →   NodeReferences = Roaring64Bitmap{ node keys }
    e.g. (12.5, double, PCR 7)      →   { 1042, 3310, 88914, … }
 
-backing tree, chosen per index by useHOT:
-   HOT (default)    Height-Optimised Trie over the serialised key (Ch. 5)
-   RBTREE (legacy)  RBNodeKey (PATHRB / CASRB / NAMERB) ──▶ RBNodeValue
+backing tree:
+   HOT    Height-Optimised Trie over the serialised key (Ch. 5)
 
-query: IndexFilterAxis scans the tree, applies the Filter set, emits NodeReferences
+query: a bounded HOT cursor applies the typed/path predicate and emits NodeReferences
 \end{diagramS}
 
-At query time \code{IndexFilterAxis} scans the chosen tree, applies the declared \code{Filter}
-set (a \code{PathFilter} resolving paths to PCRs, a \code{CASFilter}/\allowbreak\code{CASFilterRange}, or a
-\code{NameFilter}), and yields each surviving entry's \code{NodeReferences}. A separate,
+At query time a HOT point or range cursor applies the declared \code{PathFilter},
+\code{CASFilter}/\allowbreak\code{CASFilterRange}, or \code{NameFilter} and yields each surviving
+entry's \code{NodeReferences}. A separate,
 non-declared accelerator, \code{PageSkipRegistry}, opportunistically builds a
 \code{nameKey}\,\textrightarrow\,Roaring-bitmap-of-pages map as a side effect of the first
 analytical scan and invalidates it on a total-page-count mismatch; it is a scan heuristic, not a
@@ -3204,7 +3202,7 @@ query:  for $b in jn:doc('db','store').book[] where $b.price eq 12.5 return $b
 
   the optimiser rewrites the where-predicate to a CAS index scan on /store/book/[]/price
   CAS key = (12.5, double, PCR of that path)
-        │  IndexFilterAxis scans the backing tree; CASFilter matches the exact key
+        │  HOT point lookup seeks the exact serialised CAS key
         ▼
   NodeReferences = Roaring64Bitmap{ 1042, 3310, 88914 }     (the matching price nodes)
         │  move each to its owning book object (its parent)
@@ -3248,11 +3246,8 @@ fixed-size (4\,KiB) chunks, each stored as a \emph{separate} HOT slot keyed by
 \code{(leafIndex, chunkIdx)}, so the HOT copy-on-write merge shares unchanged chunks across
 revisions: a one-row change rewrites only the affected chunk, honouring the
 \code{SLIDING\_SNAPSHOT} $O(\text{change})$-write contract rather than re-emitting the whole
-$\sim$20~KB leaf. \emph{Caveat:} the remaining task~\#57 item is a \emph{further} optimisation,
-lifting the chunk bytes out of the inline HOT values into dedicated chunk pages (a
-\code{ChunkDirectory} of \code{chunkIdx}\,\textrightarrow\,\code{PageReference}), shrinking HOT slots
-to $\sim$16-byte references so a leaf holds far more entries before splitting; it is required before a
-public projection-index API commitment.
+$\sim$20~KB leaf. These HOT slot values are the sole persisted secondary-index representation;
+the unreachable alternate bitmap-chunk format has been removed.
 
 The \textbf{vector index} (\code{VECTOR}; \pp{index/vector/}) is the ``naming hazard'' of
 \S\ref{ch:vector}: an \textbf{HNSW} (Hierarchical Navigable Small World) $k$-nearest-neighbour index
@@ -3331,11 +3326,13 @@ A new index is populated once by \code{IndexBuilder}, a single \code{DescendantA
 document root that drives every registered builder's visitor. Thereafter the indexes are kept
 current incrementally: the \code{IndexController} registers per-type \textbf{listeners}
 (\code{PathIndexListener}, \code{CASIndexListener}, \code{NameIndexListener},
-\code{VectorIndexListener}) that the write transaction notifies on every insert/delete. The hot
+and the projection listener) that the write transaction notifies on every insert/delete. Vector
+embeddings have a separate explicit API because they cannot be derived from ordinary document
+changes. The hot
 path uses a primitive \code{PathNodeKeyChangeListener} signature
 (\code{(nodeKey, kind, pathNodeKey, name, value)}) to avoid materialising an immutable change
 snapshot per node; each listener consults the path summary for path/type eligibility and routes
-the change to \code{index(...)}/\allowbreak\code{remove(...)} on the chosen backend. Listeners are re-created
+the change to a key-local HOT posting insertion or removal. Listeners are re-created
 per write transaction, and the catalogue is re-serialised at commit.
 
 \section{Change tracking: the history indexes}
@@ -4908,10 +4905,8 @@ unwired path is slow, never wrong.
 fixed-size 4\,KiB chunks, each a \emph{separate} HOT slot, so the sliding-snapshot merge shares
 unchanged chunks across revisions: a single-row update rewrites only the changed chunk(s), not
 the whole $\sim$20~KB leaf, aligning the projection with the \code{SLIDING\_SNAPSHOT} contract the
-framework gives the CAS/PATH/NAME indexes. The open task~\#57 work is a \emph{further} optimisation:
-moving chunk bytes into dedicated chunk pages (\code{ChunkDirectory}\,\textrightarrow\,%
-\code{PageReference}) so HOT slots carry $\sim$16-byte references rather than 4\,KiB payloads,
-pushing the per-leaf scale ceiling well past 100~M records.
+framework gives the CAS/PATH/NAME indexes. No alternate secondary-index page format is retained:
+projection chunks and posting lists share the canonical HOT persistence and versioning path.
 \end{honesty}
 
 \section{SIMD execution and the executor}
@@ -7040,7 +7035,7 @@ Time-travel open by instant & $O(\log R_{\text{tot}})$ & binary search over the 
 Reconstruct a leaf at revision $r$ & $O(R)$ & merge at most $R$ page fragments back to the last full dump (sliding snapshot, Ch.~\ref{ch:versioning})\\
 Diff, adjacent revisions & $O(\delta)$ & read the stored per-commit delta (default-on \code{storeDiffs}) (\S\ref{sec:diff})\\
 Diff, arbitrary revisions & $O(\delta)$ / $O(N)$ & hash-pruned lock-step descent; degrades to $O(N)$ only under \code{HashType.NONE} (\S\ref{sec:diff})\\
-Secondary index point/range scan & $O(L+k)$ / $O(\log m+k)$ & HOT backend in key-byte length $L$; RBTREE backend in tree size $m$; $k$ matches returned (Ch.~\ref{ch:hot}, Ch.~\ref{ch:pathsummary})\\
+Secondary index point/range scan & $O(L+k)$ & HOT descent in key-byte length $L$ plus $k$ matches returned (Ch.~\ref{ch:hot}, Ch.~\ref{ch:pathsummary})\\
 Path-summary lookup & $O(p)$ & descend the summary trie one node per path segment (\S\ref{sec:pathsummary})\\
 DeweyID order comparison & $O(\min\text{ divisions})$ & lexicographic over tier-encoded divisions; siblings differ in the last (\S\ref{sec:deweyids})\\
 Vectorised aggregate / count & $O(n/W + n\bmod W)$ & $\lfloor n/W\rfloor$ SIMD steps plus a scalar tail; the projection-index fast path is an $O(n)$ byte-scan ($\sim$1\,ms for $10^8$ rows) (Ch.~\ref{ch:vector})\\
@@ -7467,9 +7462,8 @@ $\sim$2$\times$/$\sim$3$\times$ at 2/4 threads), though the many-document and
 concurrent-\emph{writer} regimes remain unmeasured. \textbf{Within a resource there is one writer}, so a single hot
 document does not scale writes across cores. \textbf{The vectorised executor is deliberately narrow}:
 it is fail-closed to a small set of numeric, columnar query shapes, with string-predicate SIMD and
-non-\code{double} numeric columns still open. \textbf{The HOT index backend} carries one surviving,
-reads-correct routing-invariant deviation (Chapter~\ref{ch:hot}) and remains opt-in behind the
-red-black-tree default. \textbf{The JSON FMES import} is library-only, not wired to a function, and its
+	non-\code{double} numeric columns still open. \textbf{The HOT index} is the sole PATH/CAS/NAME
+	secondary-index representation. \textbf{The JSON FMES import} is library-only, not wired to a function, and its
 delete phase does not yet cover the fused structural kinds. \textbf{Histogram collection is deferred}, so
 a first-seen predicate plans on a default selectivity until statistics are built. And several
 \textbf{enterprise pieces}, the public S3 selector wiring, multi-writer fencing, and a broker-backed
@@ -7842,7 +7836,7 @@ useDeweyIDs                   store DeweyID labels                            (d
 buildPathSummary              maintain the path summary                       (default on)
 storeDiffs                    write the per-commit JSON change file           (default on)
 storeNodeHistory              maintain the RECORD_TO_REVISIONS change index   (default on)
-indexBackendType              RBTREE (default) · HOT
+secondary PATH/CAS/NAME       canonical HOT storage (not configurable)
 byteHandlerPipeline           a compression / encryption handler chain        (default identity)
 deweyIdSiblingDistance        inter-sibling gap for new DeweyIDs              (default 16)
 \end{diagramS}
@@ -8006,8 +8000,8 @@ ETag, or it is told the resource may have changed in the meantime.
 \label{app:nodekinds}
 
 Every record carries a one-byte \code{NodeKind} tag. The \emph{data} kinds, the ones a document is made
-of, are below; the engine additionally defines internal kinds for index nodes (\code{PATH},
-\code{CASRB}, \code{PATHRB}, \code{NAMERB}), change tracking (\code{REVISION\_REFERENCES\_NODE}), the
+of, are below; the engine additionally defines internal kinds for path-summary nodes (\code{PATH}),
+change tracking (\code{REVISION\_REFERENCES\_NODE}), the
 name dictionary (\code{HASH\_ENTRY}), DeweyID mapping, projection/vector indexes, and a
 \code{DELETE} tombstone, none of which a user authors directly.
 
@@ -8279,7 +8273,7 @@ tag   page kind           role
   3   UberPage            the per-resource root descriptor
   4   IndirectPage        one trie level (an adaptive reference container)
   5   RevisionRootPage    the root of one revision, with refs to the document index and auxiliaries
- 12   HOTLeafPage         a HOT index leaf (when the HOT backend is selected)
+ 12   HOTLeafPage         a secondary/projection/valid-time index leaf
 the metadata pages (NamePage, PathSummaryPage, CASPage, PathPage, DeweyIDPage, OverflowPage) carry
 their own tags and follow the same tag-then-body framing.
 \end{diagramS}
@@ -8358,7 +8352,7 @@ one-byte page-kind tag and a one-byte \code{BinaryEncodingVersion} (\code{V0}):
 
 \begin{diagramS}
 [u8 pageKind][u8 V0][ body ]      Page-kind tags (1 byte; tag 7 is unused):
-  1 KeyValueLeafPage   4 IndirectPage      8 CASPage       11 DeweyIDPage      14 BitmapChunkPage
+  1 KeyValueLeafPage   4 IndirectPage      8 CASPage       11 DeweyIDPage      14 reserved
   2 NamePage           5 RevisionRootPage  9 OverflowPage  12 HOTLeafPage      15 VectorPage
   3 UberPage           6 PathSummaryPage  10 PathPage      13 HOTIndirectPage  16 ProjectionPage
 \end{diagramS}
@@ -8393,14 +8387,16 @@ RevisionRootPage  [delegate — NO sub-tag][i32 revision][i64 maxNodeKeyDoc][i64
 NamePage          [delegate][i32+i64 maxNodeKeys][i32+i64 maxHotPageKeys][i32 numberOfArrays]
                   [i32+u8 currentMaxLevels][i32 liveEntries; per dict: i32 roaringLen + bytes]
 PathSummaryPage   [delegate][i32+i64 maxNodeKeys][i32+u8 currentMaxLevels]
-CAS/Path/Projection [delegate][i32+i64 maxNodeKeys][i32+i64 maxHotPageKeys][i32+u8 currentMaxLevels]
+CAS/Path/Projection/ValidTime [delegate][i32 count; count $\times$ (i32 indexId, i64 maxHotPageKey)]
 VectorPage        [delegate][i32+i64 maxNodeKeys][i32+u8 currentMaxLevels]
 DeweyIDPage       [delegate][i64 maxNodeKey][u8 currentMaxLevel]            (scalars, not arrays)
 OverflowPage      [i32 dataLen][dataLen bytes]                             (one opaque overflow value)
 \end{diagramS}
 
-The \code{maxNodeKey}/\code{maxHotPageKey} arrays size each index tree's trie, \code{currentMaxLevels}
-its current height. \code{NamePage} additionally persists the five interned-name dictionaries
+The HOT-only secondary-index containers persist only their sparse physical-page allocators; their
+delegate references root the HOT trees directly. Keyed-trie \code{maxNodeKey} and
+\code{currentMaxLevels} metadata remains only on pages that actually own keyed tries. \code{NamePage}
+additionally persists the five interned-name dictionaries
 (attributes, elements, namespaces, processing-instructions, JSON object keys) through the delegate's
 referenced pages, as Roaring64 bitmaps of live entry keys.
 
@@ -8416,8 +8412,6 @@ HOT_INDIRECT_PAGE [varint pageKey][i32 revision][u8 height][u8 nodeType][u8 layo
   multi-mask      [i16 mostSigBit][i16 nExtractBytes][positions][ ceil(n/8) × i64 extractionMask ]
   partialKeys     numChildren × (u8 | i16 | i32   — width by disc-bit count)
   children        numChildren × ( i64 key, u8 fragCount, fragCount × (i32 rev, i64 key) )
-  trailer         [256-byte childIndex]   (single-mask + multi-node only)
-BITMAP_CHUNK_PAGE [varint pageKey][ opaque BitmapChunkPage blob ]
 \end{diagramS}
 
 \section{The slotted leaf page (\texttt{KeyValueLeafPage})}
@@ -8444,7 +8438,8 @@ structFlags: 0x01 hashElision · 0x02 parentKeyCol · 0x04 pathNodeKeyCol · 0x0
 \end{diagramS}
 
 The decompressed \code{blob} is, in order: (1) a \textbf{compact directory}, \code{populatedCount}
-$\times$ 4 bytes \code{[dataLength:3][kindId:1]}; (2) the \textbf{offset-table template pool} (the
+$\times$ 2 bytes \code{[dataLength:10 bits][kindId:6 bits]}, stored in big-endian byte order; (2) the
+\textbf{offset-table template pool} (the
 deduplicated per-record field-offset tables); (3) per-slot \textbf{template ids}; then, gated by
 \code{structFlags}, optional columns: (4) a \textbf{zero-hash bitmap} (slots whose all-zero hash was
 stripped), (5) a \textbf{parent-key column}, (6) a dictionary-encoded \textbf{path-node-key column},

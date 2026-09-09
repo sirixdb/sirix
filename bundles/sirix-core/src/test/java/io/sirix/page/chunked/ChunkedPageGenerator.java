@@ -45,8 +45,20 @@ final class ChunkedPageGenerator {
   /** Fixed page key; the node keys derived from it are what the structural columns delta against. */
   static final long PAGE_KEY = 3L;
 
-  /** No kind has this id, so the template pool refuses the page and the body stays degenerate. */
+  /**
+   * Opaque raw-record marker; {@code setSlot} publishes directory kind 0, which disables templates.
+   */
   private static final byte UNKNOWN_KIND_ID = 100;
+
+  /** One value larger than the sweep's 64-byte chunk target while remaining an inline record. */
+  private static final int OVERSIZED_VALUE_BYTES = 160;
+
+  /** The direct writer reserves this conservative metadata bound around a fused string value. */
+  private static final int STRING_RECORD_METADATA_BUDGET = 96;
+
+  /** Largest fused-string value whose conservative direct-write reservation remains inline. */
+  private static final int NEAR_MAX_VALUE_BYTES =
+      PageLayout.MAX_COMPACT_DIR_DATA_LENGTH - STRING_RECORD_METADATA_BUDGET;
 
   private ChunkedPageGenerator() {}
 
@@ -298,10 +310,10 @@ final class ChunkedPageGenerator {
       // One record alone exceeds the sweep's small chunk target, so the planner has to give it a
       // chunk of its own.
       case ONE_OVERSIZED -> index == 0
-          ? 9000
+          ? OVERSIZED_VALUE_BYTES
           : 8;
       case NEAR_MAX -> index == 0
-          ? 100_000
+          ? NEAR_MAX_VALUE_BYTES
           : 8;
     };
     final byte[] value = new byte[length];
@@ -364,10 +376,10 @@ final class ChunkedPageGenerator {
       case SMALL -> 24;
       case MIXED -> 8 + (index % 53);
       case ONE_OVERSIZED -> index == 0
-          ? 9000
+          ? OVERSIZED_VALUE_BYTES
           : 24;
       case NEAR_MAX -> index == 0
-          ? 100_000
+          ? PageLayout.MAX_COMPACT_DIR_DATA_LENGTH
           : 24;
     };
     final byte[] data = new byte[length];

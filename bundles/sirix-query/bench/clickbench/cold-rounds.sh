@@ -9,17 +9,34 @@
 # options
 #   --arm NAME=PATH   an ahead-of-time image to measure, repeatable. With two or
 #                     more arms the rounds are INTERLEAVED (A B A B), never
-#                     blocked (A A B B) -- see below. With no --arm the JVM is
-#                     measured through gradle as a single arm.
+#                     blocked (A A B B) -- see below. With no --arm a single JVM
+#                     arm is measured from a runtime frozen by rig/measure.py.
 #   --rounds N        rounds per arm (default 4; the shipped figure is the best
 #                     of 4 and the median is reported alongside it)
 #   --tries N         tries per query inside a round (default 3)
 #   --queries LIST    subset, ZERO-BASED (ClickBench convention: `--queries 18`
 #                     is Q19 in the docs). JSONBench's runner is one-based --
 #                     the two do not agree, and mixing them up costs a run.
-#   --out DIR         per-round JSON + logs (default <db>-cold-results)
+#   --out DIR         per-round JSON + logs, must not exist (default <db>-cold-results)
 #   --duckdb-cold S   DuckDB reference cold suite seconds (default 0.520)
 #   --duckdb-hot S    DuckDB reference hot suite seconds  (default 0.351)
+#   --declare-envelope  assert <sirix-db-dir> is NOT the campaign 100M database,
+#                     so EXTRA fixes the envelope. Only needed where no campaign
+#                     pointer resolves; refused when one names this database.
+#
+# WHICH JVM ENVELOPE THE ARM IS FROZEN AT
+# ---------------------------------------
+# The rig decides from the database, through the one campaign-identity contract
+# in rig/README.md; this script states no rule of its own. If <sirix-db-dir> is
+# the campaign 100M database, the campaign envelope is MANDATORY and EXTRA
+# cannot shrink it. If a resolved pointer proves it is a different database,
+# EXTRA sizes the runtime and the frozen runtime declares that envelope for
+# every round to verify. Where no pointer resolves -- a box that never loaded
+# the campaign corpus -- the rig cannot place the target either way: the plain
+# command needs no flag, because the default envelope is valid on any database
+# and decides nothing, while a smaller EXTRA is refused until you say so:
+#   EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" \
+#     ./cold-rounds.sh DB --declare-envelope
 #
 # WHY INTERLEAVED, AND WHY THE COOL GATE
 # --------------------------------------
@@ -40,10 +57,18 @@
 # is therefore a new process, and the suite figure is try 1.
 set -u
 
+# Acquire before any eviction or benchmark work. Descriptors survive into every arm,
+# including native executables, and keep ownership if the wrapper is terminated.
+RIG="$(cd "$(dirname "${BASH_SOURCE[0]}")/rig" && pwd)"
+if [ -z "${CB_RIG_HOST_LOCK_FD:-}" ]; then
+  exec python3 "$RIG/rig_lock.py" -- bash "$0" "$@"
+fi
+python3 "$RIG/rig_lock.py" --check || exit 2
+
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../common" && pwd)/bench-common.sh"
 
 usage() {
-  sed -n '2,30p' "$0" >&2
+  sed -n '2,40p' "$0" >&2
   exit 2
 }
 
@@ -56,6 +81,7 @@ QUERIES=""
 OUT=""
 DUCKDB_COLD="0.520"
 DUCKDB_HOT="0.351"
+DECLARE_ENVELOPE=0
 ARM_NAMES=()
 ARM_PATHS=()
 
@@ -76,6 +102,7 @@ while [ "$#" -gt 0 ]; do
     --out)         OUT="${2:-}"; shift 2 ;;
     --duckdb-cold) DUCKDB_COLD="${2:-}"; shift 2 ;;
     --duckdb-hot)  DUCKDB_HOT="${2:-}"; shift 2 ;;
+    --declare-envelope) DECLARE_ENVELOPE=1; shift ;;
     -h|--help)     usage ;;
     *) die "unknown option: $1" ;;
   esac
@@ -88,15 +115,13 @@ case "${TRIES}"  in ''|*[!0-9]*) die "--tries must be a positive integer" ;; esa
 [ "${ROUNDS}" -ge 1 ] || die "--rounds must be >= 1"
 
 OUT="${OUT:-${DB%/}-cold-results}"
+[ ! -e "${OUT}" ] || die "output already exists; choose a fresh --out directory"
 mkdir -p "${OUT}" || die "cannot create output directory: ${OUT}"
-
-QUERY_ARG=""
-[ -n "${QUERIES}" ] && QUERY_ARG=" --queries ${QUERIES}"
 
 if [ "${#ARM_NAMES[@]}" -eq 0 ]; then
   ARM_NAMES=("jvm")
   ARM_PATHS=("")
-  log "no --arm given: measuring the JVM through gradle."
+  log "no --arm given: preparing a frozen JVM runtime before the cold rounds."
   log "The published ClickBench figures are from an ahead-of-time image; a JVM run"
   log "pays classload and JIT warm-up on top and is NOT comparable to them."
 else
@@ -105,28 +130,48 @@ else
   done
 fi
 
-GRADLE_LAUNCHER="$(gradle_cmd)"
+if [ -z "${ARM_PATHS[0]}" ]; then
+  PREPARE=(python3 "$RIG/measure.py" prepare --out "${OUT}/runtime" --db "${DB}" --jvm-args="${EXTRA:-}")
+  [ "${DECLARE_ENVELOPE}" -eq 1 ] && PREPARE+=(--declare-envelope)
+  "${PREPARE[@]}" > "${OUT}/runtime-prepare.log" 2>&1 \
+    || die "runtime preparation failed; inspect ${OUT}/runtime-prepare.log"
+fi
 
 run_arm() {  # run_arm <index> <round>
   local idx="$1" round="$2"
   local name="${ARM_NAMES[$idx]}" bin="${ARM_PATHS[$idx]}"
   local json="${OUT}/${name}-round-${round}.json"
   local logf="${OUT}/${name}-round-${round}.log"
+  local frozen="" cmd=()
 
   if [ -n "${bin}" ]; then
-    # shellcheck disable=SC2086  # QUERY_ARG is an intentional word split
-    "${bin}" "${DB}" --tries "${TRIES}" --json "${json}" ${QUERY_ARG} > "${logf}" 2>&1 \
-      || { echo "--- last 40 lines of ${logf} ---" >&2; tail -40 "${logf}" >&2;
-           die "arm '${name}' failed in round ${round}"; }
+    cmd=("${bin}" "${DB}" --tries "${TRIES}" --json "${json}")
+    [ -n "${QUERIES}" ] && cmd+=(--queries "${QUERIES}")
   else
-    [ -x "${GRADLE_LAUNCHER}" ] || die "gradle launcher is not executable: ${GRADLE_LAUNCHER} (set GRADLE=<path>)"
-    "${GRADLE_LAUNCHER}" --console=plain ${GRADLE_FLAGS:-} -p "${REPO_ROOT}" \
-        :sirix-query:clickBench \
-        -Pclickbench.args="${DB} --tries ${TRIES} --json ${json}${QUERY_ARG}" \
-        > "${logf}" 2>&1 \
-      || { echo "--- last 40 lines of ${logf} ---" >&2; tail -40 "${logf}" >&2;
-           die "the JVM arm failed in round ${round}"; }
+    frozen="${OUT}/runtime/frozen/runtime.json"
+    cmd=(python3 "$RIG/launch-runtime.py" --runtime "${frozen}" --db "${DB}"
+         --tries "${TRIES}" --json "${json}" --queries "${QUERIES}")
   fi
+  "${cmd[@]}" > "${logf}" 2>&1 \
+    || { echo "--- last 40 lines of ${logf} ---" >&2; tail -40 "${logf}" >&2;
+         die "arm '${name}' failed in round ${round}"; }
+  # The only writer of cold-round provenance: it is the only path that reaches the native --arm
+  # binaries. It keeps every cold arm outside the campaign's published-board ranking and records
+  # what this round executed, plus the envelope and classification the JVM arm was frozen with.
+  python3 - "${json}" "${name}" "${round}" "${frozen}" "${cmd[@]}" <<'PYMETA' || die "cannot record cold-arm provenance"
+import json,sys
+from pathlib import Path
+path=Path(sys.argv[1])
+document=json.loads(path.read_text())
+stamp=dict(scope='steering', protocol='historical cold-round driver',
+           arm=sys.argv[2], round=int(sys.argv[3]), command=sys.argv[5:])
+if sys.argv[4]:
+    frozen=json.loads(Path(sys.argv[4]).read_text())
+    stamp['runtime_id']=frozen['runtime_id']
+    stamp['campaign_classification']=frozen['campaign_classification']
+document.setdefault('rig',{}).update(stamp)
+path.write_text(json.dumps(document,indent=2)+'\n')
+PYMETA
   grep -h '^# served' "${logf}" | sed 's/^/      /' || true
 }
 

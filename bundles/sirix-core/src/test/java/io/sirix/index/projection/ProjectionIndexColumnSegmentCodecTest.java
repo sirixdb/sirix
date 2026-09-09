@@ -3,9 +3,12 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.node.SirixDeweyID;
 import io.sirix.page.OverflowPage;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -16,6 +19,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntFunction;
+import java.util.function.IntPredicate;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,7 +46,7 @@ final class ProjectionIndexColumnSegmentCodecTest {
 
   private static final String[] DEPTS = {"Eng", "Sales", "Mkt", "Ops", "HR", "Finance", "Legal", "Supp"};
 
-  /** Bench-shaped leaf, mirroring the {@code ProjectionIndexRowGroupCodecTest} generator. */
+  /** Representative bench-shaped row group with mixed scalar column kinds. */
   private static ProjectionIndexRowGroupPage benchLeaf(final int rows, final long keyBase) {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     final Random rng = new Random(7);
@@ -76,7 +81,7 @@ final class ProjectionIndexColumnSegmentCodecTest {
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded) {
     final Map<Integer, byte[]> byId = new HashMap<>();
     for (int i = 0; i < encoded.columnSegmentIds().length; i++) {
-      byId.put(encoded.columnSegmentIds()[i] & 0xFF, encoded.segments()[i]);
+      byId.put(encoded.columnSegmentIds()[i], encoded.segments()[i]);
     }
     return byId::get;
   }
@@ -127,15 +132,15 @@ final class ProjectionIndexColumnSegmentCodecTest {
     }
   }
 
-  /** Encode the same page through the legacy raw boundary and the borrowed live-page boundary. */
+  /** Encode the same page through the serialized-raw and borrowed live-page boundaries. */
   private static ProjectionIndexColumnSegmentCodec.EncodedRowGroup assertLiveEncodingEqualsRaw(
       final ProjectionIndexRowGroupPage page, final ProjectionIndexColumnSegmentCodec.EncodeWorkspace rawWorkspace,
       final ProjectionIndexColumnSegmentCodec.EncodeWorkspace liveWorkspace) {
     final byte[] raw = page.serialize();
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expected =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw, rawWorkspace);
+        ProjectionIndexColumnSegmentCodec.encode(raw, rawWorkspace);
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup actual =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(page, liveWorkspace);
+        ProjectionIndexColumnSegmentCodec.encode(page, liveWorkspace);
     assertEncodedEquals(expected, actual);
     return actual;
   }
@@ -147,6 +152,34 @@ final class ProjectionIndexColumnSegmentCodecTest {
     appendSet(page, 701L);
     appendSet(page, 702L, "Comedy");
     appendSet(page, 703L, "Drama", "Comedy", "Silent");
+    return page;
+  }
+
+  /** One populated column of {@code kind}; enough to force every mandatory segment for that kind. */
+  private static ProjectionIndexRowGroupPage singleKindLeaf(final byte kind) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(new byte[] {kind});
+    if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+      page.setGlobalDictionaries(new GlobalValueDictionaryWriter[] {new GlobalValueDictionaryWriter()});
+    }
+    final long[] longs = new long[1];
+    final boolean[] bools = new boolean[1];
+    final String[] strings = new String[1];
+    final boolean[] present = {true};
+    final boolean[] unrepresentable = new boolean[1];
+    final boolean[] nonIntegral = new boolean[1];
+    final boolean[] nonDoubleSource = new boolean[1];
+    for (int row = 0; row < 8; row++) {
+      longs[0] = kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE
+          ? ProjectionDoubleEncoding.encode(row + 0.25)
+          : row * 11L;
+      bools[0] = (row & 1) == 0;
+      strings[0] = "value-" + row;
+      final String[][] sets = kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+          ? new String[][] {{"value-" + row, "shared"}}
+          : null;
+      assertTrue(page.appendRow(100L + row, longs, bools, strings, sets, present, unrepresentable, nonIntegral,
+          nonDoubleSource));
+    }
     return page;
   }
 
@@ -195,6 +228,83 @@ final class ProjectionIndexColumnSegmentCodecTest {
     return null;
   }
 
+  /**
+   * Rebuild a descriptor over exactly {@code ids}, retaining mirrors for entries present in
+   * {@code source}.
+   */
+  private static byte[] descriptorWithIds(final byte[] source, final int... ids) {
+    final int columnCount = RowGroupDescriptor.columnCount(source);
+    final byte[] kinds = new byte[columnCount];
+    for (int column = 0; column < columnCount; column++) {
+      kinds[column] = RowGroupDescriptor.kind(source, column);
+    }
+    final int count = ids.length;
+    final int[] lengths = new int[count];
+    final long[] hashes = new long[count];
+    final byte[] flags = new byte[count];
+    final long[] mins = new long[count];
+    final long[] maxs = new long[count];
+    for (int entry = 0; entry < count; entry++) {
+      final int sourceEntry = RowGroupDescriptor.entryIndexOf(source, ids[entry]);
+      if (sourceEntry < 0) {
+        lengths[entry] = ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES;
+        continue;
+      }
+      lengths[entry] = RowGroupDescriptor.entryByteLen(source, sourceEntry);
+      hashes[entry] = RowGroupDescriptor.entryContentHash(source, sourceEntry);
+      flags[entry] = RowGroupDescriptor.entryColFlags(source, sourceEntry);
+      mins[entry] = RowGroupDescriptor.entryMin(source, sourceEntry);
+      maxs[entry] = RowGroupDescriptor.entryMax(source, sourceEntry);
+    }
+    return RowGroupDescriptor.serialize(RowGroupDescriptor.rowCount(source), RowGroupDescriptor.firstRecordKey(source),
+        RowGroupDescriptor.lastRecordKey(source), kinds, count, ids, lengths, hashes, flags, mins, maxs);
+  }
+
+  private static byte[] descriptorWithoutId(final byte[] source, final int removedId) {
+    final int[] retained = new int[RowGroupDescriptor.columnSegmentCount(source) - 1];
+    int target = 0;
+    for (int entry = 0; entry < RowGroupDescriptor.columnSegmentCount(source); entry++) {
+      final int id = RowGroupDescriptor.entryColumnSegmentId(source, entry);
+      if (id != removedId) {
+        retained[target++] = id;
+      }
+    }
+    assertEquals(retained.length, target, "test premise: descriptor contains segment " + removedId);
+    return descriptorWithIds(source, retained);
+  }
+
+  private static int descriptorEntryOffset(final byte[] descriptor, final int entry) {
+    return 27 + RowGroupDescriptor.columnCount(descriptor) + 2 + entry * RowGroupDescriptor.ENTRY_BYTES;
+  }
+
+  private static void putSegmentId(final byte[] descriptor, final int entry, final int id) {
+    final int offset = descriptorEntryOffset(descriptor, entry);
+    descriptor[offset] = (byte) id;
+    descriptor[offset + 1] = (byte) (id >>> 8);
+  }
+
+  private static void assertNonBodyMirrorsRejected(final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded,
+      final int segmentId) {
+    final int entry = RowGroupDescriptor.entryIndexOf(encoded.descriptor(), segmentId);
+    assertTrue(entry >= 0, "test premise: descriptor contains segment " + segmentId);
+    final int offset = descriptorEntryOffset(encoded.descriptor(), entry);
+
+    final byte[] flags = encoded.descriptor().clone();
+    flags[offset + 14] = 1;
+    assertThrows(IllegalStateException.class, () -> RowGroupDescriptor.validate(flags),
+        "segment " + segmentId + " accepted BODY flags");
+
+    final byte[] min = encoded.descriptor().clone();
+    RowGroupDescriptor.putLongLE(min, offset + 15, 1L);
+    assertThrows(IllegalStateException.class, () -> RowGroupDescriptor.validate(min),
+        "segment " + segmentId + " accepted a BODY min mirror");
+
+    final byte[] max = encoded.descriptor().clone();
+    RowGroupDescriptor.putLongLE(max, offset + 23, 1L);
+    assertThrows(IllegalStateException.class, () -> RowGroupDescriptor.validate(max),
+        "segment " + segmentId + " accepted a BODY max mirror");
+  }
+
   @Test
   void dictHashSegmentCarriesEveryEntrysContentHashInDictIdOrder() {
     // The whole point of the segment is that a distinct fold can read identities without the
@@ -241,58 +351,6 @@ final class ProjectionIndexColumnSegmentCodecTest {
     }
   }
 
-  @Test
-  void aBuildWithHashesSuppressedEmitsNoneAndDecodesAsAbsent() {
-    // The shape of every projection written before the segment kind existed: no entry at all, which
-    // the readers must report as "absent" rather than as corruption.
-    System.setProperty("sirix.projection.dictEntryHashes", "false");
-    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded;
-    try {
-      encoded = ProjectionIndexColumnSegmentCodec.encode(benchLeaf(64, 1L).serialize());
-    } finally {
-      System.clearProperty("sirix.projection.dictEntryHashes");
-    }
-    final int col = 2;
-    assertNull(segmentOf(encoded, ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(col)));
-    assertNull(ProjectionIndexColumnSegmentCodec.decodeDictHashes(encoded.descriptor(), null, col),
-        "a leaf without the entry decodes as absent, not as a missing-segment failure");
-    assertArrayEquals(benchLeaf(64, 1L).serialize(),
-        ProjectionIndexColumnSegmentCodec.assembleRaw(encoded.descriptor(), resolverOf(encoded)),
-        "suppressing the segment must not disturb the raw round trip");
-  }
-
-  @Test
-  void aLeafWithHashesAndOneWithoutAgreeOnEveryIdentity() {
-    // The MIXED column: an old store whose touched leaves were re-encoded (and so gained hashes)
-    // while the rest did not. The fill decides per leaf, so the two decodes must be interchangeable
-    // — same rows, same value, same 64-bit identity — or a distinct count would drift by leaf.
-    final ProjectionIndexRowGroupPage page = benchLeaf(512, 99L);
-    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup withHashes =
-        ProjectionIndexColumnSegmentCodec.encode(page.serialize());
-    System.setProperty("sirix.projection.dictEntryHashes", "false");
-    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup withoutHashes;
-    try {
-      withoutHashes = ProjectionIndexColumnSegmentCodec.encode(page.serialize());
-    } finally {
-      System.clearProperty("sirix.projection.dictEntryHashes");
-    }
-    final int col = 2;
-    final ProjectionColumnStore.ColumnSlice identity = ProjectionIndexColumnSegmentCodec.decodeStringIdentitySlice(
-        withHashes.descriptor(), segmentOf(withHashes, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col)),
-        ProjectionIndexColumnSegmentCodec.decodeDictHashes(withHashes.descriptor(),
-            segmentOf(withHashes, ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(col)), col),
-        col);
-    final ProjectionColumnStore.ColumnSlice fallback =
-        ProjectionIndexColumnSegmentCodec.decodeStringSlice(withoutHashes.descriptor(),
-            segmentOf(withoutHashes, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col)),
-            segmentOf(withoutHashes, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col)), col);
-    assertArrayEquals(fallback.stringDictIds(), identity.stringDictIds());
-    assertEquals(fallback.dictSize(), identity.dictSize());
-    for (int id = 0; id < fallback.dictSize(); id++) {
-      assertEquals(fallback.dictHash(id), identity.dictHash(id), "entry " + id + " differs between the two fills");
-    }
-  }
-
   // ==================== round trips ====================
 
   @Test
@@ -305,10 +363,15 @@ final class ProjectionIndexColumnSegmentCodecTest {
     for (final byte[] seg : encoded.segments()) {
       total += seg.length;
     }
-    final int orderLabelLaneBytes = Integer.BYTES + (page.getRowCount() + 1) * Integer.BYTES + page.orderLabelLength();
-    assertTrue((total - orderLabelLaneBytes) * 4 < raw.length - orderLabelLaneBytes,
-        "expected >4x compaction on bench-shaped column data excluding exact Dewey labels, got "
-            + (raw.length - orderLabelLaneBytes) + " -> " + (total - orderLabelLaneBytes));
+    // Re-recorded for P3 (synthesized order labels): the encoded lane is no longer a copy of the raw
+    // one, so a single shared constant can no longer correct both sides. Exclude the whole key/order
+    // region from each — the assertion still pins COLUMN compaction, which is what it was for.
+    final byte[] keysSegment = segmentOf(encoded, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId());
+    final int rawKeyRegionBytes = page.getRowCount() * Long.BYTES + 1 + Integer.BYTES
+        + (page.getRowCount() + 1) * Integer.BYTES + page.orderLabelLength();
+    assertTrue((total - keysSegment.length) * 4 < raw.length - rawKeyRegionBytes,
+        "expected >4x compaction on bench-shaped column data excluding the key/order region, got "
+            + (raw.length - rawKeyRegionBytes) + " -> " + (total - keysSegment.length));
   }
 
   @Test
@@ -416,6 +479,31 @@ final class ProjectionIndexColumnSegmentCodecTest {
       }
       assertRoundTrip(page);
     }
+  }
+
+  @Test
+  void hugeAscendingRecordKeyDeltasUseTheRawWidthAndRoundTrip() {
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    long key = 10L;
+    for (int row = 0; row < 10; row++) {
+      assertTrue(appendNumericRow(page, key, row, false));
+      key += 1L << 58;
+    }
+    assertRoundTrip(page);
+  }
+
+  @Test
+  void singleValueDictionaryUsesZeroWidthIdsAndRoundTrips() {
+    final String[] values = new String[256];
+    Arrays.fill(values, "OnlyValue");
+    final ProjectionIndexRowGroupPage page = stringLeaf(values);
+    final byte[] raw = page.serialize();
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
+    final byte[] body = segmentOf(encoded, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0));
+    final int idWidthOffset = ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES + 1 + 2 * Long.BYTES + 1;
+    assertEquals(0, body[idWidthOffset], "one dictionary entry must need no per-row id bits");
+    assertArrayEquals(raw, ProjectionIndexColumnSegmentCodec.assembleRaw(encoded.descriptor(), resolverOf(encoded)));
   }
 
   @Test
@@ -568,23 +656,15 @@ final class ProjectionIndexColumnSegmentCodecTest {
 
   @Test
   void missingSegmentFailsAtAssembly() {
-    // A "missing segment" is only meaningful for a REFERENCED segment (an inline segment's bytes
-    // live in the descriptor and cannot go missing) — force all-referenced so the dropped DICT is
-    // genuinely resolved through the page resolver.
-    ProjectionIndexColumnSegmentCodec.setInlinePolicyForTesting(0, 0);
-    try {
-      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
-          ProjectionIndexColumnSegmentCodec.encode(benchLeaf(64, 3L).serialize());
-      final ProjectionIndexColumnSegmentCodec.SegmentResolver clean = resolverOf(encoded);
-      final int missing = ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(2);
-      final ProjectionIndexColumnSegmentCodec.SegmentResolver dropping = columnSegmentId -> columnSegmentId == missing
-          ? null
-          : clean.segment(columnSegmentId);
-      assertThrows(IllegalStateException.class,
-          () -> ProjectionIndexColumnSegmentCodec.assembleRaw(encoded.descriptor(), dropping));
-    } finally {
-      ProjectionIndexColumnSegmentCodec.clearInlinePolicyForTesting();
-    }
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+        ProjectionIndexColumnSegmentCodec.encode(benchLeaf(64, 3L).serialize());
+    final ProjectionIndexColumnSegmentCodec.SegmentResolver clean = resolverOf(encoded);
+    final int missing = ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(2);
+    final ProjectionIndexColumnSegmentCodec.SegmentResolver dropping = columnSegmentId -> columnSegmentId == missing
+        ? null
+        : clean.segment(columnSegmentId);
+    assertThrows(IllegalStateException.class,
+        () -> ProjectionIndexColumnSegmentCodec.assembleRaw(encoded.descriptor(), dropping));
   }
 
   @Test
@@ -729,13 +809,13 @@ final class ProjectionIndexColumnSegmentCodecTest {
         new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
 
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup first =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(fsstRaw, workspace);
+        ProjectionIndexColumnSegmentCodec.encode(fsstRaw, workspace);
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup firstSnapshot = snapshot(first);
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup middle =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(smallRaw, workspace);
+        ProjectionIndexColumnSegmentCodec.encode(smallRaw, workspace);
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup middleSnapshot = snapshot(middle);
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup second =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(fsstRaw, workspace);
+        ProjectionIndexColumnSegmentCodec.encode(fsstRaw, workspace);
 
     assertEquals(1, segmentOf(first, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(
         0))[ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES], "first dictionary must use FSST");
@@ -754,11 +834,11 @@ final class ProjectionIndexColumnSegmentCodecTest {
         ProjectionIndexColumnSegmentCodec.assembleRaw(middle.descriptor().clone(), coldResolverOf(middle)));
 
     assertThrows(RuntimeException.class,
-        () -> ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(new byte[] {1, 2, 3}, workspace));
+        () -> ProjectionIndexColumnSegmentCodec.encode(new byte[] {1, 2, 3}, workspace));
     assertEncodedEquals(firstSnapshot, first);
     assertEncodedEquals(middleSnapshot, middle);
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup afterFailure =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(fsstRaw, workspace);
+        ProjectionIndexColumnSegmentCodec.encode(fsstRaw, workspace);
     assertEncodedEquals(firstSnapshot, afterFailure);
     assertEncodedEquals(firstSnapshot, first);
     assertEncodedEquals(middleSnapshot, middle);
@@ -773,18 +853,17 @@ final class ProjectionIndexColumnSegmentCodecTest {
 
     workspace.claim();
     try {
-      final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw, workspace));
+      final IllegalStateException failure =
+          assertThrows(IllegalStateException.class, () -> ProjectionIndexColumnSegmentCodec.encode(raw, workspace));
       assertEquals("Projection encode workspace is already in use", failure.getMessage());
-      assertThrows(IllegalStateException.class,
-          () -> ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw, workspace),
+      assertThrows(IllegalStateException.class, () -> ProjectionIndexColumnSegmentCodec.encode(raw, workspace),
           "a rejected claimant must not release the active owner's claim");
     } finally {
       workspace.release();
     }
 
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup recovered =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw, workspace);
+        ProjectionIndexColumnSegmentCodec.encode(raw, workspace);
     assertArrayEquals(raw, ProjectionIndexColumnSegmentCodec.assembleRaw(recovered.descriptor(), resolverOf(recovered)),
         "the owning thread's release must make the workspace reusable");
   }
@@ -819,6 +898,113 @@ final class ProjectionIndexColumnSegmentCodecTest {
   }
 
   @Test
+  void spliceColumnsBatchesNonAdjacentChangesAndExcludesSelectedNoop() {
+    final ProjectionIndexRowGroupPage prior = new ProjectionIndexRowGroupPage(KINDS);
+    final ProjectionIndexRowGroupPage expected = new ProjectionIndexRowGroupPage(KINDS);
+    final ProjectionIndexRowGroupPage replacement0 =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    final ProjectionIndexRowGroupPage replacement2 =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT});
+    final ProjectionIndexRowGroupPage replacement3 =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    final boolean[] allPresent = {true, true, true, true};
+
+    for (int row = 0; row < 32; row++) {
+      final long recordKey = 10_000L + row * 3L;
+      final long[] priorLongs = {100L + row, 0L, 0L, 900L + row};
+      final boolean[] bools = {false, (row & 1) == 0, false, false};
+      final String[] priorStrings = {"", "", DEPTS[row % DEPTS.length], ""};
+      assertTrue(
+          prior.appendRow(recordKey, priorLongs, bools, priorStrings, allPresent, new boolean[4], new boolean[4]));
+
+      final long[] nextLongs = priorLongs.clone();
+      final String[] nextStrings = priorStrings.clone();
+      if (row == 5) {
+        nextLongs[0] += 1_000L;
+      }
+      if (row == 10) {
+        nextStrings[2] = DEPTS[3];
+      }
+      assertTrue(
+          expected.appendRow(recordKey, nextLongs, bools, nextStrings, allPresent, new boolean[4], new boolean[4]));
+      assertTrue(replacement0.appendRow(recordKey, new long[] {nextLongs[0]}, new boolean[1], new String[1],
+          new boolean[] {true}, new boolean[1], new boolean[1]));
+      assertTrue(replacement2.appendRow(recordKey, new long[1], new boolean[1], new String[] {nextStrings[2]},
+          new boolean[] {true}, new boolean[1], new boolean[1]));
+      assertTrue(replacement3.appendRow(recordKey, new long[] {nextLongs[3]}, new boolean[1], new String[1],
+          new boolean[] {true}, new boolean[1], new boolean[1]));
+    }
+
+    final ProjectionIndexColumnSegmentCodec.EncodeWorkspace workspace =
+        new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encodedPrior =
+        ProjectionIndexColumnSegmentCodec.encode(prior, workspace);
+    final ProjectionIndexColumnSegmentCodec.EncodedColumn encoded0 =
+        ProjectionIndexColumnSegmentCodec.encodeColumn(replacement0, 0, workspace);
+    final ProjectionIndexColumnSegmentCodec.EncodedColumn encoded2 =
+        ProjectionIndexColumnSegmentCodec.encodeColumn(replacement2, 2, workspace);
+    final ProjectionIndexColumnSegmentCodec.EncodedColumn encoded3 =
+        ProjectionIndexColumnSegmentCodec.encodeColumn(replacement3, 3, workspace);
+    final ProjectionIndexColumnSegmentCodec.EncodedColumn[] replacements = {encoded0, encoded2, encoded3};
+    final long[] actuallyChanged = {-1L, -1L};
+
+    final byte[] patched = ProjectionIndexColumnSegmentCodec.spliceColumns(encodedPrior.descriptor(), replacements,
+        replacements.length, actuallyChanged);
+
+    assertArrayEquals(new long[] {(1L << 0) | (1L << 2), 0L}, actuallyChanged,
+        "the selected but byte-identical column 3 must not enter the changed bitmap");
+    RowGroupDescriptor.validate(patched);
+    final int[] expectedIds = {ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+        ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(1),
+        ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(2),
+        ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(2),
+        ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(2),
+        ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(3),
+        ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(2)};
+    final int[] patchedIds = new int[RowGroupDescriptor.columnSegmentCount(patched)];
+    for (int entry = 0; entry < patchedIds.length; entry++) {
+      patchedIds[entry] = RowGroupDescriptor.entryColumnSegmentId(patched, entry);
+    }
+    assertArrayEquals(expectedIds, encodedPrior.columnSegmentIds(), "test premise: canonical prior segment set");
+    assertArrayEquals(expectedIds, patchedIds, "the batched splice must retain the canonical segment set");
+
+    final int changedBody0 = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0);
+    final int changedBody2 = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(2);
+    for (final int id : expectedIds) {
+      final int priorEntry = RowGroupDescriptor.entryIndexOf(encodedPrior.descriptor(), id);
+      final int patchedEntry = RowGroupDescriptor.entryIndexOf(patched, id);
+      if (id == changedBody0 || id == changedBody2) {
+        assertNotEquals(RowGroupDescriptor.entryContentHash(encodedPrior.descriptor(), priorEntry),
+            RowGroupDescriptor.entryContentHash(patched, patchedEntry), "changed BODY " + id);
+      } else {
+        assertEquals(RowGroupDescriptor.entryByteLen(encodedPrior.descriptor(), priorEntry),
+            RowGroupDescriptor.entryByteLen(patched, patchedEntry), "carried length " + id);
+        assertEquals(RowGroupDescriptor.entryContentHash(encodedPrior.descriptor(), priorEntry),
+            RowGroupDescriptor.entryContentHash(patched, patchedEntry), "carried hash " + id);
+        assertEquals(RowGroupDescriptor.entryColFlags(encodedPrior.descriptor(), priorEntry),
+            RowGroupDescriptor.entryColFlags(patched, patchedEntry), "carried flags " + id);
+        assertEquals(RowGroupDescriptor.entryMin(encodedPrior.descriptor(), priorEntry),
+            RowGroupDescriptor.entryMin(patched, patchedEntry), "carried min " + id);
+        assertEquals(RowGroupDescriptor.entryMax(encodedPrior.descriptor(), priorEntry),
+            RowGroupDescriptor.entryMax(patched, patchedEntry), "carried max " + id);
+      }
+    }
+
+    final Map<Integer, byte[]> segmentById = new HashMap<>();
+    for (int i = 0; i < encodedPrior.columnSegmentIds().length; i++) {
+      segmentById.put(encodedPrior.columnSegmentIds()[i], encodedPrior.segments()[i]);
+    }
+    for (final ProjectionIndexColumnSegmentCodec.EncodedColumn replacement : replacements) {
+      for (int i = 0; i < replacement.columnSegmentIds().length; i++) {
+        segmentById.put(replacement.columnSegmentIds()[i], replacement.segments()[i]);
+      }
+    }
+    assertArrayEquals(expected.serialize(), ProjectionIndexColumnSegmentCodec.assembleRaw(patched, segmentById::get),
+        "the canonical batched segment set must assemble to the fully updated row group");
+  }
+
+  @Test
   void slabAndColdReopenedLegacyDictionaryHaveGoldenWireSegmentAndHashParity() {
     final String[] values = new String[132];
     for (int i = 0; i < 128; i++) {
@@ -836,11 +1022,9 @@ final class ProjectionIndexColumnSegmentCodecTest {
         "cold raw deserialisation must retain the historical byte[][] representation");
 
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup slabEncoded =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(slab,
-            new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
+        ProjectionIndexColumnSegmentCodec.encode(slab, new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup legacyEncoded =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(reopened,
-            new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
+        ProjectionIndexColumnSegmentCodec.encode(reopened, new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
     assertEncodedEquals(legacyEncoded, slabEncoded);
     assertEquals(1, segmentOf(slabEncoded, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(
         0))[ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES], "golden corpus must exercise flat FSST");
@@ -853,12 +1037,10 @@ final class ProjectionIndexColumnSegmentCodecTest {
   void borrowedEncoderOutputsStayDetachedWhenTheBuilderPageMutatesLater() {
     final ProjectionIndexRowGroupPage page = benchLeaf(32, 90_000L);
     final byte[] beforeMutation = page.serialize();
-    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expected =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(beforeMutation,
-            new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expected = ProjectionIndexColumnSegmentCodec.encode(
+        beforeMutation, new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup borrowed =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(page,
-            new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
+        ProjectionIndexColumnSegmentCodec.encode(page, new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
 
     final long[] longs = {41L, 0L, 0L, 0L};
     final boolean[] bools = {false, true, false, false};
@@ -882,22 +1064,18 @@ final class ProjectionIndexColumnSegmentCodecTest {
     }
     final byte[] rawA = stringLeaf(valuesA).serialize();
     final byte[] rawB = stringLeaf(valuesB).serialize();
-    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expectedA =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(rawA);
-    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expectedB =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(rawB);
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expectedA = ProjectionIndexColumnSegmentCodec.encode(rawA);
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expectedB = ProjectionIndexColumnSegmentCodec.encode(rawB);
     final CountDownLatch start = new CountDownLatch(1);
     final ExecutorService executor = Executors.newFixedThreadPool(2);
     try {
       final Future<ProjectionIndexColumnSegmentCodec.EncodedRowGroup> futureA = executor.submit(() -> {
         start.await();
-        return ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(rawA,
-            new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
+        return ProjectionIndexColumnSegmentCodec.encode(rawA, new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
       });
       final Future<ProjectionIndexColumnSegmentCodec.EncodedRowGroup> futureB = executor.submit(() -> {
         start.await();
-        return ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(rawB,
-            new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
+        return ProjectionIndexColumnSegmentCodec.encode(rawB, new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
       });
       start.countDown();
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup actualA = futureA.get(30, TimeUnit.SECONDS);
@@ -947,159 +1125,275 @@ final class ProjectionIndexColumnSegmentCodecTest {
     assertRoundTrip(page);
   }
 
-  // ==================== hybrid inline / referenced storage ====================
+  // ==================== sole descriptor / segment-slot format ====================
 
-  /**
-   * Serves ONLY referenced segments; returns {@code null} for inline ids so a test proves the inline
-   * bytes were self-resolved from the descriptor, never fetched as a page.
-   */
-  private static ProjectionIndexColumnSegmentCodec.SegmentResolver referencedOnlyResolver(
-      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded) {
-    final byte[] d = encoded.descriptor();
-    final Map<Integer, byte[]> byId = new HashMap<>();
-    for (int i = 0; i < encoded.columnSegmentIds().length; i++) {
-      final int columnSegmentId = encoded.columnSegmentIds()[i] & 0xFF;
-      final int entry = RowGroupDescriptor.entryIndexOf(d, columnSegmentId);
-      if (entry >= 0 && !RowGroupDescriptor.entryIsInline(d, entry)) {
-        byId.put(columnSegmentId, encoded.segments()[i]);
-      }
+  @Test
+  void canonicalWriterEmitsTheExactSegmentSchemaForEveryColumnKindAndRowCount() {
+    final byte[] bodyOnlyKinds =
+        {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL};
+    for (final byte kind : bodyOnlyKinds) {
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup populated =
+          ProjectionIndexColumnSegmentCodec.encode(singleKindLeaf(kind).serialize());
+      assertArrayEquals(
+          new int[] {ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+              ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0)},
+          populated.columnSegmentIds(), "populated kind " + kind);
+      RowGroupDescriptor.validate(populated.descriptor());
     }
-    return byId::get;
-  }
 
-  private static int inlineCount(final byte[] descriptor) {
-    int n = 0;
-    final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(descriptor);
-    for (int i = 0; i < columnSegmentCount; i++) {
-      if (RowGroupDescriptor.entryIsInline(descriptor, i)) {
-        n++;
-      }
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup localString = ProjectionIndexColumnSegmentCodec.encode(
+        singleKindLeaf(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT).serialize());
+    assertArrayEquals(new int[] {ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+        ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(0)}, localString.columnSegmentIds());
+    RowGroupDescriptor.validate(localString.descriptor());
+
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup stringSet = ProjectionIndexColumnSegmentCodec.encode(
+        singleKindLeaf(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET).serialize());
+    assertArrayEquals(new int[] {ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+        ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.setCountsColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(0)}, stringSet.columnSegmentIds());
+    RowGroupDescriptor.validate(stringSet.descriptor());
+
+    final byte[] allKinds =
+        {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL};
+    for (final byte kind : allKinds) {
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup empty =
+          ProjectionIndexColumnSegmentCodec.encode(new ProjectionIndexRowGroupPage(new byte[] {kind}).serialize());
+      assertArrayEquals(
+          new int[] {ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+              ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0)},
+          empty.columnSegmentIds(), "empty kind " + kind);
+      RowGroupDescriptor.validate(empty.descriptor());
     }
-    return n;
   }
 
   @Test
-  void allInlineLeafAssemblesWithoutAnyResolver() {
-    // Force every segment inline, then assemble with a resolver that can serve NOTHING — the raw
-    // form must still reconstruct byte-identically purely from the descriptor's inline region.
-    ProjectionIndexColumnSegmentCodec.setInlinePolicyForTesting(1 << 20, 1 << 24);
-    try {
-      final byte[] raw = benchLeaf(200, 9L).serialize();
-      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
-      RowGroupDescriptor.validate(encoded.descriptor());
-      assertEquals(RowGroupDescriptor.columnSegmentCount(encoded.descriptor()), inlineCount(encoded.descriptor()),
-          "every segment should be inline under an unbounded threshold");
-      assertArrayEquals(raw,
-          ProjectionIndexColumnSegmentCodec.assembleRaw(encoded.descriptor(), columnSegmentId -> null),
-          "all-inline leaf must assemble with no page resolver");
-    } finally {
-      ProjectionIndexColumnSegmentCodec.clearInlinePolicyForTesting();
+  void canonicalSchemaRejectsEveryMissingMandatorySegment() {
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup localString = ProjectionIndexColumnSegmentCodec.encode(
+        singleKindLeaf(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT).serialize());
+    final int[] mandatoryLocalString = {ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+        ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(0)};
+    for (final int missing : mandatoryLocalString) {
+      assertThrows(IllegalStateException.class,
+          () -> RowGroupDescriptor.validate(descriptorWithoutId(localString.descriptor(), missing)),
+          "missing mandatory segment " + missing + " was accepted");
+    }
+
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup stringSet = ProjectionIndexColumnSegmentCodec.encode(
+        singleKindLeaf(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET).serialize());
+    for (final int missing : new int[] {ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(0)}) {
+      assertThrows(IllegalStateException.class,
+          () -> RowGroupDescriptor.validate(descriptorWithoutId(stringSet.descriptor(), missing)),
+          "missing mandatory STRING_SET segment " + missing + " was accepted");
+    }
+
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup empty = ProjectionIndexColumnSegmentCodec.encode(
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT}).serialize());
+    for (final int missing : empty.columnSegmentIds()) {
+      assertThrows(IllegalStateException.class,
+          () -> RowGroupDescriptor.validate(descriptorWithoutId(empty.descriptor(), missing)),
+          "empty leaf accepted missing mandatory segment " + missing);
     }
   }
 
   @Test
-  void inlineAndReferencedMixSelfResolvesInlineFromDescriptor() {
-    // A full 1024-row leaf yields both tiny (inline) and large (referenced) segments under the
-    // default thresholds. A resolver that refuses to serve inline ids must still assemble the raw
-    // form byte-identically — proving inline bytes come from the descriptor, referenced from pages.
-    final byte[] raw = benchLeaf(1024, 1_000L).serialize();
+  void canonicalSchemaRejectsExtraUnknownAndDuplicateSegmentIds() {
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup numeric = ProjectionIndexColumnSegmentCodec.encode(
+        singleKindLeaf(ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG).serialize());
+    assertThrows(IllegalStateException.class,
+        () -> RowGroupDescriptor.validate(descriptorWithIds(numeric.descriptor(), 0, 1, 2)),
+        "a numeric column cannot declare a DICT segment");
+
+    final int unknownId = ProjectionIndexColumnSegmentCodec.DICT_HASH_SEGMENT_BASE - 1;
+    assertThrows(IllegalArgumentException.class,
+        () -> ProjectionIndexColumnSegmentCodec.expectedSegmentKind(unknownId));
+    assertThrows(IllegalStateException.class,
+        () -> RowGroupDescriptor.validate(descriptorWithIds(numeric.descriptor(), 0, 1, unknownId)));
+
+    final byte[] duplicate = numeric.descriptor().clone();
+    putSegmentId(duplicate, 1, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId());
+    assertThrows(IllegalStateException.class, () -> RowGroupDescriptor.validate(duplicate));
+
+    final byte[] unknownKind = numeric.descriptor().clone();
+    unknownKind[27] = (byte) 0x7F;
+    assertThrows(IllegalStateException.class, () -> RowGroupDescriptor.validate(unknownKind));
+
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup stringSet = ProjectionIndexColumnSegmentCodec.encode(
+        singleKindLeaf(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET).serialize());
+    final int[] setIdsWithForbiddenHash =
+        Arrays.copyOf(stringSet.columnSegmentIds(), stringSet.columnSegmentIds().length + 1);
+    setIdsWithForbiddenHash[setIdsWithForbiddenHash.length - 1] =
+        ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(0);
+    assertThrows(IllegalStateException.class,
+        () -> RowGroupDescriptor.validate(descriptorWithIds(stringSet.descriptor(), setIdsWithForbiddenHash)),
+        "STRING_SET must not carry the scalar STRING_DICT hash segment");
+  }
+
+  @Test
+  void nonBodySegmentsRejectEveryBodyOnlyMirrorField() {
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup localString = ProjectionIndexColumnSegmentCodec.encode(
+        singleKindLeaf(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT).serialize());
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup stringSet =
+        ProjectionIndexColumnSegmentCodec.encode(setLeaf().serialize());
+    final int[] localStringNonBodies = {ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+        ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(0),
+        ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(0)};
+    for (final int id : localStringNonBodies) {
+      assertNonBodyMirrorsRejected(localString, id);
+    }
+    assertNonBodyMirrorsRejected(stringSet, ProjectionIndexColumnSegmentCodec.setCountsColumnSegmentId(0));
+  }
+
+  @Test
+  void descriptorMirrorsMustEqualKeysAndBodySegmentTruth() {
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+        ProjectionIndexColumnSegmentCodec.encode(benchLeaf(64, 1_000L).serialize());
+
+    final byte[] wrongFirstKey = encoded.descriptor().clone();
+    RowGroupDescriptor.putLongLE(wrongFirstKey, 11, RowGroupDescriptor.firstRecordKey(wrongFirstKey) + 1);
+    RowGroupDescriptor.validate(wrongFirstKey);
+    assertThrows(IllegalStateException.class,
+        () -> ProjectionIndexColumnSegmentCodec.assembleRaw(wrongFirstKey, resolverOf(encoded)));
+
+    final int bodyEntry =
+        RowGroupDescriptor.entryIndexOf(encoded.descriptor(), ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0));
+    final int bodyOffset = descriptorEntryOffset(encoded.descriptor(), bodyEntry);
+    final byte[] wrongFlags = encoded.descriptor().clone();
+    wrongFlags[bodyOffset + 14] ^= ProjectionIndexRowGroupPage.COLUMN_FLAG_NON_INTEGRAL;
+    RowGroupDescriptor.validate(wrongFlags);
+    assertThrows(IllegalStateException.class,
+        () -> ProjectionIndexColumnSegmentCodec.assembleRaw(wrongFlags, resolverOf(encoded)));
+
+    final byte[] wrongMin = encoded.descriptor().clone();
+    RowGroupDescriptor.putLongLE(wrongMin, bodyOffset + 15, RowGroupDescriptor.entryMin(wrongMin, bodyEntry) + 1);
+    RowGroupDescriptor.validate(wrongMin);
+    assertThrows(IllegalStateException.class,
+        () -> ProjectionIndexColumnSegmentCodec.assembleRaw(wrongMin, resolverOf(encoded)));
+
+    final byte[] wrongMax = encoded.descriptor().clone();
+    RowGroupDescriptor.putLongLE(wrongMax, bodyOffset + 23, RowGroupDescriptor.entryMax(wrongMax, bodyEntry) - 1);
+    RowGroupDescriptor.validate(wrongMax);
+    assertThrows(IllegalStateException.class,
+        () -> ProjectionIndexColumnSegmentCodec.assembleRaw(wrongMax, resolverOf(encoded)));
+  }
+
+  @Test
+  void lazyDirectoryRejectsUndeclaredAndDuplicateSegmentSlots() {
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+        ProjectionIndexColumnSegmentCodec.encode(benchLeaf(64, 10L).serialize());
+    final int count = encoded.columnSegmentIds().length;
+    final long[] offsets = new long[count];
+    Arrays.fill(offsets, 1L);
+    new ProjectionIndexHOTStorage.RowGroupDirectory(1L, encoded.descriptor(), encoded.columnSegmentIds(), offsets,
+        new byte[count][]);
+
+    final int[] duplicate = encoded.columnSegmentIds().clone();
+    duplicate[duplicate.length - 1] = duplicate[duplicate.length - 2];
+    assertThrows(IllegalArgumentException.class, () -> new ProjectionIndexHOTStorage.RowGroupDirectory(1L,
+        encoded.descriptor(), duplicate, offsets, new byte[count][]));
+
+    final int[] undeclared = Arrays.copyOf(encoded.columnSegmentIds(), count + 1);
+    undeclared[count] = ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(3);
+    final long[] extraOffsets = Arrays.copyOf(offsets, count + 1);
+    extraOffsets[count] = 2L;
+    assertThrows(IllegalArgumentException.class, () -> new ProjectionIndexHOTStorage.RowGroupDirectory(1L,
+        encoded.descriptor(), undeclared, extraOffsets, new byte[count + 1][]));
+  }
+
+  @Test
+  void everyEmittedSetCountsSegmentFitsCompletelyInsideIts512ByteSlot() {
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup small =
+        ProjectionIndexColumnSegmentCodec.encode(setLeaf().serialize());
+    final byte[] smallCounts = segmentOf(small, ProjectionIndexColumnSegmentCodec.setCountsColumnSegmentId(0));
+    assertNotNull(smallCounts, "the compact fixture must emit SET_COUNTS");
+    assertTrue(smallCounts.length <= ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES);
+
+    final String[] boundaryValues = new String[21];
+    for (int value = 0; value < boundaryValues.length; value++) {
+      boundaryValues[value] = String.format("%020d", value);
+    }
+    boundaryValues[0] += "xx"; // descriptor payload fits 512; the six-byte PIXS header does not.
+    final ProjectionIndexRowGroupPage boundary =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET});
+    appendSet(boundary, 1L, boundaryValues);
+    final byte[] boundaryCounts = segmentOf(ProjectionIndexColumnSegmentCodec.encode(boundary.serialize()),
+        ProjectionIndexColumnSegmentCodec.setCountsColumnSegmentId(0));
+    assertTrue(boundaryCounts == null || boundaryCounts.length <= ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES,
+        "SET_COUNTS eligibility must include the complete PIXS header, not just its payload");
+  }
+
+  @Test
+  void encoderEmitsExactZoneMapOnlyDescriptor() {
+    final byte[] raw = benchLeaf(300, 5L).serialize();
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
-    final int inlined = inlineCount(encoded.descriptor());
-    final int total = RowGroupDescriptor.columnSegmentCount(encoded.descriptor());
-    assertTrue(inlined > 0 && inlined < total,
-        "expected a mix of inline and referenced segments, got " + inlined + "/" + total);
-    assertArrayEquals(raw,
-        ProjectionIndexColumnSegmentCodec.assembleRaw(encoded.descriptor(), referencedOnlyResolver(encoded)));
+    final byte[] descriptor = encoded.descriptor();
+    RowGroupDescriptor.validate(descriptor);
+    final int expectedLength = 27 + RowGroupDescriptor.columnCount(descriptor) + 2
+        + RowGroupDescriptor.columnSegmentCount(descriptor) * RowGroupDescriptor.ENTRY_BYTES;
+    assertEquals(expectedLength, descriptor.length,
+        "the descriptor must end at its entry table and contain no payload region");
+    assertArrayEquals(raw, ProjectionIndexColumnSegmentCodec.assembleRaw(descriptor, resolverOf(encoded)));
   }
 
   @Test
-  void referencedOnlyModeProducesNoInlineRegion() {
-    ProjectionIndexColumnSegmentCodec.setInlinePolicyForTesting(0, 0);
-    try {
-      final byte[] raw = benchLeaf(300, 5L).serialize();
-      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
-      assertEquals(0, inlineCount(encoded.descriptor()), "threshold 0 → no inline entries");
-      // No inline region → the descriptor is exactly the entry table (the pre-hybrid length rule).
-      RowGroupDescriptor.validate(encoded.descriptor());
-      assertArrayEquals(raw, ProjectionIndexColumnSegmentCodec.assembleRaw(encoded.descriptor(), resolverOf(encoded)));
-    } finally {
-      ProjectionIndexColumnSegmentCodec.clearInlinePolicyForTesting();
+  void descriptorRejectsTrailingPayloadBytes() {
+    final byte[] descriptor = ProjectionIndexColumnSegmentCodec.encode(benchLeaf(64, 9L).serialize()).descriptor();
+    final byte[] withTrailingPayload = Arrays.copyOf(descriptor, descriptor.length + 1);
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> RowGroupDescriptor.validate(withTrailingPayload));
+    assertTrue(failure.getMessage().contains("length"), failure.getMessage());
+  }
+
+  @Test
+  void descriptorRejectsFormerInlineMarker() {
+    final byte[] descriptor =
+        ProjectionIndexColumnSegmentCodec.encode(benchLeaf(64, 9L).serialize()).descriptor().clone();
+    final int firstEntryByteLen = 27 + RowGroupDescriptor.columnCount(descriptor) + 2 + 2;
+    descriptor[firstEntryByteLen + 3] |= (byte) 0x80;
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> RowGroupDescriptor.validate(descriptor));
+    assertTrue(failure.getMessage().contains("byteLen"), failure.getMessage());
+  }
+
+  @Test
+  void serializeAllowsWideZoneMapDescriptorPastTheU16Length() {
+    final int columns = 2_200;
+    final int entries = columns + 1;
+    final byte[] kinds = new byte[columns];
+    Arrays.fill(kinds, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG);
+    final int[] ids = new int[entries];
+    final int[] byteLens = new int[entries];
+    final long[] hashes = new long[entries];
+    final byte[] flags = new byte[entries];
+    final long[] mins = new long[entries];
+    final long[] maxs = new long[entries];
+    ids[0] = ProjectionIndexColumnSegmentCodec.keysColumnSegmentId();
+    byteLens[0] = ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES + 2 * Long.BYTES + 1 + 2 * Integer.BYTES;
+    for (int column = 0; column < columns; column++) {
+      final int entry = column + 1;
+      ids[entry] = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column);
+      byteLens[entry] = ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES + 1;
+      mins[entry] = Long.MAX_VALUE;
+      maxs[entry] = Long.MIN_VALUE;
     }
-  }
-
-  @Test
-  void classifyInlineIsSmallestFirstUnderBudget() {
-    // Eligibility = byteLen <= 192; over-threshold entries never inline regardless of budget.
-    ProjectionIndexColumnSegmentCodec.setInlinePolicyForTesting(192, 512);
-    try {
-      final boolean[] r = ProjectionIndexColumnSegmentCodec.classifyInline(new int[] {100, 300, 50, 150, 200}, 5);
-      assertArrayEquals(new boolean[] {true, false, true, true, false}, r,
-          "300 and 200 exceed the per-segment ceiling; 100+50+150=300 fits the budget");
-      // Budget spill: six 100-byte eligible segments, budget 512 → smallest-first inlines five.
-      final boolean[] spill =
-          ProjectionIndexColumnSegmentCodec.classifyInline(new int[] {100, 100, 100, 100, 100, 100}, 6);
-      assertArrayEquals(new boolean[] {true, true, true, true, true, false}, spill);
-      // Escape hatch: threshold 0 → nothing inline.
-      ProjectionIndexColumnSegmentCodec.setInlinePolicyForTesting(0, 512);
-      assertArrayEquals(new boolean[] {false, false},
-          ProjectionIndexColumnSegmentCodec.classifyInline(new int[] {1, 2}, 2));
-    } finally {
-      ProjectionIndexColumnSegmentCodec.clearInlinePolicyForTesting();
-    }
-  }
-
-  @Test
-  void corruptInlineSegmentBytesFailAtAssembly() {
-    ProjectionIndexColumnSegmentCodec.setInlinePolicyForTesting(1 << 20, 1 << 24);
-    try {
-      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
-          ProjectionIndexColumnSegmentCodec.encode(benchLeaf(120, 7L).serialize());
-      final byte[] d = encoded.descriptor().clone();
-      // Flip a byte inside the FIRST inline segment's data (all segments inline here) so the length
-      // still validates but its content hash no longer matches. The first entry, not the last byte
-      // of the region: the trailing inline segment is now a DICT_HASHES one, and the raw assembly
-      // legitimately never opens it — only the segments it reads are verified.
-      d[RowGroupDescriptor.inlineDataOffset(d, 0)] ^= 0x20;
-      final IllegalStateException e = assertThrows(IllegalStateException.class,
-          () -> ProjectionIndexColumnSegmentCodec.assembleRaw(d, columnSegmentId -> null));
-      assertTrue(e.getMessage().contains("hash"), e.getMessage());
-    } finally {
-      ProjectionIndexColumnSegmentCodec.clearInlinePolicyForTesting();
-    }
-  }
-
-  @Test
-  void descriptorInlineReadersRoundTrip() {
-    final byte[] inlineSeg = {10, 11, 12, 13, 14, 15, 16}; // 7 bytes, stands in for a segment
-    final int refLen = 900;
-    final byte[] d = RowGroupDescriptor.serialize(3, 100L, 200L, new byte[0], 2, new int[] {0, 1},
-        new int[] {inlineSeg.length, refLen}, new long[] {0xABCDL, 0x1234L}, new byte[] {0, 0}, new long[] {1, 2},
-        new long[] {3, 4}, new boolean[] {true, false}, new byte[][] {inlineSeg, null});
-    RowGroupDescriptor.validate(d);
-    assertTrue(RowGroupDescriptor.entryIsInline(d, 0));
-    assertTrue(!RowGroupDescriptor.entryIsInline(d, 1));
-    // byteLen readers mask the storage-class flag off → true lengths for both classes.
-    assertEquals(inlineSeg.length, RowGroupDescriptor.entryByteLen(d, 0));
-    assertEquals(refLen, RowGroupDescriptor.entryByteLen(d, 1));
-    assertArrayEquals(inlineSeg, RowGroupDescriptor.inlineColumnSegmentBytes(d, 0));
-    // Referenced entry keeps its hash intact (not masked).
-    assertEquals(0x1234L, RowGroupDescriptor.entryContentHash(d, 1));
-  }
-
-  @Test
-  void serializeAllowsDescriptorPastTheU16SlotValueLimit() {
-    // The u16 slot-value cap is a descriptor-DIRECTORY storage limit (enforced at writeSlotValue),
-    // NOT a serialize limit: serialize caps only at the absolute OverflowPage ceiling so the
-    // segment-slot layout — whose descriptor spills to a page — can be produced for very wide row
-    // groups. A single inline segment past the old u16 wall must now serialize cleanly.
-    final byte[] pastU16 = new byte[RowGroupDescriptor.MAX_SLOT_VALUE_BYTES + 1];
-    final byte[] d = RowGroupDescriptor.serialize(1, 0L, 0L, new byte[0], 1, new int[] {0}, new int[] {pastU16.length},
-        new long[] {0L}, new byte[] {0}, new long[] {0}, new long[] {0}, new boolean[] {true}, new byte[][] {pastU16});
-    RowGroupDescriptor.validate(d);
-    assertTrue(d.length > RowGroupDescriptor.MAX_SLOT_VALUE_BYTES,
-        "serialize must accept a descriptor larger than the u16 slot-value limit");
-    assertTrue(RowGroupDescriptor.entryIsInline(d, 0));
-    assertEquals(pastU16.length, RowGroupDescriptor.entryByteLen(d, 0));
+    final byte[] descriptor = RowGroupDescriptor.serialize(0, Long.MAX_VALUE, Long.MIN_VALUE, kinds, entries, ids,
+        byteLens, hashes, flags, mins, maxs);
+    RowGroupDescriptor.validate(descriptor);
+    assertTrue(descriptor.length > 0xFFFF,
+        "a wide canonical descriptor must remain serializable for OverflowPage-backed blob storage");
   }
 
   @Test
@@ -1115,31 +1409,12 @@ final class ProjectionIndexColumnSegmentCodecTest {
   }
 
   @Test
-  void descriptorSerializeRejectsAnOverflowingInlineRegion() {
-    // The inline-region sum is accumulated in a long: at the u16 columnSegmentCount ceiling an int
-    // accumulator wraps negative, slips past the size guard, and surfaces as NegativeArraySizeException
-    // from the allocation. It must be an attributable IllegalArgumentException instead.
-    final int entries = 0xFFFF;
-    final int perEntry = 32769; // Σ = 2_147_516_415 > Integer.MAX_VALUE
-    final byte[] shared = new byte[perEntry];
-    final int[] ids = new int[entries];
-    final int[] byteLens = new int[entries];
-    final long[] hashes = new long[entries];
-    final byte[] colFlags = new byte[entries];
-    final long[] mins = new long[entries];
-    final long[] maxs = new long[entries];
-    final boolean[] inline = new boolean[entries];
-    final byte[][] segmentBytes = new byte[entries][];
-    for (int i = 0; i < entries; i++) {
-      ids[i] = i;
-      byteLens[i] = perEntry;
-      inline[i] = true;
-      segmentBytes[i] = shared; // only its length is inspected before the size guard
-    }
-    final IllegalArgumentException e =
-        assertThrows(IllegalArgumentException.class, () -> RowGroupDescriptor.serialize(0, 0L, 0L, new byte[0], entries,
-            ids, byteLens, hashes, colFlags, mins, maxs, inline, segmentBytes));
-    assertTrue(e.getMessage().contains("segment ceiling"), e.getMessage());
+  void descriptorSerializeRejectsOutOfRangeSegmentLength() {
+    final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+        () -> RowGroupDescriptor.serialize(0, 0L, 0L, new byte[0], 1, new int[] {0},
+            new int[] {RowGroupDescriptor.MAX_SEGMENT_BYTES + 1}, new long[] {0L}, new byte[] {0}, new long[] {0L},
+            new long[] {0L}));
+    assertTrue(failure.getMessage().contains("byteLen"), failure.getMessage());
   }
 
   // ==================== flat dictionary slices ====================
@@ -1232,5 +1507,410 @@ final class ProjectionIndexColumnSegmentCodecTest {
     // codepoint-vs-byte confusion anywhere in the decode shows up as a wrong value here.
     final String[] values = {"", "\u00e4\u00f6\u00fc", "\uD83D\uDE00 emoji", null, "plain", "", "\uD83D\uDE00"};
     assertFlatDictReproduces(values, true);
+  }
+
+  // ==================== P3: synthesized order labels ====================
+
+  /**
+   * The lane default this JVM started with, so a witness that forces the kill switch cannot leak its
+   * setting into the next test (and so a suite run WITH the property set still restores the truth).
+   */
+  private static final boolean DEFAULT_SYNTHESIZED_ORDER_LABELS = ProjectionIndexRowGroupCodec.synthesizedOrderLabels;
+
+  @AfterEach
+  void restoreTheOrderLabelLaneDefault() {
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = DEFAULT_SYNTHESIZED_ORDER_LABELS;
+  }
+
+  /**
+   * The in-order bulk-append label shape: a fixed container prefix and a record division advancing by
+   * {@link SirixDeweyID#DEFAULT_SIBLING_DISTANCE}. Crosses the encoder's 1-byte/2-byte division tier
+   * boundary at row 6, which is exactly the natural exception the run mode has to carry.
+   */
+  private static byte[] inOrderAppendLabel(final int row) {
+    return new SirixDeweyID(new int[] {1, 3, 5, 7, 9, 11, 13, 15, 33 + 16 * row}).toBytes();
+  }
+
+  /**
+   * A one-column leaf whose row {@code r} carries {@code labels.apply(r)} as its Dewey order label.
+   */
+  private static ProjectionIndexRowGroupPage labelledLeaf(final int rows, final IntFunction<byte[]> labels) {
+    return labelledLeaf(rows, labels, row -> false);
+  }
+
+  /** {@link #labelledLeaf(int, IntFunction)} plus a per-row sparse document-order exception flag. */
+  private static ProjectionIndexRowGroupPage labelledLeaf(final int rows, final IntFunction<byte[]> labels,
+      final IntPredicate orderExceptions) {
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    final Random rng = new Random(11);
+    long key = 1_000_000L;
+    for (int row = 0; row < rows; row++) {
+      key += 100 + rng.nextInt(13);
+      assertTrue(page.appendExtractedUtf8Row(key, new long[] {row * 7L}, new boolean[1], new byte[1][], new int[1],
+          new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1],
+          orderExceptions.test(row), labels.apply(row)), "row " + row + " refused");
+    }
+    return page;
+  }
+
+  private static byte[] keysSegmentOf(final ProjectionIndexRowGroupPage page) {
+    return segmentOf(ProjectionIndexColumnSegmentCodec.encode(page.serialize()),
+        ProjectionIndexColumnSegmentCodec.keysColumnSegmentId());
+  }
+
+  private static ProjectionIndexColumnSegmentCodec.KeysView keysViewOf(
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded) {
+    return ProjectionIndexColumnSegmentCodec.decodeKeysView(encoded.descriptor(),
+        segmentOf(encoded, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId()));
+  }
+
+  /**
+   * Encodes {@code page} with the compacted lane forced OFF and ON and proves the two are
+   * indistinguishable to every consumer: byte-identical raw assembly, identical
+   * {@code copyOrderLabelAt} for every row, identical {@code compareOrderLabelAt} sign against the
+   * row's own label and against a longer/shorter probe, and an identical materialised
+   * {@code KeysSlice}. Returns the wire marker the compacted encoder chose.
+   */
+  private static int assertOrderLabelLaneParity(final ProjectionIndexRowGroupPage page) {
+    final byte[] raw = page.serialize();
+    final int rowCount = page.getRowCount();
+    final int keysId = ProjectionIndexColumnSegmentCodec.keysColumnSegmentId();
+
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup legacy = ProjectionIndexColumnSegmentCodec.encode(raw);
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup compact = ProjectionIndexColumnSegmentCodec.encode(raw);
+
+    assertArrayEquals(raw, ProjectionIndexColumnSegmentCodec.assembleRaw(legacy.descriptor(), coldResolverOf(legacy)),
+        "legacy lane must assemble the raw form byte-identically");
+    assertArrayEquals(raw, ProjectionIndexColumnSegmentCodec.assembleRaw(compact.descriptor(), coldResolverOf(compact)),
+        "compacted lane must assemble the raw form byte-identically");
+
+    final ProjectionIndexColumnSegmentCodec.KeysView legacyView = keysViewOf(legacy);
+    final ProjectionIndexColumnSegmentCodec.KeysView compactView = keysViewOf(compact);
+    assertArrayEquals(legacyView.recordKeys(), compactView.recordKeys());
+    for (int row = 0; row < rowCount; row++) {
+      final byte[] expected = page.copyOrderLabelAt(row);
+      assertArrayEquals(expected, legacyView.copyOrderLabelAt(row), "legacy label at row " + row);
+      assertArrayEquals(expected, compactView.copyOrderLabelAt(row), "compacted label at row " + row);
+      assertEquals(0, compactView.compareOrderLabelAt(row, expected), "self compare at row " + row);
+      // A longer probe sharing the whole label and a shorter prefix of it exercise both tails of
+      // compareOrderLabels — the length tie-break and the byte-difference exit.
+      final byte[] longer = Arrays.copyOf(expected, expected.length + 1);
+      final byte[] shorter = Arrays.copyOf(expected, expected.length - 1);
+      assertEquals(Integer.signum(legacyView.compareOrderLabelAt(row, longer)),
+          Integer.signum(compactView.compareOrderLabelAt(row, longer)), "compare vs longer at row " + row);
+      assertEquals(Integer.signum(legacyView.compareOrderLabelAt(row, shorter)),
+          Integer.signum(compactView.compareOrderLabelAt(row, shorter)), "compare vs shorter at row " + row);
+      if (row + 1 < rowCount) {
+        assertTrue(compactView.compareOrderLabelAt(row, page.copyOrderLabelAt(row + 1)) < 0,
+            "row " + row + " must order before its successor");
+      }
+      if (row > 0) {
+        assertTrue(compactView.compareOrderLabelAt(row, page.copyOrderLabelAt(row - 1)) > 0,
+            "row " + row + " must order after its predecessor");
+      }
+    }
+
+    final ProjectionIndexColumnSegmentCodec.KeysSlice legacySlice =
+        ProjectionIndexColumnSegmentCodec.decodeKeysAndOrderSlice(legacy.descriptor(), segmentOf(legacy, keysId));
+    final ProjectionIndexColumnSegmentCodec.KeysSlice compactSlice =
+        ProjectionIndexColumnSegmentCodec.decodeKeysAndOrderSlice(compact.descriptor(), segmentOf(compact, keysId));
+    assertArrayEquals(legacySlice.orderLabelBytes(), compactSlice.orderLabelBytes(), "materialised label bytes");
+    assertArrayEquals(legacySlice.orderLabelOffsets(), compactSlice.orderLabelOffsets(), "materialised label offsets");
+    return compactView.orderLabels().marker();
+  }
+
+  @Test
+  void inOrderAppendLabelsCollapseToASynthesizedRun() {
+    final ProjectionIndexRowGroupPage page =
+        labelledLeaf(1024, ProjectionIndexColumnSegmentCodecTest::inOrderAppendLabel);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED, assertOrderLabelLaneParity(page));
+
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final int before = keysSegmentOf(page).length;
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    final int after = keysSegmentOf(page).length;
+    // Acceptance (STORAGE_AND_SPEED_PLAN P3): KEYS <= 1.5 B/row on an in-order bulk-loaded leaf. The
+    // residue is the delta-FOR record-key stream; the order-label lane itself is ~40 bytes for the
+    // whole leaf.
+    assertTrue(2 * after <= 3 * page.getRowCount(), "KEYS must fall to <= 1.5 B/row, got "
+        + after / (double) page.getRowCount() + " (was " + before / (double) page.getRowCount() + ")");
+    assertTrue(after * 10 < before, "expected an order-of-magnitude smaller KEYS, got " + before + " -> " + after);
+  }
+
+  @Test
+  void runsWithExceptionsInTheMiddleAndAtBothEndsRoundTrip() {
+    // A deeper label at a row breaks the run's "same length, same prefix" shape: it becomes an
+    // anchor and the rows after it restart the arithmetic.
+    final IntFunction<byte[]> middle = row -> row == 250
+        ? new SirixDeweyID(new int[] {1, 3, 5, 7, 9, 11, 13, 15, 33 + 16 * row, 3}).toBytes()
+        : inOrderAppendLabel(row);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED,
+        assertOrderLabelLaneParity(labelledLeaf(512, middle)));
+
+    final IntFunction<byte[]> ends = row -> row == 1 || row == 511
+        ? new SirixDeweyID(new int[] {1, 3, 5, 7, 9, 11, 13, 15, 33 + 16 * row, 3}).toBytes()
+        : inOrderAppendLabel(row);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED,
+        assertOrderLabelLaneParity(labelledLeaf(512, ends)));
+
+    // Non-uniform strides still ride the run: the delta stream simply stops packing to zero bits.
+    final IntFunction<byte[]> varyingStride =
+        row -> new SirixDeweyID(new int[] {1, 3, 5, 7, 9, 11, 13, 15, 33 + 16 * row + 2 * (row % 3)}).toBytes();
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED,
+        assertOrderLabelLaneParity(labelledLeaf(512, varyingStride)));
+  }
+
+  @Test
+  void aDenseOrderExceptionBitmapSitsBesideASynthesizedRun() {
+    // The exception bitmap is written immediately before the label lane, so a wrong skip length in
+    // either direction shows up here and nowhere else.
+    final ProjectionIndexRowGroupPage page =
+        labelledLeaf(512, ProjectionIndexColumnSegmentCodecTest::inOrderAppendLabel, row -> row == 3 || row == 300);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED, assertOrderLabelLaneParity(page));
+    final ProjectionIndexColumnSegmentCodec.KeysView view =
+        keysViewOf(ProjectionIndexColumnSegmentCodec.encode(page.serialize()));
+    assertTrue(view.dense());
+    for (int row = 0; row < 512; row++) {
+      assertEquals(row == 3 || row == 300, view.orderExceptionAt(row), "order-exception bit at row " + row);
+    }
+  }
+
+  @Test
+  void nonRunLabelSequencesFallBackToFrontCodingAndStillRoundTrip() {
+    // Alternating label DEPTH: every row differs from its predecessor in length, so no tail width
+    // makes a run. Front coding still pays, because consecutive labels share their leading division.
+    final IntFunction<byte[]> alternatingDepth = row -> row % 2 == 0
+        ? new SirixDeweyID(new int[] {1, 3 + 2 * row}).toBytes()
+        : new SirixDeweyID(new int[] {1, 3 + 2 * (row - 1), 3 + 2 * (row % 7)}).toBytes();
+    final ProjectionIndexRowGroupPage page = labelledLeaf(512, alternatingDepth);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_FRONT_CODED, assertOrderLabelLaneParity(page));
+
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final int before = keysSegmentOf(page).length;
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    assertTrue(keysSegmentOf(page).length < before, "front coding must beat the legacy lane when it is chosen");
+  }
+
+  @Test
+  void singleRowAndEmptyLeavesKeepTheLegacyOrderLabelLane() {
+    final ProjectionIndexRowGroupPage single =
+        labelledLeaf(1, ProjectionIndexColumnSegmentCodecTest::inOrderAppendLabel);
+    assertTrue(assertOrderLabelLaneParity(single) >= 0, "a one-row leaf must stay on the legacy lane");
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final byte[] legacySingle = keysSegmentOf(single);
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    assertArrayEquals(legacySingle, keysSegmentOf(single), "a one-row leaf must not change on the wire");
+
+    final ProjectionIndexRowGroupPage empty =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    assertTrue(assertOrderLabelLaneParity(empty) >= 0, "an empty leaf must stay on the legacy lane");
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final byte[] legacyEmpty = keysSegmentOf(empty);
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    assertArrayEquals(legacyEmpty, keysSegmentOf(empty), "an empty leaf must not change on the wire");
+  }
+
+  /**
+   * The KEYS segment of {@link #killSwitchFixture()} as the PRE-P3 encoder wrote it. Re-recorded only
+   * when the legacy lane itself is meant to change; the kill switch exists so this stays reachable.
+   */
+  private static final String GOLDEN_LEGACY_KEYS_SEGMENT =
+      "50495853000007000000000000001600000000000000000700000000000000"
+          + "03fd0000080000000000000002000000040000000600000008000000100410061008100a";
+
+  /** Four in-order rows with hand-chosen keys — small enough to pin as hex, real labels. */
+  private static ProjectionIndexRowGroupPage killSwitchFixture() {
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    final long[] keys = {7L, 12L, 19L, 22L};
+    for (int row = 0; row < keys.length; row++) {
+      assertTrue(page.appendExtractedUtf8Row(keys[row], new long[] {row}, new boolean[1], new byte[1][], new int[1],
+          new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1], false,
+          new SirixDeweyID(new int[] {1, 15, 3 + 2 * row}).toBytes()));
+    }
+    return page;
+  }
+
+  @Test
+  void killSwitchReproducesTheLegacyOrderLabelBytesExactly() {
+    final ProjectionIndexRowGroupPage page = killSwitchFixture();
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final byte[] off = keysSegmentOf(page);
+    assertEquals(GOLDEN_LEGACY_KEYS_SEGMENT, hexOf(off),
+        "-Dsirix.projection.orderLabels.synthesized=false must reproduce the pre-P3 KEYS bytes");
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    final byte[] on = keysSegmentOf(page);
+    assertNotEquals(hexOf(off), hexOf(on), "the compacted lane must actually change the wire form here");
+    assertTrue(on.length < off.length, "the compacted lane must be smaller here");
+    // Four rows cannot amortise the run header's fixed ~20 bytes, so the size race picks front
+    // coding here — which is the point: the choice is made by measured size, not by shape guessing.
+    assertTrue(assertOrderLabelLaneParity(page) < 0, "the compacted encoder must leave the legacy lane");
+  }
+
+  private static String hexOf(final byte[] bytes) {
+    final StringBuilder out = new StringBuilder(bytes.length * 2);
+    for (final byte b : bytes) {
+      out.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+    }
+    return out.toString();
+  }
+
+  /**
+   * Emits a synthesized order-label lane exactly as the encoder does, so a witness can bend one
+   * field.
+   */
+  private static byte[] synthesizedLane(final int tailLen, final int deltaWidth, final long deltaBase,
+      final int[] anchorRows, final byte[][] anchorLabels, final long[] deltas) {
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    ProjectionIndexRowGroupCodec.putIntLE(out, ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED);
+    out.write(tailLen);
+    out.write(deltaWidth);
+    ProjectionIndexRowGroupCodec.putLongLE(out, deltaBase);
+    ProjectionIndexRowGroupCodec.putIntLE(out, anchorRows.length);
+    int maxAnchorRow = 0;
+    int maxAnchorLength = 0;
+    for (int anchor = 0; anchor < anchorRows.length; anchor++) {
+      maxAnchorRow = Math.max(maxAnchorRow, anchorRows[anchor]);
+      maxAnchorLength = Math.max(maxAnchorLength, anchorLabels[anchor].length);
+    }
+    final int anchorRowWidth = anchorRows.length == 1
+        ? 0
+        : ProjectionIndexRowGroupCodec.widthOf(maxAnchorRow);
+    out.write(anchorRowWidth);
+    final ProjectionIndexRowGroupCodec.BitWriter rows = new ProjectionIndexRowGroupCodec.BitWriter(out);
+    for (int anchor = 1; anchor < anchorRows.length; anchor++) {
+      rows.write(anchorRows[anchor], anchorRowWidth);
+    }
+    rows.flush();
+    final int anchorLenWidth = ProjectionIndexRowGroupCodec.widthOf(maxAnchorLength);
+    out.write(anchorLenWidth);
+    final ProjectionIndexRowGroupCodec.BitWriter lengths = new ProjectionIndexRowGroupCodec.BitWriter(out);
+    for (final byte[] label : anchorLabels) {
+      lengths.write(label.length, anchorLenWidth);
+    }
+    lengths.flush();
+    for (final byte[] label : anchorLabels) {
+      out.write(label, 0, label.length);
+    }
+    final ProjectionIndexRowGroupCodec.BitWriter deltaWriter = new ProjectionIndexRowGroupCodec.BitWriter(out);
+    for (final long delta : deltas) {
+      deltaWriter.write(delta - deltaBase, deltaWidth);
+    }
+    deltaWriter.flush();
+    return out.toByteArray();
+  }
+
+  private static ProjectionIndexRowGroupCodec.OrderLabelLane decodeLane(final byte[] lane, final int rowCount) {
+    return ProjectionIndexRowGroupCodec.decodeOrderLabelLane(new ProjectionIndexRowGroupCodec.Cursor(lane, 0),
+        rowCount);
+  }
+
+  private static void assertLaneRejects(final byte[] lane, final int rowCount, final String why) {
+    assertThrows(IllegalStateException.class, () -> decodeLane(lane, rowCount), why);
+  }
+
+  @Test
+  void aSynthesizedLaneIsValidatedFieldByField() {
+    // Positive control: rows 0..3 = 10 04, 10 06, 10 08, 10 0a.
+    final byte[] valid = synthesizedLane(1, 0, 2L, new int[] {0}, new byte[][] {{0x10, 0x04}}, new long[0]);
+    final ProjectionIndexRowGroupCodec.OrderLabelLane lane = decodeLane(valid, 4);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED, lane.marker());
+    assertEquals(8, lane.totalBytes());
+    assertArrayEquals(new byte[] {0x10, 0x04}, lane.copyAt(0));
+    assertArrayEquals(new byte[] {0x10, 0x0a}, lane.copyAt(3));
+    assertArrayEquals(new byte[] {0x10, 0x04, 0x10, 0x06, 0x10, 0x08, 0x10, 0x0a}, lane.materializeLabelBytes());
+    final int[] offsets = new int[5];
+    lane.copyOffsetsInto(offsets);
+    assertArrayEquals(new int[] {0, 2, 4, 6, 8}, offsets);
+
+    // Each mutation removes exactly one invariant the decoder is required to enforce.
+    assertLaneRejects(withByte(valid, 4, 0), 4, "tailLen 0 must be refused");
+    assertLaneRejects(withByte(valid, 4, 8), 4, "tailLen 8 must be refused");
+    assertLaneRejects(withInt(valid, 14, 0), 4, "anchorCount 0 must be refused");
+    assertLaneRejects(withInt(valid, 14, 5), 4, "anchorCount past rowCount must be refused");
+    assertLaneRejects(withLong(valid, 6, 0L), 4, "a zero stride is not strictly increasing");
+    assertLaneRejects(withLong(valid, 6, 1L << 20), 4, "a stride wider than the tail field must be refused");
+    assertLaneRejects(withInt(valid, 0, -3), 4, "an unknown lane marker must be refused");
+    assertLaneRejects(synthesizedLane(1, 0, 200L, new int[] {0}, new byte[][] {{0x10, 0x04}}, new long[0]), 4,
+        "a run that walks out of its tail field must be refused");
+    assertLaneRejects(
+        synthesizedLane(1, 0, 2L, new int[] {0, 2}, new byte[][] {{0x10, 0x04}, {0x10, 0x04}}, new long[0]), 4,
+        "an anchor that does not exceed its predecessor must be refused");
+    assertLaneRejects(synthesizedLane(1, 8, 1L, new int[] {0}, new byte[][] {{0x10, 0x04}}, new long[] {1L, 250L, 1L}),
+        4, "deltas that walk out of the tail field must be refused");
+  }
+
+  @Test
+  void aFrontCodedLaneIsValidatedFieldByField() {
+    // rows: "ab", "ac", "ad" -> prefixes 0,1,1; suffixes 2,1,1.
+    final byte[] valid = frontCodedLane(6, new int[] {0, 1, 1}, new int[] {2, 1, 1}, new byte[] {'a', 'b', 'c', 'd'});
+    final ProjectionIndexRowGroupCodec.OrderLabelLane lane = decodeLane(valid, 3);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_FRONT_CODED, lane.marker());
+    assertArrayEquals("abacad".getBytes(StandardCharsets.US_ASCII), lane.materializeLabelBytes());
+    assertArrayEquals(new byte[] {'a', 'd'}, lane.copyAt(2));
+
+    assertLaneRejects(frontCodedLane(6, new int[] {1, 1, 1}, new int[] {2, 1, 1}, new byte[] {'a', 'b', 'c', 'd'}), 3,
+        "row 0 cannot share a prefix with anything");
+    assertLaneRejects(frontCodedLane(6, new int[] {0, 3, 1}, new int[] {2, 1, 1}, new byte[] {'a', 'b', 'c', 'd'}), 3,
+        "a prefix longer than the previous label must be refused");
+    assertLaneRejects(frontCodedLane(5, new int[] {0, 1, 1}, new int[] {2, 0, 1}, new byte[] {'a', 'b', 'c', 'd'}), 3,
+        "an empty suffix would repeat the previous label");
+    assertLaneRejects(frontCodedLane(9, new int[] {0, 1, 1}, new int[] {2, 1, 1}, new byte[] {'a', 'b', 'c', 'd'}), 3,
+        "a declared byte length that does not match the rebuilt labels must be refused");
+  }
+
+  private static byte[] frontCodedLane(final int byteLength, final int[] prefixLengths, final int[] suffixLengths,
+      final byte[] suffixes) {
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    ProjectionIndexRowGroupCodec.putIntLE(out, ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_FRONT_CODED);
+    ProjectionIndexRowGroupCodec.putIntLE(out, byteLength);
+    int maxPrefix = 0;
+    int minSuffix = Integer.MAX_VALUE;
+    int maxSuffix = 0;
+    for (final int prefix : prefixLengths) {
+      maxPrefix = Math.max(maxPrefix, prefix);
+    }
+    for (final int suffix : suffixLengths) {
+      minSuffix = Math.min(minSuffix, suffix);
+      maxSuffix = Math.max(maxSuffix, suffix);
+    }
+    final int prefixWidth = ProjectionIndexRowGroupCodec.widthOf(maxPrefix);
+    final int suffixWidth = ProjectionIndexRowGroupCodec.rangeWidth(minSuffix, maxSuffix);
+    out.write(prefixWidth);
+    out.write(suffixWidth);
+    ProjectionIndexRowGroupCodec.putIntLE(out, minSuffix);
+    final ProjectionIndexRowGroupCodec.BitWriter prefixWriter = new ProjectionIndexRowGroupCodec.BitWriter(out);
+    for (final int prefix : prefixLengths) {
+      prefixWriter.write(prefix, prefixWidth);
+    }
+    prefixWriter.flush();
+    final ProjectionIndexRowGroupCodec.BitWriter suffixWriter = new ProjectionIndexRowGroupCodec.BitWriter(out);
+    for (final int suffix : suffixLengths) {
+      suffixWriter.write(suffix - minSuffix, suffixWidth);
+    }
+    suffixWriter.flush();
+    out.write(suffixes, 0, suffixes.length);
+    return out.toByteArray();
+  }
+
+  private static byte[] withByte(final byte[] source, final int offset, final int value) {
+    final byte[] copy = source.clone();
+    copy[offset] = (byte) value;
+    return copy;
+  }
+
+  private static byte[] withInt(final byte[] source, final int offset, final int value) {
+    final byte[] copy = source.clone();
+    ProjectionIndexRowGroupCodec.putIntLEAt(copy, offset, value);
+    return copy;
+  }
+
+  private static byte[] withLong(final byte[] source, final int offset, final long value) {
+    final byte[] copy = source.clone();
+    ProjectionIndexRowGroupCodec.putLongLEAt(copy, offset, value);
+    return copy;
   }
 }

@@ -109,6 +109,7 @@ final class KeyedTrieWriter {
   PageReference prepareLeafOfTree(final StorageEngineWriter storageEngineWriter, final TransactionIntentLog log,
       final int[] inpLevelPageCountExp, final PageReference startReference, final long pageKey, final int index,
       final IndexType indexType, final RevisionRootPage revisionRootPage) {
+    NodeStorageEngineReader.validateKeyedTrieRoute(storageEngineWriter, indexType, index);
     // Initial state pointing to the indirect nodePageReference of level 0.
     PageReference reference = startReference;
 
@@ -205,16 +206,12 @@ final class KeyedTrieWriter {
       case DOCUMENT -> revisionRoot.setOrCreateReference(0, pageReference);
       case CHANGED_NODES -> revisionRoot.setOrCreateReference(1, pageReference);
       case RECORD_TO_REVISIONS -> revisionRoot.setOrCreateReference(2, pageReference);
-      case CAS -> storageEngineReader.getCASPage(revisionRoot).setOrCreateReference(index, pageReference);
-      case PATH -> storageEngineReader.getPathPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case CAS, PATH, PROJECTION, VALIDTIME ->
+        throw new IllegalArgumentException(indexType + " indexes use HOT storage");
       case NAME -> storageEngineReader.getNamePage(revisionRoot).setOrCreateReference(index, pageReference);
       case PATH_SUMMARY ->
         storageEngineReader.getPathSummaryPage(revisionRoot).setOrCreateReference(index, pageReference);
       case VECTOR -> storageEngineReader.getVectorPage(revisionRoot).setOrCreateReference(index, pageReference);
-      case PROJECTION ->
-        storageEngineReader.getProjectionIndexPage(revisionRoot).setOrCreateReference(index, pageReference);
-      case VALIDTIME ->
-        storageEngineReader.getValidTimeIndexPage(revisionRoot).setOrCreateReference(index, pageReference);
       default ->
         throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     }
@@ -230,17 +227,13 @@ final class KeyedTrieWriter {
       case DOCUMENT -> revisionRoot.incrementAndGetCurrentMaxLevelOfDocumentIndexIndirectPages();
       case CHANGED_NODES -> revisionRoot.incrementAndGetCurrentMaxLevelOfChangedNodesIndexIndirectPages();
       case RECORD_TO_REVISIONS -> revisionRoot.incrementAndGetCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
-      case CAS -> storageEngineReader.getCASPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case PATH -> storageEngineReader.getPathPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case CAS, PATH, PROJECTION, VALIDTIME ->
+        throw new IllegalArgumentException(indexType + " indexes use HOT storage");
       case NAME -> storageEngineReader.getNamePage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       case PATH_SUMMARY ->
         storageEngineReader.getPathSummaryPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       case VECTOR ->
         storageEngineReader.getVectorPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case PROJECTION ->
-        storageEngineReader.getProjectionIndexPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case VALIDTIME ->
-        storageEngineReader.getValidTimeIndexPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       default ->
         throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };

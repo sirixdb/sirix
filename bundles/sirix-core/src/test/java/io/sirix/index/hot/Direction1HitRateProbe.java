@@ -55,9 +55,8 @@ final class Direction1HitRateProbe {
     final long fallbackBefore = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get();
     final long offPathOkBefore = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK.get();
     final long offPathFallbackBefore = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK.get();
-    final long escAvoidedBefore = AbstractHOTIndexWriter.REBUILD_HEIGHT_ESCALATION_AVOIDED.get();
-    final long propOrderFbBefore = AbstractHOTIndexWriter.REBUILD_PROPAGATION_ORDER_FALLBACK.get();
-    final long rebuildCallsBefore = AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get();
+    final long heightReencodesBefore = AbstractHOTIndexWriter.STRUCTURAL_HEIGHT_REENCODE.get();
+    final long preflightFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
 
     final int entriesPerRev = 1_000;
     final int totalRevs = 10;
@@ -107,9 +106,9 @@ final class Direction1HitRateProbe {
     final long fallbacks = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get() - fallbackBefore;
     final long offPathOk = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK.get() - offPathOkBefore;
     final long offPathFallback = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK.get() - offPathFallbackBefore;
-    final long escAvoided = AbstractHOTIndexWriter.REBUILD_HEIGHT_ESCALATION_AVOIDED.get() - escAvoidedBefore;
-    final long propOrderFb = AbstractHOTIndexWriter.REBUILD_PROPAGATION_ORDER_FALLBACK.get() - propOrderFbBefore;
-    final long rebuildCalls = AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get() - rebuildCallsBefore;
+    final long heightReencodes = AbstractHOTIndexWriter.STRUCTURAL_HEIGHT_REENCODE.get() - heightReencodesBefore;
+    final long preflightFailures =
+        AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get() - preflightFailuresBefore;
     final long totalC2 = subInserts + fallbacks;
     final long totalIssueB = offPathOk + offPathFallback;
 
@@ -118,22 +117,18 @@ final class Direction1HitRateProbe {
     System.err.println("    -> sub-insert (D1) : " + subInserts + (totalC2 > 0
         ? String.format(" (%.1f%%)", 100.0 * subInserts / totalC2)
         : ""));
-    System.err.println("    -> scoped rebuild  : " + fallbacks + (totalC2 > 0
+    System.err.println("    -> frontier splice : " + fallbacks + (totalC2 > 0
         ? String.format(" (%.1f%%)", 100.0 * fallbacks / totalC2)
         : ""));
     System.err.println("  Issue B firings      : " + totalIssueB);
     System.err.println("    -> incremental     : " + offPathOk + (totalIssueB > 0
         ? String.format(" (%.1f%%)", 100.0 * offPathOk / totalIssueB)
         : ""));
-    System.err.println("    -> whole rebuild   : " + offPathFallback + (totalIssueB > 0
+    System.err.println("    -> frontier splice : " + offPathFallback + (totalIssueB > 0
         ? String.format(" (%.1f%%)", 100.0 * offPathFallback / totalIssueB)
         : ""));
-    System.err.println(
-        "  rebuildSubtree calls  : " + rebuildCalls + " (each scoped to insertDepth, non-escalating since Stage 3c)");
-    System.err.println(
-        "  Stage 3c propagation  : " + escAvoided + " ancestors re-encoded in place (escalations avoided)");
-    System.err.println(
-        "  Stage 3c I7 fallbacks : " + propOrderFb + " (defensive scoped rebuild on partial-update collision)");
+    System.err.println("  height re-encodes    : " + heightReencodes);
+    System.err.println("  preflight failures   : " + preflightFailures + " (must remain zero)");
     System.err.println("=======================================");
   }
 

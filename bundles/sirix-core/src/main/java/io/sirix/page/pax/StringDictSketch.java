@@ -129,6 +129,40 @@ public final class StringDictSketch {
     }
     int totalEntries = 0;
     for (int tag = 0; tag < header.parentDictSize; tag++) {
+      if (header.tagGlobal[tag] || header.tagTemporal[tag]) {
+        // NO SKETCH AT ALL for a page with a converted tag, and the reason is the one this class is
+        // most dangerous about. A global tag stores dictionary IDS and no value bytes, so the walk
+        // below would read its packed ids AS lengths and hash whatever payload ranges they happen to
+        // address -- a sketch built from garbage. That is not a degraded sketch: a NEGATIVE is read
+        // as EXACT and for the whole PAGE, so the page would rule itself out of literals it actually
+        // holds and drop rows silently.
+        //
+        // Same rule, and the same reasoning, as a suppressed tag: a sketch that cannot describe every
+        // value on the page must not exist. Emitting one over only the non-global tags would be
+        // exactly the incompleteness the suppressed-tag guard already refuses.
+        //
+        // The cost is a lost page-skip on converted columns. The alternative worth pricing later is a
+        // sketch over the IDS rather than the bytes, with the probe hashing the id it resolved its
+        // literal to -- cheaper than losing the skip, but a new mechanism on both sides.
+        //
+        // HONEST SEVERITY, measured rather than argued: without this guard the walk returns null
+        // anyway, at 19 B, 292 B and 29 KB payloads alike. It is structurally so, not luck. At width
+        // 4 a decoded "length" passes the bounds check only if the top two bytes of every 4-byte
+        // window at dictStart + 4i are zero. The id table is densely packed at
+        // globalIdBits = 32 - numberOfLeadingZeros(entryCount) with ids >= 1 and at most 7 bits of
+        // tail padding, so it cannot hold a 16-bit zero run; and a window reaching past it into the
+        // length lane takes a length byte into its high bytes unless that lane is 4 bytes wide AND
+        // the windows align to it, which needs the packed table to be a multiple of 4 bytes, which
+        // forces the first window back into dense id bits. The two conditions exclude each other.
+        //
+        // So this guard converts a safety that lives three classes away -- in the id packing's
+        // density -- into a local one. THE WAY BACK TO A LIVE BUG IS ID 0. If a null sentinel or any
+        // other legitimate value were ever packed as id 0, a run of them is exactly the zero bytes
+        // the bounds check needs to pass, and the walk would hash garbage for real. The density
+        // assertion in StringRegion.Encoder does not catch it either, since 0 < entryCount. That is
+        // what this guard should be understood to defend.
+        return null;
+      }
       totalEntries += header.tagStringDictSize[tag];
     }
     if (totalEntries == 0) {
@@ -145,15 +179,21 @@ public final class StringDictSketch {
     for (int tag = 0; tag < header.parentDictSize; tag++) {
       final int dictStart = header.tagStringDictOffset[tag];
       final int n = header.tagStringDictSize[tag];
-      final long bytesStart = (long) dictStart + (long) n * Integer.BYTES;
-      if (dictStart < 0 || n < 0 || bytesStart > stringPayloadLength) {
+      // The length table's field width is the tag's, not a constant: a page framed for records
+      // stores most lengths in one byte. The header carries both the width and where the entries'
+      // bytes begin, so nothing here has to know which framing produced them.
+      final int lengthWidth = header.tagLengthWidth[tag];
+      final long bytesStart = header.tagStringBytesOffset[tag];
+      if (dictStart < 0 || n < 0 || lengthWidth <= 0 || bytesStart > stringPayloadLength
+          || (long) dictStart + (long) n * lengthWidth > stringPayloadLength) {
         return null;
       }
       int off = (int) bytesStart;
       for (int i = 0; i < n; i++) {
         // The sign carries the FSST flag; the magnitude is the STORED length either way, and the
         // stored bytes are exactly what a probe reproduces (see the class contract).
-        final int lengthField = getIntFromArray(stringPayload, dictStart + i * Integer.BYTES);
+        final int lengthField =
+            StringRegion.readLengthFieldFromArray(stringPayload, dictStart + i * lengthWidth, lengthWidth);
         if (lengthField == Integer.MIN_VALUE) {
           return null;
         }

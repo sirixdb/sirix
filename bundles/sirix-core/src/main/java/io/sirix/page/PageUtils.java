@@ -60,14 +60,20 @@ public final class PageUtils {
   }
 
   /**
-   * Create the initial tree structure.
+   * Create the initial keyed-trie structure.
    *
    * @param databaseType The type of database.
    * @param reference reference from revision root
    * @param indexType the index type
    */
-  public static void createTree(final DatabaseType databaseType, PageReference reference, final IndexType indexType,
+  static void createKeyedTrie(final DatabaseType databaseType, final PageReference reference, final IndexType indexType,
       final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
+    switch (indexType) {
+      case PATH, CAS, PROJECTION, VALIDTIME ->
+        throw new IllegalArgumentException(indexType + " secondary indexes use HOT storage");
+      default -> {
+      }
+    }
     // Create new record page.
     final ResourceConfiguration resourceConfiguration = storageEngineReader.getResourceSession().getResourceConfig();
 
@@ -96,8 +102,8 @@ public final class PageUtils {
    * Create the initial HOT (Height Optimized Trie) tree structure.
    *
    * <p>
-   * Unlike the traditional tree which uses {@link KeyValueLeafPage}, this creates an
-   * {@link HOTLeafPage} for cache-friendly secondary indexes.
+   * Unlike the keyed trie which uses {@link KeyValueLeafPage}, this creates an {@link HOTLeafPage}
+   * for cache-friendly secondary indexes.
    * </p>
    *
    * @param reference reference from revision root
@@ -105,8 +111,13 @@ public final class PageUtils {
    * @param storageEngineReader the storage engine reader
    * @param log the transaction intent log
    */
-  public static void createHOTTree(PageReference reference, final IndexType indexType,
+  static void createHOTTree(PageReference reference, final IndexType indexType,
       final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
+    switch (indexType) {
+      case PATH, CAS, NAME, PROJECTION, VALIDTIME -> {
+      }
+      default -> throw new IllegalArgumentException(indexType + " does not use HOT secondary-index storage");
+    }
 
     // Create new HOT leaf page (starts as a leaf, grows into trie on demand)
     final HOTLeafPage hotLeafPage =
@@ -146,6 +157,13 @@ public final class PageUtils {
           ref.setResourceId(resourceId);
         }
       }
+      return;
+    }
+
+    // OverflowPage carries no references and its getReferences() THROWS — reaching it through the
+    // generic path below built a full UnsupportedOperationException stack trace per side-overflow
+    // read (6.3% of idx39's windowed-scan CPU). The skip is the contract stated cheaply.
+    if (page instanceof OverflowPage) {
       return;
     }
 

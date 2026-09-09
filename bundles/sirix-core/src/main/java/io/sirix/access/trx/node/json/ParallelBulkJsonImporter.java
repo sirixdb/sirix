@@ -3,7 +3,6 @@
  */
 package io.sirix.access.trx.node.json;
 
-import io.sirix.access.DatabaseType;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.StorageEngineWriter;
@@ -27,7 +26,6 @@ import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 
-import java.io.CharArrayReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PushbackInputStream;
@@ -35,16 +33,11 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.lang.foreign.MemorySegment;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CodingErrorAction;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
@@ -57,7 +50,6 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
@@ -119,6 +111,15 @@ public final class ParallelBulkJsonImporter {
   private final ResourceConfiguration resourceConfig;
   private final int chunkCharBudget;
 
+  /**
+   * One canonical-name table for the WHOLE import. Every chunk gets its own scanner, so a per-scanner
+   * table canonicalises only within a chunk — at 1M rows that minted the same 105 field names 560
+   * times over. Shared, the canonical instance is global, which is what the PCR and name memos want:
+   * their first equality test becomes a pointer comparison. The table is thread-safe by construction;
+   * chunk builders run concurrently on the worker pool.
+   */
+  private final NameInternTable sharedNames = new NameInternTable();
+
   /** Interned dictionary keys by the feeder's STABLE dense name id, in first-occurrence order. */
   private final ArrayList<String> nameById = new ArrayList<>(64);
   private final IntArrayList nameKeyById = new IntArrayList(64);
@@ -144,11 +145,7 @@ public final class ParallelBulkJsonImporter {
    * row's SOURCE changed: the worker's batch, extracted during the build, instead of a coordinator
    * re-read through the transaction.
    */
-  private final @Nullable LongArrayList pendingRecordRoots;
-  private final @Nullable LongArrayList pendingRecordEnds;
-
-  /** Index of the oldest record in the two queues above whose row has not been fed yet. */
-  private int pendingRecordHead;
+  private final @Nullable PendingRecordQueue pendingRecords;
 
   /**
    * Worker-extracted row batches, in chunk order — one array (one batch per armed load) per chunk.
@@ -160,6 +157,92 @@ public final class ParallelBulkJsonImporter {
 
   /** The record-set container (the root array) every fed record is a child of. */
   private long feedRecordSetKey = -1;
+
+  /**
+   * Primitive FIFO for projection record attribution. Each backing array has exactly a 256 KiB
+   * payload, so a long-lived coordinator backlog cannot grow one humongous {@code LongArrayList}
+   * backing array. Consumed blocks are released as soon as their last record is fed.
+   */
+  static final class PendingRecordQueue {
+    private static final int BLOCK_ENTRIES = (256 << 10) / Long.BYTES;
+
+    private static final class Block {
+      private final long[] roots = new long[BLOCK_ENTRIES];
+      private final long[] ends = new long[BLOCK_ENTRIES];
+      private int head;
+      private int tail;
+    }
+
+    private final ArrayDeque<Block> blocks = new ArrayDeque<>();
+    private Block tailBlock;
+    private long size;
+
+    void addLast(final long root, final long end) {
+      Block block = tailBlock;
+      if (block == null || block.tail == BLOCK_ENTRIES) {
+        block = new Block();
+        blocks.addLast(block);
+        tailBlock = block;
+      }
+      block.roots[block.tail] = root;
+      block.ends[block.tail] = end;
+      block.tail++;
+      size++;
+    }
+
+    long firstRoot() {
+      final Block block = firstBlock();
+      return block.roots[block.head];
+    }
+
+    long firstEnd() {
+      final Block block = firstBlock();
+      return block.ends[block.head];
+    }
+
+    long lastRoot() {
+      if (tailBlock == null) {
+        throw new IllegalStateException("pending record queue is empty");
+      }
+      return tailBlock.roots[tailBlock.tail - 1];
+    }
+
+    void removeFirst() {
+      final Block block = firstBlock();
+      block.head++;
+      size--;
+      if (block.head == block.tail) {
+        blocks.removeFirst();
+        if (blocks.isEmpty()) {
+          tailBlock = null;
+        }
+      }
+    }
+
+    long size() {
+      return size;
+    }
+
+    boolean isEmpty() {
+      return size == 0;
+    }
+
+    int blockCount() {
+      return blocks.size();
+    }
+
+    static int blockEntries() {
+      return BLOCK_ENTRIES;
+    }
+
+    private Block firstBlock() {
+      final Block block = blocks.peekFirst();
+      if (block == null) {
+        throw new IllegalStateException("pending record queue is empty");
+      }
+      return block;
+    }
+  }
 
   // ==== PATH/CAS/NAME maintenance riding the load ==============================================
 
@@ -191,17 +274,6 @@ public final class ParallelBulkJsonImporter {
    */
   private long currentChunkLastKey = -1;
 
-  /** Recycled decode scratch: chars ≤ bytes for UTF-8, so one budget-sized array fits a chunk. */
-  private final ArrayBlockingQueue<char[]> charScratchPool = new ArrayBlockingQueue<>(16);
-
-  private char[] acquireCharScratch(final int neededChars) {
-    final char[] pooled = charScratchPool.poll();
-    if (pooled != null && pooled.length >= neededChars) {
-      return pooled;
-    }
-    return new char[Math.max(neededChars, chunkCharBudget + (chunkCharBudget >> 2))];
-  }
-
   private ParallelBulkJsonImporter(final JsonNodeTrxImpl wtx, final int chunkCharBudget,
       final ProjectionBulkLoad[] projectionLoads) {
     this.wtx = wtx;
@@ -216,12 +288,9 @@ public final class ParallelBulkJsonImporter {
     this.resourceConfig = wtx.getResourceSession().getResourceConfig();
     this.chunkCharBudget = chunkCharBudget;
     this.projectionLoads = projectionLoads;
-    this.pendingRecordRoots = projectionLoads.length == 0
+    this.pendingRecords = projectionLoads.length == 0
         ? null
-        : new LongArrayList(1024);
-    this.pendingRecordEnds = projectionLoads.length == 0
-        ? null
-        : new LongArrayList(1024);
+        : new PendingRecordQueue();
     this.pendingFeedBatches = projectionLoads.length == 0
         ? null
         : new ArrayDeque<>(8);
@@ -299,7 +368,7 @@ public final class ParallelBulkJsonImporter {
 
   private PathIndexBuilder[] createPathIndexBuilders() {
     final PathIndexBuilder[] builders = new PathIndexBuilder[pathIndexDefs.length];
-    final PathIndexBuilderFactory factory = new PathIndexBuilderFactory(DatabaseType.JSON);
+    final PathIndexBuilderFactory factory = new PathIndexBuilderFactory();
     for (int i = 0; i < pathIndexDefs.length; i++) {
       builders[i] = factory.create(storageEngineWriter, wtx.getPathSummary(), pathIndexDefs[i]);
     }
@@ -308,7 +377,7 @@ public final class ParallelBulkJsonImporter {
 
   private CASIndexBuilder[] createCasIndexBuilders() {
     final CASIndexBuilder[] builders = new CASIndexBuilder[casIndexDefs.length];
-    final CASIndexBuilderFactory factory = new CASIndexBuilderFactory(DatabaseType.JSON);
+    final CASIndexBuilderFactory factory = new CASIndexBuilderFactory();
     for (int i = 0; i < casIndexDefs.length; i++) {
       builders[i] = factory.create(storageEngineWriter, wtx.getPathSummary(), casIndexDefs[i]);
     }
@@ -317,7 +386,7 @@ public final class ParallelBulkJsonImporter {
 
   private NameIndexBuilder[] createNameIndexBuilders() {
     final NameIndexBuilder[] builders = new NameIndexBuilder[nameIndexDefs.length];
-    final NameIndexBuilderFactory factory = new NameIndexBuilderFactory(DatabaseType.JSON);
+    final NameIndexBuilderFactory factory = new NameIndexBuilderFactory();
     for (int i = 0; i < nameIndexDefs.length; i++) {
       builders[i] = factory.create(storageEngineWriter, nameIndexDefs[i]);
     }
@@ -525,13 +594,27 @@ public final class ParallelBulkJsonImporter {
       long chunkLastMemberKey, long chunkMembers) {
   }
 
+  /**
+   * Bound a projection chunk by its widest row-indexed array as well as by input bytes. This matters
+   * for corpora of tiny scalar records: a 4 MiB byte budget can otherwise contain enough rows to turn
+   * the member-count lane or the batch's flat flag lane into a humongous heap array.
+   */
+  private int maxProjectionChunkRows() {
+    int limit = Integer.MAX_VALUE;
+    for (final ProjectionBulkLoad projectionLoad : projectionLoads) {
+      limit = Math.min(limit, projectionLoad.maxHftChunkRows());
+    }
+    return limit;
+  }
+
   private void run(final InputStream input, final int parallelism) throws IOException {
 
     final RootArray rootArray = openRootArray();
     final long rootArrayPcr = rootArray.pcr();
     final long rootArrayKey = rootArray.key();
 
-    final FusedSliceAndScan fused = new FusedSliceAndScan(input, chunkCharBudget, projectionLoads.length > 0);
+    final FusedSliceAndScan fused =
+        new FusedSliceAndScan(input, chunkCharBudget, projectionLoads.length > 0, maxProjectionChunkRows());
     fused.consumeArrayOpen();
     fused.rootStep().pcr = rootArrayPcr;
 
@@ -624,7 +707,7 @@ public final class ParallelBulkJsonImporter {
         if (chunkBatches != null) {
           pendingFeedBatches.addLast(chunkBatches);
         }
-        final byte[] chunkBytes = chunk.bytes();
+        final FusedSliceAndScan.ChunkBuffer chunkBytes = chunk.bytes();
         final int chunkByteLength = chunk.length();
         final long buildFirstKey = firstKey;
         final long buildLastMemberBoundary = lastMemberKey;
@@ -660,6 +743,12 @@ public final class ParallelBulkJsonImporter {
       while (!inFlight.isEmpty()) {
         adoptNext(inFlight);
       }
+    } catch (final Throwable failure) {
+      // Frames that never reached the intent log are the coordinator's to free: rollback cannot
+      // see them, so without this every adoption failure leaked them for the process lifetime.
+      unwindInFlight(inFlight);
+      retireHeldTailPage();
+      throw failure;
     } finally {
       if (buildPool != null) {
         buildPool.shutdownNow();
@@ -667,9 +756,12 @@ public final class ParallelBulkJsonImporter {
     }
 
     if (heldTailPage != null) {
-      adoptBurst(new KeyValueLeafPage[] {heldTailPage}, 1);
+      // Hand the page over before adopting it: from adoptDocumentLeafPage on, either the writer
+      // retired it (failure before the log append) or the intent log owns it.
+      final KeyValueLeafPage tail = heldTailPage;
       heldTailPage = null;
       heldTailPageKey = -1;
+      adoptBurst(new KeyValueLeafPage[] {tail}, 1);
     }
 
     // Everything built is now in the intent log, so the remaining rows — the records that were
@@ -678,7 +770,17 @@ public final class ParallelBulkJsonImporter {
     if (projectionLoads.length > 0) {
       adoptedWatermark = expectedNextReservation - 1;
       feedReadableRows();
-      if (pendingRecordCount() != 0) {
+      // An abandoned build (dictionary budget breach mid-load) legitimately leaves rows unfed —
+      // the projection is gone, the LOAD is the deliverable. Unfed rows with every build still
+      // alive remain the defect this refusal exists for.
+      boolean anyLoadAlive = false;
+      for (final ProjectionBulkLoad load : projectionLoads) {
+        if (!load.isFinished()) {
+          anyLoadAlive = true;
+          break;
+        }
+      }
+      if (pendingRecordCount() != 0 && anyLoadAlive) {
         throw new IllegalStateException(
             "the import finished with " + pendingRecordCount() + " records never handed to the projection build");
       }
@@ -710,22 +812,18 @@ public final class ParallelBulkJsonImporter {
 
   /** Runs one chunk build on the calling thread: pooled decode, run, verify, release buffers. */
   private List<KeyValueLeafPage> buildChunk(final FusedSliceAndScan fused, final WorkerPageBuilder builder,
-      final byte[] chunkBytes, final int chunkByteLength, final long firstKey, final long lastKey,
-      final long rootArrayKey, final long rootArrayPcr, final long leftBoundaryKey, final long trailingSiblingKey,
-      final Long2ObjectOpenHashMap<Object2LongOpenHashMap<String>> memoSnapshot) throws IOException {
-    final char[] scratch = acquireCharScratch(chunkByteLength);
+      final FusedSliceAndScan.ChunkBuffer chunkBytes, final int chunkByteLength, final long firstKey,
+      final long lastKey, final long rootArrayKey, final long rootArrayPcr, final long leftBoundaryKey,
+      final long trailingSiblingKey, final Long2ObjectOpenHashMap<Object2LongOpenHashMap<String>> memoSnapshot)
+      throws IOException {
     try {
-      // Decode straight into the pooled scratch — no String detour, no second copy.
-      final CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
-                                                           .onMalformedInput(CodingErrorAction.REPLACE)
-                                                           .onUnmappableCharacter(CodingErrorAction.REPLACE);
-      final CharBuffer out = CharBuffer.wrap(scratch);
-      decoder.decode(ByteBuffer.wrap(chunkBytes, 0, chunkByteLength), out, true);
-      final int chars = out.position();
-      fused.releaseChunkBuffer(chunkBytes);
+      // Stream UTF-8 directly from the fixed-size slab chain. BulkJsonScanner owns a 64 Ki-char
+      // refill buffer, so decode never needs a chunk-sized char[] and the worker still avoids a
+      // String or full-chunk copy.
       final BulkJsonTreeAssembler building = new BulkJsonTreeAssembler(builder, null, buildPathSummary,
-          new BulkJsonScanner(new CharArrayReader(scratch, 0, chars)), firstKey, true, rootArrayKey, rootArrayPcr,
-          leftBoundaryKey, trailingSiblingKey);
+          new BulkJsonScanner(new InputStreamReader(chunkBytes.prepareRead(chunkByteLength), StandardCharsets.UTF_8),
+              BulkJsonScanner.defaultBufferChars(), sharedNames),
+          firstKey, true, rootArrayKey, rootArrayPcr, leftBoundaryKey, trailingSiblingKey);
       building.prefillPcrMemo(memoSnapshot);
       if (builder.pathStatsBatch() != null) {
         building.collectPathStatsInto(builder.pathStatsBatch());
@@ -733,7 +831,43 @@ public final class ParallelBulkJsonImporter {
       building.run();
       return builder.finish(lastKey);
     } finally {
-      charScratchPool.offer(scratch);
+      fused.releaseChunkBuffer(chunkBytes);
+    }
+  }
+
+  /**
+   * Free every page a completed build still owns and cancel the rest, after a coordinator failure.
+   * Pages already adopted are the intent log's and are left alone; a page whose adoption threw was
+   * dispositioned by the writer's own contract. Failures while unwinding are swallowed: the original
+   * failure is what the caller must see.
+   */
+  private static void unwindInFlight(final ArrayDeque<PendingBuild> inFlight) {
+    PendingBuild pending;
+    while ((pending = inFlight.pollFirst()) != null) {
+      final Future<List<KeyValueLeafPage>> future = pending.pages();
+      if (!future.isDone()) {
+        future.cancel(true);
+        continue;
+      }
+      try {
+        for (final KeyValueLeafPage page : future.get()) {
+          page.retire();
+        }
+      } catch (final InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+      } catch (final RuntimeException | ExecutionException ignored) {
+        // The build itself failed or was cancelled: nothing of it survived to free.
+      }
+    }
+  }
+
+  /** Free the held tail page after a coordinator failure; it never reached the intent log. */
+  private void retireHeldTailPage() {
+    final KeyValueLeafPage tail = heldTailPage;
+    heldTailPage = null;
+    heldTailPageKey = -1;
+    if (tail != null) {
+      tail.retire();
     }
   }
 
@@ -867,47 +1001,80 @@ public final class ParallelBulkJsonImporter {
     int burstSize = 0;
     final boolean tailPartial = ((lastKey + 1) & 1023) != 0;
 
-    for (int i = 0; i < pages.size(); i++) {
-      final KeyValueLeafPage page = pages.get(i);
-      final boolean isTail = i == pages.size() - 1;
-      final long pageKey = page.getPageKey();
+    // Index of the first page of this build that has not been dispositioned yet. A dispositioned page
+    // is merged (and retired), held as the tail, or in the burst — each of those has an owner that
+    // frees it on failure; the pages from `next` on have none but this method.
+    int next = 0;
+    try {
+      for (int i = 0; i < pages.size(); i++) {
+        final KeyValueLeafPage page = pages.get(i);
+        next = i + 1;
+        final boolean isTail = i == pages.size() - 1;
+        final long pageKey = page.getPageKey();
 
-      if (pageKey == heldTailPageKey) {
-        // Shares the previous chunk's held tail: merge into the coordinator-owned page object.
-        // The worker page owns an allocator frame and nothing reads it after the merge, so it is
-        // retired here exactly as the page-0 blit below retires its source.
-        mergeInto(heldTailPage, page);
-        page.retire();
-        if (isTail && tailPartial) {
-          // Whole chunk inside the held page; keep holding.
+        if (pageKey == heldTailPageKey) {
+          // Shares the previous chunk's held tail: merge into the coordinator-owned page object.
+          // The worker page owns an allocator frame and nothing reads it after the merge, so it is
+          // retired here exactly as the page-0 blit below retires its source.
+          mergeAndRetire(heldTailPage, page);
+          if (isTail && tailPartial) {
+            // Whole chunk inside the held page; keep holding.
+            continue;
+          }
+          // The held page is now complete territory-wise up to this chunk's coverage.
+          if (!isTail || !tailPartial) {
+            final KeyValueLeafPage held = heldTailPage;
+            heldTailPage = null;
+            heldTailPageKey = -1;
+            burstSize = enqueue(burst, burstSize, held);
+          }
           continue;
         }
-        // The held page is now complete territory-wise up to this chunk's coverage.
-        if (!isTail || !tailPartial) {
-          burstSize = enqueue(burst, burstSize, heldTailPage);
-          heldTailPage = null;
-          heldTailPageKey = -1;
+
+        if (pageKey == 0) {
+          // Page 0 is TIL-live (document root + root array prologue): CoW-checked blit. The merge
+          // carries the worker's refused records over as heap records; serialize and stage them
+          // now, as adoption does, or this one leaf is deep-copied every epoch and finally pinned.
+          final KeyValueLeafPage prologue = storageEngineWriter.prepareDocumentLeafForBlit(0);
+          mergeAndRetire(prologue, page);
+          storageEngineWriter.stageOverflowCarriersOfLiveLeaf(prologue);
+          noteAdoptedPage(0);
+          continue;
         }
-        continue;
-      }
 
-      if (pageKey == 0) {
-        // Page 0 is TIL-live (document root + root array prologue): CoW-checked blit.
-        mergeInto(storageEngineWriter.prepareDocumentLeafForBlit(0), page);
-        page.retire();
-        noteAdoptedPage(0);
-        continue;
-      }
+        if (isTail && tailPartial) {
+          heldTailPage = page;
+          heldTailPageKey = pageKey;
+          continue;
+        }
 
-      if (isTail && tailPartial) {
-        heldTailPage = page;
-        heldTailPageKey = pageKey;
-        continue;
+        burstSize = enqueue(burst, burstSize, page);
       }
-
-      burstSize = enqueue(burst, burstSize, page);
+      flushBurst(burst, burstSize);
+    } catch (final RuntimeException | Error failure) {
+      // Whatever is still in the burst never reached the writer (adoptBurst hands a page over before
+      // adopting it); the pages from `next` on were never looked at. The held tail is freed by run().
+      for (int i = 0; i < burst.length; i++) {
+        final KeyValueLeafPage unadopted = burst[i];
+        if (unadopted != null) {
+          burst[i] = null;
+          unadopted.retire();
+        }
+      }
+      for (int i = next; i < pages.size(); i++) {
+        pages.get(i).retire();
+      }
+      throw failure;
     }
-    flushBurst(burst, burstSize);
+  }
+
+  /** Merge a worker page into its coordinator-owned target; the source frame is freed either way. */
+  private void mergeAndRetire(final KeyValueLeafPage target, final KeyValueLeafPage source) {
+    try {
+      mergeInto(target, source);
+    } finally {
+      source.retire();
+    }
   }
 
   /**
@@ -926,11 +1093,15 @@ public final class ParallelBulkJsonImporter {
           : String.valueOf(memberNodes.length)) + " member node counts for a chunk of " + chunk.members()
           + " members; a load-time projection build cannot name its records without them");
     }
+    final PendingRecordQueue records = pendingRecords;
+    if (records == null) {
+      throw new IllegalStateException("projection record queue is unavailable for an armed projection load");
+    }
     long recordKey = firstKey;
     for (final long memberNodeCount : memberNodes) {
-      pendingRecordRoots.add(recordKey);
+      final long recordEnd = recordKey + memberNodeCount - 1;
+      records.addLast(recordKey, recordEnd);
       recordKey += memberNodeCount;
-      pendingRecordEnds.add(recordKey - 1);
     }
     // The two independently-derived boundaries of the same chunk must agree, or the record roots
     // this queue names are not the ones the build produced.
@@ -938,10 +1109,9 @@ public final class ParallelBulkJsonImporter {
       throw new IllegalStateException("member node counts cover keys up to " + (recordKey - 1)
           + " but the chunk's reserved range ends at " + lastKey);
     }
-    if (chunk.members() > 0 && pendingRecordRoots.getLong(pendingRecordRoots.size() - 1) != chunkLastMemberKey) {
-      throw new IllegalStateException("the last member root derived from node counts is "
-          + pendingRecordRoots.getLong(pendingRecordRoots.size() - 1) + " but range arithmetic says "
-          + chunkLastMemberKey);
+    if (chunk.members() > 0 && records.lastRoot() != chunkLastMemberKey) {
+      throw new IllegalStateException("the last member root derived from node counts is " + records.lastRoot()
+          + " but range arithmetic says " + chunkLastMemberKey);
     }
   }
 
@@ -964,9 +1134,11 @@ public final class ParallelBulkJsonImporter {
    * node counts — so their root keys are cross-checked per row before the row is appended.
    */
   private void feedReadableRows() {
-    final int pending = pendingRecordRoots.size();
-    int head = pendingRecordHead;
-    while (head < pending && pendingRecordEnds.getLong(head) <= adoptedWatermark) {
+    final PendingRecordQueue records = pendingRecords;
+    if (records == null) {
+      return;
+    }
+    while (!records.isEmpty() && records.firstEnd() <= adoptedWatermark) {
       ProjectionChunkRowBatch[] batches = pendingFeedBatches.peekFirst();
       while (batches != null && feedRowInHeadBatch >= batches[0].rowCount()) {
         pendingFeedBatches.pollFirst();
@@ -975,9 +1147,9 @@ public final class ParallelBulkJsonImporter {
       }
       if (batches == null) {
         throw new IllegalStateException(
-            "record root " + pendingRecordRoots.getLong(head) + " is adopted but no chunk batch holds its row");
+            "record root " + records.firstRoot() + " is adopted but no chunk batch holds its row");
       }
-      final long recordKey = pendingRecordRoots.getLong(head);
+      final long recordKey = records.firstRoot();
       final int row = feedRowInHeadBatch;
       if (batches[0].recordRootAt(row) != recordKey) {
         throw new IllegalStateException("the worker attributed batch row " + row + " to record root "
@@ -988,24 +1160,15 @@ public final class ParallelBulkJsonImporter {
             Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       }
       feedRowInHeadBatch = row + 1;
-      head++;
-    }
-    if (head == pendingRecordHead) {
-      return;
-    }
-    pendingRecordHead = head;
-    // Compact only once the consumed prefix dominates, so a chunk's worth of members costs one
-    // amortized shift rather than one per adoption burst.
-    if (pendingRecordHead > (pending >> 1)) {
-      pendingRecordRoots.removeElements(0, pendingRecordHead);
-      pendingRecordEnds.removeElements(0, pendingRecordHead);
-      pendingRecordHead = 0;
+      records.removeFirst();
     }
   }
 
-  /** Records still awaiting attribution — the queue minus its already-consumed prefix. */
-  private int pendingRecordCount() {
-    return pendingRecordRoots.size() - pendingRecordHead;
+  /** Records still awaiting attribution. */
+  private long pendingRecordCount() {
+    return pendingRecords == null
+        ? 0L
+        : pendingRecords.size();
   }
 
   // ==== PATH/CAS/NAME tuple flow ===============================================================
@@ -1167,6 +1330,7 @@ public final class ParallelBulkJsonImporter {
     final int casEntries = batch.casEntryCount();
     int stringOrdinal = 0;
     int numberOrdinal = 0;
+    int integralOrdinal = 0;
     for (int i = 0; i < casEntries; i++) {
       final Str value;
       switch (batch.casKindAt(i)) {
@@ -1179,6 +1343,14 @@ public final class ParallelBulkJsonImporter {
         case ChunkIndexTupleBatch.CAS_KIND_NUMBER -> {
           value = new Str(String.valueOf(batch.casNumberAt(numberOrdinal)));
           numberOrdinal++;
+        }
+        case ChunkIndexTupleBatch.CAS_KIND_INT -> {
+          value = new Str(Integer.toString((int) batch.casIntegralNumberAt(integralOrdinal)));
+          integralOrdinal++;
+        }
+        case ChunkIndexTupleBatch.CAS_KIND_LONG -> {
+          value = new Str(Long.toString(batch.casIntegralNumberAt(integralOrdinal)));
+          integralOrdinal++;
         }
         case ChunkIndexTupleBatch.CAS_KIND_BOOLEAN_TRUE -> value = STR_TRUE;
         case ChunkIndexTupleBatch.CAS_KIND_BOOLEAN_FALSE -> value = STR_FALSE;
@@ -1228,10 +1400,15 @@ public final class ParallelBulkJsonImporter {
     }
     int records = 0;
     for (int i = 0; i < burstSize; i++) {
-      storageEngineWriter.adoptDocumentLeafPage(burst[i]);
-      records += burst[i].populatedSlots().length;
-      noteAdoptedPage(burst[i].getPageKey());
+      // Hand the page over BEFORE adopting it: from here on either the writer retired it (a failure
+      // before the log append) or the intent log owns it, so a failing burst frees only the rest.
+      final KeyValueLeafPage page = burst[i];
       burst[i] = null;
+      storageEngineWriter.adoptDocumentLeafPage(page);
+      // size() includes cold direct-write fallbacks still pending in records[] and logical overflow
+      // references, while retaining the bitmap-count fast path for ordinary all-inline pages.
+      records += page.size();
+      noteAdoptedPage(page.getPageKey());
     }
     // Accounting after the burst lets the ordinary predicate rotate the flush epoch — the same
     // cadence machinery the sequential path drives per top-level record.
@@ -1266,16 +1443,28 @@ public final class ParallelBulkJsonImporter {
 
   /** Replays every record of {@code source} into {@code target} (same page key, disjoint slots). */
   private static void mergeInto(final KeyValueLeafPage target, final KeyValueLeafPage source) {
-    final long pageBase = source.getPageKey() << 10;
+    // Do not replay physical heap bytes here. A boundary merge can combine two individually valid
+    // fragments into a target whose 256-KiB frame is already full; copySlotFromPage then publishes
+    // the record's canonical overflow carrier (including scan metadata and Dewey bytes) instead of
+    // asking the frame allocator for a non-existent larger size class.
     for (final int slot : source.populatedSlots()) {
-      final MemorySegment record = source.getSlot(slot);
-      final int kindId = source.getSlotNodeKindId(slot);
-      final long absOffset = target.prepareHeapForDirectWriteOrOverflow((int) record.byteSize(), 0);
-      if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
-        throw new IllegalStateException("boundary merge overflowed page " + target.getPageKey() + " at slot " + slot);
+      target.copySlotFromPage(source, slot);
+    }
+
+    // Side slots are deliberately absent from the ordinary page bitmap. Worker pages normally do
+    // not acquire them until commit, but including them makes this seam correct for adopted pages
+    // produced by any future builder and costs only one bounded scan on this cold boundary path.
+    for (int slot = 0; slot < 1024; slot++) {
+      if (source.hasSideSlot(slot)) {
+        target.copySlotFromPage(source, slot);
       }
-      MemorySegment.copy(record, 0, target.getSlottedPage(), absOffset, record.byteSize());
-      target.completeDirectWrite((byte) kindId, pageBase | slot, slot, (int) record.byteSize(), null);
+    }
+
+    // A non-fused overflow record without Dewey metadata has no local side image. Preserve its
+    // same-key authority explicitly; descriptor/side references are harmlessly assigned the same
+    // value again after copySlotFromPage already installed them.
+    for (final var entry : source.referenceEntrySet()) {
+      target.setPageReference(entry.getKey(), entry.getValue());
     }
     // Overflow-sized values live as heap records, not slots — carry them across as objects.
     // Direct-write records never enter records[] (write singletons skip it), so every non-null

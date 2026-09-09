@@ -32,7 +32,6 @@ import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
-import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
@@ -40,16 +39,14 @@ import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
-import java.util.Arrays;
-
 import static java.util.Objects.requireNonNull;
 
 /**
  * Generic HOT index writer for object keys (CASValue, QNm).
  *
  * <p>
- * Replaces {@link io.sirix.index.redblacktree.RBTreeWriter} for HOT-based secondary indexes. Uses
- * thread-local buffers for zero-allocation key serialization.
+ * Stores secondary-index postings in a height-optimized trie. Uses thread-local buffers for
+ * zero-allocation key serialization.
  * </p>
  *
  * <h2>Zero Allocation Design</h2>
@@ -127,6 +124,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    */
   public static <K extends Comparable<? super K>> HOTIndexWriter<K> create(StorageEngineWriter storageEngineWriter,
       HOTKeySerializer<K> keySerializer, IndexType indexType, int indexNumber) {
+    requireNonNull(storageEngineWriter);
+    requireNonNull(indexType);
+    HOTIndexNumberValidator.validate(storageEngineWriter, indexType, indexNumber);
     return new HOTIndexWriter<>(storageEngineWriter, keySerializer, indexType, indexNumber);
   }
 
@@ -156,10 +156,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    *
    * @param key the logical index key (e.g. a {@code QNm} for NAME, a {@code CASValue} for CAS)
    * @param value the node references
-   * @param move cursor movement mode (ignored for HOT)
-   * @return the indexed value (returned unchanged for API parity with {@code RBTreeWriter})
+   * @return the supplied node references after all contained node keys have been indexed
    */
-  public NodeReferences index(K key, NodeReferences value, RBTreeReader.MoveCursor move) {
+  public NodeReferences index(K key, NodeReferences value) {
     requireNonNull(key);
     requireNonNull(value);
 
@@ -178,9 +177,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * Add a single nodeKey to {@code key}'s chunked bitmap.
    *
    * <p>
-   * Equivalent to {@link #index(Comparable, NodeReferences, RBTreeReader.MoveCursor)} with a
-   * one-element {@link NodeReferences}, minus the {@code Roaring64Bitmap} allocation: the slot write
-   * is an OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so a caller that only wants to ADD one
+   * Equivalent to {@link #index(Comparable, NodeReferences)} with a one-element
+   * {@link NodeReferences}, minus the {@code Roaring64Bitmap} allocation: the slot write is an
+   * OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so a caller that only wants to ADD one
    * reference never has to materialise — let alone read back — the references already stored under
    * {@code key}.
    * </p>
@@ -327,42 +326,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     final byte[] keyBuf = chunkedKeyBuffer(key);
     final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
 
-    final byte[] keySlice = compLen == keyBuf.length
-        ? keyBuf
-        : Arrays.copyOf(keyBuf, compLen);
-    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keySlice, compLen);
-    final HOTLeafPage leaf = navResult.leaf();
-    if (leaf == null) {
-      return false;
-    }
-    final int index = leaf.findEntry(keySlice);
-    if (index < 0) {
-      return false;
-    }
-    final byte[] valueBytes = leaf.getValue(index);
-    if (NodeReferencesSerializer.isTombstone(valueBytes, 0, valueBytes.length)) {
-      return false;
-    }
-    final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(valueBytes);
-    final boolean removed = chunkRefs.removeNodeKey(bit16);
-    if (!removed) {
-      return false;
-    }
-
-    if (!chunkRefs.hasNodeKeys()) {
-      leaf.deleteAt(index);
-      return true;
-    }
-
-    byte[] valueBuf = VALUE_BUFFER.get();
-    final int requiredSize = NodeReferencesSerializer.computeSerializedSize(chunkRefs);
-    if (requiredSize > valueBuf.length) {
-      valueBuf = new byte[requiredSize];
-      VALUE_BUFFER.set(valueBuf);
-    }
-    final int valueLen = NodeReferencesSerializer.serialize(chunkRefs, valueBuf, 0);
-    leaf.updateValue(index, Arrays.copyOf(valueBuf, valueLen));
-    return true;
+    return doRemovePostingBit(keyBuf, compLen, bit16);
   }
 
   /**

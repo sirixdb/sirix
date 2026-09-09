@@ -7,7 +7,6 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.page.HOTTrieWriter;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -27,6 +26,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -46,10 +46,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * IT NEVER DOES. Across three versioning strategies, six commit phases, three window widths, point
  * reads, content-byte comparison, occurrence counting and a full range enumeration over descriptor
- * and column-segment slots — with the vulnerable in-place split confirmed to have run in every one
- * — no merge has ever reached past a complete dump, and no key has ever been resurrected. Some
- * guard upstream of the merge prevents it and has NOT been identified. The merge was therefore left
- * exactly as it was: an unexplained absence is not a licence to change the storage layer.
+ * and column-segment slots — with a structural split confirmed to have run in every one — no merge
+ * has ever reached past a complete dump, and no key has ever been resurrected. Some guard upstream
+ * of the merge prevents it and has NOT been identified. The merge was therefore left exactly as it
+ * was: an unexplained absence is not a licence to change the storage layer.
  * </p>
  *
  * <p>
@@ -81,11 +81,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * a workload unlucky enough to expose a wrong answer.
  *
  * <p>
- * AND THE SPLIT ITSELF IS ASSERTED. {@code IN_PLACE_LEAF_SPLITS} must be nonzero, because the whole
- * scenario is only dangerous when the in-place split — the one path that reuses the original {@code
- * PageReference} — actually ran. A refactor that routes leaf splits elsewhere would leave every
- * assertion below trivially satisfied; without this check the suite would go on passing while
- * silently covering nothing.
+ * AND THE SPLIT ITSELF IS ASSERTED. Starting from a root leaf, an indirect root is a durable
+ * production-state witness that a structural split actually ran. A refactor that stops splitting
+ * would otherwise leave every assertion below trivially satisfied.
  * </p>
  */
 final class HOTCompleteDumpMergeTest {
@@ -94,12 +92,12 @@ final class HOTCompleteDumpMergeTest {
   private static final Path DATABASE_PATH = JsonTestHelper.PATHS.PATH1.getFile();
 
   /**
-   * Enough distinct row groups with fat payloads to force at least one IN-PLACE leaf split.
+   * Enough distinct row groups with fat payloads to force at least one structural leaf split.
    *
    * <p>
    * MEASURED, and the number matters. At 400 nothing splits at all: the fixture ran clean and
    * "passed" while covering nothing, which is the decoration these tests exist to avoid. A probe over
-   * 400 / 2000 / 8000 showed the in-place split first appears at 2000. Do not lower this without
+   * 400 / 2000 / 8000 showed the structural split first appears at 2000. Do not lower this without
    * re-running that probe; the split, not the row count, is the trigger — and
    * {@link #assertVulnerablePathRan} now enforces that mechanically rather than by comment.
    * </p>
@@ -130,9 +128,6 @@ final class HOTCompleteDumpMergeTest {
             + "configuration sets it).");
     JsonTestHelper.deleteEverything();
     VersioningType.resetFragmentMergeCounters();
-    // MUST be reset per case: these are process-wide statics, and a split left over from the
-    // previous test would satisfy assertVulnerablePathRan for a case that never split at all.
-    HOTTrieWriter.resetInPlaceLeafSplits();
   }
 
   @AfterEach
@@ -167,7 +162,7 @@ final class HOTCompleteDumpMergeTest {
 
       // WITNESS FIRST: without these the assertions below could pass on the single-fragment path,
       // or on a run where no split ever happened.
-      assertVulnerablePathRan(versioning);
+      assertStructuralSplitRan(versioning, session);
       assertTrue(VersioningType.multiFragmentMerges() > 0,
           versioning + ": the merge path was never entered, so this case proves nothing. " + counters());
 
@@ -207,7 +202,7 @@ final class HOTCompleteDumpMergeTest {
       // NOTE: no clearAllCaches here - see the probe finding below.
       final Set<Long> distinct = readAllRowGroups(session);
 
-      assertVulnerablePathRan(VersioningType.SLIDING_SNAPSHOT);
+      assertStructuralSplitRan(VersioningType.SLIDING_SNAPSHOT, session);
       assertTrue(VersioningType.multiFragmentMerges() > 0, "the merge path must have been entered. " + counters());
       assertEquals(0, VersioningType.completeDumpsWalkedPast(),
           "after five commits the window has rotated; nothing may have walked behind a complete dump");
@@ -236,7 +231,7 @@ final class HOTCompleteDumpMergeTest {
       // the blob reads below - measured: resetting before the read gives merges=0 and the witness
       // fails even though the merge ran during the commits. The counters therefore span the whole
       // scenario, reset once in setUp.
-      assertVulnerablePathRan(VersioningType.SLIDING_SNAPSHOT);
+      assertStructuralSplitRan(VersioningType.SLIDING_SNAPSHOT, session);
 
       // A HISTORICAL reader, opened AT the split revision. An earlier version of this case captured
       // splitRevision and then read through a HEAD transaction, passing the revision to a helper
@@ -274,7 +269,7 @@ final class HOTCompleteDumpMergeTest {
 
       // The immunity is only meaningful if FULL ran the SAME scenario — same split, same commits —
       // and still kept no chain. Without this the arm could be immune merely by doing less.
-      assertVulnerablePathRan(VersioningType.FULL);
+      assertStructuralSplitRan(VersioningType.FULL, session);
       assertEquals(ROW_GROUPS, distinct.size(), "FULL must read every row group exactly once");
       assertEquals(0, VersioningType.multiFragmentMerges(),
           "FULL keeps no fragment chain, so nothing should ever reconstruct — this is WHY a FULL arm "
@@ -284,23 +279,26 @@ final class HOTCompleteDumpMergeTest {
   }
 
   /**
-   * The coverage guard: the in-place leaf split is the only split that reuses the original
-   * {@code PageReference}, and it is what makes a stale fragment chain reachable at all. If a
-   * refactor stops taking that path this fixture still passes every other assertion while exercising
-   * nothing — so the split is asserted, not assumed.
+   * Production-state coverage guard: starting from a root leaf, only a structural split can create an
+   * indirect root. This remains meaningful when implementation-specific split counters disappear.
    */
-  private static void assertVulnerablePathRan(final VersioningType versioning) {
-    assertTrue(HOTTrieWriter.inPlaceLeafSplits() > 0,
-        versioning + ": no in-place leaf split ran, so this case covers nothing — the scenario must be "
-            + "re-tuned (see ROW_GROUPS) before its other assertions mean anything. " + counters());
+  private static void assertStructuralSplitRan(final VersioningType versioning, final JsonResourceSession session) {
+    try (JsonNodeReadOnlyTrx probe = session.beginNodeReadOnlyTrx()) {
+      final StorageEngineReader reader = probe.getStorageEngineReader();
+      final PageReference rootReference = ProjectionIndexHOTStorage.rootReference(reader, 0);
+      assertNotNull(rootReference, versioning + ": projection HOT root must exist");
+      assertTrue(reader.loadHOTPage(rootReference) instanceof HOTIndirectPage,
+          versioning + ": the projection remained a root leaf, so this case did not execute a structural split; "
+              + "re-tune ROW_GROUPS before trusting its other assertions. " + counters());
+    }
   }
 
   /** Every counter, because a single counter's zero is not a fact — the whole set triangulates. */
   private static String counters() {
     return "single=" + VersioningType.singleFragmentReads() + " merges=" + VersioningType.multiFragmentMerges()
         + " walked=" + VersioningType.fragmentsWalked() + " shortCircuit=" + VersioningType.completeDumpShortCircuits()
-        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast() + " inPlaceSplits="
-        + HOTTrieWriter.inPlaceLeafSplits() + " carryFwd=" + VersioningType.carryForwardRotations();
+        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast() + " carryFwd="
+        + VersioningType.carryForwardRotations();
   }
 
   /**
@@ -320,7 +318,7 @@ final class HOTCompleteDumpMergeTest {
       }
 
       final Set<Long> distinct = readAllRowGroups(session);
-      assertVulnerablePathRan(VersioningType.INCREMENTAL);
+      assertStructuralSplitRan(VersioningType.INCREMENTAL, session);
       assertTrue(VersioningType.multiFragmentMerges() > 0,
           "the merge path must have been entered across the rotation. " + counters());
       assertEquals(ROW_GROUPS, distinct.size(), "every row group readable after rotation");

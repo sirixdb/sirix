@@ -806,16 +806,13 @@ graph TB
         CAS[CAS Index<br/>Value+Path → NodeKeys]
     end
 
-    subgraph "Index Backends"
-        RBTREE[RBTree<br/>Nodes in KeyValueLeafPages]
+    subgraph "Canonical Secondary-Index Storage"
         HOT[HOT Trie<br/>HOTIndirectPage → HOTLeafPage]
     end
 
-    PATH --> RBTREE
     PATH --> HOT
-    NAME --> RBTREE
     NAME --> HOT
-    CAS --> RBTREE
+    CAS --> HOT
 ```
 
 **DeweyIDs**: When enabled via `ResourceConfiguration.Builder.useDeweyIDs(true)`, each node is assigned a hierarchical identifier (e.g., `1.3.5.7`) that encodes its position in the document tree. DeweyIDs enable:
@@ -910,15 +907,10 @@ Document:                          CAS Index (for /users/[]/age, Type=INT):
 - Equality checks on specific paths
 - Can be marked as `unique` for constraint enforcement
 
-**Important**: The two index backends use different storage structures:
-
-| Backend | Page Structure | Leaf Page Type |
-|---------|----------------|----------------|
-| **RBTree** | `IndexPage` → `IndirectPages` → `KeyValueLeafPage` | RBTree nodes stored as records |
-| **HOT** | `IndexPage` → `HOTIndirectPage` → `HOTLeafPage` | Sorted key-value entries |
-
-- RBTree: Uses the standard trie (IndirectPages) with RB-tree nodes in KeyValueLeafPages
-- HOT: Uses its own trie structure (HOTIndirectPage) with specialized HOTLeafPages
+**Storage**: PATH, CAS, and NAME secondary indexes have one representation:
+`IndexPage` → `HOTIndirectPage` → `HOTLeafPage`, with sorted key/posting-list entries. The path
+summary and the name/value dictionaries remain separate keyed-trie structures; they never serve
+secondary-index reads or writes.
 
 ### Path Summary
 
@@ -966,7 +958,7 @@ The HOT index is a cache-friendly alternative to B-trees:
 │  ├──────────┼──────────────────────────────────────────────────────────┤  │
 │  │ SpanNode │ 2-16 children, SIMD-optimized partial key search         │  │
 │  ├──────────┼──────────────────────────────────────────────────────────┤  │
-│  │ MultiNode│ 17-256 children, direct byte indexing                    │  │
+│  │ MultiNode│ 17-32 children, SIMD-optimized partial key search        │  │
 │  └──────────┴──────────────────────────────────────────────────────────┘  │
 │                                                                           │
 │  HOTLeafPage:                                                             │
@@ -1120,18 +1112,13 @@ The storage engine is deceptively simple: pages go in, pages come out. The compl
 │  │                                                                      │
 │  ├──► NamePage ─────────► IndirectPages ──► KeyValueLeafPage (names)    │
 │  │                                                                      │
-│  │   Secondary Indexes (configurable backend):                          │
-│  │   ─────────────────────────────────────────                          │
-│  │                                                                      │
-│  │   HOT backend:                                                       │
+│  │   Secondary Indexes (canonical HOT storage):                         │
+│  │   ──────────────────────────────────────────                         │
 │  ├──► PathPage ─────────► HOTIndirectPage ──► HOTLeafPage               │
 │  ├──► NameIndexPage ────► HOTIndirectPage ──► HOTLeafPage               │
 │  ├──► CASPage ──────────► HOTIndirectPage ──► HOTLeafPage               │
 │  │                                                                      │
-│  │   RBTree backend:                                                    │
-│  ├──► PathPage ─────────► IndirectPages ──► KeyValueLeafPage (RBNodes)  │
-│  ├──► NameIndexPage ────► IndirectPages ──► KeyValueLeafPage (RBNodes)  │
-│  └──► CASPage ──────────► IndirectPages ──► KeyValueLeafPage (RBNodes)  │
+│  └──► ProjectionIndexPage ► HOTIndirectPage ► HOTLeafPage               │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1178,7 +1165,7 @@ The storage engine is deceptively simple: pages go in, pages come out. The compl
 │  ───────────────                                                        │
 │  • BiNode:   2 children, single discriminative bit                      │
 │  • SpanNode: up to 16 children, 4 contiguous bits                       │
-│  • MultiNode: up to 256 children, 8 bits (full byte)                    │
+│  • MultiNode: up to 32 children, PEXT sparse-partial routing            │
 │                                                                         │
 │  Leaf Page:                                                             │
 │  ──────────                                                             │
@@ -2298,9 +2285,11 @@ ResourceConfiguration.newBuilder("myresource")
     .hashKind(HashType.ROLLING)
     .useTextCompression(true)
     .buildPathSummary(true)
-    .indexBackendType(IndexBackendType.HOT)
     .build();
 ```
+
+PATH, CAS, and NAME secondary indexes always use the canonical HOT representation; there is no
+per-resource backend selector.
 
 ### Key Configuration Options
 
@@ -2309,7 +2298,6 @@ ResourceConfiguration.newBuilder("myresource")
 | `versioningApproach` | FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT | SLIDING_SNAPSHOT | Page versioning strategy |
 | `revisionsToRestore` | 1-N | 3 | Max page fragments to combine for reconstruction |
 | `hashKind` | NONE, ROLLING, POSTORDER | ROLLING | Hash computation method |
-| `indexBackendType` | RB_TREE, HOT | RB_TREE | Secondary index implementation |
 | `buildPathSummary` | true/false | true | Enable path summary |
 
 ---

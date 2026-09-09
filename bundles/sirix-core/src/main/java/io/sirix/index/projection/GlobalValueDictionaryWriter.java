@@ -136,9 +136,11 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
    * <p>
    * The original implementation treated distinct-count scaling as affordable. That was false for
    * ClickBench URL/Referer/Title: at 100M rows the monolithic arena wanted more than a 16 GB heap and
-   * doubled until the collector took every core. This aggregate bound complements the mandatory
+   * doubled until the collector took every core. This component bound complements the mandatory
    * structural caps above: it accounts for simultaneous build/flush workspace and turns pressure into
-   * an admission decision before planner object graphs or persistent output are allocated.
+   * an admission decision before planner object graphs or persistent output are allocated. The
+   * projection planner assigns it a disjoint share of the build-wide aggregate when another resident
+   * structure exists beside it.
    * </p>
    */
   private final long budgetBytes;
@@ -146,8 +148,8 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   private final AdmissionPolicy admissionPolicy;
 
   /**
-   * No aggregate byte budget, for standalone callers and tests. The structural entry, value and array
-   * ceilings remain mandatory; "unbounded" never means "may allocate a humongous array".
+   * No byte budget, for standalone callers and tests. The structural entry, value and array ceilings
+   * remain mandatory; "unbounded" never means "may allocate a humongous array".
    *
    * <p>
    * PUBLIC deliberately: before the budget existed this class had only the implicit public no-arg
@@ -616,12 +618,40 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
    * @return a fresh copy of the value's UTF-8 bytes
    */
   public byte[] valueBytes(final int id) {
+    final byte[] value = new byte[valueLengthAt(id)];
+    copyFromArena(offsets[id], value, 0, value.length);
+    return value;
+  }
+
+  int valueLengthAt(final int id) {
+    checkValueId(id);
+    return lengths[id];
+  }
+
+  /** Copy a bounded slice of one value without materialising the whole value. */
+  void copyValueRegion(final int id, final int valueOffset, final byte[] destination, final int destinationOffset,
+      final int length) {
+    checkValueId(id);
+    Objects.requireNonNull(destination, "destination must not be null");
+    Objects.checkFromIndexSize(valueOffset, length, lengths[id]);
+    Objects.checkFromIndexSize(destinationOffset, length, destination.length);
+    copyFromArena(offsets[id] + valueOffset, destination, destinationOffset, length);
+  }
+
+  /** Seed a probe front by direct arena-to-arena transfer; the front retains its own byte copy. */
+  void copyValueToProbeFront(final int id, final GlobalValueDictionaryProbeFront front) {
+    checkValueId(id);
+    Objects.requireNonNull(front, "front must not be null");
+    front.putDistinctFromWriter(hashes[id], secondaryHashes[id], this, id, id);
+  }
+
+  private void checkValueId(final int id) {
+    if (released) {
+      throw new IllegalStateException("value dictionary writer was released");
+    }
     if (id < 1 || id > entryCount) {
       throw new IllegalArgumentException("no such value dictionary id: " + id);
     }
-    final byte[] value = new byte[lengths[id]];
-    copyFromArena(offsets[id], value, 0, value.length);
-    return value;
   }
 
   private void copyFromArena(long sourceOffset, final byte[] destination, int destinationOffset, int remaining) {
@@ -658,21 +688,83 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
    * @param log the transaction intent log of the revision being built
    * @return the header's node key, which is what a reader needs to find this dictionary again
    */
+  /**
+   * Set by the rank pass, which feeds a MERGED SORTED stream so {@code intern} mints {@code id ==
+   * rank}. It changes two things and nothing else: the forward hash index is not built (§3.3.2), and
+   * the header records the whole dictionary as ordered.
+   */
+  private boolean rankOrdered;
+
+  /**
+   * Set by a caller whose dictionary is only ever read in the {@code id -> value} direction. Like
+   * {@link #rankOrdered} it skips the forward hash index, but it makes NO ordering claim: the header
+   * records a decode-only dictionary rather than a fully ordered one.
+   */
+  private boolean decodeOnly;
+
+  /**
+   * Declare that every value handed to this writer arrives in ascending collation order.
+   *
+   * <p>
+   * Package-private: only the rank pass can make this claim, because only a merged sorted stream can
+   * honour it. It is checked where it can be — the header refuses a missing forward index on a
+   * dictionary that is not fully ordered — but the ORDER itself is the caller's obligation.
+   * </p>
+   */
+  void markRankOrdered() {
+    if (entryCount != 0) {
+      throw new IllegalStateException("rank order must be declared before the first value is interned");
+    }
+    rankOrdered = true;
+  }
+
+  /**
+   * Declare that this dictionary will never be probed by value, so the forward hash index is not
+   * built.
+   *
+   * <p>
+   * The claim a caller makes here is about its READERS, not about its data, which is why it is
+   * cheaper to honour than {@link #markRankOrdered()}: arrival-ordered ids stay arrival-ordered and
+   * nothing is asserted about collation. A segment-scoped dictionary qualifies because the write side
+   * keeps its own in-memory map for the segment's lifetime and the read side answers only
+   * {@code valueOf} ({@code SegmentScopedReadDictionaries.idOf} returns {@code ID_ABSENT}).
+   * </p>
+   *
+   * <p>
+   * The saving is the whole point: the forward index costs 64.7 B/entry at D = 275K and 173 B/entry
+   * at D = 2.62M because copy-on-write retains every radix node each bounded append writes, and a
+   * per-segment dictionary would pay that again for every segment.
+   * </p>
+   */
+  void markDecodeOnly() {
+    if (entryCount != 0) {
+      throw new IllegalStateException("decode-only must be declared before the first value is interned");
+    }
+    decodeOnly = true;
+  }
+
   public long flush(final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineWriter storageEngineWriter, final TransactionIntentLog log) {
     if (released) {
       throw new IllegalStateException("value dictionary writer was released");
     }
     ensureFlushFitsBudget(reservationBytesForFlush());
-    namePage.createProjectionValueDictionaryTree(databaseType, storageEngineWriter, log);
+    try {
+      namePage.createProjectionValueDictionaryTree(databaseType, storageEngineWriter, log);
 
-    final long headerKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 1L);
-    final GlobalValueDictionaryRadix.Roots roots =
-        GlobalValueDictionaryRadix.append(0L, 0L, 0, this, namePage, databaseType, storageEngineWriter, log);
-    final ValueDictionaryHeaderNode header = new ValueDictionaryHeaderNode(headerKey, ValueDictionaryHeaderNode.VERSION,
-        entryCount, roots.forward(), roots.reverse(), 0);
-    namePage.putProjectionValueDictionaryRecord(header, databaseType, storageEngineWriter, log);
-    return headerKey;
+      final long headerKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 1L);
+      final GlobalValueDictionaryRadix.Roots roots = GlobalValueDictionaryRadix.append(0L, 0L, 0, this, namePage,
+          databaseType, storageEngineWriter, log, !rankOrdered && !decodeOnly);
+      final ValueDictionaryHeaderNode header = new ValueDictionaryHeaderNode(headerKey,
+          ValueDictionaryHeaderNode.VERSION, entryCount, roots.forward(), roots.reverse(), 0, rankOrdered
+              ? entryCount
+              : 0);
+      namePage.putProjectionValueDictionaryRecord(header, databaseType, storageEngineWriter, log);
+      return headerKey;
+    } catch (final RuntimeException | Error failure) {
+      poisonOwningTransaction(storageEngineWriter, failure);
+      throw failure;
+    }
   }
 
   /**
@@ -689,14 +781,58 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     }
     final int totalEntries = Math.toIntExact(Math.addExact((long) baseHeader.getEntryCount(), entryCount));
     ensureFlushFitsBudget(reservationBytesForFlushAppend(baseHeader));
-    final GlobalValueDictionaryRadix.Roots roots =
-        GlobalValueDictionaryRadix.append(baseHeader.getForwardRootKey(), baseHeader.getReverseRootKey(),
-            baseHeader.getEntryCount(), this, namePage, databaseType, storageEngineWriter, log);
-    namePage.putProjectionValueDictionaryRecord(
-        new ValueDictionaryHeaderNode(baseHeader.getNodeKey(), ValueDictionaryHeaderNode.VERSION, totalEntries,
-            roots.forward(), roots.reverse(), Math.addExact(baseHeader.getGeneration(), 1)),
-        databaseType, storageEngineWriter, log);
-    return baseHeader.getNodeKey();
+    try {
+      // The result is ordered only if BOTH the base and this generation are: a rank pass appending to
+      // an intern-ordered base would produce a sorted run above an unsorted one, which is exactly the
+      // state orderedPrefixCount exists to describe rather than to claim away.
+      final boolean ordered = rankOrdered && baseHeader.isFullyOrdered();
+      // Decode-only is a property of the CHAIN, never of one generation. Appending an indexed
+      // generation onto a decode-only base would leave the forward index covering the base's ids
+      // only, and a partial index is worse than none: supportsValueProbe() would answer true while
+      // every value in this generation probed as absent, minting a duplicate id for it.
+      final boolean decodeOnlyChain = decodeOnly || baseHeader.isDecodeOnly();
+      if (decodeOnlyChain && !ordered && baseHeader.getForwardRootKey() != 0) {
+        throw new IllegalArgumentException(
+            "refusing to append a decode-only generation onto a dictionary with a forward index at root "
+                + baseHeader.getForwardRootKey() + ": the index would cover only the first "
+                + baseHeader.getEntryCount() + " ids");
+      }
+      final GlobalValueDictionaryRadix.Roots roots = GlobalValueDictionaryRadix.append(baseHeader.getForwardRootKey(),
+          baseHeader.getReverseRootKey(), baseHeader.getEntryCount(), this, namePage, databaseType, storageEngineWriter,
+          log, !ordered && !decodeOnlyChain);
+      namePage.putProjectionValueDictionaryRecord(
+          new ValueDictionaryHeaderNode(baseHeader.getNodeKey(), ValueDictionaryHeaderNode.VERSION, totalEntries,
+              roots.forward(), roots.reverse(), Math.addExact(baseHeader.getGeneration(), 1), ordered
+                  ? totalEntries
+                  : baseHeader.getOrderedPrefixCount()),
+          databaseType, storageEngineWriter, log);
+      return baseHeader.getNodeKey();
+    } catch (final RuntimeException | Error failure) {
+      poisonOwningTransaction(storageEngineWriter, failure);
+      throw failure;
+    }
+  }
+
+  /**
+   * Preserve the dictionary failure as the transaction's authoritative rollback cause.
+   * Package-private so that every dictionary write path of the intent log
+   * ({@link GlobalValueDictionary#attachRankTable}, {@link GlobalValueDictionary#buildBlockIndex})
+   * poisons the same way: a half-written structure behind a caught exception would otherwise be
+   * committed by a caller that swallowed it.
+   */
+  static void poisonOwningTransaction(final StorageEngineWriter storageEngineWriter, final Throwable primaryFailure) {
+    try {
+      storageEngineWriter.markTransactionRollbackOnly(primaryFailure);
+    } catch (final RuntimeException | Error poisonFailure) {
+      if (poisonFailure == primaryFailure) {
+        return;
+      }
+      try {
+        primaryFailure.addSuppressed(poisonFailure);
+      } catch (final RuntimeException | Error ignored) {
+        // Preserve the authoritative dictionary failure even when poisoning runs under VM pressure.
+      }
+    }
   }
 
   /**
@@ -723,10 +859,25 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
         maxValueLength);
   }
 
-  private static void validateAppendHeader(final ValueDictionaryHeaderNode baseHeader) {
+  private void validateAppendHeader(final ValueDictionaryHeaderNode baseHeader) {
     if (baseHeader == null || baseHeader.getVersion() != ValueDictionaryHeaderNode.VERSION
         || !baseHeader.isDirectoryComplete()) {
       throw new IllegalArgumentException("a complete current value dictionary header is required");
+    }
+    // Interning needs the encode direction to avoid minting a second id for a value already in the
+    // base. A decode-only writer does not intern across the seam -- its generation is a fresh id
+    // range appended as base + local -- so it is the one caller that may append to a base it cannot
+    // probe.
+    if (!baseHeader.supportsValueProbe() && !decodeOnly) {
+      throw new IllegalArgumentException("a decode-only value dictionary can only be extended by a decode-only writer");
+    }
+    // A rank table maps the mints of ONE sealed generation onto its storage positions. An append would
+    // add positions the table does not cover, and the header this writer rewrites carries neither the
+    // table key nor the block index key -- a silent drop, not a refusal. A sealed segment dictionary
+    // grows by re-sealing (slice 4 carries the table through a tail append); until then, refuse.
+    if (baseHeader.hasRankTable()) {
+      throw new IllegalArgumentException("refusing to append to a value dictionary with a rank table at key "
+          + baseHeader.getRankTableKey() + ": a sealed segment dictionary is extended by re-sealing, not by append");
     }
   }
 
@@ -781,7 +932,7 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     if (admissionPolicy == AdmissionPolicy.FAIL_CLOSED) {
       return new IllegalStateException("Forced global value dictionary for column " + column
           + " cannot continue safely: " + (detail == null
-              ? "configured aggregate budget exhausted"
+              ? "configured dictionary-component budget exhausted"
               : detail),
           decline);
     }
@@ -803,7 +954,7 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
    * @param column the column whose dictionary refused the value
    * @param length the refused UTF-8 length, in bytes
    * @param retainedBytes bytes the dictionary retains at the point of refusal
-   * @param budgetBytes the configured aggregate budget
+   * @param budgetBytes the configured writer/component budget
    * @param entryCount distinct values admitted before the refusal
    * @param admissionPolicy the refusing dictionary's policy
    * @return the exception to throw; never {@code null}

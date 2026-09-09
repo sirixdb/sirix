@@ -76,7 +76,7 @@ final class ChunkedBodySabotageTest {
     for (int chunk = 0; chunk < layout.chunkCount; chunk++) {
       final int victim = (int) layout.chunkPayloadOffset[chunk];
       final int index = chunk;
-      assertRefused("chunk " + chunk + " payload", bytes -> bytes[victim] ^= 0x01, "chunk " + index, "checksum");
+      assertRefused(wire, "chunk " + chunk + " payload", bytes -> bytes[victim] ^= 0x01, "chunk " + index, "checksum");
     }
   }
 
@@ -86,7 +86,7 @@ final class ChunkedBodySabotageTest {
     final MemorySegment wire = victim();
     final ChunkedLayout layout = ChunkedPageHarness.parseChunkedLayout(wire);
     final int victim = (int) layout.metaPayloadOffset;
-    assertRefused("META payload", bytes -> bytes[victim] ^= 0x01, "META frame", "checksum");
+    assertRefused(wire, "META payload", bytes -> bytes[victim] ^= 0x01, "META frame", "checksum");
   }
 
   /**
@@ -99,7 +99,7 @@ final class ChunkedBodySabotageTest {
     final MemorySegment wire = victim();
     final ChunkedLayout layout = ChunkedPageHarness.parseChunkedLayout(wire);
     final int victim = (int) ChunkedPageHarness.chunkHashOffset(layout, 1);
-    assertRefused("chunk 1 checksum field", bytes -> bytes[victim] ^= 0x40, "chunk 1", "checksum");
+    assertRefused(wire, "chunk 1 checksum field", bytes -> bytes[victim] ^= 0x40, "chunk 1", "checksum");
   }
 
   @Test
@@ -109,7 +109,7 @@ final class ChunkedBodySabotageTest {
     final ChunkedLayout layout = ChunkedPageHarness.parseChunkedLayout(wire);
     final int entryCountAt = (int) layout.chunkRowOffset[layout.chunkCount - 1] + 2;
     final int declared = layout.chunkEntryCount[layout.chunkCount - 1];
-    assertRefused("last chunk covering one entry too few", bytes -> writeShort(bytes, entryCountAt, declared - 1),
+    assertRefused(wire, "last chunk covering one entry too few", bytes -> writeShort(bytes, entryCountAt, declared - 1),
         "chunk table covers", "entries");
   }
 
@@ -120,8 +120,8 @@ final class ChunkedBodySabotageTest {
     final ChunkedLayout layout = ChunkedPageHarness.parseChunkedLayout(wire);
     final int firstEntryAt = (int) layout.chunkRowOffset[1];
     final int declared = layout.chunkFirstEntry[1];
-    assertRefused("chunk 1 starting one entry early", bytes -> writeShort(bytes, firstEntryAt, declared - 1), "chunk 1",
-        "expected");
+    assertRefused(wire, "chunk 1 starting one entry early", bytes -> writeShort(bytes, firstEntryAt, declared - 1),
+        "chunk 1", "expected");
   }
 
   @Test
@@ -131,7 +131,7 @@ final class ChunkedBodySabotageTest {
     final ChunkedLayout layout = ChunkedPageHarness.parseChunkedLayout(wire);
     final int rawLenAt = (int) layout.chunkRowOffset[0] + 2 + 2;
     final int declared = layout.chunkRawLen[0];
-    assertRefused("chunk 0 claiming one heap byte too many", bytes -> writeInt(bytes, rawLenAt, declared + 1),
+    assertRefused(wire, "chunk 0 claiming one heap byte too many", bytes -> writeInt(bytes, rawLenAt, declared + 1),
         "heap bytes", "the header says");
   }
 
@@ -141,7 +141,7 @@ final class ChunkedBodySabotageTest {
     final MemorySegment wire = victim();
     final ChunkedLayout layout = ChunkedPageHarness.parseChunkedLayout(wire);
     final int codecAt = (int) layout.chunkRowOffset[0] + 2 + 2 + 4 + 4;
-    assertRefused("chunk 0 with codec 7", bytes -> bytes[codecAt] = 7, "unsupported codec 7", "chunk 0");
+    assertRefused(wire, "chunk 0 with codec 7", bytes -> bytes[codecAt] = 7, "unsupported codec 7", "chunk 0");
   }
 
   @Test
@@ -151,7 +151,7 @@ final class ChunkedBodySabotageTest {
     final ChunkedLayout layout = ChunkedPageHarness.parseChunkedLayout(wire);
     // bodyTotalLen sits immediately ahead of the META frame header.
     final int bodyLenAt = (int) (layout.chunkTableOffset - ChunkedBodyConfig.META_FRAME_HEADER_BYTES) - 4;
-    assertRefused("a body one byte shorter than its frames",
+    assertRefused(wire, "a body one byte shorter than its frames",
         bytes -> writeInt(bytes, bodyLenAt, layout.bodyTotalLen - 1), "frames occupy", "declares");
   }
 
@@ -161,7 +161,8 @@ final class ChunkedBodySabotageTest {
     final MemorySegment wire = victim();
     final ChunkedLayout layout = ChunkedPageHarness.parseChunkedLayout(wire);
     final int chunkCountAt = (int) layout.chunkTableOffset;
-    assertRefused("a populated page with a zero chunk count", bytes -> bytes[chunkCountAt] = 0, "covers 0 entries", "");
+    assertRefused(wire, "a populated page with a zero chunk count", bytes -> bytes[chunkCountAt] = 0,
+        "covers 0 entries", "");
   }
 
   /**
@@ -192,9 +193,9 @@ final class ChunkedBodySabotageTest {
   }
 
   /** Apply a mutation to a copy of the wire bytes and require an attributable refusal. */
-  private void assertRefused(final String what, final Consumer<byte[]> sabotage, final String mustMention,
-      final String mustAlsoMention) {
-    final byte[] bytes = ChunkedPageHarness.toArray(victim());
+  private void assertRefused(final MemorySegment wire, final String what, final Consumer<byte[]> sabotage,
+      final String mustMention, final String mustAlsoMention) {
+    final byte[] bytes = ChunkedPageHarness.toArray(wire);
     sabotage.accept(bytes);
     final SirixIOException thrown = assertThrows(SirixIOException.class,
         () -> ChunkedPageHarness.deserialize(config, MemorySegment.ofArray(bytes)).close(),
@@ -222,14 +223,14 @@ final class ChunkedBodySabotageTest {
   }
 
   private static void writeShort(final byte[] bytes, final int at, final int value) {
-    bytes[at] = (byte) (value >>> 8);
-    bytes[at + 1] = (byte) value;
+    bytes[at] = (byte) value;
+    bytes[at + 1] = (byte) (value >>> 8);
   }
 
   private static void writeInt(final byte[] bytes, final int at, final int value) {
-    bytes[at] = (byte) (value >>> 24);
-    bytes[at + 1] = (byte) (value >>> 16);
-    bytes[at + 2] = (byte) (value >>> 8);
-    bytes[at + 3] = (byte) value;
+    bytes[at] = (byte) value;
+    bytes[at + 1] = (byte) (value >>> 8);
+    bytes[at + 2] = (byte) (value >>> 16);
+    bytes[at + 3] = (byte) (value >>> 24);
   }
 }

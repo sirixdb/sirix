@@ -122,14 +122,20 @@ public final class HOTIncrementalInsert {
       final byte[] key = source.getKey(i);
       final int cmp = Arrays.compareUnsigned(key, newKey);
       if (cmp == 0) {
-        union.add(new HOTBulkBuilder.Entry(key, mergeIndexValues(source.getValue(i), newValue)));
+        // Posting indexes union duplicate NodeReferences. A projection key is a physical slot whose
+        // payload is opaque (and may legitimately be the zero-length tombstone), so its update is
+        // byte-for-byte last-writer-wins. Never feed projection bytes to the bitmap decoder.
+        final byte[] mergedValue = indexType == IndexType.PROJECTION
+            ? newValue
+            : mergeIndexValues(source.copyStoredValue(i), newValue);
+        union.add(new HOTBulkBuilder.Entry(key, mergedValue));
         placed = true;
       } else {
         if (!placed && cmp > 0) {
           union.add(new HOTBulkBuilder.Entry(newKey, newValue));
           placed = true;
         }
-        union.add(new HOTBulkBuilder.Entry(key, source.getValue(i)));
+        union.add(new HOTBulkBuilder.Entry(key, source.copyStoredValue(i)));
       }
     }
     if (!placed) {
@@ -151,13 +157,23 @@ public final class HOTIncrementalInsert {
       m++;
     }
 
-    final Page left = buildHalf(union.subList(0, m), revision, indexType, pageKeyAllocator);
-    final Page right = buildHalf(union.subList(m, n), revision, indexType, pageKeyAllocator);
-    if (source.segmentRefCount() > 0) {
-      routeSegmentRefs(source, left, right, splitBit);
+    Page left = null;
+    Page right = null;
+    try {
+      left = buildHalf(union.subList(0, m), revision, indexType, pageKeyAllocator);
+      right = buildHalf(union.subList(m, n), revision, indexType, pageKeyAllocator);
+      if (source.segmentRefCount() > 0) {
+        routeSegmentRefs(source, left, right, splitBit);
+      }
+      final int height = 1 + Math.max(heightOf(left), heightOf(right));
+      return new BiNode(splitBit, height, swizzle(left), swizzle(right));
+    } catch (final RuntimeException | Error failure) {
+      closeFreshPage(left, failure);
+      if (right != left) {
+        closeFreshPage(right, failure);
+      }
+      throw failure;
     }
-    final int height = 1 + Math.max(heightOf(left), heightOf(right));
-    return new BiNode(splitBit, height, swizzle(left), swizzle(right));
   }
 
   /**
@@ -169,14 +185,13 @@ public final class HOTIncrementalInsert {
    * A reference key encodes its owner as {@code (ownerSlot << 16) | subId}
    * ({@code HOTLeafPage#overflowPageRefKey}), and the owner's stored key bytes are
    * {@link PathKeySerializer}'s encoding of {@code ownerSlot} — the same derivation
-   * {@code HOTLeafPage#moveOverflowPageRefsAfterSplit} and
-   * {@code HOTTrieWriter#redistributeLeafKeysIfMisrouted} use. The owning slot is an entry of
-   * {@code source}, hence of the union, hence of exactly one half — the one selected by the owner
-   * key's {@code splitBit} (the union's partition predicate); the other half is probed as a backstop.
-   * Residency is decided by {@link HOTLeafPage#findEntry}, never by a routed descent: the reference
-   * must sit on the page that PHYSICALLY holds the slot, exactly as
-   * {@code moveOverflowPageRefsAfterSplit} decides it. A reference whose owner is in neither half is
-   * data loss and fails loudly.
+   * {@code HOTLeafPage#moveOverflowPageRefsAfterSplit} and canonical writer-side subtree rerouting
+   * use. The owning slot is an entry of {@code source}, hence of the union, hence of exactly one half
+   * — the one selected by the owner key's {@code splitBit} (the union's partition predicate); the
+   * other half is probed as a backstop. Residency is decided by {@link HOTLeafPage#findEntry}, never
+   * by a routed descent: the reference must sit on the page that PHYSICALLY holds the slot, exactly
+   * as {@code moveOverflowPageRefsAfterSplit} decides it. A reference whose owner is in neither half
+   * is data loss and fails loudly.
    *
    * <p>
    * References are <em>copied</em>, not moved: {@code source} is abandoned by the splice, and the
@@ -252,19 +267,61 @@ public final class HOTIncrementalInsert {
       final LongSupplier pageKeyAllocator) {
     if (entries.size() <= HOTLeafPage.MAX_ENTRIES) {
       final HOTLeafPage leaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-      boolean fits = true;
-      for (final HOTBulkBuilder.Entry entry : entries) {
-        if (!leaf.put(entry.key(), entry.value())) {
-          fits = false; // byte-capacity overflow
-          break;
+      try {
+        boolean fits = true;
+        for (final HOTBulkBuilder.Entry entry : entries) {
+          if (!leaf.put(entry.key(), entry.value())) {
+            fits = false; // byte-capacity overflow
+            break;
+          }
         }
+        if (fits) {
+          return leaf;
+        }
+        leaf.close(); // discard the speculative page and fall back to a multi-page build
+      } catch (final RuntimeException | Error failure) {
+        closeFreshPage(leaf, failure);
+        throw failure;
       }
-      if (fits) {
-        return leaf;
-      }
-      leaf.close(); // discard the speculative page and fall back to a multi-page build
     }
     return HOTBulkBuilder.build(entries, revision, indexType, pageKeyAllocator).rootPage();
+  }
+
+  /** Close every fresh leaf below an unpublished split half while preserving its primary failure. */
+  private static void closeFreshPage(final @Nullable Page page, final Throwable failure) {
+    if (page == null) {
+      return;
+    }
+    if (page instanceof HOTIndirectPage indirect) {
+      for (int i = 0; i < indirect.getNumChildren(); i++) {
+        try {
+          final PageReference childRef = indirect.getChildReference(i);
+          if (childRef != null) {
+            closeFreshPage(childRef.getPage(), failure);
+          }
+        } catch (final RuntimeException | Error cleanupFailure) {
+          addSuppressedSafely(failure, cleanupFailure);
+        }
+      }
+      return;
+    }
+    try {
+      page.close();
+    } catch (final RuntimeException | Error cleanupFailure) {
+      addSuppressedSafely(failure, cleanupFailure);
+    }
+  }
+
+  /** Never let a secondary cleanup/suppression failure replace the failure that triggered cleanup. */
+  static void addSuppressedSafely(final Throwable primary, final Throwable secondary) {
+    if (primary == secondary) {
+      return;
+    }
+    try {
+      primary.addSuppressed(secondary);
+    } catch (final RuntimeException | Error ignored) {
+      // Cleanup must keep walking sibling subtrees even when suppression itself cannot allocate.
+    }
   }
 
   /**
@@ -844,6 +901,77 @@ public final class HOTIncrementalInsert {
   }
 
   /**
+   * Materialize one exact complete flattened-BiNode child range as its own compressed subtree. Only
+   * the parent block's reference/partial arrays are copied; descendant pages and entries stay
+   * untouched. This is the extraction half of a bounded reference-only frontier splice.
+   */
+  static PageReference compressChildRange(final HOTIndirectPage node, final int fromInclusive, final int toExclusive,
+      final int revision, final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+    final int childCount = node.getNumChildren();
+    Objects.checkFromToIndex(fromInclusive, toExclusive, childCount);
+    if (toExclusive - fromInclusive < 2) {
+      throw new IllegalArgumentException("a compressed child range must contain at least two entries");
+    }
+    final ChildRange exact = minimalBiNodeRangeContaining(node, fromInclusive, toExclusive - 1);
+    if (exact.fromInclusive() != fromInclusive || exact.toExclusive() != toExclusive) {
+      throw new IllegalArgumentException("children [" + fromInclusive + ", " + toExclusive
+          + ") are not one complete flattened BiNode range; minimal complete range is [" + exact.fromInclusive() + ", "
+          + exact.toExclusive() + ")");
+    }
+    final int count = toExclusive - fromInclusive;
+    return compressHalf(sliceChildren(node, fromInclusive, count),
+        Arrays.copyOfRange(node.getPartialKeysRef(), fromInclusive, toExclusive), discriminativeBits(node), revision,
+        pageKeyAllocator);
+  }
+
+  /**
+   * Re-encode a contiguous child slice while replacing (or removing) exactly one child.
+   *
+   * <p>
+   * The replacement inherits the removed child's sparse partial. A persistent split of that child
+   * only narrows its key range inside the same parent region, so retaining the sparse-path position
+   * is exact. A {@code null} replacement removes the child; {@code null} is returned only when that
+   * makes the requested slice empty. The source node and all retained descendants remain untouched.
+   * </p>
+   */
+  static @Nullable PageReference compressChildSliceReplacing(final HOTIndirectPage node, final int fromInclusive,
+      final int toExclusive, final int replacedChildIndex, final @Nullable PageReference replacement,
+      final int revision, final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+    Objects.checkFromToIndex(fromInclusive, toExclusive, node.getNumChildren());
+    if (replacedChildIndex < fromInclusive || replacedChildIndex >= toExclusive) {
+      throw new IndexOutOfBoundsException(
+          "replacement child " + replacedChildIndex + " is outside slice [" + fromInclusive + ", " + toExclusive + ')');
+    }
+
+    final int outputCount = toExclusive - fromInclusive - (replacement == null
+        ? 1
+        : 0);
+    if (outputCount == 0) {
+      return null;
+    }
+    final PageReference[] children = new PageReference[outputCount];
+    final int[] partials = new int[outputCount];
+    final int[] sourcePartials = node.getPartialKeysRef();
+    int target = 0;
+    for (int source = fromInclusive; source < toExclusive; source++) {
+      if (source == replacedChildIndex) {
+        if (replacement != null) {
+          children[target] = replacement;
+          partials[target++] = sourcePartials[source];
+        }
+      } else {
+        children[target] = node.getChildReference(source);
+        partials[target++] = sourcePartials[source];
+      }
+    }
+    return compressHalf(children, partials, discriminativeBits(node), revision, pageKeyAllocator);
+  }
+
+  /**
    * Consolidate {@code node}'s leaf children — the thesis's <em>underflow</em> rule (§3.3.2) applied
    * with the leaf page treated as a {@code k}-constrained node: two sibling leaf pages whose combined
    * entry count is small enough are an underflow and are node-merged. The incremental insert leaves
@@ -860,9 +988,11 @@ public final class HOTIncrementalInsert {
    *
    * <p>
    * <b>Purity.</b> Allocates only new pages; never mutates {@code node}. Each merge replaces two leaf
-   * pages with one — the two collapsed children's references are appended to {@code droppedLeavesOut}
-   * so the caller can release their off-heap slots (a merged-away leaf is unreachable from the result
-   * and must not pin its 64KB segment until end-of-transaction).
+   * pages with one. Original collapsed-child references are appended to {@code droppedLeavesOut} so
+   * the caller can release their off-heap slots. A speculative merged leaf consumed by a later merge
+   * is closed here instead: it has no transaction-log identity and therefore cannot be retired by
+   * {@code releaseOrphanedHOTLeaves}. Leaves carrying side references are deliberately not merged;
+   * copying only their key/value slots would orphan the separately owned projection segment pages.
    *
    * @param droppedLeavesOut sink for every leaf reference this consolidation merged away
    * @return the consolidated node, or {@code node} itself when nothing was mergeable
@@ -875,37 +1005,103 @@ public final class HOTIncrementalInsert {
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
     Objects.requireNonNull(droppedLeavesOut, "droppedLeavesOut");
     HOTIndirectPage current = node;
-    boolean merged = true;
-    while (merged && current.getNumChildren() >= 3) {
-      merged = false;
-      final boolean[] pairs = biNodePairs(current);
-      for (int i = 0; i < pairs.length; i++) {
-        if (!pairs[i] || !(current.getChildReference(i).getPage() instanceof HOTLeafPage left)
-            || !(current.getChildReference(i + 1).getPage() instanceof HOTLeafPage right)
-            || left.getEntryCount() + right.getEntryCount() > targetMaxEntries) {
-          continue;
+    final PageReference[] ownedSpeculativeRefs = new PageReference[HOTIndirectPage.MAX_NODE_ENTRIES];
+    final HOTLeafPage[] ownedSpeculativeLeaves = new HOTLeafPage[HOTIndirectPage.MAX_NODE_ENTRIES];
+    int ownedSpeculativeCount = 0;
+    final List<PageReference> droppedOriginalLeaves = new ArrayList<>(HOTIndirectPage.MAX_NODE_ENTRIES);
+    HOTLeafPage pendingSpeculativeLeaf = null;
+    try {
+      boolean merged = true;
+      while (merged && current.getNumChildren() >= 3) {
+        merged = false;
+        final boolean[] pairs = biNodePairs(current);
+        for (int i = 0; i < pairs.length; i++) {
+          final PageReference leftRef = current.getChildReference(i);
+          final PageReference rightRef = current.getChildReference(i + 1);
+          if (!pairs[i] || !(leftRef.getPage() instanceof HOTLeafPage left)
+              || !(rightRef.getPage() instanceof HOTLeafPage right)
+              || left.getEntryCount() + right.getEntryCount() > targetMaxEntries || left.segmentRefCount() != 0
+              || right.segmentRefCount() != 0) {
+            continue;
+          }
+          final HOTLeafPage mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+          pendingSpeculativeLeaf = mergedLeaf;
+          boolean fits = true;
+          for (int e = 0; e < left.getEntryCount() && fits; e++) {
+            fits = mergedLeaf.put(left.getKey(e), left.copyStoredValue(e));
+          }
+          for (int e = 0; e < right.getEntryCount() && fits; e++) {
+            fits = mergedLeaf.put(right.getKey(e), right.copyStoredValue(e));
+          }
+          if (!fits) {
+            mergedLeaf.close();
+            pendingSpeculativeLeaf = null;
+            continue;
+          }
+
+          final PageReference mergedNodeRef =
+              mergeBiNodePairedLeaves(current, i, mergedLeaf, revision, pageKeyAllocator);
+          final HOTIndirectPage next = (HOTIndirectPage) mergedNodeRef.getPage();
+          final PageReference mergedLeafRef = next.getChildReference(i);
+          if (mergedLeafRef == null || mergedLeafRef.getPage() != mergedLeaf) {
+            final IllegalStateException failure = new IllegalStateException(
+                "HOT leaf consolidation lost ownership of its fresh replacement at slot " + i);
+            throw failure;
+          }
+
+          // Record the new leaf before retiring its inputs. If a close unexpectedly fails, the
+          // outer catch owns and retires every unpublished replacement, including this one.
+          ownedSpeculativeRefs[ownedSpeculativeCount] = mergedLeafRef;
+          ownedSpeculativeLeaves[ownedSpeculativeCount++] = mergedLeaf;
+          pendingSpeculativeLeaf = null;
+          retireConsolidationInput(leftRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
+              ownedSpeculativeCount);
+          retireConsolidationInput(rightRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
+              ownedSpeculativeCount);
+          current = next;
+          merged = true;
+          break;
         }
-        final HOTLeafPage mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-        boolean fits = true;
-        for (int e = 0; e < left.getEntryCount() && fits; e++) {
-          fits = mergedLeaf.put(left.getKey(e), left.getValue(e));
+      }
+      droppedLeavesOut.addAll(droppedOriginalLeaves);
+      return current;
+    } catch (final RuntimeException | Error failure) {
+      if (pendingSpeculativeLeaf != null) {
+        closeConsolidationLeaf(pendingSpeculativeLeaf, failure);
+      }
+      for (int i = 0; i < ownedSpeculativeCount; i++) {
+        final HOTLeafPage ownedLeaf = ownedSpeculativeLeaves[i];
+        if (ownedLeaf != null) {
+          closeConsolidationLeaf(ownedLeaf, failure);
         }
-        for (int e = 0; e < right.getEntryCount() && fits; e++) {
-          fits = mergedLeaf.put(right.getKey(e), right.getValue(e));
+      }
+      throw failure;
+    }
+  }
+
+  private static void retireConsolidationInput(final PageReference inputRef,
+      final List<PageReference> droppedOriginalLeaves, final PageReference[] ownedSpeculativeRefs,
+      final HOTLeafPage[] ownedSpeculativeLeaves, final int ownedSpeculativeCount) {
+    for (int i = 0; i < ownedSpeculativeCount; i++) {
+      if (ownedSpeculativeRefs[i] == inputRef) {
+        final HOTLeafPage leaf = ownedSpeculativeLeaves[i];
+        if (leaf != null) {
+          leaf.close();
+          ownedSpeculativeRefs[i] = null;
+          ownedSpeculativeLeaves[i] = null;
         }
-        if (!fits) {
-          mergedLeaf.close();
-          continue;
-        }
-        droppedLeavesOut.add(current.getChildReference(i));
-        droppedLeavesOut.add(current.getChildReference(i + 1));
-        current =
-            (HOTIndirectPage) mergeBiNodePairedLeaves(current, i, mergedLeaf, revision, pageKeyAllocator).getPage();
-        merged = true;
-        break;
+        return;
       }
     }
-    return current;
+    droppedOriginalLeaves.add(inputRef);
+  }
+
+  private static void closeConsolidationLeaf(final HOTLeafPage leaf, final Throwable failure) {
+    try {
+      leaf.close();
+    } catch (final RuntimeException | Error cleanupFailure) {
+      addSuppressedSafely(failure, cleanupFailure);
+    }
   }
 
   /**
@@ -1513,6 +1709,49 @@ public final class HOTIncrementalInsert {
   }
 
   /**
+   * Writer-confined mutable carrier for the foreground mutation path. The public analysis API above
+   * deliberately remains an immutable value, while a HOT writer reuses one of these carriers for
+   * every operation so a new-key insert does not allocate a result object before it knows whether a
+   * structural split is required.
+   */
+  static final class DescentScratch {
+    private int residentIndex;
+    private int mismatchBit;
+    private int insertDepth;
+    private int affectedChildIndex;
+    private boolean keyAlreadyPresent;
+
+    private void set(final int residentIndex, final int mismatchBit, final int insertDepth,
+        final int affectedChildIndex, final boolean keyAlreadyPresent) {
+      this.residentIndex = residentIndex;
+      this.mismatchBit = mismatchBit;
+      this.insertDepth = insertDepth;
+      this.affectedChildIndex = affectedChildIndex;
+      this.keyAlreadyPresent = keyAlreadyPresent;
+    }
+
+    int residentIndex() {
+      return residentIndex;
+    }
+
+    int mismatchBit() {
+      return mismatchBit;
+    }
+
+    int insertDepth() {
+      return insertDepth;
+    }
+
+    int affectedChildIndex() {
+      return affectedChildIndex;
+    }
+
+    boolean keyAlreadyPresent() {
+      return keyAlreadyPresent;
+    }
+  }
+
+  /**
    * Analyze an already-walked insert descent — the post-processing of Binna's
    * {@code searchForInsert}: pick the resident key the new key diverged from, compute the mismatch
    * bit β, and walk the parent stack to the insert depth d*. Pure — reads the pages, allocates only
@@ -1540,10 +1779,43 @@ public final class HOTIncrementalInsert {
    */
   public static DescentAnalysis analyzeDescent(final HOTIndirectPage[] pathNodes, final int[] pathChildIndices,
       final int pathDepth, final HOTLeafPage leaf, final byte[] key) {
+    return analyzeDescent(pathNodes, pathChildIndices, pathDepth, leaf, key, key.length);
+  }
+
+  /**
+   * {@link #analyzeDescent(HOTIndirectPage[], int[], int, HOTLeafPage, byte[])} over the valid prefix
+   * of an oversized serialization buffer.
+   */
+  public static DescentAnalysis analyzeDescent(final HOTIndirectPage[] pathNodes, final int[] pathChildIndices,
+      final int pathDepth, final HOTLeafPage leaf, final byte[] key, final int keyLen) {
+    final DescentScratch scratch = new DescentScratch();
+    analyzeDescentInto(pathNodes, pathChildIndices, pathDepth, leaf, key, keyLen, scratch);
+    final byte[] resident = scratch.keyAlreadyPresent()
+        ? keyLen == key.length
+            ? key
+            : Arrays.copyOf(key, keyLen)
+        : scratch.residentIndex() < 0
+            ? null
+            : leaf.getKey(scratch.residentIndex());
+    return new DescentAnalysis(leaf, resident, scratch.mismatchBit(), scratch.insertDepth(),
+        scratch.affectedChildIndex(), scratch.keyAlreadyPresent());
+  }
+
+  /**
+   * Allocation-free form used by one transaction-confined writer. All result fields are replaced on
+   * every invocation; callers must copy the primitive fields they need before recursively inserting.
+   */
+  static void analyzeDescentInto(final HOTIndirectPage[] pathNodes, final int[] pathChildIndices, final int pathDepth,
+      final HOTLeafPage leaf, final byte[] key, final int keyLen, final DescentScratch scratch) {
     Objects.requireNonNull(pathNodes, "pathNodes");
     Objects.requireNonNull(pathChildIndices, "pathChildIndices");
     Objects.requireNonNull(leaf, "leaf");
     Objects.requireNonNull(key, "key");
+    Objects.requireNonNull(scratch, "scratch");
+    Objects.checkFromIndexSize(0, keyLen, key.length);
+    if (pathDepth < 0 || pathDepth > pathNodes.length || pathDepth > pathChildIndices.length) {
+      throw new IllegalArgumentException("pathDepth " + pathDepth + " exceeds supplied path buffers");
+    }
 
     // Locate the key's insertion point among the leaf's sorted entries (I2).
     final int entryCount = leaf.getEntryCount();
@@ -1555,7 +1827,7 @@ public final class HOTIncrementalInsert {
       // Zero-alloc: compareKeyWithBound reads commonPrefix + off-heap suffix in place rather
       // than reconstructing the key byte[] per probe (getKey allocates). Identical unsigned-lex
       // ordering with longer-wins tiebreak, so the search result is unchanged.
-      final int cmp = leaf.compareKeyWithBound(mid, key);
+      final int cmp = leaf.compareKeyWithBound(mid, key, keyLen);
       if (cmp < 0) {
         lo = mid + 1;
       } else if (cmp > 0) {
@@ -1566,9 +1838,8 @@ public final class HOTIncrementalInsert {
       }
     }
     if (present || entryCount == 0) {
-      return new DescentAnalysis(leaf, present
-          ? key
-          : null, -1, -1, -1, present);
+      scratch.set(-1, -1, -1, -1, present);
+      return;
     }
 
     // The resident key is the insertion-point neighbor sharing the longest prefix with key —
@@ -1582,20 +1853,16 @@ public final class HOTIncrementalInsert {
     int beta = -1;
     int residentIndex = -1;
     if (insertionPoint > 0) {
-      beta = leaf.msdbWith(insertionPoint - 1, key);
+      beta = leaf.msdbWith(insertionPoint - 1, key, keyLen);
       residentIndex = insertionPoint - 1;
     }
     if (insertionPoint < entryCount) {
-      final int successorBeta = leaf.msdbWith(insertionPoint, key);
+      final int successorBeta = leaf.msdbWith(insertionPoint, key, keyLen);
       if (successorBeta > beta) { // larger absolute index ⇒ more specific ⇒ longer prefix
         beta = successorBeta;
         residentIndex = insertionPoint;
       }
     }
-    final byte[] resident = residentIndex < 0
-        ? null
-        : leaf.getKey(residentIndex);
-
     // Insert depth d* — descend the parent stack while the next compound node's MSB is more
     // significant (smaller absolute index) than β. The leaf has no MSB, so the loop's upper
     // bound is the stack's last compound node (Binna's UINT16_MAX leaf sentinel).
@@ -1608,7 +1875,7 @@ public final class HOTIncrementalInsert {
     final int affectedChildIndex = insertDepth < 0
         ? -1
         : pathChildIndices[insertDepth];
-    return new DescentAnalysis(leaf, resident, beta, insertDepth, affectedChildIndex, false);
+    scratch.set(residentIndex, beta, insertDepth, affectedChildIndex, false);
   }
 
   /**
@@ -1679,8 +1946,13 @@ public final class HOTIncrementalInsert {
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
 
     if (currentDepth == 0) {
-      spineRefs[0].setPage(materialize(biNode, revision, pageKeyAllocator));
-      return new IntegrationResult(spineRefs[0], spineRefs[0]);
+      final HOTIndirectPage materialized = materialize(biNode, revision, pageKeyAllocator);
+      final IntegrationResult result = new IntegrationResult(spineRefs[0], spineRefs[0]);
+      // Literal publication boundary: every allocation, validation and result construction is
+      // complete before this non-allocating reference store. Callers may therefore mark the graph
+      // published immediately after integrate returns without an OOME gap after setPage.
+      spineRefs[0].setPage(materialized);
+      return result;
     }
     final int parentDepth = currentDepth - 1;
     final HOTIndirectPage parent = spineNodes[parentDepth];
@@ -1688,8 +1960,10 @@ public final class HOTIncrementalInsert {
     if (parent.getHeight() > biNode.height()) {
       // Intermediate node: biNode's subtree is shorter than the parent's level — give it its
       // own 2-entry compound node in the slot the old node occupied; the parent is untouched.
-      spineRefs[currentDepth].setPage(materialize(biNode, revision, pageKeyAllocator));
-      return new IntegrationResult(spineRefs[0], spineRefs[currentDepth]);
+      final HOTIndirectPage materialized = materialize(biNode, revision, pageKeyAllocator);
+      final IntegrationResult result = new IntegrationResult(spineRefs[0], spineRefs[currentDepth]);
+      spineRefs[currentDepth].setPage(materialized);
+      return result;
     }
 
     final int affectedChildIndex = childSlots[parentDepth];
@@ -1707,8 +1981,9 @@ public final class HOTIncrementalInsert {
       final HOTIndirectPage folded = betaInParentMask
           ? mergeBiNodeAtExistingDiscBit(parent, biNode, affectedChildIndex, revision, pageKeyAllocator)
           : addEntry(parent, biNode, affectedChildIndex, revision, pageKeyAllocator);
+      final IntegrationResult result = new IntegrationResult(spineRefs[0], spineRefs[parentDepth]);
       spineRefs[parentDepth].setPage(folded);
-      return new IntegrationResult(spineRefs[0], spineRefs[parentDepth]);
+      return result;
     }
 
     // Capacity cascade: the parent is full. Its MSB must be more significant than β when β is
@@ -1855,21 +2130,41 @@ public final class HOTIncrementalInsert {
    * value.
    */
   static byte[] mergeIndexValues(final byte[] existing, final byte[] incoming) {
-    if (NodeReferencesSerializer.isTombstone(existing, 0, existing.length)
-        || NodeReferencesSerializer.isTombstone(incoming, 0, incoming.length)) {
+    if (NodeReferencesSerializer.isTombstone(incoming, 0, incoming.length)) {
       return incoming;
     }
-    final NodeReferences merged = NodeReferencesSerializer.deserialize(existing);
-    merged.getNodeKeys().or(NodeReferencesSerializer.deserialize(incoming).getNodeKeys());
+    if (NodeReferencesSerializer.isTombstone(existing, 0, existing.length)) {
+      NodeReferencesSerializer.requireValidChunkPayload(incoming, 0, incoming.length);
+      return incoming;
+    }
+    final NodeReferences merged = NodeReferencesSerializer.deserializeChunk(existing);
+    merged.getNodeKeys().or(NodeReferencesSerializer.deserializeChunk(incoming).getNodeKeys());
     final byte[] out = new byte[NodeReferencesSerializer.computeSerializedSize(merged)];
     NodeReferencesSerializer.serialize(merged, out, 0);
     return out;
   }
 
-  private static int heightOf(final Page page) {
-    return page instanceof HOTIndirectPage indirect
-        ? indirect.getHeight()
-        : 0;
+  /**
+   * Exact structural height of a resolved HOT page.
+   *
+   * <p>
+   * A null swizzle is not a leaf. Treating it as height zero publishes a stale-low parent when a
+   * durable/TIL-only child is the unique tallest child of a split half. The orchestration layer must
+   * resolve every direct child before invoking a height-sensitive primitive; this method enforces
+   * that contract fail-closed.
+   * </p>
+   */
+  private static int heightOf(final @Nullable Page page) {
+    if (page == null) {
+      throw new IllegalStateException("HOT structural height requires a resolved child page");
+    }
+    if (page instanceof HOTIndirectPage indirect) {
+      return indirect.getHeight();
+    }
+    if (page instanceof HOTLeafPage) {
+      return 0;
+    }
+    throw new IllegalStateException("Unexpected HOT child page type: " + page.getClass().getName());
   }
 
   private static PageReference swizzle(final Page page) {

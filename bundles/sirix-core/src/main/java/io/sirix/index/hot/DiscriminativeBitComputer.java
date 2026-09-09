@@ -31,6 +31,7 @@ package io.sirix.index.hot;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteOrder;
+import java.util.Objects;
 
 
 /**
@@ -63,7 +64,7 @@ public final class DiscriminativeBitComputer {
 
   /**
    * Cached big-endian, byte-aligned long layout. Re-using a single instance avoids the per-call
-   * {@code withOrder(...)} layout construction that the legacy overloads incur.
+   * {@code withOrder(...)} layout construction that the convenience overloads incur.
    */
   private static final ValueLayout.OfLong JAVA_LONG_BE_UNALIGNED =
       ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN);
@@ -136,7 +137,9 @@ public final class DiscriminativeBitComputer {
   /**
    * Compute the first differing bit position between two keys stored as MemorySegment slices.
    *
-   * <p>Zero-allocation variant — operates directly on off-heap slices without copying to byte[].</p>
+   * <p>
+   * Zero-allocation variant — operates directly on off-heap slices without copying to byte[].
+   * </p>
    *
    * @param key1 first key segment
    * @param key2 second key segment
@@ -183,22 +186,24 @@ public final class DiscriminativeBitComputer {
   /**
    * Compute the first differing bit between two byte-ranges within the same {@link MemorySegment}.
    *
-   * <p>Zero-allocation variant — avoids the {@code asSlice} wrapper objects that the
+   * <p>
+   * Zero-allocation variant — avoids the {@code asSlice} wrapper objects that the
    * {@link #computeDifferingBit(MemorySegment, MemorySegment)} entry point requires. Used by
-   * {@code HOTLeafPage.buildPextIndex} to compare adjacent suffix regions of the off-heap slot
-   * arena without materializing per-entry view objects.</p>
+   * {@code HOTLeafPage.buildPextIndex} to compare adjacent suffix regions of the off-heap slot arena
+   * without materializing per-entry view objects.
+   * </p>
    *
-   * <p>Both regions must lie within {@code seg.byteSize()}; the caller is responsible for that
-   * invariant (typical caller: a leaf-page slot table that already validated offsets at
-   * deserialization time).</p>
+   * <p>
+   * Both regions must lie within {@code seg.byteSize()}; the caller is responsible for that invariant
+   * (typical caller: a leaf-page slot table that already validated offsets at deserialization time).
+   * </p>
    *
-   * @param seg  the underlying segment containing both keys
+   * @param seg the underlying segment containing both keys
    * @param off1 byte offset of the first key within {@code seg}
    * @param len1 length of the first key in bytes
    * @param off2 byte offset of the second key within {@code seg}
    * @param len2 length of the second key in bytes
-   * @return bit position (0-indexed from MSB), or {@code -1} if the two ranges are bytewise
-   *         identical
+   * @return bit position (0-indexed from MSB), or {@code -1} if the two ranges are bytewise identical
    */
   public static int computeDifferingBit(MemorySegment seg, long off1, int len1, long off2, int len2) {
     if (len1 == 0 && len2 == 0) {
@@ -236,7 +241,9 @@ public final class DiscriminativeBitComputer {
   /**
    * Compute the first differing bit between a MemorySegment key and a byte[] key.
    *
-   * <p>Zero-allocation variant for mixed comparisons (one key on-heap, one off-heap).</p>
+   * <p>
+   * Zero-allocation variant for mixed comparisons (one key on-heap, one off-heap).
+   * </p>
    *
    * @param seg the off-heap key segment
    * @param key the on-heap key array
@@ -281,7 +288,9 @@ public final class DiscriminativeBitComputer {
   /**
    * Check if a specific bit is set in a MemorySegment key.
    *
-   * <p>Zero-allocation variant — reads directly from off-heap memory.</p>
+   * <p>
+   * Zero-allocation variant — reads directly from off-heap memory.
+   * </p>
    *
    * @param key the key segment
    * @param absoluteBitIndex the absolute bit index (0 = MSB of first byte)
@@ -312,14 +321,32 @@ public final class DiscriminativeBitComputer {
    * @return true if the bit is set (1), false otherwise (0)
    */
   public static boolean isBitSet(byte[] key, int absoluteBitIndex) {
+    return isBitSetUnchecked(key, key.length, absoluteBitIndex);
+  }
+
+  /**
+   * Check a bit in the valid prefix of a reusable key buffer. Bits at or beyond {@code keyLen * 8}
+   * are zero even when the backing array contains stale tail bytes.
+   *
+   * @param key buffer containing the key
+   * @param keyLen number of valid key bytes
+   * @param absoluteBitIndex the absolute bit index (0 = MSB of first byte)
+   * @return whether the bit is set within the valid key prefix
+   */
+  public static boolean isBitSet(final byte[] key, final int keyLen, final int absoluteBitIndex) {
+    Objects.checkFromIndexSize(0, keyLen, Objects.requireNonNull(key, "key").length);
+    return isBitSetUnchecked(key, keyLen, absoluteBitIndex);
+  }
+
+  private static boolean isBitSetUnchecked(final byte[] key, final int keyLen, final int absoluteBitIndex) {
     if (absoluteBitIndex < 0) {
       return false;
     }
-    int byteIndex = absoluteBitIndex / 8;
-    if (byteIndex >= key.length) {
+    final int byteIndex = absoluteBitIndex / 8;
+    if (byteIndex >= keyLen) {
       return false; // Bit is beyond key length, treated as 0
     }
-    int bitInByte = absoluteBitIndex % 8;
+    final int bitInByte = absoluteBitIndex % 8;
     // 0x80 >> bitInByte creates mask: 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
     return (key[byteIndex] & (0x80 >> bitInByte)) != 0;
   }
@@ -382,7 +409,7 @@ public final class DiscriminativeBitComputer {
    * <ul>
    * <li>1 bit → BiNode (2 children)</li>
    * <li>2-4 bits → SpanNode (up to 16 children)</li>
-   * <li>5+ bits → MultiNode (up to 256 children)</li>
+   * <li>5+ bits → MultiNode (up to 32 children)</li>
    * </ul>
    * </p>
    * 
@@ -455,4 +482,3 @@ public final class DiscriminativeBitComputer {
         | ((long) (bytes[offset + 6] & 0xFF) << 8) | ((long) (bytes[offset + 7] & 0xFF));
   }
 }
-

@@ -46,6 +46,11 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
 
   @Override
   public XmlIndexController createIndexes(final Set<IndexDef> indexDefs, final XmlNodeTrx nodeWriteTrx) {
+    // Validate before createIndexBuilders catalogues any definition or the shared traversal writes a
+    // single index page. Unsupported lifecycle mixes therefore fail atomically at the API boundary.
+    validateNewIndexDefinitions(indexDefs, nodeWriteTrx);
+    validateProjectionDefinitions(indexDefs, nodeWriteTrx);
+
     // Build the indexes.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
 
@@ -80,20 +85,25 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
         throw new IllegalArgumentException(
             "createProjectionIndexesAtLoadStart accepts PROJECTION definitions only; got " + indexDef.getType());
       }
-      if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
-        throw new IllegalStateException("Projection indexes require a resource created with a path summary");
-      }
-      if (!nodeWriteTrx.getPathSummary().getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
+      final PathSummaryReader pathSummary = requireProjectionPathSummary(nodeWriteTrx, indexDef);
+      if (!pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
         throw new IllegalStateException("Projection root path '" + indexDef.getProjectionRootPath()
             + "' already has records; load-time projection construction requires an empty record set");
       }
     }
+    validateNewIndexDefinitions(indexDefs, nodeWriteTrx);
     nodeWriteTrx.awaitPendingAsyncCommit();
     final ProjectionBulkLoad[] ownedLoads = new ProjectionBulkLoad[indexDefs.size()];
+    final IndexDef[] publishedDefs = new IndexDef[indexDefs.size()];
     int ownedCount = 0;
+    int publishedCount = 0;
     try {
       for (final IndexDef indexDef : indexDefs) {
-        indexes.add(indexDef);
+        if (indexes.getIndexDef(indexDef.getID(), indexDef.getType()) == null) {
+          indexes.add(indexDef);
+          publishedDefs[publishedCount] = indexDef;
+          publishedCount++;
+        }
         final ProjectionBulkLoad ownedLoad = ProjectionBulkLoad.begin(indexDef, resourceKey, nodeWriteTrx,
             nodeWriteTrx.getPathSummary(), nodeWriteTrx.getStorageEngineWriter(), expectedRows);
         ownedLoads[ownedCount] = ownedLoad;
@@ -111,6 +121,15 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
           }
         }
       }
+      for (int index = publishedCount - 1; index >= 0; index--) {
+        try {
+          indexes.removeIndex(publishedDefs[index]);
+        } catch (final Throwable cleanupFailure) {
+          if (cleanupFailure != armFailure) {
+            armFailure.addSuppressed(cleanupFailure);
+          }
+        }
+      }
       throw XmlIndexController.<RuntimeException>rethrowUnchecked(armFailure);
     }
   }
@@ -121,21 +140,42 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
   }
 
   private void createProjectionIndex(final IndexDef indexDef, final XmlNodeTrx nodeWriteTrx) {
-    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
-      throw new IllegalStateException("Projection indexes require a resource created with a path summary");
-    }
+    final PathSummaryReader pathSummary = requireProjectionPathSummary(nodeWriteTrx, indexDef);
     nodeWriteTrx.awaitPendingAsyncCommit();
-    ProjectionIndexBuilder.buildAndPersist(indexDef, nodeWriteTrx.getPathSummary(), nodeWriteTrx,
-        nodeWriteTrx.getStorageEngineWriter(), false);
+    ProjectionIndexBuilder.buildAndPersist(indexDef, pathSummary, nodeWriteTrx, nodeWriteTrx.getStorageEngineWriter(),
+        false);
   }
 
   @Override
   protected ChangeListener createProjectionIndexListener(final XmlNodeTrx nodeWriteTrx, final IndexDef indexDef) {
-    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
-      return null;
+    final PathSummaryReader pathSummary = requireProjectionPathSummary(nodeWriteTrx, indexDef);
+    return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(), pathSummary, indexDef,
+        nodeWriteTrx);
+  }
+
+  /**
+   * Validate projection prerequisites before createIndexBuilders can publish a definition or page.
+   */
+  private static void validateProjectionDefinitions(final Set<IndexDef> indexDefs, final XmlNodeTrx nodeWriteTrx) {
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isProjectionIndex()) {
+        requireProjectionPathSummary(nodeWriteTrx, indexDef);
+      }
     }
-    return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(),
-        indexDef, nodeWriteTrx);
+  }
+
+  private static PathSummaryReader requireProjectionPathSummary(final XmlNodeTrx nodeWriteTrx,
+      final IndexDef indexDef) {
+    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
+      throw new IllegalStateException("Cannot bind incremental maintenance for projection index " + indexDef.getID()
+          + ": the resource has no path summary. Projection indexes require buildPathSummary=true.");
+    }
+    final PathSummaryReader pathSummary = nodeWriteTrx.getPathSummary();
+    if (pathSummary == null) {
+      throw new IllegalStateException("Cannot bind incremental maintenance for projection index " + indexDef.getID()
+          + ": the resource's path summary is unavailable.");
+    }
+    return pathSummary;
   }
 
   /**

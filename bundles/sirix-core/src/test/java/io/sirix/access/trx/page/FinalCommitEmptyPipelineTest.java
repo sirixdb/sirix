@@ -23,6 +23,7 @@ import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageConstants;
 import io.sirix.page.PageKind;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
@@ -64,7 +65,7 @@ final class FinalCommitEmptyPipelineTest {
     config.resourcePath = tempDir.resolve("resource");
 
     final byte[] first = {3, 1, 4, 1, 5, 9};
-    final byte[] second = new byte[513];
+    final byte[] second = new byte[PageConstants.MAX_RECORD_SIZE];
     for (int i = 0; i < second.length; i++) {
       second[i] = (byte) (i * 17 + 11);
     }
@@ -211,8 +212,8 @@ final class FinalCommitEmptyPipelineTest {
       }
     }
 
-    // Eliminate every process-local page/revision shortcut. The value is larger than the 150 KiB
-    // record threshold, so this read can succeed only if recursive commit wrote its OverflowPage
+    // Eliminate every process-local page/revision shortcut. The value is larger than the 512-byte
+    // encoded-record ceiling, so this read can succeed only if recursive commit wrote its OverflowPage
     // child, installed that disk key in the leaf wire, and then wrote the parent KVL.
     Databases.clearGlobalCaches();
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);

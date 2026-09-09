@@ -1,7 +1,9 @@
 # Projection Index Storage Redesign
 
-> **Addendum (2026-07, as-built).** Several things below are superseded by later
-> work; this spec is kept as the design record, but the current layout is:
+> **Historical design record; not a runtime-format specification.** Sections
+> below retain rejected intermediate designs to explain decisions. They do not
+> describe readable compatibility formats, migration routes, or alternate
+> mutation paths. The only supported implementation is summarized here:
 > 1. **One HOT slot per SEGMENT, not per leaf.** §2.3's addressing — one slot per
 >    leaf, with the segments hanging off the leaf's side map under
 >    `(leafIndex << 8 | segmentId)` — has been replaced by a **1:1 segment ⇔ slot**
@@ -9,9 +11,9 @@
 >    **§2.3a** for the as-built layout and what it changed downstream (the
 >    84-column cap became 21 844, the descriptor became zone-map-only, and
 >    inline-vs-referenced moved from the descriptor to the slot).
-> 2. **The descriptor layout is gone, not deprecated.** There is exactly one
->    storage layout and no code path that can produce the other, so a sub-tree can
->    no longer end up with two layouts mixed in it. See §6.
+> 2. **Descriptor-contained payloads are rejected, not deprecated.** The one
+>    `RowGroupDescriptor` form is zone-map-only. Every payload has one segment
+>    slot; the descriptor never carries a second copy. See §2.3a and §6.
 > 3. **The slot-0 `PIXM` metadata no longer carries per-leaf order/fences.**
 >    Explicit document links and normal-backbone routing metadata live in
 >    carry-forward **chunks** (32 physical row groups each, at reserved slot keys
@@ -21,19 +23,29 @@
 >    change is REJECTED rather than misread, not so two formats can coexist. See
 >    [`PROJECTION_INDEX_DEEP_DIVE.md`](PROJECTION_INDEX_DEEP_DIVE.md) §5.3–5.4 and
 >    `ProjectionIndexFences`.
-> 4. **The `PIXB` blob path is hybrid inline/referenced**: a payload ≤ 512 B rides
->    the slot value; larger stays an `OverflowPage`. The small shape-only metadata
->    therefore inlines — no metadata page, one fewer random read on open. The
->    roughly 4.5 KB order/fence chunks stay referenced. See DEEP_DIVE §5.3.
+> 4. **The `PIXB` blob path uses the one tagged slot carrier**: a payload ≤ 512 B
+>    rides the slot value; a larger payload is represented by the same slot tag
+>    plus an `OverflowPage` reference. These are size-selected states of one wire
+>    format, not compatibility formats. The small shape-only metadata therefore
+>    inlines — no metadata page, one fewer random read on open. The roughly 4.5 KB
+>    order/fence chunks stay referenced. See DEEP_DIVE §5.3.
 > 5. **Nomenclature.** What this document calls a *leaf* is a **row group** in the
 >    code, `LeafDescriptor` is `RowGroupDescriptor`, and `ProjectionSegmentPage`
 >    was folded into the existing `OverflowPage` rather than added as a new
 >    `PageKind`.
 >
-> Everything else in this document (segment directory, descriptor contents,
-> `OverflowPage` reuse, hydrate, maintenance ladder) is current.
+> 6. **There is one mutation lifecycle.** A physically virgin tree may be
+>    initialized once. Thereafter every insert, update, and delete goes through
+>    incremental projection maintenance and the shared HOT CoW mutation driver.
+>    Drop removes the catalog definition; replacement is drop + commit + create,
+>    which allocates a fresh physical id. Nothing resets or rebuilds a populated
+>    tree in place.
+>
+> The normative current references are `PROJECTION_INDEX_DEEP_DIVE.md` and the
+> class contracts listed below. Any contradictory planning text later in this
+> file is historical rationale only.
 
-Status: **design, reviewed** (task #57's preferred resolution) — checked against
+Status: **historical design and implementation log** — checked against
 the as-built code on `main` after PR #1116 (compact codec), #1117
 (IndexController lifecycle + revision-scoped catalog), #1120 (incremental
 maintenance, per-leaf fences), and #1122/#1128 (production hardening, REST
@@ -59,7 +71,11 @@ documentation of record): `ProjectionIndexHOTStorage`, `RowGroupDescriptor`,
 
 ---
 
-## 1. Current storage architecture (as built, interim)
+## 1. Retired precursor architecture (historical only)
+
+The chunked and one-slot-per-row-group structures in §§1.1–1.4 are not accepted
+by current readers or writers. They are retained only to document the problem
+that led to the segment-slot format in §2.3a.
 
 ### 1.1 Page hierarchy
 
@@ -77,10 +93,11 @@ RevisionRootPage
 
 - `IndexType.PROJECTION` (byte 10); leaf records travel as
   `NodeKind.PROJECTION_INDEX_LEAF` (byte 44).
-- `ProjectionIndexPage` mirrors `CASPage`/`PathPage`/`NamePage`: a
+- `ProjectionIndexPage` mirrors the HOT-only `CASPage`/`PathPage` containers: a
   `ReferencesPage4 → BitmapReferencesPage → FullReferencesPage` delegate keyed
-  by `IndexDef#getID()`, plus per-index bookkeeping (`maxNodeKeys`,
-  `maxHotPageKeys`, `currentMaxLevelsOfIndirectPages`).
+  by `IndexDef#getID()`, plus one sparse `(indexId, maxHotPageKey)` allocator
+  map. Logical row-group keys are the HOT keys, so there is no second leaf-id
+  counter or keyed-trie level metadata.
 - Projection maintenance is **JSON-only by construction**: only
   `JsonIndexController` creates the listener; the XML controller inherits the
   null default. JSON numbers cannot be NaN/Infinity — relevant to §2.6.
@@ -92,10 +109,9 @@ RevisionRootPage
 | 0 | `ProjectionIndexMetadata` payload (`PIXM` magic, version, stale flag, `leafCount`, `buildRevision`, per-leaf record-key fences, root path, column shapes) |
 | 1..N | one compacted `ProjectionIndexLeafPage` payload per logical leaf (≤ 1024 rows each) |
 
-`leafCount` in the metadata **bounds every read**: a rebuild that shrinks the
-projection leaves stale payloads at higher slots, which are never consumed.
-`parse()` returns `null` (→ rebuild) for missing magic or unknown version, and
-throws only on structural corruption.
+In that retired design, `leafCount` bounded reads after a rewrite. Current
+metadata parsing does not turn missing magic or an unknown version into a
+rebuild request: unsupported or malformed metadata fails closed.
 
 ### 1.3 Sub-leaf chunking (the actual HOT entries)
 
@@ -124,7 +140,7 @@ chunk(s) whose bytes changed, at 4 KB granularity.
 
 ### 1.4 Payload encodings
 
-Three self-describing formats, all carrying magic + version:
+The in-memory scan representation and the one persisted projection format are self-describing:
 
 - **Raw scan form** (`ProjectionIndexLeafPage.serialize()`, `PIX1` presence
   tail, tail version 0): flat little-endian primitive arrays (header at
@@ -134,27 +150,26 @@ Three self-describing formats, all carrying magic + version:
   bits, per-column presence bitmaps, tailLength, version, magic).
   `deserialize()` rejects tail-less payloads as corrupt —
   integrality/presence provenance is never fabricated.
-- **Compact persisted form** (`ProjectionIndexLeafCodec`, `PIXC` magic,
-  version 0): delta/FOR record keys, frame-of-reference bit-packed numerics
-  (widths > 56 fall back to aligned raw-64), packed dict-ids, marker-byte
-  presence. Decodes **byte-identically** back to the raw form.
+- **Canonical persisted form** (`RowGroupDescriptor`, `PIXD` magic, and
+  `ProjectionIndexColumnSegmentCodec`, `PIXS` magic, version 0): one
+  zone-map-only descriptor plus one slot per named segment. KEYS and BODY
+  payloads use delta/FOR record keys, frame-of-reference bit-packed numerics
+  (widths > 56 fall back to aligned raw-64), packed dict-ids, and marker-byte
+  presence. Segment assembly reconstructs the raw form **byte-identically**.
 - **Metadata form** (`ProjectionIndexMetadata`, `PIXM` magic, version 0).
 
-The redesign keeps the raw scan form as the in-memory kernel target and keeps
-the compact codec's per-column encodings, but restructures the *persisted
-grouping* into per-column segments (§2.3) and adds two new column encodings
-(§2.6, §2.7).
+The raw scan form remains the in-memory kernel target. Persistence uses only
+the per-column segment grouping (§2.3) and its column encodings (§2.6,
+§2.7); there is no whole-row persisted envelope or compatibility reader.
 
-### 1.5 Write and read paths (current) *(corrected)*
+### 1.5 Current lifecycle and read path
 
-- **Build:** `ProjectionIndexBuilder.buildAndPersist` walks the record set as a
-  bounded stream: it retains only the sizing sample and current row-group
-  state, rather than a list containing every encoded row group. An explicit
-  rebuild first clears stale locator state, then writes row-group descriptors,
-  locator exceptions, dictionaries, set summaries, Bloom chunks, and fence
-  chunks. Slot 0 is the authoritative publication record and is written
-  **strictly last**. A failure before that write cannot advertise a partially
-  persisted projection shape.
+- **Virgin initialization:** `ProjectionIndexBuilder.buildAndPersist` walks the
+  record set as a bounded stream and writes a physically empty projection tree
+  exactly once. Both entry and root publication reject a populated tree. It
+  writes row-group descriptors, locator exceptions, dictionaries, summaries,
+  Bloom chunks, and fence chunks, with slot 0 **strictly last**. There is no
+  clear-and-rebuild path.
 - **Incremental maintenance:** `ProjectionIndexChangeListener.applyIncremental`
   resolves each dirty record through its exact locator exception or a bounded
   fence probe, derives its predecessor/successor anchors from document order,
@@ -164,11 +179,10 @@ grouping* into per-column segments (§2.3) and adds two new column encodings
   immutable global-dictionary radix paths. Slot 0 is again written strictly
   last. There is no dirty-record threshold or full-projection rebuild fallback;
   an inconsistent persistent unit makes the owning transaction rollback-only.
-- **Hydrate:** `readAll` → depth-2-parallel HOT scan; chunk fragments of one
-  leaf can be dispersed across HOT sub-trees after splits, so accumulation
-  places chunks at absolute offsets and merges fragments chunk-wise
-  (`LeafChunkAccumulator`).
-- **Query side:** the catalog decodes all leaves once per (resource, defId,
+- **Hydrate:** one range scan reads zone-map-only descriptors and their
+  key-adjacent segment slots; referenced payloads are fetched in coalesced
+  batches and every segment is length/hash verified before assembly.
+- **Query side:** the catalog decodes row groups once per (resource, defId,
   buildRevision) into a Caffeine `DATA` cache of raw-form heap `byte[]`s
   wrapped in a `ProjectionIndexRegistry.Handle`; **all kernels consume whole
   hydrated leaf payloads** via VarHandle reads on heap arrays. A
@@ -276,13 +290,10 @@ accessors — but it is inert: no `commit` override, never serialized by
 `PageKind.HOT_LEAF_PAGE`, and dropped by `mergeHOTFragmentsByKey` and
 `copy()`. Wiring it up is the delta, not building the machinery.
 
-**The `ChunkDirectory`/`BitmapChunkPage` machinery is genuinely stranded and
-unsafe as-is**: `combineBitmapChunks` has zero production callers; a
-`ChunkDirectory` ref reaching the writer today would miss every branch and
-silently persist `key = -1`. Its serializer has **no magic/version byte** and
-truncates db/resource ids to shorts. We therefore define a **new** descriptor
-wire format (§2.3) rather than "growing" that one; un-stranding the CAS bitmap
-path with the same hooks is a follow-up (§11).
+**The former bitmap-chunk secondary-index prototype was stranded and unsafe**:
+it had zero production callers, its references missed the writer's commit branches, and its
+unversioned serializer truncated database/resource IDs. It has been removed rather than grown;
+canonical HOT values are the sole persisted secondary-index representation.
 
 **FSST already exists and is production-wired** for PAX string storage:
 `io.sirix.utils.FSSTCompressor` (symbol-table build/serialize, escape coding,
@@ -360,8 +371,9 @@ Design decisions, with rationale:
   The catalog's truncated-store check counts descriptors, so mid-store empty
   leaves do not trip fail-soft.
 - Metadata slot 0 keeps its `PIXM` payload as a single segment under the same
-  mechanism; the stale tombstone remains a *valid tiny PIXM payload with the
-  stale flag*, distinct from both empty-leaf and absent states.
+  mechanism. A *valid tiny PIXM payload with the stale flag* is reserved for
+  an explicitly abandoned virgin build; drop does not write it or mutate the
+  physical tree.
 
 ### 2.3a As-built layout: one HOT slot per segment (segment ⇔ slot, 1:1)
 
@@ -407,11 +419,10 @@ What the 1:1 mapping changes, relative to §2.3:
   derived in `RowGroupDescriptor` rather than restated, so adding a fourth
   per-column segment kind tightens it automatically.
 - **The descriptor is zone-map-only.** In the hybrid design a small segment could
-  ride *inside* the descriptor's inline region. With its own slot it no longer
-  needs to: `putRowGroupAsColumnSegmentSlots` strips any inline region
-  (`toZoneMapOnly`) so a segment lives in exactly one place, and assembly always
-  resolves every segment through its slot. Double-storing was the alternative,
-  and it is the kind of thing that reads correctly for months and then diverges.
+  ride *inside* the descriptor's inline region. That proposal is not a second
+  format: the encoder emits only zone-map-only descriptors and storage/read
+  boundaries reject any inline flag or trailing payload. A segment therefore
+  lives in exactly one segment slot, and assembly always resolves that slot.
 - **Inline-vs-referenced is a slot-level decision** (`≤ 512 B`), not a descriptor
   entry's. The `byteLen` high bit that used to mark an entry INLINE is
   consequently unused in this layout.
@@ -682,25 +693,25 @@ put(leafIndex, leaf):                       // build + full-leaf rewrite
 
 ### 5.1 Invariants to preserve
 
-1. **Shrink-on-rewrite must not resurrect stale bytes.** Removing descriptor
+1. **Shrink-on-incremental-update must not resurrect stale bytes.** Removing descriptor
    entries must be transactional with the segment rewrite — CoW covers it,
    but the commit hooks (§2.4-2/4/5) are where it can silently break. Port
-   `ProjectionIndexHOTStorageGrowingPayloadTest` (reshaped: fewer/more
-   columns across rebuilds) + a shrink-grow-shrink cycle test.
+   `ProjectionIndexHOTStorageGrowingPayloadTest` plus a same-definition
+   shrink-grow-shrink cycle test.
 2. **Grow-overwrite must be loud or lossless.** Segment bytes never compete
    for HOT page space; the failure mode shifts to the descriptor growing
    (more columns) on a full HOT page → must split, never drop
    (`updateOrSplitInsert` contract retained).
-3. **Stale-swizzle use-after-close** — extend the closed-page-as-cache-miss
-   guard to `ProjectionSegmentPage` (§2.4-6); regression test through deep
-   split cascades touching descriptors.
+3. **Stale-swizzle use-after-close** — preserve the closed-page-as-cache-miss
+   guard for referenced `OverflowPage` payloads; regression-test deep split
+   cascades touching descriptors.
 4. **Empty payload ≡ absent leaf; live empty leaf is distinct.** *(revised)*
    Zero-length slot value = tombstone; descriptor with `rowCount = 0` = live
    empty leaf (deletes can legitimately empty a mid-store leaf); `get`
    returns `null` only for the former. The truncated-store check counts
    descriptors.
 5. **Lengths and hashes are explicit and must agree.** Descriptor `byteLen`/
-   `contentHash` vs segment page's own length prefix/bytes: disagreement is
+   `contentHash` vs the one segment-slot payload: disagreement is
    corruption → fail soft + negative-cache (§4).
 6. **Metadata and order header are authority.** `rowGroupCount` is the live
    logical count; the order header supplies physical upper bound and explicit
@@ -713,13 +724,13 @@ put(leafIndex, leaf):                       // build + full-leaf rewrite
 8. **Rollback/isolation.** *(corrected)* The invariant is "**never write a
    segment page before commit**" (OverflowPage discipline) — TIL membership
    itself is not required; descriptors ride the TIL like any HOT slot.
-9. **Dropped + recreated definitions.** Stale tombstone over slot 0 +
-   `invalidateUnder` cache clearing (must enumerate the new caches); test:
-   drop → recreate with fewer leaves/columns must not resolve old segment
-   pages via stale descriptors.
-10. **Misconfiguration fails fast.** *(revised)* New guards: `3·columnCount +
-    2 ≤ 255` (segmentId byte) at creation; worst-case descriptor footprint
-    must fit an empty HOT leaf page.
+9. **Dropped + recreated definitions.** Drop removes the catalog definition
+   without mutating the historical physical tree. After commit, create allocates
+   a fresh physical id; test that a smaller replacement cannot resolve any old
+   segment page.
+10. **Misconfiguration fails fast.** Guards enforce
+    `3·columnCount + 2 ≤ 65535` and spill an otherwise valid wide descriptor
+    through the ordinary 512-byte slot carrier rather than narrowing ids.
 11. **Explicit physical + document order.** Monotone node-key allocation proves
     freshness, not position. Creation greedily marks document-order key
     inversions as sparse exceptions; maintenance uses predecessor/successor
@@ -758,13 +769,13 @@ d. **Append-only disk growth, not reclamation.** *(reframed — the earlier
    copy/re-import; (iii) if revision-pruning/compaction ever lands, its
    reachability walk must descend into side-map refs — one forward-looking
    sentence, not current work.
-e. **Slot-0 tombstone through the new funnel.** The valve must fully replace
-   a multi-segment metadata descriptor (never merge). Note the legacy
-   invalidation-only listener mode (`maintenanceTrx == null`) still exists in
-   code though unreachable in production — cover or delete it.
-f. **Mixed-format stores.** Old composite keys vs new plain-leafIndex keys
-   are indistinguishable at the HOT layer; no value sniffing — migration
-   gate only (§6).
+e. **Slot-0 tombstone through the mutation funnel.** An explicitly abandoned
+   virgin build fully replaces metadata with one stale marker (never merges).
+   Ordinary incremental maintenance fails its transaction instead of entering
+   an invalidation-only mode.
+f. **Unsupported stores.** Pre-current keys are indistinguishable at the HOT
+   layer, so there is no value sniffing or compatibility branch. Reads and
+   mutations fail closed (§6).
 g. **Parallel hydrate fan-out shifts.** Key space compresses 256×; re-measure
    `DEPTH2_MIN_FANOUT`; at scale, parallelism moves from trie sub-trees to
    batched segment fetches.
@@ -818,38 +829,24 @@ n. **FSST corner cases.** *(new)* Encoding is deterministic per symbol table,
 
 ---
 
-## 6. Migration
+## 6. Single-format contract
 
-Precedent: the `PIXC`/`PIX1` consolidation shipped as a deliberate break;
-unknown metadata versions already degrade to rebuild-on-first-use.
+There is one projection layout and one foreground mutation route.
 
-1. **No version bump** (project convention: no deployed databases). Detection
-   is STRUCTURAL: a pre-descriptor store's slot-0 payload is not a PIXB blob
-   marker, so the blob read fails and the rebuild path calls
-   `resetTree()` — the definition's sub-tree is swapped for a fresh empty one
-   (selective clearing is impossible: legacy composite chunk keys would
-   poison descriptor enumeration with mixed-layout errors forever).
-2. On open/use, a legacy store therefore degrades to automatic
-   rebuild-with-reset through the always-maintained contract (or
-   `-Dsirix.projection.forceRebuild=true`). Metadata VERSION is **0**: exactly
-   one wire version is supported at a time, and the version gate exists so a
-   FUTURE change is rejected — `parse` returns `null`, every caller treats that
-   as "no metadata" and rebuilds — rather than read at shifted offsets.
-2a. *(As built.)* The same reset covers a sub-tree written before the descriptor
-   layout was retired. Such a store holds its row groups at RAW slot ids, which
-   nothing in the segment-slot layout ever writes, so a raw-keyed slot 1 is the
-   witness: `priorMetadata` resets on it. Without that, a rebuild would write
-   composite-keyed row groups into a raw-keyed sub-tree — and at 65 536 old row
-   groups raw slot 65536 aliases exactly onto composite key
-   `(rowGroupId=1, slotKind=0)`, after which every read throws "mixed storage
-   layouts in one sub-tree", unrepairably. **Going forward this cannot recur:**
-   the descriptor layout has no code path left, so no future store can be written
-   in it (§2.3a, addendum item 2).
-3. No dual-format read path, no value sniffing. *(corrected)* Old sub-tree
-   pages become unreferenced in the new revision but **stay on disk forever**
-   (append-only store, no reclamation); only a resource copy/re-import sheds
-   them. Say so in release notes rather than pretending they age out.
-4. Double columns (`NUMERIC_DOUBLE`) reuse the existing provenance bit
+1. Metadata version **0** denotes the current format. Unknown, malformed, or
+   pre-current payloads fail closed; they are never sniffed into a compatibility
+   reader and never trigger an automatic reset or rebuild.
+2. Bulk slot construction is only an initializer for a physically virgin tree.
+   Both its entry point and root splice reject a non-empty tree before mutation.
+   It is not an update strategy.
+3. Once initialized, inserts, updates, and deletes use incremental maintenance
+   and the shared HOT copy-on-write mutation driver. A corrupt prior descriptor
+   poisons the transaction because overwriting it could strand unnamed segment
+   pages.
+4. There is no dual-format read path and no in-place migration. This repository
+   has no deployed databases to preserve; an intentionally unsupported store
+   must be recreated explicitly outside the mutation transaction.
+5. Double columns (`NUMERIC_DOUBLE`) reuse the existing provenance bit
    (kind-dependent reading: "not value-exact" instead of "non-integral") —
    no tail-format change, no version bump there either.
 
@@ -873,8 +870,8 @@ unknown metadata versions already degrade to rebuild-on-first-use.
 - **Overflow-record spill of whole values**: fixes fan-out, not share
   granularity; subsumed — but its **commit machinery is the template we
   reuse**.
-- **Reusing `ChunkDirectorySerializer` v1**: unversioned wire format,
-  truncated ids, unsafe half-wired commit path — replaced, not grown. *(new)*
+- **Reusing the retired bitmap-chunk prototype**: unversioned wire format,
+  truncated ids, unsafe half-wired commit path — removed, not grown. *(new)*
 
 ---
 
@@ -938,7 +935,7 @@ canonical dictionary buildable and maintainable at all.
 | G1 | **Shape coverage.** DuckDB/ClickHouse run arbitrary SQL fast: joins, sorts, windows, high-cardinality aggregation, string functions. We have ~a dozen fail-closed kernels; everything else falls to the generic pipeline. | Fallback is scan-class: ~44–59 s (JVM) to ~300–350 s (native) at 100 M — a 1000× cliff, not a slope. | Query-engine work; out of scope of this redesign (see §8.6 R2). |
 | G2 | **Per-leaf amortization** on dictionary shapes at scale (§8.2). | count-distinct 4.2×, two-key group-by 2.1× at 100 M — after *winning* both at 10 M. | Kernel + auxiliary-structure work; this redesign builds the prerequisite (DICT segments), R1 closes it. |
 | G3 | **Column-type coverage.** No doubles → whole benchmark categories (price/discount-style aggregates) cannot run on the fast path at all. | Category-blocking, not a ratio. | **Closed by this redesign** (P6, ALP). |
-| G4 | **Cold build / ingest.** 6-column projection build at 100 M ≈ 319 s (one full-store walk); DuckDB generates its table in 27.3 s. Store shred itself is 548 s (182 k records/s) — a different job (fully versioned tree vs a column table). | One-time per store+shape; re-encode of a persisted projection is ~1.2 s; disk-cold reopen hydrate ~8 s (improves further with column-pruned hydrate, P3/P5). | Mitigated (persistence + always-maintained semantics mean it is paid once, then amortized forever); streaming build (P4) removes the memory spike. Not a query-latency gap. |
+| G4 | **Cold build / ingest.** 6-column projection build at 100 M ≈ 319 s (one full-store walk); DuckDB generates its table in 27.3 s. Store shred itself is 548 s (182 k records/s) — a different job (fully versioned tree vs a column table). | One-time virgin initialization per physical index id; disk-cold reopen hydrate was ~8 s in that run. Persisted leaves are never re-encoded through a benchmark-only serving route. | Mitigated by streaming virgin initialization and incremental maintenance; the measurements still require a fresh rerun on the final format. |
 | G5 | **Deployment-shape caveats.** Native Image: without `-H:+VectorAPISupport` kernels run 10–600× slower; projection *build* is ~7.6× slower under native than JVM. | Documented footguns. | Documentation/tooling; P8 keeps the flags pinned in the bench harness and docs. |
 
 ### 8.4 What this redesign fixes — and what it deliberately does not
@@ -985,7 +982,7 @@ query); dense group-by loses the per-leaf remap entirely (ids are already
 canonical); string-EQ literal resolution becomes one lookup instead of
 per-leaf resolution. Maintenance: the canonical dict is append-only within a
 buildRevision (interning new values at apply time is a descriptor+segment
-append); rebuilds may compact it. Risks to design against: dict growth on
+append); a separately created fresh physical index may compact it. Risks to design against: dict growth on
 high-cardinality columns (cap + per-leaf fallback, mirroring today's
 `CANON_DICT_INELIGIBLE` sentinel), and revision semantics (the canonical dict
 is per-buildRevision, CoW-shared like any segment — time travel keeps
@@ -1024,7 +1021,11 @@ Recorded here so P8 and the R-phases have pass/fail bars, all at 100 M on the
 
 ---
 
-## 9. Implementation plan
+## 9. Historical implementation plan
+
+This section is a development log, not a list of supported runtime modes. Terms
+such as "old storage" below identify deleted scaffolding, never a compatibility
+reader or migration path.
 
 **Implementation status (2026-07-20, branch `claude/projection-index-storage-redesign-i3849v`):**
 
@@ -1032,8 +1033,8 @@ Recorded here so P8 and the R-phases have pass/fail bars, all at 100 M on the
 |---|---|
 | P0/P1 page layer | **Done** — `ProjectionSegmentPage` (PageKind 18), HOT side-map commit chain, split-time ref routing, loud backstops on every uninstrumented rebuild path; spike + regression suite green |
 | P2 descriptor + segment codec | **Done** — PIXD descriptor, PIXS segments, byte-identical assembly, XXH3 integrity/no-op hashes; shared wire authorities deduplicated |
-| P3 storage rewrite | **Done** — putLeaf/putEncodedLeaf carry-forward (containment proven by disk-offset sharing), tombstone vs live-empty, blob slots, contiguity-enforcing parallel hydrate, `resetTree` migration primitive |
-| P4 builder + maintenance | **Done** — streaming build (one leaf in memory), per-segment maintenance writes, orphan tombstoning incl. tombstone-metadata recovery, catalog/bench/create/drop on the new format; **no version bump** (structural legacy detection) |
+| P3 storage rewrite | **Done** — putLeaf/putEncodedLeaf carry-forward (containment proven by disk-offset sharing), tombstone vs live-empty, blob slots, contiguity-enforcing parallel hydrate, fail-closed virgin-tree initializer |
+| P4 builder + maintenance | **Done** — streaming virgin build (one leaf in memory), per-segment incremental maintenance writes, catalog/bench/create/drop on the single supported format |
 | P5 query integration | **Parity done** — serving/gate/differential suites green on the new layout; the steady-state columnar Handle/kernel restructure is deferred (see §11-7) |
 | P6 doubles | **Done incl. ALP** — `NUMERIC_DOUBLE` via the sortable-bits transform (kernels/zone maps unchanged; plan-time literal transform for integer, double AND promoted-decimal predicate literals; value-exact fail-closed gates). Aggregate serving: count always; sum/avg/min/max under the pure-double-source provenance bit (§11-8). Double BODY streams ALP-compress behind width escape 65 when strictly profitable (§11-6); escapes 66–255 stay reserved |
 | P7 FSST dictionaries | **Done** — mode-byte DICT segments, gate-checked, deterministic training, parsed-table discipline shared with KeyValueLeafPage |
@@ -1093,11 +1094,11 @@ green on the full existing projection suite plus its own new tests.
   parallel hydrate re-tuned (5.2-g).
 - Tests: reshaped `ProjectionIndexHOTStorageGrowingPayloadTest`;
   shrink-grow-shrink; empty≡absent + live-empty distinct; hydrate parity vs
-  P2 assembler; `ProjectionPersistForceRebuildTest`.
+  P2 assembler; populated-tree replacement-refusal coverage.
 - Exit: storage class green; sirix-core projection suite green end-to-end on
   the new layout.
-- *(As built.)* P3 shipped the descriptor layout first and then replaced it with
-  the segment ⇔ slot mapping of §2.3a; the descriptor API
+- *(Development history.)* P3 prototyped the one-slot-per-row-group layout
+  before converging on the segment ⇔ slot mapping of §2.3a; the prototype API
   (`putRowGroup`/`getRowGroup`/`readRowGroup`/`readAllRowGroups` and the
   auto-layout dispatch) has since been deleted outright, so
   `*AsColumnSegmentSlots`/`*FromColumnSegmentSlots` are the only storage entry
@@ -1135,7 +1136,7 @@ green on the full existing projection suite plus its own new tests.
   BODY/DICT of unreferenced columns — page-load counts); catalog/wtx serving
   suites; `ProjectionIndexDescendantRootServingTest`;
   `TypedGroupByDifferentialTest`; `VectorizedServingGateTest`; the 89-case
-  differential suite old-vs-new layout.
+  differential suite over segment-slot storage versus the generic oracle.
 - Exit: REST + embedded serving green; steady-state benchmarks not regressed
   (heap-kernel identity preserved).
 
@@ -1162,10 +1163,10 @@ green on the full existing projection suite plus its own new tests.
   distinct/group-by correctness unchanged.
 - Exit: measured disk-tax delta on a string-heavy dataset.
 
-### P8 — Migration + hardening (last)
+### P8 — Format gate + hardening (last)
 
-- `ProjectionIndexMetadata.VERSION = 0`; rebuild-on-open; release-note the
-  no-reclamation reality (§6).
+- `ProjectionIndexMetadata.VERSION = 0`; reject unsupported formats on open;
+  release-note the no-reclamation reality (§6).
 - Scale gates: 100 M-row build + disk-cold reopen (vs ~8 s / 97 k-leaf
   baseline); disk tax vs 5.6 % baseline (decide 5.2-j coalescing); trie-depth
   assertion; update-bytes measurement.
@@ -1216,8 +1217,8 @@ plus the path-summary suites touched by #1122.
 2. **Segment coalescing threshold** (5.2-j) — measurement-gated at P8.
 3. **Presence-only (EXISTS) predicate kernel** — new functionality enabled by
    descriptor flags + presence heads; not part of this redesign.
-4. **Un-strand the CAS `ChunkDirectory`/`BitmapChunkPage` path** using the
-   P1 hooks — separate effort.
+4. **Retired bitmap-chunk path** — removed; canonical HOT posting values are the only
+   secondary-index representation.
 5. **Per-column dirty tracking** in the listener — measurement-gated at P4.
 6. **ALP for double segments** — **IMPLEMENTED** (follow-up pass):
    `ProjectionAlpEncoding` behind width escape 65 in the shared FOR wire form

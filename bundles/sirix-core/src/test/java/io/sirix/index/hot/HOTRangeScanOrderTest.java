@@ -38,7 +38,6 @@ import java.util.concurrent.TimeUnit;
 
 import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
@@ -103,14 +102,7 @@ final class HOTRangeScanOrderTest {
       final int lo = 25;
       final int hi = VALUE_COUNT - 25;
       final Iterator<Map.Entry<CASValue, NodeReferences>> it = hotReader.range(casKey(lo, pcr), casKey(hi, pcr));
-      // The upper bound's inclusivity is an implementation detail we do not want to pin down
-      // here, so accept either, but reject anything short of it.
-      final int seen = assertSortedAndComplete(it, -1, "bounded scan [" + lo + ", " + hi + ")");
-      final int expectedExclusive = hi - lo;
-      assertTrue(seen == expectedExclusive || seen == expectedExclusive + 1,
-          "bounded scan returned " + seen + " keys but the window holds " + expectedExclusive + " (or "
-              + (expectedExclusive + 1) + " if the upper bound is inclusive) — a "
-              + "short count means the scan ended early, which is what an out-of-order page " + "causes");
+      assertSortedAndComplete(it, hi - lo + 1, "bounded inclusive scan [" + lo + ", " + hi + "]");
     });
   }
 
@@ -174,6 +166,8 @@ final class HOTRangeScanOrderTest {
         json.append("]}");
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
         wtx.commit();
+        HOTInvariantValidator.validateIndex(wtx.getStorageEngineReader(), casIndexDef.getType(), casIndexDef.getID())
+                             .assertOk();
 
         final var hotReader = HOTIndexReader.create(wtx.getStorageEngineReader(), CASKeySerializer.INSTANCE,
             casIndexDef.getType(), casIndexDef.getID());

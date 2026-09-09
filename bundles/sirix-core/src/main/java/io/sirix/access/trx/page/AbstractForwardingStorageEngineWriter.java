@@ -1,15 +1,25 @@
 package io.sirix.access.trx.page;
 
 import java.time.Instant;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.cache.PageContainer;
+import io.sirix.cache.PageGuard;
+import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
+import io.sirix.page.interfaces.Page;
+import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
 import org.jspecify.annotations.Nullable;
+
+import java.util.function.LongConsumer;
+import java.util.function.LongFunction;
 
 /**
  * Forwards all methods to the delegate.
@@ -133,6 +143,11 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public <P extends Page> P prepareSecondaryIndexPage(final IndexType indexType) {
+    return delegate().prepareSecondaryIndexPage(indexType);
+  }
+
+  @Override
   public @Nullable KeyValueLeafPage getModifiedPageForRead(final long recordPageKey, final IndexType indexType,
       final int index) {
     return delegate().getModifiedPageForRead(recordPageKey, indexType, index);
@@ -151,6 +166,81 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   @Override
   public void releasePageForRead(final @Nullable KeyValueLeafPage page) {
     delegate().releasePageForRead(page);
+  }
+
+  @Override
+  public BytesOut<?> newBufferedBytesInstance() {
+    return delegate().newBufferedBytesInstance();
+  }
+
+  @Override
+  public StorageEngineWriter truncateTo(final int revision) {
+    return delegate().truncateTo(revision);
+  }
+
+  @Override
+  public StorageEngineWriter appendLogRecord(final PageReference reference, final PageContainer page) {
+    return delegate().appendLogRecord(reference, page);
+  }
+
+  @Override
+  public UberPage commit(final @Nullable String commitMessage, final @Nullable Instant commitTimeStamp,
+      final boolean isAutoCommitting, final boolean isIntermediateCommit) {
+    return delegate().commit(commitMessage, commitTimeStamp, isAutoCommitting, isIntermediateCommit);
+  }
+
+  @Override
+  public PageContainer dereferenceRecordPageForModification(final PageReference reference) {
+    return delegate().dereferenceRecordPageForModification(reference);
+  }
+
+  @Override
+  public StorageEngineReader getStorageEngineReader() {
+    return delegate().getStorageEngineReader();
+  }
+
+  @Override
+  public UberPage rollback() {
+    return delegate().rollback();
+  }
+
+  @Override
+  public PageContainer getLogRecord(final PageReference reference) {
+    return delegate().getLogRecord(reference);
+  }
+
+  @Override
+  public TransactionIntentLog getLog() {
+    return delegate().getLog();
+  }
+
+  @Override
+  public PageGuard acquireGuardForNode(final long nodeKey) {
+    return delegate().acquireGuardForNode(nodeKey);
+  }
+
+  // The three dictionary-lane seams. Their interface defaults are no-ops, so a decorated writer that
+  // did not forward them would arm nothing and report nothing while looking exactly like success:
+  // pages would keep their bytes, and a seal would find no page to wait for.
+
+  @Override
+  public void installDocumentStringDictionaryFactory(final @Nullable LongFunction<GlobalStringDictionaries> factory) {
+    delegate().installDocumentStringDictionaryFactory(factory);
+  }
+
+  @Override
+  public void installDocumentPageEncodedListener(final @Nullable LongConsumer listener) {
+    delegate().installDocumentPageEncodedListener(listener);
+  }
+
+  @Override
+  public void installEncodePassCompleteListener(final @Nullable Runnable listener) {
+    delegate().installEncodePassCompleteListener(listener);
+  }
+
+  @Override
+  public void installLiveDocumentStringReadView(final @Nullable GlobalStringDictionaries live) {
+    delegate().installLiveDocumentStringReadView(live);
   }
 
   @Override

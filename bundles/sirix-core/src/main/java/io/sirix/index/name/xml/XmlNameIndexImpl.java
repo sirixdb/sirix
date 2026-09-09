@@ -1,6 +1,5 @@
 package io.sirix.index.name.xml;
 
-import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexDef;
 import io.sirix.index.name.NameIndexBuilderFactory;
@@ -13,8 +12,8 @@ public final class XmlNameIndexImpl implements XmlNameIndex {
   private final NameIndexListenerFactory nameIndexListenerFactory;
 
   public XmlNameIndexImpl() {
-    nameIndexBuilderFactory = new NameIndexBuilderFactory(DatabaseType.XML);
-    nameIndexListenerFactory = new NameIndexListenerFactory(DatabaseType.XML);
+    nameIndexBuilderFactory = new NameIndexBuilderFactory();
+    nameIndexListenerFactory = new NameIndexListenerFactory();
   }
 
   @Override

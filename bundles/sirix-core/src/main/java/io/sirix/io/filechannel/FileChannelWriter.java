@@ -38,6 +38,7 @@ import io.sirix.io.Writer;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
+import io.sirix.page.PageSectionDiag;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
@@ -855,142 +856,55 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
   }
 
+  /**
+   * Fail before append-buffer alignment or native-address hashing can observe an invalid payload.
+   *
+   * <p>
+   * The FFM access performed by {@code PagePersister} used to enforce both conditions as a side
+   * effect. A pre-serialized KVL bypasses that copy, so the writer must retain the same temporal and
+   * thread-confinement boundary explicitly. Both checks are allocation-free on the valid hot path.
+   */
+  private static void requireAccessiblePayload(final MemorySegment payload) {
+    if (!payload.scope().isAlive()) {
+      throw new IllegalStateException("Cannot append a page from a closed memory segment");
+    }
+    if (!payload.isAccessibleBy(Thread.currentThread())) {
+      throw new WrongThreadException("Cannot append a page from a memory segment confined to another thread");
+    }
+  }
+
 
   private FileChannelWriter writePageReference(final ResourceConfiguration resourceConfiguration,
       final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes, long offset) {
-    // Perform byte operations.
     try {
-      // Serialize page.
-      pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
-      final var pipeline = resourceConfiguration.byteHandlePipeline;
-      byte[] serializedPageBytes = null;
-      MemorySegment serializedPageSegment = null;
-      boolean serializedPageBorrowsScratch = false;
-
-      if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-        // Check compressed MemorySegment cache first (slotted page format path).
-        serializedPageSegment = keyValueLeafPage.getCompressedSegment();
-        if (serializedPageSegment == null) {
-          // Check legacy byte[] cache.
-          final var cached = keyValueLeafPage.getBytes();
-          if (cached != null) {
-            if (cached instanceof MemorySegmentBytesOut msOut) {
-              serializedPageSegment = msOut.getDestination();
-            } else {
-              serializedPageBytes = cached.toByteArray();
-            }
-          }
-        }
-      }
-
-      if (serializedPageSegment == null && serializedPageBytes == null) {
-        if (pipeline.isEmpty()) {
-          // The empty pipeline is identity. ByteHandlerPipeline.compress() must normally return an
-          // owned copy because general callers may cache its result; this writer does not. It hashes
-          // and copies the exact [0, writePosition) scratch range into bufferedBytes synchronously
-          // below and publishes only the hash/offset. baseSegment() deliberately avoids allocating an
-          // exact-view wrapper for every varying structural-page length; every consumer below receives
-          // the logical length separately. Keeping the live view local avoids one page-sized heap
-          // byte[] per pinned-trie prewrite without weakening the pipeline's ownership contract for KVL
-          // caches or any other caller.
-          serializedPageSegment = byteBufferBytes.baseSegment();
-          serializedPageBorrowsScratch = true;
-        } else if (pipeline.supportsMemorySegments()) {
-          serializedPageSegment = pipeline.compress(byteBufferBytes.getDestination());
-        } else {
-          final byte[] byteArray = byteBufferBytes.toByteArray();
-          try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length);
-              final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
-            dataOutput.write(byteArray);
-            dataOutput.flush();
-            serializedPageBytes = output.toByteArray();
-          }
-        }
-      }
-
-      final int serializedPageLength;
-      if (serializedPageBorrowsScratch) {
-        serializedPageLength = Math.toIntExact(byteBufferBytes.writePosition());
-      } else if (serializedPageSegment != null) {
-        serializedPageLength = (int) serializedPageSegment.byteSize();
-      } else if (serializedPageBytes != null) {
-        serializedPageLength = serializedPageBytes.length;
-      } else {
-        throw new IllegalStateException("Failed to build serialized page payload");
-      }
-
-      if (io.sirix.io.file.StorageProfile.isEnabled()) {
-        // Raw (pre-compression) size — the exact byte count the pagePersister produced, captured
-        // from the scratch writer before the finally block clears it.
-        final int rawSize = Math.toIntExact(byteBufferBytes.writePosition());
-        io.sirix.io.file.StorageProfile.record(page.getClass().getSimpleName(), rawSize, serializedPageLength);
-      }
-
-      int offsetToAdd = 0;
-
-      // Getting actual offset and appending to the end of the current file.
-      if (serializationType == SerializationType.DATA) {
-        if (page instanceof UberPage) {
-          // Beacon slot layout: [u32 len][payload][u64 xxh3][zero pad] in a BEACON_SLOT_BYTES
-          // slot. An oversized uber page would silently overlap the next slot / the data region
-          // (unrecoverable database). Fail loudly instead.
-          if (serializedPageLength + IOStorage.OTHER_BEACON + Long.BYTES >= IOStorage.BEACON_SLOT_BYTES) {
-            throw new SirixIOException("Serialized UberPage (" + serializedPageLength
-                + " bytes + header + checksum) exceeds its " + IOStorage.BEACON_SLOT_BYTES
-                + "-byte slot — the on-disk uber-page layout must be revised before this can be written");
-          }
-          offsetToAdd = IOStorage.BEACON_SLOT_BYTES
-              - ((serializedPageLength + IOStorage.OTHER_BEACON + Long.BYTES) % IOStorage.BEACON_SLOT_BYTES);
-        } else if (offset % PAGE_FRAGMENT_BYTE_ALIGN != 0) {
-          offsetToAdd = (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)));// (offset %
-                                                                                                     // PAGE_FRAGMENT_BYTE_ALIGN));
-          offset += offsetToAdd;
-        }
-      }
-
-      if (!(page instanceof UberPage) && offsetToAdd > 0) {
-        bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
-      }
-
-      // Compute hash on compressed bytes for ALL page types (consistent approach). Computed
-      // BEFORE buffering: the uber beacon slot embeds it as an integrity trailer.
+      final int pageAlignmentPadding = serializationType == SerializationType.DATA && !(page instanceof UberPage)
+          && offset % PAGE_FRAGMENT_BYTE_ALIGN != 0
+              ? (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)))
+              : 0;
+      final long referenceOffset = offset + pageAlignmentPadding;
       final long pageHash;
-      if (serializedPageBorrowsScratch) {
-        if (PageHasher.DEFAULT_ALGORITHM != HashAlgorithm.XXH3) {
-          throw new IllegalStateException("The scratch-range hasher must track the default page-hash algorithm");
+      if (page instanceof KeyValueLeafPage keyValueLeafPage) {
+        // close() owns the same monitor. Pin the KVL serialization lifetime beginning before the
+        // first cache read: a delayed async append must neither resurrect a fully closed/cacheless
+        // page through PagePersister nor read a frame returned to the allocator during serialization.
+        // bufferSerializedPage eagerly copies the payload, so the pin can end before file I/O.
+        synchronized (keyValueLeafPage) {
+          if (keyValueLeafPage.isClosed()) {
+            throw new IllegalStateException("cannot append a closed key-value leaf page");
+          }
+          pageHash = bufferSerializedPage(resourceConfiguration, page, bufferedBytes, pageAlignmentPadding);
         }
-        // hashDirect consumes exactly MemorySegmentBytesOut.writePosition(), not the spare capacity
-        // exposed by baseSegment(), and the primitive result flows to storage/reference metadata
-        // without materializing the canonical byte[8] representation.
-        pageHash = byteBufferBytes.hashDirect(XXH3_PAGE_HASH);
-      } else if (serializedPageSegment != null) {
-        pageHash = PageHasher.computeLong(serializedPageSegment, PageHasher.DEFAULT_ALGORITHM);
-      } else if (serializedPageBytes != null) {
-        pageHash = PageHasher.computeLong(serializedPageBytes);
       } else {
-        throw new IllegalStateException("Failed to compute page hash due to missing payload");
-      }
-
-      bufferedBytes.writeInt(serializedPageLength);
-      writeToBufferedBytes(bufferedBytes, serializedPageBytes, serializedPageSegment, serializedPageLength);
-
-      if (page instanceof UberPage) {
-        // Beacon integrity trailer: recovery validates [len][payload][xxh3] instead of relying
-        // on "deserialization didn't throw" (the beacons have no parent reference to carry a
-        // checksum, unlike every other page). BytesOut is little-endian; reverse to retain the
-        // canonical big-endian 8-byte checksum wire used before hashes became primitive.
-        bufferedBytes.writeLong(Long.reverseBytes(pageHash));
-        if (offsetToAdd > 0) {
-          bufferedBytes.write(new byte[(int) offsetToAdd]);
-        }
+        pageHash = bufferSerializedPage(resourceConfiguration, page, bufferedBytes, pageAlignmentPadding);
       }
 
       if (bufferedBytes.writePosition() > FLUSH_SIZE) {
         flushBuffer(bufferedBytes);
       }
 
-      // Remember page coordinates.
-      pageReference.setKey(offset);
+      // Remember page coordinates only after its append buffer has been flushed successfully when
+      // required. A failed flush must not publish a durable-looking key/hash pair.
+      pageReference.setKey(referenceOffset);
       pageReference.setHash(pageHash);
 
       if (serializationType == SerializationType.DATA && page instanceof RevisionRootPage revisionRootPage) {
@@ -1005,10 +919,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         final long storedPageHash = IOStorage.normalizeRevisionRootPageHash(pageHash);
         final ByteBuffer buffer =
             ByteBuffer.allocateDirect(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
-        buffer.putLong(offset);
+        buffer.putLong(referenceOffset);
         buffer.putLong(revisionRootPage.getRevisionTimestamp());
         buffer.putLong(
-            IOStorage.revisionRecordChecksum(offset, revisionRootPage.getRevisionTimestamp(), storedPageHash));
+            IOStorage.revisionRecordChecksum(referenceOffset, revisionRootPage.getRevisionTimestamp(), storedPageHash));
         buffer.putLong(storedPageHash);
         buffer.flip();
         final long revisionsFileOffset = IOStorage.revisionsFileOffset(revisionRootPage.getRevision());
@@ -1020,12 +934,12 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           // The record above went through a BUFFERED channel — stage its checksummed copy in the
           // in-memory ring; writeUberPageReference persists the ring ahead of the write-ahead
           // barrier, so the locator is durable before any beacon names it.
-          stageTailLogEntry(resourceConfiguration, revisionRootPage.getRevision(), offset,
-              revisionRootPage.getRevisionTimestamp(),
-              IOStorage.revisionRecordChecksum(offset, revisionRootPage.getRevisionTimestamp(), storedPageHash),
+          stageTailLogEntry(resourceConfiguration, revisionRootPage.getRevision(), referenceOffset,
+              revisionRootPage.getRevisionTimestamp(), IOStorage.revisionRecordChecksum(referenceOffset,
+                  revisionRootPage.getRevisionTimestamp(), storedPageHash),
               storedPageHash);
         }
-        final long currOffset = offset;
+        final long currOffset = referenceOffset;
         final long currTimestamp = revisionRootPage.getRevisionTimestamp();
         cache.put(revisionRootPage.getRevision(), CompletableFuture.supplyAsync(
             () -> new RevisionFileData(currOffset, Instant.ofEpochMilli(currTimestamp), storedPageHash)));
@@ -1043,6 +957,221 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // prefix left by the failed page.
       byteBufferBytes.clear();
     }
+  }
+
+  private long bufferSerializedPage(final ResourceConfiguration resourceConfiguration, final Page page,
+      final BytesOut<?> bufferedBytes, final int pageAlignmentPadding) throws IOException {
+    final var pipeline = resourceConfiguration.byteHandlePipeline;
+    final boolean storageProfileEnabled = io.sirix.io.file.StorageProfile.isEnabled();
+    byte[] serializedPageBytes = null;
+    // A pre-serialized segment cache is already the exact payload that this method hashes and
+    // appends. Running it through PagePersister first only copies the same bytes into
+    // byteBufferBytes; the writer then ignores that scratch copy and selects this cache again
+    // below. Async bulk flushes hit this branch for every primary leaf page, so avoid streaming the
+    // complete database through a throwaway buffer a second time. The legacy BytesOut cache keeps
+    // its historical PagePersister traversal and is covered separately below.
+    final KeyValueLeafPage keyValueLeafPage = page instanceof KeyValueLeafPage leafPage
+        ? leafPage
+        : null;
+    MemorySegment serializedPageSegment = keyValueLeafPage == null
+        ? null
+        : keyValueLeafPage.getCompressedSegment();
+    final BytesOut<?> preSerializedLegacyBytes =
+        !storageProfileEnabled || keyValueLeafPage == null || serializedPageSegment != null
+            ? null
+            : keyValueLeafPage.getBytes();
+    final boolean preSerializedKeyValueLeafCache = serializedPageSegment != null || preSerializedLegacyBytes != null;
+    final int cachedByteHandlerInputLength = storageProfileEnabled && preSerializedKeyValueLeafCache
+        ? keyValueLeafPage.getByteHandlerInputLength()
+        : KeyValueLeafPage.UNKNOWN_BYTE_HANDLER_INPUT_LENGTH;
+    final boolean preSerializedSegment = serializedPageSegment != null;
+    boolean segmentIsKeyValueLeafCache = preSerializedSegment;
+    if (!preSerializedSegment) {
+      pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
+    }
+    boolean serializedPageBorrowsScratch = false;
+
+    if (!preSerializedSegment && keyValueLeafPage != null) {
+      // Check compressed MemorySegment cache first (slotted page format path).
+      serializedPageSegment = keyValueLeafPage.getCompressedSegment();
+      if (serializedPageSegment != null) {
+        segmentIsKeyValueLeafCache = true;
+      } else {
+        // Check legacy byte[] cache.
+        final var cached = keyValueLeafPage.getBytes();
+        if (cached != null) {
+          if (cached instanceof MemorySegmentBytesOut msOut) {
+            serializedPageSegment = msOut.getDestination();
+          } else {
+            serializedPageBytes = cached.toByteArray();
+          }
+        }
+      }
+    }
+
+    if (serializedPageSegment == null && serializedPageBytes == null) {
+      if (pipeline.isEmpty()) {
+        // The empty pipeline is identity. ByteHandlerPipeline.compress() must normally return an
+        // owned copy because general callers may cache its result; this writer does not. It hashes
+        // and copies the exact [0, writePosition) scratch range into bufferedBytes synchronously
+        // below and publishes only the hash/offset. baseSegment() deliberately avoids allocating an
+        // exact-view wrapper for every varying structural-page length; every consumer below receives
+        // the logical length separately. Keeping the live view local avoids one page-sized heap
+        // byte[] per pinned-trie prewrite without weakening the pipeline's ownership contract for KVL
+        // caches or any other caller.
+        serializedPageSegment = byteBufferBytes.baseSegment();
+        serializedPageBorrowsScratch = true;
+      } else if (pipeline.supportsMemorySegments()) {
+        serializedPageSegment = pipeline.compress(byteBufferBytes.getDestination());
+      } else {
+        final byte[] byteArray = byteBufferBytes.toByteArray();
+        try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length);
+            final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
+          dataOutput.write(byteArray);
+          dataOutput.flush();
+          serializedPageBytes = output.toByteArray();
+        }
+      }
+    }
+
+    if (serializedPageSegment != null) {
+      // Validate before changing bufferedBytes.writePosition() for alignment below. A rejected
+      // cached segment must leave the append buffer reusable by the next page.
+      requireAccessiblePayload(serializedPageSegment);
+    }
+
+    final int serializedPageLength;
+    if (serializedPageBorrowsScratch) {
+      serializedPageLength = Math.toIntExact(byteBufferBytes.writePosition());
+    } else if (serializedPageSegment != null) {
+      serializedPageLength = (int) serializedPageSegment.byteSize();
+    } else if (serializedPageBytes != null) {
+      serializedPageLength = serializedPageBytes.length;
+    } else {
+      throw new IllegalStateException("Failed to build serialized page payload");
+    }
+
+    if (PageSectionDiag.ENABLED && keyValueLeafPage != null) {
+      // [DIAG] The single choke point for bytes that reach the file. The serialization ledger's
+      // encode counts are meaningless without it: only a per-index-type write count can say which
+      // pages are encoded more often than they are written.
+      //
+      // A leaf reaches this writer without an index type in the unit tests that drive it directly,
+      // and the core test task turns the diagnostic ON by default, so an unguarded dereference here
+      // fails eight of them. A page whose type is unknown is simply not attributed: the ledger's
+      // question is per-type, and a diagnostic may never decide whether a page is written.
+      final var writtenIndexType = keyValueLeafPage.getIndexType();
+      if (writtenIndexType != null) {
+        PageSectionDiag.recordPageWrite(writtenIndexType.getID());
+      }
+    }
+
+    if (storageProfileEnabled) {
+      final String pageKind = page.getClass().getSimpleName();
+      if (preSerializedKeyValueLeafCache) {
+        // Metadata is captured before PagePersister: the legacy cache path still copies its
+        // already-processed bytes into scratch, so scratch length is not the raw length either.
+        int rawSize = cachedByteHandlerInputLength;
+        if (rawSize == KeyValueLeafPage.UNKNOWN_BYTE_HANDLER_INPUT_LENGTH && pipeline.isEmpty()) {
+          rawSize = serializedPageLength; // identity pipeline: encoded and raw are provably equal
+        }
+        if (rawSize == KeyValueLeafPage.UNKNOWN_BYTE_HANDLER_INPUT_LENGTH) {
+          io.sirix.io.file.StorageProfile.recordUnknownRaw(pageKind, serializedPageLength);
+        } else {
+          io.sirix.io.file.StorageProfile.record(pageKind, rawSize, serializedPageLength);
+        }
+      } else {
+        io.sirix.io.file.StorageProfile.record(pageKind, Math.toIntExact(byteBufferBytes.writePosition()),
+            serializedPageLength);
+      }
+    }
+
+    int offsetToAdd = pageAlignmentPadding;
+
+    // Getting actual offset and appending to the end of the current file.
+    if (serializationType == SerializationType.DATA) {
+      if (page instanceof UberPage) {
+        // Beacon slot layout: [u32 len][payload][u64 xxh3][zero pad] in a BEACON_SLOT_BYTES
+        // slot. An oversized uber page would silently overlap the next slot / the data region
+        // (unrecoverable database). Fail loudly instead.
+        if (serializedPageLength + IOStorage.OTHER_BEACON + Long.BYTES >= IOStorage.BEACON_SLOT_BYTES) {
+          throw new SirixIOException("Serialized UberPage (" + serializedPageLength
+              + " bytes + header + checksum) exceeds its " + IOStorage.BEACON_SLOT_BYTES
+              + "-byte slot — the on-disk uber-page layout must be revised before this can be written");
+        }
+        offsetToAdd = IOStorage.BEACON_SLOT_BYTES
+            - ((serializedPageLength + IOStorage.OTHER_BEACON + Long.BYTES) % IOStorage.BEACON_SLOT_BYTES);
+      }
+    }
+
+    // Compute hash on compressed bytes for ALL page types (consistent approach). Computed
+    // BEFORE buffering: the uber beacon slot embeds it as an integrity trailer.
+    final long pageHash;
+    boolean payloadBuffered = false;
+    if (serializedPageBorrowsScratch) {
+      if (PageHasher.DEFAULT_ALGORITHM != HashAlgorithm.XXH3) {
+        throw new IllegalStateException("The scratch-range hasher must track the default page-hash algorithm");
+      }
+      // hashDirect consumes exactly MemorySegmentBytesOut.writePosition(), not the spare capacity
+      // exposed by baseSegment(), and the primitive result flows to storage/reference metadata
+      // without materializing the canonical byte[8] representation.
+      pageHash = byteBufferBytes.hashDirect(XXH3_PAGE_HASH);
+    } else if (serializedPageSegment != null) {
+      if (segmentIsKeyValueLeafCache) {
+        // The KVL wrapper holds the page monitor from before its first cache read through this
+        // eager copy. Revalidate nevertheless: serialization may legitimately replace a cache,
+        // while CLOSED_BIT and the current frame remain the authoritative teardown/ownership state.
+        assert Thread.holdsLock(keyValueLeafPage);
+        if (keyValueLeafPage.isClosed()) {
+          throw new IllegalStateException("cannot append the serialized cache of a closed page");
+        }
+        if (keyValueLeafPage.getCompressedSegment() != serializedPageSegment) {
+          throw new IllegalStateException("serialized page cache changed while an append was in progress");
+        }
+        requireAccessiblePayload(serializedPageSegment);
+        final MemorySegment frame = keyValueLeafPage.getSlottedPage();
+        final boolean pageOwnedFrame = serializedPageSegment.isNative() && frame != null && frame.isNative()
+            && serializedPageSegment.address() == frame.address()
+            && serializedPageSegment.byteSize() <= frame.byteSize();
+        pageHash = pageOwnedFrame
+            ? XXH3_PAGE_HASH.hashMemory(serializedPageSegment.address(), serializedPageSegment.byteSize())
+            : PageHasher.computeLong(serializedPageSegment, PageHasher.DEFAULT_ALGORITHM);
+        if (!(page instanceof UberPage) && offsetToAdd > 0) {
+          bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
+        }
+        bufferedBytes.writeInt(serializedPageLength);
+        writeToBufferedBytes(bufferedBytes, serializedPageBytes, serializedPageSegment, serializedPageLength);
+        payloadBuffered = true;
+      } else {
+        // Arbitrary pipeline/arena segments stay on FFM-checked accesses: an isAlive() pre-check
+        // cannot pin a closeable shared arena against a concurrent close.
+        pageHash = PageHasher.computeLong(serializedPageSegment, PageHasher.DEFAULT_ALGORITHM);
+      }
+    } else if (serializedPageBytes != null) {
+      pageHash = PageHasher.computeLong(serializedPageBytes);
+    } else {
+      throw new IllegalStateException("Failed to compute page hash due to missing payload");
+    }
+
+    if (!payloadBuffered) {
+      if (!(page instanceof UberPage) && offsetToAdd > 0) {
+        bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
+      }
+      bufferedBytes.writeInt(serializedPageLength);
+      writeToBufferedBytes(bufferedBytes, serializedPageBytes, serializedPageSegment, serializedPageLength);
+    }
+
+    if (page instanceof UberPage) {
+      // Beacon integrity trailer: recovery validates [len][payload][xxh3] instead of relying
+      // on "deserialization didn't throw" (the beacons have no parent reference to carry a
+      // checksum, unlike every other page). BytesOut is little-endian; reverse to retain the
+      // canonical big-endian 8-byte checksum wire used before hashes became primitive.
+      bufferedBytes.writeLong(Long.reverseBytes(pageHash));
+      if (offsetToAdd > 0) {
+        bufferedBytes.write(new byte[(int) offsetToAdd]);
+      }
+    }
+    return pageHash;
   }
 
   @Override

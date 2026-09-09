@@ -3,10 +3,13 @@
  */
 package io.sirix.index.projection;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 
 import io.sirix.api.StorageEngineReader;
+import io.sirix.settings.Constants;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -54,6 +57,27 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * an immutable snapshot.
  */
 public final class ProjectionIndexRegistry {
+
+  /**
+   * Byte bound of the per-handle string-length table memo
+   * ({@code sirix.projection.stringLength.memoBytes}, default 512 MB; {@code 0} disables retention).
+   * An int per dictionary id: 72 MB for an 18M-id URL dictionary, so the default holds every global
+   * column of the 100M ClickBench resource.
+   */
+  private static volatile long stringLengthMemoBytes =
+      Math.max(0L, Long.getLong("sirix.projection.stringLength.memoBytes", 512L << 20));
+
+  /**
+   * Test seam: bound the string-length memo so a small table already exceeds it.
+   *
+   * @param value the bound in bytes
+   * @return the previous bound, for restoring in a finally block
+   */
+  static long setStringLengthMemoBytesForTesting(final long value) {
+    final long previous = stringLengthMemoBytes;
+    stringLengthMemoBytes = Math.max(0L, value);
+    return previous;
+  }
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ProjectionIndexRegistry.class);
 
@@ -163,6 +187,106 @@ public final class ProjectionIndexRegistry {
     }
 
     /**
+     * Per-{@code (segment, column)} dictionary anchors, packed by {@code segment * columns + column} —
+     * a segment-scoped string column has ONE of these per segment, where a resource-wide one has a
+     * single anchor for the whole column.
+     */
+    private long @Nullable [] segmentDictionaryHeaderKeys;
+
+    private int segmentDictionaryColumns;
+
+    private int segmentDictionarySegments;
+
+    /**
+     * Attach the segment-scoped dictionary anchors; called once, at construction, by the catalog.
+     *
+     * <p>
+     * Flattened at attach time rather than searched per lookup: a scan asks per LEAF, so the lookup is
+     * on the hot path and the table is tiny — segments times columns, both small.
+     * </p>
+     */
+    public void setSegmentDictionaryAnchors(final ProjectionIndexMetadata.SegmentAnchor @Nullable [] anchors,
+        final int columns) {
+      if (anchors == null || anchors.length == 0 || columns <= 0) {
+        this.segmentDictionaryHeaderKeys = null;
+        this.segmentDictionaryColumns = 0;
+        this.segmentDictionarySegments = 0;
+        return;
+      }
+      long highestSegment = 0;
+      for (final ProjectionIndexMetadata.SegmentAnchor anchor : anchors) {
+        highestSegment = Math.max(highestSegment, anchor.segment());
+      }
+      final int segments = Math.toIntExact(highestSegment + 1);
+      final long[] table = new long[Math.multiplyExact(segments, columns)];
+      for (final ProjectionIndexMetadata.SegmentAnchor anchor : anchors) {
+        if (anchor.column() >= 0 && anchor.column() < columns) {
+          table[Math.toIntExact(anchor.segment()) * columns + anchor.column()] = anchor.headerKey();
+        }
+      }
+      this.segmentDictionaryHeaderKeys = table;
+      this.segmentDictionaryColumns = columns;
+      this.segmentDictionarySegments = segments;
+    }
+
+    /**
+     * The dictionary anchor {@code col}'s values live in for rows of {@code segment}, or {@code 0} when
+     * that pair sealed nothing — which a caller must read as "these rows keep their bytes", never as an
+     * invitation to try another segment's dictionary.
+     */
+    public long segmentDictionaryHeaderKey(final int segment, final int col) {
+      final long[] table = segmentDictionaryHeaderKeys;
+      if (table == null || segment < 0 || segment >= segmentDictionarySegments || col < 0
+          || col >= segmentDictionaryColumns) {
+        return 0L;
+      }
+      return table[segment * segmentDictionaryColumns + col];
+    }
+
+    /** Segments this index sealed a dictionary in; {@code 0} when it has no segment-scoped column. */
+    public int segmentDictionarySegmentCount() {
+      return segmentDictionarySegments;
+    }
+
+    /** First DOCUMENT page key of every segment, ascending from 0; {@code null} without a lane. */
+    private long @Nullable [] segmentStarts;
+
+    /** Attach the segment boundaries; called once, at construction, by the catalog. */
+    public void setSegmentStarts(final long @Nullable [] starts) {
+      this.segmentStarts = starts;
+    }
+
+    /**
+     * The segment a row group belongs to, from the first record key its descriptor carries.
+     *
+     * <p>
+     * A row group never straddles a boundary — the builder cuts there — so one key decides for every
+     * row in it. This is the whole reason the segment is not a field of the descriptor: it is already
+     * implied by a key the descriptor has to carry anyway.
+     * </p>
+     *
+     * @return the segment, or {@code -1} when this index has no segment-scoped column
+     */
+    public int segmentOfRowGroup(final long firstRecordKey) {
+      final long[] starts = segmentStarts;
+      if (starts == null || starts.length == 0 || firstRecordKey < 0) {
+        return -1;
+      }
+      final long pageKey = firstRecordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+      int low = 0;
+      int high = starts.length - 1;
+      while (low < high) {
+        final int mid = (low + high + 1) >>> 1;
+        if (starts[mid] <= pageKey) {
+          low = mid;
+        } else {
+          high = mid - 1;
+        }
+      }
+      return low;
+    }
+
+    /**
      * The value dictionary anchor for {@code col}, or {@code 0} when the column has none — which is
      * every column of a store built before the kind existed, and every column that is not global.
      */
@@ -171,6 +295,22 @@ public final class ProjectionIndexRegistry {
       return keys == null || col < 0 || col >= keys.length
           ? 0L
           : keys[col];
+    }
+
+    /**
+     * Every column's dictionary anchor, indexed by column, {@code 0} where the column is not global.
+     *
+     * <p>
+     * A COPY, because the array is the handle's own and a caller enumerating anchors must not be able
+     * to reach into it. For callers that need to act on the whole set — warming the dictionaries a
+     * resource has, rather than resolving one column's.
+     * </p>
+     */
+    public long[] valueDictionaryAnchors() {
+      final long[] keys = valueDictionaryHeaderKeys;
+      return keys == null
+          ? new long[0]
+          : keys.clone();
     }
 
     /**
@@ -833,6 +973,195 @@ public final class ProjectionIndexRegistry {
      */
     public int slicedRouteTick() {
       return slicedRouteArrivals.getAndIncrement();
+    }
+
+    /**
+     * Observed group cardinalities by GROUP-SHAPE FINGERPRINT — the pass-seeding memo. A group scan
+     * that ABORTS (groups past the per-pass budget) has paid most of a full scan before it learns the
+     * count; recording the abort-time estimate here lets the NEXT execution of the same shape start at
+     * the right pass count and never pay the aborted scan (q18 at 100M: 18.1M groups vs a 12.58M budget
+     * = one full wasted scan per TRY, hot included). Purely a performance seed: a stale or colliding
+     * entry only mis-picks the pass count, which the abort-and-restart machinery corrects — it can
+     * never change an answer. The handle's lifetime bounds staleness (a new revision is a new handle),
+     * and entries only grow (max-keep), so a transient under-estimate cannot pin a lower count.
+     */
+    private final Long2LongOpenHashMap observedGroupCounts = new Long2LongOpenHashMap();
+
+    /** The memoed group count for this shape, or 0 when never observed. */
+    public long observedGroupsFor(final long fingerprint) {
+      synchronized (observedGroupCounts) {
+        return observedGroupCounts.get(fingerprint);
+      }
+    }
+
+    /** Record an observed (or abort-estimated) group count; keeps the maximum ever seen. */
+    public void noteObservedGroups(final long fingerprint, final long groups) {
+      synchronized (observedGroupCounts) {
+        if (groups > observedGroupCounts.get(fingerprint)) {
+          observedGroupCounts.put(fingerprint, groups);
+        }
+      }
+    }
+
+    /**
+     * The completed hash-range pass set of each group shape, by shape fingerprint: the exact group
+     * count the merged partitions summed to (or, when a pass count seeded from the memo aborted anyway,
+     * the count the completing pass count implies at its budget) and the pass count that completed.
+     * Kept apart from {@link #observedGroupCounts} because the two disagree in kind: the abort-time
+     * figure extrapolates the groups seen so far over the unscanned leaves, and a distinct-arrival rate
+     * that decays (the heavy hitters are met early) makes it OVERSHOOT — q16 at 100M memoed past twice
+     * the budget from an abort and then ran four seeded passes on every hot try where two held, so its
+     * hot tries were slower than the cold one that had aborted. The pass count travels with the count
+     * because a pass is judged by the groups it FLUSHED, not by the groups it held: a pass set that
+     * completed held more per pass than the budget says a pass holds, and the count alone re-seeds
+     * twice the passes that held. A completed scan is overwritten, never max-kept: the newest completed
+     * scan is the truth of this shape, and a colliding shape's memo only mis-seeds a pass count the
+     * abort corrects.
+     */
+    private final Long2ObjectOpenHashMap<CompletedGroupScan> completedGroupScans = new Long2ObjectOpenHashMap<>();
+
+    /** The exact group count and pass count of a completed hash-range pass set. */
+    public record CompletedGroupScan(long groups, int passes) {
+      public CompletedGroupScan {
+        if (groups <= 0L) {
+          throw new IllegalArgumentException("groups must be positive: " + groups);
+        }
+        if (passes <= 0) {
+          throw new IllegalArgumentException("passes must be positive: " + passes);
+        }
+      }
+    }
+
+    /** The last completed pass set of this shape, or {@code null} when none has completed. */
+    public @Nullable CompletedGroupScan completedGroupScanFor(final long fingerprint) {
+      synchronized (completedGroupScans) {
+        return completedGroupScans.get(fingerprint);
+      }
+    }
+
+    /**
+     * Record a completed pass set — its group count and the pass count that completed; the newest
+     * overwrites.
+     */
+    public void noteCompletedGroupScan(final long fingerprint, final long groups, final int passes) {
+      if (groups <= 0L || passes <= 0) {
+        return;
+      }
+      final CompletedGroupScan scan = new CompletedGroupScan(groups, passes);
+      synchronized (completedGroupScans) {
+        completedGroupScans.put(fingerprint, scan);
+      }
+    }
+
+    /**
+     * Dictionary-string columns whose EVERY per-leaf dictionary entry was proven pairwise distinct
+     * under a {@link ProjectionStringIdentityRegistry.Fingerprint}, by column ordinal. A verdict is a
+     * property of the column's data in this handle's revision, so it holds for every later scan over
+     * the column whatever its predicates: a subset of pairwise-distinct strings is pairwise distinct.
+     * Keyed by the fingerprint INSTANCE the proof ran under — a test that installs an adversarial
+     * fingerprint must not inherit a verdict the production functions earned. Only a PROVEN verdict is
+     * ever stored: a collision or a budget refusal declines that query and leaves the memo untouched,
+     * so the next query proves again.
+     */
+    private final Int2ObjectOpenHashMap<ProjectionStringIdentityRegistry.Fingerprint> provenStringIdentities =
+        new Int2ObjectOpenHashMap<>();
+
+    /**
+     * Whether {@code column}'s strings were proven pairwise distinct under {@code fingerprint}.
+     *
+     * @param column the column ordinal
+     * @param fingerprint the fingerprint the asking registry proves under
+     * @return {@code true} when a scan over the column needs no identity proof
+     */
+    public boolean stringIdentityProven(final int column,
+        final ProjectionStringIdentityRegistry.Fingerprint fingerprint) {
+      Objects.requireNonNull(fingerprint, "fingerprint must not be null");
+      synchronized (provenStringIdentities) {
+        return provenStringIdentities.get(column) == fingerprint;
+      }
+    }
+
+    /**
+     * Record that a FULL-coverage scan proved every dictionary entry of {@code column} pairwise
+     * distinct under {@code fingerprint}. Callers must have proven every entry of every leaf — a lazy
+     * or predicated scan proves only the entries its surviving rows name and must not note.
+     *
+     * @param column the column ordinal
+     * @param fingerprint the fingerprint the proof ran under
+     */
+    public void noteStringIdentityProven(final int column,
+        final ProjectionStringIdentityRegistry.Fingerprint fingerprint) {
+      Objects.requireNonNull(fingerprint, "fingerprint must not be null");
+      if (column < 0) {
+        throw new IllegalArgumentException("column must be >= 0: " + column);
+      }
+      synchronized (provenStringIdentities) {
+        provenStringIdentities.put(column, fingerprint);
+      }
+    }
+
+    /**
+     * Per-id string-length tables of dictionaries, by {@code (dictionary header key, length mode)}:
+     * what {@code AVG(length(col))} over a GLOBAL column indexes per row, and what it indexes per LEAF
+     * over a SEGMENT-scoped column (one table per segment dictionary, each under its own header key —
+     * the same rule, so the same memo). A table is one walk of its dictionary — every block decoded
+     * once, ~18M ids for URL at 100M — and it is a pure function of the dictionary this handle's build
+     * revision reads, so the first query to need it derives it and every later one indexes it.
+     * Retention is bounded in BYTES by {@code sirix.projection.stringLength.memoBytes}; past the bound
+     * a table is still returned to its query but not kept (the "0 disables" of the property is the kill
+     * switch).
+     */
+    private final Long2ObjectOpenHashMap<int[]> stringLengthTables = new Long2ObjectOpenHashMap<>();
+
+    /** Bytes {@link #stringLengthTables} retains; guarded by the map's monitor. */
+    private long stringLengthTableBytes;
+
+    /** The memoised length table of a dictionary in a mode, or {@code null} when none is retained. */
+    public int @Nullable [] stringLengthTable(final long dictionaryHeaderKey, final byte lengthMode) {
+      final long key = stringLengthTableKey(dictionaryHeaderKey, lengthMode);
+      synchronized (stringLengthTables) {
+        return stringLengthTables.get(key);
+      }
+    }
+
+    /**
+     * Retain a derived length table for later queries when the memo's byte bound allows it.
+     *
+     * @return whether the table is now retained (also {@code true} when an equal-sized table already
+     *         was — the first derivation wins and the caller keeps using its own)
+     */
+    public boolean noteStringLengthTable(final long dictionaryHeaderKey, final byte lengthMode, final int[] table) {
+      Objects.requireNonNull(table, "table");
+      final long bytes = 16L + 4L * table.length;
+      final long key = stringLengthTableKey(dictionaryHeaderKey, lengthMode);
+      synchronized (stringLengthTables) {
+        if (stringLengthTables.containsKey(key)) {
+          return true;
+        }
+        if (bytes > stringLengthMemoBytes - stringLengthTableBytes) {
+          return false;
+        }
+        stringLengthTables.put(key, table);
+        stringLengthTableBytes += bytes;
+        return true;
+      }
+    }
+
+    /** Bytes of string-length tables this handle retains. */
+    public long stringLengthTableBytes() {
+      synchronized (stringLengthTables) {
+        return stringLengthTableBytes;
+      }
+    }
+
+    private static long stringLengthTableKey(final long dictionaryHeaderKey, final byte lengthMode) {
+      if (dictionaryHeaderKey <= 0L || dictionaryHeaderKey > Long.MAX_VALUE >>> 2) {
+        throw new IllegalArgumentException("dictionary header key out of range: " + dictionaryHeaderKey);
+      }
+      if (lengthMode < 0 || lengthMode > 3) {
+        throw new IllegalArgumentException("not a string length mode: " + lengthMode);
+      }
+      return (dictionaryHeaderKey << 2) | lengthMode;
     }
 
     /** One-shot latch for the background whole-projection segment readahead. */

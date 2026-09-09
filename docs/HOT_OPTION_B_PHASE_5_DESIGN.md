@@ -1,5 +1,11 @@
 # HOT Option B Phase 5 — Integrated Constancy-Aware Insertion
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Goal:** Drive the 50K microbench reproducer to **0 violations** while preserving
 production-workload correctness. Multi-week, multi-session task. Engineering with
 formal verification at each step.

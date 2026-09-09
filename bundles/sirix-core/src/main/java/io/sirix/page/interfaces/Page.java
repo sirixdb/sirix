@@ -44,11 +44,12 @@ public interface Page extends AutoCloseable {
 
   /**
    * Number of page references — equivalent to {@code getReferences().size()} but allowed to skip
-   * building the list when the implementation knows the count directly (e.g. an array length or a
-   * child-slot count). Hot bounds-check callers ({@code indexNumber >= page.getReferencesCount()})
-   * should prefer this over {@code getReferences().size()} to avoid per-call list allocations on
-   * implementations that materialise the list lazily (e.g. {@link io.sirix.page.HOTIndirectPage} or
-   * {@code FullReferencesPage}). Default implementation is the safe fallback.
+   * building the list when the implementation knows the count directly. This is a cardinality, not a
+   * highest-addressed-slot bound: sparse reference pages may contain one reference at slot 911 and
+   * therefore report {@code 1}. Code resolving an externally assigned slot must use the page type's
+   * exact-slot accessor instead of comparing the slot number with this count. The default
+   * implementation is the safe cardinality fallback for implementations that materialise the list
+   * lazily (for example {@link io.sirix.page.HOTIndirectPage} or {@code FullReferencesPage}).
    *
    * @return the number of references
    */

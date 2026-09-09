@@ -66,13 +66,16 @@ import java.lang.foreign.ValueLayout;
 /**
  * Processing Instruction node using primitive fields.
  *
- * <p>Supports LeanStore-style flyweight binding for zero-copy reads from a slotted page
- * MemorySegment. When bound, all getters/setters operate directly on page memory via
- * the per-record offset table. When unbound, they operate on Java primitive fields.</p>
+ * <p>
+ * Supports LeanStore-style flyweight binding for zero-copy reads from a slotted page MemorySegment.
+ * When bound, all getters/setters operate directly on page memory via the per-record offset table.
+ * When unbound, they operate on Java primitive fields.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
-public final class PINode extends AbstractFlyweightNode implements StructNode, NameNode, ValueNode, ImmutableXmlNode, FlyweightNode {
+public final class PINode extends AbstractFlyweightNode
+    implements StructNode, NameNode, ValueNode, ImmutableXmlNode, FlyweightNode {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -96,8 +99,8 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   private long hash;
 
   /**
-   * Upper bound on the serialized size of everything except the value payload (kind byte +
-   * offset table + delta varints + hash + flags + payload-length varint). Used by
+   * Upper bound on the serialized size of everything except the value payload (kind byte + offset
+   * table + delta varints + hash + flags + payload-length varint). Used by
    * {@link #estimateSerializedSize()}.
    */
   private static final int SERIALIZED_METADATA_UPPER_BOUND = 119;
@@ -140,8 +143,8 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   private static final int FIELD_COUNT = NodeFieldLayout.PI_FIELD_COUNT;
 
   /**
-   * Constructor for flyweight binding.
-   * All fields except nodeKey and hashFunction will be read from page memory after bind().
+   * Constructor for flyweight binding. All fields except nodeKey and hashFunction will be read from
+   * page memory after bind().
    *
    * @param nodeKey the node key
    * @param hashFunction the hash function from resource config
@@ -212,16 +215,15 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   // ==================== FLYWEIGHT BIND/UNBIND ====================
 
   /**
-   * Bind this node as a flyweight to a page MemorySegment.
-   * When bound, getters/setters read/write directly to page memory via the offset table.
+   * Bind this node as a flyweight to a page MemorySegment. When bound, getters/setters read/write
+   * directly to page memory via the offset table.
    *
-   * @param page       the page MemorySegment
+   * @param page the page MemorySegment
    * @param recordBase absolute byte offset of this record in the page
-   * @param nodeKey    the node key (for delta decoding)
-   * @param slotIndex  the slot index in the page directory
+   * @param nodeKey the node key (for delta decoding)
+   * @param slotIndex the slot index in the page directory
    */
-  public void bind(final MemorySegment page, final long recordBase, final long nodeKey,
-      final int slotIndex) {
+  public void bind(final MemorySegment page, final long recordBase, final long nodeKey, final int slotIndex) {
     this.page = page;
     this.recordBase = recordBase;
     this.nodeKey = nodeKey;
@@ -233,8 +235,8 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   /**
-   * Unbind from page memory and materialize all fields into Java primitives.
-   * After unbind, the node operates in primitive mode.
+   * Unbind from page memory and materialize all fields into Java primitives. After unbind, the node
+   * operates in primitive mode.
    */
   public void unbind() {
     if (page == null) {
@@ -285,21 +287,35 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   @Override
-  public boolean isWriteSingleton() { return writeSingleton; }
+  public boolean isWriteSingleton() {
+    return writeSingleton;
+  }
 
   @Override
-  public void setWriteSingleton(final boolean writeSingleton) { this.writeSingleton = writeSingleton; }
+  public void setWriteSingleton(final boolean writeSingleton) {
+    this.writeSingleton = writeSingleton;
+  }
 
   @Override
-  public KeyValueLeafPage getOwnerPage() { return ownerPage; }
+  public KeyValueLeafPage getOwnerPage() {
+    return ownerPage;
+  }
 
   @Override
-  public void setOwnerPage(final KeyValueLeafPage ownerPage) { this.ownerPage = ownerPage; }
+  public void setOwnerPage(final KeyValueLeafPage ownerPage) {
+    this.ownerPage = ownerPage;
+  }
 
   @Override
   public int estimateSerializedSize() {
-    final int payloadLen = value != null ? value.length : 0;
-    return SERIALIZED_METADATA_UPPER_BOUND + payloadLen;
+    final int payloadLen = value != null
+        ? value.length
+        : 0;
+    return estimateSerializedSize(payloadLen);
+  }
+
+  static int estimateSerializedSize(final int payloadLength) {
+    return FlyweightNode.saturatingSerializedSize((long) SERIALIZED_METADATA_UPPER_BOUND + payloadLength);
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -323,8 +339,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
    * Read the payload (value bytes) directly from page memory when bound.
    */
   private void readPayloadFromPage() {
-    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
-        recordBase + 1 + NodeFieldLayout.PI_PAYLOAD) & 0xFF;
+    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.PI_PAYLOAD) & 0xFF;
     final long payloadStart = dataRegionStart + payloadFieldOff;
 
     // Read isCompressed flag (1 byte)
@@ -345,38 +360,35 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
-   * Encode a PINode record directly to a MemorySegment from parameter values.
-   * Static -- reads nothing from any instance. Zero field intermediation.
+   * Encode a PINode record directly to a MemorySegment from parameter values. Static -- reads nothing
+   * from any instance. Zero field intermediation.
    *
-   * @param target          the target MemorySegment (reinterpreted slotted page)
-   * @param offset          absolute byte offset to write at
-   * @param heapOffsets     pre-allocated offset array (reused, FIELD_COUNT elements)
-   * @param nodeKey         the node key (delta base for structural keys)
-   * @param parentKey       the parent node key
-   * @param rightSibKey     the right sibling key
-   * @param leftSibKey      the left sibling key
-   * @param firstChildKey   the first child key
-   * @param lastChildKey    the last child key
-   * @param pathNodeKey     the path node key
-   * @param prefixKey       the prefix key
-   * @param localNameKey    the local name key
-   * @param uriKey          the URI key
-   * @param prevRev         the previous revision number
-   * @param lastModRev      the last modified revision number
-   * @param childCount      the child count
+   * @param target the target MemorySegment (reinterpreted slotted page)
+   * @param offset absolute byte offset to write at
+   * @param heapOffsets pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey the node key (delta base for structural keys)
+   * @param parentKey the parent node key
+   * @param rightSibKey the right sibling key
+   * @param leftSibKey the left sibling key
+   * @param firstChildKey the first child key
+   * @param lastChildKey the last child key
+   * @param pathNodeKey the path node key
+   * @param prefixKey the prefix key
+   * @param localNameKey the local name key
+   * @param uriKey the URI key
+   * @param prevRev the previous revision number
+   * @param lastModRev the last modified revision number
+   * @param childCount the child count
    * @param descendantCount the descendant count
-   * @param rawValue        the raw value bytes (possibly compressed)
-   * @param isCompressed    whether the value is compressed
+   * @param rawValue the raw value bytes (possibly compressed)
+   * @param isCompressed whether the value is compressed
    * @return the total number of bytes written
    */
-  public static int writeNewRecord(final MemorySegment target, final long offset,
-      final int[] heapOffsets, final long nodeKey,
-      final long parentKey, final long rightSibKey, final long leftSibKey,
-      final long firstChildKey, final long lastChildKey,
-      final long pathNodeKey, final int prefixKey, final int localNameKey, final int uriKey,
-      final int prevRev, final int lastModRev,
-      final long childCount, final long descendantCount,
-      final byte[] rawValue, final boolean isCompressed) {
+  public static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final long firstChildKey,
+      final long lastChildKey, final long pathNodeKey, final int prefixKey, final int localNameKey, final int uriKey,
+      final int prevRev, final int lastModRev, final long childCount, final long descendantCount, final byte[] rawValue,
+      final boolean isCompressed) {
     long pos = offset;
 
     // Write nodeKind byte
@@ -444,9 +456,13 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
 
     // Field 13: payload [isCompressed:1][valueLength:varint][value:bytes]
     heapOffsets[NodeFieldLayout.PI_PAYLOAD] = (int) (pos - dataStart);
-    target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
+    target.set(ValueLayout.JAVA_BYTE, pos, isCompressed
+        ? (byte) 1
+        : (byte) 0);
     pos++;
-    final byte[] val = rawValue != null ? rawValue : new byte[0];
+    final byte[] val = rawValue != null
+        ? rawValue
+        : new byte[0];
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, val.length);
     if (val.length > 0) {
       MemorySegment.copy(val, 0, target, ValueLayout.JAVA_BYTE, pos, val.length);
@@ -465,13 +481,11 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
    * Serialize this node from Java fields. Delegates to static writeNewRecord.
    */
   public int serializeToHeap(final MemorySegment target, final long offset) {
-    if (!valueParsed) parseLazyValue();
-    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
-        parentKey, rightSiblingKey, leftSiblingKey,
-        firstChildKey, lastChildKey, pathNodeKey,
-        prefixKey, localNameKey, uriKey,
-        previousRevision, lastModifiedRevision,
-        childCount, descendantCount, value, isCompressed);
+    if (!valueParsed)
+      parseLazyValue();
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
+        firstChildKey, lastChildKey, pathNodeKey, prefixKey, localNameKey, uriKey, previousRevision,
+        lastModifiedRevision, childCount, descendantCount, value, isCompressed);
   }
 
   @Override
@@ -480,8 +494,8 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   /**
-   * Set DeweyID fields directly after creation, bypassing write-through.
-   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   * Set DeweyID fields directly after creation, bypassing write-through. The DeweyID is already in
+   * the page trailer -- this just sets the Java cache fields.
    */
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
     this.sirixDeweyID = id;
@@ -528,8 +542,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizeParentKey(final long parentKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_PARENT_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_PARENT_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
   }
 
@@ -563,8 +576,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizeRightSiblingKey(final long key) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_RIGHT_SIB_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_RIGHT_SIB_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
@@ -598,8 +610,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizeLeftSiblingKey(final long key) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_LEFT_SIB_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_LEFT_SIB_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
@@ -633,8 +644,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizeFirstChildKey(final long key) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_FIRST_CHILD_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_FIRST_CHILD_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
@@ -668,8 +678,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizeLastChildKey(final long key) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_LAST_CHILD_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_LAST_CHILD_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
@@ -703,8 +712,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizeChildCount(final long childCount) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_CHILD_COUNT, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_CHILD_COUNT, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, childCount));
   }
 
@@ -744,8 +752,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizeDescendantCount(final long descendantCount) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_DESCENDANT_COUNT, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_DESCENDANT_COUNT, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, descendantCount));
   }
 
@@ -785,8 +792,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizePathNodeKey(final long pathNodeKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_PATH_NODE_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_PATH_NODE_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, pathNodeKey, nodeKey));
   }
 
@@ -816,8 +822,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizePrefixKey(final int prefixKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_PREFIX_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_PREFIX_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, prefixKey));
   }
 
@@ -847,8 +852,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizeLocalNameKey(final int localNameKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_LOCAL_NAME_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_LOCAL_NAME_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, localNameKey));
   }
 
@@ -878,8 +882,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizeURIKey(final int uriKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_URI_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_URI_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, uriKey));
   }
 
@@ -909,8 +912,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizePreviousRevision(final int revision) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_PREV_REVISION, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_PREV_REVISION, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
@@ -925,7 +927,8 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   @Override
   public void setLastModifiedRevision(int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.PI_LAST_MOD_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.PI_LAST_MOD_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -940,8 +943,7 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   }
 
   private void resizeLastModifiedRevision(final int revision) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.PI_LAST_MOD_REVISION, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.PI_LAST_MOD_REVISION, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
@@ -994,7 +996,8 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
       owner.resizeRecord(this, nk, slot);
       return;
     }
-    if (page != null) unbind();
+    if (page != null)
+      unbind();
     this.value = value;
     this.valueParsed = true;
     this.lazyValueSource = null;
@@ -1213,26 +1216,18 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
       if (!valueParsed) {
         readPayloadFromPage();
       }
-      final PINode snapshot = new PINode(
-          nk,
-          readDeltaField(NodeFieldLayout.PI_PARENT_KEY, nk),
-          readSignedField(NodeFieldLayout.PI_PREV_REVISION),
-          readSignedField(NodeFieldLayout.PI_LAST_MOD_REVISION),
-          readDeltaField(NodeFieldLayout.PI_RIGHT_SIB_KEY, nk),
-          readDeltaField(NodeFieldLayout.PI_LEFT_SIB_KEY, nk),
-          readDeltaField(NodeFieldLayout.PI_FIRST_CHILD_KEY, nk),
-          readDeltaField(NodeFieldLayout.PI_LAST_CHILD_KEY, nk),
-          readSignedLongField(NodeFieldLayout.PI_CHILD_COUNT),
-          readSignedLongField(NodeFieldLayout.PI_DESCENDANT_COUNT),
-          hash,
-          readDeltaField(NodeFieldLayout.PI_PATH_NODE_KEY, nk),
-          readSignedField(NodeFieldLayout.PI_PREFIX_KEY),
-          readSignedField(NodeFieldLayout.PI_LOCAL_NAME_KEY),
-          readSignedField(NodeFieldLayout.PI_URI_KEY),
-          value != null ? value.clone() : null,
-          isCompressed,
-          hashFunction,
-          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
+      final PINode snapshot = new PINode(nk, readDeltaField(NodeFieldLayout.PI_PARENT_KEY, nk),
+          readSignedField(NodeFieldLayout.PI_PREV_REVISION), readSignedField(NodeFieldLayout.PI_LAST_MOD_REVISION),
+          readDeltaField(NodeFieldLayout.PI_RIGHT_SIB_KEY, nk), readDeltaField(NodeFieldLayout.PI_LEFT_SIB_KEY, nk),
+          readDeltaField(NodeFieldLayout.PI_FIRST_CHILD_KEY, nk), readDeltaField(NodeFieldLayout.PI_LAST_CHILD_KEY, nk),
+          readSignedLongField(NodeFieldLayout.PI_CHILD_COUNT), readSignedLongField(NodeFieldLayout.PI_DESCENDANT_COUNT),
+          hash, readDeltaField(NodeFieldLayout.PI_PATH_NODE_KEY, nk), readSignedField(NodeFieldLayout.PI_PREFIX_KEY),
+          readSignedField(NodeFieldLayout.PI_LOCAL_NAME_KEY), readSignedField(NodeFieldLayout.PI_URI_KEY), value != null
+              ? value.clone()
+              : null,
+          isCompressed, hashFunction, getDeweyIDAsBytes() != null
+              ? getDeweyIDAsBytes().clone()
+              : null,
           qNm);
       if (sirixDeweyID != null) {
         snapshot.sirixDeweyID = sirixDeweyID;
@@ -1242,14 +1237,14 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
     if (!valueParsed) {
       parseLazyValue();
     }
-    final PINode snapshot = new PINode(
-        nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
-        childCount, descendantCount, hash, pathNodeKey,
-        prefixKey, localNameKey, uriKey,
-        value != null ? value.clone() : null,
-        isCompressed, hashFunction,
-        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
+    final PINode snapshot = new PINode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
+        leftSiblingKey, firstChildKey, lastChildKey, childCount, descendantCount, hash, pathNodeKey, prefixKey,
+        localNameKey, uriKey, value != null
+            ? value.clone()
+            : null,
+        isCompressed, hashFunction, getDeweyIDAsBytes() != null
+            ? getDeweyIDAsBytes().clone()
+            : null,
         qNm);
     if (sirixDeweyID != null) {
       snapshot.sirixDeweyID = sirixDeweyID;
@@ -1278,10 +1273,10 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("nodeKey", nodeKey)
-                      .add("parentKey", parentKey)
-                      .add("qNm", qNm)
-                      .add("value", getValue())
-                      .toString();
+                         .add("nodeKey", nodeKey)
+                         .add("parentKey", parentKey)
+                         .add("qNm", qNm)
+                         .add("value", getValue())
+                         .toString();
   }
 }

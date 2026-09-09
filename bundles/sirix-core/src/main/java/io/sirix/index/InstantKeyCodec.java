@@ -18,8 +18,8 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Storage helper for the XQuery instant family — {@code xs:dateTime}, {@code xs:date} and
- * {@code xs:time}: it reduces a value to the absolute instant it denotes, so both index backends
- * agree on representation and a byte-ordered scan orders them chronologically.
+ * {@code xs:time}: it reduces a value to the absolute instant it denotes, so every HOT index
+ * consumer agrees on representation and a byte-ordered scan orders them chronologically.
  *
  * <h2>Encode the ABSOLUTE INSTANT, never the calendar components</h2>
  * <p>

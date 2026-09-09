@@ -62,25 +62,29 @@ import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Aggregate functions served by the two vectorized storage tiers, head to head: the
- * always-on PAX page regions (the {@link SirixVectorizedExecutor} storage scan over
- * {@code KeyValueLeafPage} column regions) versus a dedicated, declared projection index
- * (the row-group column-segment store behind {@code tryProjectionAggregate}).
+ * Aggregate functions served by the two vectorized storage tiers, head to head: the always-on PAX
+ * page regions (the {@link SirixVectorizedExecutor} storage scan over {@code KeyValueLeafPage}
+ * column regions) versus a dedicated, declared projection index (the row-group column-segment store
+ * behind {@code tryProjectionAggregate}).
  *
- * <p>Both arms run the SAME Brackit queries through the SAME executor; the only difference
- * is whether a covering (age, active, dept, city) projection is installed. With
- * {@code projectionIndex=false} the registry is empty and every aggregate resolves through
- * the PAX scan; with {@code true} the executor's projection lookup covers the query and the
- * fold kernels serve it from column segments. Trial setup verifies the tier actually taken
- * via {@link SirixVectorizedExecutor#predicatedAggScanCount()}.
+ * <p>
+ * Both arms run the SAME Brackit queries through the SAME executor; the only difference is whether
+ * a covering (age, active, dept, city) projection is installed. With {@code projectionIndex=false}
+ * the registry is empty and every aggregate resolves through the PAX scan; with {@code true} the
+ * executor's projection lookup covers the query and the fold kernels serve it from column segments.
+ * Trial setup verifies the tier actually taken via
+ * {@link SirixVectorizedExecutor#predicatedAggScanCount()}.
  *
- * <p>The executor memoizes aggregate RESULTS per (path, field, predicate); a naive loop
- * would time cache hits after the first invocation. Each invocation therefore clears the
- * result caches (untimed, {@link Level#Invocation}) so every sample is a real kernel scan,
- * while both tiers keep their physical-layer caches (region tables, column slices) warm —
- * the comparison is between resident storage layouts, not IO.
+ * <p>
+ * The executor memoizes aggregate RESULTS per (path, field, predicate); a naive loop would time
+ * cache hits after the first invocation. Each invocation therefore clears the result caches
+ * (untimed, {@link Level#Invocation}) so every sample is a real kernel scan, while both tiers keep
+ * their physical-layer caches (region tables, column slices) warm — the comparison is between
+ * resident storage layouts, not IO.
  *
- * <p>Run with:
+ * <p>
+ * Run with:
+ * 
  * <pre>
  * ./gradlew :sirix-benchmarks:jmh -Pjmh.includes=PaxVsProjectionAggregateBenchmark
  * </pre>
@@ -90,15 +94,15 @@ import java.util.concurrent.TimeUnit;
 @Warmup(iterations = 3, time = 2)
 @Measurement(iterations = 5, time = 2)
 @Fork(value = 1,
-    jvmArgs = { "--add-modules=jdk.incubator.vector", "--enable-preview", "--enable-native-access=ALL-UNNAMED" })
+    jvmArgs = {"--add-modules=jdk.incubator.vector", "--enable-preview", "--enable-native-access=ALL-UNNAMED"})
 @State(Scope.Benchmark)
 public class PaxVsProjectionAggregateBenchmark {
 
-  @Param({ "100000", "1000000" })
+  @Param({"100000", "1000000"})
   public int recordCount;
 
   /** {@code true} → install the covering projection index; {@code false} → PAX scan serves. */
-  @Param({ "false", "true" })
+  @Param({"false", "true"})
   public boolean projectionIndex;
 
   private static final String JSON_DB = "pax-vs-proj-db";
@@ -122,25 +126,21 @@ public class PaxVsProjectionAggregateBenchmark {
     chain = SirixCompileChain.createWithJsonStore(store);
 
     try (GeneratedRecordsReader src = new GeneratedRecordsReader(recordCount);
-         JsonReader jsonReader = new JsonReader(src)) {
+        JsonReader jsonReader = new JsonReader(src)) {
       store.create(JSON_DB, JSON_RESOURCE, jsonReader);
     }
 
     final var coll = store.lookup(JSON_DB);
     resourceSession = coll.getDatabase().beginResourceSession(JSON_RESOURCE);
-    final int latestRev = resourceSession.getMostRecentRevisionNumber();
-
     if (projectionIndex) {
-      final ProjectionIndexBenchSetup.BuildResult built =
-          ProjectionIndexBenchSetup.installWildcard(resourceSession);
+      final ProjectionIndexBenchSetup.BuildResult built = ProjectionIndexBenchSetup.ensureProjection(resourceSession);
       if (built.totalRows() != recordCount) {
-        throw new IllegalStateException("projection rows " + built.totalRows()
-            + " != records " + recordCount);
+        throw new IllegalStateException("projection rows " + built.totalRows() + " != records " + recordCount);
       }
-      System.out.printf("# projection installed: %d row groups, %d rows%n",
-          built.rowGroupCount(), built.totalRows());
+      System.out.printf("# projection catalogued: %d row groups, %d rows%n", built.rowGroupCount(), built.totalRows());
     }
 
+    final int latestRev = resourceSession.getMostRecentRevisionNumber();
     vecExecutor = new SirixVectorizedExecutor(resourceSession, latestRev);
     SequentialPipelineStrategy.setVectorizedExecutor(vecExecutor);
 
@@ -159,21 +159,20 @@ public class PaxVsProjectionAggregateBenchmark {
     System.out.printf("# probe sum(age>40) = %s%n", probeResult.trim());
     System.out.printf("# probe count(age>40 and active) = %s%n",
         runQueryOnce("count(for $u in $doc[] where $u.age > 40 and $u.active return $u)").trim());
-    System.out.printf("# probe sum(age) = %s%n",
-        runQueryOnce("sum(for $u in $doc[] return $u.age)").trim());
+    System.out.printf("# probe sum(age) = %s%n", runQueryOnce("sum(for $u in $doc[] return $u.age)").trim());
     if (projectionIndex && delta == 0) {
       throw new IllegalStateException("projection installed but predicated aggregate was NOT projection-served");
     }
     if (!projectionIndex && delta != 0) {
       throw new IllegalStateException("no projection installed but predicated aggregate claims projection serving");
     }
-    System.out.printf("# tier verified: projectionIndex=%s, projection scans during probe=%d%n",
-        projectionIndex, delta);
+    System.out.printf("# tier verified: projectionIndex=%s, projection scans during probe=%d%n", projectionIndex,
+        delta);
   }
 
   /**
-   * Every sample must be a real kernel scan: drop the executor's memoized aggregate
-   * results outside the timed region. Physical caches stay warm by design.
+   * Every sample must be a real kernel scan: drop the executor's memoized aggregate results outside
+   * the timed region. Physical caches stay warm by design.
    */
   @Setup(Level.Invocation)
   public void dropResultCaches() {
@@ -183,10 +182,14 @@ public class PaxVsProjectionAggregateBenchmark {
   @TearDown(Level.Trial)
   public void tearDown() {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
-    if (vecExecutor != null) vecExecutor.close();
-    if (resourceSession != null) resourceSession.close();
-    if (chain != null) chain.close();
-    if (store != null) store.close();
+    if (vecExecutor != null)
+      vecExecutor.close();
+    if (resourceSession != null)
+      resourceSession.close();
+    if (chain != null)
+      chain.close();
+    if (store != null)
+      store.close();
     Databases.removeDatabase(dbDir.resolve(JSON_DB));
   }
 
@@ -200,16 +203,16 @@ public class PaxVsProjectionAggregateBenchmark {
   }
 
   /**
-   * Per-body compiled queries: this bench compares warm kernel-scan tiers, so Brackit
-   * parse/compile must not sit inside the timed region (the one-shot companion deliberately
-   * keeps it there — first-touch cost is its subject). The first call per body compiles
-   * during warmup; measured iterations execute the cached plan.
+   * Per-body compiled queries: this bench compares warm kernel-scan tiers, so Brackit parse/compile
+   * must not sit inside the timed region (the one-shot companion deliberately keeps it there —
+   * first-touch cost is its subject). The first call per body compiles during warmup; measured
+   * iterations execute the cached plan.
    */
   private final Map<String, Query> compiledQueries = new HashMap<>();
 
   private void runQuery(final Blackhole bh, final String body) {
-    final Query query = compiledQueries.computeIfAbsent(body,
-        b -> new Query(chain, "declare variable $doc external; " + b));
+    final Query query =
+        compiledQueries.computeIfAbsent(body, b -> new Query(chain, "declare variable $doc external; " + b));
     final var buf = IOUtils.createBuffer();
     try (var ser = new StringSerializer(buf)) {
       ser.serialize(query.execute(ctx));

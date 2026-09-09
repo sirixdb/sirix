@@ -5,6 +5,7 @@ import io.brackit.query.Query;
 import io.sirix.access.Databases;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
+import io.brackit.query.jdm.Type;
 import io.sirix.index.IndexDef;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -59,10 +60,33 @@ final class ClickBenchProjectionTest {
 
   @Test
   void everyColumnGetsATypeTheProjectionUnderstands() {
+    // Not a hand-kept list of names: every declared type is fed through the SAME vocabulary
+    // jn:create-projection-index parses, so a type the harness invents but the projection cannot
+    // build fails here instead of at benchmark time.
     for (final String column : ClickBenchProjection.PROJECTED_COLUMNS) {
       final String type = ClickBenchProjection.projectionType(column);
-      Assertions.assertTrue("long".equals(type) || "string".equals(type),
-          column + " mapped to an unsupported projection type: " + type);
+      final String expected = switch (ClickBenchSchema.typeOf(column)) {
+        case INT, LONG -> "long";
+        case STRING -> "string";
+        // The loader's encoding contract makes these exactly canonical ISO-8601, so they are
+        // declared temporal and stored as epochs rather than as text.
+        case DATE -> "date";
+        case DATETIME -> "timestamp";
+      };
+      Assertions.assertEquals(expected, type, "unexpected projection type for " + column);
+    }
+    // The declaration must actually BUILD: toIndexDef() runs the vocabulary the query form uses.
+    final IndexDef def = ClickBenchProjection.spec().toIndexDef();
+    Assertions.assertEquals(ClickBenchProjection.PROJECTED_COLUMNS.size(), def.getProjectionFieldTypes().size());
+    for (int i = 0; i < ClickBenchProjection.PROJECTED_COLUMNS.size(); i++) {
+      final String column = ClickBenchProjection.PROJECTED_COLUMNS.get(i);
+      final Type expected = switch (ClickBenchSchema.typeOf(column)) {
+        case INT, LONG -> Type.LON;
+        case STRING -> Type.STR;
+        case DATE -> Type.DATE;
+        case DATETIME -> Type.DATI;
+      };
+      Assertions.assertEquals(expected, def.getProjectionFieldTypes().get(i), "declared type for " + column);
     }
   }
 

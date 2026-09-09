@@ -23,29 +23,33 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>Why fuzzing rather than more fixtures</h2>
  *
- * <p>The hand-written equivalence tests in {@link ColumnKernelEquivalenceTest} check the cases
- * their author thought of, and every defect this file was written in response to lived in a case
- * nobody thought of: a {@code NE} paired with a range operator, a delta residual wider than the
- * vector unpack serves, a dict id past the end of a 64-entry set word. Those are not exotic inputs
- * — they are ordinary combinations of parameters that no fixture happened to combine.
+ * <p>
+ * The hand-written equivalence tests in {@link ColumnKernelEquivalenceTest} check the cases their
+ * author thought of, and every defect this file was written in response to lived in a case nobody
+ * thought of: a {@code NE} paired with a range operator, a delta residual wider than the vector
+ * unpack serves, a dict id past the end of a 64-entry set word. Those are not exotic inputs — they
+ * are ordinary combinations of parameters that no fixture happened to combine.
  *
- * <p>So this test does not choose inputs. It draws them: value distributions across every encoding
- * the writer can pick, every operator pair including the ones that are not intervals, thresholds
- * placed on and around the actual data, ranges that start and end at arbitrary offsets, and
- * liveness bitmaps with arbitrary holes.
+ * <p>
+ * So this test does not choose inputs. It draws them: value distributions across every encoding the
+ * writer can pick, every operator pair including the ones that are not intervals, thresholds placed
+ * on and around the actual data, ranges that start and end at arbitrary offsets, and liveness
+ * bitmaps with arbitrary holes.
  *
  * <h2>Ground truth is independent</h2>
  *
- * <p>The expected answer is computed by looping over the {@code long[]} that was handed to the
+ * <p>
+ * The expected answer is computed by looping over the {@code long[]} that was handed to the
  * encoder, with a plain {@code if}. It never consults a header, a decoder, or a second kernel. A
- * differential test whose two sides share a decoder can only find disagreements between kernels, and
- * both sides of this package's worst bug — a scalar tail and a vector body that disagreed — would
- * have passed such a test on the half that ran.
+ * differential test whose two sides share a decoder can only find disagreements between kernels,
+ * and both sides of this package's worst bug — a scalar tail and a vector body that disagreed —
+ * would have passed such a test on the half that ran.
  *
  * <h2>Both paths, every time</h2>
  *
- * <p>Each case runs twice, once with the vector path forced on and once with it held off, because
- * the kernels contain two implementations of every predicate and a bug in either is a wrong answer.
+ * <p>
+ * Each case runs twice, once with the vector path forced on and once with it held off, because the
+ * kernels contain two implementations of every predicate and a bug in either is a wrong answer.
  * Which one a given range takes in production depends on a warmup budget, so a test that did not
  * pin it would sample them arbitrarily.
  */
@@ -62,10 +66,8 @@ final class ColumnKernelFuzzTest {
 
 
   /** Every comparison the kernels accept, including the one that is not an interval. */
-  private static final VectorOperators.Comparison[] OPS = {
-      VectorOperators.GT, VectorOperators.GE, VectorOperators.LT, VectorOperators.LE,
-      VectorOperators.EQ, VectorOperators.NE
-  };
+  private static final VectorOperators.Comparison[] OPS = {VectorOperators.GT, VectorOperators.GE, VectorOperators.LT,
+      VectorOperators.LE, VectorOperators.EQ, VectorOperators.NE};
 
   private static boolean eval(final long v, final VectorOperators.Comparison op, final long t) {
     if (op == VectorOperators.GT) {
@@ -137,7 +139,9 @@ final class ColumnKernelFuzzTest {
         // residual width lands above what the vector unpack serves and the scalar unpacker becomes
         // the only decoder — the case that was silently wrong.
         for (int i = 0; i < n; i++) {
-          v[i] = (i & 1) == 0 ? 0L : (1L << 60);
+          v[i] = (i & 1) == 0
+              ? 0L
+              : (1L << 60);
         }
       }
       case CONSTANT -> {
@@ -168,7 +172,9 @@ final class ColumnKernelFuzzTest {
   @DisplayName("count, masked count, aggregate and selection agree with a hand-written loop")
   void numberKernelsAgreeWithGroundTruth() {
     for (final boolean vector : new boolean[] {true, false}) {
-      BitUnpackSimd.setWarmupRemainingForTesting(vector ? 0 : Integer.MAX_VALUE);
+      BitUnpackSimd.setWarmupRemainingForTesting(vector
+          ? 0
+          : Integer.MAX_VALUE);
       for (final Shape shape : Shape.values()) {
         fuzzNumbers(shape, vector);
       }
@@ -176,7 +182,9 @@ final class ColumnKernelFuzzTest {
   }
 
   private void fuzzNumbers(final Shape shape, final boolean vector) {
-    final Random rng = new Random(shape.ordinal() * 7919L + (vector ? 1 : 2));
+    final Random rng = new Random(shape.ordinal() * 7919L + (vector
+        ? 1
+        : 2));
     for (int c = 0; c < CASES; c++) {
       final int n = 1 + rng.nextInt(400);
       final int tagCount = 1 + rng.nextInt(3);
@@ -199,91 +207,85 @@ final class ColumnKernelFuzzTest {
   }
 
   /** Every kernel over one tag, against the ground truth built from the input values. */
-  private void checkTag(final Shape shape, final boolean vector, final int c,
-      final MemorySegment payload, final NumberRegion.Header h, final int tag, final long[] values,
-      final int[] tags, final int n, final Random rng) {
+  private void checkTag(final Shape shape, final boolean vector, final int c, final MemorySegment payload,
+      final NumberRegion.Header h, final int tag, final long[] values, final int[] tags, final int n,
+      final Random rng) {
     {
-        // Ground truth for this tag: the input values carrying it, in input order. The region
-        // stores them contiguously in that same order, which is the only thing about the encoding
-        // this test assumes.
-        final int tagValue = h.dict[tag];
-        final long[] expected = new long[h.tagCount[tag]];
-        int e = 0;
-        for (int i = 0; i < n; i++) {
-          if (tags[i] == tagValue) {
-            expected[e++] = values[i];
+      // Ground truth for this tag: the input values carrying it, in input order. The region
+      // stores them contiguously in that same order, which is the only thing about the encoding
+      // this test assumes.
+      final int tagValue = h.dict[tag];
+      final long[] expected = new long[h.tagCount[tag]];
+      int e = 0;
+      for (int i = 0; i < n; i++) {
+        if (tags[i] == tagValue) {
+          expected[e++] = values[i];
+        }
+      }
+      assertEquals(h.tagCount[tag], e, describe(shape, vector, c) + ": tag population");
+
+      final int start = h.tagStart[tag];
+      final int end = start + h.tagCount[tag];
+
+      // The scalar decoder must reproduce the values exactly — this is what catches a decoder
+      // that drops the high bits of a wide value.
+      for (int i = 0; i < expected.length; i++) {
+        assertEquals(expected[i], NumberRegion.decodeValueAt(payload, h, start + i),
+            describe(shape, vector, c) + ": decodeValueAt at " + i);
+      }
+
+      final VectorOperators.Comparison op1 = OPS[rng.nextInt(OPS.length)];
+      final VectorOperators.Comparison op2 = OPS[rng.nextInt(OPS.length)];
+      final long t1 = drawThreshold(values, rng);
+      final long t2 = drawThreshold(values, rng);
+
+      long want = 0;
+      for (final long v : expected) {
+        if (eval(v, op1, t1) && eval(v, op2, t2)) {
+          want++;
+        }
+      }
+      final long got = NumberRegionSimd.countMatchingRange(payload, h, start, end, op1, t1, op2, t2);
+      assertTrue(got >= 0, describe(shape, vector, c) + ": kernel declined a supported shape");
+      assertEquals(want, got, describe(shape, vector, c) + ": count " + op1 + " " + t1 + " AND " + op2 + " " + t2);
+
+      // Single-predicate entry point.
+      long wantOne = 0;
+      for (final long v : expected) {
+        if (eval(v, op1, t1)) {
+          wantOne++;
+        }
+      }
+      assertEquals(wantOne, NumberRegionSimd.countMatching(payload, h, start, end, op1, t1),
+          describe(shape, vector, c) + ": single-predicate count " + op1 + " " + t1);
+
+      // Masked count, with an arbitrary liveness pattern.
+      final int len = expected.length;
+      final long[] live = new long[Math.max(1, (len + 63) >>> 6)];
+      long wantLive = 0;
+      for (int i = 0; i < len; i++) {
+        if (rng.nextBoolean()) {
+          live[i >>> 6] |= 1L << (i & 63);
+          if (eval(expected[i], op1, t1) && eval(expected[i], op2, t2)) {
+            wantLive++;
           }
         }
-        assertEquals(h.tagCount[tag], e, describe(shape, vector, c) + ": tag population");
+      }
+      assertEquals(wantLive, NumberRegionSimd.countMatchingRangeMasked(payload, h, start, end, op1, t1, op2, t2, live),
+          describe(shape, vector, c) + ": masked count");
 
-        final int start = h.tagStart[tag];
-        final int end = start + h.tagCount[tag];
-
-        // The scalar decoder must reproduce the values exactly — this is what catches a decoder
-        // that drops the high bits of a wide value.
-        for (int i = 0; i < expected.length; i++) {
-          assertEquals(expected[i], NumberRegion.decodeValueAt(payload, h, start + i),
-                       describe(shape, vector, c) + ": decodeValueAt at " + i);
-        }
-
-        final VectorOperators.Comparison op1 = OPS[rng.nextInt(OPS.length)];
-        final VectorOperators.Comparison op2 = OPS[rng.nextInt(OPS.length)];
-        final long t1 = drawThreshold(values, rng);
-        final long t2 = drawThreshold(values, rng);
-
-        long want = 0;
-        for (final long v : expected) {
-          if (eval(v, op1, t1) && eval(v, op2, t2)) {
-            want++;
-          }
-        }
-        final long got = NumberRegionSimd.countMatchingRange(payload, h, start, end, op1, t1, op2, t2);
-        assertTrue(got >= 0, describe(shape, vector, c) + ": kernel declined a supported shape");
-        assertEquals(want, got,
-                     describe(shape, vector, c) + ": count " + op1 + " " + t1 + " AND " + op2 + " "
-                         + t2);
-
-        // Single-predicate entry point.
-        long wantOne = 0;
-        for (final long v : expected) {
-          if (eval(v, op1, t1)) {
-            wantOne++;
-          }
-        }
-        assertEquals(wantOne, NumberRegionSimd.countMatching(payload, h, start, end, op1, t1),
-                     describe(shape, vector, c) + ": single-predicate count " + op1 + " " + t1);
-
-        // Masked count, with an arbitrary liveness pattern.
-        final int len = expected.length;
-        final long[] live = new long[Math.max(1, (len + 63) >>> 6)];
-        long wantLive = 0;
-        for (int i = 0; i < len; i++) {
-          if (rng.nextBoolean()) {
-            live[i >>> 6] |= 1L << (i & 63);
-            if (eval(expected[i], op1, t1) && eval(expected[i], op2, t2)) {
-              wantLive++;
-            }
-          }
-        }
-        assertEquals(wantLive,
-                     NumberRegionSimd.countMatchingRangeMasked(payload, h, start, end, op1, t1, op2,
-                                                               t2, live),
-                     describe(shape, vector, c) + ": masked count");
-
-        checkAggregates(shape, vector, c, payload, h, start, end, expected);
-        checkPerEncodingEntryPoints(shape, vector, c, payload, h, start, end, op1, t1, op2, t2,
-                                    live, want, wantLive);
-        checkSelection(shape, vector, c, payload, h, start, end, op1, t1, op2, t2, expected);
+      checkAggregates(shape, vector, c, payload, h, start, end, expected);
+      checkPerEncodingEntryPoints(shape, vector, c, payload, h, start, end, op1, t1, op2, t2, live, want, wantLive);
+      checkSelection(shape, vector, c, payload, h, start, end, op1, t1, op2, t2, expected);
     }
   }
 
   /** Sum, min and max over one tag, against the ground truth. */
-  private static void checkAggregates(final Shape shape, final boolean vector, final int c,
-      final MemorySegment payload, final NumberRegion.Header h, final int start, final int end,
-      final long[] expected) {
+  private static void checkAggregates(final Shape shape, final boolean vector, final int c, final MemorySegment payload,
+      final NumberRegion.Header h, final int start, final int end, final long[] expected) {
     final long[] out = new long[3];
     assertTrue(NumberRegionSimd.aggregateRange(payload, h, start, end, out),
-               describe(shape, vector, c) + ": aggregate declined");
+        describe(shape, vector, c) + ": aggregate declined");
     long sum = 0;
     long min = Long.MAX_VALUE;
     long max = Long.MIN_VALUE;
@@ -304,47 +306,61 @@ final class ColumnKernelFuzzTest {
    * dispatcher, so a defect confined to one of them is invisible to every other assertion here —
    * which is exactly how a NE paired with a range operator came to silently discard the range.
    */
-  private static void checkPerEncodingEntryPoints(final Shape shape, final boolean vector,
-      final int c, final MemorySegment payload, final NumberRegion.Header h, final int start,
-      final int end, final VectorOperators.Comparison op1, final long t1,
-      final VectorOperators.Comparison op2, final long t2, final long[] live, final long want,
-      final long wantLive) {
+  private static void checkPerEncodingEntryPoints(final Shape shape, final boolean vector, final int c,
+      final MemorySegment payload, final NumberRegion.Header h, final int start, final int end,
+      final VectorOperators.Comparison op1, final long t1, final VectorOperators.Comparison op2, final long t2,
+      final long[] live, final long want, final long wantLive) {
+    if (h.isPerTag()) {
+      // A per-tag payload has no page-wide frame at all: each tag's values are packed at its own
+      // width in its own byte-aligned run, so the direct entry points are called with THAT frame
+      // and tag-relative indices. Reaching for h.valueBytesOffset here is exactly the mistake the
+      // sentinel makes loud, and this branch is the one that proves the per-tag frame is right.
+      final int tag = NumberRegion.tagOfIndex(h, start);
+      final int width = h.tagWidth[tag] & 0xFF;
+      final int from = start - h.tagStart[tag];
+      final int to = end - h.tagStart[tag];
+      if (width >= 1 && width <= BitUnpackSimd.MAX_BIT_WIDTH) {
+        assertEquals(want, NumberRegionSimd.countBitPackedRange(payload, h.tagValueOffset[tag], h.tagDecodeBase[tag],
+            width, from, to, op1, t1, op2, t2), describe(shape, vector, c) + ": per-tag countBitPackedRange");
+        assertEquals(
+            wantLive, NumberRegionSimd.countBitPackedRangeMasked(payload, h.tagValueOffset[tag], h.tagDecodeBase[tag],
+                width, from, to, op1, t1, op2, t2, live),
+            describe(shape, vector, c) + ": per-tag countBitPackedRangeMasked");
+      } else if (width == 64) {
+        assertEquals(want,
+            NumberRegionSimd.countPlainLongRange(payload, h.tagValueOffset[tag], from, to, op1, t1, op2, t2),
+            describe(shape, vector, c) + ": per-tag countPlainLongRange");
+        assertEquals(wantLive, NumberRegionSimd.countPlainLongRangeMasked(payload, h.tagValueOffset[tag], from, to, op1,
+            t1, op2, t2, live), describe(shape, vector, c) + ": per-tag countPlainLongRangeMasked");
+      }
+      return;
+    }
     if (NumberRegion.isBitPacked(h.encodingKind)) {
       assertEquals(want,
-                   NumberRegionSimd.countBitPackedRange(payload, h.valueBytesOffset,
-                                                        h.valueBase, h.valueBitWidth, start,
-                                                        end, op1, t1, op2, t2),
-                   describe(shape, vector, c) + ": countBitPackedRange " + op1 + " " + t1
-                       + " AND " + op2 + " " + t2);
-      assertEquals(wantLive,
-                   NumberRegionSimd.countBitPackedRangeMasked(payload, h.valueBytesOffset,
-                                                              h.valueBase, h.valueBitWidth,
-                                                              start, end, op1, t1, op2, t2,
-                                                              live),
-                   describe(shape, vector, c) + ": countBitPackedRangeMasked");
+          NumberRegionSimd.countBitPackedRange(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth, start, end,
+              op1, t1, op2, t2),
+          describe(shape, vector, c) + ": countBitPackedRange " + op1 + " " + t1 + " AND " + op2 + " " + t2);
+      assertEquals(
+          wantLive, NumberRegionSimd.countBitPackedRangeMasked(payload, h.valueBytesOffset, h.valueBase,
+              h.valueBitWidth, start, end, op1, t1, op2, t2, live),
+          describe(shape, vector, c) + ": countBitPackedRangeMasked");
     } else if (!NumberRegion.isDelta(h.encodingKind)) {
       assertEquals(want,
-                   NumberRegionSimd.countPlainLongRange(payload, h.valueBytesOffset, start, end,
-                                                        op1, t1, op2, t2),
-                   describe(shape, vector, c) + ": countPlainLongRange " + op1 + " " + t1
-                       + " AND " + op2 + " " + t2);
+          NumberRegionSimd.countPlainLongRange(payload, h.valueBytesOffset, start, end, op1, t1, op2, t2),
+          describe(shape, vector, c) + ": countPlainLongRange " + op1 + " " + t1 + " AND " + op2 + " " + t2);
       assertEquals(wantLive,
-                   NumberRegionSimd.countPlainLongRangeMasked(payload, h.valueBytesOffset,
-                                                              start, end, op1, t1, op2, t2,
-                                                              live),
-                   describe(shape, vector, c) + ": countPlainLongRangeMasked");
+          NumberRegionSimd.countPlainLongRangeMasked(payload, h.valueBytesOffset, start, end, op1, t1, op2, t2, live),
+          describe(shape, vector, c) + ": countPlainLongRangeMasked");
     }
   }
 
   /** The selection vector, where the kernel serves it: same rows, same order. */
-  private static void checkSelection(final Shape shape, final boolean vector, final int c,
-      final MemorySegment payload, final NumberRegion.Header h, final int start, final int end,
-      final VectorOperators.Comparison op1, final long t1, final VectorOperators.Comparison op2,
-      final long t2, final long[] expected) {
+  private static void checkSelection(final Shape shape, final boolean vector, final int c, final MemorySegment payload,
+      final NumberRegion.Header h, final int start, final int end, final VectorOperators.Comparison op1, final long t1,
+      final VectorOperators.Comparison op2, final long t2, final long[] expected) {
     final int len = expected.length;
     final int[] selection = new int[Math.max(1, len)];
-    final int produced =
-        NumberRegionSimd.selectMatching(payload, h, start, end, op1, t1, op2, t2, selection);
+    final int produced = NumberRegionSimd.selectMatching(payload, h, start, end, op1, t1, op2, t2, selection);
     if (produced < 0) {
       return;
     }
@@ -362,7 +378,9 @@ final class ColumnKernelFuzzTest {
   }
 
   private static String describe(final Shape shape, final boolean vector, final int caseIndex) {
-    return shape + (vector ? "/vector" : "/scalar") + " case " + caseIndex;
+    return shape + (vector
+        ? "/vector"
+        : "/scalar") + " case " + caseIndex;
   }
 
   // ─────────────────────────────────────────────────────── delta codec round trip
@@ -379,17 +397,22 @@ final class ColumnKernelFuzzTest {
         // second difference directly.
         values[0] = rng.nextInt(1000);
         values[1] = values[0] + rng.nextInt(1000);
-        final long magnitude = width == 0 ? 0L : (1L << (Math.max(1, width) - 1)) / 2;
+        final long magnitude = width == 0
+            ? 0L
+            : (1L << (Math.max(1, width) - 1)) / 2;
         long delta = values[1] - values[0];
         for (int i = 2; i < n; i++) {
-          final long dd = magnitude == 0 ? 0L : (rng.nextBoolean() ? magnitude : -magnitude);
+          final long dd = magnitude == 0
+              ? 0L
+              : (rng.nextBoolean()
+                  ? magnitude
+                  : -magnitude);
           delta += dd;
           values[i] = values[i - 1] + delta;
         }
 
         final long size = NumberRegionDelta.maxEncodedSize(values, n);
-        final MemorySegment target =
-            Arena.ofAuto().allocate(size + 64, 8).asSlice(0, size);
+        final MemorySegment target = Arena.ofAuto().allocate(size + 64, 8).asSlice(0, size);
         NumberRegionDelta.writeDelta(target, 0L, values, n);
         final NumberRegionDelta.Header h = new NumberRegionDelta.Header();
         NumberRegionDelta.readHeader(target, 0L, h);
@@ -403,12 +426,10 @@ final class ColumnKernelFuzzTest {
         if (h.bitWidth >= 1) {
           final long mask = BitUnpackSimd.maskFor(h.bitWidth);
           for (int i = 0; i < n - 2; i++) {
-            final long viaKernel =
-                BitUnpackSimd.decodeAt(target, h.bodyOffset, h.bitWidth, mask, i);
+            final long viaKernel = BitUnpackSimd.decodeAt(target, h.bodyOffset, h.bitWidth, mask, i);
             final long viaReference = referenceUnpack(target, h.bodyOffset, h.bitWidth, i);
             assertEquals(viaReference, viaKernel,
-                         "BitUnpackSimd.decodeAt disagrees with a bit-by-bit read at width "
-                             + h.bitWidth + " index " + i);
+                "BitUnpackSimd.decodeAt disagrees with a bit-by-bit read at width " + h.bitWidth + " index " + i);
           }
         }
       }
@@ -416,8 +437,8 @@ final class ColumnKernelFuzzTest {
   }
 
   /** Bit-by-bit reference read, sharing nothing with any unpacker. */
-  private static long referenceUnpack(final MemorySegment seg, final long byteOffset,
-      final int width, final int index) {
+  private static long referenceUnpack(final MemorySegment seg, final long byteOffset, final int width,
+      final int index) {
     long value = 0;
     final long startBit = (long) index * width;
     for (int b = 0; b < width; b++) {
@@ -437,8 +458,12 @@ final class ColumnKernelFuzzTest {
   @DisplayName("dict-id equality, set membership and histogram agree with a hand-written loop")
   void stringKernelsAgreeWithGroundTruth() {
     for (final boolean vector : new boolean[] {true, false}) {
-      BitUnpackSimd.setWarmupRemainingForTesting(vector ? 0 : Integer.MAX_VALUE);
-      final Random rng = new Random(vector ? 99 : 100);
+      BitUnpackSimd.setWarmupRemainingForTesting(vector
+          ? 0
+          : Integer.MAX_VALUE);
+      final Random rng = new Random(vector
+          ? 99
+          : 100);
       for (int c = 0; c < CASES; c++) {
         final int width = 1 + rng.nextInt(20);
         // Deliberately allow ids beyond a 64-entry set word: a width wider than the dictionary
@@ -460,9 +485,8 @@ final class ColumnKernelFuzzTest {
   }
 
   /** Equality, set membership, masked equality and histogram over one packed dict-id column. */
-  private static void checkStringKernels(final MemorySegment seg, final int[] ids, final int n,
-      final int width, final int idBound, final int dictSize, final int c, final boolean vector,
-      final Random rng) {
+  private static void checkStringKernels(final MemorySegment seg, final int[] ids, final int n, final int width,
+      final int idBound, final int dictSize, final int c, final boolean vector, final Random rng) {
     final int target = rng.nextInt(idBound);
     long want = 0;
     for (final int id : ids) {
@@ -471,7 +495,9 @@ final class ColumnKernelFuzzTest {
       }
     }
     assertEquals(want, StringRegionSimd.countDictId(seg, 0, width, 0, n, target),
-                 "countDictId width=" + width + " case " + c + (vector ? " vector" : " scalar"));
+        "countDictId width=" + width + " case " + c + (vector
+            ? " vector"
+            : " scalar"));
 
     // Set membership over a bitmap sized to the dictionary.
     final long[] idSet = new long[(dictSize + 63) >>> 6];
@@ -487,7 +513,7 @@ final class ColumnKernelFuzzTest {
       }
     }
     assertEquals(wantSet, StringRegionSimd.countDictIdSet(seg, 0, width, 0, n, idSet, dictSize),
-                 "countDictIdSet width=" + width + " dictSize=" + dictSize + " case " + c);
+        "countDictIdSet width=" + width + " dictSize=" + dictSize + " case " + c);
 
     // Masked equality.
     final long[] live = new long[Math.max(1, (n + 63) >>> 6)];
@@ -501,12 +527,11 @@ final class ColumnKernelFuzzTest {
       }
     }
     assertEquals(wantMasked, StringRegionSimd.countDictIdMasked(seg, 0, width, 0, n, target, live),
-                 "countDictIdMasked width=" + width + " case " + c);
+        "countDictIdMasked width=" + width + " case " + c);
 
     // Histogram.
     final long[] counts = new long[idBound];
-    assertTrue(StringRegionSimd.histogramDictIds(seg, 0, width, 0, n, counts),
-               "histogram declined width=" + width);
+    assertTrue(StringRegionSimd.histogramDictIds(seg, 0, width, 0, n, counts), "histogram declined width=" + width);
     final long[] wantCounts = new long[idBound];
     for (final int id : ids) {
       wantCounts[id]++;
@@ -553,7 +578,7 @@ final class ColumnKernelFuzzTest {
         }
       }
       assertEquals(want, BooleanRegion.countTrue(payload, h, start, len),
-                   "countTrue start=" + start + " n=" + len + " case " + c);
+          "countTrue start=" + start + " n=" + len + " case " + c);
 
       final long[] live = new long[Math.max(1, (len + 63) >>> 6)];
       int wantMasked = 0;
@@ -566,7 +591,7 @@ final class ColumnKernelFuzzTest {
         }
       }
       assertEquals(wantMasked, BooleanRegion.countTrueMasked(payload, h, start, len, live),
-                   "countTrueMasked start=" + start + " n=" + len + " case " + c);
+          "countTrueMasked start=" + start + " n=" + len + " case " + c);
 
       final long[] target = live.clone();
       final long remaining = BooleanRegion.andInto(payload, h, start, len, target, false);

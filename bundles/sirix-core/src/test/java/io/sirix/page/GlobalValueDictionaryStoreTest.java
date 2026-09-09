@@ -23,6 +23,7 @@ import io.sirix.node.ValueDictionaryEntryNode;
 import io.sirix.node.ValueDictionaryHashBucketNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.node.ValueDictionaryRadixNode;
+import io.sirix.node.ValueDictionaryValueBlockNode;
 import io.sirix.node.ValueDictionaryValueBucketNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -151,6 +152,40 @@ public final class GlobalValueDictionaryStoreTest {
           assertEquals(i + 1, GlobalValueDictionary.probe(header, utf8(value(i)), reader),
               "forward probe returned the wrong id for " + value(i));
         }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("a read view compares and transforms entry bytes without materializing rows")
+  void readViewComparesAndTransformsEntryBytes() {
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+      final long headerKey;
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        seed(wtx);
+        final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
+        intern(dictionary, "2013-07-14T20:38:47");
+        // First-seen ids deliberately disagree with UTF-16 order. U+10400's high surrogate sorts
+        // before U+FF01 even though unsigned UTF-8/scalar order puts U+10400 after it.
+        intern(dictionary, "\uFF01");
+        intern(dictionary, "\uD801\uDC00");
+        intern(dictionary, "92233720368547758070");
+        headerKey = flush(wtx, dictionary);
+        wtx.commit();
+      }
+      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final GlobalValueDictionary.ReadView view =
+            GlobalValueDictionary.readView(headerKey, rtx.getStorageEngineReader());
+        assertNotNull(view);
+        assertEquals(38L, view.xsIntegerOfSubstring(1, 15, 2));
+        assertEquals(201307142038L + 1L, view.packIsoMinuteSubstring(1, 1, 16));
+        assertEquals("2013-07-14T20:38", view.materializeIsoMinuteSubstring(1, 1, 16));
+        assertTrue(view.compareIds(3, 2) < 0, "comparison must follow UTF-16, not first-seen or UTF-8 order");
+        assertEquals(Integer.signum("\uD801\uDC00".compareTo("\uFF01")), Integer.signum(view.compareIds(3, 2)));
+        assertEquals(Long.MIN_VALUE, view.xsIntegerOfSubstring(2, 1, 1), "a non-ASCII cast transform must fail closed");
+        assertEquals(Long.MIN_VALUE, view.xsIntegerOfSubstring(4, 1, 20),
+            "an out-of-range integer must decline instead of wrapping");
       }
     }
   }
@@ -647,10 +682,14 @@ public final class GlobalValueDictionaryStoreTest {
       collectReachableRecords(collision.getLeftKey(), namePage, reader, visited);
       collectReachableRecords(collision.getRightKey(), namePage, reader, visited);
     } else if (record instanceof ValueDictionaryValueBucketNode values) {
-      for (final long entryKey : values.getEntryKeys()) {
-        collectReachableRecords(entryKey, namePage, reader, visited);
+      // Both lanes of the sparse directory: packed sub-blocks and individually spilled entries.
+      for (int i = 0; i < values.blockCount(); i++) {
+        collectReachableRecords(values.blockKey(i), namePage, reader, visited);
       }
-    } else if (!(record instanceof ValueDictionaryEntryNode)) {
+      for (int i = 0; i < values.spillCount(); i++) {
+        collectReachableRecords(values.spillKeyAt(i), namePage, reader, visited);
+      }
+    } else if (!(record instanceof ValueDictionaryEntryNode) && !(record instanceof ValueDictionaryValueBlockNode)) {
       throw new AssertionError("unexpected dictionary record " + record);
     }
   }
@@ -694,6 +733,17 @@ public final class GlobalValueDictionaryStoreTest {
       assertEquals("base", GlobalValueDictionary.value(headerKey, 1, revisionTwo.getStorageEngineReader()));
       assertEquals("added", GlobalValueDictionary.value(headerKey, 2, revisionTwo.getStorageEngineReader()));
       assertEquals(2, GlobalValueDictionary.probe(headerKey, utf8("added"), revisionTwo.getStorageEngineReader()));
+      final GlobalValueDictionary.ReadView revisionOneView =
+          GlobalValueDictionary.readView(headerKey, revisionOne.getStorageEngineReader());
+      final GlobalValueDictionary.ReadView revisionTwoView =
+          GlobalValueDictionary.readView(headerKey, revisionTwo.getStorageEngineReader());
+      assertNotNull(revisionOneView);
+      assertNotNull(revisionTwoView);
+      assertEquals(1, revisionOneView.entryCount());
+      assertEquals(2, revisionTwoView.entryCount());
+      assertThrows(IllegalStateException.class, () -> revisionOneView.compareIds(1, 2),
+          "a historical view must not resolve a later revision's id");
+      assertTrue(revisionTwoView.compareIds(1, 2) > 0);
     }
   }
 

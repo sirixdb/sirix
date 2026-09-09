@@ -1,61 +1,32 @@
 package io.sirix.index.name;
 
 import io.sirix.access.trx.node.IndexController;
-import io.sirix.index.SearchMode;
 import io.sirix.index.hot.HOTIndexWriter;
-import io.sirix.index.redblacktree.RBTreeReader;
-import io.sirix.index.redblacktree.RBTreeWriter;
-import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.brackit.query.atomic.QNm;
-import org.jspecify.annotations.Nullable;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 
-import java.util.Optional;
 import java.util.Set;
 
-/**
- * Listener for NAME index changes.
- * 
- * <p>
- * Supports both traditional RBTree and high-performance HOT index backends.
- * </p>
- */
+import static java.util.Objects.requireNonNull;
+
+/** Incremental listener for the canonical HOT-backed NAME index. */
 public final class NameIndexListener {
 
   private final Set<QNm> includes;
   private final Set<QNm> excludes;
-  private final @Nullable RBTreeWriter<QNm, NodeReferences> rbTreeWriter;
-  private final @Nullable HOTIndexWriter<QNm> hotWriter;
-  private final boolean useHOT;
+  private final HOTIndexWriter<QNm> hotWriter;
 
-  /**
-   * Constructor with RBTree writer (legacy path).
-   */
-  public NameIndexListener(final Set<QNm> includes, final Set<QNm> excludes,
-      final RBTreeWriter<QNm, NodeReferences> indexTreeWriter) {
-    this.includes = includes;
-    this.excludes = excludes;
-    this.rbTreeWriter = indexTreeWriter;
-    this.hotWriter = null;
-    this.useHOT = false;
-  }
-
-  /**
-   * Constructor with HOT writer (high-performance path).
-   */
   public NameIndexListener(final Set<QNm> includes, final Set<QNm> excludes, final HOTIndexWriter<QNm> hotWriter) {
-    this.includes = includes;
-    this.excludes = excludes;
-    this.rbTreeWriter = null;
-    this.hotWriter = hotWriter;
-    this.useHOT = true;
+    this.includes = requireNonNull(includes);
+    this.excludes = requireNonNull(excludes);
+    this.hotWriter = requireNonNull(hotWriter);
   }
 
-  public void listen(IndexController.ChangeType type, ImmutableNode node, QNm name) {
+  public void listen(final IndexController.ChangeType type, final ImmutableNode node, final QNm name) {
     listen(type, node.getNodeKey(), name);
   }
 
-  public void listen(IndexController.ChangeType type, long nodeKey, QNm name) {
+  public void listen(final IndexController.ChangeType type, final long nodeKey, final QNm name) {
     // Skip if name is null (can happen when node is loaded from disk without cached name)
     if (name == null) {
       return;
@@ -69,58 +40,10 @@ public final class NameIndexListener {
     }
 
     switch (type) {
-      case INSERT -> {
-        if (useHOT) {
-          handleInsertHOT(nodeKey, name);
-        } else {
-          handleInsertRBTree(nodeKey, name);
-        }
-      }
-      case DELETE -> {
-        if (useHOT) {
-          assert hotWriter != null;
-          hotWriter.remove(name, nodeKey);
-        } else {
-          assert rbTreeWriter != null;
-          rbTreeWriter.remove(name, nodeKey);
-        }
-      }
+      case INSERT -> hotWriter.indexNodeKey(name, nodeKey);
+      case DELETE -> hotWriter.remove(name, nodeKey);
       default -> {
       }
     }
-  }
-
-  private void handleInsertRBTree(long nodeKey, QNm name) {
-    assert rbTreeWriter != null;
-    final Optional<NodeReferences> textReferences = rbTreeWriter.get(name, SearchMode.EQUAL);
-    if (textReferences.isPresent()) {
-      // CLONE before mutating: get() returns the live record from the shared page cache/TIL, and
-      // addNodeKey mutates in place — without the copy, concurrent readers of the committed
-      // revision saw this uncommitted addition (snapshot-isolation leak). CASIndexListener clones.
-      setNodeReferencesRBTree(nodeKey, new NodeReferences(textReferences.get().getNodeKeys()), name);
-    } else {
-      setNodeReferencesRBTree(nodeKey, new NodeReferences(), name);
-    }
-  }
-
-  /**
-   * Add {@code nodeKey} to {@code name}'s posting list in the HOT backend.
-   *
-   * <p>
-   * A HOT slot write OR-merges the incoming bitmap into the stored one, so the references already
-   * recorded for {@code name} need neither be read back nor re-inserted — doing so cost one range
-   * scan plus one full trie descent per already-stored node key, making a bulk insert of k nodes
-   * sharing a name quadratic in k. (It also handed the live record straight to {@code addNodeKey},
-   * the in-place mutation the RBTree path above clones to avoid.)
-   * </p>
-   */
-  private void handleInsertHOT(long nodeKey, QNm name) {
-    assert hotWriter != null;
-    hotWriter.indexNodeKey(name, nodeKey);
-  }
-
-  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references, final QNm name) {
-    assert rbTreeWriter != null;
-    rbTreeWriter.index(name, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }
 }

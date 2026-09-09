@@ -1,5 +1,11 @@
 # HOT Fix Design (Stage F)
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Status:** Stage F deliverable. Per-operation preservation logic for the HOT
 strict-Binna conformance campaign. Sourced from Stage E's empirical data
 (`HOT_EMPIRICAL_FAILURE_TABLE.md`), not intuition.

@@ -139,6 +139,29 @@ test {
     // An explicit -Dsirix.hot.mergeDiag=false still wins, so the gated-off path stays testable.
     systemProperty 'sirix.hot.mergeDiag', System.getProperty('sirix.hot.mergeDiag', 'true')
 
+    // Same assert-and-provide contract for the page-section diagnostic: PageSectionDiagCountersTest
+    // asserts the gate is on, this line provides it. The gate is a static-final read at class init
+    // (it sits inside the page serializer's hot pre-scan and must fold away in production), so a test
+    // cannot switch it on for itself once PageKind has loaded. An explicit
+    // -Dsirix.pageSectionDiag=false still wins, so the gated-off path stays testable.
+    systemProperty 'sirix.pageSectionDiag', System.getProperty('sirix.pageSectionDiag', 'true')
+
+    // The per-tag string-region census is a SUB-gate of the line above, and it needs its own half of
+    // the same contract: StringRegionTagCensusTest asserts PageSectionDiag.STRING_TAG_DIAG is on
+    // before it compares a per-tag census against the region's encoded length. Both gates are
+    // static-final reads (the sub-gate also sizes the per-tag table, so "off" means no footprint at
+    // all), so the suite cannot switch this on for itself either. An explicit
+    // -Dsirix.pageSectionDiag.stringTags=false still wins, so the gated-off path stays testable.
+    systemProperty 'sirix.pageSectionDiag.stringTags', System.getProperty('sirix.pageSectionDiag.stringTags', 'true')
+
+    // Same assert-and-provide contract again, for the LZ77 dispatch counters:
+    // CompressedBlockDecodeTakesTheNativePathTest asserts that a decode reaches the C decoder rather
+    // than silently taking the 5.6x-slower Java one, and the ONLY way to observe which ran is these
+    // counters. They are a static-final read at class init inside the decoder's dispatch, so the test
+    // cannot switch them on for itself; without this line it SKIPS, and a guard that skips is a guard
+    // that is not guarding. An explicit -Dsirix.lz77Codec.diag.counters=false still wins.
+    systemProperty 'sirix.lz77Codec.diag.counters', System.getProperty('sirix.lz77Codec.diag.counters', 'true')
+
     // Add async-profiler if ASYNC_PROFILER env var is set
     // Usage: ASYNC_PROFILER=/path/to/async-profiler PROFILE_EVENT=cpu|alloc PROFILE_OUTPUT=/tmp/profile.txt ./gradlew test
     def profilerPath = System.getenv("ASYNC_PROFILER")
@@ -222,8 +245,6 @@ test {
      'sirix.rightSiblingKeyColumn.enable'].each { k -> systemProperty k, System.getProperty(k, "false") }
     // HOT trie flags still referenced in source — forward from Gradle CLI to test JVM.
     systemProperty "hot.strict.validate", System.getProperty("hot.strict.validate", "false")
-    systemProperty "hot.strict.phase7u.lexprimary", System.getProperty("hot.strict.phase7u.lexprimary", "false")
-    systemProperty "hot.strict.phase7u.lexfallback.disable", System.getProperty("hot.strict.phase7u.lexfallback.disable", "false")
     systemProperty "hot.bisect.i8", System.getProperty("hot.bisect.i8", "false")
     systemProperty "hot.bisect.from", System.getProperty("hot.bisect.from", "0")
     systemProperty "hot.bisect.to", System.getProperty("hot.bisect.to", "600")

@@ -49,12 +49,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * never produced the shape.
  *
  * <p>
- * <b>Why the writes are shuffled.</b> Ascending appends — the real build's order at the 1M/10M
- * tiers, and the shape {@code HOTBinnaConformanceTest} covers — never reach the incremental split:
- * they overflow leaves through the trie writer's own instrumented split variants. The strand
- * discharge that routes into {@code splitLeafPage} needs a key branching off ABOVE the leaf it
- * descended to, which an out-of-order arrival produces in quantity (73 ref-carrying splits at this
- * scale; zero when the same keys are written in order).
+ * <b>Why the writes are shuffled.</b> Every production projection write uses the shared incremental
+ * driver. Ascending appends — the real build's order at the 1M/10M tiers, and the shape
+ * {@code HOTBinnaConformanceTest} covers — primarily exercise its merge-side leaf split. The strand
+ * discharge family needs a key branching off ABOVE the leaf it descended to, which an out-of-order
+ * arrival produces in quantity and therefore keeps this distinct side-reference routing shape
+ * covered.
  */
 @DisplayName("Projection segment references — incremental leaf split")
 final class ProjectionSegmentRefSplitTest {
@@ -92,12 +92,9 @@ final class ProjectionSegmentRefSplitTest {
   @Timeout(value = 600, unit = TimeUnit.SECONDS)
   void segmentsSurviveIncrementalLeafSplits() throws IOException {
     final long carriesBefore = HOTIncrementalInsert.SPLIT_SEGMENT_REF_CARRIES.get();
-    final long frontierSplicesBefore = AbstractHOTIndexWriter.DIRECTION_ONE_LEAF_FRONTIER_SPLICE.get();
-    final long multiLeafFrontierSplicesBefore = AbstractHOTIndexWriter.DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE.get();
-    final long fullHalfSubinsertsBefore = AbstractHOTIndexWriter.FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT.get();
     final long directionOneFallbacksBefore = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get();
-    final long projectionRebuildAttemptsBefore = AbstractHOTIndexWriter.PROJECTION_REBUILD_SUBTREE_ATTEMPTED.get();
-    final long subtreeRebuildsBefore = AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get();
+    final long validationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get();
+    final long propagationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
     final List<Long> order = new ArrayList<>(ROW_GROUPS);
     for (long rg = 1; rg <= ROW_GROUPS; rg++) {
       order.add(rg);
@@ -122,20 +119,13 @@ final class ProjectionSegmentRefSplitTest {
       final long carries = HOTIncrementalInsert.SPLIT_SEGMENT_REF_CARRIES.get() - carriesBefore;
       assertTrue(carries > 0, "the build did not reach the incremental split with references pending — the "
           + "test no longer covers the path it exists for (carries=" + carries + ")");
-      assertTrue(AbstractHOTIndexWriter.DIRECTION_ONE_LEAF_FRONTIER_SPLICE.get() - frontierSplicesBefore > 0,
-          "the build no longer covers the I8/I12-safe direct-leaf-frontier Direction-1 splice");
-      assertTrue(
-          AbstractHOTIndexWriter.DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE.get() - multiLeafFrontierSplicesBefore > 0,
-          "the build no longer covers a non-sibling adjacent pair expanded to its complete leaf frontier");
-      assertTrue(AbstractHOTIndexWriter.FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT.get() - fullHalfSubinsertsBefore > 0,
-          "the build no longer covers Direction 1 inside a freshly split full-node half");
       assertEquals(0L, AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get() - directionOneFallbacksBefore,
           "projection insertion must not abandon a Direction-1 shape to subtree reconstruction");
+      assertEquals(0L, AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get() - validationFailuresBefore,
+          "projection insertion published a malformed structural candidate");
       assertEquals(0L,
-          AbstractHOTIndexWriter.PROJECTION_REBUILD_SUBTREE_ATTEMPTED.get() - projectionRebuildAttemptsBefore,
-          "projection insertion attempted a forbidden subtree rebuild");
-      assertEquals(0L, AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get() - subtreeRebuildsBefore,
-          "projection insertion performed a subtree rebuild");
+          AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get() - propagationFailuresBefore,
+          "projection insertion escaped its pre-publication propagation proof");
 
       try (JsonNodeTrx probe = session.beginNodeTrx()) {
         final StorageEngineReader reader = probe.getStorageEngineReader();

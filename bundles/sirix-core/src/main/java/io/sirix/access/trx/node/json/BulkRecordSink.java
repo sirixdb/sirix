@@ -45,8 +45,26 @@ interface BulkRecordSink {
 
   long createNumberNode(long parentKey, long leftSibKey, long rightSibKey, Number value, long notifyPcr);
 
+  default long createNumberNode(long parentKey, long leftSibKey, long rightSibKey, int value, long notifyPcr) {
+    return createNumberNode(parentKey, leftSibKey, rightSibKey, Integer.valueOf(value), notifyPcr);
+  }
+
+  default long createNumberNode(long parentKey, long leftSibKey, long rightSibKey, long value, long notifyPcr) {
+    return createNumberNode(parentKey, leftSibKey, rightSibKey, Long.valueOf(value), notifyPcr);
+  }
+
   long createObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey, String name,
       Number value);
+
+  default long createObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
+      String name, int value) {
+    return createObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, Integer.valueOf(value));
+  }
+
+  default long createObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
+      String name, long value) {
+    return createObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, Long.valueOf(value));
+  }
 
   long createBooleanNode(long parentKey, long leftSibKey, long rightSibKey, boolean value, long notifyPcr);
 

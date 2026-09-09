@@ -24,18 +24,17 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * End-to-end round trip tests for {@link PageKind#KEYVALUELEAFPAGE}'s wire
- * format. Verifies that pages reach disk in the structural-encoder format
- * (offset-table dedup) and deserialize back bit-identically, even when
- * records have no offset-table structure (slab bytes) — in which case the
- * dedup aborts and the writer gracefully falls back to the inline heap
- * emission (gated by a zero-templateCount byte).
+ * End-to-end round trip tests for {@link PageKind#KEYVALUELEAFPAGE}'s wire format. Verifies that
+ * pages reach disk in the structural-encoder format (offset-table dedup) and deserialize back
+ * bit-identically, even when records have no offset-table structure (slab bytes) — in which case
+ * the dedup aborts and the writer gracefully falls back to the inline heap emission (gated by a
+ * zero-templateCount byte).
  *
- * <p>Comprehensive structural tests (records with real offset tables from
- * {@code ObjectKeyNode.writeNewRecord}) live in
- * {@link OffsetTableTemplatePoolTest} — those hit the build/expand code
- * paths directly on a synthetic slotted-page memory without going through
- * the full node-type machinery.
+ * <p>
+ * Comprehensive structural tests (records with real offset tables from
+ * {@code ObjectKeyNode.writeNewRecord}) live in {@link OffsetTableTemplatePoolTest} — those hit the
+ * build/expand code paths directly on a synthetic slotted-page memory without going through the
+ * full node-type machinery.
  */
 @DisplayName("Slotted page encoding round trip")
 final class SlottedPageEncodingSerializationTest {
@@ -61,14 +60,15 @@ final class SlottedPageEncodingSerializationTest {
 
       final BytesIn<?> source = sink.bytesForRead();
       source.readByte(); // skip pageKind id
-      deserialized = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE
-          .deserializePage(config, source, SerializationType.DATA);
+      deserialized =
+          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, SerializationType.DATA);
 
       assertEquals(orig.getPageKey(), deserialized.getPageKey());
       assertEquals(orig.getRevision(), deserialized.getRevision());
     } finally {
       orig.close();
-      if (deserialized != null) deserialized.close();
+      if (deserialized != null)
+        deserialized.close();
     }
   }
 
@@ -80,24 +80,55 @@ final class SlottedPageEncodingSerializationTest {
         new LinkedHashMap<>(), allocator.allocate(1000), null, -1);
     KeyValueLeafPage deserialized = null;
     try {
-      orig.setSlot(new byte[] { 1, 2, 3 }, 1);
-      orig.setSlot(new byte[] { 4, 5, 6 }, 10);
-      orig.setSlot(new byte[] { 7, 8, 9 }, 100);
+      orig.setSlot(new byte[] {1, 2, 3}, 1);
+      orig.setSlot(new byte[] {4, 5, 6}, 10);
+      orig.setSlot(new byte[] {7, 8, 9}, 100);
 
       final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
       PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, orig, SerializationType.DATA);
 
       final BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserialized = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE
-          .deserializePage(config, source, SerializationType.DATA);
+      deserialized =
+          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, SerializationType.DATA);
 
       assertArrayEquals(orig.getSlotAsByteArray(1), deserialized.getSlotAsByteArray(1));
       assertArrayEquals(orig.getSlotAsByteArray(10), deserialized.getSlotAsByteArray(10));
       assertArrayEquals(orig.getSlotAsByteArray(100), deserialized.getSlotAsByteArray(100));
     } finally {
       orig.close();
-      if (deserialized != null) deserialized.close();
+      if (deserialized != null)
+        deserialized.close();
+    }
+  }
+
+  @Test
+  @DisplayName("a cap-sized inline fallback record survives the compact-directory sign bit")
+  void maximumInlineRecordRoundTrips() {
+    final ResourceConfiguration config = newConfig();
+    final KeyValueLeafPage orig = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
+        new LinkedHashMap<>(), allocator.allocate(1), null, -1);
+    KeyValueLeafPage deserialized = null;
+    try {
+      final byte[] record = new byte[PageConstants.MAX_RECORD_SIZE];
+      for (int i = 0; i < record.length; i++) {
+        record[i] = (byte) i;
+      }
+      orig.setSlot(record, 511);
+
+      final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+      PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, orig, SerializationType.DATA);
+      final BytesIn<?> source = sink.bytesForRead();
+      source.readByte();
+      deserialized =
+          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, SerializationType.DATA);
+
+      assertArrayEquals(record, deserialized.getSlotAsByteArray(511));
+    } finally {
+      orig.close();
+      if (deserialized != null) {
+        deserialized.close();
+      }
     }
   }
 
@@ -124,16 +155,16 @@ final class SlottedPageEncodingSerializationTest {
       PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, orig, SerializationType.DATA);
       final BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserialized = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE
-          .deserializePage(config, source, SerializationType.DATA);
+      deserialized =
+          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, SerializationType.DATA);
 
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-        assertArrayEquals(expected[i], deserialized.getSlotAsByteArray(i),
-            "slot " + i + " mismatch");
+        assertArrayEquals(expected[i], deserialized.getSlotAsByteArray(i), "slot " + i + " mismatch");
       }
     } finally {
       orig.close();
-      if (deserialized != null) deserialized.close();
+      if (deserialized != null)
+        deserialized.close();
     }
   }
 

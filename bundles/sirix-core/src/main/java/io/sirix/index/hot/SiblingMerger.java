@@ -67,13 +67,13 @@ import org.jspecify.annotations.Nullable;
  * @author Johannes Lichtenberger
  * @see NodeUpgradeManager
  */
-public final class SiblingMerger {
+final class SiblingMerger {
 
   /** Minimum fill factor before considering merge (25%). */
-  public static final double MIN_FILL_FACTOR = 0.25;
+  static final double MIN_FILL_FACTOR = 0.25;
 
   /** Maximum entries per node (from reference implementation). */
-  public static final int MAX_ENTRIES_PER_NODE = 32;
+  static final int MAX_ENTRIES_PER_NODE = 32;
 
   /** Private constructor to prevent instantiation. */
   private SiblingMerger() {
@@ -87,13 +87,13 @@ public final class SiblingMerger {
    * @param success true if merge was successful
    * @param replacesLeft true if merged node should replace left, false for right
    */
-  public record MergeResult(@Nullable HOTIndirectPage mergedNode, boolean success, boolean replacesLeft) {
+  record MergeResult(@Nullable HOTIndirectPage mergedNode, boolean success, boolean replacesLeft) {
 
-    public static MergeResult failure() {
+    static MergeResult failure() {
       return new MergeResult(null, false, false);
     }
 
-    public static MergeResult success(HOTIndirectPage mergedNode, boolean replacesLeft) {
+    static MergeResult success(HOTIndirectPage mergedNode, boolean replacesLeft) {
       return new MergeResult(mergedNode, true, replacesLeft);
     }
   }
@@ -110,7 +110,7 @@ public final class SiblingMerger {
    * @param node the node to check
    * @return true if the node is a candidate for merging
    */
-  public static boolean shouldMerge(HOTIndirectPage node) {
+  static boolean shouldMerge(HOTIndirectPage node) {
     int maxChildren = NodeUpgradeManager.getMaxChildrenForType(node.getNodeType());
     return node.getNumChildren() < maxChildren * MIN_FILL_FACTOR;
   }
@@ -122,7 +122,7 @@ public final class SiblingMerger {
    * @param right the right sibling
    * @return true if the nodes can be merged
    */
-  public static boolean canMerge(HOTIndirectPage left, HOTIndirectPage right) {
+  static boolean canMerge(HOTIndirectPage left, HOTIndirectPage right) {
     // Must be at the same height
     if (left.getHeight() != right.getHeight()) {
       return false;
@@ -146,8 +146,7 @@ public final class SiblingMerger {
    * @param revision current revision
    * @return the merge result
    */
-  public static MergeResult mergeSiblings(HOTIndirectPage left, HOTIndirectPage right,
-      long newPageKey, int revision) {
+  static MergeResult mergeSiblings(HOTIndirectPage left, HOTIndirectPage right, long newPageKey, int revision) {
 
     if (!canMerge(left, right)) {
       return MergeResult.failure();
@@ -209,8 +208,7 @@ public final class SiblingMerger {
    * @param targetPage the page to receive merged entries
    * @return true if merge was successful
    */
-  public static boolean mergeLeafPages(HOTLeafPage left, HOTLeafPage right,
-      HOTLeafPage targetPage) {
+  static boolean mergeLeafPages(HOTLeafPage left, HOTLeafPage right, HOTLeafPage targetPage) {
 
     // Check if combined entries fit
     int totalEntries = left.getEntryCount() + right.getEntryCount();
@@ -252,8 +250,8 @@ public final class SiblingMerger {
    * @param revision current revision
    * @return the merge result, or failure if no merge occurred
    */
-  public static MergeResult handleDeletionWithMerge(HOTIndirectPage node, @Nullable HOTIndirectPage sibling,
-      long newPageKey, int revision) {
+  static MergeResult handleDeletionWithMerge(HOTIndirectPage node, @Nullable HOTIndirectPage sibling, long newPageKey,
+      int revision) {
 
     // Check if merge is warranted
     if (!shouldMerge(node)) {
@@ -290,7 +288,7 @@ public final class SiblingMerger {
    * @param biNode the BiNode to check
    * @return true if the BiNode can be collapsed
    */
-  public static boolean canCollapseBiNode(HOTIndirectPage biNode) {
+  static boolean canCollapseBiNode(HOTIndirectPage biNode) {
     return biNode.getNumChildren() == 1;
   }
 
@@ -301,7 +299,7 @@ public final class SiblingMerger {
    * @return reference to the remaining child
    * @throws IllegalStateException if the BiNode cannot be collapsed
    */
-  public static PageReference getCollapsedChild(HOTIndirectPage biNode) {
+  static PageReference getCollapsedChild(HOTIndirectPage biNode) {
     if (!canCollapseBiNode(biNode)) {
       throw new IllegalStateException("BiNode cannot be collapsed: has " + biNode.getNumChildren() + " children");
     }
@@ -314,9 +312,8 @@ public final class SiblingMerger {
    * @param node the node to check
    * @return fill factor (0.0 - 1.0)
    */
-  public static double getFillFactor(HOTIndirectPage node) {
+  static double getFillFactor(HOTIndirectPage node) {
     int maxChildren = NodeUpgradeManager.getMaxChildrenForType(node.getNodeType());
     return (double) node.getNumChildren() / maxChildren;
   }
 }
-

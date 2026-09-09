@@ -40,8 +40,8 @@ public final class Indexes implements Materializable {
   private final Set<IndexDef> indexes;
 
   /**
-   * Tracks whether index definitions have been mutated since last serialization.
-   * Used to skip redundant index XML writes during intermediate auto-commits.
+   * Tracks whether index definitions have been mutated since last serialization. Used to skip
+   * redundant index XML writes during intermediate auto-commits.
    */
   private volatile boolean dirty;
 
@@ -82,6 +82,11 @@ public final class Indexes implements Materializable {
       throw new DocumentException("Expected tag '%s' but found '%s'", INDEXES_TAG, name);
     }
 
+    // A controller is cached by prospective write revision and can therefore be reused after a
+    // rollback. Parse into a detached set first, then replace the cache entry's catalogue in one
+    // cold-path publication. Additive initialization would retain definitions created only in the
+    // aborted transaction and rebind listeners for index trees that were rolled back.
+    final Set<IndexDef> restoredIndexes = new HashSet<>();
     try (Stream<? extends Node<?>> children = root.getChildren()) {
       Node<?> child;
       while ((child = children.next()) != null) {
@@ -98,11 +103,19 @@ public final class Indexes implements Materializable {
         final IndexDef indexDefinition =
             new IndexDef(dbType.orElseThrow(() -> new DocumentException("DB type not found.")));
         indexDefinition.init(child);
-        indexes.add(indexDefinition);
+        restoredIndexes.add(indexDefinition);
       }
     }
 
+    indexes.clear();
+    indexes.addAll(restoredIndexes);
     // Loading from disk is not a mutation — clear dirty flag.
+    dirty = false;
+  }
+
+  /** Reset a cached controller to the persisted empty-catalogue state. */
+  public void reset() {
+    indexes.clear();
     dirty = false;
   }
 
@@ -141,22 +154,26 @@ public final class Indexes implements Materializable {
    * Adds an index definition. Thread-safe: CopyOnWriteArraySet handles concurrent modifications.
    */
   public void add(IndexDef indexDefinition) {
-    dirty = true;
-    indexes.add(indexDefinition);
+    if (indexes.add(indexDefinition)) {
+      dirty = true;
+    }
   }
 
   /**
    * Removes an index definition by ID. Thread-safe: CopyOnWriteArraySet handles concurrent
    * modifications.
    *
-   * <p><b>Note:</b> index IDs are only unique WITHIN a type (each {@code create-*-index} numbers its
-   * own type from 0), so this removes EVERY definition with the given id across ALL types. To drop a
-   * specific index, prefer {@link #removeIndex(IndexDef)} which matches on (id, type).</p>
+   * <p>
+   * <b>Note:</b> index IDs are only unique WITHIN a type (each {@code create-*-index} numbers its own
+   * type from 0), so this removes EVERY definition with the given id across ALL types. To drop a
+   * specific index, prefer {@link #removeIndex(IndexDef)} which matches on (id, type).
+   * </p>
    */
   public void removeIndex(final int indexID) {
     checkArgument(indexID >= 0, "indexID must be >= 0!");
-    dirty = true;
-    indexes.removeIf(indexDef -> indexDef.getID() == indexID);
+    if (indexes.removeIf(indexDef -> indexDef.getID() == indexID)) {
+      dirty = true;
+    }
   }
 
   /**
@@ -166,8 +183,9 @@ public final class Indexes implements Materializable {
    */
   public void removeIndex(final IndexDef indexDef) {
     requireNonNull(indexDef);
-    dirty = true;
-    indexes.remove(indexDef);
+    if (indexes.remove(indexDef)) {
+      dirty = true;
+    }
   }
 
   public Optional<IndexDef> findPathIndex(final Path<QNm> path) throws DocumentException {
@@ -234,20 +252,18 @@ public final class Indexes implements Materializable {
   }
 
   /**
-   * Find a PROJECTION index by its shape: record-set root path, ordered
-   * field paths, and — when {@code fieldTypesOrNull} is given — ordered
-   * declared types. Path comparison uses the parsed paths' canonical form,
-   * matching the identity rule of {@code jn:create-projection-index} (sits
-   * beside {@link #findPathIndex}/{@link #findCASIndex}/{@link #findNameIndex}
-   * as the projection family's finder).
+   * Find a PROJECTION index by its shape: record-set root path, ordered field paths, and — when
+   * {@code fieldTypesOrNull} is given — ordered declared types. Path comparison uses the parsed
+   * paths' canonical form, matching the identity rule of {@code jn:create-projection-index} (sits
+   * beside {@link #findPathIndex}/{@link #findCASIndex}/{@link #findNameIndex} as the projection
+   * family's finder).
    */
-  public Optional<IndexDef> findProjectionIndex(final Path<QNm> rootPath,
-      final List<Path<QNm>> fieldPaths, final List<Type> fieldTypesOrNull) {
+  public Optional<IndexDef> findProjectionIndex(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
+      final List<Type> fieldTypesOrNull) {
     requireNonNull(rootPath);
     requireNonNull(fieldPaths);
     final String rootCanonical = rootPath.toString();
-    outer:
-    for (final IndexDef index : indexes) {
+    outer: for (final IndexDef index : indexes) {
       if (!index.isProjectionIndex()) {
         continue;
       }

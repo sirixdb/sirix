@@ -20,10 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <h2>What is asserted</h2>
  *
  * <p>
- * That the leaf's own serialize/deserialize round-trips the shape exactly — the counts AND the flat
- * element run, over rows built to break the two things a variable-length column gets wrong: an
- * EMPTY set (whose row must still consume zero elements and not borrow its neighbour's) and rows of
- * DIFFERENT lengths either side of it, which is what desynchronises a flat run.
+ * That both the in-memory scan form and the canonical segmented persistence form round-trip the
+ * shape exactly — the counts AND the flat element run, over rows built to break the two things a
+ * variable-length column gets wrong: an EMPTY set (whose row must still consume zero elements and
+ * not borrow its neighbour's) and rows of DIFFERENT lengths either side of it, which is what
+ * desynchronises a flat run.
  */
 final class StringSetColumnTest {
 
@@ -85,18 +86,24 @@ final class StringSetColumnTest {
   }
 
   @Test
-  @DisplayName("the compact whole-leaf codec round-trips a set column")
-  void survivesTheCompactRowGroupCodec() {
-    // ProjectionIndexRowGroupCodec encodes the WHOLE leaf, every column of it. A kind it does not
-    // know throws — so a leaf carrying a set column would fail to encode even for a query that
-    // only ever reads the numeric column beside it.
+  @DisplayName("the segmented codec assembles a set column byte-identically")
+  void survivesTheCanonicalSegmentedCodec() {
     final byte[] raw = buildLeaf().serialize();
-    final byte[] roundTripped = ProjectionIndexRowGroupCodec.decode(ProjectionIndexRowGroupCodec.encode(raw));
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
+    final byte[] roundTripped = ProjectionIndexColumnSegmentCodec.assembleRaw(encoded.descriptor(), segmentId -> {
+      for (int i = 0; i < encoded.columnSegmentIds().length; i++) {
+        if (encoded.columnSegmentIds()[i] == segmentId) {
+          return encoded.segments()[i];
+        }
+      }
+      return null;
+    });
     final ProjectionIndexRowGroupPage after = ProjectionIndexRowGroupPage.deserialize(roundTripped);
 
+    assertArrayEquals(raw, roundTripped, "segment assembly changed the scan form");
     assertArrayEquals(new int[] {2, 0, 1, 3},
         java.util.Arrays.copyOf(after.stringSetCountColumn(0), after.getRowCount()),
-        "counts did not survive the compact codec");
+        "counts did not survive segmented persistence");
     assertEquals(6, after.stringSetLength(0), "flat element run changed length");
   }
 

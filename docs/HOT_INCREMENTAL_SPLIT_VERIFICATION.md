@@ -1,5 +1,11 @@
 # HOT Incremental Split — Formal Verification Pass
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Status:** Second formal verification pass for the HOT structural-correctness work.
 The first pass — `HOT_FORMAL_FOUNDATION.md` — derived a *detect-and-rebuild* fix and
 proved `bulkBuild` correct. This pass verifies the **incremental insert + split +

@@ -5,6 +5,7 @@ package io.sirix.index.projection;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Stateless conjunctive-predicate scan over a collection of serialised
@@ -60,14 +61,164 @@ public final class ProjectionIndexScan {
     public final boolean boolLit;
     public final byte[] stringLitBytes; // UTF-8
 
+    /**
+     * Per-id verdict bitset over a resource-wide dictionary's id space, or {@code null} for every
+     * ordinary predicate.
+     *
+     * <p>
+     * A {@code STRING_GLOBAL} column stores dictionary IDS in its long lane, so a string question
+     * (containment, ordering) is answered in two phases: the caller evaluates the predicate ONCE per
+     * distinct id against the global dictionary's bytes — the same per-entry authority
+     * {@link ProjectionIndexScan#stringDictEntryMatches} gives the per-leaf dictionaries — and this
+     * bitset carries the verdicts; the kernels then test {@code verdict[id]} per row, pure integer
+     * work. Bit {@code id} (1-based, bit 0 unused) is set iff the value interned under {@code id}
+     * satisfies the predicate.
+     *
+     * <p>
+     * The predicate keeps its STRING op — the ops every numeric kernel THROWS on — so a kernel that has
+     * not been taught this form fails loud instead of comparing ids as numbers. Kernels that prune by
+     * numeric zone maps or exact-value fingerprints must ignore verdict predicates: the long lane holds
+     * ids, and neither an id range nor a value fingerprint says anything about a substring or ordering
+     * verdict.
+     */
+    public final long @Nullable [] globalIdVerdict;
+
+    /** Ids covered by {@link #globalIdVerdict}: valid ids are {@code 1 .. globalIdVerdictCount}. */
+    public final int globalIdVerdictCount;
+
+    /**
+     * For a SEGMENT-SCOPED column: the packed cell that equals the literal, per segment, or
+     * {@link #SEGMENT_LITERAL_ABSENT} where that segment's dictionary provably lacks the value.
+     * {@code null} for every other predicate.
+     *
+     * <p>
+     * A segment-scoped column stores {@code (segment << 32) | id} cells, so one literal has a DIFFERENT
+     * id in every segment and no single {@code longLit} can express {@code = lit}. What makes it cheap
+     * anyway is that a row group never straddles a segment: every cell in a leaf shares its high bits,
+     * so the whole leaf is answered against ONE of these entries, chosen once from any present cell.
+     * The per-row work stays a single integer compare.
+     * </p>
+     */
+    public final long @Nullable [] segmentLiteralCells;
+
+    /**
+     * No cell in this segment can equal the literal: {@code EQ} is false, {@code NE} true, for the
+     * leaf.
+     */
+    public static final long SEGMENT_LITERAL_ABSENT = Long.MIN_VALUE;
+
+    /**
+     * For a per-VALUE string op (containment, ordering) over a SEGMENT-SCOPED column: the lazily filled
+     * verdict memo the kernels test per row. {@code null} for every other predicate.
+     *
+     * <p>
+     * The segment-scoped twin of {@link #globalIdVerdict}, and lazy rather than swept for the reason
+     * {@link SegmentCellVerdicts} gives: a sealed segment dictionary carries a rank table, so a
+     * position-order sweep would set the right bits at the wrong ids.
+     * </p>
+     */
+    public final @Nullable SegmentCellVerdicts segmentCellVerdicts;
+
     public ColumnPredicate(final int column, final Op op, final long longLit, final long highLit, final boolean boolLit,
         final byte[] stringLitBytes) {
+      this(column, op, longLit, highLit, boolLit, stringLitBytes, null, 0);
+    }
+
+    /**
+     * {@code = lit} or {@code != lit} over a segment-scoped column, resolved per segment.
+     *
+     * @param op {@link Op#EQ} or {@link Op#NE}; nothing else is a question about one id
+     * @param literalCells the packed cell equal to the literal in each segment, or
+     *        {@link #SEGMENT_LITERAL_ABSENT}
+     */
+    /**
+     * A per-value string predicate over a segment-scoped column, answered from a lazily filled per-cell
+     * memo.
+     *
+     * @param verdicts evaluates and remembers one distinct cell at a time
+     */
+    public static ColumnPredicate segmentCellVerdict(final int column, final Op op, final byte[] literalUtf8,
+        final SegmentCellVerdicts verdicts) {
+      if (verdicts == null) {
+        throw new NullPointerException("verdicts");
+      }
+      return new ColumnPredicate(column, op, 0L, 0L, false, literalUtf8, null, 0, null, verdicts);
+    }
+
+    public static ColumnPredicate segmentScopedEquality(final int column, final Op op, final long[] literalCells) {
+      if (op != Op.EQ && op != Op.NE) {
+        throw new IllegalArgumentException("a segment-scoped literal answers EQ and NE only, not " + op);
+      }
+      if (literalCells == null || literalCells.length == 0) {
+        throw new IllegalArgumentException("literalCells must name at least one segment");
+      }
+      return new ColumnPredicate(column, op, 0L, 0L, false, null, null, 0, literalCells, null);
+    }
+
+    /**
+     * The literal this predicate compares against inside the leaf {@code anyCellInLeaf} belongs to.
+     *
+     * @return the packed target cell, or {@link #SEGMENT_LITERAL_ABSENT} when that segment cannot hold
+     *         the value; {@link #longLit} for an ordinary predicate
+     */
+    public long literalForLeaf(final long anyCellInLeaf) {
+      final long[] cells = segmentLiteralCells;
+      if (cells == null) {
+        return longLit;
+      }
+      final int segment = ProjectionIndexRowGroupPage.segmentOfCell(anyCellInLeaf);
+      return segment >= 0 && segment < cells.length
+          ? cells[segment]
+          : SEGMENT_LITERAL_ABSENT;
+    }
+
+    private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
+        final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
+        final int globalIdVerdictCount) {
+      this(column, op, longLit, highLit, boolLit, stringLitBytes, globalIdVerdict, globalIdVerdictCount, null, null);
+    }
+
+    private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
+        final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
+        final int globalIdVerdictCount, final long @Nullable [] segmentLiteralCells,
+        final @Nullable SegmentCellVerdicts segmentCellVerdicts) {
+      this.segmentLiteralCells = segmentLiteralCells;
+      this.segmentCellVerdicts = segmentCellVerdicts;
       this.column = column;
       this.op = op;
       this.longLit = longLit;
       this.highLit = highLit;
       this.boolLit = boolLit;
       this.stringLitBytes = stringLitBytes;
+      this.globalIdVerdict = globalIdVerdict;
+      this.globalIdVerdictCount = globalIdVerdictCount;
+    }
+
+    /**
+     * A string predicate over a {@code STRING_GLOBAL} column, pre-evaluated per dictionary id.
+     *
+     * @param op one of the string ops ({@code STR_*}, {@code EQ}, {@code NE}); the numeric ops make no
+     *        sense against a verdict and are refused
+     * @param verdict bit {@code id} set iff the value interned under {@code id} matches
+     * @param idCount ids the verdict covers; the bitset must span it
+     */
+    public static ColumnPredicate globalStringVerdict(final int column, final Op op, final byte[] literalUtf8,
+        final long[] verdict, final int idCount) {
+      if (verdict == null) {
+        throw new NullPointerException("verdict");
+      }
+      // Ids are 1-BASED (bit 0 unused), so id == idCount lives in word idCount >>> 6 — an idCount
+      // that is a multiple of 64 needs one word more than a 0-based ceil would grant.
+      if (idCount < 0 || idCount >>> 6 >= verdict.length) {
+        throw new IllegalArgumentException(
+            "verdict bitset spans " + (verdict.length * 64L - 1) + " ids, needs " + idCount);
+      }
+      switch (op) {
+        case EQ, NE, STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> {
+        }
+        default -> throw new IllegalArgumentException("not a string op: " + op);
+      }
+      return new ColumnPredicate(column, op, 0L, 0L, false, literalUtf8, verdict, idCount);
     }
 
     public static ColumnPredicate numeric(final int column, final Op op, final long literal) {
@@ -219,8 +370,13 @@ public final class ProjectionIndexScan {
    * Stack depth is bounded by {@link #MAX_LEAVES}; {@link #of} validates shape.
    */
   public static final class PredicateTree {
-    /** Max leaf predicates (= max program stack depth) — bounds kernel scratch. */
-    public static final int MAX_LEAVES = 16;
+    /**
+     * Max leaf predicates (= max program stack depth) — bounds kernel scratch, which every consumer
+     * sizes per thread (a {@code long[MAX_LEAVES][rows/64]} mask stack, a boolean per leaf), so 64
+     * costs ≤ 8 KiB per worker. 64 admits the any-k group rewrite's {@code OR_k AND_c (col = v)} shape
+     * for {@code k × columns ≤ 64} beside the hand-written IN/BETWEEN trees that fit in 16.
+     */
+    public static final int MAX_LEAVES = 64;
 
     public static final byte OP_AND = -1;
     public static final byte OP_OR = -2;
@@ -228,10 +384,17 @@ public final class ProjectionIndexScan {
 
     public final ColumnPredicate[] leaves;
     public final byte[] program;
+    /** Whether any instruction negates — decided once, read per leaf by the tree evaluator. */
+    private final boolean hasNot;
 
     private PredicateTree(final ColumnPredicate[] leaves, final byte[] program) {
       this.leaves = leaves;
       this.program = program;
+      boolean negates = false;
+      for (final byte insn : program) {
+        negates |= insn == OP_NOT;
+      }
+      this.hasNot = negates;
     }
 
     /**
@@ -271,6 +434,14 @@ public final class ProjectionIndexScan {
         throw new IllegalArgumentException("program ends at stack depth " + depth + " (want 1)");
       }
       return new PredicateTree(leaves.clone(), program.clone());
+    }
+
+    /**
+     * Whether the program negates anywhere. A whole-leaf prune (every operand all-zero) is exact under
+     * AND/OR but NOT would flip it to all-true, so negating trees keep the exact per-leaf evaluation.
+     */
+    public boolean hasNot() {
+      return hasNot;
     }
 
     /** Whether any combinator is an OR — pure-AND trees should use the flat conjunctive form. */
@@ -354,13 +525,37 @@ public final class ProjectionIndexScan {
       final long[] out) {
     final byte kind = leaf.columnKind(p.column);
     switch (kind) {
-      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+      // A temporal predicate reaches here already mapped to numeric bounds (see the executor's
+      // literal-to-bound rule), so the cells and the literal are in the same units.
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+          ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
         evalNumeric(leaf.numericColumn(p.column), rowCount, p.op, p.longLit, p.highLit, out);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
         evalBoolean(leaf.booleanColumnBits(p.column), rowCount, p.boolLit, out);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> evalStringDict(leaf, p, rowCount, out);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> evalStringSetContains(leaf, p, rowCount, out);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> {
+        // Same dispatch contract as the byte kernel's global arm: a verdict predicate sweeps ids
+        // against the caller-built bitset, an id-resolved EQ/NE evaluates numerically, and a string
+        // literal without a verdict is a routing defect that must throw rather than compare bytes
+        // to ids.
+        if (p.globalIdVerdict != null) {
+          final long[] ids = leaf.numericColumn(p.column);
+          final long[] verdict = p.globalIdVerdict;
+          final int idCount = p.globalIdVerdictCount;
+          for (int i = 0; i < rowCount; i++) {
+            final long id = ids[i];
+            if (id >= 1 && id <= idCount && (verdict[(int) (id >>> 6)] & 1L << (id & 63)) != 0L) {
+              out[i >>> 6] |= 1L << (i & 63);
+            }
+          }
+        } else if (p.stringLitBytes != null) {
+          throw new IllegalStateException("column " + p.column + " is STRING_GLOBAL, but the " + p.op
+              + " predicate still carries a string literal — it was never resolved to a dictionary id");
+        } else {
+          evalNumeric(leaf.numericColumn(p.column), rowCount, p.op, p.longLit, p.highLit, out);
+        }
+      }
       default -> throw new IllegalStateException("Unknown column kind " + kind);
     }
   }
@@ -617,7 +812,7 @@ public final class ProjectionIndexScan {
     // Zone maps only help on numeric / dict-id columns. Booleans pass
     // through — pruning them would require leaf-global has-true/
     // has-false flags which we don't encode today.
-    if (!ProjectionIndexRowGroupPage.isNumericKind(kind))
+    if (!ProjectionIndexRowGroupPage.isNumericKind(kind) && !ProjectionIndexRowGroupPage.isTemporalKind(kind))
       return false;
     final long min = leaf.columnMin(p.column);
     final long max = leaf.columnMax(p.column);

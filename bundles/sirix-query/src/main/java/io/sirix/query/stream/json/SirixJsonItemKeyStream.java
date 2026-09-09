@@ -35,9 +35,9 @@ public final class SirixJsonItemKeyStream implements Stream<Item> {
   @Override
   public Item next() {
     // Skip over EMPTY NodeReferences and STALE keys ITERATIVELY (no recursion — a long run of
-    // stale entries must not grow the stack). Previously the first empty entry terminated the
-    // whole scan (RBTreeWriter.remove leaves emptied tree nodes in place → truncated results),
-    // and an unchecked moveTo materialized the PREVIOUS node for stale keys (ghost results).
+    // stale entries must not grow the stack). The first empty entry must not terminate the whole
+    // scan, and an unchecked moveTo would materialize the PREVIOUS node for stale keys (ghost
+    // results).
     // Mirrors the XML SirixNodeKeyStream skip loop.
     while (true) {
       if (nodeKeys != null && nodeKeys.hasNext()) {

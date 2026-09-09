@@ -650,11 +650,15 @@ final class ProjectionWindowedPayloadServeTest {
               "the budget must admit either column alone and neither pair: " + budget + " vs " + nameBytes + "+"
                   + scoreBytes);
           final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(budget);
-          try {
+          // ONE open query reads both columns: its scope pins the first fill, so the second cannot
+          // be admitted by evicting it (a fit door evicts only what no open query holds).
+          try (ProjectionResidencyScope query = ProjectionResidencyScope.open()) {
+            assertNotNull(query);
             assertEquals(0L, store.retainedFillBytes(), "a fresh store retains nothing");
             assertTrue(store.columnFillWithinBudget(nameColumn), "the first column alone must fit");
             assertEquals(leaves, store.column(nameColumn, fetcher).length);
             assertTrue(store.retainedFillBytes() >= nameBytes, "a published fill must be charged");
+            assertEquals(1, store.residencyPins(nameColumn), "the open query pins its fill");
 
             // The second column's OWN projection still fits the budget; what does not fit is the
             // pair, and that is the question the store has to be asking.
@@ -664,6 +668,7 @@ final class ProjectionWindowedPayloadServeTest {
             final ProjectionColumnStore.FillBudgetExceededException declined = assertThrows(
                 ProjectionColumnStore.FillBudgetExceededException.class, () -> store.column(scoreColumn, fetcher));
             assertTrue(declined.getMessage().contains("already retained"), declined.getMessage());
+            assertEquals(leaves, store.column(nameColumn, fetcher).length, "the pinned fill was not evicted");
 
             // Not memoized as corruption: with room restored the same store fills the same column.
             ProjectionColumnStore.setColumnFillBudgetBytesForTesting(Long.MAX_VALUE);

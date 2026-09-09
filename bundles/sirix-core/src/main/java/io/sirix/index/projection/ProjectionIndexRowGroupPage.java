@@ -22,9 +22,11 @@ import java.util.Arrays;
  * {@code Object[]}, no per-row allocation on the scan hot path. This flat layout deliberately
  * favors fixed-stride, branch-free kernel access (raw 8-byte numerics, raw 4-byte dict-ids) over
  * density: it is what {@link ProjectionIndexByteScan} scans and what the registry holds in memory.
- * <b>Persistence uses {@link ProjectionIndexRowGroupCodec}</b>, which bit-packs this form
- * (frame-of-reference numerics, delta record keys, packed dict-ids, marker-byte presence) to a
- * fraction of its size and decodes back byte-identically on hydrate.
+ * <b>Persistence uses the one segmented format owned by
+ * {@link ProjectionIndexColumnSegmentCodec}</b>: a zone-map descriptor names separate KEYS, BODY,
+ * dictionary, Bloom, and summary segments. Those segments bit-pack this form (frame-of-reference
+ * numerics, delta record keys, packed dict-ids, marker-byte presence) and assemble it
+ * byte-identically on hydrate.
  *
  * <pre>
  *   int    rowCount              // number of active rows (0..MAX_ROWS)
@@ -229,9 +231,96 @@ public final class ProjectionIndexRowGroupPage {
    */
   public static final byte COLUMN_KIND_STRING_GLOBAL = 5;
 
+  /**
+   * A column declared {@code xs:dateTime}, stored as EPOCH SECONDS UTC in the long lane.
+   *
+   * <p>
+   * The document holds ISO-8601 text ({@code dddd-dd-ddTdd:dd:dd}); a per-leaf string dictionary over
+   * it costs ~25 B/row and turns every sort, group and comparison into string work. The epoch is one
+   * bit-packed integer per row that FOR-packs, zone-maps, sorts, groups and compares through the
+   * NUMERIC_LONG kernels untouched, and {@link ProjectionTemporalCodec} maps back to the exact
+   * original bytes on emission. That round trip is what makes the kind lossless, and it holds only
+   * because the builder REFUSES any value that is not exactly canonical — see
+   * {@link ProjectionTemporalCodec}.
+   *
+   * <p>
+   * <b>Storage is byte-identical to {@link #COLUMN_KIND_NUMERIC_LONG}</b>, the precedent
+   * {@link #COLUMN_KIND_NUMERIC_DOUBLE} and {@link #COLUMN_KIND_STRING_GLOBAL} already set: every
+   * layout surface tests {@link #isLongLaneKind} and needs no change. What the kind byte buys is the
+   * two things a bare long cannot say — that emission must FORMAT the cell, and that a string literal
+   * compared against it must be mapped to a numeric bound. {@link #isNumericKind} stays false: an
+   * epoch is not a quantity to sum or average, and a served {@code sum} over one would answer where
+   * the interpreter raises.
+   */
+  public static final byte COLUMN_KIND_TIMESTAMP = 6;
+
+  /**
+   * A column declared {@code xs:date}, stored as EPOCH DAYS UTC in the long lane. The date twin of
+   * {@link #COLUMN_KIND_TIMESTAMP}, with canonical text {@code dddd-dd-dd}.
+   */
+  public static final byte COLUMN_KIND_DATE = 7;
+
+  /**
+   * A string column whose cells store ids into the SEGMENT dictionary of the segment this row group
+   * lies in — the same dictionary the document pages of that segment minted into, and the same one
+   * the seal writes.
+   *
+   * <p>
+   * {@link #COLUMN_KIND_STRING_GLOBAL} stores the strings once per RESOURCE, which is why it
+   * collapses a column that {@link #COLUMN_KIND_STRING_DICT} would store once per leaf. It pays for
+   * that with a dictionary that is rewritten as it grows and accumulates every dead value of the
+   * resource for all time. This kind keeps the collapse and bounds both: the dictionary is one
+   * segment's, its graveyard is that segment's own churn, and a value update costs zero dictionary
+   * bytes because the write path only appends.
+   *
+   * <p>
+   * <b>Storage is byte-identical to {@link #COLUMN_KIND_NUMERIC_LONG}</b>, the precedent every
+   * long-lane kind follows. What the kind byte buys is the one thing kind 5 can assume and this
+   * cannot: an id is identity only WITHIN its segment. Two segments hand the same id to different
+   * values, so a group identity, a distinct count or an equality against a literal must be per
+   * segment and merged across segments by VALUE — a bitset over the row ids per segment, then one
+   * string hash per (segment, distinct id) for the merge. Nothing may treat these cells the way kind
+   * 5's are treated, which is why the kind is separate rather than a flag on kind 5.
+   *
+   * <p>
+   * The segment itself is not stored: a row group never straddles a boundary (the builder cuts
+   * there), so it is the segment its {@code firstRecordKey} falls in, which the directory answers.
+   */
+  public static final byte COLUMN_KIND_STRING_SEGMENT = 8;
+
+  /** The highest kind byte this build understands; readers reject anything above it as corrupt. */
+  public static final byte MAX_COLUMN_KIND = COLUMN_KIND_STRING_SEGMENT;
+
   /** {@code true} for the two numeric kinds, whose storage layout is identical. */
   public static boolean isNumericKind(final byte kind) {
     return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE;
+  }
+
+  /** {@code true} for the two declared temporal kinds. */
+  public static boolean isTemporalKind(final byte kind) {
+    return kind == COLUMN_KIND_TIMESTAMP || kind == COLUMN_KIND_DATE;
+  }
+
+  /**
+   * {@code true} for every kind whose cells are signed longs on which NUMERIC order IS value order
+   * and numeric equality IS value equality — {@link #COLUMN_KIND_NUMERIC_LONG} and the two temporal
+   * kinds.
+   *
+   * <p>
+   * The predicate for kernels that ORDER or GROUP cells: a min/max selection, a sort key, a group
+   * identity, a range or equality predicate. Deliberately narrower than {@link #isLongLaneKind} at
+   * both ends. {@link #COLUMN_KIND_STRING_GLOBAL} is excluded because a dictionary id orders by first
+   * intern, not by value. {@link #COLUMN_KIND_NUMERIC_DOUBLE} is excluded because its cells are an
+   * order-preserving TRANSFORM: sites that admit it must transform their literals too, which is a
+   * decision each one makes explicitly rather than inheriting from a predicate.
+   *
+   * <p>
+   * Wider than {@link #isNumericKind} at the temporal end, and only for ordering: a caller that
+   * MATERIALISES a cell admitted here must ask {@link #isTemporalKind} and format, or it emits an
+   * epoch where the document held text.
+   */
+  public static boolean isOrderedLongKind(final byte kind) {
+    return kind == COLUMN_KIND_NUMERIC_LONG || isTemporalKind(kind);
   }
 
   /**
@@ -245,7 +334,31 @@ public final class ProjectionIndexRowGroupPage {
    * it, averaging it or returning it as a minimum are all wrong answers rather than slow ones.
    */
   public static boolean isLongLaneKind(final byte kind) {
-    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE || kind == COLUMN_KIND_STRING_GLOBAL;
+    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE || isDictionaryIdKind(kind)
+        || isTemporalKind(kind);
+  }
+
+  /**
+   * {@code true} for the two kinds whose cells are DICTIONARY IDS rather than values —
+   * {@link #COLUMN_KIND_STRING_GLOBAL} and {@link #COLUMN_KIND_STRING_SEGMENT}.
+   *
+   * <p>
+   * The predicate for sites that must not treat a cell as a quantity or as its own order. It says
+   * nothing about the SCOPE of the id, which is the difference between the two: a site that resolves
+   * an id to bytes, groups by it or compares it against a literal must additionally ask
+   * {@link #isSegmentScopedIdKind}, because a segment-scoped id means nothing without its segment.
+   */
+  public static boolean isDictionaryIdKind(final byte kind) {
+    return kind == COLUMN_KIND_STRING_GLOBAL || kind == COLUMN_KIND_STRING_SEGMENT;
+  }
+
+  /**
+   * {@code true} when a cell's id is identity only within this row group's segment. Every site that
+   * derives meaning from an id — resolution, grouping, distinct counting, equality against a literal
+   * — must either handle the segment or refuse.
+   */
+  public static boolean isSegmentScopedIdKind(final byte kind) {
+    return kind == COLUMN_KIND_STRING_SEGMENT;
   }
 
   /** Footer magic of the presence tail ("PIX1" little-endian). */
@@ -647,8 +760,8 @@ public final class ProjectionIndexRowGroupPage {
    * <p>
    * A slab-backed scalar dictionary is materialised at most once per live page generation. Each entry
    * is detached from the page-owned slab, so retaining or mutating the returned compatibility view
-   * cannot corrupt codecs, scans, a later builder reset, or already-emitted output. Production
-   * consumers use the range accessors below and never invoke this method.
+   * cannot corrupt codecs, scans, later reuse of the page builder, or already-emitted output.
+   * Production consumers use the range accessors below and never invoke this method.
    */
   public synchronized byte[][] stringDictionary(final int column) {
     checkColumn(column);
@@ -783,10 +896,10 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /**
-   * Reassemble a page from decoded components — the inverse half of
-   * {@link ProjectionIndexRowGroupCodec}. Arrays are adopted (not copied): the codec hands over
-   * freshly built arrays sized for {@code rowCount}, which is all {@link #serialize()} ever reads.
-   * Package-private on purpose — the only legitimate caller is the codec.
+   * Reassemble a page from decoded canonical segments. Arrays are adopted (not copied): the segment
+   * assembler hands over freshly built arrays sized for {@code rowCount}, which is all
+   * {@link #serialize()} ever reads. Package-private on purpose — the only legitimate caller is the
+   * canonical segment codec.
    */
   static ProjectionIndexRowGroupPage reconstruct(final byte[] kinds, final int rowCount, final long firstRecordKey,
       final long lastRecordKey, final long[] recordKeys, final long[] columnMin, final long[] columnMax,
@@ -1019,8 +1132,9 @@ public final class ProjectionIndexRowGroupPage {
         presenceCols[c] = new long[(MAX_ROWS + 63) >>> 6];
         switch (columnKinds[c]) {
           // STRING_GLOBAL rides the numeric lane: its cells are dictionary ids, stored and packed
-          // exactly like any other integer column.
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL ->
+          // exactly like any other integer column; the temporal kinds ride it as epochs.
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
+              COLUMN_KIND_STRING_SEGMENT, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE ->
             numericCols[c] = new long[MAX_ROWS];
           case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
           case COLUMN_KIND_STRING_DICT -> {
@@ -1318,7 +1432,7 @@ public final class ProjectionIndexRowGroupPage {
     }
 
     switch (kind) {
-      case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
+      case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE -> {
         numericCols[0][row] = longValue;
         if (clean) {
           columnMin[0] = Math.min(columnMin[0], longValue);
@@ -1457,7 +1571,7 @@ public final class ProjectionIndexRowGroupPage {
         columnSawNonDoubleSource[c] = true;
       }
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE -> {
           final long v = longValues[c];
           numericCols[c][row] = v;
           if (clean) {
@@ -1648,9 +1762,74 @@ public final class ProjectionIndexRowGroupPage {
    * flips the extractor's array so that later leaves are built as global from the start.
    *
    * @param c the column to convert
-   * @param dictionary the resource-wide dictionary to intern into
+   *        <p>
+   *        Takes the ENCODER interface rather than the concrete writer, because the same conversion
+   *        serves two callers with opposite dictionary lifetimes: the builder's promotion, which
+   *        mints ids into a dictionary it is still filling, and a build against a dictionary that is
+   *        already complete, where {@code intern} resolves and refuses an unknown value instead of
+   *        appending one. The body only ever calls {@code intern}, so the distinction belongs to the
+   *        encoder and not here.
+   *        </p>
+   *
+   * @param dictionary the resource-wide dictionary to resolve against
    */
-  void convertStringDictColumnToGlobal(final int c, final GlobalValueDictionaryWriter dictionary) {
+  void convertStringDictColumnToGlobal(final int c, final GlobalValueDictionaryEncoder dictionary) {
+    convertStringDictColumn(c, dictionary, COLUMN_KIND_STRING_GLOBAL, -1);
+  }
+
+  /**
+   * Re-encode a {@link #COLUMN_KIND_STRING_DICT} column as {@link #COLUMN_KIND_STRING_SEGMENT},
+   * interning into the dictionary of the segment this row group lies in.
+   *
+   * <p>
+   * Identical to {@link #convertStringDictColumnToGlobal} but for the kind it lands on, because the
+   * work IS identical: intern each of this leaf's distinct entries once and replace the id lane. What
+   * differs is what the resulting ids mean, and that is the kind byte's job to say — see
+   * {@link #COLUMN_KIND_STRING_SEGMENT}.
+   * </p>
+   *
+   * @param c the column to convert
+   * @param dictionary this leaf's segment's dictionary for this column
+   */
+  void convertStringDictColumnToSegment(final int c, final GlobalValueDictionaryEncoder dictionary, final int segment) {
+    if (segment < 0) {
+      throw new IllegalArgumentException("segment must not be negative: " + segment);
+    }
+    convertStringDictColumn(c, dictionary, COLUMN_KIND_STRING_SEGMENT, segment);
+  }
+
+  /**
+   * A segment-scoped cell: the segment in the high 32 bits, the dictionary id in the low 32.
+   *
+   * <p>
+   * The id alone does not identify a value — the same id names different values in different segments
+   * — so a resolver handed one cell and nothing else could not answer. Carrying the segment IN the
+   * cell means every site that resolves, compares or materialises a cell needs no extra argument
+   * threaded to it, which is the difference between one adapter and a hundred call sites.
+   * </p>
+   *
+   * <p>
+   * It costs nothing on disk. A row group never straddles a segment boundary, so every cell in a leaf
+   * carries the SAME high bits, and the lane is FOR-packed against the leaf's own minimum — the
+   * deltas, and therefore the packed width, are exactly what they were for a bare id.
+   * </p>
+   */
+  public static long packSegmentCell(final int segment, final int id) {
+    return ((long) segment << 32) | (id & 0xFFFFFFFFL);
+  }
+
+  /** The segment of a {@link #packSegmentCell packed} cell. */
+  public static int segmentOfCell(final long cell) {
+    return (int) (cell >>> 32);
+  }
+
+  /** The dictionary id of a {@link #packSegmentCell packed} cell. */
+  public static int idOfCell(final long cell) {
+    return (int) cell;
+  }
+
+  private void convertStringDictColumn(final int c, final GlobalValueDictionaryEncoder dictionary,
+      final byte targetKind, final int segment) {
     checkColumn(c);
     if (columnKinds[c] != COLUMN_KIND_STRING_DICT) {
       throw new IllegalStateException("column " + c + " is kind " + columnKinds[c] + ", not STRING_DICT");
@@ -1680,8 +1859,11 @@ public final class ProjectionIndexRowGroupPage {
         long global = localToGlobal[local];
         if (global == 0L) {
           final byte[] bytes = stringDictionaryEntryBacking(c, local);
-          global =
+          final int interned =
               dictionary.intern(bytes, stringDictionaryEntryOffset(c, local), stringDictionaryEntryLength(c, local));
+          global = segment < 0
+              ? interned
+              : packSegmentCell(segment, interned);
           localToGlobal[local] = global;
         }
         converted[row] = global;
@@ -1695,6 +1877,89 @@ public final class ProjectionIndexRowGroupPage {
       columnMin[c] = min;
       columnMax[c] = max;
     }
+    installGlobalIdLane(c, converted, targetKind);
+  }
+
+  /**
+   * Re-encode a {@link #COLUMN_KIND_STRING_DICT} column as {@link #COLUMN_KIND_STRING_GLOBAL} using
+   * ids this leaf's entries were ALREADY assigned, rather than interning them now.
+   *
+   * <p>
+   * This is the rank pass's half of {@link #convertStringDictColumnToGlobal}. The two differ in
+   * exactly one thing and it is the whole point of the pass: interning assigns ids in first-seen
+   * order, which no amount of bookkeeping makes a rank, whereas a rank is a property of the whole
+   * value set and can only be known after every leaf has been read. So the pass computes the mapping
+   * globally and hands it back here per leaf.
+   * </p>
+   *
+   * <p>
+   * The mapping is by LOCAL DICTIONARY ENTRY, not by row, and it is required to be TOTAL over the
+   * entries this leaf actually references: a missing entry is a defect in the pass that produced it,
+   * and silently writing id 0 would turn a present value into an absent cell — a wrong answer that no
+   * later stage could detect. It is therefore refused by name.
+   * </p>
+   *
+   * @param c the column to convert
+   * @param localToGlobal global id per local dictionary entry, indexed by local id
+   */
+  void remapStringDictColumnToGlobal(final int c, final int[] localToGlobal) {
+    checkColumn(c);
+    if (columnKinds[c] != COLUMN_KIND_STRING_DICT) {
+      throw new IllegalStateException("column " + c + " is kind " + columnKinds[c] + ", not STRING_DICT");
+    }
+    if (localToGlobal == null) {
+      throw new NullPointerException("localToGlobal must not be null");
+    }
+    final long[] converted = new long[MAX_ROWS];
+    if (rowCount > 0) {
+      final int entries = stringDictionarySize(c);
+      if (localToGlobal.length < entries) {
+        throw new IllegalStateException(
+            "rank mapping covers " + localToGlobal.length + " entries, leaf column " + c + " has " + entries);
+      }
+      final int[] ids = stringDictIdCols[c];
+      final long[] presence = presenceCols[c];
+      long min = Long.MAX_VALUE;
+      long max = Long.MIN_VALUE;
+      for (int row = 0; row < rowCount; row++) {
+        if ((presence[row >>> 6] & (1L << (row & 63))) == 0) {
+          converted[row] = 0L;
+          continue;
+        }
+        final int local = ids[row];
+        final int global = localToGlobal[local];
+        if (global <= 0) {
+          throw new IllegalStateException(
+              "rank mapping has no id for local entry " + local + " of column " + c + ", referenced by row " + row);
+        }
+        converted[row] = global;
+        if (global < min) {
+          min = global;
+        }
+        if (global > max) {
+          max = global;
+        }
+      }
+      columnMin[c] = min;
+      columnMax[c] = max;
+    }
+    installGlobalIdLane(c, converted);
+  }
+
+  /**
+   * Install the id lane and drop every per-leaf dictionary structure the column no longer owns.
+   *
+   * <p>
+   * Shared by both conversions so the teardown cannot drift between them — a stale
+   * {@code stringDictHashes} left behind on one path would be read by a consumer that dispatches on
+   * the NEW kind and finds the OLD side tables still populated.
+   * </p>
+   */
+  private void installGlobalIdLane(final int c, final long[] converted) {
+    installGlobalIdLane(c, converted, COLUMN_KIND_STRING_GLOBAL);
+  }
+
+  private void installGlobalIdLane(final int c, final long[] converted, final byte targetKind) {
     numericCols[c] = converted;
     stringDictIdCols[c] = null;
     stringDicts[c] = null;
@@ -1706,7 +1971,7 @@ public final class ProjectionIndexRowGroupPage {
     stringDictHashes[c] = null;
     stringDictHashSlots[c] = null;
     stringDictHashActive[c] = false;
-    columnKinds[c] = COLUMN_KIND_STRING_GLOBAL;
+    columnKinds[c] = targetKind;
   }
 
   private int appendString(final int c, final String value) {
@@ -2024,7 +2289,8 @@ public final class ProjectionIndexRowGroupPage {
         page.columnMin[c] = bb.getLong();
         page.columnMax[c] = bb.getLong();
         switch (kinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL -> {
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
+              COLUMN_KIND_STRING_SEGMENT, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE -> {
             final long[] col = page.numericCols[c];
             for (int i = 0; i < rowCount; i++)
               col[i] = bb.getLong();
@@ -2170,7 +2436,8 @@ public final class ProjectionIndexRowGroupPage {
       colHdr.putLong(columnMax[c]);
       baos.write(colHdr.array(), 0, colHdr.position());
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL ->
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
+            COLUMN_KIND_STRING_SEGMENT, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE ->
           writeLongs(baos, numericCols[c], rowCount);
         case COLUMN_KIND_BOOLEAN -> writeLongs(baos, booleanCols[c], (rowCount + 63) >>> 6);
         case COLUMN_KIND_STRING_DICT -> {

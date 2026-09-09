@@ -5,6 +5,7 @@ import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.page.PageConstants;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,10 +16,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Regression tests for issue #1076: values whose serialized size exceeds
- * {@code PageConstants.MAX_RECORD_SIZE} (150,000 bytes) must round-trip through commit —
- * originally they were silently lost (the in-memory OverflowPage was never written); after the
- * overflow write path landed, values beyond the ~512 KB slot cap still failed in
- * {@code growSlottedPage} instead of diverting to an OverflowPage.
+ * {@code PageConstants.MAX_RECORD_SIZE} (the compact directory's 1,023-byte ceiling) must
+ * round-trip through commit — originally they were silently lost (the in-memory OverflowPage was
+ * never written); after the overflow write path landed, values beyond the 256 KiB slot cap still
+ * failed in {@code growSlottedPage} instead of diverting to an OverflowPage.
  */
 final class LargeRecordRoundTripTest {
 
@@ -43,10 +44,9 @@ final class LargeRecordRoundTripTest {
   private void roundTrip(final int valueLength) {
     final String bigValue = repeat('x', valueLength);
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(
-            JsonShredder.createStringReader("{\"big\":\"" + bigValue + "\",\"marker\":42}"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"big\":\"" + bigValue + "\",\"marker\":42}"));
         wtx.commit();
       }
       try (final var rtx = session.beginNodeReadOnlyTrx()) {
@@ -62,8 +62,8 @@ final class LargeRecordRoundTripTest {
   }
 
   @Test
-  void roundTrip200KbValue_overMaxRecordSize() {
-    roundTrip(200_000);
+  void roundTripValueJustOverInlineRecordCeiling() {
+    roundTrip(PageConstants.MAX_RECORD_SIZE + 1);
   }
 
   @Test

@@ -39,6 +39,7 @@ import org.jspecify.annotations.Nullable;
 import java.util.Objects;
 import java.util.TreeSet;
 import io.sirix.page.delegates.BitmapReferencesPage;
+import io.sirix.page.delegates.FullReferencesPage;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
@@ -49,6 +50,7 @@ import org.roaringbitmap.longlong.Roaring64Bitmap;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.Cache;
+import io.sirix.cache.GlobalDictionaryRecordCacheKey;
 import io.sirix.cache.NamesCacheKey;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
@@ -116,13 +118,14 @@ public final class NamePage extends AbstractForwardingPage {
    * <b>Why the offset differs by database type.</b> The offsets are per-type namespaces already —
    * {@link #JSON_OBJECT_KEY_REFERENCE_OFFSET} and {@link #ATTRIBUTES_REFERENCE_OFFSET} are both 0,
    * because a resource is either JSON or XML and never both. That is not merely tidy here, it is
-   * required: this page's bookkeeping maps are serialized <em>positionally</em> (a count, followed by
-   * one value per offset from 0 upwards), so the offsets in use must form a gapless run. A JSON
-   * resource occupies only offset 0, so its symbol tables go at 1; an XML resource occupies 0-3, so
-   * its symbol tables go at 4. Picking one constant for both would leave a JSON resource holding {0,
-   * 4} and the serializer would write offsets 0 and 1 — losing the symbol tables' bookkeeping and
-   * making every stored table unreachable after a reload. {@code PageKind.NAMEPAGE} now rejects a
-   * gapped map outright rather than writing it.
+   * required: this page's keyed-trie dictionary counters are serialized <em>positionally</em> (a
+   * count, followed by one value per offset from 0 upwards), so the dictionary offsets in use must
+   * form a gapless run. Secondary HOT allocator metadata is a separate sparse map. A JSON resource
+   * occupies only offset 0, so its symbol tables go at 1; an XML resource occupies 0-3, so its symbol
+   * tables go at 4. Picking one constant for both would leave a JSON resource holding {0, 4} and the
+   * serializer would write offsets 0 and 1 — losing the symbol tables' bookkeeping and making every
+   * stored table unreachable after a reload. {@code PageKind.NAMEPAGE} now rejects a gapped map
+   * outright rather than writing it.
    */
   public static final int JSON_FSST_SYMBOL_TABLE_REFERENCE_OFFSET = 1;
 
@@ -191,6 +194,37 @@ public final class NamePage extends AbstractForwardingPage {
     return switch (databaseType) {
       case JSON -> JSON_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET;
       case XML -> XML_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET;
+    };
+  }
+
+  /**
+   * Determine whether a physical slot belongs to the keyed-trie dictionary prefix of this page.
+   *
+   * <p>
+   * The prefix is {@code [0, 3)} for JSON and {@code [0, 6)} for XML. Every slot at or above that
+   * boundary is a secondary NAME index and is therefore addressed exclusively through HOT. Keeping
+   * this check here makes the page that owns the slot layout the sole authority for the boundary.
+   * </p>
+   *
+   * @param databaseType database type defining the reserved prefix
+   * @param index physical NamePage slot
+   * @return {@code true} for a reserved dictionary slot, {@code false} for a secondary NAME slot
+   * @throws NullPointerException if {@code databaseType} is {@code null}
+   * @throws IllegalArgumentException if {@code index} is outside the NamePage reference space
+   */
+  public static boolean isNameDictionarySlot(final DatabaseType databaseType, final int index) {
+    final int firstSecondaryIndex = firstSecondaryNameIndex(databaseType);
+    if (index < 0 || index >= Constants.INP_REFERENCE_COUNT) {
+      throw new IllegalArgumentException("NamePage slot outside reference space: " + index);
+    }
+    return index < firstSecondaryIndex;
+  }
+
+  private static int firstSecondaryNameIndex(final DatabaseType databaseType) {
+    Objects.requireNonNull(databaseType, "databaseType must not be null");
+    return switch (databaseType) {
+      case JSON -> PageConstants.JSON_NAME_INDEX_OFFSET;
+      case XML -> PageConstants.XML_NAME_INDEX_OFFSET;
     };
   }
 
@@ -281,8 +315,8 @@ public final class NamePage extends AbstractForwardingPage {
   private final Int2LongMap maxNodeKeys;
 
   /**
-   * Maximum HOT page keys per index number. Used by HOTTrieWriter for persistent page key allocation
-   * across transactions.
+   * Maximum HOT page keys per index number. Used by the canonical HOT index writer for persistent
+   * page key allocation across transactions.
    */
   private final Int2LongMap maxHotPageKeys;
 
@@ -301,6 +335,12 @@ public final class NamePage extends AbstractForwardingPage {
   private final Int2ObjectMap<Roaring64Bitmap> liveEntryNodeKeys;
 
   /**
+   * Whether this page is a private write copy and must never adopt a mutable shared Names-cache
+   * value, even when a read-only reader is used for its first dictionary lookup.
+   */
+  private final boolean writeCopy;
+
+  /**
    * Create name page.
    */
   public NamePage() {
@@ -315,6 +355,7 @@ public final class NamePage extends AbstractForwardingPage {
     currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
     liveEntryNodeKeys = new Int2ObjectOpenHashMap<>();
     numberOfArrays = 0;
+    writeCopy = false;
   }
 
   /**
@@ -341,30 +382,59 @@ public final class NamePage extends AbstractForwardingPage {
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
     this.liveEntryNodeKeys = new Int2ObjectOpenHashMap<>();
     this.numberOfArrays = numberOfArrays;
+    this.writeCopy = false;
   }
 
   /**
-   * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}: the
-   * underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so mutations
-   * to a child reference cannot bleed back into the historical revision's view through cache
-   * aliasing. Bookkeeping maps are duplicated.
+   * Make a private write-side copy of an immutable, persisted historical page.
    *
    * <p>
-   * Eager-loads any {@link Names} dictionary that is currently {@code null} on {@code other} before
-   * sharing — without this, a subsequent lazy-load via either side creates an independent instance
-   * that diverges from its sibling, and writes via the deep-copy never become visible to the cached
-   * page (and vice-versa). Pass a non-null {@code storageEngineReader} to enable the eager-load; pass
-   * {@code null} only when neither side will be queried before commit.
+   * The copy is complete before this method returns: every structural reference, allocator map and
+   * live-entry bitmap is detached from {@code historicalPage}. A caller can therefore publish the
+   * result to its transaction-intent log only after this method succeeds, without any mutation having
+   * leaked into the historical page while the copy was being built.
    * </p>
+   *
+   * <p>
+   * {@link Names} dictionaries are deliberately <em>not</em> copied or loaded here. They are mutable,
+   * potentially large derived views of the records below this page. Sharing a loaded instance would
+   * let a writer change a historical revision; eagerly cloning every loaded dictionary would make an
+   * unrelated secondary-index mutation pay for all name maps. Instead the returned page starts with
+   * no materialized dictionaries. Its existing read and write methods reconstruct only the first
+   * dictionary they actually touch, using the reader/writer supplied to that operation. The
+   * reconstructed {@code Names} belongs solely to the returned page.
+   * </p>
+   *
+   * <p>
+   * The source must be a persisted historical page, not a page with unpublished dictionary mutations
+   * in the current transaction. Persisted records and the copied high-water/live-key metadata are the
+   * authoritative state from which a dictionary is reconstructed.
+   * </p>
+   *
+   * @param historicalPage immutable persisted page to detach
+   * @return a fully detached page suitable for mutation and subsequent intent-log publication
+   * @throws NullPointerException if {@code historicalPage} is {@code null}
    */
-  public NamePage(final NamePage other, final StorageEngineReader storageEngineReader) {
-    final Page otherDelegate = other.delegate;
-    if (otherDelegate instanceof io.sirix.page.delegates.ReferencesPage4 ref) {
-      this.delegate = new io.sirix.page.delegates.ReferencesPage4(ref);
-    } else if (otherDelegate instanceof io.sirix.page.delegates.BitmapReferencesPage bmp) {
-      this.delegate = new io.sirix.page.delegates.BitmapReferencesPage(otherDelegate, bmp.getBitmap());
-    } else if (otherDelegate instanceof io.sirix.page.delegates.FullReferencesPage full) {
-      this.delegate = new io.sirix.page.delegates.FullReferencesPage(full);
+  public static NamePage copyForWrite(final NamePage historicalPage) {
+    return new NamePage(Objects.requireNonNull(historicalPage, "historicalPage must not be null"));
+  }
+
+  /**
+   * Compatibility constructor with the detached/lazy semantics of {@link #copyForWrite(NamePage)}.
+   *
+   * @param other immutable persisted page to detach
+   * @deprecated use {@link #copyForWrite(NamePage)} to make the historical-page precondition explicit
+   *             at the call site
+   */
+  @Deprecated
+  public NamePage(final NamePage other) {
+    final Page otherDelegate = Objects.requireNonNull(other, "other must not be null").delegate;
+    if (otherDelegate instanceof ReferencesPage4 ref) {
+      this.delegate = new ReferencesPage4(ref);
+    } else if (otherDelegate instanceof BitmapReferencesPage bmp) {
+      this.delegate = new BitmapReferencesPage(otherDelegate, bmp.getBitmap());
+    } else if (otherDelegate instanceof FullReferencesPage full) {
+      this.delegate = new FullReferencesPage(full);
     } else {
       throw new IllegalStateException(
           "Unknown NamePage delegate type, cannot clone: " + otherDelegate.getClass().getName());
@@ -378,53 +448,32 @@ public final class NamePage extends AbstractForwardingPage {
       this.liveEntryNodeKeys.put(entry.getIntKey(), entry.getValue().clone());
     }
     this.numberOfArrays = other.numberOfArrays;
-    if (storageEngineReader != null
-        && storageEngineReader.getResourceSession()
-                              .getResourceConfig().indexBackendType == io.sirix.access.IndexBackendType.HOT) {
-      // Eager-load any null dictionary on the source so the shared reference is non-null on both
-      // sides; subsequent lazy-loads short-circuit since the field is already populated.
-      //
-      // Gated on the resource's IndexBackendType: under HOT no secondary NAME index ever writes
-      // KVL records into the IndexType.NAME sub-tree that the dictionary lives in (HOT secondary
-      // indexes live on a separate HOT-page chain), so Names.fromStorage's HashEntryNode walk is
-      // safe. Under RBTREE, an RBTree NAME-index writer can interleave RBNodeKey records into
-      // the same sub-tree — Names.fromStorage's unchecked HashEntryNode cast would blow up. The
-      // RBTree code path doesn't need the dictionary pre-shared anyway: name lookups on RBTree-
-      // backed pages flow through different reader paths, so leaving the field null here keeps
-      // behaviour identical to the pre-fix baseline for that backend.
-      if (other.attributes == null) {
-        other.getName(0, NodeKind.ATTRIBUTE, storageEngineReader);
-      }
-      if (other.elements == null) {
-        other.getName(0, NodeKind.ELEMENT, storageEngineReader);
-      }
-      if (other.namespaces == null) {
-        other.getName(0, NodeKind.NAMESPACE, storageEngineReader);
-      }
-      if (other.processingInstructions == null) {
-        other.getName(0, NodeKind.PROCESSING_INSTRUCTION, storageEngineReader);
-      }
-      if (other.jsonObjectKeys == null) {
-        other.getName(0, NodeKind.OBJECT_NAMED_OBJECT, storageEngineReader);
-      }
-    }
-    this.attributes = other.attributes;
-    this.elements = other.elements;
-    this.namespaces = other.namespaces;
-    this.processingInstructions = other.processingInstructions;
-    this.jsonObjectKeys = other.jsonObjectKeys;
+    this.writeCopy = true;
+    // Names are derived, mutable caches. Leaving them null makes materialization lazy and private to
+    // this page; neither the source nor any of its already-loaded dictionaries is touched or shared.
+    this.attributes = null;
+    this.elements = null;
+    this.namespaces = null;
+    this.processingInstructions = null;
+    this.jsonObjectKeys = null;
   }
 
   /**
-   * Convenience copy constructor that doesn't pre-load Names dictionaries. Use only when the caller
-   * can guarantee Names won't be queried via either side.
+   * Compatibility constructor for callers migrating to {@link #copyForWrite(NamePage)}.
    *
-   * @deprecated prefer {@link #NamePage(NamePage, StorageEngineReader)} so Names dictionaries stay in
-   *             sync between cached and CoW'd pages.
+   * <p>
+   * The reader is intentionally unused: copying must never perform IO or populate the source's lazy
+   * dictionaries. The resulting page has exactly the same detached/lazy semantics as
+   * {@code copyForWrite(other)}.
+   * </p>
+   *
+   * @param other immutable persisted page to detach
+   * @param storageEngineReader ignored; retained temporarily for source compatibility
+   * @deprecated use {@link #copyForWrite(NamePage)}
    */
   @Deprecated
-  public NamePage(final NamePage other) {
-    this(other, null);
+  public NamePage(final NamePage other, final StorageEngineReader storageEngineReader) {
+    this(Objects.requireNonNull(other, "other must not be null"));
   }
 
 
@@ -478,7 +527,11 @@ public final class NamePage extends AbstractForwardingPage {
     final var maxNodeKey = maxNodeKeys.getOrDefault(offset, 0L);
     // Persisted live entry node-keys -> O(live) reconstruction; null falls back to the scan.
     final Roaring64Bitmap liveKeys = liveEntryNodeKeys.get(offset);
-    if (storageEngineReader.hasTrxIntentLog()) {
+    // A detached write page must own every mutable Names instance it materializes. It may be read
+    // through a read-only delegate before its first name mutation, so hasTrxIntentLog() alone is not
+    // a sufficient ownership test: adopting the shared NamesCache value here would let that later
+    // mutation alter historical readers. Reconstructing is paid once per touched dictionary.
+    if (writeCopy || storageEngineReader.hasTrxIntentLog()) {
       return Names.fromStorage(storageEngineReader, offset, maxNodeKey, liveKeys);
     }
 
@@ -821,7 +874,7 @@ public final class NamePage extends AbstractForwardingPage {
     final int offset = fsstSymbolTableOffset(databaseType);
     // Idempotent — it inspects the reference and returns early once the tree exists. Resources
     // that never enable FSST never reach here, so they never grow the delegate.
-    createNameIndexTree(databaseType, storageEngineWriter, offset, log);
+    createNameDictionaryTree(databaseType, storageEngineWriter, offset, log);
     // The id has to be chosen before the record is built, because a record is stored under the
     // node key it carries — and the record must be FILED under that same key. createRecord is
     // unusable here: it allocates a second key from this counter and picks the target record
@@ -866,10 +919,43 @@ public final class NamePage extends AbstractForwardingPage {
     if (cached != null) {
       return cached;
     }
+    // Cross-TRANSACTION retention. The memo above belongs to one writer; a read view retains blocks
+    // only for its own lifetime and is rebuilt per query execution, so without this every execution
+    // re-decodes the dictionary material it touches -- measured as 26,300 LZ77 decode dispatches
+    // over a 43-query leg with three global columns against 125 with none. Keyed by revision as
+    // well as node key: the sub-trie is copy-on-write with fresh keys, and the one record rewritten
+    // under a stable key (the generation header) is evicted by the put path below.
+    final GlobalDictionaryRecordCacheKey recordCacheKey =
+        new GlobalDictionaryRecordCacheKey(storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId(),
+            storageEngineReader.getRevisionNumber(), nodeKey);
+    final Cache<GlobalDictionaryRecordCacheKey, DataRecord> recordCache =
+        storageEngineReader.getBufferManager().getGlobalDictionaryRecordCache();
+    // A WRITER never reads through this cache and never fills it. Its own memo above already serves
+    // it, and a revision number does not identify content while a write transaction is open: an
+    // aborted transaction's records would stay cached under a revision a later transaction goes on
+    // to build, and key reuse would then serve content that was never committed. The writer memo is
+    // bounded by one transaction and evicted by the put path, so it does not have that exposure.
+    //
+    // Guarded exactly as getNames does four hundred lines above, and deliberately not with an
+    // `instanceof StorageEngineWriter`: `writeCopy` is a property of the PAGE that no reader test
+    // can see, and a delegate reader carrying a live intent log is not a writer. Neither is
+    // reachable on this path today, but two caches in one file guarding the same question with two
+    // different tests is how the third one gets written wrong -- and that precedent's own comment
+    // records a reader-state test already being found insufficient once.
+    final boolean writing = writeCopy || storageEngineReader.hasTrxIntentLog();
+    if (!writing) {
+      final DataRecord retained = recordCache.get(recordCacheKey);
+      if (retained != null) {
+        return retained;
+      }
+    }
     final DataRecord record =
         storageEngineReader.getRecord(nodeKey, IndexType.NAME, projectionValueDictionaryOffset(databaseType));
     if (record != null) {
       storageEngineReader.cacheProjectionDictionaryRecord(nodeKey, record);
+      if (!writing) {
+        recordCache.put(recordCacheKey, record);
+      }
     }
     return record;
   }
@@ -899,6 +985,13 @@ public final class NamePage extends AbstractForwardingPage {
     // the generation header is rewritten under its stable key, and a memoized pre-rewrite header
     // would resurrect a stale entry count on the next read.
     storageEngineWriter.evictProjectionDictionaryRecord(record.getNodeKey());
+    // The cross-transaction cache needs the same eviction, and for the same record: the
+    // generation header is the one key that is rewritten in place.
+    storageEngineWriter.getBufferManager()
+                       .getGlobalDictionaryRecordCache()
+                       .remove(new GlobalDictionaryRecordCacheKey(storageEngineWriter.getDatabaseId(),
+                           storageEngineWriter.getResourceId(), storageEngineWriter.getRevisionNumber(),
+                           record.getNodeKey()));
     createProjectionValueDictionaryTree(databaseType, storageEngineWriter, log);
     storageEngineWriter.persistRecord(record, IndexType.NAME, projectionValueDictionaryOffset(databaseType));
   }
@@ -923,8 +1016,8 @@ public final class NamePage extends AbstractForwardingPage {
    */
   public void createProjectionValueDictionaryTree(final DatabaseType databaseType,
       final StorageEngineWriter storageEngineWriter, final TransactionIntentLog log) {
-    createNameIndexTree(databaseType, storageEngineWriter, fsstSymbolTableOffset(databaseType), log);
-    createNameIndexTree(databaseType, storageEngineWriter, projectionValueDictionaryOffset(databaseType), log);
+    createNameDictionaryTree(databaseType, storageEngineWriter, fsstSymbolTableOffset(databaseType), log);
+    createNameDictionaryTree(databaseType, storageEngineWriter, projectionValueDictionaryOffset(databaseType), log);
   }
 
   /**
@@ -936,10 +1029,7 @@ public final class NamePage extends AbstractForwardingPage {
    */
   public boolean hasProjectionValueDictionary(final DatabaseType databaseType) {
     final int offset = projectionValueDictionaryOffset(databaseType);
-    if (offset >= getReferencesCount()) {
-      return false;
-    }
-    final PageReference reference = getOrCreateReference(offset);
+    final PageReference reference = referenceAtSlot(offset);
     return reference != null && (reference.getPage() != null || reference.getKey() != Constants.NULL_ID_LONG
         || reference.getLogKey() != Constants.NULL_ID_INT);
   }
@@ -960,12 +1050,13 @@ public final class NamePage extends AbstractForwardingPage {
    * The dictionary offsets this page currently holds bookkeeping for, as a gapless count.
    *
    * <p>
-   * The page's three bookkeeping maps and its live-key bitmaps are all written positionally — a
-   * count, then one entry per offset from 0 upwards — so the offsets in use must be exactly
-   * {@code 0..n-1}. That has always held because the offsets are allocated at bootstrap in a
-   * contiguous block per database type, but nothing enforced it, and a gap does not fail: the writer
-   * emits the wrong count, fabricates a zero for the missing offset, and drops the highest one. The
-   * result is a resource that reloads with a dictionary silently truncated to nothing.
+   * The keyed-trie node counters, level counters and live-key bitmaps are written positionally — a
+   * count, then one entry per offset from 0 upwards — so the dictionary offsets in use must be
+   * exactly {@code 0..n-1}. The secondary HOT page-key map is deliberately excluded and serialized as
+   * explicit sparse pairs. Dictionary offsets have always been allocated as a contiguous block per
+   * database type, but nothing enforced it, and a gap does not fail: the positional writer emits the
+   * wrong count, fabricates a zero for the missing offset, and drops the highest one. The result is a
+   * resource that reloads with a dictionary silently truncated to nothing.
    *
    * @return the number of offsets, i.e. one past the highest offset in use
    * @throws IllegalStateException if the offsets in use have a gap
@@ -1061,15 +1152,16 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
-   * Initialize name index tree.
+   * Initialize a keyed-trie name dictionary.
    *
    * @param databaseType The type of database.
    * @param storageEngineReader {@link StorageEngineReader} instance
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createNameIndexTree(final DatabaseType databaseType, final StorageEngineReader storageEngineReader,
+  public void createNameDictionaryTree(final DatabaseType databaseType, final StorageEngineReader storageEngineReader,
       final int index, final TransactionIntentLog log) {
+    requireNameDictionarySlot(databaseType, index);
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
@@ -1077,7 +1169,7 @@ public final class NamePage extends AbstractForwardingPage {
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.NAME, storageEngineReader, log);
+      PageUtils.createKeyedTrie(databaseType, reference, IndexType.NAME, storageEngineReader, log);
       if (maxNodeKeys.get(index) == 0L) {
         maxNodeKeys.put(index, 0L);
       } else {
@@ -1088,17 +1180,20 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
-   * Initialize HOT (Height Optimized Trie) name index tree.
+   * Initialize the HOT (Height Optimized Trie) secondary NAME index tree.
    *
    * <p>
-   * Creates a cache-friendly HOT index instead of the traditional RBTree-based index.
+   * Creates the canonical secondary NAME index root. HOT page keys are allocated independently
+   * through {@link #incrementAndGetMaxHotPageKey(int)}. In particular, a secondary index must never
+   * enter {@link #maxNodeKeys} or {@link #currentMaxLevelsOfIndirectPages}: those maps describe the
+   * keyed tries used by name dictionaries, FSST and the projection-value dictionary.
    * </p>
    *
    * @param storageEngineReader {@link StorageEngineReader} instance
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createHOTNameIndexTree(final StorageEngineReader storageEngineReader, final int index,
+  public void createNameIndexTree(final StorageEngineReader storageEngineReader, final int index,
       final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
@@ -1108,23 +1203,112 @@ public final class NamePage extends AbstractForwardingPage {
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createHOTTree(reference, IndexType.NAME, storageEngineReader, log);
-      if (maxNodeKeys.get(index) == 0L) {
-        maxNodeKeys.put(index, 0L);
-      } else {
-        maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
-      }
-      currentMaxLevelsOfIndirectPages.put(index, 0);
     }
   }
 
   /**
-   * Get indirect page reference.
+   * Return an existing keyed-trie dictionary root without creating a structural placeholder.
    *
-   * @param offset the offset of the indirect page, that is the index number
-   * @return indirect page reference
+   * @param databaseType database type defining the reserved dictionary prefix
+   * @param index physical reserved dictionary slot
+   * @return the existing dictionary root, or {@code null} if it has not been initialized
+   * @throws IllegalArgumentException if {@code index} belongs to a secondary NAME index
    */
-  public PageReference getIndirectPageReference(final int offset) {
-    return getOrCreateReference(offset);
+  public @Nullable PageReference getNameDictionaryReference(final DatabaseType databaseType, final int index) {
+    requireNameDictionarySlot(databaseType, index);
+    return referenceAtSlot(index);
+  }
+
+  private static void requireNameDictionarySlot(final DatabaseType databaseType, final int index) {
+    if (!isNameDictionarySlot(databaseType, index)) {
+      throw new IllegalArgumentException("NamePage slot " + index + " is not a reserved " + databaseType
+          + " dictionary slot; secondary NAME indexes use HOT storage");
+    }
+  }
+
+  /**
+   * Return the first secondary NAME index slot whose physical HOT tree has never been initialized.
+   *
+   * <p>
+   * Dropping an index removes its current catalog definition, but its copy-on-write tree remains
+   * reachable for historical revisions and therefore must never be assigned to a different index. A
+   * persisted HOT page-key high-water mark or a non-virgin root reference reserves the slot. A
+   * read-side placeholder does not. The scan starts after the database type's dictionary, FSST and
+   * projection-value slots, and never creates a reference while probing.
+   * </p>
+   *
+   * @param databaseType database type defining the reserved NamePage prefix
+   * @return the first physical slot that has never held a secondary NAME index
+   * @throws IllegalStateException if every secondary NAME slot has been initialized
+   */
+  public int nextUnallocatedSecondaryNameIndex(final DatabaseType databaseType) {
+    final int firstSecondaryIndex = firstSecondaryNameIndex(databaseType);
+    for (int index = firstSecondaryIndex; index < Constants.INP_REFERENCE_COUNT; index++) {
+      if (!secondaryNameIndexInitialized(index)) {
+        return index;
+      }
+    }
+    throw new IllegalStateException(
+        "Secondary NAME index reference space exhausted for " + databaseType + ": all slots from " + firstSecondaryIndex
+            + " through " + (Constants.INP_REFERENCE_COUNT - 1) + " have been initialized");
+  }
+
+  /**
+   * Determine whether a physical secondary NAME slot has ever owned a HOT tree.
+   *
+   * <p>
+   * This is a non-mutating probe: it neither grows the reference delegate nor materializes a
+   * placeholder. A persisted HOT page-key high-water mark and a non-virgin root reference are the two
+   * durable witnesses, matching {@link #nextUnallocatedSecondaryNameIndex(DatabaseType)}.
+   * </p>
+   *
+   * @param databaseType database type defining the first secondary slot
+   * @param index physical secondary NAME slot
+   * @return {@code true} if the slot has allocator metadata or a non-virgin root
+   * @throws IllegalArgumentException if {@code index} is outside the secondary NAME slot range
+   */
+  public boolean isSecondaryNameIndexInitialized(final DatabaseType databaseType, final int index) {
+    validateSecondaryNameIndexSlot(databaseType, index);
+    return secondaryNameIndexInitialized(index);
+  }
+
+  private boolean secondaryNameIndexInitialized(final int index) {
+    if (maxHotPageKeys.containsKey(index)) {
+      return true;
+    }
+    final PageReference reference = referenceAtSlot(index);
+    return reference != null && !reference.isVirginStructuralPlaceholder();
+  }
+
+  /**
+   * Return an existing secondary NAME HOT root without creating a structural placeholder.
+   *
+   * @param databaseType database type defining the secondary slot range
+   * @param index physical secondary NAME slot
+   * @return the existing root reference, or {@code null} if the slot has none
+   * @throws IllegalArgumentException if {@code index} is a reserved dictionary slot or outside the
+   *         page's reference space
+   */
+  public @Nullable PageReference getIndexReference(final DatabaseType databaseType, final int index) {
+    validateSecondaryNameIndexSlot(databaseType, index);
+    return referenceAtSlot(index);
+  }
+
+  private static void validateSecondaryNameIndexSlot(final DatabaseType databaseType, final int index) {
+    final int firstSecondaryIndex = firstSecondaryNameIndex(databaseType);
+    if (index < firstSecondaryIndex || index >= Constants.INP_REFERENCE_COUNT) {
+      throw new IllegalArgumentException("NamePage slot " + index + " is outside the secondary " + databaseType
+          + " NAME range [" + firstSecondaryIndex + ", " + Constants.INP_REFERENCE_COUNT + ")");
+    }
+  }
+
+  private @Nullable PageReference referenceAtSlot(final int index) {
+    return switch (delegate) {
+      case ReferencesPage4 references -> references.referenceAtOffset(index);
+      case BitmapReferencesPage references -> references.referenceAtOffset(index);
+      case FullReferencesPage references -> references.referenceAt(index);
+      default -> throw new IllegalStateException("Unknown NamePage delegate type: " + delegate.getClass().getName());
+    };
   }
 
   public int getNumberOfArrays() {
@@ -1209,6 +1393,10 @@ public final class NamePage extends AbstractForwardingPage {
    */
   public int getMaxHotPageKeySize() {
     return maxHotPageKeys.size();
+  }
+
+  Int2LongMap maxHotPageKeysForSerialization() {
+    return maxHotPageKeys;
   }
 
   /**

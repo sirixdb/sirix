@@ -1,5 +1,11 @@
 # HOT Strict-Binna Conformance Campaign — Engineering Results
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Branch:** `fix/hot-strict-binna-conformance` (112 commits ahead of `main`).
 **Status:** Engineering campaign complete. 99.2% violation reduction; remaining 1
 marginal violation is documented and architecturally bounded.
@@ -34,9 +40,10 @@ closure intrinsically, NOT via post-hoc patching. Confirmed multi-week scope.
 | 100K CAS production workload | 0 | **0** | (preserved) |
 | 1M production workload | 0 | **0** | (preserved) |
 
-The remaining 1 marginal violation is `I8-children-sorted-by-firstkey` at indirect 2 in
-strict-Binna verification mode. **Production reads work correctly** — the existing
-`HOTTrieReader.lowerOrUpperBound`'s Phase-3 walk-up compensates structurally.
+This historical campaign recorded one marginal `I8-children-sorted-by-firstkey` violation at
+indirect 2 in strict-Binna verification mode. The reader at that time masked it with a secondary
+lex route. That state is no longer accepted: current readers use the canonical PEXT route only,
+and writer output must pass the complete routing and disjoint-subtree invariant set.
 
 ---
 
@@ -136,10 +143,9 @@ coordinated modification. The path forward is documented in
 
 - **100 K CAS workload**: 0 violations (preserved across all 21 iterations).
 - **1 M / 10 M production workloads**: 0 violations (regression-tested).
-- **End-to-end reads**: correct on the strict-Binna branch — `HOTTrieReader.lowerOrUpperBound`'s
-  Phase-3 walk-up structurally compensates the marginal violation. Per the campaign's
-  earlier finding: "Phase-3 walk-up in HOTTrieReader.lowerOrUpperBound recovers
-  every key with full-scan misses=0."
+- **End-to-end reads (historical result)**: the then-current secondary lex route recovered every
+  key. This is retained as campaign history, not as a supported correctness mechanism; current
+  writer output must be invariant-clean for the sole PEXT reader route.
 
 ---
 

@@ -12,6 +12,8 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.SirixDeweyID;
@@ -101,6 +103,25 @@ public final class ProjectionBulkLoad {
       new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
 
   /** The record-fed builder; owns the current leaf, the dictionary sample and the dictionaries. */
+  private static final Logger LOGGER = LoggerFactory.getLogger(ProjectionBulkLoad.class);
+
+
+  /** The segment-scoped dictionary lane, or {@code null} when that lane is switched off. */
+  private volatile @Nullable SegmentDictionaryLane segmentDictionaryLane;
+
+  /**
+   * The writer the lane was installed on, so ABORT can uninstall it too.
+   *
+   * <p>
+   * {@code abort()} takes no writer argument, and the listener calls it DURING the load on a
+   * dictionary-budget breach — the load then keeps running and keeps flushing record pages. Without
+   * this reference the writer would keep handing the released resolver to every page it creates, so
+   * the in-flight gate would be guarding an open-ended stream of calls instead of a closing window.
+   * Held only to uninstall; nothing reads it for anything else.
+   * </p>
+   */
+  private volatile @Nullable StorageEngineWriter trieLaneWriter;
+
   private final ProjectionIndexBuilder builder;
 
   /** Bounded fence-chunk stream; only its current 32-leaf tail remains on heap. */
@@ -164,6 +185,9 @@ public final class ProjectionBulkLoad {
   private @Nullable SirixDeweyID feedLastRecordLocal;
 
   private boolean finished;
+
+  /** Whether the segment seal is installed on the commit seam and owns the lane's release. */
+  private boolean segmentSealArmed;
 
   /**
    * {@code -Dsirix.projection.bulkDiag=true} prints how every change notification was classified when
@@ -234,7 +258,7 @@ public final class ProjectionBulkLoad {
         setSummaries.append(leaf);
       }
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
-          ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaf, encodeWorkspace);
+          ProjectionIndexColumnSegmentCodec.encode(leaf, encodeWorkspace);
       final ProjectionIndexHOTStorage currentStorage = currentStorage();
       checkedPublisher.publish(currentStorage, physicalSlot, encoded);
       fenceWriter.append(currentStorage, leaf.firstRecordKey(), leaf.lastRecordKey());
@@ -282,6 +306,79 @@ public final class ProjectionBulkLoad {
         DEFAULT_ROW_GROUP_PUBLISHER);
   }
 
+  /** Stop handing segment views to new pages; the lane's state dies with the load. */
+  private void releaseSegmentLane(final @Nullable StorageEngineWriter storageEngineWriter) {
+    final SegmentDictionaryLane lane = segmentDictionaryLane;
+    if (lane == null) {
+      return;
+    }
+    segmentDictionaryLane = null;
+    lane.release(storageEngineWriter);
+    // And drop the builder's reference: on a load that throws before the seal, every unsealed
+    // segment's values — up to the byte budget EACH — would otherwise stay reachable through the
+    // builder for as long as it lives.
+    builder.setSegmentScopedDictionaries(null);
+  }
+
+  /**
+   * Arm the SEGMENT-scoped dictionary lane, the alternative to the trie lane that needs no pre-pass:
+   * a segment's dictionary is minted as its pages are encoded and sealed when they are all done.
+   * Silent when the lane is switched off, which is every load that has not asked for it.
+   */
+  private void bindSegmentLane(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    final SegmentDictionaryLane lane =
+        SegmentDictionaryLane.bind(storageEngineWriter, indexDef.getProjectionFields().size());
+    if (lane == null) {
+      return;
+    }
+    this.segmentDictionaryLane = lane;
+    this.trieLaneWriter = storageEngineWriter;
+    builder.setSegmentScopedDictionaries(lane.dictionaries());
+  }
+
+  /**
+   * Seal finished segments at EVERY commit, not just the last one.
+   *
+   * <p>
+   * Without this a load holds every segment's values until it finishes, which is affordable at 1M
+   * (two segments) and is not at 100M: measured, the load died with {@code OutOfMemoryError} at 33 GB
+   * written on a 10 GB heap, with roughly forty-five segments live at about 230 MiB each. A segment
+   * below the high-water mark can take no further page, so its dictionary is already final and the
+   * memory is pure waste.
+   * </p>
+   *
+   * <p>
+   * Armed at the start of EVERY intermediate commit, on that commit's own writer. Installing it once
+   * when the lane binds does not work and fails silently: an auto-commit ends the page transaction,
+   * so the writer captured then never reaches another seam and the listener fires zero times —
+   * measured, with 24 segments and 43 commits. {@link #armSegmentSeal} takes the seam over for the
+   * final commit, which seals the tail and publishes the anchors. Neither writes the directory — that
+   * names every segment and is written once, when the last seal knows them all.
+   * </p>
+   */
+  private void armIncrementalSegmentSeal(final StorageEngineWriter storageEngineWriter) {
+    final SegmentDictionaryLane lane = segmentDictionaryLane;
+    if (SEAL_ARM_DIAG) {
+      System.err.println("[seal] arm attempt: lane=" + (lane != null) + " finalArmed=" + segmentSealArmed + " writer="
+          + storageEngineWriter.getClass().getSimpleName() + "@" + System.identityHashCode(storageEngineWriter));
+    }
+    if (lane == null || segmentSealArmed) {
+      return; // no lane, or the FINAL seal already owns the seam
+    }
+    storageEngineWriter.installEncodePassCompleteListener(() -> {
+      final ProjectionIndexMetadata.SegmentAnchor[] sealed = lane.sealCompleted(storageEngineWriter);
+      if (sealed.length > 0) {
+        incrementallySealed += sealed.length;
+      }
+    });
+  }
+
+  /** {@code (segment, column)} dictionaries sealed mid-load; the lane's only evidence it kept up. */
+  private int incrementallySealed;
+
+  /** Reports every attempt to arm the incremental seal; {@code -Dsirix.projDiag}. */
+  private static final boolean SEAL_ARM_DIAG = Boolean.getBoolean("sirix.projDiag");
+
   /** Internal publication-injected form used by focused storage-failure coverage. */
   static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
       final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter, final long expectedRows,
@@ -306,16 +403,22 @@ public final class ProjectionBulkLoad {
       throw new IllegalStateException(
           "A projection bulk load is already active for " + key + " — finish or abort it before starting another");
     }
+    boolean persistentMutationStarted = false;
     try {
       final ProjectionIndexHOTStorage storage =
           ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
-      // begin() is an explicit full build boundary. Clear every prior positive storage slot and
-      // sparse negative record locator before publishing the fail-closed tombstone for the load.
-      storage.resetTree();
+      // The load-time builder is legal only as a virgin-tree initializer. Existing definitions have
+      // exactly one update path: incremental listener maintenance.
+      storage.requireVirginTreeForInitialBuild();
+      persistentMutationStarted = true;
       ProjectionStructuralOrderDirectory.open(storage).seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
+      load.bindSegmentLane(storageEngineWriter, indexDef);
       return load;
     } catch (final Throwable failure) {
+      if (persistentMutationStarted) {
+        poisonOwningTransaction(storageEngineWriter, failure);
+      }
       // The registry entry is already visible. A failure to establish the tombstone must retire it
       // before escaping, or a retry sees a phantom "already loading" build with no fail-closed slot.
       load.poisonAfterFailure(failure);
@@ -348,6 +451,43 @@ public final class ProjectionBulkLoad {
    * Drop the load without finishing it; slot 0 keeps the tombstone, so readers stay on the generic
    * path.
    */
+  /**
+   * Mid-feed abandonment: the unconditional operator notice (same sentence shape as the listener's
+   * drain-lane arm, for the same reason — a silent degradation reads as a healthy load), then
+   * {@link #abort()}. Subsequent feed calls no-op via {@link #isFinished()}.
+   */
+  /**
+   * Test seam: {@code false} restores the pre-fix coordinator-lane behaviour in which a dictionary
+   * budget breach propagated out of the feed and poisoned the whole load. Only
+   * {@code CoordinatorFeedBudgetAbandonTest} flips it.
+   */
+  static volatile boolean ABANDON_ON_FEED_BUDGET_BREACH = true;
+
+  private synchronized void abandonDuringFeed(final GlobalDictionaryBudgetExceededException tooBig,
+      final StorageEngineWriter storageEngineWriter) {
+    if (finished) {
+      return;
+    }
+    final String breach = tooBig.breachingTerm() == null
+        ? "declined an unsafe allocation over " + tooBig.entryCount() + " distinct values (" + tooBig.retainedBytes()
+            + " B retained): " + tooBig.admissionDetail()
+        : "needed " + tooBig.breachingBytes() + " B (" + tooBig.breachingTerm() + ") over " + tooBig.entryCount()
+            + " distinct values, past its " + tooBig.budgetBytes() + " B budget (" + tooBig.retainedBytes()
+            + " B retained)";
+    System.err.println("[proj] PROJECTION ABANDONED during the load: index " + indexDef.getID() + ", column "
+        + tooBig.column() + " " + breach + ". The load completes; the projection is STALE and every query will take"
+        + " the generic pipeline. After the load, drop and commit this stale definition before creating a"
+        + " replacement in a new projection tree.");
+    abort();
+    // Same tombstone the listener lane leaves: the machine-readable reason rides the write
+    // transaction (invisible until commit, gone on rollback) so an operator or a guard can tell
+    // "abandoned for its dictionary budget" from an unspecified failure. Never overwritten later; a
+    // replacement goes under a fresh tree id.
+    new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID()).putBlob(0,
+        ProjectionIndexMetadata.staleTombstone(ProjectionIndexMetadata.StaleReason.GLOBAL_DICTIONARY_BUDGET_EXCEEDED)
+                               .serialize());
+  }
+
   public synchronized void abort() {
     if (finished) {
       return;
@@ -356,6 +496,10 @@ public final class ProjectionBulkLoad {
     // a resumable build after publication failed, and repeated listener cleanup is a no-op.
     finished = true;
     ACTIVE.remove(key, this);
+    // The lane's per-thread snapshot readers are a resource; an aborted load must free them exactly
+    // as it frees the bloom chunks and the summaries. The writer reference is not available here, so
+    // only the readers are closed -- the writer's own resolver field dies with the writer.
+    releaseSegmentLane(trieLaneWriter);
     try {
       bloomChunks.release();
     } finally {
@@ -433,6 +577,11 @@ public final class ProjectionBulkLoad {
     return builder.newChunkBatch(pathSummary, expectedRows, recordSetKey);
   }
 
+  /** Maximum rows whose row-indexed arrays stay at or below the 256 KiB HFT payload ceiling. */
+  public int maxHftChunkRows() {
+    return ProjectionChunkRowBatch.maxHftChunkRows(builder.columnKinds().length);
+  }
+
   /**
    * Append one worker-extracted row, in document order — the coordinator-fed replacement for the
    * {@link #observeRecord}/{@link #drain} pair: the row's values come from the batch instead of a
@@ -444,6 +593,9 @@ public final class ProjectionBulkLoad {
   public void appendCoordinatorRow(final StorageEngineWriter storageEngineWriter, final ProjectionChunkRowBatch batch,
       final int row, final long recordKey, final long containerKey, final long documentRootKey) {
     if (finished) {
+      return; // abandoned mid-load — the load continues, the projection does not
+    }
+    if (finished) {
       throw new IllegalStateException("Projection index " + indexDef.getID() + " on " + key + " was fed record "
           + recordKey + " after its load-time build was finished.");
     }
@@ -452,6 +604,7 @@ public final class ProjectionBulkLoad {
           + " is coordinator-fed in document order, which is append-only: record " + recordKey
           + " arrived after record " + lastClosedRecordKey + " had already been appended.");
     }
+    boolean persistentMutationStarted = false;
     try {
       coordinatorFeed = true;
       ProjectionStructuralOrderDirectory.Accessor directory = feedDirectory;
@@ -463,6 +616,7 @@ public final class ProjectionBulkLoad {
         this.feedDirectory = directory;
         builder.beginStreamingDictionaryEpoch(storageEngineWriter);
       }
+      persistentMutationStarted = true;
       final SirixDeweyID orderLabel =
           directory.fullLabelForInOrderAppend(recordKey, containerKey, documentRootKey, feedLastRecordLocal);
       builder.appendBatchRow(batch, row, recordKey, orderLabel);
@@ -470,7 +624,24 @@ public final class ProjectionBulkLoad {
       lastClosedRecordKey = recordKey;
       diagObserved++;
       diagClosed++;
+    } catch (final GlobalDictionaryBudgetExceededException tooBig) {
+      // The ONE recoverable failure of this feed: a resource-wide dictionary hit its allocation
+      // bound. The probe front refuses BEFORE mutating, so the build state is consistent — and the
+      // designed outcome (the exception says it itself) is to abandon the PROJECTION and let the
+      // LOAD complete on the generic pipeline. The listener's drain lane already does exactly this;
+      // without this arm the coordinator feed lane poisoned the whole transaction instead, which is
+      // how a 100M AUTO load died at 674k distinct URL values with exit 1.
+      if (!ABANDON_ON_FEED_BUDGET_BREACH) {
+        // Test seam: the pre-fix behaviour, so the regression test can prove this arm is what keeps
+        // the load alive.
+        poisonAfterFailure(tooBig);
+        throw tooBig;
+      }
+      abandonDuringFeed(tooBig, storageEngineWriter);
     } catch (final Throwable failure) {
+      if (persistentMutationStarted) {
+        poisonOwningTransaction(storageEngineWriter, failure);
+      }
       poisonAfterFailure(failure);
       throw ProjectionBulkLoad.<RuntimeException>rethrowUnchecked(failure);
     }
@@ -535,6 +706,7 @@ public final class ProjectionBulkLoad {
     if (finished) {
       return;
     }
+    armIncrementalSegmentSeal(storageEngineWriter);
     long savedNodeKey = -1L;
     boolean restoreCursor = false;
     Throwable primaryFailure = null;
@@ -606,9 +778,7 @@ public final class ProjectionBulkLoad {
       }
       if (cleanupFailure != null) {
         if (primaryFailure != null) {
-          if (cleanupFailure != primaryFailure) {
-            primaryFailure.addSuppressed(cleanupFailure);
-          }
+          addSuppressedSafely(primaryFailure, cleanupFailure);
         } else {
           poisonAfterFailure(cleanupFailure);
           throw ProjectionBulkLoad.<RuntimeException>rethrowUnchecked(cleanupFailure);
@@ -622,9 +792,28 @@ public final class ProjectionBulkLoad {
     try {
       abort();
     } catch (final Throwable cleanupFailure) {
-      if (cleanupFailure != primaryFailure) {
-        primaryFailure.addSuppressed(cleanupFailure);
-      }
+      addSuppressedSafely(primaryFailure, cleanupFailure);
+    }
+  }
+
+  /** Prevent a caller from committing a partially published multi-slot operation. */
+  private static void poisonOwningTransaction(final StorageEngineWriter storageEngineWriter,
+      final Throwable primaryFailure) {
+    try {
+      storageEngineWriter.markTransactionRollbackOnly(primaryFailure);
+    } catch (final RuntimeException | Error poisonFailure) {
+      addSuppressedSafely(primaryFailure, poisonFailure);
+    }
+  }
+
+  private static void addSuppressedSafely(final Throwable primaryFailure, final Throwable secondaryFailure) {
+    if (primaryFailure == secondaryFailure) {
+      return;
+    }
+    try {
+      primaryFailure.addSuppressed(secondaryFailure);
+    } catch (final RuntimeException | Error ignored) {
+      // Preserve the authoritative publication failure even when cleanup runs under VM pressure.
     }
   }
 
@@ -667,13 +856,22 @@ public final class ProjectionBulkLoad {
       final byte[] columnKinds = builder.columnKinds();
       bloomChunks.finishChunks(storage, fenceWriter.rowGroupCount(), columnKinds);
       final long[] valueDictionaryHeaderKeys = builder.flushStreamingDictionaryGeneration(storageEngineWriter);
-      fenceWriter.finish(storage, 0);
-      // priorRowGroupCount 0: a bulk load owns a sub-tree it created itself, so there is nothing above
-      // the new leaf count to tombstone.
-      ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(), 0,
+      fenceWriter.finish(storage);
+      // A bulk load owns the virgin sub-tree it created itself; publication never replaces prior units.
+      ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(),
           buildRevision, columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
+      armSegmentSeal(storageEngineWriter);
       builder.publishGlobalDictionaryColumnsBuilt();
     } finally {
+      // Before every other release, because it is the one that reports: the probe/hit/absent counters
+      // are the lane's only evidence of what it actually did, and the converted-arm gate asserts
+      // absent == 0. A finish that failed still frees the snapshot readers.
+      if (!segmentSealArmed) {
+        // Armed, the lane belongs to the commit seam: it still has to serve the pages this commit
+        // encodes and to report them, and the seam's own listener releases it afterwards. Unarmed —
+        // the lane was off, or finish() failed before arming — this is the only release there is.
+        releaseSegmentLane(storageEngineWriter);
+      }
       try {
         bloomChunks.release();
       } finally {
@@ -690,6 +888,68 @@ public final class ProjectionBulkLoad {
         }
       }
     }
+  }
+
+  /**
+   * Arm the seal for the COMMIT SEAM rather than sealing here. A no-op when the lane is off.
+   *
+   * <p>
+   * This method runs inside {@code beforeCommit}, which is the wrong side of the encode pass: the
+   * tail pages of the load — the ones the commit itself serializes — have not been encoded yet, and
+   * they would mint into a dictionary already written. So the seal is installed on
+   * {@link StorageEngineWriter#installEncodePassCompleteListener}, the seam between the encode pass
+   * and the recursive commit, where every page has produced its bytes and the page graph is not yet
+   * written. The listener clears itself and releases the lane, so a load that never commits leaves
+   * the lane to {@code releaseSegmentLane} exactly as before.
+   * </p>
+   */
+  private void armSegmentSeal(final StorageEngineWriter storageEngineWriter) {
+    final SegmentDictionaryLane lane = segmentDictionaryLane;
+    if (lane == null) {
+      return;
+    }
+    // Captured, because finish()'s own cleanup nulls the field before the commit reaches the seam.
+    final ProjectionIndexHOTStorage sealStorage = storage;
+    segmentSealArmed = true;
+    storageEngineWriter.installEncodePassCompleteListener(() -> {
+      storageEngineWriter.installEncodePassCompleteListener(null); // armed for one commit
+      try {
+        sealSegmentDictionaries(storageEngineWriter, lane, sealStorage);
+      } finally {
+        lane.release(storageEngineWriter);
+      }
+    });
+  }
+
+  /**
+   * Seal every segment dictionary and record where each went, then republish slot 0 with the anchor
+   * table.
+   *
+   * <p>
+   * Rewrites the slot {@code finishPersistWithStreamingFences} wrote — the same shape
+   * {@code ProjectionRankPass} uses when it turns a column global after the fact. It cannot run
+   * before: the anchors do not exist until the dictionaries are written, and the dictionaries cannot
+   * be written until every page has been encoded, which is exactly what the seam this runs on
+   * guarantees.
+   * </p>
+   */
+  private void sealSegmentDictionaries(final StorageEngineWriter storageEngineWriter, final SegmentDictionaryLane lane,
+      final ProjectionIndexHOTStorage sealStorage) {
+    final ProjectionIndexMetadata.SegmentAnchor[] anchors = lane.sealAll(storageEngineWriter);
+    if (anchors.length == 0) {
+      return;
+    }
+    final byte[] blob = sealStorage.getBlob(0L);
+    final ProjectionIndexMetadata metadata = blob == null
+        ? null
+        : ProjectionIndexMetadata.parse(blob);
+    if (metadata == null) {
+      throw new IllegalStateException("segment dictionary lane cannot anchor: slot 0 holds no readable metadata");
+    }
+    final ProjectionIndexMetadata next = new ProjectionIndexMetadata(metadata.rootPath(), metadata.fieldPaths(),
+        metadata.fieldNames(), metadata.columnKinds(), metadata.rowGroupCount(), metadata.buildRevision(),
+        metadata.setValueRowCounts(), metadata.valueDictionaryHeaderKeys(), anchors);
+    sealStorage.putBlob(0L, next.serialize());
   }
 
   /** Rows appended so far — test and diagnostic observability. */

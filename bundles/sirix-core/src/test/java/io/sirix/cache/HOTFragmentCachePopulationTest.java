@@ -7,13 +7,10 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.Databases;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
-import io.sirix.index.name.NameIndexListenerFactory;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -25,43 +22,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The HOT copy-on-write write path must actually POPULATE the fragment cache.
  *
- * <p>Under the default SLIDING_SNAPSHOT with {@code maxNumberOfRevisionsToRestore = 3} the
- * carry-forward fires from about a leaf's third commit onward, and it loads the versioning window on
- * every copy-on-write. Those chain fragments used to be read straight off the page reader and closed
- * again, so the next commit re-read them; a populated fragment cache after several commits is the
- * observable difference between that and reusing them.</p>
+ * <p>
+ * Under the default SLIDING_SNAPSHOT with {@code maxNumberOfRevisionsToRestore = 3} the
+ * carry-forward fires from about a leaf's third commit onward, and it loads the versioning window
+ * on every copy-on-write. Those chain fragments used to be read straight off the page reader and
+ * closed again, so the next commit re-read them; a populated fragment cache after several commits
+ * is the observable difference between that and reusing them.
+ * </p>
  *
- * <p>This asserts the cache is populated rather than a specific hit count: the number of reads is a
+ * <p>
+ * This asserts the cache is populated rather than a specific hit count: the number of reads is a
  * function of chain length, leaf splits and eviction timing, so pinning it would make the test a
- * change-detector rather than a regression guard.</p>
+ * change-detector rather than a regression guard.
+ * </p>
  *
- * <p>Scope, stated honestly: {@code loadHOTPageFragments} is shared by the write path and by
- * versioned HOT reads, so a populated cache proves the fragment cache is reached by HOT chain
- * traversal for THIS resource — not that the write path specifically reached it. The cache is
- * cleared immediately before the commit loop and the assertion matches only this resource's
- * database/resource ids, so residue from another test class in the same fork cannot make it pass.</p>
+ * <p>
+ * Scope, stated honestly: {@code loadHOTPageFragments} is shared by the write path and by versioned
+ * HOT reads, so a populated cache proves the fragment cache is reached by HOT chain traversal for
+ * THIS resource — not that the write path specifically reached it. The cache is cleared immediately
+ * before the commit loop and the assertion matches only this resource's database/resource ids, so
+ * residue from another test class in the same fork cannot make it pass.
+ * </p>
  */
 public final class HOTFragmentCachePopulationTest {
 
-  private static String originalHOTSetting;
-
   /** The global buffer manager whose sweepers are parked for the duration of each test. */
   private BufferManagerImpl bufferManager;
-
-  @BeforeAll
-  static void enableHOT() {
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOT() {
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
 
   @BeforeEach
   void setUp() {
@@ -98,8 +84,6 @@ public final class HOTFragmentCachePopulationTest {
 
   @Test
   void slidingSnapshotCommitsPopulateTheHotFragmentCache() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled for this test");
-
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final long databaseId;
     final long resourceId;
@@ -110,8 +94,7 @@ public final class HOTFragmentCachePopulationTest {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       final IndexDef nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(nameIndexDef), trx);
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"items\":[{\"k0\":0}]}"));
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\":[{\"k0\":0}]}"));
       trx.commit();
     }
 
@@ -134,11 +117,11 @@ public final class HOTFragmentCachePopulationTest {
       }
     }
 
-    final boolean cachedForThisResource = fragmentCache.asMap()
-                                                       .keySet()
-                                                       .stream()
-                                                       .anyMatch(key -> key.getDatabaseId() == databaseId
-                                                           && key.getResourceId() == resourceId);
+    final boolean cachedForThisResource =
+        fragmentCache.asMap()
+                     .keySet()
+                     .stream()
+                     .anyMatch(key -> key.getDatabaseId() == databaseId && key.getResourceId() == resourceId);
     assertTrue(cachedForThisResource,
         "HOT chain traversal must retain this resource's fragments for the next commit instead of "
             + "re-reading them uncached on every copy-on-write");

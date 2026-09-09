@@ -20,6 +20,7 @@ import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 
 import java.util.AbstractList;
 import java.util.Arrays;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -55,44 +56,26 @@ public final class TransactionIntentLog implements AutoCloseable {
   /** Number of active entries in the current arrays. */
   private int size;
 
-  // ============== HOT-LEAF ENTRY INDEX (sharing-check scan narrowing) ==============
-  // Two places have to answer "is this leaf page also held by another log entry?" before they may
-  // free its 64KB off-heap slot — releaseOrphanedHOTLeaves once per subtree rebuild, and put()'s
-  // CoW path once per replaced container — and both did it by walking all `size` entries. A
-  // transaction that shreds a document while maintaining HOT indexes runs those against a log of
-  // hundreds of thousands of entries, so the walks grew with the square of the transaction. Almost
-  // none of those entries hold a HOT leaf — the vast majority are node record pages — so the log
-  // records which indices have EVER held one and both walks visit only those.
-  //
-  // Deliberately a superset, never a refcount: `put` is the only writer of `entries`, so every
-  // index currently holding a HOT leaf is in here, and a stale index costs one re-read of
-  // `entries[i]`, which stays the authority. A drifting count could free a live page; a stale
-  // superset cannot.
-
-  /** Log indices that have ever held a {@link HOTLeafPage} in the current generation. */
-  private int[] hotLeafIndices = new int[16];
-
-  /** Number of valid entries in {@link #hotLeafIndices}. */
-  private int hotLeafIndexCount;
-
-  /** Membership bitset over log indices, so each index is appended at most once. */
-  private long[] hotLeafIndexBits = new long[8];
-
   /**
-   * Scratch for {@link #releaseOrphanedHOTLeaves}: orphan leaf -> the log index that owns it.
+   * Scratch for {@link #releaseOrphanedHOTLeaves}: the identity set of candidate orphan leaves.
    *
    * <p>
-   * Reference-keyed (identity, like {@code IdentityHashMap}) with a primitive {@code int} value, and
-   * reused across calls. The subtree rebuilds this method serves fire in the thousands during a shred
-   * that maintains an index, each handing over a whole subtree's leaves, so a fresh map and an
-   * {@code Integer} box per orphan were the bulk of its cost. The TIL is transaction-private, so a
-   * field is as safe here as a local was.
+   * Reference-keyed (identity, like {@code IdentityHashMap}) and reused across calls. The primitive
+   * value is unused; this stays a map rather than allocating a second identity collection type. The
+   * TIL is transaction-private, so a field is as safe here as a local was.
    * </p>
    */
   private final Reference2IntMap<HOTLeafPage> orphanCloseable = new Reference2IntOpenHashMap<>();
 
+  /** Exact number of live current/pinned containers owning each HOT leaf instance. */
+  private final Reference2IntMap<HOTLeafPage> hotLeafOwnerCounts = new Reference2IntOpenHashMap<>();
+
+  /** O(1) ownership probes performed by orphan retirement (diagnostic/test evidence). */
+  private long hotLeafOwnerProbeCount;
+
   {
     orphanCloseable.defaultReturnValue(-1);
+    hotLeafOwnerCounts.defaultReturnValue(0);
   }
 
   /**
@@ -189,6 +172,14 @@ public final class TransactionIntentLog implements AutoCloseable {
   public static final int RELEASE_SITE_FRONTIER_SPLICE = 4;
   /** {@link #releaseOrphanedHOTLeaves} caller: the root-leaf rebuild. */
   public static final int RELEASE_SITE_LEAF_REBUILD_ROOT = 5;
+  /** {@link #releaseOrphanedHOTLeaves} caller: the off-path two-leaf strand migration. */
+  public static final int RELEASE_SITE_TWO_LEAF_MIGRATION = 6;
+  /** {@link #releaseOrphanedHOTLeaves} caller: an ordinary full-leaf split/integration. */
+  public static final int RELEASE_SITE_LEAF_SPLIT = 7;
+  /** {@link #releaseOrphanedHOTLeaves} caller: the canonical strand split/integration. */
+  public static final int RELEASE_SITE_STRAND_SPLIT = 8;
+  /** {@link #releaseOrphanedHOTLeaves} caller: a branch leaf paired under a fresh BiNode. */
+  public static final int RELEASE_SITE_BRANCH_LEAF_PAIR = 9;
 
   /** A released page key nothing tagged — pre-instrumentation state or an unknown path. */
   public static final int RELEASE_SITE_UNKNOWN = -1;
@@ -208,6 +199,10 @@ public final class TransactionIntentLog implements AutoCloseable {
       case RELEASE_SITE_REBUILD_EXISTING -> "rebuild-existing-subtree";
       case RELEASE_SITE_FRONTIER_SPLICE -> "leaf-frontier-splice";
       case RELEASE_SITE_LEAF_REBUILD_ROOT -> "leaf-rebuild-root";
+      case RELEASE_SITE_TWO_LEAF_MIGRATION -> "two-leaf-migration";
+      case RELEASE_SITE_LEAF_SPLIT -> "leaf-split";
+      case RELEASE_SITE_STRAND_SPLIT -> "strand-split";
+      case RELEASE_SITE_BRANCH_LEAF_PAIR -> "branch-leaf-pair";
       default -> "unknown-site";
     };
   }
@@ -852,9 +847,22 @@ public final class TransactionIntentLog implements AutoCloseable {
       // After a leaf split the old complete page (original from disk/copy) is no longer
       // needed — the modified page has completeDump=true and all entries marked dirty.
       final PageContainer oldContainer = entries[existingKey];
-      if (oldContainer != null && oldContainer != value) {
-        closeOrphanedHOTLeafPages(oldContainer, value, existingKey);
-        closeOrphanedRecordPages(oldContainer, value, existingKey);
+      final boolean replacingContainer = oldContainer != value;
+      if (replacingContainer) {
+        // Stage the new ownership before inspecting the old container. Apart from making the
+        // identity-map allocation a pre-publication operation, this also makes a HOT leaf reused by
+        // the new container visibly shared while the old container is retired.
+        noteHOTLeafOwners(value);
+        try {
+          if (oldContainer != null) {
+            closeOrphanedHOTLeafPages(oldContainer, value);
+            closeOrphanedRecordPages(oldContainer, value, existingKey);
+            forgetHOTLeafOwners(oldContainer);
+          }
+        } catch (final RuntimeException | Error failure) {
+          forgetHOTLeafOwners(value);
+          throw failure;
+        }
       }
       // Reuse existing logKey — update container in-place.
       // This ensures that PageReference copies (from COW operations) that share
@@ -862,7 +870,6 @@ public final class TransactionIntentLog implements AutoCloseable {
       entries[existingKey] = value;
       entryRefs[existingKey] = ref;
       value.setTransactionLogIdentity(currentGeneration, existingKey);
-      noteHOTLeafEntry(existingKey, value);
       ref.setActiveTilGeneration(currentGeneration);
     } else {
       // A cross-generation re-put supersedes the frozen entry this reference used to identify:
@@ -876,22 +883,27 @@ public final class TransactionIntentLog implements AutoCloseable {
 
       // New entry
       ensureCapacity();
-      final boolean forwardedByReference = ref.bindToTransactionLog(size, currentGeneration, supersedesPriorEntry);
+      noteHOTLeafOwners(value);
+      final boolean forwardedByReference;
+      try {
+        forwardedByReference = ref.bindToTransactionLog(size, currentGeneration, supersedesPriorEntry);
+      } catch (final RuntimeException | Error failure) {
+        forgetHOTLeafOwners(value);
+        throw failure;
+      }
       entries[size] = value;
       entryRefs[size] = ref;
       value.setTransactionLogIdentity(currentGeneration, size);
-      noteHOTLeafEntry(size, value);
+      final int newEntryIndex = size++;
 
       // Legacy fallback for a reference constructed by old/manual field copying without sharing
       // its resolution handle. Every in-tree copy path shares the handle; retaining this fallback
       // makes an omitted integration path fail safe rather than lose a page.
       if (supersedesPriorEntry && !forwardedByReference) {
         final long oldPacked = ((long) priorGeneration << 32) | (existingKey & 0xFFFFFFFFL);
-        final long newPacked = ((long) currentGeneration << 32) | (size & 0xFFFFFFFFL);
+        final long newPacked = ((long) currentGeneration << 32) | (newEntryIndex & 0xFFFFFFFFL);
         forwardedEntries.put(oldPacked, newPacked);
       }
-
-      size++;
     }
 
     releaseContainerGuards(value);
@@ -935,40 +947,61 @@ public final class TransactionIntentLog implements AutoCloseable {
     }
   }
 
-  /**
-   * Note that log index {@code index} holds a HOT leaf page, so {@link #releaseOrphanedHOTLeaves}
-   * will look at it. Idempotent and O(1).
-   *
-   * @param index the log index the container was stored at
-   * @param container the container just stored there
-   */
-  private void noteHOTLeafEntry(final int index, final PageContainer container) {
-    if (container == null
-        || (!(container.getComplete() instanceof HOTLeafPage) && !(container.getModified() instanceof HOTLeafPage))) {
+  /** Add one current/pinned container owner for each distinct HOT leaf it holds. */
+  private void noteHOTLeafOwners(final PageContainer container) {
+    if (container == null) {
       return;
     }
-    final int word = index >>> 6;
-    if (word >= hotLeafIndexBits.length) {
-      hotLeafIndexBits = Arrays.copyOf(hotLeafIndexBits, Math.max(hotLeafIndexBits.length << 1, word + 1));
+    final Page complete = container.getComplete();
+    final Page modified = container.getModified();
+    if (complete instanceof HOTLeafPage completeLeaf) {
+      incrementHOTLeafOwner(completeLeaf);
     }
-    final long bit = 1L << (index & 63);
-    if ((hotLeafIndexBits[word] & bit) != 0) {
-      return;
+    if (modified instanceof HOTLeafPage modifiedLeaf && modifiedLeaf != complete) {
+      try {
+        incrementHOTLeafOwner(modifiedLeaf);
+      } catch (final RuntimeException | Error failure) {
+        if (complete instanceof HOTLeafPage completeLeaf) {
+          decrementHOTLeafOwner(completeLeaf);
+        }
+        throw failure;
+      }
     }
-    hotLeafIndexBits[word] |= bit;
-    if (hotLeafIndexCount == hotLeafIndices.length) {
-      hotLeafIndices = Arrays.copyOf(hotLeafIndices, hotLeafIndices.length << 1);
-    }
-    hotLeafIndices[hotLeafIndexCount++] = index;
   }
 
-  /**
-   * Forget the HOT-leaf index; the log indices it holds no longer address the current arrays. Called
-   * wherever {@link #entries} is replaced or emptied.
-   */
-  private void resetHOTLeafIndex() {
-    hotLeafIndexCount = 0;
-    Arrays.fill(hotLeafIndexBits, 0L);
+  /** Remove one current/pinned container owner for each distinct HOT leaf it holds. */
+  private void forgetHOTLeafOwners(final PageContainer container) {
+    if (container == null) {
+      return;
+    }
+    final Page complete = container.getComplete();
+    final Page modified = container.getModified();
+    if (complete instanceof HOTLeafPage completeLeaf) {
+      decrementHOTLeafOwner(completeLeaf);
+    }
+    if (modified instanceof HOTLeafPage modifiedLeaf && modifiedLeaf != complete) {
+      decrementHOTLeafOwner(modifiedLeaf);
+    }
+  }
+
+  private void incrementHOTLeafOwner(final HOTLeafPage leaf) {
+    final int owners = hotLeafOwnerCounts.getInt(leaf);
+    if (owners == Integer.MAX_VALUE) {
+      throw new IllegalStateException("HOT leaf owner count overflow for page " + leaf.getPageKey());
+    }
+    hotLeafOwnerCounts.put(leaf, owners + 1);
+  }
+
+  private void decrementHOTLeafOwner(final HOTLeafPage leaf) {
+    final int owners = hotLeafOwnerCounts.getInt(leaf);
+    if (owners <= 0) {
+      throw new IllegalStateException("HOT leaf owner count underflow for page " + leaf.getPageKey());
+    }
+    if (owners == 1) {
+      hotLeafOwnerCounts.removeInt(leaf);
+    } else {
+      hotLeafOwnerCounts.put(leaf, owners - 1);
+    }
   }
 
   /**
@@ -1335,6 +1368,40 @@ public final class TransactionIntentLog implements AutoCloseable {
   public static final long SNAPSHOT_PROMOTE_TO_TIL = Long.MIN_VALUE;
 
   /**
+   * Side-channel disk-offset sentinel for a KVL the background flush skipped WITHOUT serializing:
+   * every one of its unresolved overflow carriers is an immutable side page staged in the writer's
+   * append batch. Those carriers receive their durable keys from {@code publishCompletedWrites()},
+   * which the writer runs immediately before {@link #cleanupSnapshot()}, so cleanup re-promotes the
+   * page into the live log (never into the pinned region) and the next epoch serializes it with real
+   * keys. One epoch of extra residency per such page, against a frame held until final commit.
+   */
+  public static final long SNAPSHOT_RETRY_NEXT_EPOCH = Long.MIN_VALUE + 1;
+
+  /**
+   * KVL pages that {@link #cleanupSnapshot()} pinned after a background-flush decline (diagnostics).
+   */
+  private static final LongAdder KVL_PAGES_PINNED_BY_PROMOTION = new LongAdder();
+
+  /** KVL pages that {@link #cleanupSnapshot()} re-promoted for one more epoch (diagnostics). */
+  private static final LongAdder KVL_PAGES_RETRIED_NEXT_EPOCH = new LongAdder();
+
+  /** Total KVL pages pinned because a background flush could not write them, across all logs. */
+  public static long kvlPagesPinnedByPromotion() {
+    return KVL_PAGES_PINNED_BY_PROMOTION.sum();
+  }
+
+  /** Total KVL pages re-promoted for one more epoch while their staged carriers were published. */
+  public static long kvlPagesRetriedNextEpoch() {
+    return KVL_PAGES_RETRIED_NEXT_EPOCH.sum();
+  }
+
+  /** Reset the two diagnostic counters above; tests call this before a measured load. */
+  public static void resetKvlPromotionDiagnostics() {
+    KVL_PAGES_PINNED_BY_PROMOTION.reset();
+    KVL_PAGES_RETRIED_NEXT_EPOCH.reset();
+  }
+
+  /**
    * Freeze current entries for background flush. O(1) — array reference swap + generation increment.
    * <p>
    * After this call, the insert thread continues with fresh empty arrays. The frozen arrays are
@@ -1378,7 +1445,6 @@ public final class TransactionIntentLog implements AutoCloseable {
     entries = new PageContainer[snapshotEntries.length];
     entryRefs = new PageReference[snapshotRefs.length];
     size = 0;
-    resetHOTLeafIndex();
 
     return snapshotSize;
   }
@@ -1446,6 +1512,9 @@ public final class TransactionIntentLog implements AutoCloseable {
       replacePinnedContainer(slot, ref, container);
     } else {
       ensurePinnedCapacity();
+      // The container is still owned by its generation-scoped slot until pin() returns. Count the
+      // pinned owner first; the transfer decrement below makes the completed move net-zero.
+      noteHOTLeafOwners(container);
       slot = pinnedHighWater++;
       pinnedEntries[slot] = container;
       pinnedRefs[slot] = ref;
@@ -1465,6 +1534,9 @@ public final class TransactionIntentLog implements AutoCloseable {
       forwardedEntries.put(((long) priorGeneration << 32) | (priorKey & 0xFFFFFFFFL),
           ((long) PINNED_GENERATION << 32) | (slot & 0xFFFFFFFFL));
     }
+    // pinUnflushableEntries performs the corresponding non-throwing current-slot clear immediately
+    // after this method returns. Until here both slots are real owners and must both be counted.
+    forgetHOTLeafOwners(container);
   }
 
   /** Replace the container held by a pinned slot, retiring the pages the new one does not reuse. */
@@ -1474,12 +1546,22 @@ public final class TransactionIntentLog implements AutoCloseable {
     }
     final PageContainer oldContainer = pinnedEntries[slot];
     if (oldContainer != value) {
-      if (oldContainer != null) {
-        // Drop the old pages from the identity index FIRST, so the sharing checks below do not
-        // see this very slot and refuse to retire them.
-        forgetPinnedPages(oldContainer, slot);
-        closeOrphanedHOTLeafPages(oldContainer, value, NO_ENTRY_INDEX);
-        closeOrphanedRecordPages(oldContainer, value, NO_ENTRY_INDEX);
+      // Make all allocation in the exact owner index pre-publication. It also records reuse by the
+      // incoming container while the old one is inspected, so a shared frame cannot be retired.
+      noteHOTLeafOwners(value);
+      try {
+        if (oldContainer != null) {
+          // Drop the old pages from the pinned identity index FIRST, so its record-page sharing
+          // check does not see this very slot and refuse to retire them. HOT sharing uses the exact
+          // owner count, which deliberately still contains the old owner at this point.
+          forgetPinnedPages(oldContainer, slot);
+          closeOrphanedHOTLeafPages(oldContainer, value);
+          closeOrphanedRecordPages(oldContainer, value, NO_ENTRY_INDEX);
+          forgetHOTLeafOwners(oldContainer);
+        }
+      } catch (final RuntimeException | Error failure) {
+        forgetHOTLeafOwners(value);
+        throw failure;
       }
       pinnedEntries[slot] = value;
       notePinnedPages(value, slot);
@@ -1685,6 +1767,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     // Keep the slot live until close succeeds. If close itself faults, rollback can still find and
     // retry the container; the writer is poisoned because its canonical reference is already durable.
     closePageContainer(container);
+    forgetHOTLeafOwners(container);
     forgetPinnedPages(container, slot);
     tombstonePinnedSlot(slot);
   }
@@ -1810,7 +1893,9 @@ public final class TransactionIntentLog implements AutoCloseable {
    * The append coordinator uses this only after joining the window task. Each serializer writes a
    * distinct slot, and the join supplies the happens-before edge, so the plain array access needs no
    * per-page atomic or lock. {@link #SNAPSHOT_PROMOTE_TO_TIL} identifies a KVL page deliberately
-   * declined by the disposable-frame path; {@link Constants#NULL_ID_LONG} still means no outcome.
+   * declined by the disposable-frame path, {@link #SNAPSHOT_RETRY_NEXT_EPOCH} one skipped for a
+   * single epoch while its staged carriers are published; {@link Constants#NULL_ID_LONG} still means
+   * no outcome.
    */
   public long getSnapshotDiskOffset(final int index) {
     return snapshotDiskOffsets[index];
@@ -1880,9 +1965,25 @@ public final class TransactionIntentLog implements AutoCloseable {
             if (refStillIdentifiesSlot && ref.getActiveTilGeneration() != currentGeneration) {
               if (PINNING_ENABLED) {
                 pin(ref, container, i);
+                KVL_PAGES_PINNED_BY_PROMOTION.increment();
               } else {
                 put(ref, container);
               }
+            } else {
+              closePageContainer(container);
+            }
+            snapshotEntries[i] = null;
+            snapshotRefs[i] = null;
+            continue;
+          }
+          if (diskOffset == SNAPSHOT_RETRY_NEXT_EPOCH) {
+            // The page's carriers were staged side pages of this epoch; their keys were published
+            // just before this cleanup. Back into the live log it goes, once, so the next epoch can
+            // write it with durable references — the ordinary cross-generation put() records the
+            // forwarding link exactly as a pre-pinning promotion did.
+            if (refStillIdentifiesSlot && ref.getActiveTilGeneration() != currentGeneration) {
+              put(ref, container);
+              KVL_PAGES_RETRIED_NEXT_EPOCH.increment();
             } else {
               closePageContainer(container);
             }
@@ -2074,7 +2175,6 @@ public final class TransactionIntentLog implements AutoCloseable {
       }
     }
     size = 0;
-    resetHOTLeafIndex();
     try {
       clearPinnedEntries();
     } catch (final RuntimeException | Error failure) {
@@ -2094,6 +2194,8 @@ public final class TransactionIntentLog implements AutoCloseable {
     // starts from the committed trie, where nothing is missing.
     releasedHOTLeafReplacements.clear();
     releasedHOTLeafIdentityReplacements.clear();
+    hotLeafOwnerCounts.clear();
+    hotLeafOwnerProbeCount = 0;
     rethrowFailure(closeFailure);
   }
 
@@ -2195,7 +2297,12 @@ public final class TransactionIntentLog implements AutoCloseable {
       return failure;
     }
     if (retained != failure) {
-      retained.addSuppressed(failure);
+      try {
+        retained.addSuppressed(failure);
+      } catch (final RuntimeException | Error ignored) {
+        // Cleanup must retain the original failure and continue releasing later siblings even when
+        // Throwable's suppressed-exception storage itself cannot grow (notably under OOME).
+      }
     }
     return retained;
   }
@@ -2236,20 +2343,18 @@ public final class TransactionIntentLog implements AutoCloseable {
    * Prevents FrameSlot memory leaks when leaf splits overwrite TIL entries — the old complete page
    * (original from disk) is orphaned and its 65KB off-heap MemorySegment must be released.
    */
-  private void closeOrphanedHOTLeafPages(final PageContainer oldContainer, final PageContainer newContainer,
-      final int excludeIndex) {
+  private void closeOrphanedHOTLeafPages(final PageContainer oldContainer, final PageContainer newContainer) {
     final Page oldComplete = oldContainer.getComplete();
     final Page oldModified = oldContainer.getModified();
     final Page newComplete = newContainer.getComplete();
     final Page newModified = newContainer.getModified();
 
     if (oldComplete instanceof HOTLeafPage completeLeaf && completeLeaf != newComplete && completeLeaf != newModified
-        && !isHOTLeafInOtherEntry(completeLeaf, excludeIndex)
-        && !bufferManager.getHOTLeafPageCache().containsPage(completeLeaf)) {
+        && !isHOTLeafInOtherEntry(completeLeaf) && !bufferManager.getHOTLeafPageCache().containsPage(completeLeaf)) {
       completeLeaf.close();
     }
     if (oldModified != oldComplete && oldModified instanceof HOTLeafPage modifiedLeaf && modifiedLeaf != newComplete
-        && modifiedLeaf != newModified && !isHOTLeafInOtherEntry(modifiedLeaf, excludeIndex)
+        && modifiedLeaf != newModified && !isHOTLeafInOtherEntry(modifiedLeaf)
         && !bufferManager.getHOTLeafPageCache().containsPage(modifiedLeaf)) {
       modifiedLeaf.close();
     }
@@ -2331,27 +2436,15 @@ public final class TransactionIntentLog implements AutoCloseable {
     return slot >= 0 && slot != excludePinnedSlot;
   }
 
-  /**
-   * Whether {@code page} is also held by a log entry other than {@code excludeIndex}. Walks only the
-   * entries that can hold a HOT leaf — {@link #hotLeafIndices}, a superset re-checked against
-   * {@code entries[i]} — because this runs on {@link #put}'s HOT-leaf CoW path, once per replaced
-   * container, and a full walk made that quadratic in the log size.
-   */
-  private boolean isHOTLeafInOtherEntry(final HOTLeafPage page, final int excludeIndex) {
-    if (isPinnedElsewhere(page, NO_PINNED_SLOT)) {
-      return true;
-    }
-    for (int k = 0; k < hotLeafIndexCount; k++) {
-      final int i = hotLeafIndices[k];
-      if (i == excludeIndex || i >= size) {
-        continue;
-      }
-      final PageContainer entry = entries[i];
-      if (entry != null && (entry.getComplete() == page || entry.getModified() == page)) {
-        return true;
-      }
-    }
-    return false;
+  /** Whether {@code page} has an owner other than the container currently being retired. */
+  private boolean isHOTLeafInOtherEntry(final HOTLeafPage page) {
+    hotLeafOwnerProbeCount++;
+    return hotLeafOwnerCounts.getInt(page) > 1;
+  }
+
+  /** Number of constant-time HOT-leaf owner probes, exposed only as HFT-bound test evidence. */
+  public long hotLeafOwnerProbeCount() {
+    return hotLeafOwnerProbeCount;
   }
 
   /**
@@ -2362,10 +2455,10 @@ public final class TransactionIntentLog implements AutoCloseable {
    * them until end-of-transaction {@link #clear()}.
    *
    * <p>
-   * Batched on purpose: the sharing guard ("is this leaf still referenced by another TIL entry — a
-   * CoW reference copy") is a scan of the whole log. Doing it once for the whole drop list is
-   * {@code O(size + orphans)}; doing it per leaf would be {@code O(size * orphans)} — quadratic,
-   * since a large transaction's drop list and log both grow with the entry count.
+   * Sharing is decided from the identity owner count maintained by every current/pinned container
+   * transition. Retirement is therefore {@code O(orphans)} with no transaction-log-sized scan. That
+   * fixed bound matters on recurrent split and periodic-consolidation paths: even one full-log walk
+   * per split would make a long ingestion transaction cumulatively quadratic.
    *
    * <p>
    * A leaf still shared by another TIL entry or held by the HOT-leaf buffer cache is never freed, so
@@ -2379,16 +2472,13 @@ public final class TransactionIntentLog implements AutoCloseable {
    * on a 64 KB off-heap frame, silent until a reader touched it. HOT leaves really do get pinned (a
    * ClickBench load pins several hundred of them), so this is not hypothetical. Two things keep it
    * correct now: resolution branches on {@link #PINNED_GENERATION} before indexing, and the owner
-   * recorded per candidate is REGION-ENCODED ({@link #encodePinnedOwner}) so that the sharing walk
-   * below — which visits generation-scoped entries only — can never mistake a pinned slot for one of
-   * its own indices and exempt the wrong entry from the check. Anything not positively proven
-   * unshared keeps its frame; the failure direction here is a leak, never a free.
+   * count includes both regions and pinning transfers an owner without changing the total. Anything
+   * not positively proven unique keeps its frame; the failure direction here is a leak, never a free.
    *
    * <p>
-   * Coverage note: this path is exercised end to end by a projection-building bulk load (the HOT
-   * writer merges leaves while the log pins them) and by the record read-back in
-   * {@code AsyncFlushLogBookkeepingTest}, not by a targeted unit test — driving a HOT leaf merge
-   * against a pinned leaf directly would need a HOT-index fixture this class has none of.
+   * Coverage note: {@code TransactionIntentLogOrphanedHOTLeafTest} exercises unique, shared,
+   * pinned/current and stale-generation identities directly, including a fixed owner-probe bound with
+   * hundreds of unrelated HOT entries.
    *
    * <p>
    * <b>Every orphan forwards to {@code replacement}.</b> Freeing the frame is only half of a merge:
@@ -2412,9 +2502,8 @@ public final class TransactionIntentLog implements AutoCloseable {
       return;
     }
     final long replacementIdentity = packedIdentityOf(replacement);
-    // Map each orphan leaf page to its own TIL index; this set is whittled down to the pages
-    // that are safe to close. Log indices are non-negative here (see the guard below), so the
-    // map's -1 default doubles as "absent".
+    // Collect each orphan leaf page once. The exact owner-count lookup below decides whether the
+    // candidate is safe to close without walking either log region.
     final Reference2IntMap<HOTLeafPage> closeable = orphanCloseable;
     closeable.clear();
     for (int r = 0; r < orphanRefs.size(); r++) {
@@ -2451,12 +2540,6 @@ public final class TransactionIntentLog implements AutoCloseable {
       if (container == null) {
         continue;
       }
-      // Encode which region the owning entry lives in: a bare log key no longer identifies one,
-      // and an unencoded pinned slot would collide with a generation-scoped index and exempt the
-      // wrong entry from the sharing check below.
-      final int owner = ref.getActiveTilGeneration() == PINNED_GENERATION
-          ? encodePinnedOwner(logKey)
-          : logKey;
       final long orphanIdentity = ((long) ref.getActiveTilGeneration() << 32) | (logKey & 0xFFFFFFFFL);
       forwardReleasedIdentity(orphanIdentity, replacementIdentity);
       // The identity-keyed forwarding is what a reference that still names this entry follows, and
@@ -2467,39 +2550,22 @@ public final class TransactionIntentLog implements AutoCloseable {
         releasedHOTLeafIdentityReplacements.put(orphanIdentity, replacement);
       }
       if (container.getModified() instanceof HOTLeafPage leaf) {
-        closeable.putIfAbsent(leaf, owner);
+        closeable.putIfAbsent(leaf, 0);
       }
       if (container.getComplete() instanceof HOTLeafPage leaf) {
-        closeable.putIfAbsent(leaf, owner);
+        closeable.putIfAbsent(leaf, 0);
       }
-      // (putIfAbsent, not put: a leaf reachable twice keeps the first index it was seen at, which
-      // is the index the sharing check below must exclude.)
+      // putIfAbsent keeps this an identity set when complete and modified name the same page.
     }
     if (closeable.isEmpty()) {
       return;
     }
-    // One pass over the log entries that can hold a HOT leaf: an orphan leaf that also appears at
-    // an entry other than its own is shared (a CoW reference copy) and is dropped from the
-    // closeable set. hotLeafIndices is a superset of those entries (see its declaration), and
-    // entries[i] is re-checked here, so narrowing the walk cannot change any decision.
-    for (int k = 0; k < hotLeafIndexCount; k++) {
-      final int i = hotLeafIndices[k];
-      if (i >= size) {
-        continue;
-      }
-      final PageContainer entry = entries[i];
-      if (entry == null) {
-        continue;
-      }
-      unshareIfElsewhere(entry.getComplete(), i, closeable);
-      if (entry.getModified() != entry.getComplete()) {
-        unshareIfElsewhere(entry.getModified(), i, closeable);
-      }
-    }
     Long2ObjectOpenHashMap<PageReference> releasedForScope = null;
     for (final HOTLeafPage leaf : closeable.keySet()) {
-      // A leaf held by a pinned entry other than its own is shared and must keep its frame.
-      if (!leaf.isClosed() && !isPinnedElsewhere(leaf, decodePinnedOwner(closeable.getInt(leaf)))
+      hotLeafOwnerProbeCount++;
+      // The candidate's own container is one owner. Any higher count proves a live alias in either
+      // the generation-scoped or pinned region and keeps the frame.
+      if (!leaf.isClosed() && hotLeafOwnerCounts.getInt(leaf) == 1
           && !bufferManager.getHOTLeafPageCache().containsPage(leaf)) {
         // Record the logical page BEFORE closing it. Once closed, every reference naming it can lose
         // both its log identity and its swizzle, and only the page key still says this image is gone
@@ -2564,37 +2630,6 @@ public final class TransactionIntentLog implements AutoCloseable {
       return;
     }
     forwardedEntries.put(orphanIdentity, replacementIdentity);
-  }
-
-  private static void unshareIfElsewhere(final Page page, final int entryIndex,
-      final Reference2IntMap<HOTLeafPage> closeable) {
-    if (page instanceof HOTLeafPage leaf) {
-      final int ownIndex = closeable.getInt(leaf);
-      // ABSENT_OWNER is the map's default, so it means "not a candidate". Everything else that is
-      // not this very entry means the leaf is held somewhere else and must not be freed —
-      // including a pinned owner, whose encoding is negative and can never equal entryIndex.
-      if (ownIndex != ABSENT_OWNER && ownIndex != entryIndex) {
-        closeable.removeInt(leaf);
-      }
-    }
-  }
-
-  /** The {@link #orphanCloseable} default return value: this leaf is not a close candidate. */
-  private static final int ABSENT_OWNER = -1;
-
-  /**
-   * Encode a pinned slot as an owner id that cannot be confused with a generation-scoped entry index
-   * (non-negative) or with {@link #ABSENT_OWNER}. Slot 0 maps to -2.
-   */
-  private static int encodePinnedOwner(final int pinnedSlot) {
-    return -(pinnedSlot + 2);
-  }
-
-  /** The pinned slot an owner id names, or {@link #NO_PINNED_SLOT} if it names the other region. */
-  private static int decodePinnedOwner(final int owner) {
-    return owner <= -2
-        ? -owner - 2
-        : NO_PINNED_SLOT;
   }
 
   /**

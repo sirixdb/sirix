@@ -1,5 +1,11 @@
 # HOT Operations × Invariants Preservation Matrix (Stage B)
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Status:** Stage B deliverable for the multi-session formal-verification effort. Sourced from
 `HOTTrieWriter.java`, `HOTLeafPage.java`, `HOTIndirectPage.java` as of commit `1815f9d2e`
 (branch `fix/hot-strict-binna-conformance`). No code was changed for this stage — this is research.

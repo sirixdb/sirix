@@ -63,6 +63,7 @@ EXPECTED_MAX_NEW_BYTES = int(DEFAULT_EXPECTED_MAX_NEW_MIB * MIB)
 EXPECTED_GLOBAL_DICTIONARY_MODE = "never"
 EXPECTED_ARENA_STRATEGY = "shared"
 EXPECTED_STORAGE = "FILE_CHANNEL"
+EXPECTED_IMPORTER = "parallel-bulk"
 EXPECTED_PROJECTION_MODE = "incremental"
 EXPECTED_VERSIONING_TYPE = "FULL"
 EXPECTED_PINNED_TRIE_SCAN_BUDGET = 1_024
@@ -173,6 +174,7 @@ _HFT_CONFIG_FIELDS = (
     "gcLogging",
     "safepointLogging",
     "storage",
+    "importer",
     "projectionMode",
     "expectedRows",
     "pinnedTrieScanBudget",
@@ -946,6 +948,7 @@ def evaluate_run(
             "maxHeapBytes": str(expected_capacity_bytes),
             "g1RegionSizeBytes": str(EXPECTED_G1_REGION_SIZE_BYTES),
             "storage": EXPECTED_STORAGE,
+            "importer": EXPECTED_IMPORTER,
             "projectionMode": EXPECTED_PROJECTION_MODE,
             "pinnedTrieScanBudget": str(EXPECTED_PINNED_TRIE_SCAN_BUDGET),
             "pinnedTrieBatchCapacity": str(EXPECTED_PINNED_TRIE_BATCH_CAPACITY),

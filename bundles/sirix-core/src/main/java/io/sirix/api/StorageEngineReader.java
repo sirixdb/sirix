@@ -236,6 +236,10 @@ public interface StorageEngineReader extends AutoCloseable {
    * {@code null} is not a failure — the caller runs its normal {@link #getRecordPage} path for that
    * page and gets the same answer, only slower.
    *
+   * <p>
+   * A non-null result owns native region storage and must be closed by the caller. Closing is
+   * idempotent; retaining a result beyond the read transaction is unsupported.
+   *
    * @param indexLogKey identifies the record page to read
    * @param regionKindMask bitmask of region kinds to read; see
    *        {@link io.sirix.page.pax.RegionTable#maskOf(byte)}
@@ -258,6 +262,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * measured at ~18 ms of thread time per page against 1 ms to merge them. A caller that only wants a
    * column can merge the fragments' columns instead, on the rule the record path uses: the newest
    * fragment that DEFINES a slot owns it, which is why each returned page carries its slot bitmap.
+   * Every non-null element owns native region storage; the caller must close all elements.
    *
    * @param indexLogKey identifies the record page
    * @param regionKindMask bitmask of region kinds to read from each fragment

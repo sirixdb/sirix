@@ -1,11 +1,20 @@
 # HOT Phase 7q — Structural Lift Design
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Branch**: `fix/hot-strict-binna-conformance`
 **Status**: **2026-05-13 — CAMPAIGN COMPLETE. 0 violations across ALL workloads AND flag combos.**
-Three writer-side fixes landed in `807e64e18`:
+Two writer-side fixes landed in `807e64e18`:
 1. In-place leaf redistribution (`redistributeLeafKeysIfMisrouted`) at 13 build sites
 2. Sort-based I8 fix (`HOTIndirectPage.sortChildrenByFirstKey`)
-3. Reader-side leaf-walk fallback (`HOTIndexReader.collectViaLeafWalk`)
+
+Point reads now have one canonical routed implementation. The former reader-side
+whole-leaf-walk recovery route has been removed; invariant diagnostics may report
+structural faults but never change a query result or turn a miss into an `O(N)` scan.
 
 Results: descending 258→0, mixed-sign 900→0, bimodal 1280→0, all 12 comprehensive
 workloads at 0 violations. FrameSlotAllocator leak fixed in `391c616f1`. Dead code
@@ -2238,7 +2247,7 @@ inverse-polarity partial" is NOT the dominant mis-route mechanism.
 
 **Why the falsification — subset-match descent.**
 
-`HOTIndirectPage.findChildSpanNode` (line ~531) uses a two-pass match:
+`HOTIndirectPage.findChildByPartialKey` uses a two-pass match:
 
 ```java
 for (int i = 0; i < numChildren; i++) {
@@ -2278,7 +2287,7 @@ Why descending hits 0 cross-routing but 258 violations:
 refutes the cross-routing-via-equality hypothesis.
 
 (2) **Subset-match descent is the missing piece**. Any sufficient predictor
-of I6 violations must simulate the actual `findChildSpanNode` algorithm
+of I6 violations must simulate the actual `findChildByPartialKey` algorithm
 (equality preferred, subset fallback, most-specific tie-break).
 
 (3) **Mixed-sign's 169 / 900 partial coverage** suggests equality matches
@@ -2293,7 +2302,7 @@ For each β-mixed `(child[i], β)`:
 1. Synthesise `dense_K_candidate = partial_i XOR (1 << partialBitPos)` (the
    dense PEXT a mis-polarity key would produce against the current sparse
    encoding's bits).
-2. Run `findChildSpanNode`'s algorithm: scan siblings; pick j with
+2. Run `findChildByPartialKey`'s algorithm: scan siblings; pick j with
    `partial_j == dense_K_candidate` (exact) or the most-specific subset
    `(dense_K_candidate & partial_j) == partial_j`.
 3. If picked j ≠ i → mis-route candidate. Count.
@@ -2328,12 +2337,12 @@ Comprehensive failure counts unchanged because probes are counter-only.
 
 **Motivation.** §7.35 falsified the equality-only cross-routing predicate.
 The natural extension was to add subset-match (the actual second pass in
-`findChildSpanNode`) to the predicate. If buildFlatNonStrict is the
+`findChildByPartialKey`) to the predicate. If buildFlatNonStrict is the
 violation source, an equality-then-subset model should reproduce the
 validator's I6 count.
 
 **Implementation.** Helper `phase7t8CountSubsetRoutingMisroutes(children[],
-partials[], discBits)` mirrors `findChildSpanNode` exactly:
+partials[], discBits)` mirrors `findChildByPartialKey` exactly:
 
 1. For each β-mixed `(child[i], β)`: synthesise
    `densePkCandidate = partial_i XOR (1 << partialBitPos)`.
@@ -2415,7 +2424,7 @@ a **per-stored-key PEXT simulator at construction time**:
 1. For each freshly-built indirect, walk every stored key K reachable
    from each child subtree.
 2. Compute the dense PEXT of K against the indirect's mask.
-3. Run `findChildSpanNode`'s algorithm to determine the routed child.
+3. Run `findChildByPartialKey`'s algorithm to determine the routed child.
 4. If routed child ≠ K's actual containing child → real mis-route.
 
 Counter the mis-routes per construction site. This will give us the
@@ -2454,7 +2463,7 @@ Comprehensive failure counts unchanged because probes are counter-only.
 cross-routing predicate. The remaining diagnostic option is to run the
 validator's actual algorithm at construction time: walk every stored key
 in every child subtree, compute the real dense PEXT, route via
-`findChildSpanNode`, count mis-routes. This is the most expensive probe
+`findChildByPartialKey`, count mis-routes. This is the most expensive probe
 but also the most direct.
 
 **Implementation.** Helper `phase7t9CountRealMisroutes(children[],
@@ -2465,7 +2474,7 @@ The walker:
    `bitConstantValueInSubtree`).
 2. On HOTLeafPage: enumerates `(keyIdx, key)` pairs, computes
    `densePK = computePartialKey(key, discBits)`, runs
-   `findChildSpanNode`'s EXACT algorithm: equality scan first (early-out
+   `findChildByPartialKey`'s EXACT algorithm: equality scan first (early-out
    on hit); else last-index subset match
    `(densePK & partials[j]) == partials[j]`.
 3. On HOTIndirectPage: recurses into each child reference.

@@ -1019,4 +1019,11 @@ final class ProjectionIndexByteScanTest {
         ProjectionIndexByteScan.conjunctiveCount(leaves,
             new ProjectionIndexScan.ColumnPredicate[] {ProjectionIndexScan.ColumnPredicate.booleanNe(1, true)}));
   }
+
+  @Test
+  void integerSubstringOutsideLongDomainDeclinesInsteadOfWrapping() {
+    final byte[] digits = "92233720368547758070".getBytes(StandardCharsets.US_ASCII);
+    assertEquals(Long.MIN_VALUE,
+        ProjectionIndexByteScan.xsIntegerOfSubstring(digits, 0, digits.length, 1, digits.length));
+  }
 }

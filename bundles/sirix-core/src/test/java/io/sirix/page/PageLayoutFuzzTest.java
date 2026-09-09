@@ -1,10 +1,12 @@
 package io.sirix.page;
 
+import io.sirix.node.ByteArrayBytesIn;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
 import java.util.Random;
 
@@ -12,7 +14,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Fuzz tests for {@link PageLayout} (slotted page format).
@@ -217,31 +218,120 @@ class PageLayoutFuzzTest {
 
   // ==================== COMPACT DIRECTORY PACKING FUZZ ====================
 
-  @RepeatedTest(100)
-  void fuzzCompactDirEntryPacking() {
-    final long seed = System.nanoTime();
-    final Random rng = new Random(seed);
-
-    final int dataLength = rng.nextInt(0xFFFFFF + 1); // 0..16777215
-    final int nodeKindId = rng.nextInt(256);
-
-    try {
-      final int packed = PageLayout.packCompactDirEntry(dataLength, nodeKindId);
-
-      assertEquals(dataLength, PageLayout.unpackDataLength(packed),
-          "unpackDataLength mismatch [seed=" + seed + ", dataLength=" + dataLength + "]");
-      assertEquals(nodeKindId, PageLayout.unpackNodeKindId(packed),
-          "unpackNodeKindId mismatch [seed=" + seed + ", nodeKindId=" + nodeKindId + "]");
-    } catch (final Exception e) {
-      fail("Exception [seed=" + seed + ", dataLength=" + dataLength + ", nodeKindId=" + nodeKindId + "]: "
-          + e.getMessage(), e);
+  @Test
+  void compactDirEntryRoundTripsEveryInlineLengthAndPersistedNodeKind() {
+    try (final Arena arena = Arena.ofConfined()) {
+      final MemorySegment wire = arena.allocate(PageLayout.COMPACT_DIR_ENTRY_SIZE);
+      for (int nodeKindId = 0; nodeKindId <= PageLayout.MAX_COMPACT_DIR_NODE_KIND_ID; nodeKindId++) {
+        final boolean expectedPersisted = isExpectedPersistedSlottedNodeKindId(nodeKindId);
+        assertEquals(expectedPersisted, PageLayout.isPersistedSlottedNodeKindId(nodeKindId),
+            "persisted slotted-node kind registry drifted for id " + nodeKindId);
+        if (expectedPersisted) {
+          if (nodeKindId != 0) {
+            assertCompactDirWireRejected(wire, 0, nodeKindId);
+          }
+          assertCompactDirWireRoundTrip(wire, nodeKindId, nodeKindId == 0
+              ? 0
+              : 1);
+        } else {
+          final int rejectedKindId = nodeKindId;
+          assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(1, rejectedKindId),
+              () -> "writer accepted unsupported persisted kind " + rejectedKindId);
+          assertCompactDirWireRejected(wire, 1, rejectedKindId);
+        }
+      }
     }
   }
 
   @Test
-  void compactDirEntryRejectsOversizedLength() {
-    assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(0x1000000, 0)); // 16777216
+  void compactDirEntryWriterRejectsOutOfRangeLengthAndKind() {
+    assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(-1, 0));
+    // Re-recorded with the fused-record cap raise (512 -> 1,023): the first rejected length is the
+    // one past the cap, whatever the cap is, so this stays a real boundary instead of a stale 513.
+    assertThrows(IllegalArgumentException.class,
+        () -> PageLayout.packCompactDirEntry(PageConstants.MAX_RECORD_SIZE + 1, 0));
     assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(Integer.MAX_VALUE, 0));
+    assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(1, -1));
+    assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(1, 64));
+    assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(1, Integer.MAX_VALUE));
+    for (int nodeKindId = 1; nodeKindId <= PageLayout.MAX_COMPACT_DIR_NODE_KIND_ID; nodeKindId++) {
+      if (isExpectedPersistedSlottedNodeKindId(nodeKindId)) {
+        final int persistedKindId = nodeKindId;
+        assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(0, persistedKindId),
+            () -> "writer accepted an empty flyweight record for kind " + persistedKindId);
+      }
+    }
+  }
+
+  /**
+   * Explicit wire-format registry oracle. Keep this independent of the production predicate so a
+   * retired kind accidentally becoming persistable (or a live kind disappearing) fails the test.
+   */
+  private static boolean isExpectedPersistedSlottedNodeKindId(final int nodeKindId) {
+    return switch (nodeKindId) {
+      case 0, 1, 2, 3, 7, 8, 9, 13, 24, 25, 27, 28, 29, 30, 31, 48, 49, 50, 51, 52, 53 -> true;
+      default -> false;
+    };
+  }
+
+  /**
+   * Re-recorded with the fused-record cap raise (512 -> 1,023).
+   *
+   * <p>
+   * The cap and the compact directory's length field are now one number: the entry is two bytes with
+   * a 10-bit length, and the cap saturates it. That equality is the assertion — mutate either
+   * constant and it fails — and it is also what makes the rejection loop below empty: with the cap at
+   * the ceiling there is no length a corrupt word can express that the reader must refuse. The loop
+   * stays because lowering the cap re-creates exactly that gap, and it must stay guarded.
+   */
+  @Test
+  void theInlineCapSaturatesTheCompactDirectoryLengthField() {
+    assertEquals(PageLayout.MAX_COMPACT_DIR_DATA_LENGTH, PageConstants.MAX_RECORD_SIZE,
+        "the inline record cap and the compact directory's length field must be the same number");
+    try (final Arena arena = Arena.ofConfined()) {
+      final MemorySegment wire = arena.allocate(PageLayout.COMPACT_DIR_ENTRY_SIZE);
+      // Positive witness that the raise reached the wire: the largest representable record round
+      // trips through both readers with its length intact.
+      PageLayout.writeCompactDirEntry(wire, 0, PageConstants.MAX_RECORD_SIZE, 0);
+      assertEquals(PageConstants.MAX_RECORD_SIZE, PageLayout.unpackDataLength(PageLayout.readCompactDirEntry(wire, 0)),
+          "the cap itself must survive a compact-directory round trip");
+      for (int dataLength = PageConstants.MAX_RECORD_SIZE + 1; dataLength < 1 << 10; dataLength++) {
+        final int corruptWord = dataLength << 6;
+        wire.set(ValueLayout.JAVA_BYTE, 0, (byte) (corruptWord >>> 8));
+        wire.set(ValueLayout.JAVA_BYTE, 1, (byte) corruptWord);
+        final byte[] corruptBytes = {(byte) (corruptWord >>> 8), (byte) corruptWord};
+        final int rejectedLength = dataLength;
+        assertThrows(IllegalArgumentException.class, () -> PageLayout.readCompactDirEntry(wire, 0),
+            () -> "segment reader accepted corrupt inline length " + rejectedLength);
+        assertThrows(IllegalArgumentException.class,
+            () -> PageLayout.readCompactDirEntry(new ByteArrayBytesIn(corruptBytes)),
+            () -> "byte-source reader accepted corrupt inline length " + rejectedLength);
+      }
+    }
+  }
+
+  private static void assertCompactDirWireRoundTrip(final MemorySegment wire, final int nodeKindId,
+      final int minimumLength) {
+    for (int dataLength = minimumLength; dataLength <= PageConstants.MAX_RECORD_SIZE; dataLength++) {
+      PageLayout.writeCompactDirEntry(wire, 0, dataLength, nodeKindId);
+      final int packed = PageLayout.readCompactDirEntry(wire, 0);
+      final byte[] wireBytes = {wire.get(ValueLayout.JAVA_BYTE, 0), wire.get(ValueLayout.JAVA_BYTE, 1)};
+      final int streamed = PageLayout.readCompactDirEntry(new ByteArrayBytesIn(wireBytes));
+      assertEquals(dataLength, PageLayout.unpackDataLength(packed), "dataLength mismatch for kind " + nodeKindId);
+      assertEquals(nodeKindId, PageLayout.unpackNodeKindId(packed), "nodeKindId mismatch for length " + dataLength);
+      assertEquals(packed, streamed, "stream reader mismatch for length " + dataLength + " and kind " + nodeKindId);
+    }
+  }
+
+  private static void assertCompactDirWireRejected(final MemorySegment wire, final int dataLength,
+      final int nodeKindId) {
+    final int corruptWord = (dataLength << 6) | nodeKindId;
+    wire.set(ValueLayout.JAVA_BYTE, 0, (byte) (corruptWord >>> 8));
+    wire.set(ValueLayout.JAVA_BYTE, 1, (byte) corruptWord);
+    final byte[] corruptBytes = {(byte) (corruptWord >>> 8), (byte) corruptWord};
+    assertThrows(IllegalArgumentException.class, () -> PageLayout.readCompactDirEntry(wire, 0));
+    assertThrows(IllegalArgumentException.class,
+        () -> PageLayout.readCompactDirEntry(new ByteArrayBytesIn(corruptBytes)));
   }
 
   // ==================== HEAP ALLOCATION FUZZ ====================

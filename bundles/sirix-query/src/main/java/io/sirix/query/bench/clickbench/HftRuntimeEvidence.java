@@ -3,6 +3,7 @@
  */
 package io.sirix.query.bench.clickbench;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -10,6 +11,7 @@ import java.lang.management.ManagementFactory;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -25,6 +27,7 @@ public final class HftRuntimeEvidence {
 
   private static final byte[] CLASSPATH_MAGIC = "SIRIX-HFT-CLASSPATH-V1\0".getBytes(StandardCharsets.UTF_8);
   private static final String BUILD_IDENTITY_RESOURCE = "META-INF/sirix-hft-build.properties";
+  static final int MAX_BUILD_IDENTITY_BYTES = 4 * 1024;
 
   private HftRuntimeEvidence() {
     throw new AssertionError("no instances");
@@ -211,11 +214,87 @@ public final class HftRuntimeEvidence {
   }
 
   private static InputStream buildIdentitySource(final Path codeSource) throws IOException {
+    return buildIdentitySource(codeSource, System.getProperty("java.class.path", ""));
+  }
+
+  static InputStream buildIdentitySource(final Path codeSource, final String classpath) throws IOException {
+    if (Files.isSymbolicLink(codeSource)) {
+      throw new IllegalStateException("executable main-class CodeSource must not be a symbolic link: " + codeSource);
+    }
+    final InputStream codeSourceIdentity = codeSourceBuildIdentitySource(codeSource);
+    if (codeSourceIdentity != null || !Files.isDirectory(codeSource)) {
+      return boundedBuildIdentitySource(codeSourceIdentity);
+    }
+
+    if (classpath == null || classpath.isBlank()) {
+      throw new IllegalArgumentException("runtime classpath must not be empty");
+    }
+    final Path normalizedCodeSource = codeSource.toAbsolutePath().normalize();
+    Path standaloneIdentity = null;
+    boolean codeSourcePresent = false;
+    for (final String rawEntry : classpath.split(java.util.regex.Pattern.quote(File.pathSeparator), -1)) {
+      if (rawEntry.isBlank()) {
+        throw new IllegalArgumentException("runtime classpath contains an empty entry");
+      }
+      final Path entry = Path.of(rawEntry).toAbsolutePath().normalize();
+      if (entry.equals(normalizedCodeSource)) {
+        codeSourcePresent = true;
+        continue;
+      }
+      if (Files.isSymbolicLink(entry)) {
+        throw new IllegalStateException("runtime classpath entries must not be symbolic links: " + entry);
+      }
+      if (!Files.isDirectory(entry)) {
+        if (!Files.isRegularFile(entry)) {
+          throw new IllegalArgumentException("runtime classpath entry is unreadable: " + entry);
+        }
+        continue;
+      }
+      final Path candidate = entry.resolve(BUILD_IDENTITY_RESOURCE);
+      if (!Files.exists(candidate, LinkOption.NOFOLLOW_LINKS)) {
+        continue;
+      }
+      if (!Files.isRegularFile(candidate, LinkOption.NOFOLLOW_LINKS)
+          || !isStandaloneIdentityDirectory(entry, candidate)) {
+        throw new IllegalStateException(
+            "HFT build identity outside the executable CodeSource must be in a standalone classpath directory: "
+                + entry);
+      }
+      if (standaloneIdentity != null) {
+        throw new IllegalStateException(
+            "multiple standalone HFT build identities are present on the effective runtime classpath");
+      }
+      standaloneIdentity = candidate;
+    }
+    if (!codeSourcePresent) {
+      throw new IllegalStateException("the executable main class is outside the effective runtime classpath");
+    }
+    return standaloneIdentity == null
+        ? null
+        : boundedBuildIdentitySource(Files.newInputStream(standaloneIdentity));
+  }
+
+  private static boolean isStandaloneIdentityDirectory(final Path directory, final Path identity) throws IOException {
+    if (Files.isSymbolicLink(directory)) {
+      return false;
+    }
+    try (var walk = Files.walk(directory)) {
+      return walk.allMatch(path -> path.equals(directory)
+          || (!Files.isSymbolicLink(path) && (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)
+              || path.equals(identity) && Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))));
+    }
+  }
+
+  private static InputStream codeSourceBuildIdentitySource(final Path codeSource) throws IOException {
     if (Files.isDirectory(codeSource)) {
       final Path identity = codeSource.resolve(BUILD_IDENTITY_RESOURCE);
-      return Files.isRegularFile(identity)
-          ? Files.newInputStream(identity)
-          : null;
+      if (!Files.exists(identity, LinkOption.NOFOLLOW_LINKS)) {
+        return null;
+      }
+      if (!Files.isRegularFile(identity, LinkOption.NOFOLLOW_LINKS)) {
+        throw new IllegalStateException("HFT build identity must be a regular non-symbolic file: " + identity);
+      }
+      return Files.newInputStream(identity);
     }
     if (!Files.isRegularFile(codeSource)) {
       throw new IllegalStateException("executable main-class CodeSource is unreadable: " + codeSource);
@@ -247,6 +326,19 @@ public final class HftRuntimeEvidence {
         }
       }
     };
+  }
+
+  private static InputStream boundedBuildIdentitySource(final InputStream source) throws IOException {
+    if (source == null) {
+      return null;
+    }
+    try (source) {
+      final byte[] identity = source.readNBytes(MAX_BUILD_IDENTITY_BYTES + 1);
+      if (identity.length > MAX_BUILD_IDENTITY_BYTES) {
+        throw new IllegalStateException("HFT build identity exceeds " + MAX_BUILD_IDENTITY_BYTES + " bytes");
+      }
+      return new ByteArrayInputStream(identity);
+    }
   }
 
   private static String gitOutput(final String... arguments) {

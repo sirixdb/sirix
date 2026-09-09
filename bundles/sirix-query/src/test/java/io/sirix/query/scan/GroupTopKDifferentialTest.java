@@ -1,20 +1,14 @@
 package io.sirix.query.scan;
 
 import io.brackit.query.Query;
-import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Sequence;
-import io.brackit.query.jdm.Type;
-import io.brackit.query.util.path.Path;
-import io.brackit.query.util.path.PathParser;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.index.IndexDef;
-import io.sirix.index.IndexDefs;
-import io.sirix.index.projection.ProjectionIndexBuilder;
+import io.sirix.index.projection.GroupTableSpill;
+import io.sirix.index.projection.NumericGroupAggTable;
 import io.sirix.index.projection.ProjectionIndexCatalog;
-import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -25,8 +19,6 @@ import org.junit.jupiter.api.Test;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,6 +63,14 @@ public final class GroupTopKDifferentialTest {
         sb.append(',');
       }
       sb.append("{\"id\":").append(i); // unique numeric key, includes 0 (zero side slot)
+      if (i < 3) {
+        sb.append(",\"edge\":")
+          .append(i == 0
+              ? Long.MAX_VALUE
+              : i == 1
+                  ? Long.MIN_VALUE
+                  : 0L);
+      }
       sb.append(",\"k7\":").append(i % 7); // few groups, near-equal counts (tie plateaus)
       sb.append(",\"k40\":").append(i % 40);
       sb.append(",\"amount\":").append(rng.nextInt(1000));
@@ -133,16 +133,140 @@ public final class GroupTopKDifferentialTest {
         var ctx = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + sb + "')").evaluate(ctx);
+      createProjectionIndex(chain, ctx);
     }
+    ProjectionIndexCatalog.clearCache();
   }
 
   @AfterEach
   void tearDown() {
-    ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
+    if (dbDir != null) {
+      Databases.removeDatabase(dbDir);
+    }
   }
 
   // ---- numeric single key -------------------------------------------------------------------
+
+  @Test
+  void compactSumsPreserveSparseOperandsAndCountTiesAcrossSpills() throws Exception {
+    final long budget = GroupTableSpill.setGroupBudgetForTesting(16);
+    final int threshold = GroupTableSpill.setFlushGroupsForTesting(4);
+    final int morsel = GroupTableSpill.setSubChunkLeavesForTesting(1);
+    try {
+      final long before = SirixVectorizedExecutor.compactSumGroupsServedCount();
+      assertOrderedDifferentialServed(
+          "subsequence(for $u in " + SRC + " where $u.id >= 7 let $a := $u.k7, $b := $u.tier group by $a, $b"
+              + " let $c := count($u), $s := sum($u.amount), $v := xs:double(avg($u.bonus))"
+              + " order by $c descending return {\"a\":$a,\"b\":$b,\"c\":$c,\"s\":$s,\"v\":$v},1,12)");
+      assertEquals(before + 1, SirixVectorizedExecutor.compactSumGroupsServedCount());
+    } finally {
+      GroupTableSpill.setGroupBudgetForTesting(budget);
+      GroupTableSpill.setFlushGroupsForTesting(threshold);
+      GroupTableSpill.setSubChunkLeavesForTesting(morsel);
+    }
+  }
+
+  @Test
+  void theDenseIndexKillSwitchAnswersIdenticallyThroughTheQueryEngine() throws Exception {
+    // A composite key with two operands is far above the dense gate's crossing, so the default run
+    // folds its groups into dense records behind the compact index while the kill-switch run keeps
+    // interleaved buckets. The recovery lever is only a recovery lever if BOTH layouts hand the
+    // engine the same window, in the same emission order, as the interpreter.
+    final String query = "subsequence(for $u in " + SRC + " let $a := $u.k40, $b := $u.dept group by $a, $b"
+        + " let $c := count($u), $s := sum($u.amount), $m := max($u.id)"
+        + " order by $c descending return {\"a\":$a,\"b\":$b,\"c\":$c,\"s\":$s,\"m\":$m},1,16)";
+    // Two full operand blocks alone already clear the crossing, whatever the key width and aux lane
+    // add on top, so this query cannot silently fall below the gate and make the comparison vacuous.
+    assertTrue(NumericGroupAggTable.strideFor(2, false, 0) >= GroupTableSpill.DENSE_INDEX_MIN_STRIDE,
+        "this shape must be one the dense gate admits, or the differential proves nothing");
+
+    final String interpreted = run(query, false);
+    final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    final String dense = run(query, true);
+    final long servedAfterDense = SirixVectorizedExecutor.groupAggServedCount();
+    assertTrue(servedAfterDense > servedBefore, "the default layout must serve, or agreement is vacuous");
+
+    final String previous = System.setProperty(GroupTableSpill.DENSE_INDEX_PROPERTY, "false");
+    final String interleaved;
+    try {
+      interleaved = run(query, true);
+    } finally {
+      if (previous == null) {
+        System.clearProperty(GroupTableSpill.DENSE_INDEX_PROPERTY);
+      } else {
+        System.setProperty(GroupTableSpill.DENSE_INDEX_PROPERTY, previous);
+      }
+    }
+    assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedAfterDense,
+        "the kill switch must keep the group-aggregate route, not decline the query to the interpreter");
+    assertEquals(interpreted, dense, "dense records changed the served window");
+    assertEquals(dense, interleaved, "the kill switch changed the served window");
+  }
+
+  @Test
+  void requestedExtremaKeepTheFullAccumulator() throws Exception {
+    final long before = SirixVectorizedExecutor.compactSumGroupsServedCount();
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $a := $u.k7, $b := $u.k40 group by $a, $b"
+        + " let $c := count($u), $s := sum($u.amount), $m := max($u.bonus)"
+        + " order by $c descending return {\"a\":$a,\"b\":$b,\"c\":$c,\"s\":$s,\"m\":$m},1,12)");
+    assertEquals(before, SirixVectorizedExecutor.compactSumGroupsServedCount());
+  }
+
+  @Test
+  void repeatedNumericKeyOffsetsPreserveCountTies() throws Exception {
+    assertOffsetDifferential(true,
+        "subsequence(for $u in " + SRC + " let $a := $u.id, $b := $u.id - 1, $d := $u.id + 3 group by $a, $b, $d"
+            + " let $c := count($u) order by $c descending"
+            + " return {\"a\": $a, \"b\": $b, \"d\": $d, \"c\": $c}, 1, 12)");
+  }
+
+  @Test
+  void repeatedNumericKeyOffsetsPreserveMissingWinner() throws Exception {
+    assertOffsetDifferential(true,
+        "subsequence(for $u in " + SRC + " let $a := $u.bonus, $b := $u.bonus - 1 group by $a, $b"
+            + " let $c := count($u) order by $c descending" + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+  }
+
+  @Test
+  void repeatedNumericKeyOffsetsWithoutBareKey() throws Exception {
+    assertOffsetDifferential(true,
+        "subsequence(for $u in " + SRC + " where $u.amount > 200 let $a := $u.k40 + 2, $b := $u.k40 - 3 group by $a, $b"
+            + " let $c := count($u) where $c > 40 order by $c ascending"
+            + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+  }
+
+  @Test
+  void independentNumericOffsetKeysRemainIndependent() throws Exception {
+    assertOffsetDifferential(false,
+        "subsequence(for $u in " + SRC + " let $a := $u.k7, $b := $u.k40 - 1 group by $a, $b"
+            + " let $c := count($u) order by $c descending" + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+  }
+
+  @Test
+  void repeatedNumericOffsetsPromoteBeyondLongRange() throws Exception {
+    assertOffsetDifferential(true,
+        "subsequence(for $u in " + SRC + " let $a := $u.edge, $b := $u.edge + 1, $d := $u.edge - 1 group by $a, $b, $d"
+            + " let $c := count($u) order by $c descending"
+            + " return {\"a\": $a, \"b\": $b, \"d\": $d, \"c\": $c}, 1, 4)");
+  }
+
+  @Test
+  void dependentOffsetWinnerRestorationIsBounded() throws Exception {
+    for (final int limit : new int[] {1024, 1025}) {
+      assertOffsetDifferential(limit == 1024,
+          "subsequence(for $u in " + SRC + " let $a := $u.id, $b := $u.id - 1 group by $a, $b"
+              + " let $c := count($u) order by $c descending" + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, " + limit
+              + ")");
+    }
+  }
+
+  @Test
+  void nonInjectiveNumericKeysKeepTheirCompositeGroups() throws Exception {
+    assertOffsetDifferential(false,
+        "subsequence(for $u in " + SRC + " let $a := $u.k40 idiv 2, $b := $u.k40 mod 3 group by $a, $b"
+            + " let $c := count($u) order by $c descending" + " return {\"a\": $a, \"b\": $b, \"c\": $c}, 1, 12)");
+  }
 
   @Test
   void countDescTiePlateauAtTheBoundary() throws Exception {
@@ -453,6 +577,21 @@ public final class GroupTopKDifferentialTest {
   }
 
   @Test
+  void utf8LengthOperandFoldsBytesAndZeroForMissing() throws Exception {
+    // The same salted nick dictionary distinguishes this mode from fn:string-length: U+FF01 is
+    // three bytes and U+10400 is four, while both are one code point. Missing nick values still
+    // contribute zero, matching jn:utf8-length(()).
+    assertOrderedDifferentialServed(
+        "subsequence(for $u in " + SRC + " let $k := $u.k7, $len := jn:utf8-length($u.nick) group by $k "
+            + "let $c := count($u) let $l := xs:double(avg($len)) order by $l descending "
+            + "return {\"k\": $k, \"l\": $l, \"c\": $c}, 1, 7)");
+    assertOrderedDifferentialServed(
+        "subsequence(for $u in " + SRC + " let $k := $u.dept, $len := jn:utf8-length($u.nick) group by $k "
+            + "let $c := count($u) order by $c descending "
+            + "return {\"k\": $k, \"lo\": min($len), \"hi\": max($len), \"c\": $c}, 1, 4)");
+  }
+
+  @Test
   void orderByCastAvgTiesWhereDoublesCollapse() throws Exception {
     // bk groups 2 and 1 have exact avgs 4.5e14+0.02 vs +0.01 — DISTINCT exactly, EQUAL as
     // doubles. Ordering by xs:double(avg) must treat them as a TIE (first-appearance:
@@ -575,6 +714,15 @@ public final class GroupTopKDifferentialTest {
         "ordering BY a string extremum must DECLINE to the interpreter");
   }
 
+  private void assertOffsetDifferential(final boolean rewritten, final String query) throws Exception {
+    final long before = SirixVectorizedExecutor.offsetCountGroupsRewriteCount();
+    assertOrderedDifferentialServed(query);
+    assertEquals(before + (rewritten
+        ? 1
+        : 0), SirixVectorizedExecutor.offsetCountGroupsRewriteCount(),
+        "the bounded same-column rewrite must engage exactly for its eligible shapes");
+  }
+
   private void assertOrderedDifferentialServed(final String query) throws Exception {
     assertOrderedDifferential(query, true);
   }
@@ -601,7 +749,6 @@ public final class GroupTopKDifferentialTest {
         if (vectorized) {
           final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
           final JsonResourceSession session = db.beginResourceSession(RES);
-          installProjection(session);
           exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
           SequentialPipelineStrategy.setVectorizedExecutor(exec);
         }
@@ -620,26 +767,15 @@ public final class GroupTopKDifferentialTest {
     }
   }
 
-  private static void installProjection(final JsonResourceSession session) {
-    final Path<QNm> rootPath = Path.parse("/[]", PathParser.Type.JSON);
-    final String[] fields = {"id", "k7", "k40", "amount", "dept", "name", "tier", "bonus", "bk", "big", "ts", "nick"};
-    final Type[] types = {Type.LON, Type.LON, Type.LON, Type.LON, Type.STR, Type.STR, Type.STR, Type.LON, Type.LON,
-        Type.LON, Type.STR, Type.STR};
-    final List<Path<QNm>> fieldPaths = new ArrayList<>(fields.length);
-    final List<Type> typeList = new ArrayList<>(fields.length);
-    for (int i = 0; i < fields.length; i++) {
-      fieldPaths.add(Path.parse("/[]/" + fields[i], PathParser.Type.JSON));
-      typeList.add(types[i]);
-    }
-    final var def = IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, typeList, 7, IndexDef.DbType.JSON);
-    final List<byte[]> leaves = new ArrayList<>();
-    final ProjectionIndexBuilder builder;
-    final int revision = session.getMostRecentRevisionNumber();
-    try (var rtx = session.beginNodeReadOnlyTrx(revision); var pathSummary = session.openPathSummary(revision)) {
-      builder = new ProjectionIndexBuilder(def, pathSummary, leaves::add);
-      builder.build(rtx);
-    }
-    ProjectionIndexRegistry.installWildcard(session.getResourceConfig().getResource().toString(), fields, leaves,
-        builder.numericColumnNonIntegralFlags());
+  private static void createProjectionIndex(final SirixCompileChain chain, final SirixQueryContext context) {
+    new Query(chain, """
+        let $doc := jn:doc('%s','%s')
+        let $stats := jn:create-projection-index($doc, '/[]',
+          ('/[]/id', '/[]/k7', '/[]/k40', '/[]/amount', '/[]/dept', '/[]/name',
+           '/[]/tier', '/[]/bonus', '/[]/bk', '/[]/big', '/[]/ts', '/[]/nick', '/[]/edge'),
+          ('long', 'long', 'long', 'long', 'string', 'string',
+           'string', 'long', 'long', 'long', 'string', 'string', 'long'))
+        return sdb:commit($doc)
+        """.formatted(DB, RES)).evaluate(context);
   }
 }

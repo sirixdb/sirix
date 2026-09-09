@@ -35,7 +35,6 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -373,57 +372,6 @@ class HOTRangeIteratorTest {
   }
 
   @Nested
-  @DisplayName("ChunkDirectory Equals Coverage")
-  class ChunkDirectoryEqualsTests {
-
-    @Test
-    @DisplayName("Test equals with null")
-    void testEqualsNull() {
-      ChunkDirectory dir = new ChunkDirectory();
-      assertFalse(dir.equals(null));
-    }
-
-    @Test
-    @DisplayName("Test equals with same object")
-    void testEqualsSameObject() {
-      ChunkDirectory dir = new ChunkDirectory();
-      assertTrue(dir.equals(dir));
-    }
-
-    @Test
-    @DisplayName("Test equals with different class")
-    void testEqualsDifferentClass() {
-      ChunkDirectory dir = new ChunkDirectory();
-      assertFalse(dir.equals("not a directory"));
-    }
-
-    @Test
-    @DisplayName("Test equals with different chunk count")
-    void testEqualsDifferentCount() {
-      ChunkDirectory dir1 = new ChunkDirectory();
-      dir1.getOrCreateChunkRef(0);
-
-      ChunkDirectory dir2 = new ChunkDirectory();
-      dir2.getOrCreateChunkRef(0);
-      dir2.getOrCreateChunkRef(1);
-
-      assertFalse(dir1.equals(dir2));
-    }
-
-    @Test
-    @DisplayName("Test equals with different indices")
-    void testEqualsDifferentIndices() {
-      ChunkDirectory dir1 = new ChunkDirectory();
-      dir1.setChunkRef(0, new io.sirix.page.PageReference());
-
-      ChunkDirectory dir2 = new ChunkDirectory();
-      dir2.setChunkRef(1, new io.sirix.page.PageReference());
-
-      assertFalse(dir1.equals(dir2));
-    }
-  }
-
-  @Nested
   @DisplayName("PathKeySerializer Tests")
   class PathKeySerializerTests {
 
@@ -475,4 +423,3 @@ class HOTRangeIteratorTest {
     }
   }
 }
-

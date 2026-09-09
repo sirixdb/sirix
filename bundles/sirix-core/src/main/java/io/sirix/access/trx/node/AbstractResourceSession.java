@@ -25,8 +25,6 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.cache.BufferManager;
-import io.sirix.cache.Cache;
-import io.sirix.cache.RBIndexKey;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixThreadedException;
@@ -361,11 +359,6 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   public Reader createReader() {
     return storage.createReader();
-  }
-
-  @Override
-  public Cache<RBIndexKey, Node> getIndexCache() {
-    return bufferManager.getIndexCache();
   }
 
   /**
@@ -931,12 +924,21 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       final StorageEngineWriter storageEngineWriter =
           createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
-      final Node documentNode = getDocumentNode(storageEngineWriter);
+      final W wtx;
+      try {
+        final Node documentNode = getDocumentNode(storageEngineWriter);
 
-      // Create new node write transaction.
-      final var autoCommitDelay = Duration.of(maxTime, timeUnit.toChronoUnit());
-      final W wtx = createNodeReadWriteTrx(nodeTrxId, storageEngineWriter, maxNodeCount, autoCommitDelay, documentNode,
-          afterCommitState);
+        // Create new node write transaction. Listener binding happens inside this construction and
+        // can deliberately fail closed (for example, an inconsistent persisted projection without
+        // its required path summary). Until construction returns, the writer is not registered in
+        // either transaction map, so no ordinary close path can find it.
+        final var autoCommitDelay = Duration.of(maxTime, timeUnit.toChronoUnit());
+        wtx = createNodeReadWriteTrx(nodeTrxId, storageEngineWriter, maxNodeCount, autoCommitDelay, documentNode,
+            afterCommitState);
+      } catch (final RuntimeException | Error constructionFailure) {
+        closeUnregisteredWriter(storageEngineWriter, constructionFailure);
+        throw constructionFailure;
+      }
 
       // Remember node transaction for debugging and safe close.
       // noinspection unchecked
@@ -960,6 +962,24 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       if (!success) {
         writeLock.release();
         LOGGER.trace("Lock: lock released (beginNodeTrx failed)");
+      }
+    }
+  }
+
+  /**
+   * Close a writer whose node transaction constructor failed, without masking that primary failure.
+   */
+  private static void closeUnregisteredWriter(final StorageEngineWriter storageEngineWriter,
+      final Throwable primaryFailure) {
+    try {
+      storageEngineWriter.close();
+    } catch (final RuntimeException | Error cleanupFailure) {
+      if (cleanupFailure != primaryFailure) {
+        try {
+          primaryFailure.addSuppressed(cleanupFailure);
+        } catch (final RuntimeException | Error ignored) {
+          // The constructor failure remains authoritative even if diagnostics cannot be attached.
+        }
       }
     }
   }

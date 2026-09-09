@@ -296,7 +296,7 @@ The *routing function* `findChild_N : Σ → {0, …, n-1} ∪ {⊥}` is defined
 - Else if `MATCH_N(K) = ∅`, set `findChild_N(K) := ⊥`.
 - Else `findChild_N(K) := max MATCH_N(K)` (highest-index subset match).
 
-This formalizes the code at `HOTIndirectPage.findChildSpanNode`.
+This formalizes the code at `HOTIndirectPage.findChildByPartialKey`.
 
 **Definition 6 (invariants).** Node `N` satisfies:
 - **I7** iff `S_c < S_{c'}` for all `0 ≤ c < c' < n`.
@@ -1350,7 +1350,7 @@ clean at 1000/rev, corrupt at 2000/rev). It is **not** an I8-ordering firing (Cl
 and **not** the integrate-cascade mask overlap (Class 2); it is a *routing*
 correctness failure of the very combo-partial primitive Class 2 relies on.
 
-**Mechanism.** Sirix's routing (`HOTIndirectPage.findChildSpanNode`) is
+**Mechanism.** Sirix's routing (`HOTIndirectPage.findChildByPartialKey`) is
 *equality-/most-specific-preferred*: among partials that subset-match
 `densePK_N(K)`, it prefers an exact match, else the highest. The incremental branch
 (`tryBranchIncremental`, `betaIsDiscBit`) and its full-node variant

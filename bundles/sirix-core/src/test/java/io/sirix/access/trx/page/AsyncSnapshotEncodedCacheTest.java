@@ -17,14 +17,17 @@ import io.sirix.io.SerializationBufferPool;
 import io.sirix.io.Writer;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.bytepipe.DeflateCompressor;
 import io.sirix.io.filechannel.FileChannelStorage;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.NodeKind;
 import io.sirix.node.PooledBytesOut;
 import io.sirix.node.PooledGrowingSegment;
 import io.sirix.node.json.ObjectNamedNumberNode;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageConstants;
 import io.sirix.page.PageKind;
 import io.sirix.page.PageLayout;
 import io.sirix.page.PageReference;
@@ -107,6 +110,8 @@ final class AsyncSnapshotEncodedCacheTest {
       assertTrue(encoded.isReadOnly());
       assertEquals(frame.address(), encoded.address());
       assertTrue(encoded.byteSize() < frame.byteSize(), "test page must exercise an exact-length frame view");
+      assertEquals(Math.toIntExact(encoded.byteSize()), serializationCopy.getByteHandlerInputLength(),
+          "the identity pipeline's persisted and pre-handler lengths are equal");
 
       final PageReference writtenReference = new PageReference();
       try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
@@ -168,18 +173,44 @@ final class AsyncSnapshotEncodedCacheTest {
     final KeyValueLeafPage page = new KeyValueLeafPage(2L, IndexType.DOCUMENT, config, 1, null, null, false);
     try {
       final MemorySegment frame = page.getSlottedPage();
-      final byte[] fullHeapRecord = new byte[Math.toIntExact(frame.byteSize()) - PageLayout.HEAP_START];
+      int remainingHeapBytes = Math.toIntExact(frame.byteSize()) - PageLayout.HEAP_START;
       int random = 0x6D2B79F5;
-      for (int i = 0; i < fullHeapRecord.length; i++) {
-        random ^= random << 13;
-        random ^= random >>> 17;
-        random ^= random << 5;
-        fullHeapRecord[i] = (byte) random;
+      int slot = 0;
+      while (remainingHeapBytes > 0) {
+        final byte[] inlineRecord = new byte[Math.min(remainingHeapBytes, PageConstants.MAX_RECORD_SIZE)];
+        for (int i = 0; i < inlineRecord.length; i++) {
+          random ^= random << 13;
+          random ^= random >>> 17;
+          random ^= random << 5;
+          inlineRecord[i] = (byte) random;
+        }
+        page.setSlot(inlineRecord, slot++);
+        remainingHeapBytes -= inlineRecord.length;
       }
-      page.setSlot(fullHeapRecord, 0);
+      assertEquals(frame.address(), page.getSlottedPage().address(),
+          "legal inline records must fill the original frame without growing it");
       final long firstNodeKey = page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT;
-      for (int slot = 1; slot < PageLayout.SLOT_COUNT; slot++) {
-        page.getReferencesMap().put(firstNodeKey + slot, new PageReference().setKey(slot + 1L));
+      final int firstOverflowSlot = slot;
+      for (int referencedSlot = firstOverflowSlot; referencedSlot < PageLayout.SLOT_COUNT; referencedSlot++) {
+        page.getReferencesMap().put(firstNodeKey + referencedSlot, new PageReference().setKey(referencedSlot + 1L));
+      }
+
+      // A full row frame can legitimately acquire cold side images when later values have no inline
+      // capacity. Keep inline slots and overflow references disjoint, and add enough valid complete
+      // images to make the persisted identity page exceed the frame without ever manufacturing an
+      // illegal >512-byte record.
+      final MemorySegment sideScratch = MemorySegment.ofArray(new byte[PageConstants.MAX_RECORD_SIZE]);
+      final int sideSlotLimit = Math.min(firstOverflowSlot + 64, PageLayout.SLOT_COUNT);
+      for (int sideSlot = firstOverflowSlot; sideSlot < sideSlotLimit; sideSlot++) {
+        final ObjectNamedNumberNode sideNode = new ObjectNamedNumberNode(firstNodeKey + sideSlot,
+            Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Fixed.NULL_NODE_KEY.getStandardProperty(), 17, -1L, 0, 0, 0L, 42L, HASH_FUNCTION, (byte[]) null);
+        final int sideImageLength = sideNode.serializeToHeap(sideScratch, 0L);
+        assertTrue(sideImageLength > 0 && sideImageLength <= PageConstants.MAX_RECORD_SIZE);
+        final MemorySegment sideImage = sideScratch.asSlice(0L, sideImageLength);
+        final long prepareToken =
+            page.prepareSideSlot(NodeKind.OBJECT_NAMED_NUMBER.getId(), sideImage, sideImageLength);
+        page.publishSideSlot(sideSlot, prepareToken);
       }
       final byte[] framePrefix = frame.asSlice(0, PageLayout.HEADER_SIZE).toArray(ValueLayout.JAVA_BYTE);
       assertNull(page.getCompressedSegment(), "test must enter the serializer instead of hitting a stale cache");
@@ -420,6 +451,8 @@ final class AsyncSnapshotEncodedCacheTest {
       assertNull(serializationCopy.getBytes());
       assertEquals(serializationCopy.getSlottedPage().address(), encoded.address());
       assertEquals(PrefixMemorySegmentHandler.MARKER, encoded.get(ValueLayout.JAVA_BYTE, 0L));
+      assertEquals(Math.toIntExact(encoded.byteSize()) - 1, serializationCopy.getByteHandlerInputLength(),
+          "relocating an owned cache must preserve the pre-handler length");
 
       // The inner page-body codec uses a per-thread sticky-winner election, so two equivalent
       // serializations may legally choose different self-describing representations (for example,
@@ -471,11 +504,35 @@ final class AsyncSnapshotEncodedCacheTest {
       PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, page, SerializationType.DATA);
       final MemorySegment cache = page.getCompressedSegment();
       final byte[] expected = cache.toArray(ValueLayout.JAVA_BYTE);
+      assertEquals(Math.toIntExact(cache.byteSize()), page.getByteHandlerInputLength());
 
       backing.fill((byte) 0xCC);
 
       assertArrayEquals(expected, cache.toArray(ValueLayout.JAVA_BYTE),
           "the default policy must preserve the global owned-copy contract");
+    } finally {
+      page.close();
+    }
+  }
+
+  @Test
+  @DisplayName("A stream-only pipeline publishes the exact pre-handler cache length")
+  void streamPipelinePublishesExactInputLength() {
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-stream-metadata")
+                                                                        .byteHandlerPipeline(new ByteHandlerPipeline(
+                                                                            new DeflateCompressor()))
+                                                                        .build();
+    final KeyValueLeafPage page = new KeyValueLeafPage(12L, IndexType.DOCUMENT, config, 1, null, null, false);
+    try (BytesOut<?> sink = Bytes.elasticHeapByteBuffer()) {
+      page.setSlot(new byte[] {1, 1, 2, 3, 5, 8, 13, 21}, 7);
+
+      PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, page, SerializationType.DATA);
+
+      assertNull(page.getCompressedSegment());
+      assertNotNull(page.getBytes());
+      assertEquals(Math.toIntExact(sink.writePosition()), page.getByteHandlerInputLength(),
+          "the legacy cache metadata must describe the bytes before Deflate");
     } finally {
       page.close();
     }

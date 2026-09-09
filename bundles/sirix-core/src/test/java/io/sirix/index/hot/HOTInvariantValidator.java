@@ -3,7 +3,10 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.index.IndexType;
 import io.sirix.page.CASPage;
 import io.sirix.page.HOTIndirectPage;
@@ -11,7 +14,9 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
 
@@ -119,24 +124,48 @@ public final class HOTInvariantValidator {
     return switch (indexType) {
       case PATH -> {
         final PathPage pathPage = reader.getPathPage(rootPage);
-        if (pathPage == null || indexNumber >= pathPage.getReferences().size())
-          yield null;
-        yield pathPage.getOrCreateReference(indexNumber);
+        yield pathPage == null
+            ? null
+            : pathPage.getIndexReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = reader.getCASPage(rootPage);
-        if (casPage == null || indexNumber >= casPage.getReferences().size())
-          yield null;
-        yield casPage.getOrCreateReference(indexNumber);
+        yield casPage == null
+            ? null
+            : casPage.getIndexReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = reader.getNamePage(rootPage);
-        if (namePage == null || indexNumber >= namePage.getReferences().size())
-          yield null;
-        yield namePage.getOrCreateReference(indexNumber);
+        yield namePage == null
+            ? null
+            : namePage.getIndexReference(databaseType(reader, indexNumber), indexNumber);
+      }
+      case PROJECTION -> {
+        final ProjectionIndexPage projectionPage = reader.getProjectionIndexPage(rootPage);
+        yield projectionPage == null
+            ? null
+            : projectionPage.getIndexReference(indexNumber);
+      }
+      case VALIDTIME -> {
+        final ValidTimeIndexPage validTimePage = reader.getValidTimeIndexPage(rootPage);
+        yield validTimePage == null
+            ? null
+            : validTimePage.getIndexReference(indexNumber);
       }
       default -> null;
     };
+  }
+
+  private static DatabaseType databaseType(final StorageEngineReader reader, final int indexNumber) {
+    final var resourceSession = reader.getResourceSession();
+    if (resourceSession instanceof JsonResourceSession) {
+      return DatabaseType.JSON;
+    }
+    if (resourceSession instanceof XmlResourceSession) {
+      return DatabaseType.XML;
+    }
+    throw new IllegalStateException("Cannot determine the database type for NAME index " + indexNumber
+        + " from resource session " + resourceSession);
   }
 
   /** Validate the HOT trie of the given index type / number for the reader's current revision. */
@@ -257,10 +286,10 @@ public final class HOTInvariantValidator {
    * <p>
    * Why the existing invariants do not catch it: I7 (partials ascending) and I8 (children sorted by
    * first key) are the SAME invariant under a complete mask, and diverge only under an incomplete
-   * one. {@code HOTTrieWriter.redistributeLeafKeysIfMisrouted} resolves that divergence in favour of
-   * I7 ("a firstKey sort would then break I7"), which keeps I7 green while I8's premise is already
-   * gone. I6 also stays green, because PEXT routing remains self-consistent — every key is still
-   * findable by point lookup. What breaks is ORDER, so only a range scan notices.
+   * one. Canonical writer-side rerouting resolves that divergence in favour of I7 ("a firstKey sort
+   * would then break I7"), which keeps I7 green while I8's premise is already gone. I6 also stays
+   * green, because PEXT routing remains self-consistent — every key is still findable by point
+   * lookup. What breaks is ORDER, so only a range scan notices.
    *
    * <p>
    * Observed violation this check was written for: a 196-row-group projection index whose leaf held
@@ -374,8 +403,9 @@ public final class HOTInvariantValidator {
   /**
    * I11 — trie-condition. For every bit b set in {@code child}'s mask, b must be a less- significant
    * bit position than {@code parent.MSB} (= b's absolute position is greater than parent.MSB's).
-   * Skips when either side has no mask set (e.g., MultiNode root with empty bitMask uses childIndex
-   * routing instead — handled below).
+   * Skips when either side has no discriminative mask/MSB (a defensive allowance for empty or
+   * uninitialized fixtures). Every persisted SpanNode and MultiNode routes by mask extraction and
+   * partial-key lookup.
    */
   private void validateI11TrieCondition(HOTIndirectPage parent, HOTIndirectPage child, int childSlot) {
     final int parentMSB = parent.getMostSignificantBitIndex();
@@ -429,9 +459,27 @@ public final class HOTInvariantValidator {
       }
       previousKey = key;
 
-      final byte[] value = leaf.getValue(i);
-      if (NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
+      final long valueRef = leaf.valueRef(i);
+      final int valueLength = HOTLeafPage.refLength(valueRef);
+      if (valueLength < 0) {
+        addViolation("I1-leaf-key-uniqueness", "leaf " + leaf.getPageKey() + " has an unreadable value at slot " + i,
+            null);
         continue;
+      }
+      // Projection uses a physically present zero-length value as its tombstone. getValue(i)
+      // intentionally returns null for both zero-length and unreadable slots, so structural
+      // validation must use the packed length and must never bitmap-decode opaque projection bytes.
+      if (leaf.getIndexType() == IndexType.PROJECTION && valueLength == 0) {
+        continue;
+      }
+      if (leaf.getIndexType() != IndexType.PROJECTION) {
+        final byte[] value = new byte[valueLength];
+        if (valueLength > 0) {
+          leaf.copyRefInto(valueRef, 0, value, 0, valueLength);
+        }
+        if (NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
+          continue;
+        }
       }
       storedKeys.add(key);
     }

@@ -30,11 +30,11 @@ import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static org.junit.Assert.assertEquals;
 
 /**
- * Golden byte-pins for COMPOSITE pages — a populated {@link KeyValueLeafPage} (record heap,
- * compact directory, structural encoders, PAX assembly) and a populated {@link HOTLeafPage}.
- * Together with {@link GoldenFormatTest} (headers, envelopes, single records, codecs, id
- * registries) this pins whole-page composition: any byte-level change to the serialization
- * pipeline fails here and must be shipped as a conscious format bump.
+ * Golden byte-pins for COMPOSITE pages — a populated {@link KeyValueLeafPage} (record heap, compact
+ * directory, structural encoders, PAX assembly) and a populated {@link HOTLeafPage}. Together with
+ * {@link GoldenFormatTest} (headers, envelopes, single records, codecs, id registries) this pins
+ * whole-page composition: any byte-level change to the serialization pipeline fails here and must
+ * be shipped as a conscious format bump.
  */
 public final class GoldenCompositePageTest {
 
@@ -62,14 +62,7 @@ public final class GoldenCompositePageTest {
   }
 
   private static final String GOLDEN_KVLP =
-      "01000000010000000100000000000000000100000002005600000056000000010000000000000000"
-          + "00030000000000000000000000000000000000000000000000000000000000000000000000000000"
-          + "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
-          + "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
-          + "000000000000000000020000003a0000000100110000005700000003fd554000001d010400f12901"
-          + "0f000102030405060708090a0b131415000001000309071919030c0e0a01000f1d506d3cfcc7dd02"
-          + "0002b10102c70101000105071717011d00f001c0f638d2d64b9c6b020002af0102c5010000000000"
-          + "000000000000000000";
+      "01000000010000000100000000000000000100000002005600000056000000010400000000000000000300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000003a0000000100110000005400000003fd51f12d07410741010f000102030405060708090a0b131415000001000309071919030c0e0a01000f1d506d3cfcc7dd020002b10102c70101000105071717011d00f001c0f638d2d64b9c6b020002af0102c5010000000000000000000000000000";
 
   private static final String GOLDEN_HOT_LEAF =
       "0c00000101000000050000030000002f00000000000000100000001f0000000500616c7068610700"
@@ -102,8 +95,8 @@ public final class GoldenCompositePageTest {
   public void hotLeafPageBytesArePinned() throws IOException {
     final var config = storageEngineReader.getResourceSession().getResourceConfig();
     final MemorySegment slotMemory = arena.allocate(SIXTYFOUR_KB);
-    final HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.PATH, slotMemory, null,
-        new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    final HOTLeafPage page =
+        new HOTLeafPage(1L, 1, IndexType.PATH, slotMemory, null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
     try {
       page.put("alpha".getBytes(StandardCharsets.UTF_8), "value-1".getBytes(StandardCharsets.UTF_8));
       page.put("beta".getBytes(StandardCharsets.UTF_8), "value-2".getBytes(StandardCharsets.UTF_8));
@@ -123,9 +116,12 @@ public final class GoldenCompositePageTest {
     attributeKeys.add(88L);
     final LongArrayList namespaceKeys = new LongArrayList();
     namespaceKeys.add(99L);
-    final ElementNode node = new ElementNode(nodeKey, 1L, Constants.NULL_REVISION_NUMBER, 0, rightSibling,
-        leftSibling, 12L, 12L, config.storeChildCount() ? 1L : 0L, 0L, 0L, 1L, 6, 7, 5, config.nodeHashFunction,
-        SirixDeweyID.newRootID(), attributeKeys, namespaceKeys, new QNm("a", "b", "c"));
+    final ElementNode node = new ElementNode(nodeKey, 1L, Constants.NULL_REVISION_NUMBER, 0, rightSibling, leftSibling,
+        12L, 12L, config.storeChildCount()
+            ? 1L
+            : 0L,
+        0L, 0L, 1L, 6, 7, 5, config.nodeHashFunction, SirixDeweyID.newRootID(), attributeKeys, namespaceKeys,
+        new QNm("a", "b", "c"));
     node.setHash(node.computeHash(Bytes.elasticOffHeapByteBuffer()));
     return node;
   }

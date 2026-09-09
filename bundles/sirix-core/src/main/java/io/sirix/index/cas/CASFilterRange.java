@@ -1,11 +1,7 @@
 package io.sirix.index.cas;
 
-import io.sirix.index.AtomicUtil;
-import io.sirix.index.Filter;
 import io.sirix.index.path.PCRCollector;
 import io.sirix.index.path.PathFilter;
-import io.sirix.index.redblacktree.RBNodeKey;
-import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
@@ -21,7 +17,7 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class CASFilterRange implements Filter {
+public final class CASFilterRange {
 
   /** {@link PathFilter} instance to filter specific paths. */
   private final PathFilter pathFilter;
@@ -84,19 +80,6 @@ public final class CASFilterRange implements Filter {
    */
   public Set<Long> getPCRs() {
     return pathFilter.getPCRs();
-  }
-
-  @Override
-  public <K extends Comparable<? super K>> boolean filter(final RBNodeKey<K> node) {
-    final K key = node.getKey();
-    if (key instanceof CASValue casValue) {
-      final boolean filtered = pathFilter.filter(node);
-
-      if (filtered) {
-        return inRange(AtomicUtil.toType(casValue.getAtomicValue(), casValue.getType()));
-      }
-    }
-    return false;
   }
 
   /**

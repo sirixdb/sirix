@@ -177,7 +177,14 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final int deweyIdLen = deweyIdBytes != null
         ? deweyIdBytes.length
         : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(reusableArrayNode.estimateSerializedSize(), deweyIdLen);
+    final long absOffset =
+        kvl.prepareHeapForDirectWriteOrOverflow(reusableArrayNode.estimateSerializedSize(), deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      final ArrayNode node = new ArrayNode(nodeKey, parentKey, pathNodeKey, Constants.NULL_REVISION_NUMBER,
+          revisionNumber, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY, 0, 0, 0, hashFunction, id);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = ArrayNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableArrayNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY,
         pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0);
@@ -200,7 +207,14 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final int deweyIdLen = deweyIdBytes != null
         ? deweyIdBytes.length
         : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(reusableObjectNode.estimateSerializedSize(), deweyIdLen);
+    final long absOffset =
+        kvl.prepareHeapForDirectWriteOrOverflow(reusableObjectNode.estimateSerializedSize(), deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      final ObjectNode node = new ObjectNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+          rightSibKey, leftSibKey, NULL_KEY, NULL_KEY, 0, 0, 0, hashFunction, id);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = ObjectNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableObjectNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY,
         Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0);
@@ -223,7 +237,14 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final int deweyIdLen = deweyIdBytes != null
         ? deweyIdBytes.length
         : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(reusableNullNode.estimateSerializedSize(), deweyIdLen);
+    final long absOffset =
+        kvl.prepareHeapForDirectWriteOrOverflow(reusableNullNode.estimateSerializedSize(), deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      final NullNode node = new NullNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+          rightSibKey, leftSibKey, 0, hashFunction, id);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = NullNode.writeNewRecord(kvl.getSlottedPage(), absOffset, reusableNullNode.getHeapOffsets(),
         nodeKey, parentKey, rightSibKey, leftSibKey, Constants.NULL_REVISION_NUMBER, revisionNumber);
     kvl.completeDirectWrite(NodeKind.NULL_VALUE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
@@ -305,7 +326,14 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final int deweyIdLen = deweyIdBytes != null
         ? deweyIdBytes.length
         : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(reusableBooleanNode.estimateSerializedSize(), deweyIdLen);
+    final long absOffset =
+        kvl.prepareHeapForDirectWriteOrOverflow(reusableBooleanNode.estimateSerializedSize(), deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      final BooleanNode node = new BooleanNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+          rightSibKey, leftSibKey, 0, boolValue, hashFunction, id);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes =
         BooleanNode.writeNewRecord(kvl.getSlottedPage(), absOffset, reusableBooleanNode.getHeapOffsets(), nodeKey,
             parentKey, rightSibKey, leftSibKey, Constants.NULL_REVISION_NUMBER, revisionNumber, boolValue);
@@ -319,6 +347,23 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, Number value,
       SirixDeweyID id) {
+    return createJsonNumberNode(parentKey, leftSibKey, rightSibKey, requireNonNull(value), BOXED_NUMBER, 0L, id);
+  }
+
+  @Override
+  public NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, int value,
+      SirixDeweyID id) {
+    return createJsonNumberNode(parentKey, leftSibKey, rightSibKey, null, INT_NUMBER, value, id);
+  }
+
+  @Override
+  public NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, long value,
+      SirixDeweyID id) {
+    return createJsonNumberNode(parentKey, leftSibKey, rightSibKey, null, LONG_NUMBER, value, id);
+  }
+
+  private NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, Number fallbackValue,
+      byte primitiveType, long primitiveValue, SirixDeweyID id) {
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
@@ -329,10 +374,37 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final int deweyIdLen = deweyIdBytes != null
         ? deweyIdBytes.length
         : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(reusableNumberNode.estimateSerializedSize(), deweyIdLen);
-    final int recordBytes =
+    final int estimatedSize = switch (primitiveType) {
+      case BOXED_NUMBER -> NumberNode.estimateSerializedSize(fallbackValue);
+      case INT_NUMBER -> NumberNode.estimateSerializedIntSize((int) primitiveValue);
+      case LONG_NUMBER -> NumberNode.estimateSerializedLongSize(primitiveValue);
+      default -> throw new IllegalArgumentException("Unknown primitive number type: " + primitiveType);
+    };
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(estimatedSize, deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      final Number materializedValue = switch (primitiveType) {
+        case BOXED_NUMBER -> fallbackValue;
+        case INT_NUMBER -> (int) primitiveValue;
+        case LONG_NUMBER -> primitiveValue;
+        default -> throw new IllegalArgumentException("Unknown primitive number type: " + primitiveType);
+      };
+      final NumberNode node = new NumberNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+          rightSibKey, leftSibKey, 0, materializedValue, hashFunction, id);
+      kvl.setRecord(node);
+      return node;
+    }
+    final int recordBytes = switch (primitiveType) {
+      case BOXED_NUMBER ->
         NumberNode.writeNewRecord(kvl.getSlottedPage(), absOffset, reusableNumberNode.getHeapOffsets(), nodeKey,
-            parentKey, rightSibKey, leftSibKey, Constants.NULL_REVISION_NUMBER, revisionNumber, value);
+            parentKey, rightSibKey, leftSibKey, Constants.NULL_REVISION_NUMBER, revisionNumber, fallbackValue);
+      case INT_NUMBER ->
+        NumberNode.writeNewIntRecord(kvl.getSlottedPage(), absOffset, reusableNumberNode.getHeapOffsets(), nodeKey,
+            parentKey, rightSibKey, leftSibKey, Constants.NULL_REVISION_NUMBER, revisionNumber, (int) primitiveValue);
+      case LONG_NUMBER ->
+        NumberNode.writeNewLongRecord(kvl.getSlottedPage(), absOffset, reusableNumberNode.getHeapOffsets(), nodeKey,
+            parentKey, rightSibKey, leftSibKey, Constants.NULL_REVISION_NUMBER, revisionNumber, primitiveValue);
+      default -> throw new IllegalArgumentException("Unknown primitive number type: " + primitiveType);
+    };
     kvl.completeDirectWrite(NodeKind.NUMBER_VALUE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableNumberNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableNumberNode.setOwnerPage(kvl);
@@ -355,7 +427,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         ? deweyIdBytes.length
         : 0;
     final long absOffset =
-        kvl.prepareHeapForDirectWrite(reusableObjectNamedBooleanNode.estimateSerializedSize(), deweyIdLen);
+        kvl.prepareHeapForDirectWriteOrOverflow(reusableObjectNamedBooleanNode.estimateSerializedSize(), deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      final ObjectNamedBooleanNode node = new ObjectNamedBooleanNode(nodeKey, parentKey, rightSibKey, leftSibKey,
+          localNameKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, hashFunction, id);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = ObjectNamedBooleanNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableObjectNamedBooleanNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
         pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value);
@@ -400,8 +478,26 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final int deweyIdLen = deweyIdBytes != null
         ? deweyIdBytes.length
         : 0;
-    final long absOffset =
-        kvl.prepareHeapForDirectWrite(reusableObjectNamedNumberNode.estimateSerializedSize(), deweyIdLen);
+    final int estimatedSize = switch (primitiveType) {
+      case BOXED_NUMBER -> ObjectNamedNumberNode.estimateSerializedSize(fallbackValue);
+      case INT_NUMBER -> ObjectNamedNumberNode.estimateSerializedIntSize((int) primitiveValue);
+      case LONG_NUMBER -> ObjectNamedNumberNode.estimateSerializedLongSize(primitiveValue);
+      default -> throw new IllegalArgumentException("Unknown primitive number type: " + primitiveType);
+    };
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(estimatedSize, deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      final Number materializedValue = switch (primitiveType) {
+        case BOXED_NUMBER -> fallbackValue;
+        case INT_NUMBER -> (int) primitiveValue;
+        case LONG_NUMBER -> primitiveValue;
+        default -> throw new IllegalArgumentException("Unknown primitive number type: " + primitiveType);
+      };
+      final ObjectNamedNumberNode node =
+          new ObjectNamedNumberNode(nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey, pathNodeKey,
+              Constants.NULL_REVISION_NUMBER, revisionNumber, 0, materializedValue, hashFunction, id);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = switch (primitiveType) {
       case BOXED_NUMBER -> ObjectNamedNumberNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
           reusableObjectNamedNumberNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
@@ -503,7 +599,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         ? deweyIdBytes.length
         : 0;
     final long absOffset =
-        kvl.prepareHeapForDirectWrite(reusableObjectNamedNullNode.estimateSerializedSize(), deweyIdLen);
+        kvl.prepareHeapForDirectWriteOrOverflow(reusableObjectNamedNullNode.estimateSerializedSize(), deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      final ObjectNamedNullNode node = new ObjectNamedNullNode(nodeKey, parentKey, rightSibKey, leftSibKey,
+          localNameKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, hashFunction, id);
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = ObjectNamedNullNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableObjectNamedNullNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
         pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0);
@@ -529,7 +631,15 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         ? deweyIdBytes.length
         : 0;
     final long absOffset =
-        kvl.prepareHeapForDirectWrite(reusableObjectNamedObjectNode.estimateSerializedSize(), deweyIdLen);
+        kvl.prepareHeapForDirectWriteOrOverflow(reusableObjectNamedObjectNode.estimateSerializedSize(), deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      final ObjectNamedObjectNode node =
+          new ObjectNamedObjectNode(nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY, localNameKey,
+              pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, hashFunction, id);
+      node.setName(new QNm(name));
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = ObjectNamedObjectNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableObjectNamedObjectNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY,
         localNameKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0L, 0L, 0L);
@@ -556,7 +666,15 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         ? deweyIdBytes.length
         : 0;
     final long absOffset =
-        kvl.prepareHeapForDirectWrite(reusableObjectNamedArrayNode.estimateSerializedSize(), deweyIdLen);
+        kvl.prepareHeapForDirectWriteOrOverflow(reusableObjectNamedArrayNode.estimateSerializedSize(), deweyIdLen);
+    if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
+      final ObjectNamedArrayNode node =
+          new ObjectNamedArrayNode(nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY, localNameKey,
+              pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, hashFunction, id);
+      node.setName(new QNm(name));
+      kvl.setRecord(node);
+      return node;
+    }
     final int recordBytes = ObjectNamedArrayNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableObjectNamedArrayNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY,
         localNameKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0L, 0L, 0L);

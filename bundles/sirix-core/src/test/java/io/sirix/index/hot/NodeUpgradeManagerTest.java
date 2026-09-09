@@ -121,16 +121,15 @@ class NodeUpgradeManagerTest {
     @DisplayName("MultiNode should downgrade when children drop to 16 or fewer")
     void testMultiNodeShouldDowngrade() {
       PageReference[] children = new PageReference[20];
-      byte[] childIndex = new byte[256];
+      int[] partialKeys = new int[20];
       for (int i = 0; i < 20; i++) {
         children[i] = new PageReference();
         children[i].setKey(100 + i);
-      }
-      for (int i = 0; i < 256; i++) {
-        childIndex[i] = (byte) (i % 20);
+        partialKeys[i] = i;
       }
 
-      HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(1L, 1, (byte) 0, childIndex, children);
+      HOTIndirectPage multiNode =
+          HOTIndirectPage.createMultiNode(1L, 1, 0, 0xF800_0000_0000_0000L, partialKeys, children, 0);
 
       assertFalse(NodeUpgradeManager.shouldDowngrade(multiNode, 17));
       assertTrue(NodeUpgradeManager.shouldDowngrade(multiNode, 16));
@@ -158,16 +157,15 @@ class NodeUpgradeManagerTest {
     @DisplayName("Node with 32 children is full")
     void testNodeIsFull() {
       PageReference[] children = new PageReference[32];
-      byte[] childIndex = new byte[256];
+      int[] partialKeys = new int[32];
       for (int i = 0; i < 32; i++) {
         children[i] = new PageReference();
         children[i].setKey(100 + i);
-      }
-      for (int i = 0; i < 256; i++) {
-        childIndex[i] = (byte) (i % 32);
+        partialKeys[i] = i;
       }
 
-      HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(1L, 1, (byte) 0, childIndex, children);
+      HOTIndirectPage multiNode =
+          HOTIndirectPage.createMultiNode(1L, 1, 0, 0xF800_0000_0000_0000L, partialKeys, children, 0);
 
       assertTrue(NodeUpgradeManager.isFull(multiNode));
     }
@@ -262,4 +260,3 @@ class NodeUpgradeManagerTest {
     }
   }
 }
-

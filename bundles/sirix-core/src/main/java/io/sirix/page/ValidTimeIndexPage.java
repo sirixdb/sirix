@@ -3,7 +3,6 @@
  */
 package io.sirix.page;
 
-import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
@@ -13,33 +12,26 @@ import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.utils.ToStringHelper;
-import it.unimi.dsi.fastutil.ints.Int2IntMap;
-import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
+import org.jspecify.annotations.Nullable;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Container page for valid-time interval indexes, keyed by {@code IndexDef#getID()}.
  *
- * <p>Structurally identical to {@link CASPage} / {@link ProjectionIndexPage} /
- * {@link PathPage} / {@link NamePage}: the page delegate holds one
- * {@link PageReference} per registered valid-time index, each rooting a
- * versioned HOT sub-tree whose leaves are the Relational-Interval-Tree's two
- * ordered stores (lower/upper) keyed by a composite
- * {@code [store-discriminator:1][forkNode:8][endpoint:8]}. Per-index
- * book-keeping mirrors the other secondary indexes:
+ * <p>
+ * The delegate holds one {@link PageReference} per registered valid-time index, each rooting a
+ * versioned HOT tree whose leaves are the Relational-Interval-Tree's two ordered stores
+ * (lower/upper), keyed by {@code [store-discriminator:1][forkNode:8][endpoint:8]}. The sparse
+ * {@code maxHotPageKeys} map is the only per-index metadata and persists each tree's HOT page-key
+ * allocator. There is no alternate keyed-trie or red-black-tree representation.
+ * </p>
  *
- * <ul>
- *   <li>{@link #maxNodeKeys}: largest leaf-record nodeKey ever allocated in
- *       index {@code i}.</li>
- *   <li>{@link #maxHotPageKeys}: largest HOT page-key ever allocated, matches
- *       the persistence layer's {@code HOTTrieWriter}.</li>
- *   <li>{@link #currentMaxLevelsOfIndirectPages}: depth of the indirect-page
- *       chain per index.</li>
- * </ul>
- *
- * <p>Placement in {@link RevisionRootPage} matches the CAS/PATH/NAME pattern:
- * one sibling reference offset, populated on fresh revisions via
+ * <p>
+ * Placement in {@link RevisionRootPage} matches the CAS/PATH/NAME pattern: one sibling reference
+ * offset, populated on fresh revisions via
  * {@link RevisionRootPage#getValidTimeIndexPageReference()}.
  *
  * @author Johannes Lichtenberger
@@ -48,33 +40,25 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
 
   private Page delegate;
 
-  private final Int2LongMap maxNodeKeys;
-
   private final Int2LongMap maxHotPageKeys;
-
-  private final Int2IntMap currentMaxLevelsOfIndirectPages;
 
   public ValidTimeIndexPage() {
     delegate = new ReferencesPage4();
-    maxNodeKeys = new Int2LongOpenHashMap();
     maxHotPageKeys = new Int2LongOpenHashMap();
-    currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
   }
 
-  ValidTimeIndexPage(final Page delegate, final Int2LongMap maxNodeKeys,
-      final Int2LongMap maxHotPageKeys, final Int2IntMap currentMaxLevelsOfIndirectPages) {
-    this.delegate = delegate;
-    this.maxNodeKeys = maxNodeKeys;
-    this.maxHotPageKeys = maxHotPageKeys;
-    this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
+  ValidTimeIndexPage(final Page delegate, final Int2LongMap maxHotPageKeys) {
+    this.delegate = requireNonNull(delegate);
+    this.maxHotPageKeys = requireValidAllocatorMap(maxHotPageKeys);
   }
 
   /**
-   * Copy constructor for write-side CoW. Mirrors {@link ProjectionIndexPage#ProjectionIndexPage(ProjectionIndexPage)}:
-   * the underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so
-   * mutations to a child reference (key, pageFragments, swizzled page) cannot bleed back into the
-   * historical revision's view through cache aliasing. The bookkeeping maps are duplicated to
-   * decouple writer-side mutations from the prior-revision's instance.
+   * Copy constructor for write-side CoW. Mirrors
+   * {@link ProjectionIndexPage#ProjectionIndexPage(ProjectionIndexPage)}: the underlying delegate is
+   * rebuilt with a fresh {@link PageReference} per occupied slot, so mutations to a child reference
+   * (key, pageFragments, swizzled page) cannot bleed back into the historical revision's view through
+   * cache aliasing. The allocator map is duplicated to decouple writer-side mutations from the
+   * prior-revision's instance.
    */
   public ValidTimeIndexPage(final ValidTimeIndexPage other) {
     final Page otherDelegate = other.delegate;
@@ -88,23 +72,22 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
       throw new IllegalStateException(
           "Unknown ValidTimeIndexPage delegate type, cannot clone: " + otherDelegate.getClass().getName());
     }
-    this.maxNodeKeys = new Int2LongOpenHashMap(other.maxNodeKeys);
     this.maxHotPageKeys = new Int2LongOpenHashMap(other.maxHotPageKeys);
-    this.currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(other.currentMaxLevelsOfIndirectPages);
   }
 
   @Override
-  public boolean setOrCreateReference(int offset, PageReference pageReference) {
+  public boolean setOrCreateReference(final int offset, final PageReference pageReference) {
+    checkIndex(offset);
     delegate = PageUtils.setReference(delegate, offset, pageReference);
     return false;
   }
 
   /**
-   * Get the indirect-page reference for the valid-time index with the given
-   * {@code IndexDef} id. Creates an empty reference slot if none exists yet.
+   * Get the HOT-tree root reference for the valid-time index with the given {@code IndexDef} id.
+   * Creates an empty reference slot if none exists yet.
    */
-  public PageReference getIndirectPageReference(int index) {
-    return getOrCreateReference(index);
+  public PageReference getIndirectPageReference(final int index) {
+    return getOrCreateIndexReference(index);
   }
 
   @Override
@@ -113,76 +96,58 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
   }
 
   /**
-   * Initialise the HOT sub-tree for a valid-time index. Mirrors
-   * {@link CASPage#createHOTCASIndexTree}.
+   * Initialize the valid-time index's HOT tree.
    */
-  public void createValidTimeIndexTree(final StorageEngineReader storageEngineReader,
-      final int index, final TransactionIntentLog log) {
-    PageReference reference = getOrCreateReference(index);
-    if (reference == null) {
-      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
-      reference = delegate.getOrCreateReference(index);
-    }
-    if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-        && reference.getLogKey() == Constants.NULL_ID_INT) {
+  public void createValidTimeIndexTree(final StorageEngineReader storageEngineReader, final int index,
+      final TransactionIntentLog log) {
+    final PageReference reference = getOrCreateIndexReference(index);
+    if (reference.isVirginStructuralPlaceholder()) {
+      refuseAllocatorOnlyState(index);
       PageUtils.createHOTTree(reference, IndexType.VALIDTIME, storageEngineReader, log);
-      if (maxNodeKeys.get(index) == 0L) {
-        maxNodeKeys.put(index, 0L);
-      } else {
-        maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
+    }
+  }
+
+  /**
+   * Determine whether a physical valid-time tree id has ever been initialized without creating a
+   * structural reference.
+   *
+   * @param index the physical index number
+   * @return {@code true} if allocator metadata or a non-virgin root reserves the id
+   */
+  public boolean isIndexInitialized(final int index) {
+    checkIndex(index);
+    return isIndexInitializedUnchecked(index);
+  }
+
+  /** Return the first physical valid-time tree id that has never been initialized. */
+  public int nextUnallocatedIndex() {
+    return nextUnallocatedIndex(0);
+  }
+
+  /**
+   * Return the first uninitialized physical valid-time tree id at or after {@code fromInclusive}.
+   *
+   * <p>
+   * The scan is read-only: neither sparse nor full delegates gain placeholder references.
+   * </p>
+   *
+   * @param fromInclusive first physical id to inspect
+   * @return the first uninitialized id
+   * @throws IllegalStateException if the remaining reference space is exhausted
+   */
+  public int nextUnallocatedIndex(final int fromInclusive) {
+    checkIndex(fromInclusive);
+    for (int index = fromInclusive; index < Constants.INP_REFERENCE_COUNT; index++) {
+      if (!isIndexInitializedUnchecked(index)) {
+        return index;
       }
-      currentMaxLevelsOfIndirectPages.put(index, 0);
     }
-  }
-
-  // Kept for parity with CASPage — legacy (RBTree) index creation path.
-  @SuppressWarnings("unused")
-  public void createLegacyValidTimeIndexTree(final DatabaseType databaseType,
-      final StorageEngineReader storageEngineReader, final int index, final TransactionIntentLog log) {
-    PageReference reference = getOrCreateReference(index);
-    if (reference == null) {
-      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
-      reference = delegate.getOrCreateReference(index);
-    }
-    if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-        && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.VALIDTIME, storageEngineReader, log);
-      if (maxNodeKeys.get(index) == 0L) {
-        maxNodeKeys.put(index, 0L);
-      } else {
-        maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
-      }
-      currentMaxLevelsOfIndirectPages.put(index, 0);
-    }
-  }
-
-  public int getCurrentMaxLevelOfIndirectPages(int index) {
-    return currentMaxLevelsOfIndirectPages.get(index);
-  }
-
-  public int getCurrentMaxLevelOfIndirectPagesSize() {
-    return currentMaxLevelsOfIndirectPages.size();
-  }
-
-  public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
-    return currentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
-  }
-
-  public long getMaxNodeKey(final int indexNo) {
-    return maxNodeKeys.get(indexNo);
-  }
-
-  public int getMaxNodeKeySize() {
-    return maxNodeKeys.size();
-  }
-
-  public long incrementAndGetMaxNodeKey(final int indexNo) {
-    final long newMaxNodeKey = maxNodeKeys.get(indexNo) + 1;
-    maxNodeKeys.put(indexNo, newMaxNodeKey);
-    return newMaxNodeKey;
+    throw new IllegalStateException("Valid-time index reference space exhausted at or after " + fromInclusive + ": "
+        + Constants.INP_REFERENCE_COUNT + " physical ids available");
   }
 
   public long getMaxHotPageKey(final int indexNo) {
+    checkIndex(indexNo);
     return maxHotPageKeys.get(indexNo);
   }
 
@@ -190,10 +155,73 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
     return maxHotPageKeys.size();
   }
 
+  Int2LongMap maxHotPageKeysForSerialization() {
+    return maxHotPageKeys;
+  }
+
   public long incrementAndGetMaxHotPageKey(final int indexNo) {
-    final long newKey = maxHotPageKeys.get(indexNo) + 1;
+    checkIndex(indexNo);
+    final long newKey = Math.incrementExact(maxHotPageKeys.get(indexNo));
     maxHotPageKeys.put(indexNo, newKey);
     return newKey;
+  }
+
+  private boolean isIndexInitializedUnchecked(final int index) {
+    if (maxHotPageKeys.containsKey(index)) {
+      return true;
+    }
+    final PageReference reference = getIndexReference(index);
+    return reference != null && !reference.isVirginStructuralPlaceholder();
+  }
+
+  /** Return an existing valid-time-tree root without creating a structural reference. */
+  public @Nullable PageReference getIndexReference(final int index) {
+    checkIndex(index);
+    return switch (delegate) {
+      case ReferencesPage4 references -> references.referenceAtOffset(index);
+      case BitmapReferencesPage references -> references.referenceAtOffset(index);
+      case FullReferencesPage references -> references.referenceAt(index);
+      default ->
+        throw new IllegalStateException("Unknown ValidTimeIndexPage delegate type: " + delegate.getClass().getName());
+    };
+  }
+
+  private PageReference getOrCreateIndexReference(final int index) {
+    checkIndex(index);
+    final PageReference existingOrCreated = delegate.getOrCreateReference(index);
+    if (existingOrCreated != null) {
+      return existingOrCreated;
+    }
+    final PageReference created = new PageReference();
+    delegate = PageUtils.setReference(delegate, index, created);
+    return created;
+  }
+
+  private static void checkIndex(final int index) {
+    if (index < 0 || index >= Constants.INP_REFERENCE_COUNT) {
+      throw new IndexOutOfBoundsException("Valid-time index number out of range: " + index);
+    }
+  }
+
+  private void refuseAllocatorOnlyState(final int index) {
+    if (maxHotPageKeys.containsKey(index)) {
+      throw new IllegalStateException(
+          "Valid-time index " + index + " has HOT allocator metadata but no physical root reference");
+    }
+  }
+
+  private static Int2LongMap requireValidAllocatorMap(final Int2LongMap allocatorMap) {
+    requireNonNull(allocatorMap);
+    if (allocatorMap.defaultReturnValue() != 0L) {
+      throw new IllegalArgumentException("Valid-time HOT allocator map must default to zero");
+    }
+    for (final Int2LongMap.Entry entry : allocatorMap.int2LongEntrySet()) {
+      checkIndex(entry.getIntKey());
+      if (entry.getLongValue() < 0L) {
+        throw new IllegalArgumentException("Negative valid-time HOT page-key high-water mark: " + entry.getLongValue());
+      }
+    }
+    return allocatorMap;
   }
 
   @Override

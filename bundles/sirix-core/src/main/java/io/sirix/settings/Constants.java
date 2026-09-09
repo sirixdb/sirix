@@ -40,7 +40,19 @@ public final class Constants {
   // --- Varia
   // ------------------------------------------------------------------
 
-  public static final int MAX_RECORD_SIZE = 500;
+  /**
+   * Largest encoded record kept inline in a slotted page; anything larger becomes an overflow record.
+   *
+   * <p>
+   * The ceiling is the persisted compact directory's field width, not a policy number: an entry is
+   * two bytes with a 10-bit length, so 1,023 is the largest length that survives a round trip.
+   * {@code PageLayout.MAX_COMPACT_DIR_DATA_LENGTH} derives that same number from the bit width and
+   * {@code PageLayout}'s initializer refuses to load if the two disagree, so raising this constant
+   * past the wire's reach fails at class-load time rather than at the first oversized record.
+   * {@code PageConstants.MAX_RECORD_SIZE} and {@code OverflowSlotSidecar.MAX_IMAGE_BYTES} are aliases
+   * of this field.
+   */
+  public static final int MAX_RECORD_SIZE = 1023;
 
   public static final int MAX_DEWEYID_SIZE = 100;
 

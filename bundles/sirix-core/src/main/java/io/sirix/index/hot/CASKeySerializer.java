@@ -364,7 +364,15 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     if (roundToFloat) {
       // Before the NaN canonicalization, so a value that is finite as a double but overflows float
       // becomes an infinity here and keeps its own key rather than colliding with NaN's.
-      d = (float) d;
+      //
+      // The double -> float -> double round-trip is INTENTIONAL precision narrowing, NOT a no-op:
+      // the float cast drops the low mantissa bits, so every double that a single float key can
+      // represent collapses onto that one key. It is written through a named local because the
+      // terser `d = (float) d` reads as a self-assignment — and Error Prone rejects it as one,
+      // stripping casts so that even an explicit `(double) (float) d` is still flagged. The local
+      // states the narrowing in a form the analysis can see. Do not "tidy" it away.
+      final float narrowed = (float) d;
+      d = narrowed;
     }
 
     // Collapse -0.0 onto +0.0, and note this is a CORRECTNESS fix, not tidiness. The sign-flip below

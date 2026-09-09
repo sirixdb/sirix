@@ -219,9 +219,9 @@ public final class NodeReferencesSerializer {
       throw new IllegalArgumentException(
           "offset and length must be non-negative: offset=" + offset + ", length=" + length);
     }
-    if (offset + length > bytes.length) {
-      throw new IllegalArgumentException(
-          "offset + length (" + (offset + length) + ") exceeds array length (" + bytes.length + ")");
+    if (offset > bytes.length - length) {
+      throw new IllegalArgumentException("offset + length exceeds array length: offset=" + offset + ", length=" + length
+          + ", arrayLength=" + bytes.length);
     }
 
     if (length == 0) {
@@ -231,6 +231,9 @@ public final class NodeReferencesSerializer {
     byte format = bytes[offset];
 
     if (format == TOMBSTONE_FORMAT) {
+      if (length != 1) {
+        throw new IllegalArgumentException("Tombstone payload must be exactly one byte, but has " + length);
+      }
       // Tombstone - return empty references
       return new NodeReferences();
     } else if (format == PACKED_FORMAT) {
@@ -239,6 +242,110 @@ public final class NodeReferencesSerializer {
       return deserializeRoaring(bytes, offset + 1, length - 1);
     } else {
       throw new IllegalArgumentException("Unknown NodeReferences format: " + format);
+    }
+  }
+
+  /**
+   * Deserialize one chunk-local posting list and enforce its unsigned-16-bit value domain.
+   *
+   * <p>
+   * The general {@link #deserialize(byte[], int, int)} method intentionally accepts arbitrary 64-bit
+   * node keys. HOT secondary indexes store only the low 16 bits in each composite-key chunk, however;
+   * accepting a wider value there either preserves corrupt storage or aliases it when the chunk index
+   * is recombined. This contextual entry point keeps those semantics explicit.
+   * </p>
+   *
+   * <p>
+   * Validation is allocation-free after the ordinary deserialize: Roaring iterates in unsigned order,
+   * so checking its last value proves the complete set is within {@code [0, 65535]} without creating
+   * an iterator or copying the bitmap.
+   * </p>
+   *
+   * @param bytes serialized chunk payload
+   * @return deserialized, validated chunk references
+   */
+  public static NodeReferences deserializeChunk(final byte[] bytes) {
+    requireNonNull(bytes, "bytes cannot be null");
+    if (bytes.length == 0) {
+      throw new IllegalArgumentException("Posting-list chunk payload must not be empty");
+    }
+    return requireChunkReferences16(deserialize(bytes, 0, bytes.length));
+  }
+
+  /**
+   * Range variant of {@link #deserializeChunk(byte[])}.
+   *
+   * @param bytes serialized payload backing array
+   * @param offset first payload byte
+   * @param length payload length
+   * @return deserialized, validated chunk references
+   */
+  public static NodeReferences deserializeChunk(final byte[] bytes, final int offset, final int length) {
+    requireNonNull(bytes, "bytes cannot be null");
+    if (length <= 0) {
+      throw new IllegalArgumentException("Posting-list chunk payload must not be empty: length=" + length);
+    }
+    return requireChunkReferences16(deserialize(bytes, offset, length));
+  }
+
+  /**
+   * Validate a serialized chunk payload without materializing its common packed representation.
+   *
+   * <p>
+   * This is for pass-through paths such as resurrection over a tombstone: they retain the incoming
+   * bytes unchanged, but still must not publish malformed chunk-local values. Packed and tombstone
+   * payloads are checked directly in the caller's array with no copy or allocation; Roaring payloads
+   * use {@link #deserializeChunk(byte[], int, int)} because validating their compressed container
+   * structure necessarily requires decoding it.
+   * </p>
+   *
+   * @param bytes serialized payload backing array
+   * @param offset first payload byte
+   * @param length payload length
+   */
+  public static void requireValidChunkPayload(final byte[] bytes, final int offset, final int length) {
+    requireNonNull(bytes, "bytes cannot be null");
+    if (offset < 0 || length <= 0 || offset > bytes.length - length) {
+      throw new IllegalArgumentException("Chunk payload range must be non-empty and within the array: offset=" + offset
+          + ", length=" + length + ", arrayLength=" + bytes.length);
+    }
+
+    final byte format = bytes[offset];
+    if (format == TOMBSTONE_FORMAT) {
+      if (length != 1) {
+        throw new IllegalArgumentException("Tombstone payload must be exactly one byte, but has " + length);
+      }
+      return;
+    }
+    if (format != PACKED_FORMAT) {
+      // Also supplies the canonical unknown/Roaring error handling; this is the cold representation.
+      deserializeChunk(bytes, offset, length);
+      return;
+    }
+    if (length < 2) {
+      throw new IllegalArgumentException("Packed payload has no count byte");
+    }
+
+    final int count = bytes[offset + 1] & 0xFF;
+    if (count == 0 || count > PACKED_THRESHOLD) {
+      throw new IllegalArgumentException("Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
+    }
+    final int requiredLength = 2 + count * Long.BYTES;
+    if (requiredLength != length) {
+      throw new IllegalArgumentException(
+          "Packed count " + count + " requires exactly " + requiredLength + " bytes but has " + length);
+    }
+
+    long previousBit16 = 0L;
+    int position = offset + 2;
+    for (int i = 0; i < count; i++) {
+      final long bit16 = requireChunkBit16(readKeyBE(bytes, position));
+      if (i > 0 && Long.compareUnsigned(previousBit16, bit16) >= 0) {
+        throw new IllegalArgumentException(
+            "Packed posting-list chunk bits must be strictly increasing at entries " + (i - 1) + " and " + i);
+      }
+      previousBit16 = bit16;
+      position += Long.BYTES;
     }
   }
 
@@ -305,7 +412,9 @@ public final class NodeReferencesSerializer {
         if (candidate != null && candidate.length == compositeLen
             && Arrays.compareUnsigned(candidate, 0, prefixLen, prefixBuf, 0, prefixLen) == 0) {
           composite = candidate;
-          chunkBytes = leaf.getValue(idx);
+          // Preserve zero-length vs unreadable instead of letting getValue() collapse both to an
+          // absent value. A matched composite slot must carry a canonical chunk payload.
+          chunkBytes = leaf.copyStoredValue(idx);
         }
       } catch (RuntimeException e) {
         if (cursor.validateLeaf()) {
@@ -321,7 +430,7 @@ public final class NodeReferencesSerializer {
       tornRounds = 0;
       if (chunkBytes != null && !isTombstone(chunkBytes, 0, chunkBytes.length)) {
         // The copies are validated heap bytes now — safe to hand to the deserializer.
-        final Roaring64Bitmap chunkBitmap = deserialize(chunkBytes).getNodeKeys();
+        final Roaring64Bitmap chunkBitmap = deserializeChunk(chunkBytes).getNodeKeys();
         if (!chunkBitmap.isEmpty()) {
           if (merged == null) {
             merged = new Roaring64Bitmap();
@@ -332,7 +441,7 @@ public final class NodeReferencesSerializer {
           final long high = (HOTKeySerializer.readChunkIdx(composite, 0, composite.length) & 0xFFFFFFFFL) << 16;
           final LongIterator bIt = chunkBitmap.getLongIterator();
           while (bIt.hasNext()) {
-            merged.add(high | (bIt.next() & 0xFFFFL));
+            merged.add(high | bIt.next());
           }
         }
       }
@@ -410,9 +519,9 @@ public final class NodeReferencesSerializer {
 
     /**
      * Append one chunk payload, expanding each stored bit16 to {@code high | bit16}. Same format
-     * handling as {@link #mergePackedSingleBitFromSlot}: packed reads straight off slot memory,
-     * tombstones and empty payloads are skipped, the (rare) Roaring format round-trips through a heap
-     * array.
+     * handling as {@link #mergePackedSingleBitFromSlot(HOTLeafPage, long, byte[], int, int)}: packed
+     * reads straight off slot memory, tombstones and empty payloads are skipped, the (rare) Roaring
+     * format round-trips through a heap array.
      *
      * @param leaf the leaf page holding the chunk slot
      * @param ref the slot's packed value handle from {@link HOTLeafPage#valueRef(int)}
@@ -462,8 +571,11 @@ public final class NodeReferencesSerializer {
     private boolean addChunkFromSlot(final HOTLeafPage leaf, final long ref, final long high,
         final @Nullable HOTTrieReader trie) {
       final int length = HOTLeafPage.refLength(ref);
-      if (length <= 0) {
-        return true;
+      if (length < 0) {
+        throw new IllegalStateException("Chunk slot does not address a readable value");
+      }
+      if (length == 0) {
+        throw new IllegalArgumentException("Posting-list chunk payload must not be empty");
       }
       if (length > leaf.slotCapacity()) {
         // A payload no slot can hold: on a torn read the wrapper's validation fails and the caller
@@ -473,26 +585,35 @@ public final class NodeReferencesSerializer {
       }
       final byte format = leaf.refByteAt(ref, 0);
       if (format == TOMBSTONE_FORMAT) {
+        if (length != 1) {
+          throw new IllegalArgumentException("Tombstone payload must be exactly one byte, but slot has " + length);
+        }
         return true;
       }
       if (format == PACKED_FORMAT) {
         if (length < 2) {
-          return true;
+          throw new IllegalArgumentException("Packed payload has no count byte: length=" + length);
         }
         final int chunkCount = leaf.refByteAt(ref, 1) & 0xFF;
-        if (chunkCount == 0) {
-          return true; // an empty packed payload carries nothing; not corruption
+        if (chunkCount == 0 || chunkCount > PACKED_THRESHOLD) {
+          throw new IllegalArgumentException("Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + chunkCount);
         }
-        if (2 + chunkCount * 8 > length) {
-          // Same loud failure the deserializePacked path this replaced raised: a declared count the
-          // slot cannot hold is storage corruption, and degrading it to silently-missing postings
-          // would let a torn write masquerade as an absent key.
-          throw new IllegalArgumentException("Packed count " + chunkCount + " requires " + (2 + chunkCount * 8)
-              + " bytes but only " + length + " available");
+        final int requiredLength = 2 + chunkCount * Long.BYTES;
+        if (requiredLength != length) {
+          // Canonical slot payloads have neither truncation nor ignored trailing bytes. Treat both
+          // as corruption: accepting the latter could let an interrupted rewrite hide postings.
+          throw new IllegalArgumentException(
+              "Packed count " + chunkCount + " requires exactly " + requiredLength + " bytes but slot has " + length);
         }
+        long previousBit16 = 0L;
         for (int i = 0; i < chunkCount; i++) {
-          final long bit16 = leaf.refLongBEAt(ref, 2 + i * 8) & 0xFFFFL;
+          final long bit16 = requireChunkBit16(leaf.refLongBEAt(ref, 2 + i * Long.BYTES));
+          if (i > 0 && Long.compareUnsigned(previousBit16, bit16) >= 0) {
+            throw new IllegalArgumentException(
+                "Packed posting-list chunk bits must be strictly increasing at entries " + (i - 1) + " and " + i);
+          }
           add(high | bit16);
+          previousBit16 = bit16;
         }
         return true;
       }
@@ -515,9 +636,12 @@ public final class NodeReferencesSerializer {
         } catch (IOException e) {
           throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap deserialization", e);
         }
+        if (!chunkBitmap.isEmpty()) {
+          requireChunkBit16(chunkBitmap.last());
+        }
         final LongIterator it = chunkBitmap.getLongIterator();
         while (it.hasNext()) {
-          add(high | (it.next() & 0xFFFFL));
+          add(high | it.next());
         }
         return true;
       }
@@ -546,12 +670,31 @@ public final class NodeReferencesSerializer {
   }
 
   /**
-   * Identity sentinel returned by {@link #mergePackedSingleBitFromSlot} when the new bit is already
-   * present in the slot's packed set — the caller skips the slot rewrite entirely. A distinct
-   * sentinel is needed because the payload is still in slot memory: there is no existing array to
-   * hand back by identity the way a copying merge would.
+   * Identity sentinel returned by the allocating
+   * {@link #mergePackedSingleBitFromSlot(HOTLeafPage, long, byte[], int, int)} API when the new bit
+   * is already present in the slot's packed set — the caller skips the slot rewrite entirely. A
+   * distinct sentinel is needed because the payload is still in slot memory: there is no existing
+   * array to hand back by identity the way a copying merge would.
    */
   public static final byte[] MERGE_UNCHANGED = new byte[0];
+
+  /** Largest canonical packed payload, including its format and count bytes. */
+  public static final int MAX_PACKED_PAYLOAD_LENGTH = 2 + PACKED_THRESHOLD * Long.BYTES;
+
+  /** The scratch-based packed merge did not see two qualifying packed payload shapes. */
+  public static final int PACKED_MERGE_NOT_APPLICABLE = -1;
+
+  /** The scratch-based packed merge found the incoming bit in the resident payload already. */
+  public static final int PACKED_MERGE_UNCHANGED = 0;
+
+  /** {@link #removePackedSingleBitFromSlot} did not see a packed payload. */
+  public static final int PACKED_REMOVE_NOT_APPLICABLE = -1;
+
+  /** The packed payload is valid, but does not contain the requested bit. */
+  public static final int PACKED_REMOVE_ABSENT = -2;
+
+  /** The requested bit was the packed payload's final entry; the caller must delete the slot. */
+  public static final int PACKED_REMOVE_EMPTY = 0;
 
   /**
    * Single-bit packed merge against a payload still resident in its leaf slot: binary-search and
@@ -571,50 +714,253 @@ public final class NodeReferencesSerializer {
    */
   public static byte @Nullable [] mergePackedSingleBitFromSlot(final HOTLeafPage leaf, final long ref,
       final byte[] newValue, final int newOffset, final int newLen) {
-    // New value must be a single-entry packed payload: [PACKED][count=1][key:8] == 10 bytes.
-    if (newLen != 2 + 8 || newValue[newOffset] != PACKED_FORMAT || newValue[newOffset + 1] != 1) {
+    final int mergePlan = packedSingleBitMergePlan(leaf, ref, newValue, newOffset, newLen);
+    if (mergePlan == PACKED_MERGE_NOT_APPLICABLE) {
       return null;
+    }
+    if (mergePlan == PACKED_MERGE_UNCHANGED) {
+      return MERGE_UNCHANGED;
+    }
+
+    final int resultLen = HOTLeafPage.refLength(ref) + Long.BYTES;
+    final byte[] merged = new byte[resultLen];
+    writePackedSingleBitMerge(leaf, ref, newValue, newOffset, mergePlan - 1, merged, 0, resultLen);
+    return merged;
+  }
+
+  /**
+   * Allocation-free twin of
+   * {@link #mergePackedSingleBitFromSlot(HOTLeafPage, long, byte[], int, int)}. A positive return is
+   * the exact payload length written at {@code scratchOffset}; primitive status values distinguish a
+   * non-qualifying shape and an unchanged set without allocating a carrier.
+   *
+   * <p>
+   * The complete resident packed payload is range- and ordering-validated before the first scratch
+   * byte is written. A corruption failure therefore leaves caller-owned scratch unchanged. Neither
+   * input array is retained.
+   * </p>
+   *
+   * @param leaf the leaf holding the existing payload
+   * @param ref the slot's packed value handle from {@link HOTLeafPage#valueRef(int)}
+   * @param newValue buffer holding the new single-entry packed payload
+   * @param newOffset offset of the payload in {@code newValue}
+   * @param newLen length of the payload
+   * @param scratch caller-owned result buffer
+   * @param scratchOffset first result byte in {@code scratch}
+   * @return {@link #PACKED_MERGE_NOT_APPLICABLE}, {@link #PACKED_MERGE_UNCHANGED}, or the positive
+   *         exact result length written into {@code scratch}
+   * @throws IllegalArgumentException if the incoming bit or a resident packed payload is malformed
+   * @throws IndexOutOfBoundsException if an input range is invalid or a required result does not fit
+   */
+  public static int mergePackedSingleBitFromSlot(final HOTLeafPage leaf, final long ref, final byte[] newValue,
+      final int newOffset, final int newLen, final byte[] scratch, final int scratchOffset) {
+    requireNonNull(scratch, "scratch cannot be null");
+    if (scratchOffset < 0 || scratchOffset > scratch.length) {
+      throw new IndexOutOfBoundsException("scratchOffset=" + scratchOffset + " scratch.length=" + scratch.length);
+    }
+
+    final int mergePlan = packedSingleBitMergePlan(leaf, ref, newValue, newOffset, newLen);
+    if (mergePlan <= PACKED_MERGE_UNCHANGED) {
+      return mergePlan;
+    }
+
+    final int resultLen = HOTLeafPage.refLength(ref) + Long.BYTES;
+    if (scratchOffset > scratch.length - resultLen) {
+      throw new IndexOutOfBoundsException("Packed merge result of " + resultLen
+          + " bytes does not fit scratch at offset " + scratchOffset + " (length=" + scratch.length + ')');
+    }
+    writePackedSingleBitMerge(leaf, ref, newValue, newOffset, mergePlan - 1, scratch, scratchOffset, resultLen);
+    return resultLen;
+  }
+
+  /**
+   * Validate both merge inputs and return {@code insertionIndex + 1}, or a primitive merge status.
+   * Returning the shifted index reserves zero for the unchanged result.
+   */
+  private static int packedSingleBitMergePlan(final HOTLeafPage leaf, final long ref, final byte[] newValue,
+      final int newOffset, final int newLen) {
+    requireNonNull(leaf, "leaf cannot be null");
+    requireNonNull(newValue, "newValue cannot be null");
+    if (newOffset < 0 || newLen < 0 || newOffset > newValue.length - newLen) {
+      throw new IndexOutOfBoundsException(
+          "newOffset=" + newOffset + " newLen=" + newLen + " newValue.length=" + newValue.length);
+    }
+
+    // New value must be a single-entry packed payload: [PACKED][count=1][key:8] == 10 bytes.
+    if (newLen != 2 + Long.BYTES || newValue[newOffset] != PACKED_FORMAT || newValue[newOffset + 1] != 1) {
+      return PACKED_MERGE_NOT_APPLICABLE;
     }
     final int existingLen = HOTLeafPage.refLength(ref);
     if (existingLen < 2 || leaf.refByteAt(ref, 0) != PACKED_FORMAT) {
-      return null;
+      return PACKED_MERGE_NOT_APPLICABLE;
     }
     final int count = leaf.refByteAt(ref, 1) & 0xFF;
-    // A full-or-overflowing bucket would switch representation; leave that to the slow path.
-    if (count >= PACKED_THRESHOLD || existingLen != 2 + count * 8) {
-      return null;
+    if (count == 0 || count > PACKED_THRESHOLD) {
+      throw new IllegalArgumentException("Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
     }
+    if (existingLen != 2 + count * Long.BYTES) {
+      throw new IllegalArgumentException("Packed count " + count + " requires exactly " + (2 + count * Long.BYTES)
+          + " bytes but slot has " + existingLen);
+    }
+    final long newKey = requireChunkBit16(readKeyBE(newValue, newOffset + 2));
 
-    final long newKey = readKeyBE(newValue, newOffset + 2);
-
-    // Binary search the sorted-ascending packed keys for newKey (stored big-endian).
-    int lo = 0;
-    int hi = count; // exclusive
-    while (lo < hi) {
-      final int mid = (lo + hi) >>> 1;
-      final int cmp = Long.compareUnsigned(leaf.refLongBEAt(ref, 2 + mid * 8), newKey);
-      if (cmp < 0) {
-        lo = mid + 1;
-      } else if (cmp > 0) {
-        hi = mid;
-      } else {
-        return MERGE_UNCHANGED; // already present — merged set unchanged
+    // Validate canonical strict ordering while locating the insertion point. Packed chunks contain
+    // at most 64 entries, so this bounded linear pass is cheaper than letting a malformed ordering
+    // make binary search silently miss an existing posting and is allocation-free on the hot path.
+    int insertionIndex = count;
+    boolean alreadyPresent = false;
+    long previousKey = 0L;
+    for (int i = 0; i < count; i++) {
+      final long existingKey = requireChunkBit16(leaf.refLongBEAt(ref, 2 + i * Long.BYTES));
+      if (i > 0 && Long.compareUnsigned(previousKey, existingKey) >= 0) {
+        throw new IllegalArgumentException(
+            "Packed posting keys must be strictly increasing at entries " + (i - 1) + " and " + i);
       }
+      final int comparison = Long.compareUnsigned(existingKey, newKey);
+      if (comparison == 0) {
+        // Do not return until the bounded scan has validated the entire resident payload. A corrupt
+        // suffix must not be hidden merely because the incoming bit happens to occur before it.
+        alreadyPresent = true;
+      }
+      if (comparison > 0 && insertionIndex == count) {
+        insertionIndex = i;
+      }
+      previousKey = existingKey;
     }
 
-    // Insert newKey at position lo, preserving ascending order — one allocation, two slot copies.
-    final byte[] merged = new byte[2 + (count + 1) * 8];
-    merged[0] = PACKED_FORMAT;
-    merged[1] = (byte) (count + 1);
-    final int insAt = 2 + lo * 8;
-    if (lo > 0) {
-      leaf.copyRefInto(ref, 2, merged, 2, lo * 8);
+    if (alreadyPresent) {
+      return PACKED_MERGE_UNCHANGED;
     }
-    writeKeyBE(merged, insAt, newKey);
-    if (lo < count) {
-      leaf.copyRefInto(ref, insAt, merged, insAt + 8, (count - lo) * 8);
+
+    // A full bucket must switch representation, but only after its resident entries have passed
+    // the same canonical/range validation as every smaller packed bucket. Returning early above the
+    // scan would let a corrupt 64-entry payload escape into the copying fallback.
+    if (count == PACKED_THRESHOLD) {
+      return PACKED_MERGE_NOT_APPLICABLE;
     }
-    return merged;
+
+    return insertionIndex + 1;
+  }
+
+  /** Write one already-validated merge plan into caller-owned storage. */
+  private static void writePackedSingleBitMerge(final HOTLeafPage leaf, final long ref, final byte[] newValue,
+      final int newOffset, final int insertionIndex, final byte[] destination, final int destinationOffset,
+      final int resultLen) {
+    final int count = (HOTLeafPage.refLength(ref) - 2) / Long.BYTES;
+    final long newKey = readKeyBE(newValue, newOffset + 2);
+    destination[destinationOffset] = PACKED_FORMAT;
+    destination[destinationOffset + 1] = (byte) (count + 1);
+    final int insAt = destinationOffset + 2 + insertionIndex * Long.BYTES;
+    if (insertionIndex > 0) {
+      leaf.copyRefInto(ref, 2, destination, destinationOffset + 2, insertionIndex * Long.BYTES);
+    }
+    writeKeyBE(destination, insAt, newKey);
+    if (insertionIndex < count) {
+      leaf.copyRefInto(ref, 2 + insertionIndex * Long.BYTES, destination, insAt + Long.BYTES,
+          (count - insertionIndex) * Long.BYTES);
+    }
+    assert resultLen == 2 + (count + 1) * Long.BYTES;
+  }
+
+  /**
+   * Remove one posting bit from a packed payload while it is still resident in a HOT leaf slot.
+   *
+   * <p>
+   * The applicable path is allocation-free: it validates the packed header, binary-searches the
+   * sorted unsigned keys through {@link HOTLeafPage#refLongBEAt(long, int)}, and splices the two
+   * surviving ranges directly into caller-owned scratch. The returned positive value is the exact
+   * payload length written at {@code scratchOffset}. Primitive status constants distinguish a
+   * different representation, an absent bit, and removal of the final bit without allocating a result
+   * carrier.
+   * </p>
+   *
+   * <p>
+   * A payload bearing the packed marker must be canonical: its count is in
+   * {@code [1, PACKED_THRESHOLD]} and its stored length is exactly {@code 2 + count * 8}. Violations
+   * fail loudly instead of falling through to a copying path that could mistake corrupt postings for
+   * an absent bit.
+   * </p>
+   *
+   * @param leaf leaf holding the existing payload
+   * @param ref packed value handle returned by {@link HOTLeafPage#valueRef(int)}
+   * @param bit posting bit to remove, in the chunk-local unsigned-16-bit domain
+   * @param scratch caller-owned destination for a non-empty result
+   * @param scratchOffset first destination byte in {@code scratch}
+   * @return {@link #PACKED_REMOVE_NOT_APPLICABLE}, {@link #PACKED_REMOVE_ABSENT},
+   *         {@link #PACKED_REMOVE_EMPTY}, or the positive result length written to scratch
+   * @throws IllegalArgumentException if {@code bit}, {@code ref}, or a packed payload is malformed
+   * @throws IndexOutOfBoundsException if a required result does not fit in {@code scratch}
+   */
+  public static int removePackedSingleBitFromSlot(final HOTLeafPage leaf, final long ref, final long bit,
+      final byte[] scratch, final int scratchOffset) {
+    requireNonNull(leaf, "leaf cannot be null");
+    requireNonNull(scratch, "scratch cannot be null");
+    if ((bit & ~0xFFFFL) != 0L) {
+      throw new IllegalArgumentException("posting-list chunk bit must be in [0, 65535]: " + bit);
+    }
+    if (scratchOffset < 0 || scratchOffset > scratch.length) {
+      throw new IndexOutOfBoundsException("scratchOffset=" + scratchOffset + " scratch.length=" + scratch.length);
+    }
+
+    final int existingLen = HOTLeafPage.refLength(ref);
+    if (existingLen < 0) {
+      throw new IllegalArgumentException("Unreadable HOT leaf value reference");
+    }
+    if (existingLen == 0 || leaf.refByteAt(ref, 0) != PACKED_FORMAT) {
+      return PACKED_REMOVE_NOT_APPLICABLE;
+    }
+    if (existingLen < 2) {
+      throw new IllegalArgumentException("Packed payload has no count byte: length=" + existingLen);
+    }
+
+    final int count = leaf.refByteAt(ref, 1) & 0xFF;
+    if (count == 0 || count > PACKED_THRESHOLD) {
+      throw new IllegalArgumentException("Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
+    }
+    final int requiredLen = 2 + count * Long.BYTES;
+    if (existingLen != requiredLen) {
+      throw new IllegalArgumentException(
+          "Packed count " + count + " requires exactly " + requiredLen + " bytes but slot has " + existingLen);
+    }
+
+    int removalIndex = -1;
+    long previousKey = 0L;
+    for (int i = 0; i < count; i++) {
+      final long existingKey = requireChunkBit16(leaf.refLongBEAt(ref, 2 + i * Long.BYTES));
+      if (i > 0 && Long.compareUnsigned(previousKey, existingKey) >= 0) {
+        throw new IllegalArgumentException(
+            "Packed posting keys must be strictly increasing at entries " + (i - 1) + " and " + i);
+      }
+      if (existingKey == bit) {
+        removalIndex = i;
+      }
+      previousKey = existingKey;
+    }
+    if (removalIndex < 0) {
+      return PACKED_REMOVE_ABSENT;
+    }
+    if (count == 1) {
+      return PACKED_REMOVE_EMPTY;
+    }
+
+    final int resultLen = existingLen - Long.BYTES;
+    if (scratchOffset > scratch.length - resultLen) {
+      throw new IndexOutOfBoundsException("Packed removal result of " + resultLen
+          + " bytes does not fit scratch at offset " + scratchOffset + " (length=" + scratch.length + ')');
+    }
+    scratch[scratchOffset] = PACKED_FORMAT;
+    scratch[scratchOffset + 1] = (byte) (count - 1);
+
+    final int prefixBytes = removalIndex * Long.BYTES;
+    if (prefixBytes > 0) {
+      leaf.copyRefInto(ref, 2, scratch, scratchOffset + 2, prefixBytes);
+    }
+    final int suffixEntries = count - removalIndex - 1;
+    if (suffixEntries > 0) {
+      leaf.copyRefInto(ref, 2 + (removalIndex + 1) * Long.BYTES, scratch, scratchOffset + 2 + prefixBytes,
+          suffixEntries * Long.BYTES);
+    }
+    return resultLen;
   }
 
   /**
@@ -644,6 +990,27 @@ public final class NodeReferencesSerializer {
    */
   public static boolean isTombstone(final MemorySegment value) {
     return value.byteSize() == 1 && value.get(ValueLayout.JAVA_BYTE, 0) == TOMBSTONE_FORMAT;
+  }
+
+  /**
+   * Validate the domain stored inside one posting-list chunk before combining it with the chunk
+   * index. Silently masking a wider value would alias it to an unrelated posting.
+   */
+  private static long requireChunkBit16(final long bit16) {
+    if ((bit16 & ~0xFFFFL) != 0L) {
+      throw new IllegalArgumentException(
+          "Posting-list chunk bit must be in [0, 65535]: " + Long.toUnsignedString(bit16));
+    }
+    return bit16;
+  }
+
+  /** Validate a deserialized chunk by its maximum unsigned value, without an iterator or copy. */
+  private static NodeReferences requireChunkReferences16(final NodeReferences references) {
+    final Roaring64Bitmap bitmap = references.getNodeKeys();
+    if (!bitmap.isEmpty()) {
+      requireChunkBit16(bitmap.last());
+    }
+    return references;
   }
 
   /**
@@ -738,27 +1105,33 @@ public final class NodeReferencesSerializer {
 
   private static NodeReferences deserializePacked(byte[] bytes, int offset, int length) {
     if (length < 1) {
-      return new NodeReferences();
+      throw new IllegalArgumentException("Packed payload has no count byte");
     }
 
     final int count = bytes[offset] & 0xFF;
+    if (count == 0 || count > PACKED_THRESHOLD) {
+      throw new IllegalArgumentException("Packed count must be in [1, " + PACKED_THRESHOLD + "]: " + count);
+    }
 
-    // Validate that count entries fit within the available bytes
+    // Canonical packed payloads have neither truncation nor ignored trailing bytes.
     final int requiredBytes = 1 + count * 8;
-    if (requiredBytes > length) {
+    if (requiredBytes != length) {
       throw new IllegalArgumentException(
-          "Packed count " + count + " requires " + requiredBytes + " bytes but only " + length + " available");
+          "Packed count " + count + " requires exactly " + requiredBytes + " bytes but has " + length);
     }
 
     final Roaring64Bitmap bitmap = new Roaring64Bitmap();
 
     int pos = offset + 1;
+    long previousKey = 0L;
     for (int i = 0; i < count; i++) {
-      final long key = ((long) (bytes[pos] & 0xFF) << 56) | ((long) (bytes[pos + 1] & 0xFF) << 48)
-          | ((long) (bytes[pos + 2] & 0xFF) << 40) | ((long) (bytes[pos + 3] & 0xFF) << 32)
-          | ((long) (bytes[pos + 4] & 0xFF) << 24) | ((long) (bytes[pos + 5] & 0xFF) << 16)
-          | ((long) (bytes[pos + 6] & 0xFF) << 8) | ((long) (bytes[pos + 7] & 0xFF));
+      final long key = readKeyBE(bytes, pos);
+      if (i > 0 && Long.compareUnsigned(previousKey, key) >= 0) {
+        throw new IllegalArgumentException(
+            "Packed keys must be strictly increasing at entries " + (i - 1) + " and " + i);
+      }
       bitmap.add(key);
+      previousKey = key;
       pos += 8;
     }
 
@@ -775,4 +1148,3 @@ public final class NodeReferencesSerializer {
     return NodeReferences.owning(bitmap);
   }
 }
-

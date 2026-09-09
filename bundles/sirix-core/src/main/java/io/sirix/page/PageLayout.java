@@ -1,5 +1,6 @@
 package io.sirix.page;
 
+import io.sirix.node.BytesIn;
 import io.sirix.node.LE;
 import io.sirix.settings.Constants;
 
@@ -116,6 +117,13 @@ public final class PageLayout {
   /** Flag bit 1: FSST symbol table is present. */
   public static final int FLAG_HAS_FSST_TABLE = 2;
 
+  /**
+   * Flag bit 2: every record is represented by the inline body/regions (no overflow references).
+   * Positive certification keeps older V0 pages conservative: an absent bit means "unknown", never
+   * permission to return a column-only answer.
+   */
+  public static final int FLAG_COMPLETE_COLUMN_COVERAGE = 4;
+
   // ==================== BITMAP LAYOUT (128 bytes) ====================
 
   /** Offset where the slot bitmap starts. */
@@ -156,28 +164,138 @@ public final class PageLayout {
 
   // ==================== COMPACT DIRECTORY (on-disk only) ====================
 
-  /** Size of each compact directory entry in bytes (dataLength:3 + nodeKindId:1). */
-  public static final int COMPACT_DIR_ENTRY_SIZE = 4;
+  /**
+   * Size of each compact on-disk directory entry: 10 bits of data length and 6 bits of node kind.
+   *
+   * <p>
+   * The ordinary in-memory directory deliberately remains eight bytes per slot. This two-byte shape
+   * is only the sequential wire directory rebuilt into that runtime representation on page load.
+   */
+  public static final int COMPACT_DIR_ENTRY_SIZE = Short.BYTES;
+
+  /** Number of low bits occupied by the persisted node-kind id. */
+  private static final int COMPACT_DIR_KIND_BITS = 6;
+
+  /** Bits left for the record length in a two-byte compact directory entry. */
+  private static final int COMPACT_DIR_DATA_BITS = Short.SIZE - COMPACT_DIR_KIND_BITS;
+
+  /** Largest node-kind id representable by the compact wire directory. */
+  public static final int MAX_COMPACT_DIR_NODE_KIND_ID = (1 << COMPACT_DIR_KIND_BITS) - 1;
 
   /**
-   * Pack a compact directory entry: top 3 bytes = dataLength, bottom byte = nodeKindId. Same bit
-   * layout as existing directory entry bytes 4-7.
+   * Largest inline record length this wire format can express — the width of the entry's length
+   * field, derived rather than restated, so widening the entry moves the ceiling in one place.
+   */
+  public static final int MAX_COMPACT_DIR_DATA_LENGTH = (1 << COMPACT_DIR_DATA_BITS) - 1;
+
+  static {
+    // The inline-record cap and the directory's reach are two names for one number. Letting them
+    // drift silently truncates a committed page's directory entry, so the disagreement is fatal at
+    // class load: a stale separately-compiled Constants is exactly the case a compile-time-only
+    // check would miss.
+    if (PageConstants.MAX_RECORD_SIZE > MAX_COMPACT_DIR_DATA_LENGTH) {
+      throw new IllegalStateException(
+          "MAX_RECORD_SIZE=" + PageConstants.MAX_RECORD_SIZE + " exceeds the compact directory's "
+              + COMPACT_DIR_DATA_BITS + "-bit length field (max " + MAX_COMPACT_DIR_DATA_LENGTH + ")");
+    }
+  }
+
+  /** Low-bit mask for the persisted node-kind id. */
+  private static final int COMPACT_DIR_KIND_MASK = MAX_COMPACT_DIR_NODE_KIND_ID;
+
+  /**
+   * Pack one compact wire-directory entry.
+   *
+   * <p>
+   * Inline records are capped at {@link PageConstants#MAX_RECORD_SIZE}; values beyond that are
+   * represented by an {@link OverflowPage}. The current persisted node-kind id space ends below 64.
+   * Enforcing both facts here makes a future threshold or kind-space expansion fail at the writer
+   * boundary instead of truncating a committed page.
    */
   public static int packCompactDirEntry(final int dataLength, final int nodeKindId) {
-    if (dataLength > 0xFFFFFF) {
-      throw new IllegalArgumentException("dataLength " + dataLength + " exceeds 3-byte maximum (16,777,215)");
+    if (dataLength < 0 || dataLength > PageConstants.MAX_RECORD_SIZE || dataLength > MAX_COMPACT_DIR_DATA_LENGTH) {
+      final int maxInlineLength = Math.min(PageConstants.MAX_RECORD_SIZE, MAX_COMPACT_DIR_DATA_LENGTH);
+      throw new IllegalArgumentException(
+          "compact-directory dataLength must be in [0," + maxInlineLength + "]: " + dataLength);
     }
-    return (dataLength << 8) | (nodeKindId & 0xFF);
+    if (nodeKindId < 0 || nodeKindId > MAX_COMPACT_DIR_NODE_KIND_ID) {
+      throw new IllegalArgumentException(
+          "compact-directory nodeKindId must be in [0," + MAX_COMPACT_DIR_NODE_KIND_ID + "]: " + nodeKindId);
+    }
+    if (!isPersistedSlottedNodeKindId(nodeKindId)) {
+      throw new IllegalArgumentException("unsupported compact-directory nodeKindId: " + nodeKindId);
+    }
+    if (dataLength == 0 && nodeKindId != 0) {
+      throw new IllegalArgumentException("only the raw-record sentinel kind 0 may have dataLength 0");
+    }
+    return (dataLength << COMPACT_DIR_KIND_BITS) | nodeKindId;
+  }
+
+  /**
+   * Whether an ID is legal in a persisted slotted-page directory.
+   *
+   * <p>
+   * Zero is the generic/raw-record sentinel. Every nonzero ID must describe a flyweight record that
+   * {@link FlyweightNodeFactory} can bind; merely fitting in six bits, or merely being assigned to
+   * some non-flyweight {@code NodeKind}, is not sufficient.
+   * </p>
+   */
+  public static boolean isPersistedSlottedNodeKindId(final int nodeKindId) {
+    return nodeKindId == 0 || nodeKindId > 0 && nodeKindId <= MAX_COMPACT_DIR_NODE_KIND_ID
+        && FlyweightNodeFactory.supportsNodeKindId(nodeKindId);
   }
 
   /** Unpack data length from a compact directory entry. */
   public static int unpackDataLength(final int packed) {
-    return packed >>> 8;
+    return packed >>> COMPACT_DIR_KIND_BITS;
   }
 
   /** Unpack node kind ID from a compact directory entry. */
   public static int unpackNodeKindId(final int packed) {
-    return packed & 0xFF;
+    return packed & COMPACT_DIR_KIND_MASK;
+  }
+
+  /**
+   * Store one checked compact-directory word in the page wire's big-endian byte order.
+   */
+  static void writeCompactDirEntry(final MemorySegment target, final long offset, final int dataLength,
+      final int nodeKindId) {
+    final int packed = packCompactDirEntry(dataLength, nodeKindId);
+    target.set(LE.SHORT, offset, Short.reverseBytes((short) packed));
+  }
+
+  /**
+   * Read one compact-directory word from the page wire and reject corrupt inline lengths.
+   */
+  static int readCompactDirEntry(final MemorySegment source, final long offset) {
+    final int packed = Short.reverseBytes(source.get(LE.SHORT, offset)) & 0xFFFF;
+    return validateCompactDirEntry(packed);
+  }
+
+  /** Read one compact-directory word from a byte-oriented page source. */
+  static int readCompactDirEntry(final BytesIn<?> source) {
+    final int packed = ((source.readByte() & 0xFF) << Byte.SIZE) | (source.readByte() & 0xFF);
+    return validateCompactDirEntry(packed);
+  }
+
+  /** Validate an unsigned compact-directory word already read from a byte-oriented source. */
+  static int validateCompactDirEntry(final int packed) {
+    if ((packed & ~0xFFFF) != 0) {
+      throw new IllegalArgumentException("compact-directory word is outside the unsigned-short range: " + packed);
+    }
+    final int dataLength = unpackDataLength(packed);
+    if (dataLength < 0 || dataLength > MAX_COMPACT_DIR_DATA_LENGTH || dataLength > PageConstants.MAX_RECORD_SIZE) {
+      throw new IllegalArgumentException("compact-directory dataLength is outside [0,"
+          + Math.min(MAX_COMPACT_DIR_DATA_LENGTH, PageConstants.MAX_RECORD_SIZE) + "]: " + dataLength);
+    }
+    final int nodeKindId = unpackNodeKindId(packed);
+    if (!isPersistedSlottedNodeKindId(nodeKindId)) {
+      throw new IllegalArgumentException("unsupported compact-directory nodeKindId: " + nodeKindId);
+    }
+    if (dataLength == 0 && nodeKindId != 0) {
+      throw new IllegalArgumentException("only the raw-record sentinel kind 0 may have dataLength 0");
+    }
+    return packed;
   }
 
   // ==================== HEAP LAYOUT ====================
@@ -293,6 +411,11 @@ public final class PageLayout {
   /** Check if FSST symbol table is present (flag bit 1). */
   public static boolean hasFsstTable(final MemorySegment page) {
     return (getFlags(page) & FLAG_HAS_FSST_TABLE) != 0;
+  }
+
+  /** Whether column regions cover every record value on the page. */
+  public static boolean hasCompleteColumnCoverage(final MemorySegment page) {
+    return (getFlags(page) & FLAG_COMPLETE_COLUMN_COVERAGE) != 0;
   }
 
   // ==================== BITMAP ACCESSORS ====================

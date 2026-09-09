@@ -723,16 +723,16 @@ regression with 2,048 exception-only leaves between normal leaves validates a
 touched middle slot by reading exactly its two local metadata chunks, rather
 than scanning the intervening leaves.
 
-The only operations allowed to reset a complete projection subtree are
-explicit lifecycle operations:
+No operation resets a populated projection subtree. Initial construction is a
+distinct, hard-guarded initializer that can publish only into a physically
+virgin tree. After publication, all inserts, updates, deletes, and moves use
+the incremental route above. An exception or inconsistent persistent unit
+makes the owning transaction fail; it never falls back to a rebuild.
 
-- first build;
-- explicitly requested rebuild;
-- drop followed by definition-id reuse.
-
-Those paths must clear stale negative locator entries as well as non-negative
-projection data slots. No exception or inconsistency in ordinary maintenance
-may silently fall back to a full rebuild.
+Drop removes the catalog definition and leaves the historical physical tree
+untouched. Replacement is drop + commit + create, and create allocates a fresh
+physical index id before running the virgin initializer. Definition-id reuse
+and in-place repair are not lifecycle operations.
 
 ## 17. Versioning contract
 
@@ -894,7 +894,8 @@ The implementation is incomplete until focused tests cover:
 
 - Every mutation scenario under all four `VersioningType` values.
 - Query old and new revisions before close and after cold reopen.
-- Drop/recreate and explicit rebuild remove stale locators.
+- Drop/recreate allocates a fresh physical id and proves that locators in the
+  historical tree cannot enter the replacement.
 - Malformed/future locator and KEYS markers fail closed.
 - Storage scans never decode negative locator keys as data slots.
 

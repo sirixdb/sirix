@@ -65,45 +65,48 @@ import java.math.BigInteger;
 /**
  * JSON Number node.
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding.
+ * </p>
  * 
  * @author Johannes Lichtenberger
  */
-public final class NumberNode extends AbstractFlyweightNode implements StructNode, ImmutableJsonNode, NumericValueNode, FlyweightNode {
+public final class NumberNode extends AbstractFlyweightNode
+    implements StructNode, ImmutableJsonNode, NumericValueNode, FlyweightNode {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-  
+
   // Mutable structural fields
   private long parentKey;
   private long rightSiblingKey;
   private long leftSiblingKey;
-  
+
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-  
+
   // Mutable hash (computed on demand for value nodes)
   private long hash;
-  
+
   // Number value
   private Number value;
-  
+
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-  
+
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
 
   // Lazy parsing state (for singleton reuse optimization)
   // Two-stage lazy parsing: metadata (cheap) vs value (expensive Number allocation)
-  private Object lazySource;            // Source for lazy parsing (MemorySegment or byte[])
-  private long lazyOffset;              // Offset where lazy metadata fields start
-  private boolean metadataParsed;       // Whether prevRev, lastModRev, hash are parsed
-  private boolean valueParsed;          // Whether Number value is parsed
-  private boolean hasHash;              // Whether hash is stored (from config)
-  private long valueOffset;             // Offset where value starts (after metadata)
+  private Object lazySource; // Source for lazy parsing (MemorySegment or byte[])
+  private long lazyOffset; // Offset where lazy metadata fields start
+  private boolean metadataParsed; // Whether prevRev, lastModRev, hash are parsed
+  private boolean valueParsed; // Whether Number value is parsed
+  private boolean hasHash; // Whether hash is stored (from config)
+  private long valueOffset; // Offset where value starts (after metadata)
 
   // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
   private MemorySegment page;
@@ -119,9 +122,18 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
 
   private static final int FIELD_COUNT = NodeFieldLayout.NUMBER_VALUE_FIELD_COUNT;
 
+  private static final byte BOXED_PAYLOAD = 0;
+  private static final byte INT_PAYLOAD = 1;
+  private static final byte LONG_PAYLOAD = 2;
+  private static final byte INTEGER_WIRE_TAG = 0;
+  private static final byte LONG_WIRE_TAG = 1;
+
+  /** Kind, offset table, and worst-case structural metadata, excluding the numeric payload. */
+  private static final int SERIALIZED_METADATA_UPPER_BOUND = 47;
+
   /**
-   * Constructor for flyweight binding.
-   * All fields except nodeKey and hashFunction will be read from page memory after bind().
+   * Constructor for flyweight binding. All fields except nodeKey and hashFunction will be read from
+   * page memory after bind().
    *
    * @param nodeKey the node key
    * @param hashFunction the hash function from resource config
@@ -132,12 +144,11 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Primary constructor with all primitive fields.
-   * All fields are already parsed - no lazy loading needed.
+   * Primary constructor with all primitive fields. All fields are already parsed - no lazy loading
+   * needed.
    */
-  public NumberNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      Number value, LongHashFunction hashFunction, byte[] deweyID) {
+  public NumberNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, Number value, LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -154,12 +165,11 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Constructor with SirixDeweyID instead of byte array.
-   * All fields are already parsed - no lazy loading needed.
+   * Constructor with SirixDeweyID instead of byte array. All fields are already parsed - no lazy
+   * loading needed.
    */
-  public NumberNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      Number value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
+  public NumberNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, Number value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -177,8 +187,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
 
-  public void bind(final MemorySegment page, final long recordBase, final long nodeKey,
-      final int slotIndex) {
+  public void bind(final MemorySegment page, final long recordBase, final long nodeKey, final int slotIndex) {
     this.page = page;
     this.recordBase = recordBase;
     this.nodeKey = nodeKey;
@@ -191,7 +200,8 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   public void unbind() {
-    if (page == null) return;
+    if (page == null)
+      return;
     final long nk = this.nodeKey;
     this.parentKey = readDeltaField(NodeFieldLayout.NUMVAL_PARENT_KEY, nk);
     this.rightSiblingKey = readDeltaField(NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY, nk);
@@ -211,7 +221,9 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
     this.ownerPage = null;
   }
 
-  public boolean isBound() { return page != null; }
+  public boolean isBound() {
+    return page != null;
+  }
 
   @Override
   public boolean isBoundTo(final MemorySegment page) {
@@ -225,9 +237,61 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
 
   @Override
   public int estimateSerializedSize() {
-    // 1 (nodeKind) + 6 (offset table) + ~30 (varint fields avg) + ~10 (number payload) = ~47
-    // Conservative upper bound without hash (was 56, minus 9 for removed 8-byte hash + 1-byte offset entry)
-    return 47;
+    if (!valueParsed) {
+      parseValueField();
+    }
+    return estimateSerializedSize(value);
+  }
+
+  /** Conservative allocation-free bound for a newly written boxed numeric record. */
+  public static int estimateSerializedSize(final Number value) {
+    final long estimatedSize = (long) SERIALIZED_METADATA_UPPER_BOUND + estimateNumberPayloadBytes(value);
+    return estimatedSize >= Integer.MAX_VALUE
+        ? Integer.MAX_VALUE
+        : (int) estimatedSize;
+  }
+
+  /** Allocation-free bound for a newly written primitive {@code int} record. */
+  public static int estimateSerializedIntSize(final int value) {
+    return SERIALIZED_METADATA_UPPER_BOUND + 1 + DeltaVarIntCodec.computeSignedEncodedWidth(value);
+  }
+
+  /** Allocation-free bound for a newly written primitive {@code long} record. */
+  public static int estimateSerializedLongSize(final long value) {
+    return SERIALIZED_METADATA_UPPER_BOUND + 1 + DeltaVarIntCodec.computeSignedLongEncodedWidth(value);
+  }
+
+  private static int estimateNumberPayloadBytes(final Number number) {
+    if (number instanceof Integer integer) {
+      return 1 + DeltaVarIntCodec.computeSignedEncodedWidth(integer);
+    }
+    if (number instanceof Long longValue) {
+      return 1 + DeltaVarIntCodec.computeSignedLongEncodedWidth(longValue);
+    }
+    if (number instanceof Float) {
+      return 1 + Float.BYTES;
+    }
+    if (number instanceof Double) {
+      return 1 + Double.BYTES;
+    }
+    if (number instanceof BigDecimal bigDecimal) {
+      final int bytes = bigDecimal.unscaledValue().bitLength() / Byte.SIZE + 1;
+      final long payloadBytes = 1L + DeltaVarIntCodec.computeSignedEncodedWidth(bigDecimal.scale())
+          + DeltaVarIntCodec.computeSignedEncodedWidth(bytes) + bytes;
+      return payloadBytes >= Integer.MAX_VALUE
+          ? Integer.MAX_VALUE
+          : (int) payloadBytes;
+    }
+    if (number instanceof BigInteger bigInteger) {
+      final int bytes = bigInteger.bitLength() / Byte.SIZE + 1;
+      final long payloadBytes = 1L + DeltaVarIntCodec.computeSignedEncodedWidth(bytes) + bytes;
+      return payloadBytes >= Integer.MAX_VALUE
+          ? Integer.MAX_VALUE
+          : (int) payloadBytes;
+    }
+    throw new IllegalStateException("Unsupported number type: " + (number == null
+        ? "null"
+        : number.getClass().getName()));
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -258,20 +322,20 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Read the Number payload from page memory when bound.
-   * Uses the flyweight format written by {@link #serializeNumberToSegment}.
+   * Read the Number payload from page memory when bound. Uses the flyweight format written by
+   * {@link #serializeNumberToSegment}.
    */
   private void readPayloadFromPage() {
-    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
-        recordBase + 1 + NodeFieldLayout.NUMVAL_PAYLOAD) & 0xFF;
+    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NUMVAL_PAYLOAD) & 0xFF;
     final long payloadStart = dataRegionStart + payloadFieldOff;
     this.value = deserializeNumberFromSegment(page, payloadStart);
     this.valueParsed = true;
   }
 
   /**
-   * Deserialize a Number value directly from a MemorySegment.
-   * Format must match {@link #serializeNumberToSegment} exactly:
+   * Deserialize a Number value directly from a MemorySegment. Format must match
+   * {@link #serializeNumberToSegment} exactly:
+   *
    * <pre>
    *   Type 0 = Integer (zigzag varint)
    *   Type 1 = Long (zigzag varlong)
@@ -282,7 +346,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
    * </pre>
    *
    * @param segment the MemorySegment containing the serialized number
-   * @param offset  the byte offset of the number type byte
+   * @param offset the byte offset of the number type byte
    * @return the deserialized Number
    */
   static Number deserializeNumberFromSegment(final MemorySegment segment, final long offset) {
@@ -291,13 +355,13 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
 
     return switch (valueType) {
       case 0 -> // Integer (zigzag varint)
-          DeltaVarIntCodec.decodeSignedFromSegment(segment, pos);
+        DeltaVarIntCodec.decodeSignedFromSegment(segment, pos);
       case 1 -> // Long (zigzag varlong)
-          DeltaVarIntCodec.decodeSignedLongFromSegment(segment, pos);
+        DeltaVarIntCodec.decodeSignedLongFromSegment(segment, pos);
       case 2 -> // Float (4 bytes raw bits, native endian)
-          Float.intBitsToFloat(segment.get(LE.INT, pos));
+        Float.intBitsToFloat(segment.get(LE.INT, pos));
       case 3 -> // Double (8 bytes raw bits, native endian)
-          Double.longBitsToDouble(segment.get(LE.LONG, pos));
+        Double.longBitsToDouble(segment.get(LE.LONG, pos));
       case 4 -> { // BigDecimal (varint scale + varint byte-length + bytes)
         final int scale = DeltaVarIntCodec.decodeSignedFromSegment(segment, pos);
         final int scaleWidth = DeltaVarIntCodec.readSignedVarintWidth(segment, pos);
@@ -324,25 +388,47 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
-   * Encode a NumberNode record directly to a MemorySegment from parameter values.
-   * Static -- reads nothing from any instance. Zero field intermediation.
+   * Encode a NumberNode record directly to a MemorySegment from parameter values. Static -- reads
+   * nothing from any instance. Zero field intermediation.
    *
-   * @param target      the target MemorySegment (reinterpreted slotted page)
-   * @param offset      absolute byte offset to write at
+   * @param target the target MemorySegment (reinterpreted slotted page)
+   * @param offset absolute byte offset to write at
    * @param heapOffsets pre-allocated offset array (reused, FIELD_COUNT elements)
-   * @param nodeKey     the node key (delta base for structural keys)
-   * @param parentKey   the parent node key
+   * @param nodeKey the node key (delta base for structural keys)
+   * @param parentKey the parent node key
    * @param rightSibKey the right sibling key
-   * @param leftSibKey  the left sibling key
-   * @param prevRev     the previous revision number
-   * @param lastModRev  the last modified revision number
-   * @param value       the Number value
+   * @param leftSibKey the left sibling key
+   * @param prevRev the previous revision number
+   * @param lastModRev the last modified revision number
+   * @param value the Number value
    * @return the total number of bytes written
    */
-  public static int writeNewRecord(final MemorySegment target, final long offset,
-      final int[] heapOffsets, final long nodeKey,
-      final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int prevRev, final int lastModRev, final Number value) {
+  public static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int prevRev,
+      final int lastModRev, final Number value) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey, prevRev, lastModRev,
+        value, BOXED_PAYLOAD, 0L);
+  }
+
+  /** Writes the same record format as {@link #writeNewRecord}, keeping an {@code int} unboxed. */
+  public static int writeNewIntRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int prevRev,
+      final int lastModRev, final int value) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey, prevRev, lastModRev,
+        null, INT_PAYLOAD, value);
+  }
+
+  /** Writes the same record format as {@link #writeNewRecord}, keeping a {@code long} unboxed. */
+  public static int writeNewLongRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int prevRev,
+      final int lastModRev, final long value) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey, prevRev, lastModRev,
+        null, LONG_PAYLOAD, value);
+  }
+
+  private static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int prevRev,
+      final int lastModRev, final Number fallbackValue, final byte primitiveType, final long primitiveValue) {
     long pos = offset;
 
     // Write nodeKind byte
@@ -378,7 +464,18 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
 
     // Field 5: payload (Number type dispatch)
     heapOffsets[NodeFieldLayout.NUMVAL_PAYLOAD] = (int) (pos - dataStart);
-    pos += serializeNumberToSegment(target, pos, value);
+    switch (primitiveType) {
+      case BOXED_PAYLOAD -> pos += serializeNumberToSegment(target, pos, fallbackValue);
+      case INT_PAYLOAD -> {
+        target.set(ValueLayout.JAVA_BYTE, pos++, INTEGER_WIRE_TAG);
+        pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, (int) primitiveValue);
+      }
+      case LONG_PAYLOAD -> {
+        target.set(ValueLayout.JAVA_BYTE, pos++, LONG_WIRE_TAG);
+        pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, primitiveValue);
+      }
+      default -> throw new IllegalArgumentException("Unknown primitive number type: " + primitiveType);
+    }
 
     // Write offset table
     for (int i = 0; i < FIELD_COUNT; i++) {
@@ -392,10 +489,11 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
    * Serialize this node from Java fields. Delegates to static writeNewRecord.
    */
   public int serializeToHeap(final MemorySegment target, final long offset) {
-    if (!metadataParsed) parseMetadataFields();
-    if (!valueParsed) parseValueField();
-    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
-        parentKey, rightSiblingKey, leftSiblingKey,
+    if (!metadataParsed)
+      parseMetadataFields();
+    if (!valueParsed)
+      parseValueField();
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
         previousRevision, lastModifiedRevision, value);
   }
 
@@ -405,8 +503,8 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Set DeweyID fields directly after creation, bypassing write-through.
-   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   * Set DeweyID fields directly after creation, bypassing write-through. The DeweyID is already in
+   * the page trailer -- this just sets the Java cache fields.
    */
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
     this.sirixDeweyID = id;
@@ -414,11 +512,9 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Serialize a Number value directly to a MemorySegment.
-   * Format: [numberType:1][numberData:variable]
+   * Serialize a Number value directly to a MemorySegment. Format: [numberType:1][numberData:variable]
    */
-  private static int serializeNumberToSegment(final MemorySegment target, final long offset,
-      final Number number) {
+  private static int serializeNumberToSegment(final MemorySegment target, final long offset, final Number number) {
     long pos = offset;
     switch (number) {
       case Integer intVal -> {
@@ -485,8 +581,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
 
   public void setParentKey(final long parentKey) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.NUMVAL_PARENT_KEY) & 0xFF;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NUMVAL_PARENT_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
@@ -501,8 +596,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeParentKey(final long parentKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.NUMVAL_PARENT_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.NUMVAL_PARENT_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
   }
 
@@ -546,8 +640,8 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   @Override
   public void setPreviousRevision(final int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.NUMVAL_PREV_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NUMVAL_PREV_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -562,16 +656,15 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizePreviousRevision(final int revision) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.NUMVAL_PREV_REVISION, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.NUMVAL_PREV_REVISION, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
   public void setLastModifiedRevision(final int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.NUMVAL_LAST_MOD_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NUMVAL_LAST_MOD_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -586,8 +679,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeLastModifiedRevision(final int revision) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.NUMVAL_LAST_MOD_REVISION, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.NUMVAL_LAST_MOD_REVISION, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
@@ -610,9 +702,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey())
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
 
     final Number number = getValue();
     switch (number) {
@@ -638,8 +728,8 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
 
   public void setRightSiblingKey(final long rightSibling) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(rightSibling, nodeKey);
@@ -654,8 +744,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeRightSiblingKey(final long rightSibling) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, rightSibling, nodeKey));
   }
 
@@ -669,8 +758,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
 
   public void setLeftSiblingKey(final long leftSibling) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.NUMVAL_LEFT_SIB_KEY) & 0xFF;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NUMVAL_LEFT_SIB_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(leftSibling, nodeKey);
@@ -685,8 +773,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeLeftSiblingKey(final long leftSibling) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, leftSibling, nodeKey));
   }
 
@@ -694,7 +781,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setFirstChildKey(final long firstChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -703,7 +790,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   public long getLastChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setLastChildKey(final long lastChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -712,7 +799,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   public long getChildCount() {
     return 0;
   }
-  
+
   public void setChildCount(final long childCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -721,7 +808,7 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   public long getDescendantCount() {
     return 0;
   }
-  
+
   public void setDescendantCount(final long descendantCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -745,7 +832,8 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
       owner.resizeRecord(this, nk, slot);
       return;
     }
-    if (page != null) unbind();
+    if (page != null)
+      unbind();
     this.value = value;
   }
 
@@ -821,12 +909,12 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Populate this node from a BytesIn source for singleton reuse.
-   * LAZY OPTIMIZATION: Only parses structural fields immediately.
-   * Two-stage lazy parsing: metadata (cheap) vs value (expensive Number allocation).
+   * Populate this node from a BytesIn source for singleton reuse. LAZY OPTIMIZATION: Only parses
+   * structural fields immediately. Two-stage lazy parsing: metadata (cheap) vs value (expensive
+   * Number allocation).
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     // Unbind flyweight — ensures getters use Java fields, not stale page reference
     this.page = null;
     this.nodeKey = nodeKey;
@@ -846,36 +934,36 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
     this.valueParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.valueOffset = 0;
-    
+
     // Initialize lazy fields to defaults (will be populated on demand)
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.hash = 0;
     this.value = null;
   }
-  
+
   /**
-   * Parse metadata fields on demand (cheap - just varints and optionally a long).
-   * Called by getters that access prevRev, lastModRev, or hash.
+   * Parse metadata fields on demand (cheap - just varints and optionally a long). Called by getters
+   * that access prevRev, lastModRev, or hash.
    */
   private void parseMetadataFields() {
     if (metadataParsed) {
       return;
     }
-    
+
     if (lazySource == null) {
       metadataParsed = true;
       return;
     }
-    
+
     BytesIn<?> bytesIn = createBytesIn(lazyOffset);
-    
+
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
-  
+
   /**
    * Parse value field on demand (expensive - may allocate BigDecimal/BigInteger).
    */
@@ -883,21 +971,21 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
     if (valueParsed) {
       return;
     }
-    
+
     if (!metadataParsed) {
       parseMetadataFields();
     }
-    
+
     if (lazySource == null) {
       valueParsed = true;
       return;
     }
-    
+
     BytesIn<?> bytesIn = createBytesIn(valueOffset);
     this.value = NodeKind.deserializeNumber(bytesIn);
     this.valueParsed = true;
   }
-  
+
   private BytesIn<?> createBytesIn(long offset) {
     if (lazySource instanceof MemorySegment segment) {
       var bytesIn = new MemorySegmentBytesIn(segment);
@@ -913,8 +1001,8 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Create a deep copy snapshot of this node.
-   * Forces parsing of all lazy fields since snapshot must be independent.
+   * Create a deep copy snapshot of this node. Forces parsing of all lazy fields since snapshot must
+   * be independent.
    */
   public NumberNode toSnapshot() {
     if (page != null) {
@@ -922,15 +1010,14 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
       if (!valueParsed) {
         readPayloadFromPage();
       }
-      return new NumberNode(nodeKey,
-          readDeltaField(NodeFieldLayout.NUMVAL_PARENT_KEY, nodeKey),
+      return new NumberNode(nodeKey, readDeltaField(NodeFieldLayout.NUMVAL_PARENT_KEY, nodeKey),
           readSignedField(NodeFieldLayout.NUMVAL_PREV_REVISION),
           readSignedField(NodeFieldLayout.NUMVAL_LAST_MOD_REVISION),
           readDeltaField(NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY, nodeKey),
-          readDeltaField(NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, nodeKey),
-          hash,
-          value, hashFunction,
-          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
+          readDeltaField(NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, nodeKey), hash, value, hashFunction,
+          getDeweyIDAsBytes() != null
+              ? getDeweyIDAsBytes().clone()
+              : null);
     }
     // Force parse all lazy fields for snapshot (must be complete and independent)
     if (!metadataParsed) {
@@ -939,9 +1026,10 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
     if (!valueParsed) {
       parseValueField();
     }
-    return new NumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, hash, value, hashFunction,
-        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
+    return new NumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+        hash, value, hashFunction, getDeweyIDAsBytes() != null
+            ? getDeweyIDAsBytes().clone()
+            : null);
   }
 
   @Override
@@ -978,14 +1066,14 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("nodeKey", nodeKey)
-                      .add("number", value)
-                      .add("parentKey", parentKey)
-                      .add("previousRevision", previousRevision)
-                      .add("lastModifiedRevision", lastModifiedRevision)
-                      .add("rightSibling", rightSiblingKey)
-                      .add("leftSibling", leftSiblingKey)
-                      .toString();
+                         .add("nodeKey", nodeKey)
+                         .add("number", value)
+                         .add("parentKey", parentKey)
+                         .add("previousRevision", previousRevision)
+                         .add("lastModifiedRevision", lastModifiedRevision)
+                         .add("rightSibling", rightSiblingKey)
+                         .add("leftSibling", leftSiblingKey)
+                         .toString();
   }
 
   @Override
@@ -998,8 +1086,6 @@ public final class NumberNode extends AbstractFlyweightNode implements StructNod
     if (!(obj instanceof final NumberNode other))
       return false;
 
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey
-        && Objects.equals(value, other.value);
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && Objects.equals(value, other.value);
   }
 }

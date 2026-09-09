@@ -10,6 +10,7 @@ import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
+import io.sirix.access.DatabaseType;
 import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -17,7 +18,6 @@ import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
-import io.sirix.index.IndexType;
 import io.sirix.query.compiler.optimizer.PlanCache;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBNode;
@@ -88,8 +88,11 @@ public final class CreateNameIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(include,
-        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME), IndexDef.DbType.XML);
+    final var storageEngineWriter = wtx.getStorageEngineWriter();
+    final int physicalIndexId = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage())
+                                                   .nextUnallocatedSecondaryNameIndex(DatabaseType.XML);
+    final int indexDefNo = IndexDefs.logicalNameIndexDefNoForPhysicalSlot(physicalIndexId, IndexDef.DbType.XML);
+    final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(include, indexDefNo, IndexDef.DbType.XML);
     try {
       controller.createIndexes(Set.of(idxDef), wtx);
     } catch (final SirixIOException e) {

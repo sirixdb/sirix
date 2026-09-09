@@ -21,7 +21,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
-import io.sirix.index.IndexType;
 import io.sirix.query.compiler.optimizer.PlanCache;
 import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 
@@ -91,8 +90,10 @@ public final class CreatePathIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef pathIdxDef = IndexDefs.createPathIdxDef(paths,
-        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH), IndexDef.DbType.JSON);
+    final var storageEngineWriter = wtx.getStorageEngineWriter();
+    final int indexDefNo =
+        storageEngineWriter.getPathPage(storageEngineWriter.getActualRevisionRootPage()).nextUnallocatedIndex();
+    final IndexDef pathIdxDef = IndexDefs.createPathIdxDef(paths, indexDefNo, IndexDef.DbType.JSON);
     try {
       controller.createIndexes(Set.of(pathIdxDef), wtx);
     } catch (final SirixIOException e) {

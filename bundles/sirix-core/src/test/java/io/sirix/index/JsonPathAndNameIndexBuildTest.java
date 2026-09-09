@@ -210,18 +210,15 @@ public final class JsonPathAndNameIndexBuildTest {
       shred(trx, document());
       final JsonIndexController indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-      final long rebuildsBefore = AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get();
-      final long selfHealsBefore = AbstractHOTIndexWriter.STRUCTURAL_SELFHEAL_REBUILD.get();
-      final long strandsBefore = AbstractHOTIndexWriter.STRAND_LEAF_REBUILD.get();
+      final long validationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get();
+      final long propagationFailuresBefore = AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get();
 
       indexController.createIndexes(Set.of(pathIndexDef(), IndexDefs.createNameIdxDef(1, IndexDef.DbType.JSON)), trx);
 
-      assertEquals("subtree rebuilds during a bulk build", rebuildsBefore,
-          AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get());
-      assertEquals("structural self-heals during a bulk build", selfHealsBefore,
-          AbstractHOTIndexWriter.STRUCTURAL_SELFHEAL_REBUILD.get());
-      assertEquals("strand rebuilds during a bulk build", strandsBefore,
-          AbstractHOTIndexWriter.STRAND_LEAF_REBUILD.get());
+      assertEquals("structural validation failures during a bulk build", validationFailuresBefore,
+          AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get());
+      assertEquals("propagation preflight failures during a bulk build", propagationFailuresBefore,
+          AbstractHOTIndexWriter.STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.get());
     }
   }
 }

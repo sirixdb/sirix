@@ -19,9 +19,7 @@ import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,23 +61,6 @@ final class HOTLeafUseAfterCloseTest {
   private static final int N = 500_000;
   private static final long PATH_NODE_KEY = 5L;
 
-  private static String originalHOTSetting;
-
-  @BeforeAll
-  static void enableHOT() {
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOT() {
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
-
   @BeforeEach
   void setUp() {
     JsonTestHelper.deleteEverything();
@@ -97,10 +78,8 @@ final class HOTLeafUseAfterCloseTest {
   void everyKeySurvivesReadbackUnderEviction() throws InterruptedException {
     final String prevStrictBinna = System.getProperty("hot.strict.binna");
     System.setProperty("hot.strict.binna", "true");
-    // The O(total-entries) leaf-walk fallback is opt-in (hot.cas.leftmostfallback.enable)
-    // and stays off here: it would mask a cursor that wrongly reports a key absent (turning
-    // a fast miss into an hours-long full-scan storm). A regression of the eviction-race bug
-    // surfaces as a fast, clean miss count.
+    // Point reads have one routed implementation and never mask a miss with a whole-index scan.
+    // A regression of the eviction-race bug therefore surfaces as a fast, clean miss count.
     final AtomicBoolean stopEvictor = new AtomicBoolean(false);
     Thread evictor = null;
     try {
@@ -122,12 +101,12 @@ final class HOTLeafUseAfterCloseTest {
         for (int i = 0; i < 5_000; i++) {
           scratch.getNodeKeys().clear();
           scratch.getNodeKeys().add(warmupBase + i);
-          writer.index(new CASValue(new Int32(warmupBase + i), Type.INR, PATH_NODE_KEY), scratch, null);
+          writer.index(new CASValue(new Int32(warmupBase + i), Type.INR, PATH_NODE_KEY), scratch);
         }
         for (int i = 0; i < N; i++) {
           scratch.getNodeKeys().clear();
           scratch.getNodeKeys().add(i);
-          writer.index(new CASValue(new Int32(i), Type.INR, PATH_NODE_KEY), scratch, null);
+          writer.index(new CASValue(new Int32(i), Type.INR, PATH_NODE_KEY), scratch);
         }
         trx.commit();
       }

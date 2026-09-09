@@ -17,6 +17,7 @@ import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
@@ -24,6 +25,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ProjectionStreamingGlobalDictionaryTest {
 
@@ -40,6 +42,24 @@ final class ProjectionStreamingGlobalDictionaryTest {
   void tearDown() {
     JsonTestHelper.deleteEverything();
     Databases.getGlobalBufferManager().clearAllCaches();
+  }
+
+  @Test
+  void generationAndResidentFrontUseDisjointHalvesOfTheCombinedEnvelope() {
+    final long combinedBudget = 512L << 20;
+    final long componentBudget = ProjectionIndexBuilder.streamingGlobalDictionaryComponentBudget(combinedBudget);
+    final ProjectionIndexBuilder.StreamingGlobalDictionary dictionary =
+        new ProjectionIndexBuilder.StreamingGlobalDictionary(0, new GlobalValueDictionaryWriter(0, componentBudget));
+    try {
+      assertEquals(componentBudget, dictionary.generationBudgetBytesForTest());
+      assertEquals(componentBudget, dictionary.residentFrontBudgetBytesForTest());
+      assertTrue(
+          Math.addExact(dictionary.generationBudgetBytesForTest(),
+              dictionary.residentFrontBudgetBytesForTest()) <= combinedBudget,
+          "the two simultaneously resident caps must not double-spend the planner allocation");
+    } finally {
+      dictionary.release();
+    }
   }
 
   @ParameterizedTest(name = "{0} keeps global dictionary generations across async epochs")

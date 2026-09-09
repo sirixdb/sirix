@@ -15,8 +15,6 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
-import io.sirix.index.projection.ProjectionIndexHOTStorage;
-import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.query.json.JsonDBItem;
 
 import java.util.LinkedHashSet;
@@ -37,11 +35,10 @@ import java.util.Set;
  * </ul>
  *
  * <p>
- * The definition is removed from the catalogue and each dropped projection's persisted metadata
- * slot is overwritten with a stale tombstone. The tombstone is REQUIRED for correctness, not
- * hygiene: after the drop no change listener maintains the sub-tree, so a later re-creation reusing
- * the id could otherwise mistake the leftover columns for fresh ones even though records changed in
- * between. Both writes ride the session's write transaction — call {@code sdb:commit($doc)} to
+ * The definition is removed from the catalogue; its immutable historical tree is left untouched.
+ * Projection tree ids are never reused while their physical reference exists, so a later creation
+ * receives a new, empty tree and cannot mistake unmaintained pre-drop columns for current data. The
+ * catalogue change rides the session's write transaction — call {@code sdb:commit($doc)} to
  * persist. Revisions committed BEFORE the drop keep their catalogue entry and payloads, so
  * time-travel queries at those revisions continue to be served by the projection.
  *
@@ -120,16 +117,6 @@ public final class DropProjectionIndex extends AbstractFunction {
     if (!toDrop.isEmpty()) {
       wtx.awaitPendingAsyncCommit();
       controller.dropIndexes(toDrop, wtx);
-      // Tombstone each dropped sub-tree's metadata slot: with the listener
-      // gone, subsequent record changes are untracked, so an id-reusing
-      // re-creation must never accept the leftover columns as fresh.
-      for (final IndexDef indexDef : toDrop) {
-        final ProjectionIndexHOTStorage storage =
-            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), indexDef.getID());
-        // The dropped sub-tree's row-group slots survive the tombstone; the rebuild reclaims them
-        // by probing what is physically live, so the marker itself carries nothing but "stale".
-        storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
-      }
       // No PlanCache/statistics invalidation: projections route through the
       // vectorized executor's revision-scoped catalog lookups, not through
       // optimizer plan rewrites — revisions from this commit onward simply

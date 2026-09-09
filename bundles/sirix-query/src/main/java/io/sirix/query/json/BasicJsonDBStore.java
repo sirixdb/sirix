@@ -14,6 +14,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.access.trx.node.json.ParallelBulkJsonImporter;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -32,6 +33,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -603,6 +606,39 @@ public final class BasicJsonDBStore implements JsonDBStore {
   public JsonDBCollection create(final String collName, final String resourceName, final JsonParser parser,
       final boolean ldjson) {
     return createWithJackson(collName, resourceName, parser, null, ldjson);
+  }
+
+  /**
+   * Create a resource through the general parallel bulk importer, maintaining {@code projection} in
+   * the same pass. The caller owns and closes {@code input}.
+   */
+  public JsonDBCollection createParallel(final String collName, final String resourceName, final InputStream input,
+      final ProjectionSpec projection) {
+    requireNonNull(input);
+    return createCollectionWithLoader(collName, resourceName, wtx -> ParallelBulkJsonImporter.assemble(wtx, input),
+        new ArrayObject(new QNm[0], new Sequence[0]), requireNonNull(projection));
+  }
+
+  /** Parallel bulk creation without a projection. The caller owns and closes {@code input}. */
+  public JsonDBCollection createParallel(final String collName, final String resourceName, final InputStream input) {
+    requireNonNull(input);
+    return createCollectionWithLoader(collName, resourceName, wtx -> ParallelBulkJsonImporter.assemble(wtx, input),
+        new ArrayObject(new QNm[0], new Sequence[0]), null);
+  }
+
+  /** Reader twin of {@link #createParallel(String, String, InputStream, ProjectionSpec)}. */
+  public JsonDBCollection createParallel(final String collName, final String resourceName, final Reader input,
+      final ProjectionSpec projection) {
+    requireNonNull(input);
+    return createCollectionWithLoader(collName, resourceName, wtx -> ParallelBulkJsonImporter.assemble(wtx, input),
+        new ArrayObject(new QNm[0], new Sequence[0]), requireNonNull(projection));
+  }
+
+  /** Parallel reader creation without a projection. The caller owns and closes {@code input}. */
+  public JsonDBCollection createParallel(final String collName, final String resourceName, final Reader input) {
+    requireNonNull(input);
+    return createCollectionWithLoader(collName, resourceName, wtx -> ParallelBulkJsonImporter.assemble(wtx, input),
+        new ArrayObject(new QNm[0], new Sequence[0]), null);
   }
 
   private JsonDBCollection createWithJackson(final String collName, final String resourceName, final JsonParser parser,

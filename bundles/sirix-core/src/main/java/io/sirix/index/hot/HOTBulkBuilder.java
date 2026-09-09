@@ -154,10 +154,16 @@ public final class HOTBulkBuilder {
     }
 
     final BulkContext ctx = new BulkContext(keys, values, revision, indexType, pageKeyAllocator);
-    final Page root = ctx.bulk(buildR(keys, 0, n - 1));
-    final PageReference rootRef = new PageReference();
-    rootRef.setPage(root);
-    return new BuildResult(rootRef, root, ctx.leafCount, ctx.indirectCount);
+    Page root = null;
+    try {
+      root = ctx.bulk(buildR(keys, 0, n - 1));
+      final PageReference rootRef = new PageReference();
+      rootRef.setPage(root);
+      return new BuildResult(rootRef, root, ctx.leafCount, ctx.indirectCount);
+    } catch (final RuntimeException | Error failure) {
+      closeFreshPage(root, failure);
+      throw failure;
+    }
   }
 
   // ======================================================================
@@ -336,16 +342,21 @@ public final class HOTBulkBuilder {
         return null;
       }
       final HOTLeafPage leaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-      for (int i = lo; i <= hi; i++) {
-        if (!leaf.put(keys[i], values[i])) {
-          // Byte-capacity overflow (entry-count overflow is excluded by the guard above, and
-          // duplicates are excluded by build()'s validation). Release the speculative page.
-          leaf.close();
-          return null;
+      try {
+        for (int i = lo; i <= hi; i++) {
+          if (!leaf.put(keys[i], values[i])) {
+            // Byte-capacity overflow (entry-count overflow is excluded by the guard above, and
+            // duplicates are excluded by build()'s validation). Release the speculative page.
+            leaf.close();
+            return null;
+          }
         }
+        leafCount++;
+        return leaf;
+      } catch (final RuntimeException | Error failure) {
+        closeFreshPage(leaf, failure);
+        throw failure;
       }
-      leafCount++;
-      return leaf;
     }
 
     /**
@@ -437,35 +448,86 @@ public final class HOTBulkBuilder {
       // position) at the highest partial bit, so discBits[j] carries weight 1 << (m-1-j).
       final int[] partials = new int[fcount];
       final PageReference[] children = new PageReference[fcount];
-      for (int i = 0; i < fcount; i++) {
-        int p = 0;
-        for (final int[] step : fpaths[i]) {
-          if (step[1] == 1) {
-            final int j = Arrays.binarySearch(discBits, step[0]);
-            p |= 1 << (m - 1 - j);
+      Page pendingChild = null;
+      int builtChildCount = 0;
+      try {
+        for (int i = 0; i < fcount; i++) {
+          int p = 0;
+          for (final int[] step : fpaths[i]) {
+            if (step[1] == 1) {
+              final int j = Arrays.binarySearch(discBits, step[0]);
+              p |= 1 << (m - 1 - j);
+            }
+          }
+          partials[i] = p;
+          pendingChild = bulk(fnodes[i]);
+          final PageReference ref = new PageReference();
+          ref.setPage(pendingChild);
+          children[i] = ref;
+          pendingChild = null;
+          builtChildCount++;
+        }
+
+        // Height = 1 + max child height (a leaf page counts as height 0), so an indirect whose
+        // children are all leaf pages has height 1 — the convention the writer relies on.
+        int maxChildHeight = 0;
+        for (final PageReference child : children) {
+          final Page cp = child.getPage();
+          final int h = cp instanceof HOTIndirectPage hi
+              ? hi.getHeight()
+              : 0;
+          if (h > maxChildHeight) {
+            maxChildHeight = h;
           }
         }
-        partials[i] = p;
-        final Page childPage = bulk(fnodes[i]);
-        final PageReference ref = new PageReference();
-        ref.setPage(childPage);
-        children[i] = ref;
+        final HOTIndirectPage result =
+            assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, pageKeyAllocator);
+        indirectCount++;
+        return result;
+      } catch (final RuntimeException | Error failure) {
+        closeFreshPage(pendingChild, failure);
+        for (int i = 0; i < builtChildCount; i++) {
+          closeFreshPage(children[i].getPage(), failure);
+        }
+        throw failure;
       }
+    }
+  }
 
-      // Height = 1 + max child height (a leaf page counts as height 0), so an indirect whose
-      // children are all leaf pages has height 1 — the convention the writer relies on.
-      int maxChildHeight = 0;
-      for (final PageReference child : children) {
-        final Page cp = child.getPage();
-        final int h = cp instanceof HOTIndirectPage hi
-            ? hi.getHeight()
-            : 0;
-        if (h > maxChildHeight) {
-          maxChildHeight = h;
+  /** Close every fresh leaf in an unpublished bulk-build subtree, preserving the primary failure. */
+  private static void closeFreshPage(final Page page, final Throwable failure) {
+    if (page == null) {
+      return;
+    }
+    if (page instanceof HOTIndirectPage indirect) {
+      for (int i = 0; i < indirect.getNumChildren(); i++) {
+        try {
+          final PageReference childRef = indirect.getChildReference(i);
+          if (childRef != null) {
+            closeFreshPage(childRef.getPage(), failure);
+          }
+        } catch (final RuntimeException | Error cleanupFailure) {
+          addSuppressedSafely(failure, cleanupFailure);
         }
       }
-      indirectCount++;
-      return assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, pageKeyAllocator);
+      return;
+    }
+    try {
+      page.close();
+    } catch (final RuntimeException | Error cleanupFailure) {
+      addSuppressedSafely(failure, cleanupFailure);
+    }
+  }
+
+  /** Never let a secondary cleanup/suppression failure replace the failure that triggered cleanup. */
+  static void addSuppressedSafely(final Throwable primary, final Throwable secondary) {
+    if (primary == secondary) {
+      return;
+    }
+    try {
+      primary.addSuppressed(secondary);
+    } catch (final RuntimeException | Error ignored) {
+      // Cleanup must keep walking sibling subtrees even when suppression itself cannot allocate.
     }
   }
 

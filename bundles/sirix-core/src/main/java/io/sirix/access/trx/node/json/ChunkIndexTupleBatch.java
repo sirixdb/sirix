@@ -37,6 +37,8 @@ final class ChunkIndexTupleBatch {
   static final byte CAS_KIND_NUMBER = 1;
   static final byte CAS_KIND_BOOLEAN_TRUE = 2;
   static final byte CAS_KIND_BOOLEAN_FALSE = 3;
+  static final byte CAS_KIND_INT = 4;
+  static final byte CAS_KIND_LONG = 5;
 
   private final @Nullable LongOpenHashSet pathPcrUnion;
   private final @Nullable LongOpenHashSet casPcrUnion;
@@ -60,13 +62,15 @@ final class ChunkIndexTupleBatch {
   private final LongArrayList nameNodeKeys = new LongArrayList(64);
 
   // CAS: (pathNodeKey, nodeKey, kind, value) for the six value kinds. String payloads live in the
-  // arena in tuple order; Number payloads are the parser's own boxes in tuple order.
+  // arena in tuple order; uncommon boxed Number payloads and common integral payloads each have a
+  // dense side lane in tuple order.
   private final LongArrayList casPcrs = new LongArrayList(64);
   private final LongArrayList casNodeKeys = new LongArrayList(64);
   private final ByteArrayList casKinds = new ByteArrayList(64);
   private final IntArrayList casStringOffsets = new IntArrayList(32);
   private final IntArrayList casStringLengths = new IntArrayList(32);
   private final ObjectArrayList<Number> casNumbers = new ObjectArrayList<>(32);
+  private final LongArrayList casIntegralNumbers = new LongArrayList(32);
   private byte[] casStringArena = new byte[1024];
   private int casStringArenaUsed;
 
@@ -135,6 +139,24 @@ final class ChunkIndexTupleBatch {
     casPcrs.add(pathNodeKey);
     casNodeKeys.add(nodeKey);
     casKinds.add(CAS_KIND_NUMBER);
+  }
+
+  void onCasInt(final long pathNodeKey, final long nodeKey, final int value) {
+    onCasIntegral(pathNodeKey, nodeKey, value, CAS_KIND_INT);
+  }
+
+  void onCasLong(final long pathNodeKey, final long nodeKey, final long value) {
+    onCasIntegral(pathNodeKey, nodeKey, value, CAS_KIND_LONG);
+  }
+
+  private void onCasIntegral(final long pathNodeKey, final long nodeKey, final long value, final byte kind) {
+    if (!casActive || (casPcrUnion != null && !casPcrUnion.contains(pathNodeKey))) {
+      return;
+    }
+    casIntegralNumbers.add(value);
+    casPcrs.add(pathNodeKey);
+    casNodeKeys.add(nodeKey);
+    casKinds.add(kind);
   }
 
   void onCasBoolean(final long pathNodeKey, final long nodeKey, final boolean value) {
@@ -217,5 +239,9 @@ final class ChunkIndexTupleBatch {
 
   Number casNumberAt(final int numberOrdinal) {
     return casNumbers.get(numberOrdinal);
+  }
+
+  long casIntegralNumberAt(final int numberOrdinal) {
+    return casIntegralNumbers.getLong(numberOrdinal);
   }
 }

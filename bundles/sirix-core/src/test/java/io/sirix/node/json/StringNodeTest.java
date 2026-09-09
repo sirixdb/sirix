@@ -20,6 +20,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -65,6 +68,19 @@ public class StringNodeTest {
     var bytesIn = data.asBytesIn();
     final StringNode node2 = (StringNode) NodeKind.STRING_VALUE.deserialize(bytesIn, node.getNodeKey(), null, config);
     check(node2);
+  }
+
+  @Test
+  public void rawValueUpdateClearsFsstState() {
+    final byte[] replacement = new byte[] {1, 'r', 'a', 'w'};
+    final StringNode node = new StringNode(13L, 14L, Constants.NULL_REVISION_NUMBER, 0, 16L, 15L, 0L, new byte[] {1, 0},
+        LongHashFunction.xx3(), (byte[]) null, true, new byte[] {1});
+
+    node.setRawValue(replacement);
+
+    assertFalse(node.isCompressed());
+    assertNull(node.getFsstSymbolTable());
+    assertArrayEquals(replacement, node.getRawValue());
   }
 
   private void check(final StringNode node) {

@@ -189,9 +189,8 @@ final class CASKeySerializerPropertyTest {
    * {@code Bool#compareTo} answers that {@code false} is GREATER than {@code true} — inverted against
    * XQuery, where {@code false() lt true()}. The encoder is right by the spec (false to byte 0, true
    * to byte 1) and the comparator is not, so asserting agreement between them here would be asserting
-   * brackit's inversion. It is recorded rather than encoded: the two index backends genuinely
-   * disagree on boolean range order, since the HOT cursor decides by byte order while
-   * {@code CASFilterRange#inRange} decides by that comparator.
+   * brackit's inversion. It is recorded rather than encoded: the canonical index's byte ordering and
+   * {@code CASFilterRange#inRange}'s Brackit comparator disagree on boolean range order.
    * </p>
    */
   @Provide

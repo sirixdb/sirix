@@ -65,7 +65,7 @@ public final class ProjectionIndexFences {
    * bounds, so a nonempty exception-only leaf legitimately carries MAX/MIN sentinels.
    */
   public static void write(final ProjectionIndexHOTStorage storage, final int rowGroupCount, final long[] first,
-      final long[] last, final int priorRowGroupCount) {
+      final long[] last) {
     if (storage == null) {
       throw new NullPointerException("storage is required");
     }
@@ -78,7 +78,7 @@ public final class ProjectionIndexFences {
     for (int index = 0; index < rowGroupCount; index++) {
       writer.append(storage, first[index], last[index]);
     }
-    writer.finish(storage, priorRowGroupCount);
+    writer.finish(storage);
   }
 
   /** Read physical-slot-aligned normal fence arrays, or {@code null} for malformed/missing chunks. */
@@ -297,7 +297,12 @@ public final class ProjectionIndexFences {
             + (rowGroupCount + 1) + ": " + first + " <= " + baseUpper);
       }
       final int nextSlot = rowGroupCount + 1;
-      if (chunkEntries > 0) {
+      if (chunkEntries == CHUNK_LEAVES) {
+        // The previous chunk filled on the last append and was held back for exactly this moment: a
+        // leaf DOES follow, so its tail entry points at this slot and the chunk is written once, final.
+        ProjectionIndexRowGroupCodec.putIntLEAt(chunk, (CHUNK_LEAVES - 1) * ENTRY_BYTES + DOC_NEXT_OFFSET, nextSlot);
+        flushChunk(storage);
+      } else if (chunkEntries > 0) {
         ProjectionIndexRowGroupCodec.putIntLEAt(chunk, (chunkEntries - 1) * ENTRY_BYTES + DOC_NEXT_OFFSET, nextSlot);
       }
       final int offset = chunkEntries * ENTRY_BYTES;
@@ -318,39 +323,24 @@ public final class ProjectionIndexFences {
         baseUpper = last;
       }
       RowGroupDescriptor.putLongLE(chunk, offset + BASE_UPPER_OFFSET, baseUpper);
-      if (chunkEntries + 1 == CHUNK_LEAVES && nextSlot < ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
-        ProjectionIndexRowGroupCodec.putIntLEAt(chunk, offset + DOC_NEXT_OFFSET, nextSlot + 1);
-      }
       chunkEntries++;
       rowGroupCount++;
-      if (chunkEntries == CHUNK_LEAVES) {
-        flushChunk(storage);
-      }
+      // A chunk that just filled is NOT written here. Its tail entry's document link is only known
+      // once the writer learns whether another leaf follows — the next append links and writes it, and
+      // finish writes it with the link cleared. Writing it now with a predicted link would make finish
+      // REPLACE the blob whenever the prediction fails (a leaf count that is a multiple of the chunk
+      // size), and a bulk load's side pages are append-only until publication: the replace was refused
+      // and the whole load failed at commit. Every chunk is now written exactly once.
     }
 
-    void finish(final ProjectionIndexHOTStorage storage, final int priorRowGroupCount) {
+    void finish(final ProjectionIndexHOTStorage storage) {
       Objects.requireNonNull(storage, "storage must not be null");
-      checkRowGroupCount(priorRowGroupCount);
       if (finished) {
         throw new IllegalStateException("projection fence build writer is already finished");
       }
       if (chunkEntries > 0) {
+        // The tail entry was zero-filled on append and never linked forward: it terminates the chain.
         flushChunk(storage);
-      } else if (rowGroupCount > 0 && rowGroupCount % CHUNK_LEAVES == 0) {
-        if (chunksWritten == 0) {
-          throw new IllegalStateException("projection fence writer lost its completed chunks");
-        }
-        final long finalChunkSlot = CHUNK_SLOT_BASE + chunksWritten - 1L;
-        final byte[] persistedFinalChunk = storage.getBlob(finalChunkSlot);
-        if (persistedFinalChunk == null || persistedFinalChunk.length != CHUNK_LEAVES * ENTRY_BYTES) {
-          throw new IllegalStateException("projection final fence chunk is unavailable at finish");
-        }
-        final byte[] finalChunk = persistedFinalChunk.clone();
-        ProjectionIndexRowGroupCodec.putIntLEAt(finalChunk, (CHUNK_LEAVES - 1) * ENTRY_BYTES + DOC_NEXT_OFFSET, 0);
-        storage.putBlob(finalChunkSlot, finalChunk);
-      }
-      for (int chunkId = chunkCount(rowGroupCount); chunkId < chunkCount(priorRowGroupCount); chunkId++) {
-        storage.tombstoneRowGroup(CHUNK_SLOT_BASE + chunkId);
       }
       storage.putBlob(ORDER_HEADER_SLOT, orderHeader(rowGroupCount, rowGroupCount, rowGroupCount, 0, rowGroupCount == 0
           ? 0
@@ -675,10 +665,6 @@ public final class ProjectionIndexFences {
       return slot > baseRowGroupCount && slot <= currentPhysicalRowGroupCount;
     }
 
-    public void recycle(final int slot) {
-      recycle(slot, legacyPositionAfter(slot));
-    }
-
     void recycle(final int slot, final DocumentPosition positionAfterSlot) {
       if (!canRecycle(slot) || !isLivePhysicalSlot(slot)) {
         throw new IllegalArgumentException("projection row group is not a live recyclable split leaf: " + slot);
@@ -768,11 +754,7 @@ public final class ProjectionIndexFences {
       }
     }
 
-    /** Splice a freshly allocated local split after {@code slot} in explicit document order. */
-    public void linkAfter(final int slot, final int newSlot) {
-      linkAfter(slot, newSlot, legacyPositionAfter(slot));
-    }
-
+    /** Splice a freshly allocated local split at its explicitly located document position. */
     void linkAfter(final int slot, final int newSlot, final DocumentPosition position) {
       if (!isLivePhysicalSlot(slot) || !allocatedSlots.contains(newSlot) || ownerBase(newSlot) != 0) {
         throw new IllegalArgumentException("invalid projection row-group link " + slot + " -> " + newSlot);
@@ -895,7 +877,7 @@ public final class ProjectionIndexFences {
       for (final int chunkId : changedChunkIds) {
         final int start = chunkId * CHUNK_LEAVES;
         if (start >= currentPhysicalRowGroupCount) {
-          storage.tombstoneRowGroup(CHUNK_SLOT_BASE + chunkId);
+          storage.tombstoneBlob(CHUNK_SLOT_BASE + chunkId);
           chunksWritten++;
           continue;
         }
@@ -907,7 +889,7 @@ public final class ProjectionIndexFences {
       }
       for (int chunkId =
           chunkCount(currentPhysicalRowGroupCount); chunkId < chunkCount(priorPhysicalRowGroupCount); chunkId++) {
-        storage.tombstoneRowGroup(CHUNK_SLOT_BASE + chunkId);
+        storage.tombstoneBlob(CHUNK_SLOT_BASE + chunkId);
         chunksWritten++;
       }
       if (baseRowGroupCount != priorBaseRowGroupCount || currentPhysicalRowGroupCount != priorPhysicalRowGroupCount
@@ -1030,23 +1012,6 @@ public final class ProjectionIndexFences {
           setInt(successor, DOCUMENT_BACK_SKIP_OFFSET + level * Integer.BYTES, predecessor);
         }
       }
-    }
-
-    private DocumentPosition legacyPositionAfter(final int slot) {
-      final int[] predecessors = new int[SKIP_LEVELS];
-      final int[] successors = new int[SKIP_LEVELS];
-      final int height = documentSkipHeight(slot);
-      for (int level = 0; level < SKIP_LEVELS; level++) {
-        predecessors[level] = level < height
-            ? slot
-            : documentBack(slot, level);
-        int candidate = next(slot);
-        while (candidate != 0 && documentSkipHeight(candidate) <= level) {
-          candidate = next(candidate);
-        }
-        successors[level] = candidate;
-      }
-      return new DocumentPosition(predecessors, successors);
     }
 
     private void insertNumeric(final int slot) {

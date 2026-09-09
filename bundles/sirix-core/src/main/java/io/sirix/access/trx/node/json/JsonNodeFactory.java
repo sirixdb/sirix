@@ -79,6 +79,24 @@ public interface JsonNodeFactory extends NodeFactory {
   NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, Number value, SirixDeweyID id);
 
   /**
+   * Create a number node from an {@code int} without requiring the production factory to box it. The
+   * default preserves source compatibility for alternative factory implementations.
+   */
+  default NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, int value,
+      SirixDeweyID id) {
+    return createJsonNumberNode(parentKey, leftSibKey, rightSibKey, Integer.valueOf(value), id);
+  }
+
+  /**
+   * Create a number node from a {@code long} without requiring the production factory to box it. The
+   * default preserves source compatibility for alternative factory implementations.
+   */
+  default NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, long value,
+      SirixDeweyID id) {
+    return createJsonNumberNode(parentKey, leftSibKey, rightSibKey, Long.valueOf(value), id);
+  }
+
+  /**
    * Create a {@link NullNode}.
    *
    * @param parentKey parent node key

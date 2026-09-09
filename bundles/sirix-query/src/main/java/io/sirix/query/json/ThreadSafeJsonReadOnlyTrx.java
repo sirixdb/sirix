@@ -74,55 +74,106 @@ public final class ThreadSafeJsonReadOnlyTrx implements ForwardingJsonNodeReadOn
       throw new IllegalStateException("Read-only transaction proxy is closed");
     }
     if (ownerDetached) {
-      return detachedCursorProvider == null
-          ? detachedResourceSession.getOrCreateSharedReadOnlyTrx(detachedRevision)
-          : detachedCursorProvider.cursor(detachedResourceSession, detachedRevision);
+      return detachedDelegate();
+    }
+    final JsonNodeReadOnlyTrx owner = ownerTrx;
+    if (owner == null) {
+      awaitDetachPublication();
+      return detachedDelegate();
     }
     if (Thread.currentThread().threadId() == ownerThreadId) {
-      return ownerTrx;
+      return owner;
     }
-    final JsonResourceSession session = ownerTrx.getResourceSession();
-    final int revision = ownerTrx.getRevisionNumber();
+    final JsonResourceSession session = owner.getResourceSession();
+    final int revision = owner.getRevisionNumber();
     return detachedCursorProvider == null
         ? session.getOrCreateSharedReadOnlyTrx(revision)
         : detachedCursorProvider.cursor(session, revision);
+  }
+
+  private JsonNodeReadOnlyTrx detachedDelegate() {
+    return detachedCursorProvider == null
+        ? detachedResourceSession.getOrCreateSharedReadOnlyTrx(detachedRevision)
+        : detachedCursorProvider.cursor(detachedResourceSession, detachedRevision);
+  }
+
+  /**
+   * The owner was observed {@code null} while {@link #ownerDetached} still read {@code false}: a
+   * concurrent {@link #detachOwner()}/{@link #close()} sits between its two writes. Only the volatile
+   * {@code ownerDetached} store publishes the replacement metadata, so spin for it — the window is a
+   * handful of instructions inside a {@code finally}, never blocking work. Without this, a reader in
+   * that window dereferenced the cleared owner and the typed "proxy is closed" contract degraded to a
+   * raw {@code NullPointerException}.
+   */
+  private void awaitDetachPublication() {
+    while (!ownerDetached) {
+      Thread.onSpinWait();
+    }
   }
 
   // -- Immutable revision metadata survives detaching/closing the construction cursor. --
 
   @Override
   public JsonResourceSession getResourceSession() {
-    return ownerDetached
-        ? detachedResourceSession
-        : ownerTrx.getResourceSession();
+    if (ownerDetached) {
+      return detachedResourceSession;
+    }
+    final JsonNodeReadOnlyTrx owner = ownerTrx;
+    if (owner != null) {
+      return owner.getResourceSession();
+    }
+    awaitDetachPublication();
+    return detachedResourceSession;
   }
 
   @Override
   public int getRevisionNumber() {
-    return ownerDetached
-        ? detachedRevision
-        : ownerTrx.getRevisionNumber();
+    if (ownerDetached) {
+      return detachedRevision;
+    }
+    final JsonNodeReadOnlyTrx owner = ownerTrx;
+    if (owner != null) {
+      return owner.getRevisionNumber();
+    }
+    awaitDetachPublication();
+    return detachedRevision;
   }
 
   @Override
   public Instant getRevisionTimestamp() {
-    return ownerDetached
-        ? nodeReadOnlyTrxDelegate().getRevisionTimestamp()
-        : ownerTrx.getRevisionTimestamp();
+    if (!ownerDetached) {
+      final JsonNodeReadOnlyTrx owner = ownerTrx;
+      if (owner != null) {
+        return owner.getRevisionTimestamp();
+      }
+      awaitDetachPublication();
+    }
+    return nodeReadOnlyTrxDelegate().getRevisionTimestamp();
   }
 
   @Override
   public long getMaxNodeKey() {
-    return ownerDetached
-        ? nodeReadOnlyTrxDelegate().getMaxNodeKey()
-        : ownerTrx.getMaxNodeKey();
+    if (!ownerDetached) {
+      final JsonNodeReadOnlyTrx owner = ownerTrx;
+      if (owner != null) {
+        return owner.getMaxNodeKey();
+      }
+      awaitDetachPublication();
+    }
+    return nodeReadOnlyTrxDelegate().getMaxNodeKey();
   }
 
   @Override
   public int getId() {
-    return ownerDetached
-        ? detachedId
-        : ownerTrx.getId();
+    if (ownerDetached) {
+      return detachedId;
+    }
+    final JsonNodeReadOnlyTrx owner = ownerTrx;
+    if (owner != null) {
+      return owner.getId();
+    }
+    awaitDetachPublication();
+    return detachedId;
   }
 
   // -- Lifecycle --
@@ -158,7 +209,11 @@ public final class ThreadSafeJsonReadOnlyTrx implements ForwardingJsonNodeReadOn
       return true;
     }
     if (!ownerDetached) {
-      return ownerTrx.isClosed();
+      final JsonNodeReadOnlyTrx owner = ownerTrx;
+      if (owner != null) {
+        return owner.isClosed();
+      }
+      awaitDetachPublication();
     }
     return detachedCursorProvider != null && detachedCursorProvider.isClosed();
   }

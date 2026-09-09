@@ -241,6 +241,30 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     private void throwIfPresent() {
       rethrowCleanupFailure(first);
     }
+
+    /**
+     * Surface retained retirement failures WITHOUT failing the caller. Budget evictions run inside
+     * operations on UNRELATED pages that already succeeded — throwing an arbitrary evicted page's
+     * retirement failure at that caller converts background hygiene into a foreground query failure,
+     * with the caller's own page left published but its guard released. The failure stays loud: an
+     * ERROR log plus a monotonic counter health checks and tests can watch. Operations that own the
+     * failed page (clear, close, remove) keep {@link #throwIfPresent()}.
+     */
+    private void logIfPresent(final String operation) {
+      if (first != null) {
+        EVICTION_RETIREMENT_FAILURES.incrementAndGet();
+        LOGGER.error("Page retirement failed during {} — the evicted page's frame may be leaked; "
+            + "eviction continued and the triggering operation is unaffected", operation, first);
+      }
+    }
+  }
+
+  /** Retirement failures surfaced by evictions running on behalf of unrelated operations. */
+  private static final AtomicLong EVICTION_RETIREMENT_FAILURES = new AtomicLong();
+
+  /** Monotonic count of eviction-path retirement failures — observability for health checks. */
+  public static long evictionRetirementFailureCount() {
+    return EVICTION_RETIREMENT_FAILURES.get();
   }
 
   /** Publish an already-validated weight without re-reading mutable page state. */
@@ -1231,7 +1255,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     } finally {
       evictionLock.unlock();
     }
-    failures.throwIfPresent();
+    failures.logIfPresent("evictIfOverBudget");
   }
 
   /**
@@ -1273,7 +1297,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     } finally {
       evictionLock.unlock();
     }
-    failures.throwIfPresent();
+    failures.logIfPresent("evictUnderPressure");
   }
 
   private void logGuardedPagesSample() {

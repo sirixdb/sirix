@@ -214,6 +214,60 @@ final class TransactionIntentLogOrphanedHOTLeafTest {
     }
   }
 
+  /** Sharing across the pinned/current region boundary is counted without scanning either region. */
+  @Test
+  void aLeafOwnedByPinnedAndCurrentEntriesIsNotReleased() {
+    final TransactionIntentLog log = newLog();
+    try {
+      final HOTLeafPage sharedLeaf = newReleasableLeaf();
+      final PageReference pinnedReference = new PageReference();
+      log.put(pinnedReference, PageContainer.getInstance(sharedLeaf, sharedLeaf));
+      log.snapshot();
+      log.cleanupSnapshot();
+
+      final PageReference currentReference = new PageReference();
+      log.put(currentReference, PageContainer.getInstance(sharedLeaf, sharedLeaf));
+
+      final long probesBefore = log.hotLeafOwnerProbeCount();
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(pinnedReference),
+          TransactionIntentLog.RELEASE_SITE_UNKNOWN);
+
+      assertEquals(1, log.hotLeafOwnerProbeCount() - probesBefore,
+          "one candidate must require one constant-time identity-owner probe");
+      verify(sharedLeaf, never()).close();
+      assertSame(sharedLeaf, log.get(pinnedReference).getModified());
+      assertSame(sharedLeaf, log.get(currentReference).getModified());
+    } finally {
+      log.close();
+    }
+  }
+
+  /** Retirement work is independent of the number of unrelated HOT leaves in the transaction. */
+  @Test
+  void orphanRetirementPerformsOneOwnerProbeRegardlessOfLogSize() {
+    final TransactionIntentLog log = newLog();
+    try {
+      for (int i = 0; i < 256; i++) {
+        final HOTLeafPage unrelatedLeaf = mock(HOTLeafPage.class);
+        final PageReference unrelatedReference = new PageReference();
+        log.put(unrelatedReference, PageContainer.getInstance(unrelatedLeaf, unrelatedLeaf));
+      }
+      final HOTLeafPage orphanLeaf = newReleasableLeaf();
+      final PageReference orphanReference = new PageReference();
+      log.put(orphanReference, PageContainer.getInstance(orphanLeaf, orphanLeaf));
+
+      final long probesBefore = log.hotLeafOwnerProbeCount();
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(orphanReference),
+          TransactionIntentLog.RELEASE_SITE_UNKNOWN);
+
+      assertEquals(1, log.hotLeafOwnerProbeCount() - probesBefore,
+          "retiring one orphan must not probe the other 256 log entries");
+      verify(orphanLeaf).close();
+    } finally {
+      log.close();
+    }
+  }
+
   /**
    * The filter must not over-reach: a container still has a usable page while only its complete side
    * was given up, and a resolution that returns nothing there would send the writer to storage for a

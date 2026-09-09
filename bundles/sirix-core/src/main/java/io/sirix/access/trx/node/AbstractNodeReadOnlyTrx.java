@@ -738,6 +738,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToSingletonSlowPath(nodeKey, reader);
     }
 
+    if (page.isFusedOverflowDescriptor(slotOffset)) {
+      return moveToSingletonSlowPath(nodeKey, reader);
+    }
+
     // Inline slot lookup instead of KeyValueLeafPage.getSlot, which builds a MemorySegment VIEW
     // (asSlice) per call — one allocation on the single hottest step of a read-only traversal,
     // for a view the flyweight path never even looks at: it reads one kind byte and then binds
@@ -788,7 +792,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
       fn.bind(slottedPage, recordBase, nodeKey, slotOffset);
       // Propagate FSST symbol table for compressed string nodes
-      propagateFsstToFlyweight(fn, page);
+      propagateFsstToFlyweight(fn, page, reader);
       // Propagate DeweyID from page to flyweight node (stored inline after record data).
       // setDeweyIDBytes stores raw bytes lazily — no SirixDeweyID parsing until getDeweyID() called.
       // MUST always set (even null) to clear stale DeweyID from previous singleton reuse.
@@ -875,6 +879,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return true;
     }
 
+    if (page.isFusedOverflowDescriptor(slotOff)) {
+      if (newGuard != null) {
+        newGuard.close();
+      }
+      return moveToLegacy(nodeKey);
+    }
+
     // Locate the slot in place rather than through KeyValueLeafPage.getSlot, which materializes a
     // MemorySegment view per call; see the same inlining in moveToSingleton. An unpopulated slot
     // is what getSlot reported as null, and is handled identically below.
@@ -950,7 +961,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
       fn.bind(slottedPage, recordBase, nodeKey, slotOff);
       // Propagate FSST symbol table for compressed string nodes
-      propagateFsstToFlyweight(fn, page);
+      propagateFsstToFlyweight(fn, page, reader);
       // Propagate DeweyID from page to flyweight node (stored inline after record data).
       // setDeweyIDBytes stores raw bytes lazily — no SirixDeweyID parsing until getDeweyID() called.
       // MUST always set (even null) to clear stale DeweyID from previous singleton reuse.
@@ -1125,6 +1136,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return true;
     }
 
+    if (page.isFusedOverflowDescriptor(slotOffset)) {
+      return false;
+    }
+
     // Inline slot lookup: avoid KeyValueLeafPage.getSlot's asSlice allocation,
     // which is hot on shred (every moveTo allocates a MemorySegment view just
     // to read one byte). Read the kind byte directly from the slotted page.
@@ -1163,7 +1178,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       fn.bind(sp, recordBase, nodeKey, slotOffset);
       // Fresh strings may already be FSST-compressed in the page. The cursor singleton is distinct
       // from the factory singleton that performed the write, so propagate the page table again.
-      propagateFsstToFlyweight(fn, page);
+      propagateFsstToFlyweight(fn, page, storageEngineReader);
       // Propagate DeweyID lazily — no SirixDeweyID parsing until getDeweyID() called.
       // MUST always set (even null) to clear stale DeweyID from previous singleton reuse.
       if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
@@ -1212,14 +1227,35 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * Propagate FSST symbol table from page to a flyweight string node. Required for lazy decompression
    * of FSST-compressed strings in singleton mode.
    */
-  private static void propagateFsstToFlyweight(final FlyweightNode fn, final KeyValueLeafPage page) {
-    final byte[] fsstTable = page.getFsstSymbolTable();
+  private static void propagateFsstToFlyweight(final FlyweightNode fn, final KeyValueLeafPage page,
+      final StorageEngineReader reader) {
     if (fn instanceof StringNode sn) {
+      final byte[] fsstTable = resolvedFsstSymbolTable(page, reader);
       // Null is meaningful: clear the table retained from this singleton's previous binding.
       sn.setFsstSymbolTable(fsstTable);
     } else if (fn instanceof ObjectNamedStringNode ons) {
-      ons.setFsstSymbolTable(fsstTable);
+      ons.setFsstSymbolTable(resolvedFsstSymbolTable(page, reader));
     }
+  }
+
+  /**
+   * Resolve a cold page's dictionary reference before a singleton reads FSST payload bytes.
+   * Already-resolved pages take one field read and one predictable branch; dictionary access is paid
+   * only once, when a positive table id has not yet been resolved to bytes.
+   */
+  private static byte[] resolvedFsstSymbolTable(final KeyValueLeafPage page, final StorageEngineReader reader) {
+    byte[] fsstTable = page.getFsstSymbolTable();
+    if (fsstTable != null || page.getFsstSymbolTableId() == KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID) {
+      return fsstTable;
+    }
+
+    reader.ensureFsstSymbolTable(page);
+    fsstTable = page.getFsstSymbolTable();
+    if (fsstTable == null) {
+      throw new IllegalStateException("FSST symbol table " + page.getFsstSymbolTableId()
+          + " remained unresolved for document record page " + page.getPageKey());
+    }
+    return fsstTable;
   }
 
   /**
@@ -1292,11 +1328,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       case STRING_VALUE -> {
         StringNode stringNode = (StringNode) singleton;
         stringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-        // Propagate FSST symbol table for decompression
-        byte[] fsstSymbolTable = page.getFsstSymbolTable();
-        if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-          stringNode.setFsstSymbolTable(fsstSymbolTable);
-        }
+        stringNode.setFsstSymbolTable(resolvedFsstSymbolTable(page, storageEngineReader));
       }
       case NUMBER_VALUE ->
         ((NumberNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
@@ -1311,10 +1343,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       case OBJECT_NAMED_STRING -> {
         ObjectNamedStringNode namedStr = (ObjectNamedStringNode) singleton;
         namedStr.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-        byte[] fsstSymbolTable = page.getFsstSymbolTable();
-        if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-          namedStr.setFsstSymbolTable(fsstSymbolTable);
-        }
+        namedStr.setFsstSymbolTable(resolvedFsstSymbolTable(page, storageEngineReader));
       }
       case OBJECT_NAMED_NULL -> ((ObjectNamedNullNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
