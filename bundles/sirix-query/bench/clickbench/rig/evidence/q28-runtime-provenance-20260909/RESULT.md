@@ -115,6 +115,9 @@ SEG8T hot total is **26.523 s**, versus SEG7T **27.890 s**.
 C6A hot sum-ln is **58.034796**, versus **58.956827**:
 delta **-0.922030 ln**, UNRESOLVED.
 q28 is **6.214 s hot**; q32 is **3.296 s hot**.
+On the pinned C6A hot board snapshot, SEG8T is **rank 14/140, geomean 3.856**,
+versus SEG7T **rank 15/140, geomean 3.940**. These are the recorded single-leg
+standings under the declared regime, not a resolved comparative effect.
 
 **Sign convention:** delta seconds = SEG8T hot minus SEG7T hot; negative is faster,
 positive is slower. Delta ln = ln((SEG8T hot + 0.01)/(SEG7T hot + 0.01)); negative
