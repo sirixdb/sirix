@@ -476,7 +476,14 @@ The group budget's one-sided safety property is observable on real shapes too �
 prints one `[groupBudget]` line per grouped plan, and over a 43-query leg 13 of 28 grouped plans are
 charged less than the old flat 128 B/group (48/64/96/112 B at strides 3/4/6/7) while all 15 plans at
 stride ≥ 8 keep **exactly** the old 128 B and the identical 12,582,912-byte budget. No plan is ever
-charged more, so no shape can plan more passes than before.
+charged more, so no shape can plan more passes than before. Those figures describe the shared
+budget. Since 2026-09-09 a bounded top-k aggregate — ordered by an aggregate rather than by its
+key, with no grouped `DISTINCT` — plans instead against
+`GroupTableSpill.boundedGroupBudget`, charged at the dense record plus three index lanes and given
+up to three quarters of the headroom; its `[groupBudget]` line says `bounded=true`. The arithmetic
+and the paired 100M result are in
+[`PASS_BUDGET.md`](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/PASS_BUDGET.md)
+and [`RESULT.md`](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/RESULT.md).
 
 What a small host cannot show, and what this document therefore does not claim it shows: at 200 k
 rows the compressed database is about **5.6 % slower** over the 43-query sum — the same sign as the

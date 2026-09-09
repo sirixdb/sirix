@@ -220,6 +220,14 @@ public final class HeapHeadroom {
    * together and releasing residency raises what the group side may plan.
    * </p>
    *
+   * <p>
+   * The one planned exception is the BOUNDED top-k aggregate, whose completed partitions are selected
+   * and released one at a time: its per-pass table plans against
+   * {@link GroupTableSpill#boundedGroupBudgetFor} — up to three quarters of the headroom, charged at
+   * the dense layout — instead of this share. The distinct ceiling and the residency budget stay on
+   * this figure; raising it here would hand the same bytes to all three at once.
+   * </p>
+   *
    * @return the planned per-consumer share of the heap, in bytes
    */
   public static long plannedShareBytes() {

@@ -2776,3 +2776,24 @@ not proof that every shared aggregation approach is exhausted. Firstmate's decis
 and its 24 legs, and revert the mechanism and its tests in a new commit. It contains no independent
 correctness fix to retain. **No further 100M runs are authorized, including validation or fix agents:
 all 12 pairs have been consumed.** The retained study is historical evidence and must remain unchanged.
+
+## 2026-09-09 — MEASURED POSITIVE on the family, suite UNRESOLVED: bounded aggregation heap allowance
+
+A 100M profile of the seven high-cardinality `GROUP BY … ORDER BY count DESC LIMIT` queries at
+`b815d459d` showed q16/q18/q32 rescanning in 2/4/7 hash-range passes under the shared
+min(heap/8, headroom/4) share. A bounded top-k aggregate — ordered by an aggregate rather than by
+its key, no grouped DISTINCT — now plans against `GroupTableSpill.boundedGroupBudget`: up to
+half the heap and three quarters of the headroom, charged at the dense record plus three index lanes,
+with the 2^26 cap, the abort/restart path and every other consumer of `HeapHeadroom` unchanged.
+Candidate `ddf3f2794` against `b815d459d` over the prespecified **12 pairs**, all 43 answers
+byte-identical in all 24 legs: q16/q18/q32 ran 1/1/2 passes; the seven-query family benefit is
+**+0.409295 ln, 95% interval [+0.349424, +0.469166]**, 1.137 s; the suite benefit of **+0.289810 ln
+is UNRESOLVED**, interval [-0.670193, +1.249813]. A review fix afterwards made a bounded plan refuse
+to replay a memoed pass count that no longer fits the current budget; at the 7,607 MiB headroom the
+pairs ran under both policies plan the same passes, so no measured leg changes. A pre-existing sparse
+`SUM` ordering defect was found and left non-passing, not fixed. **No further 100M runs are
+authorized: all 12 pairs have been consumed.** The
+[complete paired study](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/RESULT.md),
+its [arithmetic](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/PASS_BUDGET.md)
+and the [defect report](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/SUM_ORDERING_DEFECT.md)
+are retained; the 24 legs are `rig/legs/query-SEGHCB-P*.json` and carry `steering`.
