@@ -127,19 +127,19 @@ DUCKDB_MEMORY_LIMIT=12GB DUCKDB_THREADS=4 \
 ./run-differential.sh 99997497 "$work"
 ```
 
-Both Java mains take a process-lifetime rig lease before reserving memory, so a killed wrapper cannot
-leave the lease dangling. Only the campaign 100M run is *exclusive*: the lease is exclusive exactly
-when the JVM's database is the one the rig's campaign-identity chain names — the pointer file
-`load100m.sh` rewrites, then `CB100M_DIR` — and only such a query JVM must match the 100M envelope
-exactly, which is what the flags above are. The JVM resolves that chain itself rather than trusting
-its caller, so a raw `java` or `./gradlew :sirix-query:clickBench` run against the campaign database
-is exclusive from any shell. Every other load or query — 1M validation, a
-scratch database, the commands above — only shares the host lease, so the small lanes keep running
-next to each other. `cold-rounds.sh` below is the exception: it re-execs under `rig/rig_lock.py`,
-which takes the host lease exclusively for any database, because a cold round must own the box. The
-lease itself is Linux-only; elsewhere a run against the campaign database prints that it is not
-exclusive and continues, which makes its timings unusable as rig evidence. The rig's
-[`README.md`](rig/README.md) owns that contract and the measurement protocol.
+Both Java mains take a process-lifetime rig lease before reserving memory, so a killed wrapper
+cannot leave the lease dangling. Only the campaign 100M run is *exclusive*: the lease is exclusive
+exactly when the JVM's database is the one the rig's campaign-identity chain names — the pointer
+file `load100m.sh` rewrites, then `CB100M_DIR` — and only such a query JVM must match the 100M
+envelope exactly, which is what the flags above are. The JVM resolves that chain itself rather than
+trusting its caller, so a raw `java` or `./gradlew :sirix-query:clickBench` run against the campaign
+database is exclusive from any shell. Every other load or query — 1M validation, a scratch database,
+the commands above — only shares the host lease, so the small lanes keep running next to each other.
+`cold-rounds.sh` below is the exception: it re-execs under `rig/rig_lock.py`, which takes the host
+lease exclusively for any database, because a cold round must own the box. The lease itself is
+Linux-only; elsewhere a run against the campaign database prints that it is not exclusive and
+continues, which makes its timings unusable as rig evidence. The rig's [`README.md`](rig/README.md)
+owns that contract and the measurement protocol.
 
 The default parallel path requires `hashType=NONE` and `storeNodeHistory=false`; both are already the
 ClickBench defaults. A non-standard hashed or temporal-history load must set
