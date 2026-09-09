@@ -192,6 +192,38 @@ class ClickBenchRigLeaseCampaignPathTest {
   }
 
   @Test
+  void aRetargetableAliasNeverCarriesADecisionOntoAnotherDatabase() throws IOException {
+    // Operators keep a stable alias pointing at whichever campaign directory the last load wrote,
+    // so the JVM must compare the conclusion it inherited against the database that conclusion was
+    // reached about, not against the spelling the alias happened to have at the time.
+    final Path scratch = directory.resolve("scratch");
+    final Path campaign = directory.resolve("clickbench-seg100m-20260909-1200");
+    Files.createDirectories(scratch);
+    Files.createDirectories(campaign.resolve("db"));
+    final Path alias = Files.createSymbolicLink(directory.resolve("current"), scratch);
+    // What a launcher that decided about `current/db` exports: the database it reached the
+    // conclusion about, named canonically, exactly as runtime.classify_target records it.
+    final String decided = scratch.toRealPath().resolve("db").toString();
+
+    // The scratch load names its database before creating it, and its own run still inherits.
+    final ClickBenchRigLease.Decision inherited =
+        ClickBenchRigLease.inheritedDecision("other", decided, alias.resolve("db"));
+    assertNotNull(inherited, "a conclusion must still name the database it was reached about");
+    assertFalse(inherited.campaign());
+
+    Files.delete(alias);
+    Files.createSymbolicLink(directory.resolve("current"), campaign);
+    assertNull(ClickBenchRigLease.inheritedDecision("other", decided, alias.resolve("db")),
+               "a repointed alias must not carry an `other` verdict onto the campaign database");
+    // Ignored means this run derives for itself, and the chain places it as the campaign database.
+    final ClickBenchRigLease.Decision derived = derived(pointers(campaign), alias.resolve("db"));
+    assertTrue(derived.campaign());
+    final IOException refused = assertThrows(IOException.class,
+        () -> withoutFlockLeases(() -> ClickBenchRigLease.holdForQueryProcess(derived, 24 * GIB, alias.resolve("db"))));
+    assertTrue(refused.getMessage().contains("100M query envelope"), refused.getMessage());
+  }
+
+  @Test
   void aLauncherDecisionOfOtherNamesNoCampaignDatabaseAndSharesTheHost() throws IOException {
     final Path small = Files.createDirectories(directory.resolve("seg1m/db"));
     final ClickBenchRigLease.Decision inherited =

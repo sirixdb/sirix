@@ -181,15 +181,35 @@ final class ClickBenchRigLease implements AutoCloseable {
     return sameDatabase(Path.of(campaign).resolve("db"), database);
   }
 
+  /**
+   * The name an identity comparison must use: absolute, with every symlink resolved as far as the
+   * path exists. Operators keep a stable alias pointing at whichever campaign directory the last
+   * load wrote, so an unresolved alias is a name that can come to mean a different database than the
+   * one it named when a decision was reached about it. This is {@code runtime.canonical}.
+   */
+  static Path canonical(final Path path) {
+    final Path absolute = path.toAbsolutePath();
+    for (Path existing = absolute; existing != null; existing = existing.getParent()) {
+      try {
+        return existing.toRealPath().resolve(existing.relativize(absolute)).normalize();
+      } catch (final IOException uncreated) {
+        // The campaign load names its target before creating it; canonicalise what does exist.
+      }
+    }
+    return absolute.normalize();
+  }
+
   /** Whether two paths name one database, by the rule {@link #isCampaignDatabase} documents. */
   static boolean sameDatabase(final Path left, final Path right) throws IOException {
     if (left == null || right == null) {
       return false;
     }
-    if (Files.exists(left) && Files.exists(right)) {
-      return Files.isSameFile(left, right);
+    final Path first = canonical(left);
+    final Path second = canonical(right);
+    if (Files.exists(first) && Files.exists(second)) {
+      return Files.isSameFile(first, second);
     }
-    return left.toAbsolutePath().normalize().equals(right.toAbsolutePath().normalize());
+    return first.equals(second);
   }
 
   static void holdForQueryProcess(final long arenaBytes, final Path database) throws IOException {

@@ -103,13 +103,21 @@ def campaign_pointers():
     return found
 
 
+def canonical(path):
+    """The name an identity comparison and a recorded conclusion must both use: absolute, with every
+    symlink resolved as far as the path exists. Operators keep a stable alias pointing at whichever
+    campaign directory `load100m.sh` loaded last, so an unresolved alias is a name that can come to
+    mean a different database than the one a decision was reached about."""
+    return Path(os.path.realpath(Path(path).absolute()))
+
+
 def same_database(left, right):
-    """Identity decides while both exist, as ClickBenchRigLease.isCampaignDatabase does; otherwise
-    the normalized paths do, because the campaign load names its target before creating it."""
-    left, right = Path(left), Path(right)
+    """Identity decides while both exist, as ClickBenchRigLease.sameDatabase does; otherwise the
+    canonical paths do, because the campaign load names its target before creating it."""
+    left, right = canonical(left), canonical(right)
     if left.exists() and right.exists():
         return os.path.samefile(left, right)
-    return os.path.normpath(left.absolute()) == os.path.normpath(right.absolute())
+    return left == right
 
 
 def decided_environment(classification):
@@ -151,7 +159,7 @@ def classify_target(database, *, declared=False):
     conclusion is final: no pointer is consulted at all, so this process cannot reach a different
     answer than the parent whose lease it runs under.
     """
-    target = None if database is None else os.path.normpath(Path(database).absolute())
+    target = None if database is None else str(canonical(database))
 
     def evidence(entry, classification, decided_by):
         named, source, state = entry if entry else ('unset', 'unset', 'unset')
