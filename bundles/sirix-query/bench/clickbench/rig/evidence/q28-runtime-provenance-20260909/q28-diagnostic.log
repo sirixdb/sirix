@@ -1,0 +1,225 @@
+# steering-only rig protocol: 3 tries per query; steering measurement, never a publication leg
+WARNING: Using incubator modules: jdk.incubator.vector
+# rig lease: pid=3669180 mode=exclusive db=/home/johannes/IdeaProjects/sirix/bundles/sirix-query/build/diagnostics/clickbench-seg100m-20260905-2328/db campaign=/home/johannes/IdeaProjects/sirix/bundles/sirix-query/build/diagnostics/clickbench-seg100m-20260905-2328/db via=CB_RIG_CLASSIFICATION host=/tmp/sirix-clickbench-1000.lock
+22:17:58,160 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found logback-core version 1.5.34
+22:17:58,160 |-INFO in ch.qos.logback.classic.util.ContextInitializer@2c767a52 - No custom configurators were discovered as a service.
+22:17:58,160 |-INFO in ch.qos.logback.classic.util.ContextInitializer@2c767a52 - Trying to configure with ch.qos.logback.classic.util.DefaultJoranConfigurator
+22:17:58,161 |-INFO in ch.qos.logback.classic.util.ContextInitializer@2c767a52 - Constructed configurator of type class ch.qos.logback.classic.util.DefaultJoranConfigurator
+22:17:58,161 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.xml]
+22:17:58,162 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found resource [logback.xml] at [file:/home/johannes/.treehouse/sirix-cdde48/2/sirix/build/q28-current-source-runtime/frozen/02/main/logback.xml]
+22:17:58,162 |-WARN in ch.qos.logback.classic.util.DefaultJoranConfigurator@619713e5 - Resource [logback.xml] occurs multiple times on the classpath.
+22:17:58,162 |-WARN in ch.qos.logback.classic.util.DefaultJoranConfigurator@619713e5 - Resource [logback.xml] occurs at [jar:file:/home/johannes/.treehouse/sirix-cdde48/2/sirix/build/q28-current-source-runtime/frozen/05/sirix-core-1.0.0-beta7.jar!/logback.xml]
+22:17:58,162 |-WARN in ch.qos.logback.classic.util.DefaultJoranConfigurator@619713e5 - Resource [logback.xml] occurs at [file:/home/johannes/.treehouse/sirix-cdde48/2/sirix/build/q28-current-source-runtime/frozen/02/main/logback.xml]
+22:17:58,218 |-INFO in ch.qos.logback.classic.model.processor.ConfigurationModelHandlerFull - Scan attribute not set or set to unrecognized value.
+22:17:58,221 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - Processing appender named [STDOUT]
+22:17:58,221 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - About to instantiate appender of type [ch.qos.logback.core.ConsoleAppender]
+22:17:58,224 |-INFO in ch.qos.logback.core.model.processor.ImplicitModelHandler - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+22:17:58,250 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT] - NOTE: Writing to the console can be slow. Try to avoid logging to the 
+22:17:58,250 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT] - console in production environments, especially in high volume systems.
+22:17:58,250 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT] - See also https://logback.qos.ch/codes.html#slowConsole
+22:17:58,251 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [io.sirix.rest] to INFO
+22:17:58,251 |-INFO in ch.qos.logback.classic.model.processor.RootLoggerModelHandler - Setting level of ROOT logger to ERROR
+22:17:58,251 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [STDOUT] to Logger[ROOT]
+22:17:58,251 |-INFO in ch.qos.logback.core.model.processor.DefaultProcessor@708f5957 - End of configuration.
+22:17:58,251 |-INFO in ch.qos.logback.classic.joran.JoranConfigurator@68999068 - Registering current configuration as safe fallback point
+22:17:58,252 |-INFO in ch.qos.logback.classic.util.ContextInitializer@2c767a52 - ch.qos.logback.classic.util.DefaultJoranConfigurator.configure() call lasted 90 milliseconds. ExecutionStatus=DO_NOT_INVOKE_NEXT_IF_ANY
+
+# ClickBench run: db=/home/johannes/IdeaProjects/sirix/bundles/sirix-query/build/diagnostics/clickbench-seg100m-20260905-2328/db tries=3 variant=0 threads=20 freshExecutor=true fastPaths=true strictServing=false
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by net.openhft.hashing.UnsafeAccess (file:/home/johannes/.treehouse/sirix-cdde48/2/sirix/build/q28-current-source-runtime/frozen/22/zero-allocation-hashing-2026.0.jar)
+WARNING: Please consider reporting this to the maintainers of class net.openhft.hashing.UnsafeAccess
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+[cat] 1 projection def(s); want root='/[]' fields=[AdvEngineID]
+[cat] 1 candidate(s) after filtering
+[parwalk] ENGAGED: frontier=514 workers~8
+[cat] lazy-handle timings: metaParse 87.2 ms, directoryWalk 1700.4 ms, bloomBlocks 54.3 ms (97737 leaves, projectedWeight 24620 MB)
+[cat]   col 1 anchors: s0=1024 s1=5859 s2=10042 s3=15437 s4=20581 s5=25687 s6=30735 s7=34980 s8=38602 s9=43886 s10=49038 s11=53950 s12=58846 s13=63756 s14=68665 s15=73592 s16=78895 s17=83818 s18=89232 s19=94793 s20=99888 s21=104692 s22=109325 s23=114455 s24=119633 s25=123400 s26=128593 s27=133405 s28=137364 s29=142282 s30=143167 s31=143982 s32=145858 s33=151918 s34=155735 s35=158728 s36=161723 s37=164833 s38=167916 s39=171014 s40=174059 s41=179869 s42=184136 s43=188078 s44=193147 s45=198394 s46=204920 s47=211755 s48=216417 s49=220641 s50=226004 s51=231344 s52=236727 s53=242098 s54=247465 s55=252807 s56=258126 s57=263429 s58=268731 s59=274034 s60=279340 s61=284612 s62=289849 s63=295222 s64=300571 s65=304510 s66=304984 s67=308172 s68=313900 s69=316369 s70=318951 s71=321343 s72=323724 s73=326125 s74=328501 s75=333153 s76=337802 s77=341551 s78=344254 s79=346933 s80=349632 s81=352523 s82=355464 s83=359905 s84=364486 s85=367763 s86=372944 s87=378503 s88=384169 s89=389224 s90=394383 s91=398834 s92=404093 s93=408979 s94=414916 s95=420295 s96=425668 s97=430776 s98=434905 s99=437373 s100=441434 s101=444771 s102=450005 s103=455358 s104=460837 s105=466028 s106=471001 s107=476220 s108=481287 s109=484949 s110=490995 s111=496814 s112=502189 s113=507492 s114=512279 s115=514860 s116=517566 s117=521932 s118=525857 s119=531450 s120=536821 s121=542111 s122=546581 s123=551760 s124=556071 s125=559629 s126=566017 s127=571386 s128=576699 s129=582046 s130=585316 s131=587706 s132=591584 s133=594494 s134=599637 s135=604798 s136=610144 s137=614985 s138=619833 s139=624015 s140=628210 s141=634335 s142=639686 s143=644972 s144=650141 s145=652530 s146=656161 s147=659687
+[cat]   col 8 anchors: s0=2312 s1=6184 s2=10915 s3=16911 s4=22078 s5=27193 s6=31854 s7=35920 s8=39642 s9=45515 s10=50973 s11=55874 s12=60784 s13=65687 s14=70602 s15=75949 s16=80841 s17=85624 s18=90458 s19=96093 s20=101633 s21=106242 s22=110885 s23=115648 s24=120565 s25=124707 s26=129771 s27=135240 s28=139670 s29=142491 s30=143368 s31=144401 s32=147146 s33=152793 s34=156501 s35=159489 s36=162559 s37=165635 s38=168724 s39=171867 s40=176209 s41=180964 s42=185233 s43=189222 s44=194188 s45=199652 s46=206526 s47=213179 s48=217786 s49=222018 s50=227349 s51=232687 s52=238074 s53=243451 s54=248820 s55=254164 s56=259481 s57=264784 s58=270062 s59=275367 s60=280675 s61=285953 s62=291064 s63=296346 s64=301468 s65=304690 s66=305711 s67=309375 s68=314556 s69=317216 s70=319593 s71=321983 s72=324362 s73=326763 s74=329691 s75=334094 s76=338734 s77=342239 s78=344940 s79=347608 s80=350412 s81=353360 s82=356571 s83=361112 s84=365158 s85=368636 s86=375190 s87=380391 s88=385644 s89=390390 s90=395734 s91=400150 s92=405723 s93=410404 s94=416342 s95=421642 s96=426789 s97=432139 s98=435635 s99=438410 s100=442359 s101=445885 s102=451081 s103=457634 s104=462266 s105=467395 s106=472866 s107=477427 s108=482317 s109=486583 s110=492644 s111=498171 s112=503544 s113=509064 s114=513112 s115=515605 s116=518675 s117=523152 s118=527110 s119=533898 s120=538383 s121=543590 s122=548151 s123=552907 s124=557168 s125=560978 s126=567364 s127=572743 s128=578008 s129=582893 s130=585958 s131=588758 s132=592340 s133=596256 s134=601476 s135=607072 s136=611616 s137=616328 s138=620855 s139=625274 s140=629584 s141=635688 s142=641017 s143=646335 s144=650781 s145=653571 s146=656987 s147=659825
+[cat]   col 9 anchors: s0=4167 s1=8372 s2=12693 s3=18439 s4=23501 s5=28626 s6=33045 s7=36953 s8=41065 s9=46610 s10=52511 s11=57412 s12=62324 s13=67217 s14=72128 s15=77485 s16=82405 s17=86969 s18=91992 s19=97378 s20=103397 s21=108060 s22=112552 s23=116688 s24=121381 s25=126135 s26=131166 s27=136198 s28=140508 s29=142647 s30=143522 s31=144865 s32=149129 s33=154374 s34=158227 s35=161218 s36=164304 s37=167367 s38=170446 s39=172592 s40=177537 s41=181950 s42=186345 s43=190391 s44=195901 s45=202045 s46=208632 s47=214541 s48=219082 s49=223373 s50=228960 s51=234300 s52=239687 s53=245072 s54=250445 s55=255791 s56=261108 s57=266415 s58=271644 s59=276957 s60=282273 s61=287549 s62=292634 s63=297449 s64=302778 s65=304753 s66=306639 s67=311177 s68=315993 s69=318632 s70=321035 s71=323411 s72=325802 s73=328186 s74=330900 s75=334659 s76=340248 s77=343923 s78=346609 s79=349310 s80=352158 s81=355103 s82=358149 s83=362409 s84=366429 s85=369940 s86=376506 s87=381927 s88=387162 s89=391771 s90=396784 s91=402182 s92=407284 s93=412389 s94=417904 s95=423259 s96=428063 s97=433831 s98=437061 s99=439605 s100=444078 s101=447768 s102=451740 s103=459273 s104=463622 s105=469084 s106=474210 s107=479218 s108=483896 s109=488692 s110=494324 s111=499794 s112=505165 s113=510527 s114=514552 s115=517063 s116=520059 s117=524882 s118=528416 s119=535432 s120=539732 s121=545205 s122=549814 s123=554822 s124=558147 s125=563285 s126=568977 s127=574368 s128=579492 s129=584543 s130=587390 s131=590239 s132=594098 s133=597806 s134=602827 s135=608497 s136=613108 s137=617630 s138=622703 s139=626661 s140=631519 s141=637307 s142=642626 s143=647932 s144=652221 s145=654999 s146=658663 s147=659962
+[cat]   col 13 anchors: s0=5701 s1=10007 s2=14764 s3=19946 s4=24969 s5=30072 s6=34476 s7=38332 s8=43023 s9=48328 s10=53700 s11=58598 s12=63508 s13=68401 s14=73316 s15=78653 s16=83580 s17=88667 s18=94138 s19=99253 s20=104595 s21=109226 s22=114017 s23=118768 s24=122900 s25=127984 s26=132893 s27=137124 s28=141806 s29=143044 s30=143873 s31=145598 s32=151168 s33=155432 s34=158693 s35=161688 s36=164798 s37=167881 s38=170975 s39=173698 s40=179431 s41=183495 s42=187705 s43=192413 s44=197767 s45=204535 s46=211065 s47=216080 s48=220371 s49=225123 s50=230515 s51=235852 s52=241231 s53=246608 s54=251986 s55=257332 s56=262651 s57=267955 s58=273175 s59=278477 s60=283789 s61=289065 s62=294450 s63=299537 s64=304123 s65=304955 s66=307867 s67=313394 s68=316320 s69=318930 s70=321324 s71=323703 s72=326104 s73=328480 s74=332568 s75=337141 s76=341254 s77=344205 s78=346886 s79=349583 s80=352468 s81=355417 s82=359447 s83=364004 s84=367591 s85=372041 s86=377971 s87=383693 s88=388722 s89=393693 s90=398378 s91=403601 s92=408773 s93=414567 s94=419509 s95=424813 s96=429885 s97=434800 s98=437352 s99=441063 s100=444642 s101=449553 s102=454060 s103=460581 s104=465322 s105=470672 s106=475772 s107=480718 s108=484779 s109=490704 s110=496084 s111=501336 s112=506706 s113=511833 s114=514839 s115=517497 s116=521523 s117=525695 s118=530492 s119=536579 s120=541448 s121=546427 s122=551250 s123=555764 s124=559361 s125=565577 s126=570521 s127=575907 s128=581203 s129=585267 s130=587685 s131=591312 s132=594439 s133=599137 s134=604264 s135=609763 s136=614519 s137=619230 s138=623662 s139=627974 s140=633726 s141=638851 s142=644147 s143=649586 s144=652511 s145=655997 s146=659517 s147=660119
+[cat]   col 16 anchors: s0=5709 s1=10015 s2=14772 s3=19954 s4=24977 s5=30080 s6=34484 s7=38340 s8=43031 s9=48336 s10=53708 s11=58606 s12=63516 s13=68409 s14=73324 s15=78661 s16=83588 s17=88675 s18=94146 s19=99261 s20=104603 s21=109234 s22=114025 s23=118776 s24=122908 s25=127992 s26=132901 s27=137132 s28=141814 s29=143052 s30=143881 s31=145606 s32=151176 s33=155440 s34=158701 s35=161696 s36=164806 s37=167889 s38=170983 s39=173706 s40=179439 s41=183503 s42=187713 s43=192421 s44=197775 s45=204543 s46=211073 s47=216088 s48=220379 s49=225131 s50=230523 s51=235860 s52=241239 s53=246616 s54=251994 s55=257340 s56=262659 s57=267963 s58=273183 s59=278485 s60=283797 s61=289073 s62=294458 s63=299545 s64=304131 s65=304963 s66=307875 s67=313402 s68=316328 s69=318938 s70=321332 s71=323711 s72=326112 s73=328488 s74=332576 s75=337149 s76=341262 s77=344213 s78=346894 s79=349591 s80=352476 s81=355425 s82=359455 s83=364012 s84=367599 s85=372049 s86=377979 s87=383701 s88=388730 s89=393701 s90=398386 s91=403609 s92=408781 s93=414575 s94=419517 s95=424821 s96=429893 s97=434808 s98=437360 s99=441071 s100=444650 s101=449561 s102=454068 s103=460589 s104=465330 s105=470680 s106=475780 s107=480726 s108=484787 s109=490712 s110=496092 s111=501344 s112=506714 s113=511841 s114=514847 s115=517505 s116=521531 s117=525703 s118=530500 s119=536587 s120=541456 s121=546435 s122=551258 s123=555772 s124=559369 s125=565585 s126=570529 s127=575915 s128=581211 s129=585275 s130=587693 s131=591320 s132=594447 s133=599145 s134=604272 s135=609771 s136=614527 s137=619238 s138=623670 s139=627982 s140=633734 s141=638859 s142=644155 s143=649594 s144=652519 s145=656005 s146=659525 s147=660127
+[cat] segment lane: 148 segment(s), 5 segment-scoped column(s)
+[prefetchAll] col=0 pass=0 done t=957274438.5
+[prefetchAll] col=1 pass=0 done t=957274448.0
+[prefetchAll] col=2 pass=0 done t=957274457.6
+[prefetchAll] col=3 pass=0 done t=957274468.7
+[prefetchAll] col=4 pass=0 done t=957274475.7
+[prefetchAll] col=5 pass=0 done t=957274484.7
+[prefetchAll] col=6 pass=0 done t=957274495.9
+[prefetchAll] col=7 pass=0 done t=957274504.1
+[prefetchAll] col=8 pass=0 done t=957274515.3
+[prefetchAll] col=9 pass=0 done t=957274524.6
+[prefetchAll] col=10 pass=0 done t=957274536.0
+[prefetchAll] col=11 pass=0 done t=957274542.3
+[prefetchAll] col=12 pass=0 done t=957274552.4
+[prefetchAll] col=13 pass=0 done t=957274563.8
+[prefetchAll] col=14 pass=0 done t=957274572.5
+[prefetchAll] col=15 pass=0 done t=957274584.1
+[prefetchAll] col=16 pass=0 done t=957274593.4
+[prefetchAll] col=17 pass=0 done t=957274604.9
+[prefetchAll] col=18 pass=0 done t=957274612.2
+[prefetchAll] col=19 pass=0 done t=957274621.6
+[prefetchAll] col=20 pass=0 done t=957274633.0
+[prefetchAll] col=21 pass=0 done t=957274640.9
+[prefetchAll] col=22 pass=0 done t=957274652.3
+[prefetchAll] col=23 pass=0 done t=957274661.8
+[prefetchAll] col=24 pass=0 done t=957274673.3
+[prefetchAll] swept segment chains: 25 pages=1582063 in 255.4 ms | t=957274418.1..957274673.5
+q    |    try1(s) |     hot(s) |       rows | note
+[groupagg-decline] pipe: no ForBind at the chain head
+[fieldkey] proved 'Referer' -> -1545244403
+[cat] 1 projection def(s); want root='/[]' fields=[Referer, Referer]
+[cat] 1 candidate(s) after filtering
+[groupAgg] keys=1 limit=25 ordered=true predicate=true having=true wholeLeafOnly=false budgetRefused=false
+[proj] numericGroupAggregate col=9 kind=8 canonicalising=true sliced=true windowed=false
+[prune] col=9 kind=8 op=NE zone: dropped=112 noEvidence=0
+[prune] leaves=97737 kept=97625
+[io] segBatch offsets=4887 wanted=4887 bytes=10467826  [runs] count=46 spanBytes=10145280 fallbacks=0
+[io] segBatch offsets=4887 wanted=4860 bytes=10499433  [runs] count=48 spanBytes=10599816 fallbacks=0
+[io] segBatch offsets=4887 wanted=4885 bytes=10361470  [runs] count=48 spanBytes=10599816 fallbacks=0
+[io] segBatch offsets=4884 wanted=4880 bytes=10451321  [runs] count=48 spanBytes=10599816 fallbacks=0
+[io] segBatch offsets=4887 wanted=4884 bytes=10487100  [runs] count=49 spanBytes=10841420 fallbacks=0
+[io] segBatch offsets=4887 wanted=4883 bytes=10595457  [runs] count=50 spanBytes=11065184 fallbacks=0
+[io] segBatch offsets=4887 wanted=4829 bytes=10472001  [runs] count=50 spanBytes=11065184 fallbacks=0
+[io] segBatch offsets=4887 wanted=4875 bytes=10519482  [runs] count=50 spanBytes=11065184 fallbacks=0
+[io] segBatch offsets=4887 wanted=4879 bytes=10430101  [runs] count=50 spanBytes=11065184 fallbacks=0
+[io] segBatch offsets=4887 wanted=4883 bytes=10499593  [runs] count=50 spanBytes=11065184 fallbacks=0
+[io] segBatch offsets=4887 wanted=4885 bytes=9667177  [runs] count=50 spanBytes=11065184 fallbacks=0
+[io] segBatch offsets=4887 wanted=4877 bytes=10543165  [runs] count=52 spanBytes=11514408 fallbacks=0
+[io] segBatch offsets=4887 wanted=4885 bytes=10031835  [runs] count=52 spanBytes=11514408 fallbacks=0
+[io] segBatch offsets=4887 wanted=4883 bytes=10069191  [runs] count=52 spanBytes=11514408 fallbacks=0
+[io] segBatch offsets=4887 wanted=4885 bytes=10826053  [runs] count=52 spanBytes=11514408 fallbacks=0
+[io] segBatch offsets=4887 wanted=4882 bytes=10431768  [runs] count=52 spanBytes=11514408 fallbacks=0
+[io] segBatch offsets=4887 wanted=4882 bytes=10348055  [runs] count=52 spanBytes=11514408 fallbacks=0
+[io] segBatch offsets=4887 wanted=4880 bytes=10241772  [runs] count=52 spanBytes=11514408 fallbacks=0
+[io] segBatch offsets=4887 wanted=4885 bytes=10449745  [runs] count=52 spanBytes=11514408 fallbacks=0
+[io] segBatch offsets=4887 wanted=4886 bytes=9815117  [runs] count=53 spanBytes=11724548 fallbacks=0
+[prune] col=9 kind=8 op=NE zone: dropped=112 noEvidence=0
+[prune] leaves=97737 kept=97625
+[proj] predicate row masks: 81032736 row(s) in 97625 of 97737 leaves pass (97625 read), 133 ms
+[io] segBatch offsets=4887 wanted=4883 bytes=10595457  [runs] count=95 spanBytes=21051436 fallbacks=0
+[io] segBatch offsets=4884 wanted=4880 bytes=10451321  [runs] count=98 spanBytes=21788280 fallbacks=0
+[io] segBatch offsets=4887 wanted=4883 bytes=10499593  [runs] count=100 spanBytes=22202616 fallbacks=0
+[io] segBatch offsets=4887 wanted=4885 bytes=10826053  [runs] count=100 spanBytes=22202616 fallbacks=0
+[io] segBatch offsets=4887 wanted=4875 bytes=10519482  [runs] count=102 spanBytes=22657072 fallbacks=0
+[io] segBatch offsets=4887 wanted=4880 bytes=10241772  [runs] count=102 spanBytes=22657072 fallbacks=0
+[io] segBatch offsets=4887 wanted=4883 bytes=10069191  [runs] count=102 spanBytes=22657072 fallbacks=0
+[io] segBatch offsets=4887 wanted=4877 bytes=10543165  [runs] count=102 spanBytes=22657072 fallbacks=0
+[io] segBatch offsets=4887 wanted=4884 bytes=10487100  [runs] count=103 spanBytes=22818116 fallbacks=0
+[io] segBatch offsets=4887 wanted=4879 bytes=10430101  [runs] count=103 spanBytes=22818116 fallbacks=0
+[io] segBatch offsets=4887 wanted=4882 bytes=10431768  [runs] count=105 spanBytes=23252020 fallbacks=0
+[io] segBatch offsets=4887 wanted=4885 bytes=10031835  [runs] count=105 spanBytes=23252020 fallbacks=0
+[io] segBatch offsets=4887 wanted=4885 bytes=10361470  [runs] count=106 spanBytes=23449096 fallbacks=0
+[io] segBatch offsets=4887 wanted=4882 bytes=10348055  [runs] count=106 spanBytes=23449096 fallbacks=0
+[io] segBatch offsets=4887 wanted=4887 bytes=10467826  [runs] count=106 spanBytes=23449096 fallbacks=0
+[io] segBatch offsets=4887 wanted=4885 bytes=9667177  [runs] count=106 spanBytes=23449096 fallbacks=0
+[io] segBatch offsets=4887 wanted=4829 bytes=10472001  [runs] count=106 spanBytes=23449096 fallbacks=0
+[io] segBatch offsets=4887 wanted=4860 bytes=10499433  [runs] count=106 spanBytes=23449096 fallbacks=0
+[io] segBatch offsets=4887 wanted=4886 bytes=9815117  [runs] count=106 spanBytes=23449096 fallbacks=0
+[io] segBatch offsets=4887 wanted=4885 bytes=10449745  [runs] count=106 spanBytes=23449096 fallbacks=0
+[proj] storage-order resolve: 148 segment(s), 22861426 cell(s) resolved before the row loop
+[proj] canonical lanes: sourceLongs=99883292 allocatedLongs=99883292 reusedEmptyLeaves=0 allocatedPresenceWords=1560754 reusedEmptyPresence=0 mapRanges=764
+[proj] segment transform: visit=23429651 cand=3009009
+[proj]   aggLane 0 col=9 kind=8 field=utf8len:Referer lenMode=2
+[proj]   aggLane 1 col=9 kind=8 field=Referer lenMode=0
+[proj] segment value merge: 148 segment(s), 22861426 marked cell(s) -> 19720796 distinct in 174 range(s); mark 167 ms, bound 464 ms, merge 1236 ms (longest range 343 ms over 138183 cells, mean 131387; sum 23709 ms = 19.2 lanes, 261164 record loads), offset 178 ms
+[proj] canonical lanes: sourceLongs=99883292 allocatedLongs=99883292 reusedEmptyLeaves=0 allocatedPresenceWords=1560754 reusedEmptyPresence=0 mapRanges=764
+[proj] segment operand on column 9: fill 0 ms, observe 2367 ms, seal 0 ms, canonicalise 392 ms, 19720796 distinct values, ordered=true
+[lengthTable] col=9 mode=2 segments=148 memoHits=0 built=148 ids=22861582 ms=430
+[groupBudget] budget=48611795 stride=11 perGroup=112 bounded=true liveMB=7412 latestGcMB=7412 poolsGcMB=7412 usedMB=9143 maxMB=14336 shareMB=1730 pooledMB=0
+[proj] groupAgg pass done (numeric): 1/1 range=[0,1024) ms=1109 scanMs=770 mergeMs=338 workerMs=760/763/768 slowest=6 spilled=2543433 leaves=97737 sharedHint=-1 sharedRehashes=0 retainedMB=347 pool=6527/4049 pooled=4049 dropped=0 sliceReuse=0
+# q28 try 1: wall=10.439 s cpu=154.9 s util=14.8/20 gc=37 pauses 0.73 s
+[groupagg-decline] pipe: no ForBind at the chain head
+[fieldkey] proved 'Referer' -> -1545244403
+[cat] 1 projection def(s); want root='/[]' fields=[Referer, Referer]
+[cat] 1 candidate(s) after filtering
+[groupAgg] keys=1 limit=25 ordered=true predicate=true having=true wholeLeafOnly=false budgetRefused=false
+[proj] numericGroupAggregate col=9 kind=8 canonicalising=true sliced=true windowed=false
+[prune] col=9 kind=8 op=NE zone: dropped=112 noEvidence=0
+[prune] leaves=97737 kept=97625
+[prune] col=9 kind=8 op=NE zone: dropped=112 noEvidence=0
+[prune] leaves=97737 kept=97625
+[proj] predicate row masks: 81032736 row(s) in 97625 of 97737 leaves pass (97625 read), 18 ms
+[proj] storage-order resolve: 148 segment(s), 22861426 cell(s) resolved before the row loop
+[proj] canonical lanes: sourceLongs=99883292 allocatedLongs=99883292 reusedEmptyLeaves=0 allocatedPresenceWords=1560754 reusedEmptyPresence=0 mapRanges=764
+[proj] segment transform: visit=23457105 cand=3009009
+[proj]   aggLane 0 col=9 kind=8 field=utf8len:Referer lenMode=2
+[proj]   aggLane 1 col=9 kind=8 field=Referer lenMode=0
+[proj] segment value merge: 148 segment(s), 22861426 marked cell(s) -> 19720796 distinct in 174 range(s); mark 16 ms, bound 259 ms, merge 929 ms (longest range 220 ms over 212222 cells, mean 131387; sum 17702 ms = 19.1 lanes, 261164 record loads), offset 69 ms
+[proj] canonical lanes: sourceLongs=99883292 allocatedLongs=99883292 reusedEmptyLeaves=0 allocatedPresenceWords=1560754 reusedEmptyPresence=0 mapRanges=764
+[proj] segment operand on column 9: fill 0 ms, observe 1522 ms, seal 0 ms, canonicalise 42 ms, 19720796 distinct values, ordered=true
+[lengthTable] col=9 mode=2 segments=148 memoHits=148 built=0 ids=22861582 ms=1
+[groupBudget] budget=55457123 stride=11 perGroup=112 bounded=true liveMB=6786 latestGcMB=7618 poolsGcMB=6786 usedMB=7622 maxMB=14336 shareMB=1792 pooledMB=347
+[proj] groupAgg pass done (numeric): 1/1 range=[0,1024) ms=475 scanMs=437 mergeMs=38 workerMs=420/431/436 slowest=12 spilled=2753719 leaves=97737 sharedHint=3084 sharedRehashes=0 retainedMB=347 pool=17209/4049 pooled=4049 dropped=0 sliceReuse=0
+# q28 try 2: wall=6.071 s cpu=89.5 s util=14.7/20 gc=18 pauses 0.43 s
+[groupagg-decline] pipe: no ForBind at the chain head
+[fieldkey] proved 'Referer' -> -1545244403
+[cat] 1 projection def(s); want root='/[]' fields=[Referer, Referer]
+[cat] 1 candidate(s) after filtering
+[groupAgg] keys=1 limit=25 ordered=true predicate=true having=true wholeLeafOnly=false budgetRefused=false
+[proj] numericGroupAggregate col=9 kind=8 canonicalising=true sliced=true windowed=false
+[prune] col=9 kind=8 op=NE zone: dropped=112 noEvidence=0
+[prune] leaves=97737 kept=97625
+[prune] col=9 kind=8 op=NE zone: dropped=112 noEvidence=0
+[prune] leaves=97737 kept=97625
+[proj] predicate row masks: 81032736 row(s) in 97625 of 97737 leaves pass (97625 read), 16 ms
+[proj] storage-order resolve: 148 segment(s), 22861426 cell(s) resolved before the row loop
+[proj] canonical lanes: sourceLongs=99883292 allocatedLongs=99883292 reusedEmptyLeaves=0 allocatedPresenceWords=1560754 reusedEmptyPresence=0 mapRanges=764
+[proj] segment transform: visit=23430835 cand=3009009
+[proj]   aggLane 0 col=9 kind=8 field=utf8len:Referer lenMode=2
+[proj]   aggLane 1 col=9 kind=8 field=Referer lenMode=0
+[proj] segment value merge: 148 segment(s), 22861426 marked cell(s) -> 19720796 distinct in 174 range(s); mark 16 ms, bound 295 ms, merge 996 ms (longest range 243 ms over 212222 cells, mean 131387; sum 19049 ms = 19.1 lanes, 261164 record loads), offset 43 ms
+[proj] canonical lanes: sourceLongs=99883292 allocatedLongs=99883292 reusedEmptyLeaves=0 allocatedPresenceWords=1560754 reusedEmptyPresence=0 mapRanges=764
+[proj] segment operand on column 9: fill 0 ms, observe 1598 ms, seal 0 ms, canonicalise 38 ms, 19720796 distinct values, ordered=true
+[lengthTable] col=9 mode=2 segments=148 memoHits=148 built=0 ids=22861582 ms=0
+[groupBudget] budget=57188018 stride=11 perGroup=112 bounded=true liveMB=6539 latestGcMB=6539 poolsGcMB=6539 usedMB=9187 maxMB=14336 shareMB=1792 pooledMB=347
+[proj] groupAgg pass done (numeric): 1/1 range=[0,1024) ms=302 scanMs=259 mergeMs=42 workerMs=254/256/259 slowest=0 spilled=2651098 leaves=97737 sharedHint=3084 sharedRehashes=0 retainedMB=347 pool=27827/4049 pooled=4049 dropped=0 sliceReuse=0
+# q28 try 3: wall=5.716 s cpu=82.3 s util=14.4/20 gc=12 pauses 0.40 s
+28   |     10.439 |      5.716 |          - | route=group-aggregate+numeric-group-by
+# served: structuralArraySizes=0 predicateCounts=0 projectionAggregates=0 projectionCountDistinct=0 stringMinMax=0 doubleAggregates=0 binaryAggregates=0 computedAggregates=0 pathSummaryStats=0 groupAggregates=3 constGroupAggregates=0 numericGroupBys=3 groupDistinct=0 denseGlobalGroups=0 groupSliced=3 groupWindowedSlices=0 sortedScans=0 predicateScans=0 valueEmissions=0 rowMaterializations=0
+# chunked: lazyLoads=0 chunkMaterializations=0 eagerFallbacks=0
+
+Data size: 51363908542
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[10.439, 6.071, 5.716],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
+[null, null, null],
