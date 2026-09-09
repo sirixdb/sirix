@@ -1,5 +1,7 @@
 # Fixed paired comparison: bounded aggregation memory allowance
 
+**Study complete; remaining 100M allowance is zero for all workers, including no-mistakes fix agents and verifiers.** Commands below document the completed study and must not be rerun under this task. Pipeline validation uses synthetic fixtures and committed evidence only. Do not run DuckDB or load/write the shared database or either corpus. See RESULT.md for completed equality checks, uncertainty and the separately authorized future work.
+
 Baseline: b815d459d1218ab9081f360257ae6f16eff9f476. Candidate: this branch's committed pass-count change, with no partial-probing implementation. The rig freezes both runtimes before any timed launch.
 
 Use `compare.py compare --baseline <baseline> --candidate <candidate> --out <fresh output> --pairs 12 --effect-ln 1.5 --seed 0 --baseline-jvm-arg=-Dsirix.projection.groupPasses.planDiag=true --candidate-jvm-arg=-Dsirix.projection.groupPasses.planDiag=true`, with CB100M_DIR naming the existing campaign database parent. The new diagnostic prints only one compact integer summary per completed group plan; the identical flag is supplied to both arms. The baseline predates this optional summary; its pass counts come from the archived baseline profile. No broad projection diagnostics or profiler are enabled in the paired study.
