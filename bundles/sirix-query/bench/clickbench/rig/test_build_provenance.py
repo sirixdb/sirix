@@ -19,6 +19,7 @@ from runtime import finish_build
 from runtime import freeze_runtime
 from runtime import prepare_current
 from runtime import source_identity
+from runtime import validate_output_location
 from runtime import verify_scored_runtime
 
 
@@ -108,6 +109,34 @@ class BuildProvenanceTest(unittest.TestCase):
         (self.source/'new-input').write_text('untracked source')
         self.assertLaunchRefused(runtime, 'source inputs changed')
 
+    def test_nonignored_output_inside_checkout_refuses_before_preparation(self):
+        output = self.source/'run-output'
+        with patch('runtime.ROOT', self.source), self.assertRaisesRegex(ValueError, 'must be Git-ignored'):
+            prepare_current(output)
+        self.assertFalse(output.exists())
+
+    def test_ignored_and_outside_output_locations_remain_supported(self):
+        (self.source/'.gitignore').write_text('ignored-output/\n')
+        ignored = (self.source/'ignored-output'/'run').resolve()
+        outside = (self.root/'outside-output').resolve()
+        self.assertEqual(validate_output_location(ignored, self.source), ignored)
+        self.assertEqual(validate_output_location(outside, self.source), outside)
+
+    def test_nonignored_run_output_refuses_before_plan_or_launch(self):
+        runtime = self.frozen()
+        output = self.source/'run-output'
+        arguments = argparse.Namespace(
+            out=str(output), db=str(self.root/'db'), lock_timeout=0, runtime=runtime['manifest_path'],
+            diagnostic=False, tries=3, queries=','.join(map(str, range(43))), diagnostic_arg=[],
+            diagnostic_args='', jvm_args='', declare_envelope=False)
+        with patch('measure.ROOT', self.source), patch('measure.protocol_for') as protocol, \
+                patch('measure.run_leg') as launch:
+            with self.assertRaisesRegex(ValueError, 'must be Git-ignored'):
+                measure.run(arguments)
+        protocol.assert_not_called()
+        launch.assert_not_called()
+        self.assertFalse(output.exists())
+
     def test_a_mislabelled_source_commit_refuses_before_launch(self):
         runtime = self.frozen(source_commit='0'*40)
         self.assertLaunchRefused(runtime, 'recorded build HEAD')
@@ -140,7 +169,7 @@ class BuildProvenanceTest(unittest.TestCase):
                       baseline_runtime='provided', candidate_runtime='provided')
         with patch('measure.protocol_for', return_value={}), patch('measure.RigLease'), \
                 patch('measure.require_no_benchmark'), patch('measure.run_leg') as launch, \
-                patch('measure.runtime_for', return_value=invalid):
+                patch('measure.runtime_for', return_value=invalid), patch('measure.ROOT', self.source):
             with self.assertRaisesRegex(ValueError, 'forced fresh build'):
                 measure.run(argparse.Namespace(**common))
             common['out'] = str(self.root/'compare')
@@ -233,14 +262,14 @@ project(':sirix-query') {
             git('add', '.')
             git('commit', '-qm', 'fixture')
             with patch('runtime.ROOT', source), patch('runtime.harness_provenance', return_value={}):
-                first = prepare_current(root/'first')
+                first = prepare_current(source/'build/rig/first')
                 verify_scored_runtime(first)
                 # Simulate bytecode left by another worktree tenant. The source and HEAD stay put.
                 output = source/'sirix-core/build/classes/java/main/Answer.class'
                 original = output.read_bytes()
                 self.assertIn(b'FRESH', original)
                 output.write_bytes(original.replace(b'FRESH', b'STALE'))
-                second = prepare_current(root/'second')
+                second = prepare_current(source/'build/rig/second')
                 verify_scored_runtime(second)
             self.assertEqual(first['build_source'], second['build_source'])
             self.assertEqual(output.read_bytes(), original)

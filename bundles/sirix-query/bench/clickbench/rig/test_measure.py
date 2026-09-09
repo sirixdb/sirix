@@ -94,6 +94,7 @@ class ComparisonFailureTest(unittest.TestCase):
         errors = io.StringIO()
         with resolvable_campaign_pointer(directory), \
                 patch('measure.RigLease'), patch('measure.require_no_benchmark'), \
+                patch('measure.ROOT', Path(directory)/'driver-source'), \
                 patch('measure.runtime_for', side_effect=prepare), \
                 contextlib.redirect_stderr(errors):
             with self.assertRaises(RuntimeError):
@@ -217,7 +218,7 @@ class HostLeaseTest(unittest.TestCase):
             with RigLease(timeout=0, paths=[(HOST_FD, self.lock)]):
                 for name, diagnostic in (('profiling', True), ('scored', False)):
                     with patch('measure.run_part') as part, patch('measure.run_leg') as leg:
-                        with self.assertRaises(TimeoutError):
+                        with patch('measure.ROOT', self.root/'driver-source'), self.assertRaises(TimeoutError):
                             run(self.arguments(name, diagnostic=diagnostic))
                         part.assert_not_called()
                         leg.assert_not_called()
@@ -241,6 +242,7 @@ class HostLeaseTest(unittest.TestCase):
         announced = io.StringIO()
         with resolvable_campaign_pointer(self.directory.name), \
                 patch('rig_lock.lock_paths', return_value=[(HOST_FD, self.lock)]), \
+                patch('measure.ROOT', self.root/'driver-source'), \
                 patch('measure.require_no_benchmark'), \
                 patch('measure.prepare_current', return_value=prepared), \
                 patch('measure.run_part', side_effect=observe), \

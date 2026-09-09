@@ -70,6 +70,23 @@ def resolve_revision(reference):
                                    cwd=ROOT, text=True).strip()
 
 
+def validate_output_location(output, source):
+    output = Path(output).resolve()
+    source = Path(source).resolve()
+    try:
+        relative = output.relative_to(source)
+    except ValueError:
+        return output
+    ignored = subprocess.run(['git', 'check-ignore', '--quiet', '--no-index', '--', str(relative)],
+                             cwd=source, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    if ignored.returncode == 0:
+        return output
+    if ignored.returncode == 1:
+        raise ValueError(f'rig output inside a source checkout must be Git-ignored: {output}; '
+                         f'use an ignored build path or a location outside {source}')
+    raise RuntimeError(f'cannot determine whether rig output is ignored: {ignored.stderr.strip()}')
+
+
 def source_identity(source):
     """Bind a build to its checkout, including staged, unstaged and untracked inputs."""
     source = Path(source)
@@ -244,7 +261,7 @@ def classify_target(database, *, declared=False):
 
 
 def prepare_revision(reference, output, extra_args=(), classification=None):
-    output = Path(output).resolve()
+    output = validate_output_location(output, ROOT)
     output.mkdir(exist_ok=False, parents=True)
     commit = resolve_revision(reference)
     source = output/'source'
@@ -345,7 +362,7 @@ def envelope_for(classification, settings):
 
 def prepare_current(output, extra_args=(), classification=None):
     """Freeze the current worktree, including local changes, for wrapper scripts."""
-    output = Path(output).resolve()
+    output = validate_output_location(output, ROOT)
     output.mkdir(exist_ok=False, parents=True)
     export = output/'export.json'
     flags = CANONICAL_ARGS+list(extra_args)
