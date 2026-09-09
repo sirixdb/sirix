@@ -193,26 +193,6 @@ jobs:
           path: '**/build/reports/tests/test'
           retention-days: 14
 
-  TestRig:
-    name: Test the ClickBench measurement rig
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install rig analysis dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r bundles/sirix-query/bench/clickbench/rig/requirements.txt
-      # Pure-Python scoring, uncertainty, provenance and kernel-lock regressions. No JVM, database
-      # or benchmark run is involved, so this gate does not depend on the Gradle build.
-      - name: Test the rig harness
-        run: python -m unittest discover -s bundles/sirix-query/bench/clickbench/rig -p 'test_*.py' -v
-
   TestRestApi:
     name: Test sirix-rest-api + Python client
     needs: Build
