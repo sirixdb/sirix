@@ -55,6 +55,52 @@ final class GroupPassesBudgetRefreshTest {
   }
 
   @Test
+  @DisplayName("a bounded plan refuses to replay a completed pass count the current headroom cannot hold")
+  void boundedPlanRefusesAReplayedPassCountPastTheCurrentBudget() {
+    // Execution A, q32 at 100M: 7,607 MiB of headroom plans 53.4M groups per pass; the memoed estimate
+    // seeds two balanced passes and the scan completes them, memoing (100,007,737, 2).
+    final long wide = GroupTableSpill.boundedGroupBudgetFor(14L << 30, 7607L << 20, 11);
+    SirixVectorizedExecutor.GroupPasses.setBudgetRefreshForTesting(wide, () -> wide);
+    final ProjectionIndexRegistry.Handle handle = new ProjectionIndexRegistry.Handle(new String[] {"a"}, List.of());
+    handle.noteObservedGroups(FINGERPRINT, 100_007_737L);
+    final SirixVectorizedExecutor.GroupPasses first =
+        new SirixVectorizedExecutor.GroupPasses(handle, FINGERPRINT, wide, 1024, 11, true);
+    assertEquals(2, first.passes());
+    assertFalse(first.seededCompleted());
+    for (int partition = 0; partition < 1024; partition++) {
+      first.notePartition(partition, partition < 825
+          ? 97_664
+          : 97_663);
+    }
+    first.complete();
+    final ProjectionIndexRegistry.Handle.CompletedGroupScan memo = handle.completedGroupScanFor(FINGERPRINT);
+    assertEquals(100_007_737L, memo.groups());
+    assertEquals(2, memo.passes());
+    // Execution B: live state grew, 4 GiB of headroom plans 28.8M groups per pass and a collection
+    // cannot widen it. Two passes of 50M would charge 5.5 GiB of tables into 4 GiB; the count implies
+    // four, and four it is, at a pass budget inside the three-quarter allowance.
+    final long tight = GroupTableSpill.boundedGroupBudgetFor(14L << 30, 4L << 30, 11);
+    assertTrue(GroupTableSpill.expectedLargestPass(memo.groups(), memo.passes(), 1024) > tight);
+    SirixVectorizedExecutor.GroupPasses.setBudgetRefreshForTesting(tight, () -> tight);
+    final SirixVectorizedExecutor.GroupPasses second =
+        new SirixVectorizedExecutor.GroupPasses(handle, FINGERPRINT, tight, 1024, 11, true);
+    assertTrue(second.seededCompleted());
+    assertEquals(4, second.passes());
+    assertEquals(tight, second.passBudget());
+    assertTrue(GroupTableSpill.boundedBytesPerGroup(11) * second.passBudget() <= (4L << 30) / 4 * 3);
+    assertEquals(100_007_737L, second.plannedGroups());
+    // The shared quarter share keeps its calibrated replay: the same memo at the same budget replays
+    // the two passes because 50M stays within twice 28.8M.
+    final SirixVectorizedExecutor.GroupPasses unbounded =
+        new SirixVectorizedExecutor.GroupPasses(handle, FINGERPRINT, tight, 1024, 11, false);
+    assertEquals(2, unbounded.passes());
+    // At the headroom the paired study measured, both policies plan the same two passes.
+    SirixVectorizedExecutor.GroupPasses.setBudgetRefreshForTesting(wide, () -> wide);
+    assertEquals(2, new SirixVectorizedExecutor.GroupPasses(handle, FINGERPRINT, wide, 1024, 11, true).passes());
+    assertEquals(2, new SirixVectorizedExecutor.GroupPasses(handle, FINGERPRINT, wide, 1024, 11, false).passes());
+  }
+
+  @Test
   @DisplayName("a refresh is worth a collection only when the clean-heap ceiling plans fewer passes")
   void refreshWorthItTruthTable() {
     // Nothing known about the shape: nothing to plan, nothing to refresh.
@@ -234,6 +280,7 @@ final class GroupPassesBudgetRefreshTest {
     final ProjectionIndexRegistry.Handle.CompletedGroupScan memo = handle.completedGroupScanFor(FINGERPRINT);
     assertEquals(4, memo.passes());
     assertEquals(3_201L, memo.groups());
-    assertEquals(4, SirixVectorizedExecutor.GroupPasses.seededPasses(memo.groups(), memo.passes(), 1_000L, PARTITIONS));
+    assertEquals(4, SirixVectorizedExecutor.GroupPasses.seededPasses(memo.groups(), memo.passes(), 1_000L, PARTITIONS,
+        false));
   }
 }
