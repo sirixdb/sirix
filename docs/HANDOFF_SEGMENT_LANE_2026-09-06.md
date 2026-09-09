@@ -19,10 +19,10 @@ Consequences that shape every decision:
 - **Seconds are not the metric.** 686.8 s total was rank 81; 32.13 s was rank 10. A lever is worth
   its Δln, summed over the queries it touches. Score every leg before claiming progress.
 - **The +0.01 s offset** on both sides means 0.05 s against a 0.000 s best still costs ln 6 ≈ 1.8 —
-  SEG6T's q17 measures exactly that (0.047 s against a 0.000 s best, 1.74 ln). Measured on SEG6T,
-  **20 of the 43 queries already answer in under 100 ms and still carry 22.15 of the 63.44 ln**;
-  the 17 under 50 ms carry 17.63 ln between them. See §4 for the largest measured contributions;
-  `python3 rank.py SEG6T` prints the fourteen largest C6A hot contributions.
+  SEG7T's q17 measures exactly that (0.037 s against a 0.000 s best, 1.55 ln). Measured on SEG7T,
+  **20 of the 43 queries already answer in under 100 ms and still carry 22.44 of the 58.96 ln**;
+  the 16 under 50 ms carry 15.93 ln between them. See §4 for the largest measured contributions;
+  `python3 rank.py SEG7T` prints the fourteen largest C6A hot contributions.
 - Only 3-try legs score, and `rank.py` additionally ranks only a curated leg whose provenance states
   the publication regime — `suite100m.sh 3` now collects a *steering* leg, which never ranks (§5).
   Never compare legs of different run shapes, and never a `-Dsirix.projDiag=true` run.
@@ -32,11 +32,11 @@ Standing secondary target: ~50 GB storage at 100M (met: 48 GB); long-term ≤ 30
 
 ## 2. Where we stand
 
-**Update, 2026-09-08:** the committed `query-SEG6T.json` supersedes the historical
-SEG5T snapshot below. This correctness-only string-decode change adds no accepted
-performance result. Its effect remains unverified pending measurement resolution;
-[the string-decode report](CLICKBENCH_STRING_DECODE_2026-09-08.md) records that lane's
-delivery constraints.
+**Update, 2026-09-09:** the committed `query-SEG7T.json` supersedes every snapshot below,
+including SEG6T. The 2026-09-08 string-decode change SEG6T carried is correctness-only and adds no
+accepted performance result; its effect remains unverified pending measurement resolution, and
+[the string-decode report](CLICKBENCH_STRING_DECODE_2026-09-08.md) records that lane's delivery
+constraints.
 
 | leg | build | database | C6A hot geomean | rank / 140 | Σln |
 |---|---|---|---|---|---|
@@ -46,20 +46,26 @@ delivery constraints.
 | projection: SEG3TB + q17 (`86d839058`) + q27 (`be5e8232f`) | `be5e8232f` | same | ≈ 7.89 | ≈ 42 | ≈ 88.8 |
 | SEG4T (2026-09-07, measured) | segment lane at the handover (`54b0a059b`) | same | 5.179 | 17 | 70.72 |
 | SEG5T (2026-09-07, measured) | segment lane at `de2724c5c` | same | 4.714 | 16 | 66.68 |
-| **SEG6T (measured at or before 2026-09-07T23:24Z)** | `8df0532d6`, attributed by the `sirix-cb-score-3` investigation report; absent from the leg artifact | `clickbench-seg100m-20260905-2328`, attributed by that report; absent from the leg artifact | **4.373** | **16** | **63.44** |
+| SEG6T (measured at or before 2026-09-07T23:24Z) | `8df0532d6`, attributed by the `sirix-cb-score-3` investigation report; absent from the leg artifact | `clickbench-seg100m-20260905-2328`, attributed by that report; absent from the leg artifact | 4.373 | 16 | 63.44 |
+| **SEG7T (2026-09-09T10:55:40, measured)** | `465f20894`, recorded on the leg | campaign 100M database; the leg names no identifier | **3.940** | **15** | **58.96** |
 
-**SEG6T is where we stand.** Rank 10 (Σln ≤ 51.99) needs ≈ **−11.45 ln** from here
-(63.442 − 51.99 = 11.452). `python3 rank.py SEG6T SEG5T SEG4T` reproduces the scores
-from the committed timings. The campaign base's provenance attribution comes from the
-`sirix-cb-score-3` investigation report, not from the leg JSON: its `rig.regime` still accurately
-states which capture fields were absent. The collection-time bound above comes from the recording
-commit rather than the old template date. SEG6T predates the string-decode source changes and
-therefore measures none of them. SEG5T remains the historical `de2724c5c` snapshot at 66.676 ln;
-§4's per-query values are now drawn from SEG7T, not SEG4T.
+**SEG7T is where we stand.** C6A hot geomean **3.939639**, **rank 15 of 140**, Σln **58.956827**,
+total hot suite time 27.890 s. Rank 10 (Σln ≤ 51.99) needs ≈ **−6.97 ln** from here
+(58.956827 − 51.99 = 6.966827). `python3 rank.py SEG7T SEG6T SEG5T SEG4T` reproduces those four rows
+from the committed timings. §4 is drawn from this leg, and it is the only current standing
+this document states.
 
-These publication records predate the 2026-09-08T03:58Z MSR cap change. Do not compare their
-scores directly with capped steering legs. Even later legs need observed power and thermal context:
-the calibration's MSR setting was 50/50 W, but its MMIO limits varied. The
+SEG6T's provenance attribution comes from the `sirix-cb-score-3` investigation report, not from the
+leg JSON: its `rig.regime` still accurately states which capture fields were absent. Its
+collection-time bound above comes from the recording commit rather than the old template date.
+SEG6T predates the string-decode source changes and therefore measures none of them. SEG5T remains
+the historical `de2724c5c` snapshot at 66.676 ln.
+
+Every record above SEG7T predates the 2026-09-08T03:58Z MSR cap change. Do not compare those
+scores directly with capped steering legs. SEG7T is the first publication leg collected under the
+cap, and unlike them it records its envelope: the pinned 50 W gate held, and one MMIO platform limit
+moved 76 W → 45 W mid-run, which its `rig.regime` states. Even later legs need observed power and
+thermal context: the calibration's MSR setting was 50/50 W, but its MMIO limits varied. The
 [rig README](../bundles/sirix-query/bench/clickbench/rig/README.md) owns the protocol and links
 the retained power audit.
 
@@ -134,10 +140,26 @@ a test is one `-Dsirix.projDiag=true` away from its reason.
 
 ## 4. The lever queue
 
-**Ordering key: achievable speedup factor `k` × the number of scored queries `N` the work touches.**
-That product opens every ranked row in §4a and is the only thing that orders the queue.
+**Ordering key: the ln the lever actually buys on the board, summed over the queries it touches.**
+For one query, with `t` its current C6A hot seconds and `k` the achievable speedup on it:
 
-**Per-query ln contribution is NOT the ranking key.** A query's contribution is
+```text
+payoff = ln( (0.01 + t) / (0.01 + t / k) )
+```
+
+and the key is `Σ payoff` over the touched queries. That one number is the only thing that orders
+§4a. `k` and the touched-query count `N` are its **inputs**, shown beside it; neither ranks anything
+on its own.
+
+**Why the exact form and not `N · ln(k)`.** The 0.01 s constant is the board's anti-gaming floor and
+applies to both sides of every ratio, so a query already answering in tens of milliseconds cannot
+return ln(k) however large `k` is. `Σ ln(k)` is only this expression's large-`t` limit: on q28's
+6.039 s a 1.5× speedup pays 0.4046 ln against ln(1.5) = 0.4055, but the same 1.5× spread over §4c's
+twenty sub-100 ms queries pays 5.639 ln, not the 8.109 that limit would promise. Effort pays on the
+slow tail, and the key says so by construction instead of in a footnote. The exact form also vanishes as `k → 1`, which a
+product like `k × N` does not — a lever with no achievable speedup must key at zero, not at `N`.
+
+**Per-query ln contribution is NOT the ordering key.** A query's contribution is
 ln((0.01 + ours) / (0.01 + board best)): it measures how far ahead the board leader is on that
 query — a fact about *them* — not what a fix is worth, which is a fact about *us*. Ranking levers by
 it already cost this campaign a day. The contribution stays visible as data in §4b, because it
@@ -145,10 +167,8 @@ sizes §2's remaining gap and bounds a query's payoff, but it must not order wor
 
 **`k` is derived from a committed hot profile of the query the lever serves**, by Amdahl's law on
 the share the lever actually *removes* — not the share it merely touches. A lever with no such
-profile has no `k` and cannot be ranked; it is listed unranked in §4c, and profiling it is the work.
-A lever's payoff in campaign currency is `Σ ln(k)` over the queries it touches, since a k-times
-speedup buys ln(k) on any query above the 0.01 s floor. That column sits beside the key so the size
-of the prize stays visible, but the key is the stated product.
+profile has no `k`, therefore no key, and cannot be ranked; it is listed unranked in §4c, and
+profiling it is the work.
 
 **Every value below is refreshed from SEG7T** — `python3 rank.py SEG7T`, `[C6A] hot` block, from the
 committed `rig/legs/query-SEG7T.json`: geomean 3.939639, rank 15, Σln 58.956827. SEG4T used to fill
@@ -172,10 +192,10 @@ per-cluster work did not already remove.
 
 ### 4a. Ranked levers
 
-| # | key = k × N | k (achievable) | N | Σ ln(k) | lever | profile the k comes from |
-|---|---:|---:|---:|---:|---|---|
-| 1 | **2.66** | 1.33 mean (q22 1.52, q21 1.13) | 2 | 0.545 | **Reuse the existing predicate row mask in the numeric aggregate arm** instead of re-evaluating the mask tree there. Not an aggregate-family lever: what it removes is a repeated predicate evaluation, not group aggregation. Must cover NOT/missing semantics, tails, multiplicity and stable document-order ties, and keep the path for callers without masks. [Evidence and remaining target](SEGMENT_LIKE_GROUPS.md). | q22: of 12,137 hot CPU samples, 68.9 % is predicate-mask evaluation, split 34.46 % in `rowKeepMasks` and **34.42 % repeated in `aggregateByGroupNumericFlat`** — the repeated half is what the lever removes. q21: 12.0 % + **11.6 % repeated**. |
-| 2 | **1.50** | 1.50 (2.17 ceiling) | 1 | 0.405 | **Composite group table / spill path** — attack `identityMatches` before canonicalisation. Aggregate family: deprioritized, and its `N` is 1 because only q16 was profiled — do not assume q14, q18, q31, q32 or q35 carry the same share. | q16 hot 100M capture: table and spill frames are 53.9 % inclusive with **`identityMatches` alone at 33.3 % self**; canonicalisation is 21.8 %. `k` uses the self time; 2.17 is the ceiling if the whole inclusive block went. [Dependent numeric group keys](DEPENDENT_NUMERIC_GROUP_KEYS.md). |
+| # | key = Σ payoff (ln) | k (input) | N (input) | touches | lever | profile the k comes from |
+|---|---:|---:|---:|---|---|---|
+| 1 | **0.514** | q22 1.52, q21 1.13 | 2 | q22 0.405, q21 0.109 | **Reuse the existing predicate row mask in the numeric aggregate arm** instead of re-evaluating the mask tree there. Not an aggregate-family lever: what it removes is a repeated predicate evaluation, not group aggregation. Must cover NOT/missing semantics, tails, multiplicity and stable document-order ties, and keep the path for callers without masks. [Evidence and remaining target](SEGMENT_LIKE_GROUPS.md). | q22: of 12,137 hot CPU samples, 68.9 % is predicate-mask evaluation, split 34.46 % in `rowKeepMasks` and **34.42 % repeated in `aggregateByGroupNumericFlat`** — the repeated half is what the lever removes. q21: 12.0 % + **11.6 % repeated**. |
+| 2 | **0.402** (0.767 ceiling) | 1.50 (2.17 ceiling) | 1 | q16 0.402 | **Composite group table / spill path** — attack `identityMatches` before canonicalisation. Aggregate family: deprioritized, and its `N` is 1 because only q16 was profiled — do not assume q14, q18, q31, q32 or q35 carry the same share. | q16 hot 100M capture: table and spill frames are 53.9 % inclusive with **`identityMatches` alone at 33.3 % self**; canonicalisation is 21.8 %. `k` uses the self time; 2.17 is the ceiling if the whole inclusive block went. [Dependent numeric group keys](DEPENDENT_NUMERIC_GROUP_KEYS.md). |
 
 ### 4b. Per-query evidence (SEG7T)
 
@@ -209,10 +229,12 @@ These cannot be ordered against §4a, and they must not be built on a guessed `k
 
 - **Shared fixed per-query cost.** Under SEG7T, **20 of the 43 scored queries answer in ≤ 100 ms**
   (q0–q3, q6, q7, q17, q19–q21, q24–q26, q29, q36–q38, q40–q42) and together carry **22.439 of the
-  58.957 Σln**. Driving that whole band to 0 s would recover **29.009 ln** — a ceiling from the
-  board, not an achievable number. Nothing has ever profiled the band for a *shared* fixed cost, so
-  there is no `k`. It touches more scored queries than every other lever combined, which is what
-  makes the profile worth doing first, and it is not aggregate-family work.
+  58.957 Σln**. Nothing has ever profiled the band for a *shared* fixed cost, so it has no `k` and
+  therefore no key. **Breadth alone does not rank it**, and the floor is why: at k = 1.02 across all
+  twenty its key is 0.289 ln, *below* §4a's two-query row at 0.514; k = 1.5 keys 5.639 ln, and only
+  an unreachable k → ∞ reaches the 29.009 ln ceiling of driving the whole band to 0 s. It is still
+  the highest-value next measurement — it is the only place a large shared `k` could exist, and it
+  is not aggregate-family work — but the profile has to produce that `k` before it ranks.
 - **Aggregate inside the merge** (serves q33, q34, q12 and q5's `COUNT(DISTINCT)`): counts per cell
   are known per segment, the merge emits canonical groups in order, and a bounded top-K needs no
   hash table. No hot profile share has ever been committed for it. Aggregate family, so §4a's
