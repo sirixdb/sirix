@@ -166,9 +166,15 @@ cross-regime transfer to an uncapped publication run has been established by the
 
 `measure.py prepare --out FRESH_DIR` builds and freezes the current worktree, including local
 changes. `--revision COMMIT` prepares an isolated revision instead. A later comparison can
-use `--baseline-runtime MANIFEST --candidate-runtime MANIFEST`. Runtime hashes and the exact
-6 GiB initial / 14 GiB maximum heap, 10 GiB arena, 5 GiB eager residency, and disabled JVMCI
-compiler are verified. Use `--baseline-jvm-arg=-Dproperty=value` (and candidate equivalent) for
+use `--baseline-runtime MANIFEST --candidate-runtime MANIFEST`. Runtime hashes are verified, and so
+is the JVM envelope the manifest declares. `--db` decides which envelope that is: the campaign 100M
+database named by `CB100M_DIR`, and any preparation naming no database at all, pins the exact 6 GiB
+initial / 14 GiB maximum heap, 10 GiB arena, 5 GiB eager residency and disabled JVMCI compiler, and
+no `--jvm-args` may shrink it. Any other target — a 1M lane, a scratch database — declares whatever
+its own flags resolve to, so a general gate is not made to reserve the campaign's twenty gibibytes.
+Every later round re-verifies against the envelope its run declared, the campaign database refuses a
+runtime frozen at any other envelope, and both arms of a comparison must declare the same one.
+Use `--baseline-jvm-arg=-Dproperty=value` (and candidate equivalent) for
 explicit mechanism ablations prepared from revisions; profiling options require diagnostics.
 Original classpath provenance also detects an external snapshot JAR changing in place between
 the two builds. Java's module image, VM library and release identity are hashed as well as the
