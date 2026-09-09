@@ -7,5 +7,6 @@
   "minimum_available_bytes": 29516599296,
   "correct_answers_per_leg": 43,
   "all_legs_byte_identical": true,
-  "further_100m_runs": "No additional run is prescribed by this fixed study; ask Firstmate for any new collection, including pipeline verification."
+  "remaining_authorized_100m_runs": 0,
+  "further_100m_runs": "Firstmate set the remaining allowance to zero on 2026-09-09 for every pipeline agent, including fixers and verifiers. Do not launch any additional 100M profile, correctness dump, or benchmark. Validate with fixtures and offline artifact replay only."
 }

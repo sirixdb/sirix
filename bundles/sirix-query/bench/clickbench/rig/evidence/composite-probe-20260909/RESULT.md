@@ -7,6 +7,11 @@ Mean hot time across these four falls from **8.3982 to 7.9266 seconds**, saving
 profiled landed baseline in every one of the twenty legs. The mechanism is
 retained under the brief's resolved-positive-family landing rule.
 
+Firstmate authorized landing this result on 2026-09-09. **The remaining 100M
+allowance is now zero for every pipeline agent, including fixers and verifiers.**
+Use local fixtures and offline artifact replay for delivery validation. Do not
+launch another profile, correctness dump, or benchmark against the 100M database.
+
 **Sign:** benefit = baseline minus candidate, so positive improves. Every delta
 below is candidate minus baseline, so **negative improves**. Ln deltas are means
 of per-leg log ratios with the rig's 0.01-second floor, not log ratios of the
@@ -83,6 +88,17 @@ samples include record initialization and payload work that append mode still
 pays, while exact merge and stripe copying remain. The result does not identify
 the precise share removed: there is no candidate CPU profile in this study.
 
+The practical calibration is that lookup occupied 46.1% of q32's baseline CPU
+samples, yet the mechanism saved 0.3163 seconds of 3.5911 seconds (8.8%). Much of
+the table-acquisition work remains, including hashing, record writes, and exact
+merge. This supports looking beyond probing; it does not partition the remaining
+cost without a candidate profile. Together with the earlier 0.406805-ln
+pass-budget result, the two experiments bought about 0.59 ln against the brief's
+roughly 2.25-ln parity opportunity. Those are separate-study estimates, not one
+joint paired comparison. Returns from composite-key probing are thinning: the
+next profile should examine key width, hashing, and merge before another probing
+experiment.
+
 For a next generic table experiment, investigate eliminating intermediate
 partition indexing and stripe copying together with worker probes, while keeping
 the duplicate-heavy fallback, bounded residency, and exact final merge. Merely
@@ -116,9 +132,11 @@ included here.
   bias from drift correlated with the arms.
 - **Allowance used: one profiling JVM plus ten paired comparisons.** The fixed
   study is complete. Two pairs of the twelve-pair authorization cap were not
-  spent; they do not prescribe another collection. **No additional 100M run is
-  planned, including by no-mistakes fix agents or verifiers. Ask Firstmate before
-  any new collection.** Validation should use fixtures and artifact replay.
+  spent. Firstmate subsequently set the remaining allowance to **zero for every
+  pipeline agent, including fixers and verifiers**. This study ran one fresh
+  profile and ten pairs; profiles and pairs are recorded separately. **Do not
+  launch any additional 100M collection.** Validation must use fixtures and
+  artifact replay.
 - Campaign-branch CI runs no checks. Delivery must be described as pushed and
   locally validated when the pipeline ships it, never as CI green.
 
