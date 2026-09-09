@@ -697,9 +697,11 @@ public final class GroupTableSpill {
 
   /**
    * Budget for a bounded aggregate whose completed partitions can be selected and released
-   * independently. Callers must exclude grouped distinct state and key ordering. This allowance
-   * belongs to the aggregation, not to the column-fill or distinct-set consumers of HeapHeadroom. The
-   * fixed operator budget and test override retain precedence.
+   * independently. Callers must exclude grouped distinct state, key ordering and an unbounded
+   * selection (a limit of none or of every group, under which each partition's winners are its whole
+   * table and nothing is released). This allowance belongs to the aggregation, not to the column-fill
+   * or distinct-set consumers of HeapHeadroom. The fixed operator budget and test override retain
+   * precedence.
    */
   public static long boundedGroupBudget(final int strideLanes) {
     if (!boundedBudgetEnabled(strideLanes)) {

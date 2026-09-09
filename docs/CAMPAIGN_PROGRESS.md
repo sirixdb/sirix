@@ -2788,11 +2788,14 @@ with the 2^26 cap, the abort/restart path and every other consumer of `HeapHeadr
 Candidate `ddf3f2794` against `b815d459d` over the prespecified **12 pairs**, all 43 answers
 byte-identical in all 24 legs: q16/q18/q32 ran 1/1/2 passes; the seven-query family benefit is
 **+0.409295 ln, 95% interval [+0.349424, +0.469166]**, 1.137 s; the suite benefit of **+0.289810 ln
-is UNRESOLVED**, interval [-0.670193, +1.249813]. A review fix afterwards made a bounded plan refuse
-to replay a memoed pass count that no longer fits the current budget; at the 7,607 MiB headroom the
-pairs ran under both policies plan the same passes, so no measured leg changes. A pre-existing sparse
-`SUM` ordering defect was found and left non-passing, not fixed. **No further 100M runs are
-authorized: all 12 pairs have been consumed.** The
+is UNRESOLVED**, interval [-0.670193, +1.249813]. Two review fixes followed, neither changing a
+measured leg: a bounded plan refuses to replay a memoed pass count that no longer fits the current
+budget (the candidate legs record q32's bounded budget at 60.56M groups or more, where a 50.0M-group
+pass fits outright, so both policies plan the same two passes), and the flat arms no longer read the
+dispatcher's unbounded-selection sentinel as a bound (all seven campaign queries are capped by
+`LIMIT 10`, so every measured plan was and remains bounded). A pre-existing sparse `SUM` ordering
+defect was found and left non-passing, not fixed. **No further 100M runs are authorized: all 12
+pairs have been consumed.** The
 [complete paired study](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/RESULT.md),
 its [arithmetic](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/PASS_BUDGET.md)
 and the [defect report](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/SUM_ORDERING_DEFECT.md)

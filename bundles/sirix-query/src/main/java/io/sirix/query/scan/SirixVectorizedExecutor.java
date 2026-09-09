@@ -13829,6 +13829,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     private static final int COMPLETED_PASS_MARGIN_SIGMAS = 6;
     private static final int COMPLETED_REPLAY_MAX_BUDGET_MULTIPLE = 2;
     private static final LongAdder BUDGET_REFRESHES = new LongAdder();
+    /**
+     * Plans that took the BOUNDED allowance; the gate is
+     * {@link SirixVectorizedExecutor#boundedSelection}.
+     */
+    private static final LongAdder BOUNDED_PLANS = new LongAdder();
     /** The stripe at which the per-group charge is the flat figure: what a stride-free plan assumes. */
     private static final int FLAT_CHARGED_STRIDE = GroupTableSpill.WIDEST_CHARGED_STRIDE;
     /** Test seam: the clean-heap ceiling a refresh compares against; negative = the real one. */
@@ -13869,6 +13874,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     GroupPasses(final ProjectionIndexRegistry.Handle handle, final long fingerprint, final long budget,
         final int partitions, final int strideLanes, final boolean bounded) {
       this.bounded = bounded;
+      if (bounded) {
+        BOUNDED_PLANS.increment();
+      }
       this.strideLanes = strideLanes;
       this.handle = handle;
       this.fingerprint = fingerprint;
@@ -13899,6 +13907,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
      */
     static long budgetRefreshCount() {
       return BUDGET_REFRESHES.sum();
+    }
+
+    /** Plans that took the bounded allowance (test observability). */
+    static long boundedPlanCount() {
+      return BOUNDED_PLANS.sum();
     }
 
     /**
@@ -15960,7 +15973,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // agree are two expressions that can drift.
           final int strideLanes =
               NumericGroupAggTable.strideFor(aggColsFlat.length, true, compositeIdWidth, compactSums);
-          final boolean boundedBudget = cdBlock < 0 && limit >= 1 && orderPlan.kinds.length > 0 && !orderOnKeyLane;
+          final boolean boundedBudget =
+              cdBlock < 0 && boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderOnKeyLane;
           final long groupBudget = plannedGroupBudget(strideLanes, boundedBudget);
           // Set when a key-ordered pass meets a ZERO group, which an identity-mode table cannot hold
           // (acquireZero refuses one) and whose side slot carries no identity lanes to order on.
@@ -16606,7 +16620,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final int slotWidth = 2 + 4 * aggColsFlat.length;
         final int strideLanes = NumericGroupAggTable.strideFor(aggColsFlat.length, true, 0);
         final boolean boundedBudget =
-            cdBlock < 0 && limit >= 1 && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
+            cdBlock < 0 && boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
         final long groupBudget = plannedGroupBudget(strideLanes, boundedBudget);
         final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
         long[] missingMergedFlatHeld = null;
@@ -17834,7 +17848,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         : null;
     final int slotWidth = 2 + 4 * aggCols.length;
     final int strideLanes = NumericGroupAggTable.strideFor(aggCols.length, true, 0);
-    final boolean boundedBudget = limit >= 1 && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
+    final boolean boundedBudget = boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
     final long groupBudget = plannedGroupBudget(strideLanes, boundedBudget);
     final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
     final NumericGroupAggTable[] partTables = new NumericGroupAggTable[partitions];
@@ -18359,7 +18373,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int slotWidth = 2 + 4 * aggCols.length;
       final int strideLanes = NumericGroupAggTable.strideFor(aggCols.length, false, 0);
       final boolean boundedBudget =
-          cdBlockIdx < 0 && limit >= 1 && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
+          cdBlockIdx < 0 && boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
       final long groupBudget = plannedGroupBudget(strideLanes, boundedBudget);
       final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
       long[] missingMergedHeld = null;
@@ -20977,6 +20991,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * group value 0, or the string arm's freak zero hash); every other key has a live table entry by
    * construction, so {@code acquire} always FINDS rather than creates.
    */
+  /**
+   * Whether {@code selectionLimit} caps the groups a grouped arm keeps: at least one winner, and NOT
+   * the {@link Long#MAX_VALUE} sentinel the dispatcher hands the flat arms for an uncapped distinct,
+   * transformed-key or predicate-tree query (see {@code selLimit}). Under that sentinel every group
+   * is a winner: each partition selector is sized to its candidates and a retired partition copies
+   * every stripe out before its table is released, so the groups of every completed partition stay
+   * resident across passes. The BOUNDED budget ({@link GroupTableSpill#boundedGroupBudget}) plans
+   * three quarters of the headroom on the premise that a completed partition is selected and RELEASED
+   * — false here — so an unbounded selection keeps the shared share. The composite and string arms
+   * read the request's own limit, which never carries the sentinel; the flat arms read this so the
+   * four gates cannot drift.
+   */
+  static boolean boundedSelection(final long selectionLimit) {
+    return selectionLimit >= 1L && selectionLimit != Long.MAX_VALUE;
+  }
+
   /**
    * Partitions the grouped scans split the key space into — the merge's unit of parallelism AND the
    * unit a hash-range pass is cut from, so it bounds the pass count too.
