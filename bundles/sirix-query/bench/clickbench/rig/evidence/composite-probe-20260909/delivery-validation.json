@@ -1,0 +1,23 @@
+{
+  "local_tests": {
+    "tests": 127,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "format_checks": [
+    ":sirix-core:spotlessJavaCheck",
+    ":sirix-query:spotlessJavaCheck"
+  ],
+  "format_checks_passed": true,
+  "paired_analysis_replay_exit_code": 3,
+  "family_analysis_replay_exit_code": 0,
+  "replayed_artifacts_byte_identical": true,
+  "verified_profile_archive_members": 60,
+  "verified_comparison_archive_members": 1120,
+  "original_steering_legs_verified": 20,
+  "all_43_answers_byte_identical_in_each_leg": true,
+  "additional_100m_runs_after_fixed_comparison": 0,
+  "pipeline_status": "not started; Firstmate delivery gate is committed work before no-mistakes",
+  "ci_status": "campaign branch runs no checks"
+}

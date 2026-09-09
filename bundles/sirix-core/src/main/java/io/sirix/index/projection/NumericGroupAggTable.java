@@ -478,14 +478,14 @@ public final class NumericGroupAggTable {
   }
 
   /**
-   * Allow incomplete local deduplication, before the first insertion into a dense worker table.
-   * After a sample with at least one distinct group per two acquisitions, limit each lookup to one
-   * bucket in a 32-KiB direct cache. With at least seven distinct groups per eight acquisitions,
-   * append without probing. A cache miss appends an accumulator and replaces only the index entry: the
-   * displaced record remains in storage. The partition merge MUST consume every storage record
-   * into an exact table before selection or emission. No group or aggregate contribution is lost.
-   * Low-cardinality samples retain ordinary probing. This mode is not suitable for distinct sinks
-   * or consumers requiring one local record per group.
+   * Allow incomplete local deduplication, before the first insertion into a dense worker table. After
+   * a sample with at least one distinct group per two acquisitions, limit each lookup to one bucket
+   * in a 32-KiB direct cache. With at least seven distinct groups per eight acquisitions, append
+   * without probing. A cache miss appends an accumulator and replaces only the index entry: the
+   * displaced record remains in storage. The partition merge MUST consume every storage record into
+   * an exact table before selection or emission. No group or aggregate contribution is lost.
+   * Low-cardinality samples retain ordinary probing. This mode is not suitable for distinct sinks or
+   * consumers requiring one local record per group.
    */
   NumericGroupAggTable allowPartialGroups() {
     if (probeIndex == null || size != 0 || hasZeroKey || released()) {
@@ -949,9 +949,13 @@ public final class NumericGroupAggTable {
         if (size < PARTIAL_PROBE_SAMPLE / 2) {
           partialProbeBudget = -1;
         } else {
-          partialProbeMask = size >= PARTIAL_PROBE_SAMPLE * 7 / 8 ? -1 : Math.min(mask, 4_095);
+          partialProbeMask = size >= PARTIAL_PROBE_SAMPLE * 7 / 8
+              ? -1
+              : Math.min(mask, 4_095);
           recycleProbeIndex(probeIndex);
-          probeIndex = partialProbeMask < 0 ? NO_PROBE_CACHE : new long[][] {new long[partialProbeMask + 1]};
+          probeIndex = partialProbeMask < 0
+              ? NO_PROBE_CACHE
+              : new long[][] {new long[partialProbeMask + 1]};
         }
       }
       return handle;
@@ -966,8 +970,8 @@ public final class NumericGroupAggTable {
         final int handle = (int) entry - 1;
         final long[] chunk = storage[handle >>> chunkBucketShift];
         final int offset = (handle & chunkBucketMask) * stride;
-        if (chunk[offset] == key
-            && (idWidth == 0 || identityMatches(chunk, offset + 1 + idOffsetFromAcc, identity, identityOffset, idWidth))) {
+        if (chunk[offset] == key && (idWidth == 0
+            || identityMatches(chunk, offset + 1 + idOffsetFromAcc, identity, identityOffset, idWidth))) {
           return handle;
         }
       }

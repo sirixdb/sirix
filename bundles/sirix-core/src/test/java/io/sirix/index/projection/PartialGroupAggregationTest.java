@@ -20,7 +20,11 @@ final class PartialGroupAggregationTest {
       final NumericGroupAggTable partial = table(compact, 16).useDenseIndex().allowPartialGroups();
       final SplittableRandom random = new SplittableRandom(713);
       for (int row = 0; row < 120_000; row++) {
-        final int group = row < 20_000 ? row : row < 80_000 ? random.nextInt(20_000) : row % 2;
+        final int group = row < 20_000
+            ? row
+            : row < 80_000
+                ? random.nextInt(20_000)
+                : row % 2;
         fold(expected, group, row, compact);
         fold(partial, group, row, compact);
       }
@@ -111,8 +115,7 @@ final class PartialGroupAggregationTest {
   @Test
   void spillsAndFinalWorkerRecordsPreservePassOwnershipAndContributions() {
     final NumericGroupAggTable expected = table(true, 16);
-    final GroupTableSpill spill = new GroupTableSpill(16, 60, hint -> table(true, hint),
-        30_000, 4, 12, 100_000, true);
+    final GroupTableSpill spill = new GroupTableSpill(16, 60, hint -> table(true, hint), 30_000, 4, 12, 100_000, true);
     final NumericGroupAggTable first = spill.freshLocal();
     final int[] expectedPartitions = new int[30_000];
     Arrays.fill(expectedPartitions, -1);
@@ -136,8 +139,8 @@ final class PartialGroupAggregationTest {
     int groups = 0;
     for (int partition = 4; partition < 12; partition++) {
       final NumericGroupAggTable merged = spill.takeOrCreate(partition, () -> table(true, 16));
-      NumericGroupAggTable.mergePartitionIndexed(new NumericGroupAggTable[] {last}, new int[][][] {index},
-          partition, merged);
+      NumericGroupAggTable.mergePartitionIndexed(new NumericGroupAggTable[] {last}, new int[][][] {index}, partition,
+          merged);
       assertFalse(merged.usesPartialGroups());
       groups += merged.size();
       for (int group = 0; group < 30_000; group++) {
@@ -180,7 +183,8 @@ final class PartialGroupAggregationTest {
   }
 
   private static NumericGroupAggTable table(final boolean compact, final int hint) {
-    return compact ? NumericGroupAggTable.sumsOnly(1, hint, true, 1L, 2)
+    return compact
+        ? NumericGroupAggTable.sumsOnly(1, hint, true, 1L, 2)
         : new NumericGroupAggTable(1, hint, true, 1L, 2);
   }
 
@@ -189,7 +193,9 @@ final class PartialGroupAggregationTest {
   }
 
   private static long[] identity(final int group) {
-    return new long[] {group % 17 == 0 ? 1 : 0, group};
+    return new long[] {group % 17 == 0
+        ? 1
+        : 0, group};
   }
 
   private static int fold(final NumericGroupAggTable table, final int group, final long ordinal,

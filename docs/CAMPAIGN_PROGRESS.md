@@ -2819,3 +2819,49 @@ the fix (no campaign query orders on a sparse `SUM`), so no leg, pair or score i
 was run. The
 [defect report](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/SUM_ORDERING_DEFECT.md)
 keeps the baseline proof unchanged under a resolution note.
+
+## 2026-09-09 — MEASURED POSITIVE on the four-query family, suite UNRESOLVED: worker probing
+
+The parked adaptive worker-probing prototype was rebased onto landed campaign head
+`2016aa8d3`, preserving the pass-budget and sparse SUM fixes. A fresh full-suite 100M profile
+before candidate timing confirmed lookup shares q32/q18/q16/q31 = 46.1/38.3/31.4/18.4%, with
+worker acquisition 23.2/20.8/21.3/15.1%; exact merge and spill/copy remain material. q31 instead
+has column unpacking as its largest leaf (27.7%). These are inclusive CPU-sample fractions,
+not wall-time fractions; the [profile](../bundles/sirix-query/bench/clickbench/rig/evidence/composite-probe-20260909/PROFILE.md)
+reports attribution and overlap explicitly.
+
+Candidate `e8633fe92` over **ten prespecified balanced pairs**, with all 43 answers byte-identical
+in all twenty legs: **family benefit +0.181907 ln, 95% interval [+0.097559, +0.266254]**, saving
+**0.4716 hot seconds** across q16/q18/q31/q32. Delta = candidate minus baseline, negative improves:
+
+| Query | Baseline s | Candidate s | Delta s | Delta ln |
+|---|---:|---:|---:|---:|
+| q16 | 1.451900 | 1.423500 | -0.028400 | -0.019622 |
+| q31 | 0.934700 | 0.908100 | -0.026600 | -0.028255 |
+| q18 | 2.420500 | 2.320200 | -0.100300 | -0.042122 |
+| q32 | 3.591100 | 3.274800 | -0.316300 | -0.091908 |
+
+Rows are sorted by delta ln, largest regression first. Only q18/q32 have individually resolved
+nominal improvements; q16/q31 remain individually unresolved. The family is resolved under the
+rig's ordinary paired model: its detection floor is 0.117438 ln and its requirement at the observed
+effect is ten pairs, completed. **The upper-noise conservative estimate is twelve pairs and is not
+met.** The fixed ten-pair plan was not extended. The mechanism is retained under the stated
+resolved-positive-family rule. **Whole-suite benefit -0.245162 ln is UNRESOLVED**, interval
+[-1.080341, +0.590016], despite a descriptive 0.5521-second suite saving. No new rank or parity is
+claimed. The 0.181907-ln family point estimate is about one quarter of the earlier 0.721-ln working
+hypothesis; saved probes do not remove record initialization, exact merging, or stripe copying.
+
+127 local tests pass with no skips, including the unchanged, enabled sparse SUM regression.
+The [complete study](../bundles/sirix-query/bench/clickbench/rig/evidence/composite-probe-20260909/RESULT.md)
+retains the fresh profile, fixed plan, all-query deltas, runtime provenance, byte proofs, and verified
+raw archives. The twenty original `rig/legs/query-SEGCP-P*.json` legs carry `steering` provenance.
+Every launch passed the exclusive lease, canonical envelope, 26-GiB memory, cooldown and pinned
+50-W MSR gates; platform limits moved 57 times over eighteen legs and remain recorded conditions.
+
+**Allowance used: one profiling JVM and ten of the twelve-pair cap. The prescribed study is
+complete; no additional 100M collection is planned, including pipeline verification. Ask Firstmate
+before any new collection.** Remaining generic work should target intermediate partition indexing
+and stripe copying together with worker acquisition, with exact final merging and duplicate-heavy
+fallback preserved; q31's unpacking hotspot needs its own treatment. A candidate profile is still
+needed before attaching post-probing percentages to those costs. Campaign-branch delivery is
+pushed and locally validated when shipped, never CI green: that branch runs no checks.

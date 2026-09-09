@@ -168,6 +168,12 @@ regime is directly observed rather than inferred. The 24 `SEGHCB-P*` legs are th
 candidate arms of the bounded-allowance paired study
 ([`evidence/hicard-groupby-20260909/RESULT.md`](evidence/hicard-groupby-20260909/RESULT.md)); they
 carry `steering`, never rank, and only the study's paired interval — not any one of them — is a claim.
+The twenty `SEGCP-P*` legs likewise retain the ten fixed pairs of the
+[composite worker-probing study](evidence/composite-probe-20260909/RESULT.md): all 43 answer
+files match in every leg, the four-query family improves under the ordinary paired model,
+and the whole-suite score remains unresolved. Its conservative observed-effect estimate
+requires twelve pairs, which were not collected. These legs are steering evidence, not
+publication legs, and the completed plan must not be extended by a validation agent.
 Provenance also travels with the log, not only with the JSON: every `suite.log` the runner writes
 opens with a `# steering-only` line, so `mkleg.py` can record steering rather than merely failing to
 recognize it. No conversion or
