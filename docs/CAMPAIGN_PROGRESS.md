@@ -2801,3 +2801,21 @@ pairs have been consumed.** The
 its [arithmetic](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/PASS_BUDGET.md)
 and the [defect report](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/SUM_ORDERING_DEFECT.md)
 are retained; the 24 legs are `rig/legs/query-SEGHCB-P*.json` and carry `steering`.
+
+## 2026-09-09 — CORRECTNESS FIX, no performance claim: sparse `SUM` group ordering
+
+The pre-existing sparse `SUM` ordering defect left open in the entry above is fixed on its own
+branch, `fm/sirix-sparse-sum-ordering-1` (`de268a8c0`), separate from every measured candidate.
+Root cause: the in-kernel group ORDER BY comparator in `SirixVectorizedExecutor` grouped `sum`
+with `min`/`max`/`avg` and treated a group whose operands were all missing as EMPTY, but
+`fn:sum(())` is 0 — the route itself emits `"s":0` for those groups — so under `descending` the
+zero-sum groups sorted empty-least and were served first, without erroring. `sum` now always
+compares as a value; `min`/`max`/`avg` keep empty placement. `SparseSumOrderingOriginTest` is
+enabled as the regression: the 24,000-row sparse fixture ordered by `count`, `sum` and `avg`, plus
+a mixed fixture where `sum` under explicit `empty least` and `empty greatest` stays a value while
+`min`/`max`/`avg` keep empty placement — every query asserted byte-equal to the interpreter and
+served by the vectorized group route. The 43-answer gate cannot detect this case before or after
+the fix (no campaign query orders on a sparse `SUM`), so no leg, pair or score is claimed and none
+was run. The
+[defect report](../bundles/sirix-query/bench/clickbench/rig/evidence/hicard-groupby-20260909/SUM_ORDERING_DEFECT.md)
+keeps the baseline proof unchanged under a resolution note.
