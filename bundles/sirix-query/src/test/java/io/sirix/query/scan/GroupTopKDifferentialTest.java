@@ -15,6 +15,8 @@ import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -502,10 +504,33 @@ public final class GroupTopKDifferentialTest {
   void q28ShapeRegexHavingStrlenCastAvgAndDeferredMin() throws Exception {
     // The full Q28 composition: regex key + HAVING + strlen operand + cast-avg ordering +
     // a deferred string extremum whose pass-2 row matching must hash the TRANSFORMED key.
+    final long boundedBefore = SirixVectorizedExecutor.GroupPasses.boundedPlanCount();
     assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " where $u.name != \"\" "
         + "let $k := replace($u.name, \"^n(.).*$\", \"$1\"), $len := string-length($u.nick) group by $k "
         + "let $c := count($u) where $c > 100 let $l := xs:double(avg($len)) order by $l descending "
         + "return {\"k\": $k, \"l\": $l, \"c\": $c, \"m\": min($u.dept)}, 1, 25)");
+    assertTrue(SirixVectorizedExecutor.GroupPasses.boundedPlanCount() > boundedBefore,
+        "the q28-shaped finite selection after HAVING must take the bounded group plan");
+  }
+
+  @ParameterizedTest
+  @CsvSource(value = {"let $k := $u.k40 group by $k|{\"k\": $k, \"c\": $c}",
+      "let $k := $u.name group by $k|{\"k\": $k, \"c\": $c}",
+      "let $k := $u.k40, $d := $u.dept group by $k, $d|{\"k\": $k, \"d\": $d, \"c\": $c}",
+      "let $k := substring($u.ts, 1, 16) group by $k|{\"k\": $k, \"c\": $c}"}, delimiter = '|')
+  void havingSelectionBudgetTracksTheCapAcrossAllGroupArms(final String grouping, final String result)
+      throws Exception {
+    // Numeric, string, composite and packed-substring arms. The predicate tree keeps uncapped
+    // queries on the flat selection routes, where Long.MAX_VALUE means retaining every group.
+    final String uncapped = "for $u in " + SRC + " where ($u.amount > 100 or $u.k7 = 1) " + grouping
+        + " let $c := count($u) where $c > 1 order by $c descending return " + result;
+    final long boundedBefore = SirixVectorizedExecutor.GroupPasses.boundedPlanCount();
+    assertOrderedDifferentialServed("subsequence(" + uncapped + ", 1, 25)");
+    final long boundedAfter = SirixVectorizedExecutor.GroupPasses.boundedPlanCount();
+    assertTrue(boundedAfter > boundedBefore, "a finite selection after HAVING must be bounded: " + grouping);
+    assertOrderedDifferentialServed(uncapped);
+    assertEquals(boundedAfter, SirixVectorizedExecutor.GroupPasses.boundedPlanCount(),
+        "an uncapped selection must retain the shared budget: " + grouping);
   }
 
   @Test
