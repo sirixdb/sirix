@@ -167,6 +167,7 @@ class ScratchReleaseTest(unittest.TestCase):
             with resolvable_campaign_pointer(directory), \
                     patch('measure.ROOT', repository), patch('measure.RigLease'), \
                     patch('measure.require_no_benchmark'), patch('measure.verify_runtime'), \
+                    patch('measure.verify_scored_runtime'), \
                     patch('measure.verify_shared_dependencies'), patch('measure.verify_shared_harness'), \
                     patch('measure.runtime_for', side_effect=prepare), patch('measure.run_leg', side_effect=leg), \
                     contextlib.redirect_stdout(io.StringIO()):

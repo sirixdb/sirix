@@ -26,6 +26,7 @@ from runtime import prepare_revision
 from runtime import prepare_current
 from runtime import remove_source_worktree
 from runtime import verify_runtime
+from runtime import verify_scored_runtime
 from runtime import verify_shared_dependencies
 from runtime import verify_shared_harness
 from runtime import validate_environment
@@ -143,6 +144,8 @@ def compare(args):
             require_no_benchmark()
             baseline = runtime_for(args, 'baseline', output, classification)
             candidate = runtime_for(args, 'candidate', output, classification)
+            verify_scored_runtime(baseline)
+            verify_scored_runtime(candidate)
             if (baseline['java_version'] != candidate['java_version']
                     or baseline['jdk_sha256'] != candidate['jdk_sha256']):
                 raise ValueError('paired runtimes use different JDKs; this protocol requires the same JDK')
@@ -231,6 +234,8 @@ def run(args):
         else:
             runtime = prepare_current(output/'runtime', shlex.split(args.jvm_args),
                                       classify_target(args.db, declared=args.declare_envelope))
+        if not args.diagnostic:
+            verify_scored_runtime(runtime)
         plan = dict(runtime=runtime, protocol=protocol, diagnostic=args.diagnostic)
         overlay = (runtime['jvm_args']+args.diagnostic_arg+shlex.split(args.diagnostic_args)
                    if args.diagnostic else None)

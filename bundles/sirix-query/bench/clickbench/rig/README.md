@@ -174,10 +174,10 @@ files match in every leg, the four-query family improves under the ordinary pair
 and the whole-suite score remains unresolved. Its conservative observed-effect estimate
 requires twelve pairs, which were not collected. These legs are steering evidence, not
 publication legs, and the completed plan must not be extended by a validation agent.
-Provenance also travels with the log, not only with the JSON: every `suite.log` the runner writes
-opens with a `# steering-only` line, so `mkleg.py` can record steering rather than merely failing to
-recognize it. No conversion or
-assembly path produces a rankable leg, because no converter mints publication provenance. No
+Provenance also travels with the log: every `suite.log` the runner writes opens with a
+`# steering-only` line. Export additionally requires the complete runner receipt, its frozen
+runtime manifest and the matching suite-log hash; a marker alone cannot attest a build.
+No converter mints publication provenance. No
 cross-regime transfer to an uncapped publication run has been established by the quiet control.
 
 ## The campaign-identity contract
@@ -286,6 +286,22 @@ changes. `--revision COMMIT` prepares an isolated revision instead. A later comp
 use `--baseline-runtime MANIFEST --candidate-runtime MANIFEST`. Runtime hashes are verified, and so
 is the JVM envelope the manifest declares.
 
+Preparation forces `--rerun-tasks --no-build-cache` and records Gradle's actual compilation,
+resource-processing and JAR task states. Both engine Java compilers must execute; `UP-TO-DATE`,
+`FROM-CACHE` or a missing compilation is refused. The checkout HEAD and a digest of tracked and
+untracked, nonignored input files are captured before and after the build; a concurrent source
+change aborts preparation. These records are hashed into the frozen manifest.
+
+Every scored launch rechecks that on-disk manifest, its build records, frozen artifacts and its
+source checkout. A changed HEAD or input digest refuses with the mismatch named. Paired arms each
+verify their own build checkout, so different baseline/candidate revisions remain supported.
+Scored engine inputs must be committed; a build containing local edits is diagnostic-only. The
+explicit three-file measurement-harness overlay for historical revisions is the sole exception.
+Keep a prepared runtime's source checkout until its final launch; after a comparison releases its
+scratch, the recorded legs remain exportable but another collection requires preparation again.
+Older manifests without the build witness can still be inspected or used diagnostically; they
+cannot launch a scored leg or a paired comparison.
+
 `--db` decides which envelope that is, through the campaign-identity contract above. Every later
 round re-verifies against the envelope its run declared, and both arms of a comparison must declare
 the same envelope.
@@ -331,10 +347,14 @@ its JVM survives.
 The 100M database and both source corpora are irreplaceable and read-only for this campaign.
 Never run `load100m.sh`, rebuild projection indexes, shrink the query envelope, or delete shared
 diagnostics to make a run fit. `load1m.sh` and `seggate1m.sh` remain the correctness-validation
-entry points when a small-data window is authorized. `mkleg.py` is a historical log conversion
-utility; it is not the new measurement command and carries no uncertainty or protocol proof. It
-converts a log into a `steering` or `unknown` leg and never into a publication one, so `rank.py`
-refuses everything it writes; designating a leg publication is a deliberate curation of `legs/`.
+entry points when a small-data window is authorized. Export a completed measurement with
+`mkleg.py TAG RUN/leg/leg.json`. It checks the runtime/build provenance, successful verdict, exact
+log hash and all 43 timing triples before writing a new `legs/query-TAG.json`. Raw Java/Gradle
+logs and direct `--json` outputs lack this receipt and cannot be exported as scored artifacts.
+Unobserved `date`, `machine`, `load_time` and `data_size` stay null. The export retains `steering`
+scope; designating a leg publication is a deliberate curation of its observed regime in `legs/`.
+Existing historical legs keep their previously recorded provenance; they are not retroactively
+attested by this build safeguard.
 Five raw evidence archives were discarded from `evidence/`; what was dropped, what can no longer be
 replayed, and what cannot be recaptured are recorded in [`evidence/RETENTION.md`](evidence/RETENTION.md).
 Campaign context is in

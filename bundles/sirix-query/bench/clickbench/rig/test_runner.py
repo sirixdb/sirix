@@ -55,12 +55,15 @@ class TeardownWindow:
 class ObserverTest(unittest.TestCase):
     def test_full_leg_records_three_attempts_for_every_query(self):
         def collect(runtime, database, output, queries, protocol, lease):
+            output.mkdir(parents=True)
+            (output/'suite.log').write_text('fixture log')
             timings = {(q, attempt): float(attempt) for q in queries for attempt in (1, 2, 3)}
             return timings, {'gated_limits_uw': 50_000_000, 'changes': []}
 
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
-            with patch('runner.run_part', side_effect=collect) as collector:
-                result = run_leg({'runtime_id': 'frozen'}, directory, Path(directory)/'leg', {}, Mock())
+            with patch('runner.run_part', side_effect=collect) as collector, patch('runner.verify_scored_runtime'):
+                result = run_leg({'runtime_id': 'frozen', 'manifest_path': 'fixture-runtime.json'},
+                                 directory, Path(directory)/'leg', {}, Mock())
             self.assertEqual(collector.call_count, 1)
             self.assertEqual(list(collector.call_args.args[3]), list(range(43)))
             self.assertEqual(result['result'], [[1., 2., 3.]]*43)

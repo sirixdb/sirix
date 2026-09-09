@@ -15,6 +15,8 @@ from rig_lock import wait_for_quiet_java
 from runtime import command
 from runtime import validate_environment
 from runtime import validate_runtime
+from runtime import verify_scored_runtime
+from runtime import file_hash
 
 POWER_PATHS = [Path(f'/sys/class/powercap/intel-rapl:0/constraint_{i}_power_limit_uw') for i in (0, 1)]
 POWER_DOMAIN_GLOB = 'sys/class/powercap/intel-rapl*/constraint_*_power_limit_uw'
@@ -143,6 +145,8 @@ def run_part(runtime, database, output, queries, protocol, lease, *, diagnostic=
         raise RuntimeError('CPU policy changed after the collection plan was recorded')
     lease.verify()
     require_no_benchmark()
+    if not diagnostic:
+        verify_scored_runtime(runtime)
     argv = command(runtime, database, queries=queries, tries=tries)
     (output/'command.json').write_text(json.dumps(argv, indent=2)+'\n')
     (output/'start.json').write_text(json.dumps(before, indent=2)+'\n')
@@ -236,6 +240,7 @@ def run_part(runtime, database, output, queries, protocol, lease, *, diagnostic=
 
 
 def run_leg(runtime, database, output, protocol, lease):
+    verify_scored_runtime(runtime)
     output = Path(output)
     output.mkdir(exist_ok=False, parents=True)
     result = [[None]*3 for _ in range(43)]
@@ -244,6 +249,8 @@ def run_leg(runtime, database, output, protocol, lease):
         result[query][attempt-1] = seconds
     document = dict(result=result, rig=dict(scope='steering', complete=True, protocol=protocol,
                     run_id=str(uuid.uuid4()), runtime_id=runtime['runtime_id'], source_commit=runtime.get('source_commit'),
+                    runtime_manifest=runtime['manifest_path'],
+                    suite_log_sha256=file_hash(output/'suite/suite.log'),
                     observed_power=power, output=str(output.resolve())))
     (output/'leg.json').write_text(json.dumps(document, indent=2)+'\n')
     return document

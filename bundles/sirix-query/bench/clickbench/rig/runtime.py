@@ -70,6 +70,58 @@ def resolve_revision(reference):
                                    cwd=ROOT, text=True).strip()
 
 
+def source_identity(source):
+    """Bind a build to its checkout, including staged, unstaged and untracked inputs."""
+    source = Path(source)
+    head = subprocess.check_output(['git', 'rev-parse', '--verify', 'HEAD'], cwd=source, text=True).strip()
+    names = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+                                    cwd=source).split(b'\0')
+    modified = subprocess.check_output(['git', 'diff', '--name-only', '-z', 'HEAD', '--'], cwd=source).split(b'\0')
+    untracked = subprocess.check_output(['git', 'ls-files', '-z', '--others', '--exclude-standard'],
+                                        cwd=source).split(b'\0')
+    digest = hashlib.sha256()
+    for name in sorted(set(names)-{b''}):
+        path = source/os.fsdecode(name)
+        digest.update(name+b'\0')
+        if path.is_symlink():
+            digest.update(b'link\0'+os.fsencode(os.readlink(path))+b'\0')
+        if path.is_file():
+            digest.update(bytes.fromhex(file_hash(path)))
+        elif not path.exists():
+            digest.update(b'deleted\0')
+        else:
+            raise ValueError(f'cannot attest build input: {path}')
+    return dict(head=head, files_sha256=digest.hexdigest(),
+                modified=sorted(os.fsdecode(name) for name in set(modified+untracked)-{b''}))
+
+
+def verify_build_execution(runtime):
+    execution = runtime.get('build_execution', {})
+    if execution.get('rerun_tasks') is not True or execution.get('build_cache') is not False:
+        raise ValueError('runtime lacks a forced fresh build: prepare with --rerun-tasks --no-build-cache')
+    tasks = execution.get('tasks', {})
+    for name in (':sirix-core:compileJava', ':sirix-query:compileJava'):
+        if name not in tasks or tasks[name].get('no_source'):
+            raise ValueError(f'runtime build did not compile required task {name}')
+    for name, state in tasks.items():
+        if state.get('no_source') is True and state.get('skip_message') == 'NO-SOURCE':
+            continue
+        if (state.get('executed') is not True or state.get('did_work') is not True
+                or state.get('skipped') is not False or state.get('skip_message') is not None):
+            raise ValueError(f'runtime build task {name} did not execute freshly: {state}; prepare again')
+
+
+def finish_build(export, source, before):
+    after = source_identity(source)
+    if after != before:
+        raise ValueError(f'source changed during runtime build: before={before}, after={after}')
+    runtime = json.loads(Path(export).read_text())
+    verify_build_execution(runtime)
+    runtime.update(source_commit=before['head'], source_worktree=str(Path(source).resolve()),
+                   build_source=before)
+    return runtime
+
+
 def harness_provenance(source):
     return dict(measurement_harness_sha256={name: file_hash(Path(source)/BENCH_SOURCES/name)
                                            for name in HARNESS_SOURCES},
@@ -206,17 +258,19 @@ def prepare_revision(reference, output, extra_args=(), classification=None):
         for name in HARNESS_SOURCES:
             shutil.copyfile(ROOT/BENCH_SOURCES/name, source/BENCH_SOURCES/name)
         provenance = harness_provenance(source)
+        before = source_identity(source)
+        if before['head'] != commit:
+            raise ValueError(f'build checkout HEAD {before["head"]} does not match requested revision {commit}')
         export = output/'export.json'
         flags = CANONICAL_ARGS+list(extra_args)
         if any(any(character.isspace() for character in flag) for flag in flags):
             raise ValueError('Gradle JVM argument export requires arguments without embedded whitespace')
-        subprocess.run([str(source/'gradlew'), '--no-daemon', '--console=plain', '-I', str(RIG/'export-runtime.gradle'),
+        subprocess.run([str(source/'gradlew'), '--no-daemon', '--console=plain', '--rerun-tasks', '--no-build-cache',
+                        '-I', str(RIG/'export-runtime.gradle'),
                         ':sirix-query:exportRigRuntime', '-Prig.runtimeOut='+str(export),
                         '-Pclickbench.jvmArgs='+' '.join(flags)], cwd=source, stdout=log,
                        stderr=subprocess.STDOUT, check=True)
-    runtime = json.loads(export.read_text())
-    runtime['source_commit'] = commit
-    runtime['source_worktree'] = str(source)
+    runtime = finish_build(export, source, before)
     runtime.update(provenance)
     runtime['harness_overlay'] = 'current benchmark mains and process guard only; engine sources stay at source_commit'
     return freeze_runtime(runtime, output/'frozen', classification)
@@ -259,6 +313,7 @@ def freeze_runtime(runtime, output, classification=None):
     frozen['java_version'] = subprocess.check_output([frozen['java'], '-version'], stderr=subprocess.STDOUT, text=True)
     frozen['campaign_classification'] = classification
     frozen['envelope'] = envelope_for(classification, scan_jvm_arguments(frozen['jvm_args']))
+    frozen['manifest_path'] = str(output/'runtime.json')
     frozen['runtime_id'] = hashlib.sha256(json.dumps(frozen, sort_keys=True).encode()).hexdigest()
     validate_runtime(frozen)
     (output/'runtime.json').write_text(json.dumps(frozen, indent=2)+'\n')
@@ -296,14 +351,15 @@ def prepare_current(output, extra_args=(), classification=None):
     flags = CANONICAL_ARGS+list(extra_args)
     if any(any(character.isspace() for character in flag) for flag in flags):
         raise ValueError('Gradle JVM arguments cannot contain embedded whitespace')
+    before = source_identity(ROOT)
     with (output/'build.log').open('x') as log:
-        subprocess.run([str(ROOT/'gradlew'), '--no-daemon', '--console=plain', '-I', str(RIG/'export-runtime.gradle'),
+        subprocess.run([str(ROOT/'gradlew'), '--no-daemon', '--console=plain', '--rerun-tasks', '--no-build-cache',
+                        '-I', str(RIG/'export-runtime.gradle'),
                         ':sirix-query:exportRigRuntime', '-Prig.runtimeOut='+str(export),
                         '-Pclickbench.jvmArgs='+' '.join(flags)], cwd=ROOT, stdout=log,
                        stderr=subprocess.STDOUT, check=True)
-    runtime = json.loads(export.read_text())
-    runtime.update(source_commit=resolve_revision('HEAD'), source_worktree=str(ROOT),
-                   tracked_diff_sha256=hashlib.sha256(subprocess.check_output(['git', 'diff', 'HEAD', '--'], cwd=ROOT)).hexdigest(),
+    runtime = finish_build(export, ROOT, before)
+    runtime.update(tracked_diff_sha256=hashlib.sha256(subprocess.check_output(['git', 'diff', 'HEAD', '--'], cwd=ROOT)).hexdigest(),
                    source_status=subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True))
     runtime.update(harness_provenance(ROOT))
     return freeze_runtime(runtime, output/'frozen', classification)
@@ -394,6 +450,39 @@ def verify_runtime(runtime):
     for path, expected in runtime['artifact_sha256'].items():
         if artifact_hash(path) != expected:
             raise ValueError(f'runtime artifact changed after preparation: {path}')
+
+
+def verify_scored_runtime(runtime, *, check_source=True):
+    """A scored launch needs an on-disk freeze and a witnessed build of this source checkout.
+
+    Paired arms each name their own build checkout; neither is compared to the driver's HEAD.
+    Exporting an already completed leg checks the frozen evidence without requiring that its
+    scratch source checkout still exist. Collection always checks the checkout again.
+    """
+    manifest = runtime.get('manifest_path')
+    if not manifest or not Path(manifest).is_file():
+        raise ValueError('scored run requires an existing frozen runtime manifest; prepare the runtime again')
+    if json.loads(Path(manifest).read_text()) != runtime:
+        raise ValueError(f'frozen runtime manifest mismatch: {manifest}')
+    verify_runtime(runtime)
+    verify_build_execution(runtime)
+    built = runtime.get('build_source', {})
+    if not built.get('head') or not built.get('files_sha256') or built['head'] != runtime.get('source_commit'):
+        raise ValueError('runtime source identity does not match its recorded build HEAD')
+    allowed = {str(BENCH_SOURCES/name) for name in HARNESS_SOURCES} if runtime.get('harness_overlay') else set()
+    if not isinstance(built.get('modified'), list) or set(built['modified'])-allowed:
+        raise ValueError(f'build inputs do not match checked-out HEAD {built["head"]}: '
+                         f'uncommitted paths {built.get("modified")}; commit changes and prepare again')
+    if check_source:
+        checkout = Path(runtime['source_worktree'])
+        if not checkout.is_dir():
+            raise ValueError(f'build checkout is unavailable for source verification: {checkout}; prepare again')
+        current = source_identity(checkout)
+        if current['head'] != built['head']:
+            raise ValueError(f'runtime source HEAD mismatch: built {built["head"]}, checkout {current["head"]} '
+                             f'at {checkout}; prepare again')
+        if current != built:
+            raise ValueError(f'runtime source inputs changed since build at {checkout}; prepare again')
 
 
 def verify_shared_dependencies(baseline, candidate):
