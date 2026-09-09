@@ -6,6 +6,8 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
+
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -93,7 +95,7 @@ public final class GroupTableSpill {
   }
 
   /** Test seam: receives one increment per partial worker table handed out; {@code null} = off. */
-  private static volatile LongAdder partialWorkersForTesting;
+  private static volatile @Nullable LongAdder partialWorkersForTesting;
 
   /**
    * Test seam for the partial-grouping gate: while {@code counter} is installed, every worker table a
@@ -103,8 +105,8 @@ public final class GroupTableSpill {
    * @param counter the counter to install, or {@code null} to stop observing
    * @return the previous counter, for restoring in a finally block
    */
-  public static LongAdder setPartialWorkersForTesting(final LongAdder counter) {
-    final LongAdder previous = partialWorkersForTesting;
+  public static @Nullable LongAdder setPartialWorkersForTesting(final @Nullable LongAdder counter) {
+    final @Nullable LongAdder previous = partialWorkersForTesting;
     partialWorkersForTesting = counter;
     return previous;
   }
@@ -1077,7 +1079,7 @@ public final class GroupTableSpill {
     final NumericGroupAggTable table = adopt(factory.apply(workerTableHint()));
     if (partialGroups) {
       table.allowPartialGroups();
-      final LongAdder observer = partialWorkersForTesting;
+      final @Nullable LongAdder observer = partialWorkersForTesting;
       if (observer != null) {
         observer.increment();
       }

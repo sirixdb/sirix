@@ -64,8 +64,9 @@ head before work. Candidate engine `e8633fe92` adapts parked prototype `1703ebe2
 to that head. The landed pass-count budget and SUM ordering fix remain intact.
 Every paired estimate, interval, and 43/43 byte proof in this document applies
 to that measured candidate. The landed engine is that candidate plus the
-repository formatter's whitespace changes and the review corrections below; it
-is not source-identical to `e8633fe92`, and no further 100M run was made.
+repository formatter's whitespace changes, the review corrections below, and
+the static-analysis pass's nullness annotations on the test seam; it is not
+source-identical to `e8633fe92`, and no further 100M run was made.
 
 **Review corrections after measurement** (the no-mistakes review rounds on
 2026-09-09, validated with local fixtures only): a default-on kill switch,
