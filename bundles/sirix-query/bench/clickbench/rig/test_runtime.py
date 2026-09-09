@@ -220,17 +220,26 @@ class EnvelopeScopeTest(unittest.TestCase):
                     self.assertEqual(classify_target(database)['classification'], 'campaign')
             self.assertEqual(classify_target(self.scratch)['classification'], 'other')
 
-    def test_a_target_no_pointer_can_place_falls_back_to_the_campaign_envelope(self):
-        """The campaign envelope is safe on any database; the smaller one is not. So a box that has
-        never loaded the corpus still runs the documented scratch gate, at the campaign envelope."""
+    def test_a_target_no_pointer_can_place_is_neither_campaign_nor_other(self):
         with self.rig_environment():
             for database in (self.campaign/'db', self.scratch):
                 with self.subTest(database=database):
                     decided = classify_target(database)
                     self.assertEqual((decided['classification'], decided['decided_by']),
-                                     ('campaign', 'unresolved-pointer'))
+                                     ('unplaceable', 'unresolved-pointer'))
                     self.assertEqual(decided['pointer_state'], 'unset')
             self.assertEqual(classify_target(None)['classification'], 'campaign')
+
+    def test_the_documented_scratch_gate_still_runs_where_the_rig_can_place_nothing(self):
+        """A box that never loaded the corpus resolves no pointer at all. CANONICAL_ARGS are already
+        the campaign envelope, so asking for them decides nothing and the documented plain
+        `cold-rounds.sh <scratch-db>` must not need a flag to work as written."""
+        with self.rig_environment():
+            frozen = self.freeze('plain', CANONICAL_ARGS, classify_target(self.scratch))
+            self.assertEqual(frozen['envelope'], CAMPAIGN_ENVELOPE)
+            self.assertEqual(frozen['campaign_classification']['classification'], 'unplaceable')
+            verify_runtime(frozen)
+            self.assertIn(str(self.scratch.resolve()), command(frozen, self.scratch))
 
     def test_a_stale_pointer_is_recorded_apart_from_no_pointer_and_never_proves_a_target_unrelated(self):
         rotated = self.root/'rotated-away'
@@ -238,7 +247,7 @@ class EnvelopeScopeTest(unittest.TestCase):
         with self.rig_environment(pointer=str(rotated)):
             decided = classify_target(self.scratch)
             self.assertEqual((decided['classification'], decided['decided_by'], decided['pointer_state']),
-                             ('campaign', 'unresolved-pointer', 'stale'))
+                             ('unplaceable', 'unresolved-pointer', 'stale'))
             self.assertEqual(decided['campaign_pointer'], str(rotated))
             # A stale pointer still identifies its own database, and a resolved source still places
             # an unrelated one as a different database.
@@ -251,18 +260,34 @@ class EnvelopeScopeTest(unittest.TestCase):
 
     def test_a_small_envelope_over_the_campaign_database_is_refused_with_no_pointer_at_all(self):
         """The round-2 sequence: campaign database, no pointer resolves, EXTRA shrinking the heap and
-        arena. Two guards must hold. Classification cannot place the database, so it demands the
-        campaign envelope and the shrunk flags are refused; and a runtime frozen below the campaign
-        envelope for some other database cannot open this one either."""
+        arena. The rig cannot tell this from a scratch database, and guessing either way produces a
+        silently invalid campaign measurement, so it refuses and names the one way a person can take
+        that decision instead. A runtime frozen small for some other database cannot open it either."""
         with self.rig_environment():
-            with self.assertRaisesRegex(ValueError, 'envelope mismatch'):
-                self.freeze('campaign-unplaceable', SMALL_ARGS,
-                            classify_target(self.campaign/'db'))
+            with self.assertRaisesRegex(ValueError, 'cannot decide the JVM envelope'):
+                self.freeze('campaign-unplaceable', SMALL_ARGS, classify_target(self.campaign/'db'))
+            with self.assertRaisesRegex(ValueError, 'declare-envelope'):
+                self.freeze('scratch-unplaceable', SMALL_ARGS, classify_target(self.scratch))
             elsewhere = self.freeze('elsewhere', SMALL_ARGS,
                                     classify_target(self.scratch, declared=True))
             self.assertEqual(elsewhere['envelope'], SMALL_ENVELOPE)
             with self.assertRaisesRegex(ValueError, 'must not open'):
                 command(elsewhere, self.campaign/'db')
+
+    def test_a_pointer_that_resolves_later_refuses_the_small_runtime_it_was_prepared_for(self):
+        """A runtime may be prepared while nothing places its target and be run once a pointer does.
+        The binding alone accepts it -- same target -- so the run-time check must catch it, or a
+        campaign leg measured at a quarter of the heap would score."""
+        later = self.root/'loaded-after-preparation'
+        database = later/'db'
+        database.mkdir(parents=True)
+        with self.rig_environment():
+            declared = self.freeze('later', SMALL_ARGS, classify_target(database, declared=True))
+            self.assertIn(str(database.resolve()), command(declared, database))
+        with self.rig_environment(pointer=str(later)):
+            self.assertEqual(classify_target(database)['classification'], 'campaign')
+            with self.assertRaisesRegex(ValueError, 'campaign 100M database'):
+                command(declared, database)
 
     def test_an_explicit_declaration_opens_a_scratch_gate_but_never_the_campaign_database(self):
         with self.rig_environment():
