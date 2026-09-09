@@ -201,8 +201,15 @@ The pointer file wins because a shell can still be exporting `CB100M_DIR` from a
 since been replaced, while the file is rewritten by the load itself. A source *resolves* when the
 directory it names exists; one naming a directory that no longer exists is **stale**.
 
-**Matching.** A target is the campaign database when it is the same file as `<named>/db` for *any*
-consulted source, stale ones included — file identity when both paths exist, normalized paths
+**Matching.** Every path this contract compares or records — a target, a conclusion's database — is
+first made *canonical*: absolute, with every symlink resolved as far as the path exists. Operators
+keep a stable alias pointing at whichever directory the last load wrote, and an unresolved alias is a
+name that can come to mean a different database than the one a decision was reached about; a
+conclusion recorded through one would still "name" its target after the alias was repointed at the
+campaign corpus.
+
+A target is the campaign database when it is the same file as `<named>/db` for *any* consulted
+source, stale ones included — file identity when both canonical paths exist, canonical equality
 otherwise, so a load is recognised before it has created its database. Matching a stale source too
 is deliberate: a rotated pointer must never be able to demote a campaign run.
 

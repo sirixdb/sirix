@@ -18,6 +18,9 @@ from runtime import validate_runtime
 
 POWER_PATHS = [Path(f'/sys/class/powercap/intel-rapl:0/constraint_{i}_power_limit_uw') for i in (0, 1)]
 POWER_DOMAIN_GLOB = 'sys/class/powercap/intel-rapl*/constraint_*_power_limit_uw'
+# PF_EXITING: the task-flag bit the kernel sets on entry to do_exit, before any teardown that
+# can cost the observer its access to the task's counters.
+PF_EXITING = 0x4
 
 
 def temperature_paths():
@@ -42,12 +45,23 @@ def machine_settings():
     return settings
 
 
+def task_fields(path):
+    """A task's /proc/PID/stat, past the parenthesised command name a JVM's own may contain."""
+    return (path/'stat').read_text().rsplit(')', 1)[1].split()
+
+
+def leaving(fields):
+    """Whether the kernel already reports this task as on its way out: inside do_exit (PF_EXITING),
+    or exited and awaiting its parent (Z, X). Its counters are then gone rather than withheld."""
+    return fields[0] in ('Z', 'X') or bool(int(fields[6]) & PF_EXITING)
+
+
 def process_snapshot(process):
-    """Read live counters, distinguishing a normal exit race from a live denial."""
+    """Read live counters, distinguishing a child on its way out from a live denial."""
+    path = Path(f'/proc/{process.pid}')
     try:
-        path = Path(f'/proc/{process.pid}')
-        fields = (path/'stat').read_text().rsplit(')', 1)[1].split()
-        if fields[0] in ('Z', 'X'):
+        fields = task_fields(path)
+        if leaving(fields):
             return None
         return dict(cpu_s=(int(fields[11])+int(fields[12]))/os.sysconf('SC_CLK_TCK'),
                     minor_faults=int(fields[7]), major_faults=int(fields[9]),
@@ -57,9 +71,15 @@ def process_snapshot(process):
     except (FileNotFoundError, ProcessLookupError):
         return None
     except PermissionError:
-        # Linux may revoke /proc/PID/io access during teardown before removing PID.
-        # Never hide a denial while the observed child is still running.
-        if process.poll() is not None:
+        # Linux revokes /proc/PID/io the moment a task detaches its address space, which happens
+        # inside do_exit and long before the child is reaped -- so process.poll() is still None
+        # here, the main thread being busy draining the child's stdout. Ask the kernel what it now
+        # says about the task instead: a child that is leaving or already gone costs this one
+        # sample, not the leg. A live child withholding its counters is still a failed regime.
+        try:
+            if leaving(task_fields(path)):
+                return None
+        except (FileNotFoundError, ProcessLookupError):
             return None
         raise
 

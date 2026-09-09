@@ -106,6 +106,32 @@ class RigLockTest(unittest.TestCase):
         self.assertEqual(unrelated['classification'], 'other')
         self.assertEqual(unrelated['decided_by'], 'campaign-database')
 
+    def test_a_retargeted_symlink_never_carries_a_decision_onto_another_database(self):
+        """A conclusion is guarded by the database it names, so the name has to be one that cannot
+        come to mean a different database later. `load100m.sh` rewrites the campaign directory on
+        every reload and operators keep a stable alias pointing at the current one; a decision
+        recorded through that alias would still 'name' the target after the alias was repointed at
+        the campaign corpus, and would then apply an `other` verdict -- shared lease, no envelope
+        check, no legacy-process refusal -- to the 100M database itself."""
+        campaign = Path(self.directory.name)/'seg100m-20260909-1200'
+        scratch = Path(self.directory.name)/'scratch'
+        (campaign/'db').mkdir(parents=True)
+        (scratch/'db').mkdir(parents=True)
+        alias = Path(self.directory.name)/'current'
+        alias.symlink_to(scratch)
+        with patch.dict(os.environ, {CAMPAIGN_DIRECTORY: str(campaign)}, clear=True):
+            decision = classify_target(alias/'db')
+            self.assertEqual(decision['classification'], 'other')
+            child = self.lease_environment(decision)
+        self.assertEqual(child[CLASSIFIED_DATABASE], str(scratch/'db'),
+                         'the conclusion must name the database it was reached about')
+        alias.unlink()
+        alias.symlink_to(campaign)
+        with patch.dict(os.environ, child, clear=True):
+            reclassified = classify_target(alias/'db')
+        self.assertEqual(reclassified['classification'], 'campaign')
+        self.assertEqual(reclassified['decided_by'], 'campaign-database')
+
     def test_a_launcher_that_took_no_decision_leaves_the_child_to_make_the_first_one(self):
         """`rig_lock.py -- <command>` names no database, so it decided nothing. Its child is then the
         first process to decide, and it must see the operator's environment exactly as given."""
