@@ -167,13 +167,28 @@ cross-regime transfer to an uncapped publication run has been established by the
 `measure.py prepare --out FRESH_DIR` builds and freezes the current worktree, including local
 changes. `--revision COMMIT` prepares an isolated revision instead. A later comparison can
 use `--baseline-runtime MANIFEST --candidate-runtime MANIFEST`. Runtime hashes are verified, and so
-is the JVM envelope the manifest declares. `--db` decides which envelope that is: the campaign 100M
-database named by `CB100M_DIR`, and any preparation naming no database at all, pins the exact 6 GiB
-initial / 14 GiB maximum heap, 10 GiB arena, 5 GiB eager residency and disabled JVMCI compiler, and
-no `--jvm-args` may shrink it. Any other target — a 1M lane, a scratch database — declares whatever
-its own flags resolve to, so a general gate is not made to reserve the campaign's twenty gibibytes.
-Every later round re-verifies against the envelope its run declared, the campaign database refuses a
-runtime frozen at any other envelope, and both arms of a comparison must declare the same one.
+is the JVM envelope the manifest declares.
+
+`--db` decides which envelope that is, and the rig decides it from the database rather than from the
+caller's environment. It resolves the campaign 100M database through its own chain — the pointer file
+`load100m.sh` rewrites on every reload (`$CB_RIG_WORK/current-100m-dir.txt`, else
+`build/diagnostics/rig/`), then `CB100M_DIR` — and a target matching *either* is the campaign
+database, so a shell still exporting a rotated pointer cannot demote a campaign run. For the campaign
+database, and for a preparation naming no database at all, the exact 6 GiB initial / 14 GiB maximum
+heap, 10 GiB arena, 5 GiB eager residency and disabled JVMCI compiler are mandatory and no
+`--jvm-args` may shrink them. Any other resolved target — a 1M lane, a scratch database — declares
+whatever its own flags resolve to, so a general gate is not made to reserve the campaign's twenty
+gibibytes. When no pointer resolves at all, a named target cannot be told apart from the campaign
+database and the command refuses rather than guess: make a pointer resolvable, or pass
+`--declare-envelope` to assert the target is not the campaign database. Declaring it away *for* the
+campaign database is refused.
+
+The frozen manifest records that decision next to `envelope` as `campaign_classification` — the
+pointer consulted or an explicit `unset`, which source resolved it, and what it decided — and
+`runtime_id` hashes it, so `plan.json` and the cold-round stamp carry it too. Every later round
+re-verifies against the envelope its run declared. A runtime frozen below the campaign envelope may
+only open the database it was classified for, which holds with no pointer at all, and both arms of a
+comparison must declare the same envelope.
 Use `--baseline-jvm-arg=-Dproperty=value` (and candidate equivalent) for
 explicit mechanism ablations prepared from revisions; profiling options require diagnostics.
 Original classpath provenance also detects an external snapshot JAR changing in place between

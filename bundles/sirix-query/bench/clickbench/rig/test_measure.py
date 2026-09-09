@@ -20,7 +20,23 @@ from measure import owned_scratch
 from measure import run
 from rig_lock import HOST_FD
 from rig_lock import RigLease
+from runtime import CAMPAIGN_DIRECTORY
+from runtime import POINTER_FILE
+from runtime import RIG_WORK
 from runtime import ROOT
+
+
+@contextlib.contextmanager
+def resolvable_campaign_pointer(directory):
+    """Every collection entry point classifies its target before freezing a runtime, and refuses a
+    named database no campaign pointer can place. These fixtures use unrelated scratch databases, so
+    resolve the pointer to a campaign directory that is not theirs."""
+    work = Path(directory)/'rig-work'
+    work.mkdir(exist_ok=True)
+    (work/POINTER_FILE).write_text(str(Path(directory).resolve()/'campaign')+'\n')
+    with patch.dict(os.environ, {RIG_WORK: str(work)}):
+        os.environ.pop(CAMPAIGN_DIRECTORY, None)
+        yield
 
 
 def prepared_source(output, arm):
@@ -66,17 +82,18 @@ class ComparisonFailureTest(unittest.TestCase):
         database.mkdir()
         arguments = argparse.Namespace(
             out=str(output), db=str(database), lock_timeout=1, power_uw=50_000_000, cool_below=55.,
-            pairs=2, effect_ln=.5, seed=1, baseline='A', candidate='B',
+            pairs=2, effect_ln=.5, seed=1, baseline='A', candidate='B', declare_envelope=False,
             baseline_runtime=None, candidate_runtime=None, baseline_jvm_arg=[], candidate_jvm_arg=[])
 
-        def prepare(args, arm, out):
+        def prepare(args, arm, out, classification):
             prepared_source(out, arm)
             if arm == 'candidate':
                 raise RuntimeError('the candidate revision does not compile')
             return {'java_version': '25', 'jdk_sha256': {}}
 
         errors = io.StringIO()
-        with patch('measure.RigLease'), patch('measure.require_no_benchmark'), \
+        with resolvable_campaign_pointer(directory), \
+                patch('measure.RigLease'), patch('measure.require_no_benchmark'), \
                 patch('measure.runtime_for', side_effect=prepare), \
                 contextlib.redirect_stderr(errors):
             with self.assertRaises(RuntimeError):
@@ -126,7 +143,7 @@ class ScratchReleaseTest(unittest.TestCase):
             database.mkdir()
             legs = iter(range(1000))
 
-            def prepare(args, arm, out):
+            def prepare(args, arm, out, classification):
                 """Stands in for the Gradle build: a real registered worktree, frozen runtime beside it."""
                 prepared = Path(out)/('runtime-'+arm)
                 prepared.mkdir(parents=True)
@@ -146,8 +163,9 @@ class ScratchReleaseTest(unittest.TestCase):
                 out=str(Path(directory)/'comparison'), db=str(database), lock_timeout=1,
                 power_uw=50_000_000, cool_below=55., pairs=2, effect_ln=.5, seed=1,
                 baseline='A', candidate='B', baseline_runtime=None, candidate_runtime=None,
-                baseline_jvm_arg=[], candidate_jvm_arg=[])
-            with patch('measure.ROOT', repository), patch('measure.RigLease'), \
+                baseline_jvm_arg=[], candidate_jvm_arg=[], declare_envelope=False)
+            with resolvable_campaign_pointer(directory), \
+                    patch('measure.ROOT', repository), patch('measure.RigLease'), \
                     patch('measure.require_no_benchmark'), patch('measure.verify_runtime'), \
                     patch('measure.verify_shared_dependencies'), patch('measure.verify_shared_harness'), \
                     patch('measure.runtime_for', side_effect=prepare), patch('measure.run_leg', side_effect=leg), \
@@ -188,7 +206,8 @@ class HostLeaseTest(unittest.TestCase):
     def arguments(self, name, *, diagnostic):
         return argparse.Namespace(
             out=str(self.root/name), db=str(self.database), lock_timeout=0., power_uw=50_000_000,
-            cool_below=55., runtime=None, jvm_args='', diagnostic=diagnostic, tries=2 if diagnostic else 3,
+            cool_below=55., runtime=None, jvm_args='', declare_envelope=False,
+            diagnostic=diagnostic, tries=2 if diagnostic else 3,
             queries='27' if diagnostic else ','.join(map(str, range(43))),
             diagnostic_arg=['-Dsirix.projDiag=true'] if diagnostic else [], diagnostic_args='')
 
@@ -219,7 +238,8 @@ class HostLeaseTest(unittest.TestCase):
 
         prepared = dict(runtime_id='prepared', jvm_args=['-Xms6g'])
         announced = io.StringIO()
-        with patch('rig_lock.lock_paths', return_value=[(HOST_FD, self.lock)]), \
+        with resolvable_campaign_pointer(self.directory.name), \
+                patch('rig_lock.lock_paths', return_value=[(HOST_FD, self.lock)]), \
                 patch('measure.require_no_benchmark'), \
                 patch('measure.prepare_current', return_value=prepared), \
                 patch('measure.run_part', side_effect=observe), \

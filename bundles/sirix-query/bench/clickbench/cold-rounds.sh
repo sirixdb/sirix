@@ -20,13 +20,23 @@
 #   --out DIR         per-round JSON + logs, must not exist (default <db>-cold-results)
 #   --duckdb-cold S   DuckDB reference cold suite seconds (default 0.520)
 #   --duckdb-hot S    DuckDB reference hot suite seconds  (default 0.351)
+#   --declare-envelope  assert <sirix-db-dir> is NOT the campaign 100M database
+#                     and freeze the envelope EXTRA resolves to. Only needed
+#                     when no campaign pointer resolves; see below.
 #
-# The JVM arm is frozen at the JVM envelope this database calls for. Only the
-# campaign 100M database named by CB100M_DIR pins the campaign envelope, which
-# is never negotiable. For any other database -- a 1M or scratch gate is the
-# normal case -- EXTRA sizes the runtime, e.g.
+# WHICH JVM ENVELOPE THE ARM IS FROZEN AT
+# ---------------------------------------
+# The rig decides from the database, not from this script's environment. It
+# reads the campaign pointer file that load100m.sh writes
+# ($CB_RIG_WORK/current-100m-dir.txt, else build/diagnostics/rig/), then
+# CB100M_DIR. If <sirix-db-dir> is the campaign 100M database, the campaign
+# envelope is MANDATORY and EXTRA cannot shrink it. If it is some other
+# database, EXTRA sizes the runtime and the frozen runtime declares that
+# envelope for every round to verify:
 #   EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" ./cold-rounds.sh DB
-# and the frozen runtime declares that envelope for every round to verify.
+# If NEITHER pointer resolves the rig cannot tell the two apart and REFUSES
+# rather than guess. Then either make a pointer resolvable, or -- on a box that
+# has no campaign database at all -- pass --declare-envelope.
 #
 # WHY INTERLEAVED, AND WHY THE COOL GATE
 # --------------------------------------
@@ -58,7 +68,7 @@ python3 "$RIG/rig_lock.py" --check || exit 2
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../common" && pwd)/bench-common.sh"
 
 usage() {
-  sed -n '2,30p' "$0" >&2
+  sed -n '2,40p' "$0" >&2
   exit 2
 }
 
@@ -71,6 +81,7 @@ QUERIES=""
 OUT=""
 DUCKDB_COLD="0.520"
 DUCKDB_HOT="0.351"
+DECLARE_ENVELOPE=0
 ARM_NAMES=()
 ARM_PATHS=()
 
@@ -91,6 +102,7 @@ while [ "$#" -gt 0 ]; do
     --out)         OUT="${2:-}"; shift 2 ;;
     --duckdb-cold) DUCKDB_COLD="${2:-}"; shift 2 ;;
     --duckdb-hot)  DUCKDB_HOT="${2:-}"; shift 2 ;;
+    --declare-envelope) DECLARE_ENVELOPE=1; shift ;;
     -h|--help)     usage ;;
     *) die "unknown option: $1" ;;
   esac
@@ -106,9 +118,6 @@ OUT="${OUT:-${DB%/}-cold-results}"
 [ ! -e "${OUT}" ] || die "output already exists; choose a fresh --out directory"
 mkdir -p "${OUT}" || die "cannot create output directory: ${OUT}"
 
-QUERY_ARG=""
-[ -n "${QUERIES}" ] && QUERY_ARG=" --queries ${QUERIES}"
-
 if [ "${#ARM_NAMES[@]}" -eq 0 ]; then
   ARM_NAMES=("jvm")
   ARM_PATHS=("")
@@ -122,8 +131,9 @@ else
 fi
 
 if [ -z "${ARM_PATHS[0]}" ]; then
-  python3 "$RIG/measure.py" prepare --out "${OUT}/runtime" --db "${DB}" \
-    --jvm-args="${EXTRA:-}" > "${OUT}/runtime-prepare.log" 2>&1 \
+  PREPARE=(python3 "$RIG/measure.py" prepare --out "${OUT}/runtime" --db "${DB}" --jvm-args="${EXTRA:-}")
+  [ "${DECLARE_ENVELOPE}" -eq 1 ] && PREPARE+=(--declare-envelope)
+  "${PREPARE[@]}" > "${OUT}/runtime-prepare.log" 2>&1 \
     || die "runtime preparation failed; inspect ${OUT}/runtime-prepare.log"
 fi
 
@@ -132,32 +142,33 @@ run_arm() {  # run_arm <index> <round>
   local name="${ARM_NAMES[$idx]}" bin="${ARM_PATHS[$idx]}"
   local json="${OUT}/${name}-round-${round}.json"
   local logf="${OUT}/${name}-round-${round}.log"
+  local frozen="" cmd=()
 
   if [ -n "${bin}" ]; then
-    # shellcheck disable=SC2086  # QUERY_ARG is an intentional word split
-    "${bin}" "${DB}" --tries "${TRIES}" --json "${json}" ${QUERY_ARG} > "${logf}" 2>&1 \
-      || { echo "--- last 40 lines of ${logf} ---" >&2; tail -40 "${logf}" >&2;
-           die "arm '${name}' failed in round ${round}"; }
+    cmd=("${bin}" "${DB}" --tries "${TRIES}" --json "${json}")
+    [ -n "${QUERIES}" ] && cmd+=(--queries "${QUERIES}")
   else
-    python3 "$RIG/launch-runtime.py" --runtime "${OUT}/runtime/frozen/runtime.json" \
-        --db "${DB}" --tries "${TRIES}" --json "${json}" --queries "${QUERIES}" \
-        > "${logf}" 2>&1 \
-      || { echo "--- last 40 lines of ${logf} ---" >&2; tail -40 "${logf}" >&2;
-           die "the JVM arm failed in round ${round}"; }
+    frozen="${OUT}/runtime/frozen/runtime.json"
+    cmd=(python3 "$RIG/launch-runtime.py" --runtime "${frozen}" --db "${DB}"
+         --tries "${TRIES}" --json "${json}" --queries "${QUERIES}")
   fi
-  # Keep every native/JVM cold arm outside the campaign's published-board ranking, and tie a JVM
-  # round to the envelope its frozen runtime was validated against.
-  local frozen=""
-  [ -n "${bin}" ] || frozen="${OUT}/runtime/frozen/runtime.json"
-  python3 - "${json}" "${name}" "${round}" "${frozen}" <<'PYMETA' || die "cannot record cold-arm provenance"
+  "${cmd[@]}" > "${logf}" 2>&1 \
+    || { echo "--- last 40 lines of ${logf} ---" >&2; tail -40 "${logf}" >&2;
+         die "arm '${name}' failed in round ${round}"; }
+  # The only writer of cold-round provenance: it is the only path that reaches the native --arm
+  # binaries. It keeps every cold arm outside the campaign's published-board ranking and records
+  # what this round executed, plus the envelope and classification the JVM arm was frozen with.
+  python3 - "${json}" "${name}" "${round}" "${frozen}" "${cmd[@]}" <<'PYMETA' || die "cannot record cold-arm provenance"
 import json,sys
 from pathlib import Path
 path=Path(sys.argv[1])
 document=json.loads(path.read_text())
 stamp=dict(scope='steering', protocol='historical cold-round driver',
-           arm=sys.argv[2], round=int(sys.argv[3]))
+           arm=sys.argv[2], round=int(sys.argv[3]), command=sys.argv[5:])
 if sys.argv[4]:
-    stamp['runtime_id']=json.loads(Path(sys.argv[4]).read_text())['runtime_id']
+    frozen=json.loads(Path(sys.argv[4]).read_text())
+    stamp['runtime_id']=frozen['runtime_id']
+    stamp['campaign_classification']=frozen['campaign_classification']
 document.setdefault('rig',{}).update(stamp)
 path.write_text(json.dumps(document,indent=2)+'\n')
 PYMETA

@@ -1,4 +1,5 @@
 """Reject envelope substitution and mutable dependency contamination before querying."""
+import contextlib
 from pathlib import Path
 import os
 import sys
@@ -10,8 +11,9 @@ from runtime import CAMPAIGN_DIRECTORY
 from runtime import CAMPAIGN_ENVELOPE
 from runtime import CANONICAL_ARGS
 from runtime import MAIN
-from runtime import campaign_database
-from runtime import envelope_for
+from runtime import POINTER_FILE
+from runtime import RIG_WORK
+from runtime import classify_target
 from runtime import freeze_runtime
 from runtime import validate_runtime
 from runtime import verify_runtime
@@ -94,6 +96,21 @@ class RuntimeTest(unittest.TestCase):
         return dict(main_class=MAIN, java=sys.executable, classpath=['frozen'],
                     jvm_args=CANONICAL_ARGS+list(extra), envelope=CAMPAIGN_ENVELOPE)
 
+    def test_the_benchmark_command_binds_a_smaller_envelope_to_its_own_database(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory, \
+                patch.dict(os.environ, {RIG_WORK: directory}):
+            os.environ.pop(CAMPAIGN_DIRECTORY, None)
+            elsewhere = Path(directory)/'elsewhere'
+            elsewhere.mkdir()
+            small = dict(self.runtime(), envelope=dict(CAMPAIGN_ENVELOPE, maximum_heap=4 << 30),
+                         campaign_classification=dict(target=directory, classification='other'))
+            command(small, directory)
+            with self.assertRaisesRegex(ValueError, 'must not open'):
+                command(small, elsewhere)
+            unclassified = {key: value for key, value in small.items() if key != 'campaign_classification'}
+            with self.assertRaisesRegex(ValueError, 'must not open'):
+                command(unclassified, directory)
+
     def test_module_options_and_equivalent_heap_sizes(self):
         validate_runtime(self.runtime(['--add-modules', 'jdk.incubator.vector',
                                        '--enable-native-access=ALL-UNNAMED', '-Xmx14336m']))
@@ -162,32 +179,69 @@ class EnvelopeScopeTest(unittest.TestCase):
         (self.campaign/'db').mkdir(parents=True)
         self.scratch = self.root/'scratch'
         self.scratch.mkdir()
+        self.work = self.root/'work'
+        self.work.mkdir()
+
+    @contextlib.contextmanager
+    def rig_environment(self, *, pointer=None, campaign=None):
+        """The two places the rig names the campaign database, both empty unless a case sets them."""
+        with patch.dict(os.environ, {RIG_WORK: str(self.work)}):
+            os.environ.pop(CAMPAIGN_DIRECTORY, None)
+            if campaign is not None:
+                os.environ[CAMPAIGN_DIRECTORY] = campaign
+            target = self.work/POINTER_FILE
+            if pointer is None:
+                target.unlink(missing_ok=True)
+            else:
+                target.write_text(pointer+'\n')
+            yield
 
     def pointing_at_campaign(self, value=None):
-        return patch.dict(os.environ, {CAMPAIGN_DIRECTORY: str(self.campaign) if value is None else value})
+        return self.rig_environment(pointer=str(self.campaign) if value is None else value)
 
-    def test_only_the_campaign_database_pins_the_campaign_envelope(self):
-        with self.pointing_at_campaign():
-            self.assertTrue(campaign_database(self.campaign/'db'))
-            self.assertEqual(envelope_for(self.campaign/'db'), CAMPAIGN_ENVELOPE)
-            self.assertFalse(campaign_database(self.scratch))
-            self.assertIsNone(envelope_for(self.scratch))
-        # An unnamed target is treated as the campaign one; a stale or unset pointer is not a reason
-        # to refuse an unrelated small run.
-        self.assertEqual(envelope_for(None), CAMPAIGN_ENVELOPE)
-        with self.pointing_at_campaign(str(self.root/'rotated-away')):
-            self.assertFalse(campaign_database(self.scratch))
-            self.assertIsNone(envelope_for(self.scratch))
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(campaign_database(self.campaign/'db'))
-            self.assertIsNone(envelope_for(self.campaign/'db'))
+    def test_the_campaign_database_is_resolved_from_the_pointer_file_alone(self):
+        """The cold driver never sources rig.env, so a bare CB100M_DIR read cannot see the pointer
+        file load100m.sh writes. Classification must, or a campaign round on a box that only has the
+        pointer file silently loses its mandatory envelope."""
+        with self.rig_environment(pointer=str(self.campaign)):
+            decided = classify_target(self.campaign/'db')
+            self.assertEqual(decided['classification'], 'campaign')
+            self.assertEqual(decided['campaign_pointer'], str(self.campaign))
+            self.assertEqual(decided['pointer_source'], str(self.work/POINTER_FILE))
+            self.assertEqual(classify_target(self.scratch)['classification'], 'other')
+
+    def test_a_shell_holding_a_rotated_pointer_cannot_demote_the_campaign_database(self):
+        rotated = self.root/'rotated'
+        (rotated/'db').mkdir(parents=True)
+        with self.rig_environment(pointer=str(self.campaign), campaign=str(rotated)):
+            for database in (self.campaign/'db', rotated/'db'):
+                with self.subTest(database=database):
+                    self.assertEqual(classify_target(database)['classification'], 'campaign')
+            self.assertEqual(classify_target(self.scratch)['classification'], 'other')
+
+    def test_an_unclassifiable_named_target_is_refused_rather_than_guessed(self):
+        with self.rig_environment():
+            with self.assertRaisesRegex(ValueError, 'cannot classify'):
+                classify_target(self.campaign/'db')
+            with self.assertRaisesRegex(ValueError, 'cannot classify'):
+                classify_target(self.scratch)
+            # An unnamed preparation stays fail-closed rather than refusing.
+            self.assertEqual(classify_target(None)['classification'], 'campaign')
+
+    def test_an_explicit_declaration_opens_a_scratch_gate_but_never_the_campaign_database(self):
+        with self.rig_environment():
+            declared = classify_target(self.scratch, declared=True)
+            self.assertEqual((declared['classification'], declared['decided_by'], declared['campaign_pointer']),
+                             ('other', 'operator-declaration', 'unset'))
+        with self.rig_environment(pointer=str(self.campaign)):
+            with self.assertRaisesRegex(ValueError, 'cannot be declared away'):
+                classify_target(self.campaign/'db', declared=True)
 
     def test_a_symlinked_campaign_database_is_still_the_campaign_database(self):
         alias = self.root/'alias'
         alias.symlink_to(self.campaign/'db')
         with self.pointing_at_campaign():
-            self.assertTrue(campaign_database(alias))
-            self.assertEqual(envelope_for(alias), CAMPAIGN_ENVELOPE)
+            self.assertEqual(classify_target(alias)['classification'], 'campaign')
 
     def jdk(self):
         home = self.root/'jdk'
@@ -205,15 +259,17 @@ class EnvelopeScopeTest(unittest.TestCase):
         artifact.write_bytes(b'engine')
         return dict(main_class=MAIN, java=str(java), classpath=[str(artifact)])
 
-    def freeze(self, name, flags, envelope):
-        return freeze_runtime(dict(self.jdk(), jvm_args=list(flags)), self.root/('frozen-'+name), envelope)
+    def freeze(self, name, flags, classification):
+        return freeze_runtime(dict(self.jdk(), jvm_args=list(flags)), self.root/('frozen-'+name),
+                              classification)
 
     def test_a_small_cold_round_freezes_verifies_and_launches_at_its_own_envelope(self):
         """The cold gate over a scratch or 1M database used to be unable to prepare at all: EXTRA is
         append-only, so shrinking the heap was refused as a 100M envelope mismatch."""
         with self.pointing_at_campaign():
-            frozen = self.freeze('small', SMALL_ARGS, envelope_for(self.scratch))
+            frozen = self.freeze('small', SMALL_ARGS, classify_target(self.scratch))
             self.assertEqual(frozen['envelope'], SMALL_ENVELOPE)
+            self.assertEqual(frozen['campaign_classification']['classification'], 'other')
             verify_runtime(frozen)
             argv = command(frozen, self.scratch)
             self.assertEqual(argv[1:1+len(SMALL_ARGS)], SMALL_ARGS)
@@ -221,31 +277,39 @@ class EnvelopeScopeTest(unittest.TestCase):
 
     def test_a_campaign_round_refuses_every_attempt_to_shrink_the_envelope(self):
         with self.pointing_at_campaign():
-            envelope = envelope_for(self.campaign/'db')
-            self.assertEqual(envelope, CAMPAIGN_ENVELOPE)
+            decided = classify_target(self.campaign/'db')
+            self.assertEqual(decided['classification'], 'campaign')
             with self.assertRaisesRegex(ValueError, 'envelope mismatch'):
-                self.freeze('campaign-small', SMALL_ARGS, envelope)
+                self.freeze('campaign-small', SMALL_ARGS, decided)
             for index, override in enumerate(('-Xmx10g', '-Xms1g', '-Dsirix.offheap.bytes=1',
                                               '-XX:+UseJVMCICompiler')):
                 with self.subTest(override=override), self.assertRaisesRegex(ValueError, 'envelope mismatch'):
-                    self.freeze(f'campaign-override-{index}', CANONICAL_ARGS+[override], envelope)
-            frozen = self.freeze('campaign', CANONICAL_ARGS, envelope)
+                    self.freeze(f'campaign-override-{index}', CANONICAL_ARGS+[override], decided)
+            frozen = self.freeze('campaign', CANONICAL_ARGS, decided)
             self.assertEqual(frozen['envelope'], CAMPAIGN_ENVELOPE)
             verify_runtime(frozen)
 
+    def test_a_preparation_naming_no_database_freezes_the_campaign_envelope(self):
+        with self.rig_environment():
+            unnamed = self.freeze('unnamed', CANONICAL_ARGS, None)
+            self.assertEqual(unnamed['envelope'], CAMPAIGN_ENVELOPE)
+            self.assertEqual(unnamed['campaign_classification']['decided_by'], 'unnamed-target')
+            with self.assertRaisesRegex(ValueError, 'envelope mismatch'):
+                self.freeze('unnamed-small', SMALL_ARGS, None)
+
     def test_the_campaign_database_refuses_a_runtime_frozen_at_another_envelope(self):
         with self.pointing_at_campaign():
-            small = self.freeze('small', SMALL_ARGS, envelope_for(self.scratch))
-            with self.assertRaisesRegex(ValueError, 'campaign 100M database'):
+            small = self.freeze('small', SMALL_ARGS, classify_target(self.scratch))
+            with self.assertRaisesRegex(ValueError, 'must not open'):
                 command(small, self.campaign/'db')
-            campaign = self.freeze('campaign', CANONICAL_ARGS, CAMPAIGN_ENVELOPE)
+            campaign = self.freeze('campaign', CANONICAL_ARGS, classify_target(self.campaign/'db'))
             self.assertIn(str((self.campaign/'db').resolve()), command(campaign, self.campaign/'db'))
 
     def test_a_declared_envelope_is_enforced_for_every_later_round(self):
         """launch-runtime.py re-verifies each round against the envelope the run declared, so a
         manifest whose arguments no longer resolve to it can never launch."""
         with self.pointing_at_campaign():
-            frozen = self.freeze('small', SMALL_ARGS, envelope_for(self.scratch))
+            frozen = self.freeze('small', SMALL_ARGS, classify_target(self.scratch))
         for drift in ('-Xmx8g', '-Dsirix.offheap.bytes=10737418240'):
             with self.subTest(drift=drift), self.assertRaisesRegex(ValueError, 'envelope mismatch'):
                 validate_runtime(dict(frozen, jvm_args=frozen['jvm_args']+[drift]))
