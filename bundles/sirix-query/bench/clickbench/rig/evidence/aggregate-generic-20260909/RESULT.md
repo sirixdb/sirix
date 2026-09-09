@@ -15,7 +15,7 @@ For the requested q7–q18 and q28–q42 family together, preserving covariance 
 
 ## Per-query contributions and benefits
 
-Benefit is baseline minus candidate, the sign convention the rig's own `queries.csv` publishes and the only one used in this directory: **positive means the candidate is faster, negative means it is slower**. Rows are in `queries.csv` order, benefit ascending, so the largest regression is first. Contributions are means of per-leg ln contributions, not scores of averaged times. Per-query intervals and detection floors are exploratory, nominal and unadjusted for 43 comparisons. A nominal interval excluding zero alone is not labeled resolved when the observed magnitude is below its 80%-power floor.
+Benefit is baseline minus candidate in mean per-leg ln contribution, the sign convention the rig's own `queries.csv` publishes and the only one used in this directory: **positive means the candidate improved the query's score contribution, negative means it worsened it**. It is not a statement about the seconds columns: a mean of per-leg contributions and a mean of per-leg seconds can disagree in sign (q25 below). Rows are in `queries.csv` order, benefit ascending, so the largest regression is first. Contributions are means of per-leg ln contributions, not scores of averaged times. Per-query intervals and detection floors are exploratory, nominal and unadjusted for 43 comparisons. A nominal interval excluding zero alone is not labeled resolved when the observed magnitude is below its 80%-power floor.
 
 | Query | Baseline ln | Candidate ln | Benefit ln | 95% benefit interval | Baseline s | Candidate s | Verdict |
 |---|---:|---:|---:|---|---:|---:|---|
