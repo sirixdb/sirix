@@ -1,0 +1,57 @@
+{
+  "telemetry_samples": 21,
+  "duration_s": 10.311,
+  "cooldown_samples": 4,
+  "cooldown_s": 15.016,
+  "launch_recheck_C": 45.0,
+  "gated_msr_limits_uw": [
+    50000000
+  ],
+  "msr_limit_constant": true,
+  "mmio_changes_recorded": 0,
+  "max_package_C": 98.0,
+  "mean_package_C": 75.76,
+  "mean_reported_MHz": 2402.7,
+  "peak_rss_bytes": 5498507264,
+  "peak_cpu_s": 38.49,
+  "major_faults": 0,
+  "read_bytes": 6255591424,
+  "cpu0_throttle_delta": {
+    "core_throttle_count": 19,
+    "package_throttle_count": 109
+  },
+  "observer_issues": [],
+  "exit_code": 0,
+  "observed_platform_domains_uw": {
+    "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+      "76000000"
+    ],
+    "/sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw": [
+      "115000000"
+    ],
+    "/sys/class/powercap/intel-rapl-mmio:0/constraint_2_power_limit_uw": [
+      "215000000"
+    ],
+    "/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw": [
+      "50000000"
+    ],
+    "/sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw": [
+      "50000000"
+    ],
+    "/sys/class/powercap/intel-rapl:0/constraint_2_power_limit_uw": [
+      "215000000"
+    ],
+    "/sys/class/powercap/intel-rapl:0:0/constraint_0_power_limit_uw": [
+      "0"
+    ],
+    "/sys/class/powercap/intel-rapl:0:1/constraint_0_power_limit_uw": [
+      "0"
+    ],
+    "/sys/class/powercap/intel-rapl:1/constraint_0_power_limit_uw": [
+      "0"
+    ],
+    "/sys/class/powercap/intel-rapl:1/constraint_1_power_limit_uw": [
+      "238000000"
+    ]
+  }
+}

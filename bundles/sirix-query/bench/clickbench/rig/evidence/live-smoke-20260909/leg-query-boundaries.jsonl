@@ -1,0 +1,9 @@
+{"received_epoch": 1788938631.1885214, "received_monotonic": 910825.166351986, "line": "# q0 try 1: wall=0.050 s cpu=0.1 s util=1.6/20 gc=0 pauses 0.00 s"}
+{"received_epoch": 1788938631.1907163, "received_monotonic": 910825.168546208, "line": "# q0 try 2: wall=0.002 s cpu=0.0 s util=0.0/20 gc=0 pauses 0.00 s"}
+{"received_epoch": 1788938631.1920507, "received_monotonic": 910825.169880475, "line": "# q0 try 3: wall=0.001 s cpu=0.0 s util=0.0/20 gc=0 pauses 0.00 s"}
+{"received_epoch": 1788938631.6692846, "received_monotonic": 910825.647114921, "line": "# q19 try 1: wall=0.477 s cpu=3.8 s util=8.1/20 gc=0 pauses 0.00 s"}
+{"received_epoch": 1788938631.729522, "received_monotonic": 910825.707352369, "line": "# q19 try 2: wall=0.060 s cpu=0.6 s util=9.7/20 gc=0 pauses 0.00 s"}
+{"received_epoch": 1788938631.7968342, "received_monotonic": 910825.774664796, "line": "# q19 try 3: wall=0.067 s cpu=0.6 s util=8.5/20 gc=0 pauses 0.00 s"}
+{"received_epoch": 1788938633.0222673, "received_monotonic": 910827.000097616, "line": "# q39 try 1: wall=1.225 s cpu=11.7 s util=9.6/20 gc=1 pauses 0.06 s"}
+{"received_epoch": 1788938633.192243, "received_monotonic": 910827.170073578, "line": "# q39 try 2: wall=0.169 s cpu=1.5 s util=9.0/20 gc=0 pauses 0.00 s"}
+{"received_epoch": 1788938633.3024275, "received_monotonic": 910827.280258376, "line": "# q39 try 3: wall=0.109 s cpu=0.7 s util=6.3/20 gc=0 pauses 0.00 s"}

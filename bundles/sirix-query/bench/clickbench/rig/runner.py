@@ -137,8 +137,12 @@ def run_part(runtime, database, output, queries, protocol, lease, *, diagnostic=
         with (output/'suite.log').open('x') as log, (output/'query-boundaries.jsonl').open('x') as boundaries:
             log.write(steering_log_header(tries))
             log.flush()
-            process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                       text=True, env=lease.child_environment(), pass_fds=lease.pass_fds)
+            # The frozen manifest already records the campaign identity this runtime was
+            # classified and validated at. Handing the JVM that conclusion, rather than the pointers
+            # behind it, is what keeps the measured process from classifying itself differently.
+            process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                       env=lease.child_environment(runtime.get('campaign_classification')),
+                                       pass_fds=lease.pass_fds)
 
             def observe():
                 try:

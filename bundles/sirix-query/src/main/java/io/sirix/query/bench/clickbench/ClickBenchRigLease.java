@@ -22,6 +22,9 @@ import java.util.stream.Stream;
 final class ClickBenchRigLease implements AutoCloseable {
   private static final String CAMPAIGN_DIRECTORY = "CB100M_DIR";
   private static final String RIG_WORK = "CB_RIG_WORK";
+  private static final String CLASSIFICATION = "CB_RIG_CLASSIFICATION";
+  private static final String CLASSIFIED_DATABASE = "CB_RIG_CLASSIFIED_DB";
+  private static final String CAMPAIGN = "campaign";
   private static final String POINTER_FILE = "current-100m-dir.txt";
   private static final String RIG_MARKER = "bundles/sirix-query/bench/clickbench/rig/rig.env";
   private static final String DEFAULT_WORK = "bundles/sirix-query/build/diagnostics/rig";
@@ -48,6 +51,14 @@ final class ClickBenchRigLease implements AutoCloseable {
 
   /** One directory named as the campaign 100M database, and the source that named it. */
   record CampaignPointer(String named, String source) {
+  }
+
+  /**
+   * Whether a run's database is the campaign 100M one, which directory was named as that database
+   * ({@code unset} when none was), and what settled it: a pointer source, or the rig launcher whose
+   * lease this process runs under.
+   */
+  record Decision(boolean campaign, String named, String source) {
   }
 
   /**
@@ -97,6 +108,52 @@ final class ClickBenchRigLease implements AutoCloseable {
   }
 
   /**
+   * This run's campaign-identity decision. A rig launcher resolves identity once and exports the
+   * conclusion it reached; this process honours that conclusion and consults no pointer at all, so
+   * it cannot reach a different answer than the parent whose lease it holds. Deriving the answer is
+   * what a raw {@code java -cp} or Gradle run does, having no parent that decided for it.
+   */
+  static Decision decide(final Path database) throws IOException {
+    final Decision inherited = inheritedDecision(System.getenv(CLASSIFICATION), System.getenv(CLASSIFIED_DATABASE),
+        database);
+    return inherited != null
+        ? inherited
+        : decide(campaignPointers(), database);
+  }
+
+  /** The decision the documented pointer chain implies; the one place identity is derived. */
+  static Decision decide(final List<CampaignPointer> consulted, final Path database) throws IOException {
+    final CampaignPointer matched = campaignMatch(consulted, database);
+    final CampaignPointer announced = matched != null
+        ? matched
+        : consulted.isEmpty()
+            ? null
+            : consulted.get(0);
+    return new Decision(matched != null, announced == null
+        ? UNSET
+        : announced.named(), announced == null
+            ? UNSET
+            : announced.source());
+  }
+
+  /**
+   * The classification a rig launcher already took, or {@code null} when this process is the one
+   * deciding. It is honoured only for the database it names: a value held over from another target,
+   * or hand-set, must never silently reclassify this run. A non-campaign decision names no campaign
+   * directory, exactly as a derived one does not.
+   */
+  static Decision inheritedDecision(final String decided, final String named, final Path database) throws IOException {
+    if (decided == null || decided.isBlank() || named == null || named.isBlank()
+        || !sameDatabase(Path.of(named.strip()), database)) {
+      return null;
+    }
+    final boolean campaign = CAMPAIGN.equals(decided.strip());
+    return new Decision(campaign, campaign
+        ? named.strip()
+        : UNSET, CLASSIFICATION);
+  }
+
+  /**
    * The pointer naming {@code database} as the campaign 100M database, or {@code null}. A match
    * against any consulted source wins, including a stale one, so a rotated pointer can never demote a
    * campaign run to a shared lease.
@@ -121,52 +178,53 @@ final class ClickBenchRigLease implements AutoCloseable {
     if (campaign == null || campaign.isBlank() || database == null) {
       return false;
     }
-    final Path campaignDatabase = Path.of(campaign).resolve("db");
-    if (Files.exists(campaignDatabase) && Files.exists(database)) {
-      return Files.isSameFile(database, campaignDatabase);
+    return sameDatabase(Path.of(campaign).resolve("db"), database);
+  }
+
+  /** Whether two paths name one database, by the rule {@link #isCampaignDatabase} documents. */
+  static boolean sameDatabase(final Path left, final Path right) throws IOException {
+    if (left == null || right == null) {
+      return false;
     }
-    return campaignDatabase.toAbsolutePath().normalize().equals(database.toAbsolutePath().normalize());
+    if (Files.exists(left) && Files.exists(right)) {
+      return Files.isSameFile(left, right);
+    }
+    return left.toAbsolutePath().normalize().equals(right.toAbsolutePath().normalize());
   }
 
   static void holdForQueryProcess(final long arenaBytes, final Path database) throws IOException {
-    holdForQueryProcess(campaignPointers(), arenaBytes, database);
+    holdForQueryProcess(decide(database), arenaBytes, database);
   }
 
   /**
    * Exclusivity follows the database, never the JVM's size: only a query against the campaign 100M
    * database takes the host lease alone, and only that run must match the 100M envelope.
    */
-  static void holdForQueryProcess(final List<CampaignPointer> consulted, final long arenaBytes, final Path database)
+  static void holdForQueryProcess(final Decision decision, final long arenaBytes, final Path database)
       throws IOException {
-    final CampaignPointer matched = campaignMatch(consulted, database);
-    if (matched != null) {
+    if (decision.campaign()) {
       validateQueryEnvelope(arenaBytes);
     }
-    holdForProcess(consulted, matched, database, true);
+    holdForProcess(decision, database, true);
   }
 
   static void holdForLoadProcess(final Path database) throws IOException {
-    holdForLoadProcess(campaignPointers(), database);
+    holdForLoadProcess(decide(database), database);
   }
 
   /**
    * Only the campaign 100M load is exclusive; a 1M or unrelated load shares the host lease so the
    * parallel validation lanes keep running.
    */
-  static void holdForLoadProcess(final List<CampaignPointer> consulted, final Path database) throws IOException {
+  static void holdForLoadProcess(final Decision decision, final Path database) throws IOException {
     // Existing load wrappers retain their legacy shell lease. The JVM owns the host lease,
     // so losing that shell cannot expose a still-running loader to another large JVM.
-    holdForProcess(consulted, campaignMatch(consulted, database), database, false);
+    holdForProcess(decision, database, false);
   }
 
-  private static void holdForProcess(final List<CampaignPointer> consulted, final CampaignPointer matched,
-      final Path database, final boolean includeLegacy) throws IOException {
-    final boolean exclusive = matched != null;
-    final CampaignPointer announced = matched != null
-        ? matched
-        : consulted.isEmpty()
-            ? null
-            : consulted.get(0);
+  private static void holdForProcess(final Decision decision, final Path database, final boolean includeLegacy)
+      throws IOException {
+    final boolean exclusive = decision.campaign();
     if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("linux")) {
       if (exclusive) {
         System.out.println("# rig lease: NOT exclusive — process-owned flock leases require Linux. This run "
@@ -192,19 +250,14 @@ final class ClickBenchRigLease implements AutoCloseable {
         acquired.add(acquire(legacyLock, true, System.getenv("CB_RIG_LEGACY_LOCK_FD")));
       }
       processLeases = acquired;
-      // Both operands of the classification, plus which source named the campaign database: a shared
-      // mode against a 100M database means no consulted source placed it, and only the trio shows why.
+      // Both operands of the classification, plus what settled it: a shared mode against a 100M
+      // database means nothing placed it, and only the trio shows why. `via` names either the
+      // pointer source that derived the answer here or the rig launcher that decided it upstream.
       System.out.printf("# rig lease: pid=%d mode=%s db=%s campaign=%s via=%s host=%s%n", ProcessHandle.current().pid(),
           exclusive
               ? "exclusive"
               : "shared",
-          database.toAbsolutePath().normalize(), announced == null
-              ? UNSET
-              : announced.named(),
-          announced == null
-              ? UNSET
-              : announced.source(),
-          hostLock);
+          database.toAbsolutePath().normalize(), decision.named(), decision.source(), hostLock);
     } catch (final IOException | RuntimeException | Error failure) {
       for (final ClickBenchRigLease lease : acquired) {
         try {

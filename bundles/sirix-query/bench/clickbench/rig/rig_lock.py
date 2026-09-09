@@ -13,9 +13,8 @@ import subprocess
 import sys
 import time
 
-from runtime import CAMPAIGN_DIRECTORY
 from runtime import RIG_WORK
-from runtime import campaign_pointers
+from runtime import decided_environment
 
 HOST_FD = 'CB_RIG_HOST_LOCK_FD'
 LEGACY_FD = 'CB_RIG_LEGACY_LOCK_FD'
@@ -81,20 +80,20 @@ class RigLease:
             self.close()
             raise
 
-    def child_environment(self):
-        """Pin the campaign pointer this process resolved into every child, so a rig-launched JVM
-        classifies its database exactly as the launcher did instead of re-deriving it from whatever
-        the operator's shell happened to hold. The pointer that resolves wins, exactly as rig.env
-        selects it: pinning a stale one would erase the only source naming the live database and
-        hand the child a classification the parent never made."""
+    def child_environment(self, decision=None):
+        """Hand every child the campaign-identity conclusion this launcher already reached, never
+        the pointers behind it. A child that re-derives can disagree with its parent whenever the
+        two sources name different directories, and the disagreement runs in the dangerous
+        direction: a campaign run demoted to `other` takes a shared lease, skips the envelope check
+        and skips the legacy-process refusal.
+
+        A launcher that named no database took no decision. Its child is then the first process to
+        decide, and it resolves the operator's own environment unaltered -- which is why nothing is
+        exported here in that case rather than a pointer that could outrank the one it consults."""
         env = os.environ.copy()
         for key in (HOST_FD, LEGACY_FD):
             env.pop(key, None)
-        consulted = campaign_pointers()
-        placed = next((entry for entry in consulted if entry[2] == 'resolved'), None) or (
-            consulted[0] if consulted else None)
-        if placed:
-            env[CAMPAIGN_DIRECTORY] = placed[0]
+        env.update(decided_environment(decision))
         env.update({key: str(fd) for key, fd in self.descriptors.items()})
         return env
 

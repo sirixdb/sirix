@@ -36,7 +36,10 @@ the fast-tries pilot ran at 76 W throughout. The
 [live smoke](evidence/live-smoke-20260908/README.md) is one real leg taken to prove these gates fire,
 pass and release on hardware; the MMIO limit moved seven times inside its 170 seconds while the MSR
 limits held at 50 W, so gating on the platform value would have aborted it repeatedly. That record
-also states what one leg cannot show.
+also states what one leg cannot show. The
+[20260909 smoke](evidence/live-smoke-20260909/README.md) repeats the same gates at the head that
+made the measured JVM inherit its campaign-identity decision, and captures the JVM announcing
+`via=CB_RIG_CLASSIFICATION`; no platform limit moved during it.
 The cooldown gate requires three package-temperature readings below 55 C, five seconds apart,
 with a final launch recheck. Thermal throttle counts are recorded, not used as a pass/fail gate.
 The Java-process census cannot exclude every background workload: reserve the quiet window
@@ -169,6 +172,24 @@ mandatory JVM envelope, the legacy-process refusal — hangs off one question: *
 campaign one?* This section is the only definition of that answer. Every consumer listed at the end
 implements exactly this and nothing of its own.
 
+**Who decides.** Exactly one process resolves identity for a given database: the rig entry point
+that names it. That process exports its *conclusion* — the classification it reached and the
+canonical database that classification applies to — as `CB_RIG_CLASSIFICATION` and
+`CB_RIG_CLASSIFIED_DB`, and every child it launches consumes that instead of resolving anything.
+This is what makes pointer disagreement unreachable rather than repaired one arrangement at a time:
+a child that re-resolves can differ from its parent whenever the two sources name different
+directories, and the difference runs in the dangerous direction — a campaign run demoted to `other`
+takes a shared lease, skips the envelope check and skips the legacy-process refusal.
+
+A child honours an inherited conclusion **only for the database that conclusion names**. Against any
+other target it ignores the conclusion and resolves below, so a value held over from an earlier
+target — or hand-set — can never silently reclassify a different database.
+
+Resolution below therefore runs in two places only: the entry point that first names a database, and
+a raw `java -cp …` or `./gradlew` run, which has no parent that decided for it. `rig_lock.py --
+<command>` names no database and so decides nothing; it exports no conclusion, and its child is then
+the first process to decide, resolving the operator's environment exactly as given.
+
 **Resolution.** Two sources name the campaign database, most authoritative first:
 
 1. the pointer file `$CB_RIG_WORK/current-100m-dir.txt`, defaulting to
@@ -211,27 +232,29 @@ as part of every load, so this is the state of a checkout that has never loaded 
 **Evidence.** Every frozen runtime records the decision next to `envelope` as
 `campaign_classification`: the target, the consulted pointer and its source (or `unset`), whether
 that pointer was `resolved` or `stale`, the classification (`campaign`, `other` or `unplaceable`),
-and what decided it (`campaign-database`, `unnamed-target`, `unresolved-pointer` or
-`operator-declaration`).
+and what decided it (`campaign-database`, `inherited-decision`, `unnamed-target`,
+`unresolved-pointer` or `operator-declaration`).
 `runtime_id` hashes it, so `plan.json` and the cold-round stamp carry it too.
 
 **Consumers.** Each of these implements the contract above and defines no rule of its own:
 
 | consumer | what the contract obliges it to do |
 | --- | --- |
-| `runtime.classify_target` (identity) | decide `campaign`, `other` or `unplaceable`, and record the evidence; it never chooses an envelope |
+| `runtime.classify_target` (identity) | **inherit** a conclusion that names this database; otherwise decide `campaign`, `other` or `unplaceable` and record the evidence. It never chooses an envelope |
 | `runtime.envelope_for` (preparation) | campaign → mandatory envelope; other → its own flags; unplaceable → its own flags only when they are the campaign envelope, else refuse |
 | `runtime.command` (launch guard) | refuse a runtime below the campaign envelope against a database any source names as campaign **at run time**, including the target it was prepared for |
 | `runtime.command` (runtime/database binding) | a runtime below the campaign envelope may open only the database its manifest records — no pointer needed, so it holds where resolution fails |
-| `rig_lock.RigLease.child_environment` | export the pointer the parent *resolved* (never a stale one), so a child consumes the parent's resolution instead of re-deriving one from its own shell |
-| `ClickBenchRigLease` (both Java mains) | resolve the same chain in-process; exclusive lease, envelope validation and legacy-process refusal exactly on a match |
-| raw `java …ClickBenchRunMain` / `./gradlew :sirix-query:clickBench` | nothing of their own — they reach the contract through `ClickBenchRigLease`, so they are exclusive from any shell |
+| `rig_lock.RigLease.child_environment` | export the launcher's *conclusion*, never a pointer behind it; export nothing when the launcher named no database |
+| `runner.run_part` / `launch-runtime.py` (launch) | **inherit**: hand the measured JVM the conclusion the frozen manifest already records for this runtime |
+| `ClickBenchRigLease` (both Java mains) | **inherit** a conclusion that names this database; otherwise resolve the same chain in-process. Exclusive lease, envelope validation and legacy-process refusal exactly on a campaign verdict |
+| raw `java …ClickBenchRunMain` / `./gradlew :sirix-query:clickBench` | nothing of their own — with no parent conclusion present they are the one place that derives, through `ClickBenchRigLease` |
 | `rig.env` (`D100M`) | same two sources in the same precedence, skipping a stale pointer |
 | `cold-rounds.sh` | passes its `--db` and `--declare-envelope` through; states no rule itself |
 | `load100m.sh` | writes source 1 |
 
-Java runs standalone, so the contract has two readers; it has only one definition, and the JVM never
-trusts its caller to have classified correctly.
+Java runs standalone, so the contract has two readers; it has only one definition. The JVM trusts an
+inherited conclusion only for the database that conclusion names, and derives its own for anything
+else, so a hand-set variable cannot reclassify a run its launcher never placed.
 
 ## Entry points and ownership
 

@@ -16,6 +16,8 @@ BENCH_SOURCES = Path('bundles/sirix-query/src/main/java/io/sirix/query/bench/cli
 HARNESS_SOURCES = ('ClickBenchRunMain.java', 'ClickBenchLoadMain.java', 'ClickBenchRigLease.java')
 CAMPAIGN_DIRECTORY = 'CB100M_DIR'
 RIG_WORK = 'CB_RIG_WORK'
+CLASSIFICATION = 'CB_RIG_CLASSIFICATION'
+CLASSIFIED_DATABASE = 'CB_RIG_CLASSIFIED_DB'
 DEFAULT_WORK = Path('bundles/sirix-query/build/diagnostics/rig')
 POINTER_FILE = 'current-100m-dir.txt'
 CAMPAIGN_ENVELOPE = dict(initial_heap=6 << 30, maximum_heap=14 << 30, arena=10 << 30, eager=5 << 30,
@@ -110,6 +112,28 @@ def same_database(left, right):
     return os.path.normpath(left.absolute()) == os.path.normpath(right.absolute())
 
 
+def decided_environment(classification):
+    """The campaign-identity conclusion a launcher already reached, as the variables its children
+    read: the classification itself and the canonical database it applies to. Children consume this
+    instead of re-deriving one, so no disagreement between the two pointer sources can reclassify a
+    run after its parent has placed it. A decision that names no database cannot be guarded against
+    the wrong target and is therefore not exported at all."""
+    target = (classification or {}).get('target')
+    return {} if not target else {CLASSIFICATION: classification['classification'],
+                                  CLASSIFIED_DATABASE: str(target)}
+
+
+def inherited_decision(database):
+    """The classification a rig launcher already took for `database`, or None when this process is
+    the one deciding. The decision is honoured only for the database it names: a value held over
+    from another target, or hand-set, must never silently reclassify this one."""
+    decided = (os.environ.get(CLASSIFICATION) or '').strip()
+    named = (os.environ.get(CLASSIFIED_DATABASE) or '').strip()
+    if not decided or not named or not same_database(named, database):
+        return None
+    return decided, named
+
+
 def classify_target(database, *, declared=False):
     """Decide which JVM envelope a preparation for `database` must freeze, and record the evidence
     for that decision so the frozen manifest can show a classification happened and what it saw.
@@ -122,8 +146,11 @@ def classify_target(database, *, declared=False):
     ambiguity changes anything. A preparation naming no database at all stays campaign. `declared`
     is the operator asserting the target is not the campaign database; it is refused when a pointer
     says otherwise.
+
+    A launcher that already decided this database's identity exports its conclusion, and that
+    conclusion is final: no pointer is consulted at all, so this process cannot reach a different
+    answer than the parent whose lease it runs under.
     """
-    consulted = campaign_pointers()
     target = None if database is None else os.path.normpath(Path(database).absolute())
 
     def evidence(entry, classification, decided_by):
@@ -133,6 +160,14 @@ def classify_target(database, *, declared=False):
 
     if database is None:
         return evidence(None, 'campaign', 'unnamed-target')
+    inherited = inherited_decision(database)
+    if inherited is not None:
+        decided, named = inherited
+        if declared and decided == 'campaign':
+            raise ValueError(f'{target} is the campaign 100M database, decided by the rig launcher '
+                             f'that owns this lease; its envelope is mandatory and cannot be declared away')
+        return evidence((named, CLASSIFICATION, 'inherited'), decided, 'inherited-decision')
+    consulted = campaign_pointers()
     for entry in consulted:
         if same_database(Path(entry[0])/'db', database):
             if declared:
