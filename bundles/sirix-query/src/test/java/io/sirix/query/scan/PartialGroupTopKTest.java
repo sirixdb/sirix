@@ -63,7 +63,8 @@ final class PartialGroupTopKTest {
         final String expected = run(query, false);
         final long serves = SirixVectorizedExecutor.groupAggServedCount();
         assertEquals(expected, run(query, true), query);
-        assertTrue(SirixVectorizedExecutor.groupAggServedCount() > serves, "must serve the vectorized group route: " + query);
+        assertTrue(SirixVectorizedExecutor.groupAggServedCount() > serves,
+            "must serve the vectorized group route: " + query);
       }
       final String distinct = prefix + "let $n := count(distinct-values($r.value)) "
           + "order by $n descending return {\"id\":$id,\"bucket\":$bucket,\"n\":$n},1,13)";
@@ -80,7 +81,8 @@ final class PartialGroupTopKTest {
   private String run(final String text, final boolean vectorized) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
-        var chain = vectorized ? SirixCompileChain.createWithJsonStore(store)
+        var chain = vectorized
+            ? SirixCompileChain.createWithJsonStore(store)
             : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       SirixVectorizedExecutor executor = null;
       try {

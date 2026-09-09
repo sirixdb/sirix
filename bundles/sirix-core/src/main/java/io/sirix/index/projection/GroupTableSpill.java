@@ -968,8 +968,8 @@ public final class GroupTableSpill {
 
   /**
    * A spill that may relax local deduplication for dense, high-cardinality worker tables. Every
-   * partial record still reaches an exact partition table before any group is selected. Callers
-   * must exclude distinct sinks and any other state requiring unique local group handles.
+   * partial record still reaches an exact partition table before any group is selected. Callers must
+   * exclude distinct sinks and any other state requiring unique local group handles.
    */
   public GroupTableSpill(final int partitions, final int shift, final IntFunction<NumericGroupAggTable> factory,
       final long expectedGroups, final int passLo, final int passHi, final long budget, final boolean partialGroups) {

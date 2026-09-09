@@ -1,0 +1,4 @@
+# Preserve the rig's original CSV bytes for exact artifact replay.
+*.csv -text whitespace=cr-at-eol
+# This is verbatim Gradle output, including its incidental spaces.
+format-check.log -text -whitespace

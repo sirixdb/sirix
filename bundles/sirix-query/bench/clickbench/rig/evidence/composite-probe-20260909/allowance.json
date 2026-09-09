@@ -1,0 +1,11 @@
+{
+  "profiling_jvms": 1,
+  "paired_jvms": 20,
+  "completed_pairs": 10,
+  "authorized_maximum_pairs": 12,
+  "fixed_plan_complete": true,
+  "minimum_available_bytes": 29516599296,
+  "correct_answers_per_leg": 43,
+  "all_legs_byte_identical": true,
+  "further_100m_runs": "No additional run is prescribed by this fixed study; ask Firstmate for any new collection, including pipeline verification."
+}
