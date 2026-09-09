@@ -7,6 +7,8 @@ import tempfile
 import unittest
 
 from measurement import steering_log_header
+from rank import BOARDS
+from rank import PUBLICATION_SCOPE
 
 RIG = Path(__file__).resolve().parent
 
@@ -108,6 +110,52 @@ class PublicationProvenanceTest(unittest.TestCase):
         self.assertEqual(document['rig']['scope'], 'steering')
         self.assertEqual(document['rig']['widest_recorded_tries'], 9)
         self.assertRefused(ranking, 'steering')
+
+
+def curated_publication_legs():
+    for leg in sorted((RIG/'legs').glob('query-*.json')):
+        document = json.loads(leg.read_text())
+        if document.get('rig', {}).get('scope') == PUBLICATION_SCOPE:
+            yield leg.name, document
+
+
+class CuratedLegMetadataTest(unittest.TestCase):
+    """A curated leg is a ClickBench submission record: every field the run did not observe is null.
+
+    mkleg.py writes ``machine``, ``load_time`` and ``data_size`` null because a log records timings and
+    nothing else; a curated leg keeps that contract, so no leg claims hardware the rig never ran on.
+    The board's own machine filter is the consumer of ``machine``: none of these legs was collected on
+    a c6a.4xlarge, so the C6A board predicate rank.py applies to board entries must not admit one.
+    """
+
+    def test_there_are_curated_publication_legs(self):
+        self.assertIn('query-SEG7T.json', dict(curated_publication_legs()))
+
+    def test_curated_legs_do_not_claim_hardware_the_rig_never_observed(self):
+        for name, document in curated_publication_legs():
+            with self.subTest(leg=name):
+                self.assertIsNone(document['machine'], f'{name} claims a machine the run did not observe')
+                self.assertFalse(BOARDS['C6A'](document), f'{name} would pass the c6a.4xlarge board filter')
+
+    def test_curated_legs_leave_unobserved_load_fields_null(self):
+        for name, document in curated_publication_legs():
+            with self.subTest(leg=name):
+                self.assertIsNone(document['load_time'], f'{name} carries a load_time no leg run observes')
+                self.assertIsNone(document['data_size'], f'{name} carries a data_size no leg run observes')
+
+    def test_curated_leg_date_is_corroborated_by_its_measurement_record(self):
+        for name, document in curated_publication_legs():
+            with self.subTest(leg=name):
+                if document['date'] is not None:
+                    self.assertIn(document['date'], document['rig'].get('measured', ''),
+                                  f'{name} states a date its rig.measured record does not observe')
+
+    def test_seg7t_ranks_at_the_recorded_standing(self):
+        ranking = rank('SEG7T')
+        self.assertEqual(ranking.returncode, 0, ranking.stderr)
+        lines = ranking.stdout.splitlines()
+        hot = next(index for index, line in enumerate(lines) if line.startswith('[C6A    ] hot'))
+        self.assertIn('SEG7T      geomean=3.940 rank 15   Σln=58.96', lines[hot+1])
 
 
 if __name__ == '__main__':

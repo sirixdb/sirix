@@ -143,11 +143,12 @@ automated check re-derives the 0.896 s parent and 0.3715 s feature medians. Thos
 timings rest entirely on the committed transcript and the retained artifacts above.
 
 They are also **not a score**. Those are unscored single-query diagnostic medians;
-SEG4T's 1.319 s / 0.123 s and 2.302 ln remain q35's scored baseline, and the
-authoritative replacement must come from a separately scheduled full-suite campaign
-leg, not from this branch's diagnostic. A leg scores this rewrite only if its head
-contains the executor change. SEG5T does not — it measured `de2724c5c`, which
-predates `87a5f04be`, so its q35 row rescores the **unrewritten** query.
+q35's scored basis is owned by the segment-lane handoff's lever queue
+([§4 of the handoff](HANDOFF_SEGMENT_LANE_2026-09-06.md)), and it moves only with a
+full-suite campaign leg, never with this branch's diagnostic.
+A leg scores this rewrite only if its head contains the executor change. SEG5T does
+not — it measured `de2724c5c`, which predates `87a5f04be`, so its q35 row rescores
+the **unrewritten** query.
 
 The committed **SEG6T** leg is the first that does: its head is `aa4d81d54`,
 whose ancestry carries this executor change as `1cc53ec75` — the same rewrite
@@ -164,9 +165,11 @@ can afford: see Validation above.
 
 ## q16 is a different problem
 
-The measured SEG4T campaign table places q16 at 2.062 s / 0.193 s best (2.3231 ln),
-and q35 at 1.319 s / 0.123 s (2.3018 ln). These are the measured values used for
-prioritization; the older handoff projection is not a new measurement.
+When this capture was taken, the measured SEG4T campaign table placed q16 at
+2.062 s / 0.193 s best (2.3231 ln) and q35 at 1.319 s / 0.123 s (2.3018 ln); the
+older handoff projection is not a new measurement. The values that order the lever
+queue today are owned by [§4 of the handoff](HANDOFF_SEGMENT_LANE_2026-09-06.md), not
+by this document.
 
 q16 groups `(UserID, SearchPhrase)`. Its existing composite route canonicalizes the
 segment string component before aggregation. In the 1M baseline, the merge mapped
