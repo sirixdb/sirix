@@ -46,43 +46,29 @@ delivery constraints.
 | projection: SEG3TB + q17 (`86d839058`) + q27 (`be5e8232f`) | `be5e8232f` | same | ≈ 7.89 | ≈ 42 | ≈ 88.8 |
 | SEG4T (2026-09-07, measured) | segment lane at the handover (`54b0a059b`) | same | 5.179 | 17 | 70.72 |
 | SEG5T (2026-09-07, measured) | segment lane at `de2724c5c` | same | 4.714 | 16 | 66.68 |
-| **SEG6T (2026-09-08, measured)** | segment lane at `8df0532d6`; leg recorded by `aa4d81d54` | same — provenance from the `sirix-cb-score-3` investigation report, not from the leg JSON | **4.373** | **16** | **63.44** |
+| **SEG6T (measured at or before 2026-09-07T23:24Z)** | `8df0532d6`, attributed by the `sirix-cb-score-3` investigation report; absent from the leg artifact | `clickbench-seg100m-20260905-2328`, attributed by that report; absent from the leg artifact | **4.373** | **16** | **63.44** |
 
-**SEG6T is where we stand**, and rank 10 (Σln ≤ 51.99) needs ≈ **−11.45 ln** from it
-(63.442 − 51.99 = 11.452). `python3 rank.py SEG6T SEG5T` over the committed
-`rig/legs/query-SEG6T.json` reproduces its row on any box — recompute it from the leg rather than
-copying the number around. Only the row's three scored columns come from the artifact: `mkleg.py`
-fills a leg's machine, date and data size from the `N1FULL1` template, so a leg JSON's only
-self-describing content is its 43×3 timings. The build and database columns rest instead on the
-`sirix-cb-score-3` investigation report, which recorded the run against
-`clickbench-seg100m-20260905-2328` on this box. SEG6T therefore measures none of the string-decode
-lane's source changes, and §4's per-query lever values are still drawn from SEG4T.
+**SEG6T is where we stand.** Rank 10 (Σln ≤ 51.99) needs ≈ **−11.45 ln** from here
+(63.442 − 51.99 = 11.452). `python3 rank.py SEG6T SEG5T SEG4T` reproduces the scores
+from the committed timings. The campaign base's provenance attribution comes from the
+`sirix-cb-score-3` investigation report, not from the leg JSON: its `rig.regime` still accurately
+states which capture fields were absent. The collection-time bound above comes from the recording
+commit rather than the old template date. SEG6T predates the string-decode source changes and
+therefore measures none of them. SEG5T remains the historical `de2724c5c` snapshot at 66.676 ln;
+§4's per-query lever values are still drawn from SEG4T.
 
-**No row in this table is commensurable with a leg measured after 2026-09-08.** SEG6T is the newest
-of them and still predates both the box's current power cap and the harness variance
-characterization; [the rig README](../bundles/sirix-query/bench/clickbench/rig/README.md) owns that
-harness state and both of its figures. Compare a post-cap leg only against another post-cap leg —
-and note that "post-cap" names the MSR setting alone: the
-[power audit](../bundles/sirix-query/bench/clickbench/rig/evidence/power-audit-20260908/README.md)
-finds 16 of the 20 quiet-control legs were sampled under a platform-managed MMIO limit below that
-cap, so even that cohort was not one power regime.
+These publication records predate the 2026-09-08T03:58Z MSR cap change. Do not compare their
+scores directly with capped steering legs. Even later legs need observed power and thermal context:
+the calibration's MSR setting was 50/50 W, but its MMIO limits varied. The
+[rig README](../bundles/sirix-query/bench/clickbench/rig/README.md) owns the protocol and links
+the retained power audit.
 
-Read the Σln steps between these rows, and §4's per-lever Δln values, against what the harness can
-actually resolve. Every one of them is a difference taken from a **single** baseline/candidate leg
-pair, which is a historical observation rather than the repeated paired evidence the rig now
-collects. The ≈ **1.345 summed ln** figure is the estimated 80%-power detectable effect of a
-**ten-pair** null calibration — it is neither a physical floor nor a criterion a one-pair difference
-can be said to meet. The **3.023 ln** leg-to-leg range is unpaired spread across 20 independent legs
-and is too harsh a yardstick for a paired comparison. Neither number licenses a single-pair step, so
-§4's bold Δln values are not uniformly established results. Firstmate owns their requalification as
-a separate task; until it lands, treat §4's repeated single-query diagnostics as what carries a
-lever's attribution. A leg-to-leg Σln step attributes nothing by itself to any single lever landed
-between the two legs.
-
-**SEG5T is this handoff's historical snapshot**: rank 10 (Σln ≤ 51.99) was
-≈ **−14.7 ln** away from it (66.676 − 51.99 = 14.686). Its leg JSON is committed as
-`rig/legs/query-SEG5T.json`, so `python3 rank.py SEG5T SEG4T` reproduces both rows — and §4's
-per-query contributions — on any box.
+The calibration's **1.345-ln** minimum detectable effect is an 80%-power estimate from
+**ten A/A pairs**. It is neither the resolution of one pair nor a hardware floor transferable to
+§4's historical observations. The **3.023-ln** range instead describes the twenty individual legs.
+Neither figure qualifies a historical lever's single-pair delta. Firstmate owns that separate
+requalification; retain repeated single-query diagnostics as mechanism evidence, with their stated
+limits. A suite score change alone cannot attribute a gain to one of several intervening levers.
 
 SEG5T is **4.041 ln** better than SEG4T, and the two levers §4 records as acted on account for
 3.718 of that: q25 **−1.877 ln** and q28 **−1.840 ln**. SEG4T stays in the table as history — it is
@@ -198,13 +184,12 @@ Rule of thumb from the ledger: a lever that removes a whole-column canonicalisat
 
 ## 5. Operating protocol
 
-The committed SEG6T record (§2) supersedes this handoff's historical SEG5T snapshot and contains
-the q35 fold; the next leg scores whatever lands after it. No accepted performance result is added
-for the subsequent string-decode change. The rig's
+The committed SEG6T record supersedes this handoff's historical SEG5T snapshot; the campaign
+base's investigation-report attribution places it after the q35 fold (§2 and §4). No accepted
+performance result is added for the subsequent string-decode change. The rig's
 [`README.md`](../bundles/sirix-query/bench/clickbench/rig/README.md) is the operating manual for
-every command below and owns the measurement protocol — tag the next leg `SEG7T`, since `SEG2T`
-through `SEG6T` are taken (`rig/legs/`). Check existing names and obtain a Firstmate benchmark
-window before running any 100M work. The string-decode lane currently has no such authorization.
+the paired measurement command and every entry point below. `SEG6T` is already taken: check
+existing names and obtain a Firstmate window before any 100M work. A free lock is not authorization.
 
 Per lever, in this order — every step has been skipped once in this campaign and every skip cost
 more than the step:

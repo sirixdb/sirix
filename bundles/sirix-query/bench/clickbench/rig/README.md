@@ -6,26 +6,6 @@ Use a fixed paired comparison to measure a change. Each arm keeps the exact C6A 
 in `rank.py` and `board/data.generated.js`. Positive reported benefit means the candidate
 reduced sum-ln. Seconds and per-query ln contributions are reported alongside it.
 
-**Measurement status, 2026-09-08:** Firstmate's 20-leg instrument study reports two
-distinct figures for this harness, and they answer different questions. The **paired**
-(A/A) minimum detectable effect is approximately **1.345 summed ln**: that is the
-criterion for a difference read off one baseline/candidate leg pair, where pairing
-cancels the common-mode component. The **3.023 ln** leg-to-leg range on unchanged code
-is **unpaired** spread across those 20 independent legs — how far apart two unrelated
-legs can land, not what a paired comparison can resolve. Do not judge a paired result
-against the unpaired range. The box now runs at a flat
-**PL1 = PL2 = 50 W** power cap. `SEG6T` and every earlier campaign leg were measured
-before that cap, so they are **not commensurable** with anything measured after it —
-compare a post-cap leg only against another post-cap leg. The string-decode change
-makes no performance claim; its performance effect is unverified pending measurement
-resolution. Builds, tests and reviews are released, but this lane still needs explicit
-Firstmate authorization for any 100M work and its merge remains held. A free lock does
-not grant a benchmark window. See
-[the string-decode report](../../../../../docs/CLICKBENCH_STRING_DECODE_2026-09-08.md).
-
-The `STRDEC*` records in `legs/` preserve historical observations. They are not
-accepted performance evidence and must not be used to claim this lane's gain.
-
 Install the analysis dependency once in your Python environment:
 `python3 -m pip install -r bundles/sirix-query/bench/clickbench/rig/requirements.txt`.
 Set `CB100M_DIR` to the existing database's parent directory and reserve a quiet rig window.
@@ -83,6 +63,14 @@ candidate. The split protocol did not improve that result. Read the
 [variance study](../../../../../docs/CLICKBENCH_RIG_VARIANCE_2026-09-08.md) and
 [query attribution](../../../../../docs/CLICKBENCH_RIG_VARIANCE_ATTRIBUTION_2026-09-08.md)
 before investigating an individual timing anomaly.
+
+The campaign's string-decode change adds correctness coverage but no accepted performance
+result; see [its report](../../../../../docs/CLICKBENCH_STRING_DECODE_2026-09-08.md).
+The `STRDEC*` records in `legs/` retain historical observations and do not establish its gain.
+The 1.345-ln estimate above uses **ten paired differences**, not one baseline/candidate pair.
+It cannot qualify earlier single-pair lever claims or serve as a cross-regime noise floor.
+The 3.023-ln range describes the twenty individual legs in that same calibration.
+Reserve every 100M window through Firstmate; an available lock alone grants no window.
 
 [Additional tries](../../../../../docs/CLICKBENCH_RIG_FAST_TRIES_2026-09-08.md) reduced the
 component variance of four leading fast queries in a selected-query pilot, but q6 remained unstable.
