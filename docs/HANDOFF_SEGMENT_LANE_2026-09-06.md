@@ -192,10 +192,10 @@ per-cluster work did not already remove.
 
 ### 4a. Ranked levers
 
-| # | key = Σ payoff (ln) | k (input) | N (input) | touches | lever | profile the k comes from |
-|---|---:|---:|---:|---|---|---|
-| 1 | **0.514** | q22 1.52, q21 1.13 | 2 | q22 0.405, q21 0.109 | **Reuse the existing predicate row mask in the numeric aggregate arm** instead of re-evaluating the mask tree there. Not an aggregate-family lever: what it removes is a repeated predicate evaluation, not group aggregation. Must cover NOT/missing semantics, tails, multiplicity and stable document-order ties, and keep the path for callers without masks. [Evidence and remaining target](SEGMENT_LIKE_GROUPS.md). | q22: of 12,137 hot CPU samples, 68.9 % is predicate-mask evaluation, split 34.46 % in `rowKeepMasks` and **34.42 % repeated in `aggregateByGroupNumericFlat`** — the repeated half is what the lever removes. q21: 12.0 % + **11.6 % repeated**. |
-| 2 | **0.402** (0.767 ceiling) | 1.50 (2.17 ceiling) | 1 | q16 0.402 | **Composite group table / spill path** — attack `identityMatches` before canonicalisation. Aggregate family: deprioritized, and its `N` is 1 because only q16 was profiled — do not assume q14, q18, q31, q32 or q35 carry the same share. | q16 hot 100M capture: table and spill frames are 53.9 % inclusive with **`identityMatches` alone at 33.3 % self**; canonicalisation is 21.8 %. `k` uses the self time; 2.17 is the ceiling if the whole inclusive block went. [Dependent numeric group keys](DEPENDENT_NUMERIC_GROUP_KEYS.md). |
+| # | key = Σ payoff (ln) | k (input) | N (input) | lever | profile the k comes from |
+|---|---:|---:|---:|---|---|
+| 1 | **0.514** | q22 1.52, q21 1.13 | 2 | **Reuse the existing predicate row mask in the numeric aggregate arm** instead of re-evaluating the mask tree there. Not an aggregate-family lever: what it removes is a repeated predicate evaluation, not group aggregation. Must cover NOT/missing semantics, tails, multiplicity and stable document-order ties, and keep the path for callers without masks. [Evidence and remaining target](SEGMENT_LIKE_GROUPS.md). | q22: of 12,137 hot CPU samples, 68.9 % is predicate-mask evaluation, split 34.46 % in `rowKeepMasks` and **34.42 % repeated in `aggregateByGroupNumericFlat`** — the repeated half is what the lever removes. q21: 12.0 % + **11.6 % repeated**. |
+| 2 | **0.402** (0.767 ceiling) | 1.50 (2.17 ceiling) | 1 | **Composite group table / spill path** — attack `identityMatches` before canonicalisation. Aggregate family: deprioritized, and its `N` is 1 because only q16 was profiled — do not assume q14, q18, q31, q32 or q35 carry the same share. | q16 hot 100M capture: table and spill frames are 53.9 % inclusive with **`identityMatches` alone at 33.3 % self**; canonicalisation is 21.8 %. `k` uses the self time; 2.17 is the ceiling if the whole inclusive block went. [Dependent numeric group keys](DEPENDENT_NUMERIC_GROUP_KEYS.md). |
 
 ### 4b. Per-query evidence (SEG7T)
 
