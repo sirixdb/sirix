@@ -10,7 +10,6 @@ import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -27,7 +26,6 @@ final class SparseSumOrderingOriginTest {
   Path directory;
 
   @Test
-  @Disabled("Known baseline defect: rig/evidence/hicard-groupby-20260909/SUM_ORDERING_DEFECT.md")
   void sparseSumDescendingMatchesInterpreter() throws Exception {
     final StringBuilder rows = new StringBuilder(1_000_000).append('[');
     for (int row = 0; row < 24_000; row++) {
@@ -46,10 +44,21 @@ final class SparseSumOrderingOriginTest {
         var ctx = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('partial','records','" + rows + "')").evaluate(ctx);
+      // Group 0 has no operands; every other group mixes one present and one missing operand.
+      new Query(chain,
+          "jn:store('partial','mixed','[{\"g\":0},{\"g\":0},"
+              + "{\"g\":1,\"value\":10},{\"g\":1},{\"g\":2,\"value\":-5},{\"g\":2},"
+              + "{\"g\":3,\"value\":0},{\"g\":3}]',false())").evaluate(ctx);
       new Query(chain, """
           let $doc := jn:doc('partial','records')
           let $index := jn:create-projection-index($doc, '/[]',
             ('/[]/id', '/[]/bucket', '/[]/value'), ('long', 'long', 'long'))
+          return sdb:commit($doc)
+          """).evaluate(ctx);
+      new Query(chain, """
+          let $doc := jn:doc('partial','mixed')
+          let $index := jn:create-projection-index($doc, '/[]',
+            ('/[]/g', '/[]/value'), ('long', 'long'))
           return sdb:commit($doc)
           """).evaluate(ctx);
     }
@@ -64,25 +73,40 @@ final class SparseSumOrderingOriginTest {
           "let $s := sum($r.value) order by $s descending return {\"id\":$id,\"bucket\":$bucket,\"s\":$s,\"lo\":min($r.value),\"hi\":max($r.value)},1,17)",
           "let $a := avg($r.value) order by $a ascending empty greatest return {\"id\":$id,\"bucket\":$bucket,\"a\":$a},1,19)"}) {
         final String query = prefix + suffix;
-        final String expected = run(query, false);
-        final long serves = SirixVectorizedExecutor.groupAggServedCount();
-        final String actual = run(query, true);
-        final Path evidence = directory.resolve("reproduction");
-        Files.createDirectories(evidence);
-        final String name = "query-" + ordinal++;
-        Files.writeString(evidence.resolve(name + "-query.txt"), query);
-        Files.writeString(evidence.resolve(name + "-expected.txt"), expected);
-        Files.writeString(evidence.resolve(name + "-actual.txt"), actual);
-        assertEquals(expected, actual, query);
-        assertTrue(SirixVectorizedExecutor.groupAggServedCount() > serves,
-            "must serve the vectorized group route: " + query);
+        assertMatchesInterpreter(query, "records", ordinal++);
+      }
+      final String mixedPrefix = "subsequence(for $r in jn:doc('partial','mixed')[] let $g := $r.g group by $g ";
+      for (final String suffix : new String[] {
+          // SUM is always present, so explicit empty placement must not move its zero-valued group.
+          "let $s := sum($r.value) order by $s ascending empty greatest return {\"g\":$g,\"s\":$s},1,4)",
+          "let $s := sum($r.value) order by $s descending empty least return {\"g\":$g,\"s\":$s},1,4)",
+          // MIN, MAX, and AVG remain empty for group 0 and must retain empty-key placement.
+          "let $m := min($r.value) order by $m descending empty least return {\"g\":$g,\"m\":$m},1,4)",
+          "let $m := max($r.value) order by $m ascending empty greatest return {\"g\":$g,\"m\":$m},1,4)",
+          "let $a := avg($r.value) order by $a descending empty greatest return {\"g\":$g,\"a\":$a},1,4)"}) {
+        assertMatchesInterpreter(mixedPrefix + suffix, "mixed", ordinal++);
       }
     } finally {
       ProjectionIndexCatalog.clearCache();
     }
   }
 
-  private String run(final String text, final boolean vectorized) throws Exception {
+  private void assertMatchesInterpreter(final String query, final String resource, final int ordinal) throws Exception {
+    final String expected = run(query, resource, false);
+    final long serves = SirixVectorizedExecutor.groupAggServedCount();
+    final String actual = run(query, resource, true);
+    final Path evidence = directory.resolve("reproduction");
+    Files.createDirectories(evidence);
+    final String name = "query-" + ordinal;
+    Files.writeString(evidence.resolve(name + "-query.txt"), query);
+    Files.writeString(evidence.resolve(name + "-expected.txt"), expected);
+    Files.writeString(evidence.resolve(name + "-actual.txt"), actual);
+    assertEquals(expected, actual, query);
+    assertTrue(SirixVectorizedExecutor.groupAggServedCount() > serves,
+        "must serve the vectorized group route: " + query);
+  }
+
+  private String run(final String text, final String resource, final boolean vectorized) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
         var chain = vectorized
@@ -92,7 +116,7 @@ final class SparseSumOrderingOriginTest {
       try {
         if (vectorized) {
           final var database = Databases.openJsonDatabase(directory.resolve("partial"));
-          final JsonResourceSession session = database.beginResourceSession("records");
+          final JsonResourceSession session = database.beginResourceSession(resource);
           executor = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 1);
           SequentialPipelineStrategy.setVectorizedExecutor(executor);
         }

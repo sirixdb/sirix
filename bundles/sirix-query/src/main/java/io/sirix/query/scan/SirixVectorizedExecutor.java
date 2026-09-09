@@ -21410,6 +21410,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             valA = arrA[baseA];
             valB = arrB[baseB];
           }
+          case ORD_SUM -> {
+            // fn:sum of an empty sequence is 0, so the sum lane is always an order value.
+            presentA = true;
+            presentB = true;
+            final int valueOffset = aggBase[i] + 1;
+            valA = arrA[baseA + valueOffset];
+            valB = arrB[baseB + valueOffset];
+          }
           case ORD_COUNT_DISTINCT -> {
             // fn:count of a distinct-values sequence: 0 for an all-missing group, never empty.
             presentA = true;
@@ -21434,11 +21442,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             presentA = arrA[baseA + base] > 0;
             presentB = arrB[baseB + base] > 0;
             if (presentA && presentB && kind != ORD_AVG && kind != ORD_AVG_DBL) {
-              final int off = kind == ORD_SUM
-                  ? 1
-                  : kind == ORD_MIN
-                      ? 2
-                      : 3;
+              final int off = kind == ORD_MIN
+                  ? 2
+                  : 3;
               valA = arrA[baseA + base + off];
               valB = arrB[baseB + base + off];
             }
