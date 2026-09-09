@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -246,6 +247,40 @@ final class GroupHashRangePassTest {
     assertEquals(2, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, 12_800_000L, 32, true));
     assertEquals(3, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 4, budget, 32, true));
     assertEquals(1, SirixVectorizedExecutor.GroupPasses.seededPasses(6_000_000L, 4, budget, 32, true));
+  }
+
+  @Test
+  @DisplayName("an unbounded selection keeps the shared share: the flat arms' Long.MAX_VALUE sentinel is no bound")
+  void anUnboundedSelectionKeepsTheSharedShare() throws Exception {
+    // The gate itself: every campaign query is `LIMIT 10`; no limit spec and the dispatcher's
+    // unbounded-selection sentinel — under which every group is a winner and every completed
+    // partition's records survive its release — are both NOT bounded.
+    assertTrue(SirixVectorizedExecutor.boundedSelection(10L), "LIMIT 10");
+    assertTrue(SirixVectorizedExecutor.boundedSelection(1L), "LIMIT 1");
+    assertFalse(SirixVectorizedExecutor.boundedSelection(0L), "no limit spec");
+    assertFalse(SirixVectorizedExecutor.boundedSelection(-1L), "no limit spec");
+    assertFalse(SirixVectorizedExecutor.boundedSelection(Long.MAX_VALUE), "the unbounded-selection sentinel");
+    // End to end through the numeric arm: an UNCAPPED query with a predicate TREE (a disjunction)
+    // has no legacy emission arm, so the dispatcher routes it to the flat arm with selLimit =
+    // Long.MAX_VALUE and every group is emitted in count order. That plan must not take the
+    // bounded allowance; the same query under a subsequence cap must.
+    final String uncapped = "for $h in " + DOC + " where ($h.amount ge 7000 or $h.k7 = 1) let $k := $h.k40 "
+        + "group by $k let $c := count($h) order by $c descending "
+        + "return {\"k40\": $k, \"c\": $c, \"sum\": sum($h.amount)}";
+    final String generic = run(uncapped, false);
+    final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    final long boundedBefore = SirixVectorizedExecutor.GroupPasses.boundedPlanCount();
+    assertEquals(generic, run(uncapped, true), "the unbounded selection diverges from the interpreter");
+    assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedBefore, "not served by a group arm");
+    assertEquals(boundedBefore, SirixVectorizedExecutor.GroupPasses.boundedPlanCount(),
+        "an unbounded selection retains every group across passes: it must plan against the shared share");
+    final String capped = "subsequence(" + uncapped + ", 1, 12)";
+    final String cappedGeneric = run(capped, false);
+    final long cappedServedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    assertEquals(cappedGeneric, run(capped, true), "the capped selection diverges from the interpreter");
+    assertTrue(SirixVectorizedExecutor.groupAggServedCount() > cappedServedBefore, "not served by a group arm");
+    assertTrue(SirixVectorizedExecutor.GroupPasses.boundedPlanCount() > boundedBefore,
+        "the same shape under LIMIT 12 is a bounded top-k aggregate and takes the bounded allowance");
   }
 
   private static String runWith(final JsonResourceSession session, final SirixCompileChain chain,

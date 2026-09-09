@@ -477,8 +477,8 @@ prints one `[groupBudget]` line per grouped plan, and over a 43-query leg 13 of 
 charged less than the old flat 128 B/group (48/64/96/112 B at strides 3/4/6/7) while all 15 plans at
 stride ≥ 8 keep **exactly** the old 128 B and the identical 12,582,912-byte budget. No plan is ever
 charged more, so no shape can plan more passes than before. Those figures describe the shared
-budget. Since 2026-09-09 a bounded top-k aggregate — ordered by an aggregate rather than by its
-key, with no grouped `DISTINCT` — plans instead against
+budget. Since 2026-09-09 a bounded top-k aggregate — capped by a `LIMIT`, ordered by an aggregate
+rather than by its key, with no grouped `DISTINCT` — plans instead against
 `GroupTableSpill.boundedGroupBudget`, charged at the dense record plus three index lanes and given
 up to three quarters of the headroom; its `[groupBudget]` line says `bounded=true`. The arithmetic
 and the paired 100M result are in
