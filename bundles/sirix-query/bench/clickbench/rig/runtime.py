@@ -117,10 +117,11 @@ def classify_target(database, *, declared=False):
     A target the rig can place as the campaign 100M database pins the published envelope and never
     negotiates it. A target some resolved pointer proves is a different database declares whatever
     its own flags ask for, so a 1M or scratch gate is not made to reserve the campaign's twenty
-    gibibytes. Anything the rig cannot place -- a preparation naming no database, or a named one
-    while every pointer is unset or stale -- gets the campaign envelope, because that default is
-    safe on any database while the smaller one is not. `declared` is the operator asserting the
-    target is not the campaign database; it is refused when a pointer says otherwise.
+    gibibytes. A named target no pointer can place is neither: it is `unplaceable`, and the envelope
+    it may freeze is decided in freeze_runtime, which is the only place that knows whether the
+    ambiguity changes anything. A preparation naming no database at all stays campaign. `declared`
+    is the operator asserting the target is not the campaign database; it is refused when a pointer
+    says otherwise.
     """
     consulted = campaign_pointers()
     target = None if database is None else os.path.normpath(Path(database).absolute())
@@ -144,7 +145,7 @@ def classify_target(database, *, declared=False):
     unplaced = consulted[0] if consulted else None
     if declared:
         return evidence(unplaced, 'other', 'operator-declaration')
-    return evidence(unplaced, 'campaign', 'unresolved-pointer')
+    return evidence(unplaced, 'unplaceable', 'unresolved-pointer')
 
 
 def prepare_revision(reference, output, extra_args=(), classification=None):
@@ -214,12 +215,34 @@ def freeze_runtime(runtime, output, classification=None):
     frozen['jdk_sha256'] = jdk_hashes(frozen['java'])
     frozen['java_version'] = subprocess.check_output([frozen['java'], '-version'], stderr=subprocess.STDOUT, text=True)
     frozen['campaign_classification'] = classification
-    frozen['envelope'] = (dict(CAMPAIGN_ENVELOPE) if classification['classification'] == 'campaign'
-                          else scan_jvm_arguments(frozen['jvm_args']))
+    frozen['envelope'] = envelope_for(classification, scan_jvm_arguments(frozen['jvm_args']))
     frozen['runtime_id'] = hashlib.sha256(json.dumps(frozen, sort_keys=True).encode()).hexdigest()
     validate_runtime(frozen)
     (output/'runtime.json').write_text(json.dumps(frozen, indent=2)+'\n')
     return frozen
+
+
+def envelope_for(classification, settings):
+    """The envelope a runtime may freeze, given what the rig could decide about its database and
+    what its flags actually ask for.
+
+    An unplaceable target is the only interesting case. Asking for the campaign envelope decides
+    nothing -- it is what CANONICAL_ARGS already give and it is valid on any database -- so the run
+    proceeds. Asking for anything else would silently produce an invalid campaign measurement if the
+    target turns out to be the 100M database, and the rig cannot tell, so it refuses rather than
+    guess. `--declare-envelope` is how a person takes that decision instead.
+    """
+    if classification['classification'] == 'campaign':
+        return dict(CAMPAIGN_ENVELOPE)
+    if classification['classification'] == 'unplaceable' and settings != CAMPAIGN_ENVELOPE:
+        raise ValueError(
+            f'cannot decide the JVM envelope for {classification["target"]}: no campaign pointer '
+            f'resolves, so the rig cannot tell whether this is the 100M database, and these flags ask '
+            f'for {settings} rather than the campaign envelope {CAMPAIGN_ENVELOPE}. Make a pointer '
+            f'resolvable -- {rig_work()/POINTER_FILE} is what load100m.sh writes, or export '
+            f'{CAMPAIGN_DIRECTORY} -- or pass --declare-envelope to assert this target is not the '
+            f'campaign database.')
+    return settings
 
 
 def prepare_current(output, extra_args=(), classification=None):

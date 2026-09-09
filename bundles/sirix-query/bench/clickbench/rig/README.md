@@ -185,11 +185,20 @@ consulted source, stale ones included — file identity when both paths exist, n
 otherwise, so a load is recognised before it has created its database. Matching a stale source too
 is deliberate: a rotated pointer must never be able to demote a campaign run.
 
-**When resolution fails.** If no source resolves, the rig cannot place the campaign database at all.
-The *envelope* then fails closed: the target gets the campaign envelope, because over-provisioning is
-safe on any database while under-provisioning the campaign one destroys comparability.
-`--declare-envelope` is the operator asserting the target is *not* the campaign database; it is
-refused whenever a pointer says otherwise.
+**When resolution fails.** If no source resolves, a named target is `unplaceable` — neither the
+campaign database nor provably a different one. The rig does not guess either way. It refuses only
+where the ambiguity changes the outcome:
+
+- *asking for the campaign envelope* decides nothing. `CANONICAL_ARGS` already are that envelope and
+  it is valid on any database, so the preparation proceeds and the documented scratch gate works
+  as written.
+- *asking for anything else* would silently produce an invalid campaign measurement if the target
+  turns out to be the 100M database, so the preparation refuses and names the way forward.
+
+`--declare-envelope` is that way forward: the operator asserting the target is *not* the campaign
+database, and taking responsibility for a call the rig cannot make. It is refused whenever a pointer
+says otherwise, and the manifest records it as `decided_by: operator-declaration`, distinct from any
+classification the rig inferred.
 
 The *lease* deliberately does not fail closed the same way. An unplaceable target keeps a shared
 lease, because taking the host lease exclusively for every JVM would serialize the 1M validation
@@ -201,18 +210,20 @@ as part of every load, so this is the state of a checkout that has never loaded 
 
 **Evidence.** Every frozen runtime records the decision next to `envelope` as
 `campaign_classification`: the target, the consulted pointer and its source (or `unset`), whether
-that pointer was `resolved` or `stale`, the classification, and what decided it
-(`campaign-database`, `unnamed-target`, `unresolved-pointer` or `operator-declaration`).
+that pointer was `resolved` or `stale`, the classification (`campaign`, `other` or `unplaceable`),
+and what decided it (`campaign-database`, `unnamed-target`, `unresolved-pointer` or
+`operator-declaration`).
 `runtime_id` hashes it, so `plan.json` and the cold-round stamp carry it too.
 
 **Consumers.** Each of these implements the contract above and defines no rule of its own:
 
 | consumer | what the contract obliges it to do |
 | --- | --- |
-| `runtime.classify_target` (preparation) | campaign target → mandatory envelope; a placed non-campaign target → its own flags; unplaceable → campaign envelope |
-| `runtime.command` (launch guard) | refuse a runtime below the campaign envelope against a database any source names as campaign |
+| `runtime.classify_target` (identity) | decide `campaign`, `other` or `unplaceable`, and record the evidence; it never chooses an envelope |
+| `runtime.envelope_for` (preparation) | campaign → mandatory envelope; other → its own flags; unplaceable → its own flags only when they are the campaign envelope, else refuse |
+| `runtime.command` (launch guard) | refuse a runtime below the campaign envelope against a database any source names as campaign **at run time**, including the target it was prepared for |
 | `runtime.command` (runtime/database binding) | a runtime below the campaign envelope may open only the database its manifest records — no pointer needed, so it holds where resolution fails |
-| `rig_lock.RigLease.child_environment` | export the resolved work directory and pointer, so a rig-launched JVM evaluates the same chain over the same files |
+| `rig_lock.RigLease.child_environment` | export the pointer the parent *resolved* (never a stale one), so a child consumes the parent's resolution instead of re-deriving one from its own shell |
 | `ClickBenchRigLease` (both Java mains) | resolve the same chain in-process; exclusive lease, envelope validation and legacy-process refusal exactly on a match |
 | raw `java …ClickBenchRunMain` / `./gradlew :sirix-query:clickBench` | nothing of their own — they reach the contract through `ClickBenchRigLease`, so they are exclusive from any shell |
 | `rig.env` (`D100M`) | same two sources in the same precedence, skipping a stale pointer |

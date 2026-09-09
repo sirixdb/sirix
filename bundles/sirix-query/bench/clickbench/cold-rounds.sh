@@ -32,8 +32,9 @@
 # cannot shrink it. If a resolved pointer proves it is a different database,
 # EXTRA sizes the runtime and the frozen runtime declares that envelope for
 # every round to verify. Where no pointer resolves -- a box that never loaded
-# the campaign corpus -- the arm still gets the campaign envelope, so the plain
-# command below needs no flag. To size it down there, say so:
+# the campaign corpus -- the rig cannot place the target either way: the plain
+# command needs no flag, because the default envelope is valid on any database
+# and decides nothing, while a smaller EXTRA is refused until you say so:
 #   EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" \
 #     ./cold-rounds.sh DB --declare-envelope
 #

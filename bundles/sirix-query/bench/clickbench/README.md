@@ -767,9 +767,10 @@ the caller's environment, through the one campaign-identity chain
 [`rig/README.md`](rig/README.md) defines. For the campaign 100M database the campaign envelope is
 mandatory and nothing may shrink it. For a database some resolved pointer proves is a different one,
 `EXTRA` sizes the JVM and the frozen runtime declares that envelope for the rounds to hold to. On a
-box where no pointer resolves — no campaign corpus has ever been loaded here — the arm still gets
-the campaign envelope, which is why the command above needs no extra flag; to size it down there,
-say the target is not the campaign database:
+box where no pointer resolves — no campaign corpus has ever been loaded here — the rig cannot place
+the target either way: asking for the default envelope decides nothing and proceeds, which is why
+the plain command above needs no extra flag, while asking for a smaller one is refused until you say
+the target is not the campaign database:
 
 ```bash
 EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" \

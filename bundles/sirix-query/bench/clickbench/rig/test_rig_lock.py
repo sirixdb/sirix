@@ -17,6 +17,7 @@ from rig_lock import verify_descriptor
 from runtime import CAMPAIGN_DIRECTORY
 from runtime import POINTER_FILE
 from runtime import RIG_WORK
+from runtime import classify_target
 
 
 class RigLockTest(unittest.TestCase):
@@ -55,6 +56,27 @@ class RigLockTest(unittest.TestCase):
             self.assertEqual([key for key, _ in lock_paths()], [HOST_FD])
         with patch.dict(os.environ, dict(child, **{RIG_WORK: str(work)}), clear=True):
             self.assertEqual([key for key, _ in lock_paths()], [HOST_FD, LEGACY_FD])
+
+    def test_a_run_the_parent_placed_as_campaign_never_arrives_at_the_child_as_other(self):
+        """The parent's resolution is the authority. A stale pointer file alongside a live
+        CB100M_DIR is the state an operator lands in after moving the database and re-exporting the
+        variable: pinning the stale entry would erase the only source naming the live database, and
+        the JVM would take a shared lease on a leg its own plan.json records as campaign."""
+        work = Path(self.directory.name)/'rotated-work'
+        work.mkdir()
+        rotated = Path(self.directory.name)/'seg100m-20260905-2328'
+        live = Path(self.directory.name)/'seg100m-20260909-1200'
+        (live/'db').mkdir(parents=True)
+        self.assertFalse(rotated.exists())
+        (work/POINTER_FILE).write_text(str(rotated)+'\n')
+        parent = {RIG_WORK: str(work), CAMPAIGN_DIRECTORY: str(live)}
+        with patch.dict(os.environ, parent, clear=True):
+            self.assertEqual(classify_target(live/'db')['classification'], 'campaign')
+            with RigLease(timeout=0, paths=[(HOST_FD, self.path)]) as lease:
+                child = lease.child_environment()
+        self.assertEqual(child[CAMPAIGN_DIRECTORY], str(live))
+        with patch.dict(os.environ, child, clear=True):
+            self.assertEqual(classify_target(live/'db')['classification'], 'campaign')
 
     def test_a_launcher_that_resolves_no_campaign_pointer_invents_one_for_nobody(self):
         with patch.dict(os.environ, {}, clear=True), \

@@ -83,14 +83,18 @@ class RigLease:
 
     def child_environment(self):
         """Pin the campaign pointer this process resolved into every child, so a rig-launched JVM
-        classifies its database exactly as the launcher did instead of re-resolving from whatever
-        the operator's shell happened to hold."""
+        classifies its database exactly as the launcher did instead of re-deriving it from whatever
+        the operator's shell happened to hold. The pointer that resolves wins, exactly as rig.env
+        selects it: pinning a stale one would erase the only source naming the live database and
+        hand the child a classification the parent never made."""
         env = os.environ.copy()
         for key in (HOST_FD, LEGACY_FD):
             env.pop(key, None)
         consulted = campaign_pointers()
-        if consulted:
-            env[CAMPAIGN_DIRECTORY] = consulted[0][0]
+        placed = next((entry for entry in consulted if entry[2] == 'resolved'), None) or (
+            consulted[0] if consulted else None)
+        if placed:
+            env[CAMPAIGN_DIRECTORY] = placed[0]
         env.update({key: str(fd) for key, fd in self.descriptors.items()})
         return env
 
