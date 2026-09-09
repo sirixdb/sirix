@@ -29,7 +29,9 @@ from runtime import verify_runtime
 from runtime import verify_shared_dependencies
 from runtime import verify_shared_harness
 from runtime import validate_environment
+from runtime import envelope_for
 from runtime import file_hash
+from runtime import CAMPAIGN_DIRECTORY
 from runtime import RIG
 from runtime import ROOT
 
@@ -78,7 +80,8 @@ def runtime_for(args, arm, output):
         runtime = json.loads(Path(manifest).read_text())
         verify_runtime(runtime)
         return runtime
-    return prepare_revision(getattr(args, arm), output/('runtime-'+arm), getattr(args, arm+'_jvm_arg'))
+    return prepare_revision(getattr(args, arm), output/('runtime-'+arm), getattr(args, arm+'_jvm_arg'),
+                            envelope_for(args.db))
 
 
 def owned_scratch(args, output):
@@ -141,6 +144,9 @@ def compare(args):
             if (baseline['java_version'] != candidate['java_version']
                     or baseline['jdk_sha256'] != candidate['jdk_sha256']):
                 raise ValueError('paired runtimes use different JDKs; this protocol requires the same JDK')
+            if baseline.get('envelope') != candidate.get('envelope'):
+                raise ValueError('paired runtimes declare different JVM envelopes; both arms must measure '
+                                 'at the same envelope for their difference to mean anything')
             verify_shared_dependencies(baseline, candidate)
             verify_shared_harness(baseline, candidate)
             plan = dict(planned_epoch=time.time(), planned_pairs=args.pairs, orders=orders, seed=seed,
@@ -196,7 +202,9 @@ def prepare(args):
     flags = shlex.split(args.jvm_args)
     with RigLease(timeout=args.lock_timeout):
         require_no_benchmark()
-        runtime = prepare_revision(args.revision, output, flags) if args.revision else prepare_current(output, flags)
+        envelope = envelope_for(args.db)
+        runtime = (prepare_revision(args.revision, output, flags, envelope) if args.revision
+                   else prepare_current(output, flags, envelope))
     print(json.dumps(runtime, indent=2))
     print(f"Prepared manifest: {output/'frozen/runtime.json'}")
 
@@ -218,7 +226,7 @@ def run(args):
                 raise ValueError('runtime manifests already fix JVM flags; use --diagnostic-arg for a diagnostic overlay')
             verify_runtime(runtime)
         else:
-            runtime = prepare_current(output/'runtime', shlex.split(args.jvm_args))
+            runtime = prepare_current(output/'runtime', shlex.split(args.jvm_args), envelope_for(args.db))
         plan = dict(runtime=runtime, protocol=protocol, diagnostic=args.diagnostic)
         overlay = (runtime['jvm_args']+args.diagnostic_arg+shlex.split(args.diagnostic_args)
                    if args.diagnostic else None)
@@ -240,7 +248,7 @@ def common_options(parser, *, collection=True):
     parser.add_argument('--out', required=True, help='fresh output directory; existing evidence is never overwritten')
     parser.add_argument('--lock-timeout', type=float, default=120)
     if collection:
-        database_root = os.environ.get('CB100M_DIR')
+        database_root = os.environ.get(CAMPAIGN_DIRECTORY)
         parser.add_argument('--db', default=str(Path(database_root)/'db') if database_root else None,
                             help='existing database directory; defaults to $CB100M_DIR/db')
         parser.add_argument('--power-uw', type=int, default=50_000_000, help='verify both power limits; never changes them')
@@ -264,6 +272,8 @@ def main():
     preparation = commands.add_parser('prepare', help='freeze a runtime without querying; current worktree by default')
     common_options(preparation, collection=False)
     preparation.add_argument('--revision')
+    preparation.add_argument('--db', help='the database this runtime will measure; only the campaign 100M '
+                                          'database pins the campaign envelope, anything else declares its own')
     single = commands.add_parser('run', help='one full leg or an explicitly unscored diagnostic run')
     common_options(single)
     single.add_argument('--runtime')

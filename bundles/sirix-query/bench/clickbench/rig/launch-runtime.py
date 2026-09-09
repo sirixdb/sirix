@@ -45,17 +45,11 @@ def main():
         wait_for_quiet_java()
         process = subprocess.Popen(argv, env=lease.child_environment(), pass_fds=lease.pass_fds)
         try:
-            code = process.wait()
+            return process.wait()
         except BaseException:
             process.terminate()
             process.wait()
             raise
-    if code == 0:
-        document = json.loads(output.read_text())
-        document['rig'] = dict(scope='steering', protocol='historical cold-round driver',
-                               runtime_id=runtime['runtime_id'], command=argv)
-        output.write_text(json.dumps(document, indent=2)+'\n')
-    return code
 
 
 if __name__ == '__main__':

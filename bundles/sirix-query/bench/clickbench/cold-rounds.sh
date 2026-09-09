@@ -21,6 +21,13 @@
 #   --duckdb-cold S   DuckDB reference cold suite seconds (default 0.520)
 #   --duckdb-hot S    DuckDB reference hot suite seconds  (default 0.351)
 #
+# The JVM arm is frozen at the JVM envelope this database calls for. Only the
+# campaign 100M database named by CB100M_DIR pins the campaign envelope, which
+# is never negotiable. For any other database -- a 1M or scratch gate is the
+# normal case -- EXTRA sizes the runtime, e.g.
+#   EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" ./cold-rounds.sh DB
+# and the frozen runtime declares that envelope for every round to verify.
+#
 # WHY INTERLEAVED, AND WHY THE COOL GATE
 # --------------------------------------
 # The campaign laptop drops to one seventh of its clock at 99 C. Measuring arm A
@@ -115,7 +122,7 @@ else
 fi
 
 if [ -z "${ARM_PATHS[0]}" ]; then
-  python3 "$RIG/measure.py" prepare --out "${OUT}/runtime" \
+  python3 "$RIG/measure.py" prepare --out "${OUT}/runtime" --db "${DB}" \
     --jvm-args="${EXTRA:-}" > "${OUT}/runtime-prepare.log" 2>&1 \
     || die "runtime preparation failed; inspect ${OUT}/runtime-prepare.log"
 fi
@@ -138,14 +145,20 @@ run_arm() {  # run_arm <index> <round>
       || { echo "--- last 40 lines of ${logf} ---" >&2; tail -40 "${logf}" >&2;
            die "the JVM arm failed in round ${round}"; }
   fi
-  # Keep every native/JVM cold arm outside the campaign's published-board ranking.
-  python3 - "${json}" "${name}" "${round}" <<'PYMETA' || die "cannot record cold-arm provenance"
+  # Keep every native/JVM cold arm outside the campaign's published-board ranking, and tie a JVM
+  # round to the envelope its frozen runtime was validated against.
+  local frozen=""
+  [ -n "${bin}" ] || frozen="${OUT}/runtime/frozen/runtime.json"
+  python3 - "${json}" "${name}" "${round}" "${frozen}" <<'PYMETA' || die "cannot record cold-arm provenance"
 import json,sys
 from pathlib import Path
 path=Path(sys.argv[1])
 document=json.loads(path.read_text())
-document.setdefault('rig',{}).update(scope='steering', protocol='historical cold-round driver',
-                                    arm=sys.argv[2], round=int(sys.argv[3]))
+stamp=dict(scope='steering', protocol='historical cold-round driver',
+           arm=sys.argv[2], round=int(sys.argv[3]))
+if sys.argv[4]:
+    stamp['runtime_id']=json.loads(Path(sys.argv[4]).read_text())['runtime_id']
+document.setdefault('rig',{}).update(stamp)
 path.write_text(json.dumps(document,indent=2)+'\n')
 PYMETA
   grep -h '^# served' "${logf}" | sed 's/^/      /' || true

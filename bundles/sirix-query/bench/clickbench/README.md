@@ -758,6 +758,12 @@ for the CPU package to fall below 55 °C, runs each arm in a **fresh process**, 
 and median suite time per arm against the DuckDB reference (0.520 s cold / 0.351 s hot on the
 campaign box; override with `--duckdb-cold` / `--duckdb-hot`).
 
+The JVM arm is a runtime frozen by `rig/measure.py prepare` for the database under test, and every
+round re-verifies against it. Only the campaign 100M database named by `CB100M_DIR` pins the campaign
+envelope, which nothing may shrink. Against a 1M or scratch database like the one above, `EXTRA` sizes
+the JVM — `EXTRA="-Xms1g -Xmx4g -Dsirix.offheap.bytes=2147483648" ./cold-rounds.sh /var/tmp/sirix-clickbench`
+— and the frozen runtime declares that envelope for the rounds to hold to.
+
 **The published ClickBench numbers, for reference:** cold suite **0.986 s** best of 4 rounds (median
 1.050) vs DuckDB 0.520 s — **1.90×**; hot suite **0.600–0.615 s** vs 0.351 s — **1.71–1.75×**. Both
 from a GraalVM native image over a 1 M-row synthetic corpus with a 25-column projection index; the

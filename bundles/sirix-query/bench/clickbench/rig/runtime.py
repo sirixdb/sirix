@@ -14,6 +14,9 @@ JVM_ENV_OPTIONS = ('JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS')
 JDK_FILES = ('bin/java', 'lib/modules', 'lib/server/libjvm.so', 'release')
 BENCH_SOURCES = Path('bundles/sirix-query/src/main/java/io/sirix/query/bench/clickbench')
 HARNESS_SOURCES = ('ClickBenchRunMain.java', 'ClickBenchLoadMain.java', 'ClickBenchRigLease.java')
+CAMPAIGN_DIRECTORY = 'CB100M_DIR'
+CAMPAIGN_ENVELOPE = dict(initial_heap=6 << 30, maximum_heap=14 << 30, arena=10 << 30, eager=5 << 30,
+                         jvmci_compiler=False)
 CANONICAL_ARGS = [
     '-Xms6g', '-Xmx14g', '-Dsirix.offheap.bytes=10737418240',
     '-XX:+UnlockExperimentalVMOptions', '-XX:-UseJVMCICompiler',
@@ -68,7 +71,30 @@ def harness_provenance(source):
                 query_catalog_sha256=file_hash(Path(source)/BENCH_SOURCES/'ClickBenchQueries.java'))
 
 
-def prepare_revision(reference, output, extra_args=()):
+def campaign_database(database, campaign=None):
+    """Whether `database` is the campaign 100M database, by the same rule the JVM lease applies in
+    ClickBenchRigLease.isCampaignDatabase: the pointer names a parent whose `db` child is the
+    database. Identity decides while both exist, the normalized paths decide otherwise, and an unset
+    or stale pointer simply answers False rather than failing an unrelated small run."""
+    if campaign is None:
+        campaign = os.environ.get(CAMPAIGN_DIRECTORY, '')
+    if database is None or not campaign or not campaign.strip():
+        return False
+    named, target = Path(campaign)/'db', Path(database)
+    if named.exists() and target.exists():
+        return os.path.samefile(named, target)
+    return os.path.normpath(named.absolute()) == os.path.normpath(target.absolute())
+
+
+def envelope_for(database):
+    """The envelope a preparation for `database` must freeze. The campaign 100M database pins the
+    published envelope and never negotiates it; every other target -- a 1M lane, a scratch database,
+    an unnamed preparation -- declares whatever its own flags ask for, so a general gate is not made
+    to reserve the campaign's twenty gibibytes. An unknown target is treated as the campaign one."""
+    return CAMPAIGN_ENVELOPE if database is None or campaign_database(database) else None
+
+
+def prepare_revision(reference, output, extra_args=(), envelope=CAMPAIGN_ENVELOPE):
     output = Path(output).resolve()
     output.mkdir(exist_ok=False, parents=True)
     commit = resolve_revision(reference)
@@ -96,7 +122,7 @@ def prepare_revision(reference, output, extra_args=()):
     runtime['source_worktree'] = str(source)
     runtime.update(provenance)
     runtime['harness_overlay'] = 'current benchmark mains and process guard only; engine sources stay at source_commit'
-    return freeze_runtime(runtime, output/'frozen')
+    return freeze_runtime(runtime, output/'frozen', envelope)
 
 
 def remove_source_worktree(repository, source):
@@ -105,7 +131,10 @@ def remove_source_worktree(repository, source):
                    cwd=repository, check=True, capture_output=True, text=True)
 
 
-def freeze_runtime(runtime, output):
+def freeze_runtime(runtime, output, envelope=CAMPAIGN_ENVELOPE):
+    """`envelope` is the memory and compiler settings this runtime is frozen at, recorded in the
+    manifest and hashed into its identity so every later round verifies against the envelope this
+    run actually declared. Pass None to declare whatever the prepared flags resolve to."""
     output = Path(output).resolve()
     output.mkdir(exist_ok=False, parents=True)
     copied = []
@@ -129,13 +158,14 @@ def freeze_runtime(runtime, output):
     frozen['java_sha256'] = file_hash(frozen['java'])
     frozen['jdk_sha256'] = jdk_hashes(frozen['java'])
     frozen['java_version'] = subprocess.check_output([frozen['java'], '-version'], stderr=subprocess.STDOUT, text=True)
+    frozen['envelope'] = dict(envelope) if envelope is not None else scan_jvm_arguments(frozen['jvm_args'])
     frozen['runtime_id'] = hashlib.sha256(json.dumps(frozen, sort_keys=True).encode()).hexdigest()
     validate_runtime(frozen)
     (output/'runtime.json').write_text(json.dumps(frozen, indent=2)+'\n')
     return frozen
 
 
-def prepare_current(output, extra_args=()):
+def prepare_current(output, extra_args=(), envelope=CAMPAIGN_ENVELOPE):
     """Freeze the current worktree, including local changes, for wrapper scripts."""
     output = Path(output).resolve()
     output.mkdir(exist_ok=False, parents=True)
@@ -153,7 +183,7 @@ def prepare_current(output, extra_args=()):
                    tracked_diff_sha256=hashlib.sha256(subprocess.check_output(['git', 'diff', 'HEAD', '--'], cwd=ROOT)).hexdigest(),
                    source_status=subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True))
     runtime.update(harness_provenance(ROOT))
-    return freeze_runtime(runtime, output/'frozen')
+    return freeze_runtime(runtime, output/'frozen', envelope)
 
 
 def parse_bytes(text):
@@ -164,16 +194,15 @@ def parse_bytes(text):
     return int(match[1])*1024**exponent
 
 
-def validate_runtime(runtime, *, allow_diagnostics=False):
-    if runtime['main_class'] != MAIN:
-        raise ValueError('measurement runtimes must execute ClickBenchRunMain, never a loader')
-    if not runtime['classpath'] or not Path(runtime['java']).is_file():
-        raise ValueError('runtime requires an existing Java executable and nonempty classpath')
+def scan_jvm_arguments(jvm_args, *, allow_diagnostics=False):
+    """Reject anything that could replace the entry point or hide arguments, and return the memory
+    and compiler settings the arguments resolve to, last occurrence winning as HotSpot resolves
+    them."""
     settings = {}
     option_value = False
     paired_options = {'--add-opens', '--add-exports', '--add-reads', '--add-modules',
                       '--limit-modules', '--enable-native-access'}
-    for argument in runtime['jvm_args']:
+    for argument in jvm_args:
         if not isinstance(argument, str) or argument.startswith(('@', '-XX:Flags=', '-XX:VMOptionsFile=',
                                                                '-XX:CompileCommandFile=', '-XX:CompilerDirectivesFile=')):
             raise ValueError('JVM arguments must be explicit strings, without argument files')
@@ -210,10 +239,20 @@ def validate_runtime(runtime, *, allow_diagnostics=False):
             raise ValueError('profiling flags require a diagnostic run, not a scored paired measurement')
     if option_value:
         raise ValueError('a JVM module option is missing its value')
-    expected = dict(initial_heap=6 << 30, maximum_heap=14 << 30, arena=10 << 30, eager=5 << 30,
-                    jvmci_compiler=False)
+    return settings
+
+
+def validate_runtime(runtime, *, allow_diagnostics=False):
+    if runtime['main_class'] != MAIN:
+        raise ValueError('measurement runtimes must execute ClickBenchRunMain, never a loader')
+    if not runtime['classpath'] or not Path(runtime['java']).is_file():
+        raise ValueError('runtime requires an existing Java executable and nonempty classpath')
+    expected = runtime.get('envelope')
+    if not expected:
+        raise ValueError('a prepared runtime must declare the JVM envelope it was frozen at')
+    settings = scan_jvm_arguments(runtime['jvm_args'], allow_diagnostics=allow_diagnostics)
     if settings != expected:
-        raise ValueError(f'100M JVM envelope mismatch: expected {expected}, observed {settings}')
+        raise ValueError(f'JVM envelope mismatch: this runtime declares {expected}, observed {settings}')
     return settings
 
 
@@ -262,6 +301,9 @@ def command(runtime, database, *, queries=None, tries=3):
     database = Path(database).resolve(strict=True)
     if not database.is_dir():
         raise ValueError('database must be an existing directory; no load or build-projection is permitted')
+    if campaign_database(database) and runtime.get('envelope') != CAMPAIGN_ENVELOPE:
+        raise ValueError('the campaign 100M database requires a runtime frozen at the campaign envelope '
+                         f'{CAMPAIGN_ENVELOPE}; prepare one instead of shrinking the envelope to fit')
     argv = [runtime['java'], *runtime['jvm_args'], '-cp', os.pathsep.join(runtime['classpath']),
             runtime['main_class'], str(database), '--tries', str(tries)]
     if queries is not None:
