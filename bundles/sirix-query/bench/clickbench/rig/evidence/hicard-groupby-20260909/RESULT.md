@@ -138,4 +138,6 @@ Observed power summary: `{"distinct_starting_domain_readings": 6, "legs": 24, "l
 
 Two profile JVMs and 12 paired comparisons consumed this task allowance. **Remaining paired allowance: zero, including no-mistakes fix agents and verifiers.** Any further 100M run needs Firstmate authorization.
 
-The original leg documents are committed under rig/legs/query-SEGHCB-P*.json. Raw logs, telemetry, commands, answer proofs and frozen-runtime manifests are archived with SHA-256 member verification. Runtime binaries are reproducible from the recorded commits and dependency/JDK hashes. profiles.tar.gz preserves the pre-change JFR recordings and analysis inputs.
+The original leg documents, raw logs, telemetry, commands, answer proofs, manifests and replay inputs
+were archived off-tree on 2026-09-09 in `build/rig-evidence-archive-20260909.tar.gz`; the findings
+and numbers in this result are retained here.

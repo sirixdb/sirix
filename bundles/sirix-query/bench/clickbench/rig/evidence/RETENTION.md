@@ -96,6 +96,12 @@ git diff --name-status 15d6c5562 578b15247
 git diff 3c9bc7b58 578b15247 -- bundles/sirix-query/bench/clickbench/rig/README.md docs/HANDOFF_SEGMENT_LANE_2026-09-06.md
 ```
 
+## Policy change (2026-09-09)
+
+Findings in `.md` files are retained in-tree. Raw study data and replay material are archived
+off-tree in `build/rig-evidence-archive-20260909.tar.gz` (10,517,556 bytes; SHA-256
+`8b0d9caa4b91681b13c956f0cdb7f43c1a51abba4706f2c665862da7e4909b17`).
+
 Integration validation uses the merged engine at `578b15247`; it does not transfer the old
 100M smoke or the variance study onto that engine. The focused Java run completed successfully
 in 38 seconds with Graal JDK 25.0.3. Fresh JUnit XML, checked against the run's start time with

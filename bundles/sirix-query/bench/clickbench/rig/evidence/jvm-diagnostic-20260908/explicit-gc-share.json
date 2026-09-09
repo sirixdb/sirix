@@ -1,7 +1,0 @@
-{
-  "explicit_gc_id": 91,
-  "explicit_pause_s": 0.166127531,
-  "total_gc_phase_pause_s": 7.945428022,
-  "other_gc_phase_pause_s": 7.779300491,
-  "explicit_fraction": 0.020908569121765558
-}
