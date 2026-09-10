@@ -1,0 +1,58 @@
+{
+  "source_commit": "d8f275788a6ac6add83db3c9a15ab5edae95016f",
+  "runtime_id": "bec1bad6bf9f3e3bffc0587fdd33db28c9703753037b52aba1734a610affc35c",
+  "rig_tests": {
+    "tests": 91,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "java_tests": {
+    "tests": 68,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "classes": [
+      "GroupTopKDifferentialTest",
+      "GroupHashRangePassTest",
+      "PartialGroupTopKTest",
+      "SparseSumOrderingOriginTest"
+    ]
+  },
+  "correctness_1m": {
+    "byte_identical": 43,
+    "total": 43
+  },
+  "diagnostics": {
+    "q28": [
+      10.439,
+      6.071,
+      5.716
+    ],
+    "q32": [
+      11.701,
+      3.512,
+      3.218
+    ]
+  },
+  "preflight_memavailable_kb": {
+    "q28": 28911608,
+    "q32": 28893704,
+    "scored": 28574776
+  },
+  "allowance": {
+    "q28_diagnostics": 1,
+    "q32_diagnostics": 1,
+    "scored_legs": 1,
+    "remaining_100m_runs": 0
+  },
+  "score": {
+    "seg7t_hot_total_s": 27.89,
+    "seg8t_hot_total_s": 26.523,
+    "seg7t_sum_ln": 58.956826825286115,
+    "seg8t_sum_ln": 58.03479636603691,
+    "delta_hot_total_s": -1.3670000000000009,
+    "delta_sum_ln": -0.922030459249207,
+    "status": "UNRESOLVED"
+  }
+}

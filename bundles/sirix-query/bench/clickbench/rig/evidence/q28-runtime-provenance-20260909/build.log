@@ -1,0 +1,43 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.7.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :sirix-core:compileJava
+warning: [incubating] using incubating module(s): jdk.incubator.vector
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+1 warning
+
+> Task :sirix-core:buildNativeLz77
+> Task :sirix-core:processResources
+> Task :sirix-core:classes
+> Task :sirix-core:generatePomFileForMavenPublication
+> Task :sirix-core:jar
+> Task :sirix-query:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :sirix-query:compileKotlin NO-SOURCE
+
+> Task :sirix-query:compileJava
+warning: [incubating] using incubating module(s): jdk.incubator.vector
+Note: /home/johannes/.treehouse/sirix-cdde48/2/sirix/bundles/sirix-query/src/main/java/io/sirix/query/json/JsonDBArraySlice.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+1 warning
+
+> Task :sirix-query:processResources
+> Task :sirix-query:generateHftBuildIdentity
+> Task :sirix-query:classes
+> Task :sirix-query:exportRigRuntime
+
+[Incubating] Problems report is available at: file:///home/johannes/.treehouse/sirix-cdde48/2/sirix/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.7.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 15s
+9 actionable tasks: 9 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.7.1/userguide/configuration_cache_enabling.html

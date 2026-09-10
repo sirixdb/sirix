@@ -1,0 +1,61 @@
+{
+  "exit_code": 0,
+  "issues": [],
+  "duration_s": 132.57354697899427,
+  "power_domain_changes": [
+    {
+      "monotonic": 958594.977377542,
+      "changed": {
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+          "76000000",
+          "45000000"
+        ]
+      }
+    },
+    {
+      "monotonic": 958596.490677088,
+      "changed": {
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+          "45000000",
+          "49000000"
+        ]
+      }
+    },
+    {
+      "monotonic": 958597.496299677,
+      "changed": {
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+          "49000000",
+          "57000000"
+        ]
+      }
+    },
+    {
+      "monotonic": 958598.507266655,
+      "changed": {
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+          "57000000",
+          "65000000"
+        ]
+      }
+    },
+    {
+      "monotonic": 958599.567793428,
+      "changed": {
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+          "65000000",
+          "74000000"
+        ]
+      }
+    },
+    {
+      "monotonic": 958600.57449495,
+      "changed": {
+        "/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw": [
+          "74000000",
+          "45000000"
+        ]
+      }
+    }
+  ]
+}

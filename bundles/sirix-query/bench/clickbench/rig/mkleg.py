@@ -1,48 +1,73 @@
-"""Turn a clickBench leg log into the 43x3 result JSON rank.py scores: python3 mkleg.py TAG LOG.
+"""Export a verified rig leg: python3 mkleg.py TAG RUN/leg/leg.json.
 
-Writes legs/query-<TAG>.json next to this file. Only a leg run with --tries 3 produces a scorable
-file: the site's selectRun needs all three tries per query. A log records timings and nothing else,
-so every field a run would have to observe -- date, machine, load_time, data_size -- is written null
-rather than copied from another leg; inventing them would describe a run that did not happen.
-
-A raw log does not carry the regime it was measured under either, so mkleg never mints publication
-provenance: it records the scope it can establish and no regime at all. A log that declares a
-steering-only protocol (every rig log opens with a `# steering-only` line) or that records more than
-three tries for any query -- which historical wider-schedule logs do -- converts as steering;
-anything else converts as unknown. rank.py refuses both, and refuses any leg with no rig.regime, so
-a converted leg cannot rank until someone records the conditions it actually ran under.
+Raw Java/Gradle logs and --json outputs are diagnostic evidence, not scored legs. Only the
+runner's complete receipt, bound to a freshly built frozen runtime and its exact suite log,
+can be exported. Unobserved submission metadata remains null. Export never grants publication
+scope: curation still has to state the observed regime and the limits of a single leg.
 """
-import json, os, re, sys
-from rank import STEERING_LOG_MARKER
-from rank import STEERING_SCOPE
-RIG = os.path.dirname(os.path.abspath(__file__))
-UNKNOWN_SCOPE = "unknown"
-tag, log = sys.argv[1], sys.argv[2]
-text = open(log, errors="ignore").read()
-# "# q12 try 2: wall=11.170 s ..." is the authoritative per-try time; the table's hot column is a
-# derived min and cannot rebuild the triple the site's selectRun needs.
-tries = {}
-for m in re.finditer(r'^# q(\d+) try (\d+): wall=([0-9.]+) s', text, re.M):
-    tries.setdefault(int(m.group(1)), {})[int(m.group(2))] = float(m.group(3))
-# A query that FAILED has a table row but no wall line; leave it None so rank.py applies the
-# site's own missing-answer penalty rather than a number we invented.
-result = []
-for q in range(43):
-    t = tries.get(q)
-    result.append([t.get(1), t.get(2), t.get(3)] if t and len(t) >= 3 else None)
-widest = max((len(t) for t in tries.values()), default=0)
-declared = any(line.startswith(STEERING_LOG_MARKER) for line in text.splitlines())
-out = dict(system="SirixDB (segment lane)", date=None, machine=None, cluster_size=1,
-           proprietary="no", hardware="cpu", tuned="no",
-           tags=["Java", "document-oriented", "embedded", "versioned"],
-           load_time=None, data_size=None, concurrent_qps=None, concurrent_error_ratio=None,
-           result=result)
-out["rig"] = dict(scope=STEERING_SCOPE if declared or widest > 3 else UNKNOWN_SCOPE,
-                  declared_in_log=declared, widest_recorded_tries=widest,
-                  source_log=os.path.abspath(log))
-json.dump(out, open(os.path.join(RIG, "legs", f"query-{tag}.json"), "w"))
-have = [q for q in range(43) if result[q]]
-print(f"{tag}: {len(have)}/43 queries with 3 tries; missing {[q for q in range(43) if not result[q]]}")
-print(f"{tag}: scope {out['rig']['scope']}; rank.py refuses every leg that does not state the publication regime")
-if have:
-    print("hot sum: %.1f s" % sum(min(result[q][1], result[q][2]) for q in have))
+import argparse
+import json
+from pathlib import Path
+import re
+import sys
+
+from measurement import read_timings
+from runtime import file_hash
+from runtime import verify_scored_runtime
+
+RIG = Path(__file__).resolve().parent
+
+
+def submission(receipt):
+    receipt = Path(receipt).resolve()
+    try:
+        document = json.loads(receipt.read_text())
+    except json.JSONDecodeError as failure:
+        raise ValueError("raw logs lack scored provenance; provide measure.py's complete leg/leg.json receipt") from failure
+    metadata = document.get('rig', {})
+    if (metadata.get('scope') != 'steering' or metadata.get('complete') is not True
+            or not metadata.get('runtime_manifest') or not metadata.get('suite_log_sha256')):
+        raise ValueError('scored export requires a complete rig receipt with frozen-runtime and suite-log provenance')
+    runtime = json.loads(Path(metadata['runtime_manifest']).read_text())
+    verify_scored_runtime(runtime, check_source=False)
+    if (metadata.get('runtime_id') != runtime['runtime_id']
+            or metadata.get('source_commit') != runtime['source_commit']):
+        raise ValueError('leg source/runtime identity does not match the frozen runtime manifest')
+    log = receipt.parent/'suite/suite.log'
+    if file_hash(log) != metadata['suite_log_sha256']:
+        raise ValueError(f'leg suite-log hash mismatch: {log}')
+    verdict = json.loads((log.parent/'verdict.json').read_text())
+    if verdict.get('exit_code') != 0 or verdict.get('issues') != []:
+        raise ValueError('leg lacks a successful, issue-free collection verdict')
+    timings = read_timings(log)
+    result = [[timings[q, attempt] for attempt in (1, 2, 3)] for q in range(43)]
+    if result != document.get('result'):
+        raise ValueError('leg timings do not match its recorded suite log')
+    return dict(system='SirixDB (segment lane)', date=None, machine=None, cluster_size=1,
+                proprietary='no', hardware='cpu', tuned='no',
+                tags=['Java', 'document-oriented', 'embedded', 'versioned'],
+                load_time=None, data_size=None, concurrent_qps=None, concurrent_error_ratio=None,
+                result=result, rig=dict(metadata, source_receipt=str(receipt), source_log=str(log)))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('tag')
+    parser.add_argument('receipt', help='complete leg/leg.json from measure.py, never a raw log')
+    args = parser.parse_args()
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.tag):
+        raise ValueError('tag must contain only letters, digits, underscores or hyphens')
+    document = submission(args.receipt)
+    target = RIG/'legs'/f'query-{args.tag}.json'
+    with target.open('x') as stream:
+        json.dump(document, stream, indent=2, allow_nan=False)
+        stream.write('\n')
+    print(f'{args.tag}: 43/43 queries with 3 tries; verified steering leg, no publication claim')
+    print('hot sum: %.3f s' % sum(min(row[1:]) for row in document['result']))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, KeyError) as failure:
+        sys.exit(f'ABORT: {failure}')

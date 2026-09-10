@@ -15,6 +15,7 @@ from runner import machine_settings
 from runner import power_domains
 from runner import process_snapshot
 from runner import run_leg
+from runner import run_part
 
 PF_EXITING = 0x4
 PF_RANDOMIZE = 0x400000
@@ -53,14 +54,48 @@ class TeardownWindow:
 
 
 class ObserverTest(unittest.TestCase):
+    def test_scored_provenance_precedes_the_final_cool_gate_and_launch(self):
+        events = []
+        final_temperature = {'power_domains_uw': {}, 'launch_recheck_C': {'sensor': 54.0}}
+        protocol = {'cpu_policy': {}, 'power_limit_uw': 50_000_000, 'cool_below_C': 55.0}
+
+        def verify(runtime):
+            events.append('verify')
+
+        def cool(output, sensors, settings):
+            events.append('cool')
+            return final_temperature
+
+        def launch(*arguments, **keywords):
+            events.append('launch')
+            raise RuntimeError('stop at launch')
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory, \
+                patch('runner.validate_runtime'), patch('runner.validate_environment'), \
+                patch('runner.verify_scored_runtime', side_effect=verify), \
+                patch('runner.require_no_benchmark'), patch('runner.wait_for_quiet_java'), \
+                patch('runner.temperature_paths', return_value=[]), \
+                patch('runner.cool_gate', side_effect=cool), \
+                patch('runner.machine_settings', return_value={}), \
+                patch('runner.command', return_value=['fixture-java']), \
+                patch('runner.subprocess.Popen', side_effect=launch):
+            output = Path(directory)/'part'
+            with self.assertRaisesRegex(RuntimeError, 'stop at launch'):
+                run_part({}, directory, output, [28], protocol, Mock())
+            self.assertEqual(json.loads((output/'start.json').read_text()), final_temperature)
+        self.assertEqual(events, ['verify', 'cool', 'launch'])
+
     def test_full_leg_records_three_attempts_for_every_query(self):
         def collect(runtime, database, output, queries, protocol, lease):
+            output.mkdir(parents=True)
+            (output/'suite.log').write_text('fixture log')
             timings = {(q, attempt): float(attempt) for q in queries for attempt in (1, 2, 3)}
             return timings, {'gated_limits_uw': 50_000_000, 'changes': []}
 
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
-            with patch('runner.run_part', side_effect=collect) as collector:
-                result = run_leg({'runtime_id': 'frozen'}, directory, Path(directory)/'leg', {}, Mock())
+            with patch('runner.run_part', side_effect=collect) as collector, patch('runner.verify_scored_runtime'):
+                result = run_leg({'runtime_id': 'frozen', 'manifest_path': 'fixture-runtime.json'},
+                                 directory, Path(directory)/'leg', {}, Mock())
             self.assertEqual(collector.call_count, 1)
             self.assertEqual(list(collector.call_args.args[3]), list(range(43)))
             self.assertEqual(result['result'], [[1., 2., 3.]]*43)

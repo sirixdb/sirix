@@ -25,7 +25,9 @@ from runner import run_part
 from runtime import prepare_revision
 from runtime import prepare_current
 from runtime import remove_source_worktree
+from runtime import validate_output_location
 from runtime import verify_runtime
+from runtime import verify_scored_runtime
 from runtime import verify_shared_dependencies
 from runtime import verify_shared_harness
 from runtime import validate_environment
@@ -132,17 +134,19 @@ def save_report(output, pairs, plan):
 def compare(args):
     if not math.isfinite(args.effect_ln) or args.effect_ln <= 0:
         raise ValueError('effect size must be finite and positive')
+    output = validate_output_location(args.out, ROOT)
     protocol = protocol_for(args)
     classification = classify_target(args.db, declared=args.declare_envelope)
     seed = args.seed if args.seed is not None else secrets.randbits(32)
     orders = paired_orders(args.pairs, seed)
-    output = Path(args.out).resolve()
     output.mkdir(exist_ok=False, parents=True)
     try:
         with RigLease(timeout=args.lock_timeout) as lease:
             require_no_benchmark()
             baseline = runtime_for(args, 'baseline', output, classification)
             candidate = runtime_for(args, 'candidate', output, classification)
+            verify_scored_runtime(baseline)
+            verify_scored_runtime(candidate)
             if (baseline['java_version'] != candidate['java_version']
                     or baseline['jdk_sha256'] != candidate['jdk_sha256']):
                 raise ValueError('paired runtimes use different JDKs; this protocol requires the same JDK')
@@ -200,7 +204,7 @@ def validate_plan(pairs, plan):
 
 
 def prepare(args):
-    output = Path(args.out).resolve()
+    output = validate_output_location(args.out, ROOT)
     flags = shlex.split(args.jvm_args)
     with RigLease(timeout=args.lock_timeout):
         require_no_benchmark()
@@ -212,13 +216,13 @@ def prepare(args):
 
 
 def run(args):
-    protocol = protocol_for(args)
     if args.diagnostic:
         queries = [int(value) for value in args.queries.split(',')]
     elif (args.tries != 3 or args.queries != ','.join(map(str, range(43)))
             or args.diagnostic_arg or args.diagnostic_args):
         raise ValueError('a scored leg requires all 43 queries and three tries; use --diagnostic for profiling/subsets')
-    output = Path(args.out).resolve()
+    output = validate_output_location(args.out, ROOT)
+    protocol = protocol_for(args)
     output.mkdir(exist_ok=False, parents=True)
     with RigLease(timeout=args.lock_timeout) as lease:
         require_no_benchmark()
@@ -231,6 +235,8 @@ def run(args):
         else:
             runtime = prepare_current(output/'runtime', shlex.split(args.jvm_args),
                                       classify_target(args.db, declared=args.declare_envelope))
+        if not args.diagnostic:
+            verify_scored_runtime(runtime)
         plan = dict(runtime=runtime, protocol=protocol, diagnostic=args.diagnostic)
         overlay = (runtime['jvm_args']+args.diagnostic_arg+shlex.split(args.diagnostic_args)
                    if args.diagnostic else None)

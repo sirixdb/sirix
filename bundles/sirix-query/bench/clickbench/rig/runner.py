@@ -13,8 +13,11 @@ from rig_lock import require_no_benchmark
 from rig_lock import other_java_processes
 from rig_lock import wait_for_quiet_java
 from runtime import command
+from runtime import file_hash
 from runtime import validate_environment
+from runtime import validate_output_location
 from runtime import validate_runtime
+from runtime import verify_scored_runtime
 
 POWER_PATHS = [Path(f'/sys/class/powercap/intel-rapl:0/constraint_{i}_power_limit_uw') for i in (0, 1)]
 POWER_DOMAIN_GLOB = 'sys/class/powercap/intel-rapl*/constraint_*_power_limit_uw'
@@ -130,10 +133,13 @@ def cool_gate(output, sensors, protocol):
 
 
 def run_part(runtime, database, output, queries, protocol, lease, *, diagnostic=False, tries=3):
-    output = Path(output)
+    source = runtime.get('source_worktree')
+    output = validate_output_location(output, source) if source else Path(output)
     output.mkdir(exist_ok=False, parents=True)
     validate_runtime(runtime, allow_diagnostics=diagnostic)
     validate_environment()
+    if not diagnostic:
+        verify_scored_runtime(runtime)
     lease.verify()
     require_no_benchmark()
     wait_for_quiet_java()
@@ -236,7 +242,9 @@ def run_part(runtime, database, output, queries, protocol, lease, *, diagnostic=
 
 
 def run_leg(runtime, database, output, protocol, lease):
-    output = Path(output)
+    source = runtime.get('source_worktree')
+    output = validate_output_location(output, source) if source else Path(output)
+    verify_scored_runtime(runtime)
     output.mkdir(exist_ok=False, parents=True)
     result = [[None]*3 for _ in range(43)]
     timings, power = run_part(runtime, database, output/'suite', range(43), protocol, lease)
@@ -244,6 +252,8 @@ def run_leg(runtime, database, output, protocol, lease):
         result[query][attempt-1] = seconds
     document = dict(result=result, rig=dict(scope='steering', complete=True, protocol=protocol,
                     run_id=str(uuid.uuid4()), runtime_id=runtime['runtime_id'], source_commit=runtime.get('source_commit'),
+                    runtime_manifest=runtime['manifest_path'],
+                    suite_log_sha256=file_hash(output/'suite/suite.log'),
                     observed_power=power, output=str(output.resolve())))
     (output/'leg.json').write_text(json.dumps(document, indent=2)+'\n')
     return document

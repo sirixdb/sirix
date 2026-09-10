@@ -1,6 +1,9 @@
 import groovy.json.JsonOutput
 import java.io.File
 import org.gradle.api.GradleException
+import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.api.tasks.bundling.Jar
+import org.gradle.language.jvm.tasks.ProcessResources
 
 // Export historical Gradle task settings after the explicit measurement-harness overlay.
 gradle.projectsEvaluated {
@@ -10,6 +13,7 @@ gradle.projectsEvaluated {
     }
     query.tasks.register('exportRigRuntime') {
         dependsOn(query.tasks.named('classes'))
+        dependsOn(query.configurations.runtimeClasspath)
         if (query.tasks.findByName('generateHftBuildIdentity') != null) {
             dependsOn(query.tasks.named('generateHftBuildIdentity'))
         }
@@ -23,10 +27,20 @@ gradle.projectsEvaluated {
                 throw new GradleException('Refusing to overwrite runtime export: ' + output)
             }
             def bench = query.tasks.named('clickBench').get()
+            def buildTasks = gradle.taskGraph.allTasks.findAll {
+                it instanceof JavaCompile || it instanceof Jar || it instanceof ProcessResources
+            }.collectEntries { task ->
+                [(task.path): [executed: task.state.executed, did_work: task.state.didWork,
+                               skipped: task.state.skipped, skip_message: task.state.skipMessage,
+                               no_source: task.state.noSource]]
+            }
             def document = [java: bench.javaLauncher.get().executablePath.asFile.absolutePath,
                             jvm_args: bench.allJvmArgs,
                             classpath: bench.classpath.files.collect { it.absolutePath },
-                            main_class: bench.mainClass.get()]
+                            main_class: bench.mainClass.get(),
+                            build_execution: [rerun_tasks: gradle.startParameter.rerunTasks,
+                                              build_cache: gradle.startParameter.buildCacheEnabled,
+                                              tasks: buildTasks]]
             output.parentFile.mkdirs()
             output.text = JsonOutput.prettyPrint(JsonOutput.toJson(document)) + '\n'
         }
