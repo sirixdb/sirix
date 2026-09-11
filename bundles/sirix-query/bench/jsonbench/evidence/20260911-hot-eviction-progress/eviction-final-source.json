@@ -1,0 +1,14 @@
+{
+  "production_base": "b5374bda39b8f9fefbac74c32547ed322a0199d4",
+  "sources": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/AbstractForwardingStorageEngineReader.java": "f9a599674b1b742b60dc531a0a817947b3ef0b6fe2016f0f86f230660cc2e798",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieReader.java": "204e40c701c3c93933b2571e2a91af0ed32a637e2141cdf956cf8802794b12ab",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineReader.java": "21169e120106ab4e11ec4fd64edfd9c5545c34ae3fbacc8005ce0f71d4e5ef0a",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java": "2992a7043eccecbf33e7e77030c0404b8e70eacfc1b5b3a3c3d988d567af1a19",
+    "bundles/sirix-core/src/main/java/io/sirix/api/StorageEngineReader.java": "e3d1da790c9674469679b247ce3cf8d57d61a13d3193a6f774d732acb8df47ca",
+    "bundles/sirix-core/src/main/java/io/sirix/index/hot/AbstractHOTIndexReader.java": "de59cde241fc5909ef2868d0c8c540da10c4b189333683e09e7eac33ca09738d",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/page/HOTLeafCacheCanonicalizationTest.java": "17d323d9e11acdb8f807ece958d2853d516d195c9e762b1a365405f07a92b1db",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/page/HOTGuardedPageHandoffTest.java": "521766cbd76687005ed865b5b13df9124f53f6b797198c25d6121595017f44c6",
+    "bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTReaderEvictionProgressTest.java": "82b3436b5f86df4611b920349fbdbef8c3ba34c578e144459b483b98fab7bc7c"
+  }
+}

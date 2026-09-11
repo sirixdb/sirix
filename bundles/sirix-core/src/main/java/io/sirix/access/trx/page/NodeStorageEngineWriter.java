@@ -5186,7 +5186,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public io.sirix.page.interfaces.@Nullable Page loadHOTPage(PageReference reference) {
+  public @Nullable Page loadHOTPage(PageReference reference) {
+    return loadHOTPage(reference, false);
+  }
+
+  @Override
+  public @Nullable Page loadHOTPageAndGuard(final PageReference reference) {
+    return loadHOTPage(reference, true);
+  }
+
+  private @Nullable Page loadHOTPage(final PageReference reference, final boolean retainLeafGuard) {
     storageEngineReader.assertNotClosed();
 
     if (reference == null) {
@@ -5198,16 +5207,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (container != null) {
       Page modified = container.getModified();
       if (modified instanceof HOTLeafPage || modified instanceof HOTIndirectPage) {
+        if (retainLeafGuard && modified instanceof HOTLeafPage leaf && !leaf.acquireGuard()) {
+          throw new IllegalStateException("Transaction HOT leaf was retired before read handoff");
+        }
         return modified;
       }
       Page complete = container.getComplete();
       if (complete instanceof HOTLeafPage || complete instanceof HOTIndirectPage) {
+        if (retainLeafGuard && complete instanceof HOTLeafPage leaf && !leaf.acquireGuard()) {
+          throw new IllegalStateException("Transaction HOT leaf was retired before read handoff");
+        }
         return complete;
       }
     }
 
     // Delegate to the reader
-    return storageEngineReader.loadHOTPage(reference);
+    return retainLeafGuard
+        ? storageEngineReader.loadHOTPageAndGuard(reference)
+        : storageEngineReader.loadHOTPage(reference);
   }
 
   @Override

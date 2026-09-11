@@ -3550,11 +3550,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(PageReference chainRef, PageReference cacheKey,
       PageReference handoffReference, HOTLeafPage firstPage) {
+    return loadHOTLeafPageWithVersioning(chainRef, cacheKey, handoffReference, firstPage, false);
+  }
+
+  private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(final PageReference chainRef,
+      final PageReference cacheKey, final PageReference handoffReference, final HOTLeafPage firstPage,
+      final boolean retainLeafGuard) {
     final VersioningType versioningType = resourceConfig.versioningType;
     final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
 
     if (versioningType == VersioningType.FULL) {
-      return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, firstPage);
+      return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, firstPage,
+          retainLeafGuard);
     }
 
     final List<HOTLeafPage> fragments = loadHOTPageFragments(chainRef, firstPage);
@@ -3593,7 +3600,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       throw releaseFailure;
     }
 
-    return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, combinedPage);
+    return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, combinedPage,
+        retainLeafGuard);
   }
 
   /**
@@ -3614,6 +3622,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   static @Nullable HOTLeafPage adoptCanonicalHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
       final PageReference cacheKey, final PageReference handoffReference, final @Nullable HOTLeafPage incoming) {
+    return adoptCanonicalHOTLeaf(cache, cacheKey, handoffReference, incoming, false);
+  }
+
+  /** Transfer the cache's guard without opening a publication-to-reader eviction window. */
+  static @Nullable HOTLeafPage adoptCanonicalHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
+      final PageReference cacheKey, final PageReference handoffReference, final @Nullable HOTLeafPage incoming,
+      final boolean retainLeafGuard) {
     requireNonNull(cache);
     requireNonNull(cacheKey);
     requireNonNull(handoffReference);
@@ -3622,12 +3637,20 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     if (cache instanceof EmptyCache<?, ?>) {
-      if (incoming.isClosed()) {
+      if (incoming.isClosed() || (retainLeafGuard && !incoming.acquireGuard())) {
         incoming.retire();
         return null;
       }
-      handoffReference.setPage(incoming);
-      return incoming;
+      boolean handedOff = false;
+      try {
+        handoffReference.setPage(incoming);
+        handedOff = true;
+        return incoming;
+      } finally {
+        if (retainLeafGuard && !handedOff) {
+          incoming.releaseGuard();
+        }
+      }
     }
 
     final HOTLeafPage canonical;
@@ -3643,20 +3666,29 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return null;
     }
 
+    boolean handedOff = false;
     try {
       if (canonical != incoming) {
         incoming.retire();
       }
       handoffReference.setPage(canonical);
+      handedOff = true;
       return canonical;
     } finally {
-      canonical.releaseGuard();
+      if (!retainLeafGuard || !handedOff) {
+        canonical.releaseGuard();
+      }
     }
   }
 
   /** Guard a cache hit through its swizzle handoff, then return to the optimistic HOT API. */
   private static @Nullable HOTLeafPage handoffCachedHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
       final PageReference cacheKey, final PageReference handoffReference) {
+    return handoffCachedHOTLeaf(cache, cacheKey, handoffReference, false);
+  }
+
+  private static @Nullable HOTLeafPage handoffCachedHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
+      final PageReference cacheKey, final PageReference handoffReference, final boolean retainLeafGuard) {
     if (cache instanceof EmptyCache<?, ?>) {
       return null;
     }
@@ -3664,11 +3696,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (cached == null) {
       return null;
     }
+    boolean handedOff = false;
     try {
       handoffReference.setPage(cached);
+      handedOff = true;
       return cached;
     } finally {
-      cached.releaseGuard();
+      if (!retainLeafGuard || !handedOff) {
+        cached.releaseGuard();
+      }
     }
   }
 
@@ -3974,6 +4010,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   public @Nullable Page loadHOTPage(PageReference reference) {
+    return loadHOTPage(reference, false);
+  }
+
+  @Override
+  public @Nullable Page loadHOTPageAndGuard(final PageReference reference) {
+    return loadHOTPage(reference, true);
+  }
+
+  private @Nullable Page loadHOTPage(final PageReference reference, final boolean retainLeafGuard) {
     assertNotClosed();
 
     if (reference == null) {
@@ -3986,10 +4031,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       if (container != null) {
         Page modified = container.getModified();
         if (modified instanceof HOTLeafPage || modified instanceof HOTIndirectPage) {
+          if (retainLeafGuard && modified instanceof HOTLeafPage leaf && !leaf.acquireGuard()) {
+            throw new IllegalStateException("Transaction HOT leaf was retired before read handoff");
+          }
           return modified;
         }
         Page complete = container.getComplete();
         if (complete instanceof HOTLeafPage || complete instanceof HOTIndirectPage) {
+          if (retainLeafGuard && complete instanceof HOTLeafPage leaf && !leaf.acquireGuard()) {
+            throw new IllegalStateException("Transaction HOT leaf was retired before read handoff");
+          }
           return complete;
         }
       }
@@ -3998,7 +4049,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Check if page is swizzled (directly on reference)
     Page swizzled = reference.getPage();
     if (swizzled instanceof HOTLeafPage hotSwizzled) {
-      if (!hotSwizzled.isClosed()) {
+      if (!hotSwizzled.isClosed() && (!retainLeafGuard || hotSwizzled.acquireGuard())) {
         return hotSwizzled;
       }
       reference.clearPageIfSame(hotSwizzled);
@@ -4017,7 +4068,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           new PageReference().setKey(reference.getKey()).setDatabaseId(getDatabaseId()).setResourceId(getResourceId());
 
       final HOTLeafPage cachedHot =
-          handoffCachedHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), canonicalKey, reference);
+          handoffCachedHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), canonicalKey, reference, retainLeafGuard);
       if (cachedHot != null) {
         return cachedHot;
       }
@@ -4031,7 +4082,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         }
 
         if (loadedPage instanceof HOTLeafPage hotLeaf) {
-          return loadHOTLeafPageWithVersioning(reference, canonicalKey, reference, hotLeaf);
+          return loadHOTLeafPageWithVersioning(reference, canonicalKey, reference, hotLeaf, retainLeafGuard);
         }
       } catch (SirixIOException e) {
         return null;

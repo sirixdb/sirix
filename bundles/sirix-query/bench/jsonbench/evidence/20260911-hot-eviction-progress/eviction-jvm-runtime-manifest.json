@@ -1,0 +1,448 @@
+{
+  "jdk": "/home/johannes/.sdkman/candidates/java/25.0.3-graal",
+  "jdk_release": "IMPLEMENTOR=\"Oracle Corporation\"\nJAVA_RUNTIME_VERSION=\"25.0.3+9-LTS-jvmci-b01\"\nJAVA_VERSION=\"25.0.3\"\nJAVA_VERSION_DATE=\"2026-04-21\"\nLIBC=\"gnu\"\nMODULES=\"java.base java.logging java.management jdk.internal.vm.ci org.graalvm.collections jdk.management jdk.unsupported org.graalvm.truffle.compiler org.graalvm.word jdk.graal.compiler com.oracle.graal.graal_enterprise org.graalvm.nativeimage com.oracle.svm.enterprise.truffle java.compiler java.datatransfer java.xml java.prefs java.desktop java.instrument java.security.sasl java.naming java.rmi java.management.rmi java.net.http java.scripting java.security.jgss java.transaction.xa java.sql java.sql.rowset java.xml.crypto java.se java.smartcardio jdk.accessibility jdk.internal.jvmstat jdk.attach jdk.charsets jdk.internal.opt jdk.zipfs jdk.compiler jdk.crypto.cryptoki jdk.crypto.ec jdk.dynalink jdk.internal.ed jdk.editpad jdk.graal.compiler.management jdk.hotspot.agent jdk.httpserver jdk.incubator.vector jdk.internal.le jdk.internal.md jdk.jartool jdk.javadoc jdk.jcmd jdk.management.agent jdk.jconsole jdk.jdeps jdk.jdwp.agent jdk.jdi jdk.jfr jdk.jlink jdk.jpackage jdk.jshell jdk.jsobject jdk.jstatd jdk.localedata jdk.management.jfr jdk.naming.dns jdk.naming.rmi jdk.net jdk.nio.mapmode jdk.sctp jdk.security.auth jdk.security.jgss jdk.unsupported.desktop jdk.xml.dom org.graalvm.nativeimage.libgraal org.graalvm.webimage.api\"\nOS_ARCH=\"x86_64\"\nOS_NAME=\"Linux\"\nSOURCE=\".:git:c9f738907b12 open:git:79cf603a8318 labsjdk-builder:214b6b00ade20ef7e0f771867d98bd611ac489ce compiler:dbf49c84828af03fa88021e71d4ebcf37a78356d espresso-shared:dbf49c84828af03fa88021e71d4ebcf37a78356d graal-enterprise:c1a29f5a70620f2df4ba3de8d5f44420169dcb7c lium:c1a29f5a70620f2df4ba3de8d5f44420169dcb7c regex:dbf49c84828af03fa88021e71d4ebcf37a78356d reporter:c1a29f5a70620f2df4ba3de8d5f44420169dcb7c sdk:dbf49c84828af03fa88021e71d4ebcf37a78356d substratevm:dbf49c84828af03fa88021e71d4ebcf37a78356d substratevm-enterprise:c1a29f5a70620f2df4ba3de8d5f44420169dcb7c substratevm-enterprise-gcs:4cc47ecc8e0f2a5259b33ae3b912a2a091ab1bf2 tools:dbf49c84828af03fa88021e71d4ebcf37a78356d truffle:dbf49c84828af03fa88021e71d4ebcf37a78356d truffle-enterprise:c1a29f5a70620f2df4ba3de8d5f44420169dcb7c vm:dbf49c84828af03fa88021e71d4ebcf37a78356d vm-enterprise:c1a29f5a70620f2df4ba3de8d5f44420169dcb7c wasm:dbf49c84828af03fa88021e71d4ebcf37a78356d web-image:dbf49c84828af03fa88021e71d4ebcf37a78356d web-image-enterprise:c1a29f5a70620f2df4ba3de8d5f44420169dcb7c\"\nGRAALVM_VERSION=\"25.0.3\"\nCOMMIT_INFO={\"compiler\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649324, \"commit.rev\": \"dbf49c84828af03fa88021e71d4ebcf37a78356d\"}, \"espresso-shared\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649324, \"commit.rev\": \"dbf49c84828af03fa88021e71d4ebcf37a78356d\"}, \"graal-enterprise\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649702, \"commit.rev\": \"c1a29f5a70620f2df4ba3de8d5f44420169dcb7c\"}, \"lium\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649702, \"commit.rev\": \"c1a29f5a70620f2df4ba3de8d5f44420169dcb7c\"}, \"regex\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649324, \"commit.rev\": \"dbf49c84828af03fa88021e71d4ebcf37a78356d\"}, \"reporter\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649702, \"commit.rev\": \"c1a29f5a70620f2df4ba3de8d5f44420169dcb7c\"}, \"sdk\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649324, \"commit.rev\": \"dbf49c84828af03fa88021e71d4ebcf37a78356d\"}, \"substratevm\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649324, \"commit.rev\": \"dbf49c84828af03fa88021e71d4ebcf37a78356d\"}, \"substratevm-enterprise\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649702, \"commit.rev\": \"c1a29f5a70620f2df4ba3de8d5f44420169dcb7c\"}, \"substratevm-enterprise-gcs\": {\"commit.committer\": \"Danilo Ansaloni <danilo.ansaloni@oracle.com>\", \"commit.committer-ts\": 1750267448, \"commit.rev\": \"4cc47ecc8e0f2a5259b33ae3b912a2a091ab1bf2\"}, \"tools\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649324, \"commit.rev\": \"dbf49c84828af03fa88021e71d4ebcf37a78356d\"}, \"truffle\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649324, \"commit.rev\": \"dbf49c84828af03fa88021e71d4ebcf37a78356d\"}, \"truffle-enterprise\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649702, \"commit.rev\": \"c1a29f5a70620f2df4ba3de8d5f44420169dcb7c\"}, \"vm\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649324, \"commit.rev\": \"dbf49c84828af03fa88021e71d4ebcf37a78356d\"}, \"vm-enterprise\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649702, \"commit.rev\": \"c1a29f5a70620f2df4ba3de8d5f44420169dcb7c\"}, \"wasm\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649324, \"commit.rev\": \"dbf49c84828af03fa88021e71d4ebcf37a78356d\"}, \"web-image\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649324, \"commit.rev\": \"dbf49c84828af03fa88021e71d4ebcf37a78356d\"}, \"web-image-enterprise\": {\"commit.committer\": \"Marouane El Hallaoui <marouane.el.hallaoui@oracle.com>\", \"commit.committer-ts\": 1775649702, \"commit.rev\": \"c1a29f5a70620f2df4ba3de8d5f44420169dcb7c\"}}",
+  "source_before": "b5374bda39b8f9fefbac74c32547ed322a0199d4",
+  "source_after_manifest": "eviction-final-source.json",
+  "classpath": {
+    "before": [
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/0-sirix-query-1.0.0-beta7.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/0-sirix-query-1.0.0-beta7.jar",
+        "sha256": "4e064c0a7898559c255011db7e193d5340a41561056ea28b963a3c7075d3e06c"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/1-kotlin-stdlib-2.4.20.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/1-kotlin-stdlib-2.4.20.jar",
+        "sha256": "2226de463d309d4a5500a481320b3dea515a6981dcae1def531fbc158884e25f"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/2-sirix-core-1.0.0-beta7.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/2-sirix-core-1.0.0-beta7.jar",
+        "sha256": "36ac225e2ec4732c8a2dc02facd764cb3b1e513353bcddba78a6a21591c06dda"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/3-vertx-auth-oauth2-5.1.1.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/3-vertx-auth-oauth2-5.1.1.jar",
+        "sha256": "3b0ac999d53203012fc0f579d79cfc860f1db0ce69e519ab1f2fd8e252fd9859"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/4-fastutil-8.5.18.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/4-fastutil-8.5.18.jar",
+        "sha256": "9094ae67d01d0ad246f886f11ad557fc2e79c72cbf3feed83e1512a8ae90a74a"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/5-annotations-13.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/5-annotations-13.0.jar",
+        "sha256": "ace2a10dc8e2d5fd34925ecac03e4988b2c0f851650c94b8cef49ba1bd111478"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/6-vertx-auth-common-5.1.1.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/6-vertx-auth-common-5.1.1.jar",
+        "sha256": "498946dab3649b6224d1fef2f4c0e7d1aefd1b083bce426f1b1a687abd4beba8"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/7-vertx-core-5.1.1.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/7-vertx-core-5.1.1.jar",
+        "sha256": "a503fa2a47f9710fdb88ddd50c1d69a4f9b8d5025d89301eb66af44356610df5"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/8-jackson-core-2.22.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/8-jackson-core-2.22.0.jar",
+        "sha256": "d2e8dd4df1e0f61b786ea06792f5bf4235d8278f158f3be6e997e955931c0c98"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/9-brackit-1.0-alpha10-SNAPSHOT.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/9-brackit-1.0-alpha10-SNAPSHOT.jar",
+        "sha256": "596e962e8f8616462ee291de433d61a88bf93d247682e0849475f562621a58a5"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/10-logback-classic-1.5.34.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/10-logback-classic-1.5.34.jar",
+        "sha256": "b65e05076a5c1aadb659b4fe4bc5fee31cb26cd70390292eb03e4a7a24cff10f"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/11-slf4j-api-2.0.18.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/11-slf4j-api-2.0.18.jar",
+        "sha256": "44508fd1576500688c790b190acdd16fec4f8c79a3e0b900afd70503cf055f55"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/12-tink-1.21.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/12-tink-1.21.0.jar",
+        "sha256": "065086dbbd61c95529f782966c3462838cc8a801ba78420223aa319175a444ff"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/13-gson-2.14.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/13-gson-2.14.0.jar",
+        "sha256": "2cbd119bf1961c28788310963dc80ba65f58cdeec1dd139c8bdb1240faa2c36f"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/14-caffeine-3.2.4.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/14-caffeine-3.2.4.jar",
+        "sha256": "9d9d2cfd681fd9272ded3d27c9930db12f89f732345975aa113ebc223bbf1224"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/15-jspecify-1.0.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/15-jspecify-1.0.0.jar",
+        "sha256": "1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/16-RoaringBitmap-1.6.14.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/16-RoaringBitmap-1.6.14.jar",
+        "sha256": "78ae7a6261b5b03f53b8db991047d06959cfadbd0b08af54bd95dda40af9acba"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/17-JavaFastPFOR-0.3.11.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/17-JavaFastPFOR-0.3.11.jar",
+        "sha256": "6e83cfab37b2b4d737f95da1a477b1b77ad747f501ac4cf73ef27baac1fd875d"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/18-zero-allocation-hashing-2026.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/18-zero-allocation-hashing-2026.0.jar",
+        "sha256": "22b4328b4cd751790ba3222320c7aae3f7927e6cdd064cd8a60d2a179be4ada3"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/19-logback-core-1.5.34.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/19-logback-core-1.5.34.jar",
+        "sha256": "42eda264c0c650c2bec59e66151a88b708a8663dc1b49d788202d53e78b8caae"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/20-brownies-collections-0.9.14.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/20-brownies-collections-0.9.14.jar",
+        "sha256": "a36159e7a365658a76ab01891559c7ed1730cd638c6f5bbf2ac5dfb8140e501b"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/21-error_prone_annotations-2.49.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/21-error_prone_annotations-2.49.0.jar",
+        "sha256": "3b1003e51b8ae56fdbd7c71073e81d1683b97e6c4dff5a9151164d59b769d13c"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/22-jsr305-3.0.2.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/22-jsr305-3.0.2.jar",
+        "sha256": "766ad2a0783f2687962c8ad74ceecc38a28b9f72a2d085ee438b7813e928d0c7"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/23-protobuf-java-4.33.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/23-protobuf-java-4.33.0.jar",
+        "sha256": "6c50b4323a101dfd7b8aea209337ac49ecf5d8e33e0b210b196fc654291ed2cc"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/24-vertx-core-logging-5.1.1.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/24-vertx-core-logging-5.1.1.jar",
+        "sha256": "0329c6874050acb31e58385baa23a164b627f204a2c24f5716837503036492cf"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/25-netty-handler-proxy-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/25-netty-handler-proxy-4.2.15.Final.jar",
+        "sha256": "a06aaaaa1a2e6eb26824e53566bfd020ba930a9390d57a1f0bbf57316e357373"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/26-netty-codec-http2-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/26-netty-codec-http2-4.2.15.Final.jar",
+        "sha256": "4a9b052bd815c765d9c05e27b32abbd32a2c7c3e3364ccb992ce71da1a26bc0d"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/27-netty-codec-http-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/27-netty-codec-http-4.2.15.Final.jar",
+        "sha256": "76ae57e87af37b3c4107140f50b9244b1456163a6a225510838f7c5a4458ec22"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/28-netty-codec-classes-quic-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/28-netty-codec-classes-quic-4.2.15.Final.jar",
+        "sha256": "ec1d5da906ea0139741cd8c570907c399df5995e48a2b07fe3155272e0be21a6"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/29-netty-resolver-dns-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/29-netty-resolver-dns-4.2.15.Final.jar",
+        "sha256": "2e8dd2d861775483d689329ab2546045647c8f8bf5ae3ed2dd48eefbb748952d"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/30-netty-handler-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/30-netty-handler-4.2.15.Final.jar",
+        "sha256": "99b59e4bea72220d2aed52df8baf37d97431b06ade0b135226cdf73168975eab"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/31-netty-transport-native-unix-common-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/31-netty-transport-native-unix-common-4.2.15.Final.jar",
+        "sha256": "b9ea9fc5ad5eba04e99afdff75b2eb97b5ddfb2ad772e2f2ef5d8f277f3cbd76"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/32-netty-codec-socks-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/32-netty-codec-socks-4.2.15.Final.jar",
+        "sha256": "4230d43481241e49382a83da2fa9d5980c5702668fc5aa5a980346ce03d30828"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/33-netty-codec-compression-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/33-netty-codec-compression-4.2.15.Final.jar",
+        "sha256": "4adaa5cdd4d2e9b50b23e4c3eff42e73de6eb40848718b3aa84cd5b454da6ce8"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/34-netty-codec-dns-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/34-netty-codec-dns-4.2.15.Final.jar",
+        "sha256": "c5e2c05b4faeba3cf374cc6af29d6f4a7e969d7ca222be958e0800c79a02ee4e"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/35-netty-codec-base-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/35-netty-codec-base-4.2.15.Final.jar",
+        "sha256": "2c6d39d7270628b8cfc3166fbd7a93d595958e59c461bc32ddb383c8c91bf811"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/36-netty-transport-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/36-netty-transport-4.2.15.Final.jar",
+        "sha256": "9fb671e96651066cf1a28dad3f1382c7c99df5b8326d4a214d9a375b311f8dc1"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/37-netty-buffer-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/37-netty-buffer-4.2.15.Final.jar",
+        "sha256": "1361fd9c9ba85b9831cf54a1b2e45ddc3ce34a768931726c099d3f5ef0efe4a3"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/38-netty-resolver-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/38-netty-resolver-4.2.15.Final.jar",
+        "sha256": "24318497f2a3a645964fed418f48879ba11365cab8e1f8d66c47fa7da15ef19a"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/39-netty-common-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/39-netty-common-4.2.15.Final.jar",
+        "sha256": "78206aa7f6d197caa926291408c01889b6b910ca0f74017d3fcbdaccf9562959"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/40-netty-codec-http3-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/40-netty-codec-http3-4.2.15.Final.jar",
+        "sha256": "f2f96b7557317c1378dd8d84b4d9b1865db285c5e665b1220ea519e9f868929d"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/41-netty-tcnative-classes-2.0.77.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-before/41-netty-tcnative-classes-2.0.77.Final.jar",
+        "sha256": "d492269308336001b7a7eca02703282c3d74c8c3b4fe08c5078cfefeeda7e34f"
+      }
+    ],
+    "after": [
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-eviction-final/bundles/sirix-query/build/libs/sirix-query-1.0.0-beta7.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/0-sirix-query-1.0.0-beta7.jar",
+        "sha256": "3089bd2b63883975cc180a11cc70b00df31100299c35997f29d37e79919dcf5f"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/1-kotlin-stdlib-2.4.20.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/1-kotlin-stdlib-2.4.20.jar",
+        "sha256": "2226de463d309d4a5500a481320b3dea515a6981dcae1def531fbc158884e25f"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-eviction-final/bundles/sirix-core/build/libs/sirix-core-1.0.0-beta7.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/2-sirix-core-1.0.0-beta7.jar",
+        "sha256": "d07f5dd4c09709336b7ce4dceaa6b131abb888aa7ed476f61b974c04d9bbd6af"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/3-vertx-auth-oauth2-5.1.1.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/3-vertx-auth-oauth2-5.1.1.jar",
+        "sha256": "3b0ac999d53203012fc0f579d79cfc860f1db0ce69e519ab1f2fd8e252fd9859"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/4-fastutil-8.5.18.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/4-fastutil-8.5.18.jar",
+        "sha256": "9094ae67d01d0ad246f886f11ad557fc2e79c72cbf3feed83e1512a8ae90a74a"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/5-annotations-13.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/5-annotations-13.0.jar",
+        "sha256": "ace2a10dc8e2d5fd34925ecac03e4988b2c0f851650c94b8cef49ba1bd111478"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/6-vertx-auth-common-5.1.1.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/6-vertx-auth-common-5.1.1.jar",
+        "sha256": "498946dab3649b6224d1fef2f4c0e7d1aefd1b083bce426f1b1a687abd4beba8"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/7-vertx-core-5.1.1.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/7-vertx-core-5.1.1.jar",
+        "sha256": "a503fa2a47f9710fdb88ddd50c1d69a4f9b8d5025d89301eb66af44356610df5"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/8-jackson-core-2.22.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/8-jackson-core-2.22.0.jar",
+        "sha256": "d2e8dd4df1e0f61b786ea06792f5bf4235d8278f158f3be6e997e955931c0c98"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/9-brackit-1.0-alpha10-SNAPSHOT.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/9-brackit-1.0-alpha10-SNAPSHOT.jar",
+        "sha256": "596e962e8f8616462ee291de433d61a88bf93d247682e0849475f562621a58a5"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/10-logback-classic-1.5.34.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/10-logback-classic-1.5.34.jar",
+        "sha256": "b65e05076a5c1aadb659b4fe4bc5fee31cb26cd70390292eb03e4a7a24cff10f"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/11-slf4j-api-2.0.18.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/11-slf4j-api-2.0.18.jar",
+        "sha256": "44508fd1576500688c790b190acdd16fec4f8c79a3e0b900afd70503cf055f55"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/12-tink-1.21.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/12-tink-1.21.0.jar",
+        "sha256": "065086dbbd61c95529f782966c3462838cc8a801ba78420223aa319175a444ff"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/13-gson-2.14.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/13-gson-2.14.0.jar",
+        "sha256": "2cbd119bf1961c28788310963dc80ba65f58cdeec1dd139c8bdb1240faa2c36f"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/14-caffeine-3.2.4.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/14-caffeine-3.2.4.jar",
+        "sha256": "9d9d2cfd681fd9272ded3d27c9930db12f89f732345975aa113ebc223bbf1224"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/15-jspecify-1.0.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/15-jspecify-1.0.0.jar",
+        "sha256": "1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/16-RoaringBitmap-1.6.14.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/16-RoaringBitmap-1.6.14.jar",
+        "sha256": "78ae7a6261b5b03f53b8db991047d06959cfadbd0b08af54bd95dda40af9acba"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/17-JavaFastPFOR-0.3.11.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/17-JavaFastPFOR-0.3.11.jar",
+        "sha256": "6e83cfab37b2b4d737f95da1a477b1b77ad747f501ac4cf73ef27baac1fd875d"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/18-zero-allocation-hashing-2026.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/18-zero-allocation-hashing-2026.0.jar",
+        "sha256": "22b4328b4cd751790ba3222320c7aae3f7927e6cdd064cd8a60d2a179be4ada3"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/19-logback-core-1.5.34.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/19-logback-core-1.5.34.jar",
+        "sha256": "42eda264c0c650c2bec59e66151a88b708a8663dc1b49d788202d53e78b8caae"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/20-brownies-collections-0.9.14.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/20-brownies-collections-0.9.14.jar",
+        "sha256": "a36159e7a365658a76ab01891559c7ed1730cd638c6f5bbf2ac5dfb8140e501b"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/21-error_prone_annotations-2.49.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/21-error_prone_annotations-2.49.0.jar",
+        "sha256": "3b1003e51b8ae56fdbd7c71073e81d1683b97e6c4dff5a9151164d59b769d13c"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/22-jsr305-3.0.2.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/22-jsr305-3.0.2.jar",
+        "sha256": "766ad2a0783f2687962c8ad74ceecc38a28b9f72a2d085ee438b7813e928d0c7"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/23-protobuf-java-4.33.0.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/23-protobuf-java-4.33.0.jar",
+        "sha256": "6c50b4323a101dfd7b8aea209337ac49ecf5d8e33e0b210b196fc654291ed2cc"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/24-vertx-core-logging-5.1.1.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/24-vertx-core-logging-5.1.1.jar",
+        "sha256": "0329c6874050acb31e58385baa23a164b627f204a2c24f5716837503036492cf"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/25-netty-handler-proxy-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/25-netty-handler-proxy-4.2.15.Final.jar",
+        "sha256": "a06aaaaa1a2e6eb26824e53566bfd020ba930a9390d57a1f0bbf57316e357373"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/26-netty-codec-http2-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/26-netty-codec-http2-4.2.15.Final.jar",
+        "sha256": "4a9b052bd815c765d9c05e27b32abbd32a2c7c3e3364ccb992ce71da1a26bc0d"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/27-netty-codec-http-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/27-netty-codec-http-4.2.15.Final.jar",
+        "sha256": "76ae57e87af37b3c4107140f50b9244b1456163a6a225510838f7c5a4458ec22"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/28-netty-codec-classes-quic-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/28-netty-codec-classes-quic-4.2.15.Final.jar",
+        "sha256": "ec1d5da906ea0139741cd8c570907c399df5995e48a2b07fe3155272e0be21a6"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/29-netty-resolver-dns-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/29-netty-resolver-dns-4.2.15.Final.jar",
+        "sha256": "2e8dd2d861775483d689329ab2546045647c8f8bf5ae3ed2dd48eefbb748952d"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/30-netty-handler-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/30-netty-handler-4.2.15.Final.jar",
+        "sha256": "99b59e4bea72220d2aed52df8baf37d97431b06ade0b135226cdf73168975eab"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/31-netty-transport-native-unix-common-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/31-netty-transport-native-unix-common-4.2.15.Final.jar",
+        "sha256": "b9ea9fc5ad5eba04e99afdff75b2eb97b5ddfb2ad772e2f2ef5d8f277f3cbd76"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/32-netty-codec-socks-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/32-netty-codec-socks-4.2.15.Final.jar",
+        "sha256": "4230d43481241e49382a83da2fa9d5980c5702668fc5aa5a980346ce03d30828"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/33-netty-codec-compression-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/33-netty-codec-compression-4.2.15.Final.jar",
+        "sha256": "4adaa5cdd4d2e9b50b23e4c3eff42e73de6eb40848718b3aa84cd5b454da6ce8"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/34-netty-codec-dns-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/34-netty-codec-dns-4.2.15.Final.jar",
+        "sha256": "c5e2c05b4faeba3cf374cc6af29d6f4a7e969d7ca222be958e0800c79a02ee4e"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/35-netty-codec-base-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/35-netty-codec-base-4.2.15.Final.jar",
+        "sha256": "2c6d39d7270628b8cfc3166fbd7a93d595958e59c461bc32ddb383c8c91bf811"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/36-netty-transport-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/36-netty-transport-4.2.15.Final.jar",
+        "sha256": "9fb671e96651066cf1a28dad3f1382c7c99df5b8326d4a214d9a375b311f8dc1"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/37-netty-buffer-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/37-netty-buffer-4.2.15.Final.jar",
+        "sha256": "1361fd9c9ba85b9831cf54a1b2e45ddc3ce34a768931726c099d3f5ef0efe4a3"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/38-netty-resolver-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/38-netty-resolver-4.2.15.Final.jar",
+        "sha256": "24318497f2a3a645964fed418f48879ba11365cab8e1f8d66c47fa7da15ef19a"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/39-netty-common-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/39-netty-common-4.2.15.Final.jar",
+        "sha256": "78206aa7f6d197caa926291408c01889b6b910ca0f74017d3fcbdaccf9562959"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/40-netty-codec-http3-4.2.15.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/40-netty-codec-http3-4.2.15.Final.jar",
+        "sha256": "f2f96b7557317c1378dd8d84b4d9b1865db285c5e665b1220ea519e9f868929d"
+      },
+      {
+        "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-bulk-instrument/41-netty-tcnative-classes-2.0.77.Final.jar",
+        "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/runtime-eviction-jvm-after/41-netty-tcnative-classes-2.0.77.Final.jar",
+        "sha256": "d492269308336001b7a7eca02703282c3d74c8c3b4fe08c5078cfefeeda7e34f"
+      }
+    ]
+  },
+  "launchers": {
+    "before": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/eviction-jvm-before",
+    "after": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/eviction-jvm-after"
+  },
+  "jvm_flags": [
+    "--add-opens",
+    "java.base/sun.nio.ch=ALL-UNNAMED",
+    "--add-opens",
+    "java.base/java.nio=ALL-UNNAMED",
+    "--add-modules",
+    "jdk.incubator.vector",
+    "--enable-native-access=ALL-UNNAMED",
+    "--enable-preview",
+    "-Xms4g",
+    "-Xmx12g"
+  ]
+}

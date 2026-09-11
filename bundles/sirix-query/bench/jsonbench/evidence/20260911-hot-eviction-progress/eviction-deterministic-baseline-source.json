@@ -1,0 +1,5 @@
+{
+  "production_commit": "b5374bda39b8f9fefbac74c32547ed322a0199d4",
+  "test": "bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTReaderEvictionProgressTest.java",
+  "test_sha256": "379d618749eb9d43249b22e5ff2b0b5ec77dcea94a28386234f750c420aa7055"
+}

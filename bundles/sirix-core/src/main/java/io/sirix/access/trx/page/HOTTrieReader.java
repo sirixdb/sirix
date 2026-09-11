@@ -44,17 +44,17 @@ import java.util.concurrent.Semaphore;
  * HOT trie reader for HOT (Height Optimized Trie) navigation.
  * 
  * <p>
- * This class provides read-only access to HOT indexes with OPTIMISTIC stamp validation instead of
- * page pinning: leaves stay evictable at all times, every batch of leaf-content reads is confirmed
- * against the FrameSlotAllocator's per-slot seqlock version before its result escapes, and a failed
- * validation retries on a freshly reloaded copy of the same immutable content.
+ * This class provides read-only access to HOT indexes with optimistic stamp validation. Every batch
+ * of leaf-content reads is confirmed against the allocator's per-slot version before its result
+ * escapes. After a failed validation, the reader retains a lifetime guard on each replacement leaf
+ * until it advances or closes, ensuring progress under continuous eviction.
  * </p>
  *
  * <p>
  * <b>Key Features:</b>
  * </p>
  * <ul>
- * <li>Optimistic stamp validation for page lifetime safety — no pins, no guard churn</li>
+ * <li>Optimistic lifetime checks, with guarded recovery only after eviction races a read</li>
  * <li>Zero-copy value access via MemorySegment slices</li>
  * <li>SIMD-optimized child lookup via HOTIndirectPage</li>
  * <li>Pre-allocated traversal arrays for zero allocations</li>
@@ -197,16 +197,15 @@ public final class HOTTrieReader implements AutoCloseable {
   private final short[] pathMsbAtDepth = new short[MAX_TREE_HEIGHT];
   private int pathDepth = 0;
 
-  // ===== Current leaf, protected by OPTIMISTIC STAMPS — never pinned =====
-  // The reader holds no guard: leaves stay evictable at all times, and safety comes from the
-  // FrameSlotAllocator's per-slot seqlock versions instead. loadPage snapshots the resolved
-  // leaf's stamp; every read of leaf content is trusted only after validateCurrentLeaf()
-  // confirms the stamp, and one validation covers every read since the snapshot. On a failed
-  // validation the leaf is re-resolved through its PageReference — content per reference is
-  // immutable, so every slot index computed before the failure stays valid after the reload.
+  // Uncontended reads use stamps without guard churn. A torn read switches the rest of this walk
+  // to guarded handoff; retrying the same unpinned protocol cannot guarantee progress against an
+  // evictor that repeatedly runs between snapshot and validation. close() resets this mode before
+  // a pooled reader is reused for another walk.
   private HOTLeafPage currentLeaf = null;
   private PageReference currentLeafRef = null;
   private long currentLeafStamp = HOTLeafPage.STAMP_INVALID;
+  private boolean guardReads;
+  private boolean currentLeafGuarded;
 
   /**
    * The leaf binding {@link #currentLeafStamp} was issued under, snapshotted immediately before it.
@@ -222,17 +221,10 @@ public final class HOTTrieReader implements AutoCloseable {
   private long currentLeafBinding = HOTLeafPage.STAMP_INVALID;
 
   /**
-   * Bound on how many times {@link #loadPage} reloads a leaf that keeps getting evicted between
-   * resolve and stamp snapshot. Each retry reads a fresh copy from storage, so the race is
-   * independent per attempt; exhausting this many implies pathological thrashing.
-   */
-  private static final int MAX_LOAD_RETRIES = 256;
-
-  /**
    * Bound on validate-and-retry rounds for a single positioning decision, shared by every consumer of
    * the optimistic-stamp protocol. A retry re-reads a freshly reloaded copy of the same immutable
-   * content, so each round races eviction independently; exhausting this many implies pathological
-   * allocator thrashing, not a logic error.
+   * content. A failed read enables guarded handoff for the rest of the walk, so eviction cannot
+   * repeatedly invalidate the replacement leaf during a read batch.
    *
    * <p>
    * ONE declaration on purpose: this budget was previously restated under five different names across
@@ -1116,63 +1108,91 @@ public final class HOTTrieReader implements AutoCloseable {
    * </p>
    */
   private @Nullable Page loadPage(PageReference ref) {
+    if (guardReads) {
+      return loadGuardedPage(ref);
+    }
     // Resolving a HOT leaf and snapshotting its optimistic stamp are fused here so no caller can
     // observe a leaf without a stamp to validate against: a concurrent eviction would otherwise
     // let a reader mistake an evicted page for a missing key. On a lost race the leaf is simply
     // reloaded — eviction is transient, not absence.
-    for (int attempt = 0; attempt < MAX_LOAD_RETRIES; attempt++) {
-      // A swizzled page that is already closed means a concurrent eviction reclaimed its
-      // off-heap slot; drop it and reload a fresh copy rather than hand back dead memory.
-      Page page = ref.getPage();
-      if (page == null || page.isClosed()) {
-        // CRITICAL: check BOTH storage key AND log key before giving up. A page in the
-        // transaction log has key == NULL_ID_LONG but a valid logKey.
-        if (ref.getKey() < 0 && ref.getLogKey() < 0) {
-          return null; // not in storage and not in the transaction log
-        }
-        // The storage engine handles versioning/fragment combining and the log lookup.
-        page = storageEngineReader.loadHOTPage(ref);
-        if (page == null) {
-          return null;
-        }
-        // Swizzle: pin the loaded page so future descents skip I/O. HOT pages are immutable
-        // once loaded (COW creates new pages for modifications), so setPage is idempotent.
-        ref.setPage(page);
+    // A swizzled page that is already closed means a concurrent eviction reclaimed its
+    // off-heap slot; drop it and reload a fresh copy rather than hand back dead memory.
+    Page page = ref.getPage();
+    if (page == null || page.isClosed()) {
+      // CRITICAL: check BOTH storage key AND log key before giving up. A page in the
+      // transaction log has key == NULL_ID_LONG but a valid logKey.
+      if (ref.getKey() < 0 && ref.getLogKey() < 0) {
+        return null; // not in storage and not in the transaction log
       }
+      // The storage engine handles versioning/fragment combining and the log lookup.
+      page = storageEngineReader.loadHOTPage(ref);
+      if (page == null) {
+        return null;
+      }
+      // Swizzle the loaded page so future descents skip I/O. This publishes an object reference,
+      // not a lifetime guard; stamp validation below still protects against eviction.
+      ref.setPage(page);
+    }
 
-      if (!(page instanceof HOTLeafPage leaf)) {
-        return page; // an indirect page — eviction only de-swizzles it, never closes it
-      }
-      // NO PIN. Snapshot the leaf's optimistic stamp instead: an odd stamp means the leaf is
-      // closed or its slot is mid-teardown — drop the swizzle and reload a fresh copy. Every
-      // read of this leaf's content must later pass validateCurrentLeaf() before its result is
-      // trusted; the leaf stays evictable the entire time.
-      //
-      // The binding comes FIRST and travels with the stamp: a stamp is a per-slot sequence, so a
-      // rebind between the two reads must be detectable, and an ODD binding means a rebind is in
-      // flight right now — nothing read under it could be proved, so reload instead of reading.
+    if (!(page instanceof HOTLeafPage leaf)) {
+      return page; // an indirect page — eviction only de-swizzles it, never closes it
+    }
+    // NO PIN. Snapshot the leaf's optimistic stamp instead: an odd stamp means the leaf is
+    // closed or its slot is mid-teardown — drop the swizzle and reload a fresh copy. Every
+    // read of this leaf's content must later pass validateCurrentLeaf() before its result is
+    // trusted; the leaf stays evictable the entire time.
+    //
+    // The binding comes FIRST and travels with the stamp: a stamp is a per-slot sequence, so a
+    // rebind between the two reads must be detectable, and an ODD binding means a rebind is in
+    // flight right now — nothing read under it could be proved, so reload instead of reading.
+    final long binding = leaf.readStampBinding();
+    final long stamp = leaf.readStamp();
+    if ((binding & 1L) != 0L || (stamp & 1L) != 0L) {
+      ref.clearPageIfSame(leaf);
+      guardReads = true;
+      return loadGuardedPage(ref);
+    }
+    // Second-chance signal for the ClockSweeper: a leaf under active read survives one
+    // eviction cycle. Purely advisory — correctness never depends on it. Guarded because
+    // markAccessed is a volatile store and a seek re-resolves the same leaf many times (every
+    // first-key probe descends to one), so the unguarded form paid a store fence per probe on a
+    // flag that is already set after the first.
+    if (!leaf.isHot()) {
+      leaf.markAccessed();
+    }
+    currentLeaf = leaf;
+    currentLeafRef = ref;
+    currentLeafBinding = binding;
+    currentLeafStamp = stamp;
+    return leaf;
+  }
+
+  /** Keep the loader's guard through the caller's complete read batch, including cache handoff. */
+  private @Nullable Page loadGuardedPage(final PageReference ref) {
+    clearCurrentLeaf();
+    final Page page = storageEngineReader.loadHOTPageAndGuard(ref);
+    if (!(page instanceof HOTLeafPage leaf)) {
+      return page;
+    }
+    boolean adopted = false;
+    try {
       final long binding = leaf.readStampBinding();
       final long stamp = leaf.readStamp();
       if ((binding & 1L) != 0L || (stamp & 1L) != 0L) {
-        ref.setPage(null);
-        continue;
-      }
-      // Second-chance signal for the ClockSweeper: a leaf under active read survives one
-      // eviction cycle. Purely advisory — correctness never depends on it. Guarded because
-      // markAccessed is a volatile store and a seek re-resolves the same leaf many times (every
-      // first-key probe descends to one), so the unguarded form paid a store fence per probe on a
-      // flag that is already set after the first.
-      if (!leaf.isHot()) {
-        leaf.markAccessed();
+        throw new IllegalStateException("Guarded HOT leaf has an invalid lifetime stamp");
       }
       currentLeaf = leaf;
       currentLeafRef = ref;
       currentLeafBinding = binding;
       currentLeafStamp = stamp;
+      currentLeafGuarded = true;
+      adopted = true;
       return leaf;
+    } finally {
+      if (!adopted) {
+        leaf.releaseGuard();
+      }
     }
-    throw new IllegalStateException("HOT: leaf at " + ref + " evicted on every one of " + MAX_LOAD_RETRIES
-        + " load attempts — sustained allocator thrashing");
   }
 
   /**
@@ -1199,7 +1219,11 @@ public final class HOTTrieReader implements AutoCloseable {
    */
   public boolean validateCurrentLeaf() {
     final HOTLeafPage leaf = currentLeaf;
-    return leaf == null || leaf.validateStamp(currentLeafBinding, currentLeafStamp);
+    if (leaf == null || leaf.validateStamp(currentLeafBinding, currentLeafStamp)) {
+      return true;
+    }
+    guardReads = true;
+    return false;
   }
 
   /** The most-recently-resolved leaf, or {@code null}. Reads of it require stamp validation. */
@@ -1321,12 +1345,15 @@ public final class HOTTrieReader implements AutoCloseable {
    * Release the currently guarded leaf page.
    */
   private void clearCurrentLeaf() {
-    // Nothing to release: the reader holds no guard. Clearing only drops the references so an
-    // idle reader does not keep a leaf object (and its stamp) reachable.
+    final HOTLeafPage guarded = currentLeafGuarded ? currentLeaf : null;
     currentLeaf = null;
     currentLeafRef = null;
     currentLeafBinding = HOTLeafPage.STAMP_INVALID;
     currentLeafStamp = HOTLeafPage.STAMP_INVALID;
+    currentLeafGuarded = false;
+    if (guarded != null) {
+      guarded.releaseGuard();
+    }
   }
 
   /**
@@ -1338,7 +1365,11 @@ public final class HOTTrieReader implements AutoCloseable {
 
   @Override
   public void close() {
-    clearCurrentLeaf();
-    clearPath();
+    try {
+      clearCurrentLeaf();
+    } finally {
+      guardReads = false;
+      clearPath();
+    }
   }
 }

@@ -1,0 +1,12 @@
+{
+  "production_base": "b5374bda39b8f9fefbac74c32547ed322a0199d4",
+  "sources": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/AbstractForwardingStorageEngineReader.java": "f9a599674b1b742b60dc531a0a817947b3ef0b6fe2016f0f86f230660cc2e798",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieReader.java": "b707bcc546884cd50513f71b7dba42d5f7ac879fb8b630e4df9c99cc9b393428",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineReader.java": "21169e120106ab4e11ec4fd64edfd9c5545c34ae3fbacc8005ce0f71d4e5ef0a",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java": "2992a7043eccecbf33e7e77030c0404b8e70eacfc1b5b3a3c3d988d567af1a19",
+    "bundles/sirix-core/src/main/java/io/sirix/api/StorageEngineReader.java": "e3d1da790c9674469679b247ce3cf8d57d61a13d3193a6f774d732acb8df47ca",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/page/HOTLeafCacheCanonicalizationTest.java": "eb900a39803f02b10a05de432b5df075fb4abb622d568a57aa250d5c6757fe9f",
+    "bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTReaderEvictionProgressTest.java": "82b3436b5f86df4611b920349fbdbef8c3ba34c578e144459b483b98fab7bc7c"
+  }
+}
