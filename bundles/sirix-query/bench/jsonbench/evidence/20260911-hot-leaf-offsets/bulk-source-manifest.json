@@ -1,0 +1,8 @@
+{
+  "base_commit": "df9b763fbc5e5387a3cd01715975cc28b3aeba19",
+  "patch_sha256": "35f9bc6703a95eb91c3ac7df57fdf2bfb24dfb4a634f347cc46850d949772545",
+  "overlaid_sources": {
+    "bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java": "3299907c31217385c51eb60cdc6565cf2764c8a23d48176eb7d3170c4c6e1723",
+    "bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafPageNativeWireTest.java": "f14df85d2c546374436544ab31699903af394f093cb97f402bdad21c1cc8d0f1"
+  }
+}

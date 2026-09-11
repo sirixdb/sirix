@@ -1,0 +1,97 @@
+[
+  {
+    "query": 1,
+    "before": {
+      "median_rss_kib": 361920.0,
+      "max_rss_kib": 363200,
+      "major_faults": [
+        0,
+        151
+      ]
+    },
+    "after": {
+      "median_rss_kib": 365120.0,
+      "max_rss_kib": 365600,
+      "major_faults": [
+        0,
+        151
+      ]
+    }
+  },
+  {
+    "query": 2,
+    "before": {
+      "median_rss_kib": 483360.0,
+      "max_rss_kib": 485760,
+      "major_faults": [
+        0,
+        151
+      ]
+    },
+    "after": {
+      "median_rss_kib": 378320.0,
+      "max_rss_kib": 380960,
+      "major_faults": [
+        0,
+        151
+      ]
+    }
+  },
+  {
+    "query": 3,
+    "before": {
+      "median_rss_kib": 365680.0,
+      "max_rss_kib": 366240,
+      "major_faults": [
+        0,
+        151
+      ]
+    },
+    "after": {
+      "median_rss_kib": 365680.0,
+      "max_rss_kib": 366240,
+      "major_faults": [
+        0,
+        151
+      ]
+    }
+  },
+  {
+    "query": 4,
+    "before": {
+      "median_rss_kib": 482240.0,
+      "max_rss_kib": 485440,
+      "major_faults": [
+        0,
+        156
+      ]
+    },
+    "after": {
+      "median_rss_kib": 487520.0,
+      "max_rss_kib": 490240,
+      "major_faults": [
+        0,
+        156
+      ]
+    }
+  },
+  {
+    "query": 5,
+    "before": {
+      "median_rss_kib": 481760.0,
+      "max_rss_kib": 483200,
+      "major_faults": [
+        0,
+        156
+      ]
+    },
+    "after": {
+      "median_rss_kib": 486560.0,
+      "max_rss_kib": 487840,
+      "major_faults": [
+        0,
+        156
+      ]
+    }
+  }
+]

@@ -1,0 +1,4 @@
+{
+  "bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java": "3299907c31217385c51eb60cdc6565cf2764c8a23d48176eb7d3170c4c6e1723",
+  "bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafPageNativeWireTest.java": "844c3b3a01f9c4945d6dc01b46eb97ab3f8033d1eb88638e57a617b67c7a316b"
+}

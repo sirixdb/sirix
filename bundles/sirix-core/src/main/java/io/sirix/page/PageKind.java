@@ -5829,9 +5829,7 @@ public enum PageKind {
 
       // Read slot offsets (allocate MAX_ENTRIES to allow insertions after deserialization)
       final int[] slotOffsets = new int[HOTLeafPage.MAX_ENTRIES];
-      for (int i = 0; i < entryCount; i++) {
-        slotOffsets[i] = source.readInt();
-      }
+      source.readInts(slotOffsets, 0, entryCount);
 
       // Read slot memory (zero-copy when possible). The ownership variables deliberately cover the
       // entire acquisition-to-return interval: the optional side-reference trailer is parsed only
