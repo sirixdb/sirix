@@ -1,0 +1,19 @@
+{
+  "ranked": false,
+  "rows": 1000000,
+  "exact_differentials": 10,
+  "attempts": 60,
+  "verified_cold_blocks": 20,
+  "route_variants_per_query": 1,
+  "guard_samples": 387,
+  "after_over_before": [
+    {
+      "cold": 0.3970925694940461,
+      "hot": 0.42974963707314984
+    },
+    {
+      "cold": 0.37562171820687673,
+      "hot": 0.446899221732703
+    }
+  ]
+}

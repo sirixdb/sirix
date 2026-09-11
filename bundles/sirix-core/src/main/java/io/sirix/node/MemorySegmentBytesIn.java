@@ -32,21 +32,21 @@ public class MemorySegmentBytesIn implements BytesIn<MemorySegment> {
 
   @Override
   public int readInt() {
-    int value = memorySegment.get(LE.INT, position);
+    int value = SegmentAccess.getIntLE(memorySegment, position);
     position += Integer.BYTES;
     return value;
   }
 
   @Override
   public long readLong() {
-    long value = memorySegment.get(LE.LONG, position);
+    long value = SegmentAccess.getLongLE(memorySegment, position);
     position += Long.BYTES;
     return value;
   }
 
   @Override
   public byte readByte() {
-    byte value = memorySegment.get(ValueLayout.JAVA_BYTE, position);
+    byte value = SegmentAccess.getByte(memorySegment, position);
     position += Byte.BYTES;
     return value;
   }
@@ -58,21 +58,21 @@ public class MemorySegmentBytesIn implements BytesIn<MemorySegment> {
 
   @Override
   public double readDouble() {
-    double value = memorySegment.get(LE.DOUBLE, position);
+    double value = SegmentAccess.getDoubleLE(memorySegment, position);
     position += Double.BYTES;
     return value;
   }
 
   @Override
   public float readFloat() {
-    float value = memorySegment.get(LE.FLOAT, position);
+    float value = SegmentAccess.getFloatLE(memorySegment, position);
     position += Float.BYTES;
     return value;
   }
 
   @Override
   public short readShort() {
-    short value = memorySegment.get(LE.SHORT, position);
+    short value = SegmentAccess.getShortLE(memorySegment, position);
     position += Short.BYTES;
     return value;
   }
@@ -185,7 +185,7 @@ public class MemorySegmentBytesIn implements BytesIn<MemorySegment> {
         if (streamPosition >= memorySegment.byteSize()) {
           return -1;
         }
-        byte value = memorySegment.get(ValueLayout.JAVA_BYTE, streamPosition);
+        byte value = SegmentAccess.getByte(memorySegment, streamPosition);
         streamPosition++;
         return value & 0xFF;
       }

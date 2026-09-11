@@ -1,0 +1,14 @@
+{
+  "base_commit": "45769b0feee0df55d9358a11805bccbea2dc41d3",
+  "overrides": {
+    "bundles/sirix-core/src/main/java/io/sirix/node/MemorySegmentBytesIn.java": "d4ab404cf7d69ab01bc53c862f744e22588f71e50f1d447138baa2dabfc379f2",
+    "bundles/sirix-core/src/main/java/io/sirix/node/SegmentAccess.java": "35ece1319f0d029e9d635384c753f6bfac8bbf42031cb4edd9e17c0ad82ea81b",
+    "bundles/sirix-core/src/main/java/io/sirix/page/HOTLeafPage.java": "d9f54dec1ef2baf441d6458ce8122aa0699cb52163c9515642583b376fb65d58",
+    "bundles/sirix-core/src/main/resources/META-INF/native-image/io.sirix/sirix-core/native-image.properties": "c6770460faccea995ec8706a32bc93ead13d08d2d978b7ee5052256cfd1bb21e",
+    "bundles/sirix-core/src/test/java/io/sirix/node/SegmentAccessTest.java": "5a8d72161c1c8c700f5b30fbb4942810fe7ddbe3e41ff76cc9217cdcb5d7c522"
+  },
+  "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-scalar-v1",
+  "archive": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-scalar-v1.tar.gz",
+  "archive_sha256": "a621963582e48ca5c2026722966c444184ec0844c80aa965d3100b2160c2f964",
+  "base_archive_sha256": "45027b1eb8485fe51274996db9f135ff162097cfad6fb1056163bdc31d2e103d"
+}

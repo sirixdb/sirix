@@ -1,0 +1,85 @@
+{
+  "rows": 99999968,
+  "exact_queries": 5,
+  "attempts": 60,
+  "sirix_route_checks": 30,
+  "verified_cold_blocks": 20,
+  "binary_sha256": "28cb196a67a5a1f83719546fbd8bbc4acbe110c3a26ff72b8e753bff7a5a7e69",
+  "source_manifest_sha256": "196100bde69447f719c8dd4b3582730749476e888dff03fea53f72ed3ab36952",
+  "profile_sha256": "6f3652c89392f517e046c6b9ab4362695404aec328e1c4e06c5426d5a1ea43b7",
+  "guard_failures": [],
+  "guard_samples": 844,
+  "max_C": 71.0,
+  "max_sample_gap_s": 0.7511377679911675,
+  "rounds": [
+    {
+      "round": 1,
+      "metrics": {
+        "cold": {
+          "geometric_ratio": 24.189668751939315,
+          "query_ratios": [
+            60.323308270676684,
+            5.515089514066496,
+            17.59968102073365,
+            35.40119760479042,
+            39.95665634674923
+          ],
+          "sirix_sum_s": 54.52,
+          "clickhouse_sum_s": 3.322
+        },
+        "hot": {
+          "geometric_ratio": 22.814848751066965,
+          "query_ratios": [
+            50.99173553719008,
+            5.619726678550208,
+            16.259194395796843,
+            34.54125412541254,
+            38.40925266903914
+          ],
+          "sirix_sum_s": 46.120999999999995,
+          "clickhouse_sum_s": 2.9090000000000003
+        }
+      }
+    },
+    {
+      "round": 2,
+      "metrics": {
+        "cold": {
+          "geometric_ratio": 22.636173419540974,
+          "query_ratios": [
+            61.25892857142858,
+            5.662065157371618,
+            14.714918759231905,
+            32.46197183098592,
+            35.8705501618123
+          ],
+          "sirix_sum_s": 49.635,
+          "clickhouse_sum_s": 3.214
+        },
+        "hot": {
+          "geometric_ratio": 23.75748766967476,
+          "query_ratios": [
+            57.10909090909091,
+            5.313881019830029,
+            15.980769230769228,
+            39.73285198555956,
+            39.276978417266186
+          ],
+          "sirix_sum_s": 46.677,
+          "clickhouse_sum_s": 2.952
+        }
+      }
+    }
+  ],
+  "normalized_after_over_before": [
+    {
+      "cold": 0.6145403397569513,
+      "hot": 0.6386963602447846
+    },
+    {
+      "cold": 0.6322791389413723,
+      "hot": 0.692535626396465
+    }
+  ],
+  "rank_one": false
+}

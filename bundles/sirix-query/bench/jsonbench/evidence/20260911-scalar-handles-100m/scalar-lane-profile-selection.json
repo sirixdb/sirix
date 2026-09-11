@@ -1,0 +1,49 @@
+{
+  "source_commit": "45769b0feee0df55d9358a11805bccbea2dc41d3",
+  "diagnostic_all_five_exact": true,
+  "ranked": false,
+  "profile_directory": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-debug-retention-100m-attempt1",
+  "self_report_percent_limit": 0.1,
+  "grouping_substrings": [
+    "methodhandles.",
+    "MethodHandleUtils",
+    "MethodHandle::",
+    "core.reflect.",
+    "MemberName::",
+    "ValueConversions::"
+  ],
+  "queries": {
+    "1": {
+      "events": [
+        {
+          "event": " 9K of event 'cpu_atom/cycles/u'",
+          "event_count": 26843625062,
+          "method_handle_reflection_self_percent": 37.98
+        },
+        {
+          "event": " 22K of event 'cpu_core/cycles/u'",
+          "event_count": 83608494240,
+          "method_handle_reflection_self_percent": 46.870000000000005
+        }
+      ],
+      "weighted_self_percent": 44.709427361744986
+    },
+    "4": {
+      "events": [
+        {
+          "event": " 14K of event 'cpu_atom/cycles/u'",
+          "event_count": 41122486863,
+          "method_handle_reflection_self_percent": 46.01
+        },
+        {
+          "event": " 28K of event 'cpu_core/cycles/u'",
+          "event_count": 107577877216,
+          "method_handle_reflection_self_percent": 51.36
+        }
+      ],
+      "weighted_self_percent": 49.88047904469038
+    }
+  },
+  "selected_lane": "constant typed foreign-memory scalar handles in HOTLeafPage and MemorySegmentBytesIn",
+  "no_precomputation": true
+}
