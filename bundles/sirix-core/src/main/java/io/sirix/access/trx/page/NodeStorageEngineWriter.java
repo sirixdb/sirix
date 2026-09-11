@@ -120,6 +120,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 
@@ -1874,6 +1875,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void asyncFlush() {
+    // Preserve the original asynchronous failure even after teardown has closed the reader.
+    throwIfAsyncFlushFailed();
+    storageEngineReader.assertNotClosed();
+    if (STAGE_ADOPTED_OVERFLOW_CARRIERS && carrierStagingSupported()) {
+      // Only this epoch's mutable pages are visited. Materializing on the foreground thread exposes
+      // overflow carriers before the snapshot serializer would create them on a disposable copy and
+      // pin the original until commit. Staging may rotate a full side-page batch, so it must happen
+      // BEFORE startAsyncFlush acquires the append permit.
+      log.forEachActiveRecordPage(activeRecordCarrierStager);
+    }
     startAsyncFlush(true);
   }
 
@@ -5486,7 +5497,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Test seam: {@code false} restores the pre-fix behaviour in which an adopted page's overflow
+   * Test seam: {@code false} restores the pre-fix behaviour in which a record page's overflow
    * carriers stay resident until final commit, so the background flush pins the page. Only
    * {@code AdoptedOverflowCarrierStagingTest} flips it, to prove its guard is not vacuous.
    */
@@ -5497,6 +5508,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /** Memo of {@link #carrierStagingSupported()}: 0 unknown, 1 supported, 2 unsupported. */
   private byte carrierStagingSupport;
+
+  private final Consumer<KeyValueLeafPage> activeRecordCarrierStager = page -> {
+    if (!page.isAdoptedImmutableForFlush()) {
+      stageOverflowCarriersOfLiveLeaf(page);
+    }
+  };
 
   /**
    * Whether this writer's backend can stage an immutable page before the root is published — the same
@@ -5511,14 +5528,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           ? (byte) 1
           : (byte) 2;
       if (carrierStagingSupport == 2 && CARRIER_STAGING_WARNED.compareAndSet(false, true)) {
-        LOGGER.warn("Adopted-page overflow carriers stay resident until final commit on this configuration: "
+        LOGGER.warn("Record-page overflow carriers stay resident until final commit on this configuration: "
             + (reclaimable
                 ? ""
                 : "the storage backend cannot reclaim uncommitted writes (storage type / sirix.commit.preallocated); ")
             + (deterministicClose
                 ? ""
                 : "the arena strategy has no deterministic close (sirix.arena.strategy); ")
-            + "every bulk-adopted leaf holding such a carrier is pinned in the intent log for the life of its"
+            + "every record leaf holding such a carrier can be pinned in the intent log for the life of its"
             + " transaction, which bounds the load size by the arena");
       }
     }
@@ -5531,6 +5548,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     requireNonNull(page);
     // The live leaf is mutable foreground state (its generation is current), so materializing here
     // is the same kind of mutation the blit itself was. A survivor throws inside.
+    page.resetFlushDeferralsIfCarriersResolved();
     page.materializePendingRecords(getResourceSession().getResourceConfig());
     stageLeafOverflowCarriers(page);
   }

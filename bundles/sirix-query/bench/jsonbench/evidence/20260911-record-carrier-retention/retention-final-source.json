@@ -1,0 +1,13 @@
+{
+  "base": "5d76b53acf14231dde7041cd35183c94b5c20a6a",
+  "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-retention-final",
+  "archive_sha256": "d5dd987b881db9e634867f0fa943626fccfebf2826dfb6c61124c5206ad5a3d1",
+  "overrides": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java": "53f6c48f293cdb1e5d642e6c20910b42315cd0e7e3b7d93455da62c70d415ecc",
+    "bundles/sirix-core/src/main/java/io/sirix/cache/TransactionIntentLog.java": "5e3ce88fa303c27c360470f4368a937cf8e8bd0a554656624bfdd308ba26ed81",
+    "bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java": "a6cd7ea473447cc0f85e26ca2a22d407169b82e3bd12762ed2cb549740f2aa87",
+    "bundles/sirix-core/src/test/java/io/sirix/cache/TransactionIntentLogActiveRecordPageTest.java": "c168b08d71b5c1eba6cbce338afd523ebbc81f6115a55a89573766c4b298fe0e",
+    "bundles/sirix-core/src/test/java/io/sirix/index/projection/StreamingDictionaryOverflowRetentionTest.java": "2f2dcf73164880ae01140adcb1d01681ba0bd5c8c1e9275fdece96220d468910",
+    "bundles/sirix-core/src/test/java/io/sirix/page/KeyValueLeafPageFlushDeferralTest.java": "3deab0db8f0ed59baa98fdaa8eb73aaf31df4bf8ed481b0c1f97aaf406324652"
+  }
+}

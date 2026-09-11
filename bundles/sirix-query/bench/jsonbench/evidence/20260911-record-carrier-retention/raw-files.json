@@ -1,0 +1,852 @@
+[
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/dump-q1/q1.jsonl",
+    "bytes": 452,
+    "sha256": "adfa463bba85a527df88e87b5c708b969ab2122caa975942840cbf577800341c"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/dump-q2/q2.jsonl",
+    "bytes": 471,
+    "sha256": "1bd3927d7a80391ff82c34493a41fe414cfc56aadfc40fae24272310b957da54"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/dump-q3/q3.jsonl",
+    "bytes": 99,
+    "sha256": "f6fa15e1ed3e2946939be9dfc48fa3e083403a3e3ea9683076e3cdb52da4b2fa"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/dump-q4/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/dump-q5/q5.jsonl",
+    "bytes": 132,
+    "sha256": "d2234deec77ad97a1c37c915c21e98c301137cb3499b0fc984a1819dce27f404"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q1-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q1.command.json",
+    "bytes": 6619,
+    "sha256": "6dddd987e33558bfcc5212ec1d77b87cb9c26254d3d65d72401b59697f3629d6"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q1.stderr",
+    "bytes": 548,
+    "sha256": "1fcc271e2cd6393753ad7ad78de7a0a3e4f3defc15b45d5fa49c3825fdf86625"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q1.stdout",
+    "bytes": 4048,
+    "sha256": "9d2cec005a522ac5799a0b215abc3e692816cb21dc50aa266172df0c9e6666e3"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q1.usage.txt",
+    "bytes": 7099,
+    "sha256": "4f37e31225a1ff56b97ebcf54afeab300d9f509a4a318b7b61d07ca1a418581c"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q2-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q2.command.json",
+    "bytes": 6619,
+    "sha256": "0dee7faff12b2284e95251935d94015e49f84bb11f68bca1c7790f16ea7a60f2"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q2.stderr",
+    "bytes": 548,
+    "sha256": "1fcc271e2cd6393753ad7ad78de7a0a3e4f3defc15b45d5fa49c3825fdf86625"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q2.stdout",
+    "bytes": 4048,
+    "sha256": "1d4a487275aa5bd4845554e65dfbd4c8b42b2c239c5b00f9b51bf5186b23aa0e"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q2.usage.txt",
+    "bytes": 7099,
+    "sha256": "66577562af17424220a9c40ad58a4afd4165cbea443eac42d885cd972c19a54e"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q3-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q3.command.json",
+    "bytes": 6619,
+    "sha256": "f0a3e515cd621dc57c6114ba09de9850584e8408240a43dc74990363bb1c4857"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q3.stderr",
+    "bytes": 548,
+    "sha256": "1fcc271e2cd6393753ad7ad78de7a0a3e4f3defc15b45d5fa49c3825fdf86625"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q3.stdout",
+    "bytes": 4048,
+    "sha256": "8f4c5167f192a946995ef46aaccfd6c755079f3fc548801a5b88c1242be87d6f"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q3.usage.txt",
+    "bytes": 7099,
+    "sha256": "17de0738966389ff7b0827985d4268c7dd57331b3d2727cba78f6cc0ef49c0ea"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q4-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q4.command.json",
+    "bytes": 6619,
+    "sha256": "26cc2c54fde0bab11fe135eca2dbb444bd0558393d8cbb2f24ad6446c0e2bb4a"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q4.stderr",
+    "bytes": 548,
+    "sha256": "1fcc271e2cd6393753ad7ad78de7a0a3e4f3defc15b45d5fa49c3825fdf86625"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q4.stdout",
+    "bytes": 4048,
+    "sha256": "e49b2c3dd718e6ff700a94d1a1299042d6dfec4060129df15f40e4d0eea74996"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q4.usage.txt",
+    "bytes": 7099,
+    "sha256": "88b4b643ce71af453cd97e823ff358933eb587d14b6e67e42eb778939f31ab24"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q5-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q5.command.json",
+    "bytes": 6618,
+    "sha256": "454aaaa914626ab4b770f919fd1627681faa15566bc81005e332fcb9cf3ed2e8"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q5.stderr",
+    "bytes": 548,
+    "sha256": "1fcc271e2cd6393753ad7ad78de7a0a3e4f3defc15b45d5fa49c3825fdf86625"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q5.stdout",
+    "bytes": 4048,
+    "sha256": "7b6d6311af35bac332498d8774e5506431557a7beb5d6e815936ff16c507162f"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/q5.usage.txt",
+    "bytes": 7099,
+    "sha256": "e21f8e8f8c5e4bee6966295c07022c077e719544f2e7a7449ea079b85ab3cbc1"
+  },
+  {
+    "path": "build/jsonbench-campaign/correctness-retention-repaired-1m/summary.json",
+    "bytes": 1478,
+    "sha256": "16ac96ced8314339552fa0e69d3cbdc6951ecdf39f363157857efeddd62da274"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/25i4-instrument-100m-runtime-manifest.json",
+    "bytes": 45982,
+    "sha256": "bca7d0004aa84d547d6adb100118a79b10b17ff8c5a5e55c3381235c247e7bd6"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/active-corpus-100m.json",
+    "bytes": 855,
+    "sha256": "871c922591a04791af2231918ed31cf68cb65761623eba4b4a075663be465aac"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/build-limits.gradle",
+    "bytes": 172,
+    "sha256": "92d3ee406c9a700b7cea3e551bf7e8e9dc8bd09cca640eec9fd51b26267b7070"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/campaign_100m.py",
+    "bytes": 1040,
+    "sha256": "23ddf8c7ce7dee3c781be3a10d17c7d7109a3c3f1f28af2843c15f2934361cb1"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/check-retention-repaired-1m.log",
+    "bytes": 140,
+    "sha256": "1d85c845aae84f3e9410db87fc30362cbcc48d2487d67c24dd50e5933d8ddbb8"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/check-retention-repaired-1m.py",
+    "bytes": 2297,
+    "sha256": "df2f526a887458fa7950ffbae8e3a285a5d0cc353a87b05b0b23c6d48b7b794f"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/check-retention-repaired-1m.scope.json",
+    "bytes": 1795,
+    "sha256": "c4dda21c4b8ac661d89daa5c78d7cf393c48d606e2c821c28b79ed2e1af252c0"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/check-retention-repaired-1m.telemetry.jsonl",
+    "bytes": 107657,
+    "sha256": "7033939f176ac78d3412da8ba357ff8a53f73d092678505fca1d5c1e7503941e"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/check-retention-repaired-1m.verdict.json",
+    "bytes": 11686,
+    "sha256": "e86a392fe73f699cb32beaa74932abacd4b2e5ea5de6a935018e2e28eaf5da22"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/clean-corpus-100m-manifest.json",
+    "bytes": 2864035,
+    "sha256": "03c618e1f5da0c7cf85d7c2710a4aff521d07d2ebb0efa8668d96e75792ecbe7"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/compressed-corpus-100m-manifest.json",
+    "bytes": 570,
+    "sha256": "0067624487650689a91844eec52bf7642808c15aa5eb408ba0ba6249ba28fb00"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/corpus-100m-manifest.json",
+    "bytes": 56585,
+    "sha256": "297c418973f7e183dbbc411f4147871bc152e9dabfeff24811f9915f729bb91c"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/format-retention-fetch.log",
+    "bytes": 1314,
+    "sha256": "35aee96d31faeea3b7f2b95e286e09c077f34f4f5cad4cf4edae8656e6a10279"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/format-retention-fetch.scope.json",
+    "bytes": 1783,
+    "sha256": "d085f05042757f479078db277e8142281e8e169c7343ffde5c9552acf25158a8"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/format-retention-fetch.sh",
+    "bytes": 1375,
+    "sha256": "66088a5e5d26ac6972c9583f1afbbd930e3b3c8a3e01bbe56fe6d3e28f7fce16"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/format-retention-fetch.telemetry.jsonl",
+    "bytes": 112789,
+    "sha256": "e260855d2fe6e6ab895c362fb13ecfb2a19fb0dbed6fd64508fb0bce7e98f721"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/format-retention-fetch.verdict.json",
+    "bytes": 11666,
+    "sha256": "3eb351c1ff9e362d865c94c9f1f3a393283111425ac11c7dc302c52885dc78e1"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/format-retention.gradle",
+    "bytes": 958,
+    "sha256": "978b797c376deef7f491827766038cec03d41de2334b227da7dd074f05d46b8a"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/format-retention.log",
+    "bytes": 2823,
+    "sha256": "b6bcda1cd5bead47fc03bef77c2c75f0e297fdfc5a0da39b0eb860533e1837cf"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/format-retention.scope.json",
+    "bytes": 1772,
+    "sha256": "c807ecf5ab10b344b5a3a30dda407e2c1df6fb785a487ef0d169dafe7c4580ef"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/format-retention.sh",
+    "bytes": 1385,
+    "sha256": "1e0f92663ae0d5593ee6f3580c89569b9e3b0c8879ff77c7d394200f8237adf9"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/format-retention.telemetry.jsonl",
+    "bytes": 102534,
+    "sha256": "124291f49ca83620738f637cfa39adfbfa77486538faa89de47b49f6dca217da"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/format-retention.verdict.json",
+    "bytes": 11650,
+    "sha256": "5a5811854e53bbfd1b0569c441ec8937ddd56db94f9bb211ed73c7903c9821d3"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/formatter-new-downloads.json",
+    "bytes": 2620,
+    "sha256": "80cd5195132c7f1750ce10a678379995c2946850ac2af1be1e9c4a8515e6ad67"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/freeze-retention-jvm.py",
+    "bytes": 2341,
+    "sha256": "7444093fa567c17d258ab8c0086b7d6b90dab1ffcb26d3d9059150b1d79b2097"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/guard-100m-storage.py",
+    "bytes": 8389,
+    "sha256": "2e48bb551931535f8f60382b85646903a8417e12652db9bda436be1770d8f873"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-100m-attempt1.command.json",
+    "bytes": 6979,
+    "sha256": "fea1d31883ea2214a2693dab08414ac490aba54730be7687687d4f16cb0b409e"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-100m-attempt1.log",
+    "bytes": 9660,
+    "sha256": "77c3e095a056f84f5b609f4a73fb51493e066228608c16755747bf3d0cb05b15"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-100m-attempt1.scope.json",
+    "bytes": 1836,
+    "sha256": "abc3e73f2679c191165f956d3ad56327f9c98f79dec41aef60acf7d09a17c3d2"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-100m-attempt1.telemetry.jsonl",
+    "bytes": 14359222,
+    "sha256": "48c705da96261aff5cded3bb6072117bb6a213c0004aca7d0bf951244e13839c"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-100m-attempt1.verdict.json",
+    "bytes": 11890,
+    "sha256": "7a925853328d78c6b354a23692a1623649bf2ec255874f79978ceaea035fb8cb"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-100m-memory-snapshots.jsonl",
+    "bytes": 312,
+    "sha256": "d43da6a4081811c710e373263193eada065123363c222d2e9884ef97b92705f8"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-100m-observer.jsonl",
+    "bytes": 4807,
+    "sha256": "09c0b1dddf359ae4cf6c296fe37a3e7aad8c63fc2dd6588c0cfc6fd4473dc781"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-100m.py",
+    "bytes": 2237,
+    "sha256": "08c10fa674b44a4a476e0fe282fd8869d6e29b441fbeb5ad7e5a8c26706cc4ce"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-diag-attempt1.command.json",
+    "bytes": 7051,
+    "sha256": "db018dd96874d85457340afef297dfade4b500b9722a064a545df93c74d4d354"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-diag-attempt1.log",
+    "bytes": 62101,
+    "sha256": "74b07d7683f613a2a110939e873cd267eba41e8d5499f23538565118329771c5"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-diag-attempt1.scope.json",
+    "bytes": 1811,
+    "sha256": "ea5ae1dc24e27bc02d652b1a722a3913d55a05ec1bc6357a687893ba813f6824"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-diag-attempt1.telemetry.jsonl",
+    "bytes": 656194,
+    "sha256": "2ba544d948fdae95dfb9bed6c299e7a25381b455d0dae7f89046ca06fb9a69b9"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-diag-attempt1.verdict.json",
+    "bytes": 11705,
+    "sha256": "a19c90407b16fe17f1f0cf98b7e03601eb03f545f3bb7edcce0460f7d4985c0a"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-diag.py",
+    "bytes": 2545,
+    "sha256": "d2b7428862d95958f20a0d238860a35e857044f6037a45faa1b7d17e3409521f"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-fc-control-attempt1.command.json",
+    "bytes": 7091,
+    "sha256": "5b18625c063d379b11d16e94e5f3ffc12584e4145b36b9fc72d6cd6858d51882"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-fc-control-attempt1.log",
+    "bytes": 61698,
+    "sha256": "8683ca963a3db65451fa53ca7215832087353ef627deb85a186dfa518389a9a2"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-fc-control-attempt1.scope.json",
+    "bytes": 1823,
+    "sha256": "6b05db33d6b289dbe0f3fa086bea537ca9e485f3ef6900f8543e3fc3c3804e8c"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-fc-control-attempt1.telemetry.jsonl",
+    "bytes": 645928,
+    "sha256": "df526d719961b30691b2a6f1c5c786275627ceae287037a34d246483b82653d4"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-fc-control-attempt1.verdict.json",
+    "bytes": 11726,
+    "sha256": "9fc34696b678edf445c0cf2dca2c18fca603ad48607e57db888e2e92aa637314"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-fc-control.py",
+    "bytes": 2587,
+    "sha256": "a2e5d1a50fb9da3e334be4f52299a56e872102c4273f765101379cb73f2bd1be"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-repaired-attempt1.command.json",
+    "bytes": 7141,
+    "sha256": "7c9e0e9103ed0392870e829422e7fd2d2bad60afd7f8ed3394598677cdd0780b"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-repaired-attempt1.log",
+    "bytes": 61248,
+    "sha256": "f7011487559b3fe0126419a90d172679fa2f8ae545cfe5a79c10389b21c1c71a"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-repaired-attempt1.scope.json",
+    "bytes": 1810,
+    "sha256": "0f373156d6d15e3b7207cc4ccf31a8db8fae589d9dff2b8534a900477d09915b"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-repaired-attempt1.telemetry.jsonl",
+    "bytes": 999662,
+    "sha256": "5a722f91970a538fa450911ed82c2eb2bb2d758c04e0c80b670a441754befe9c"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-repaired-attempt1.verdict.json",
+    "bytes": 11711,
+    "sha256": "7e46cb83b7afe3b220d662b68efe5c2d8bd95f93d2c9fcae4e75b7e84ba51ab2"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/load-sirix-1m-retention-repaired.py",
+    "bytes": 2639,
+    "sha256": "871a947d9e2fc4a874b75fe0309615d6ea85465b37fd1c50de800c5633bbbe73"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/paired-usage.py",
+    "bytes": 9954,
+    "sha256": "3e4e6bc5f9826a6259f3083380e673926d44b46ba6c1f7c92021b3c4e7330e3e"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/prior_thermal_guard.py",
+    "bytes": 5753,
+    "sha256": "363966622c2c129b66176af0198abf9721faeccf61c106259ad3de391788703f"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/retention-baseline-source.json",
+    "bytes": 356,
+    "sha256": "19d254c9c4236c5ea1f2d1ca0d87bcbde999fb61fdb2db115e22d1991073bf93"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/retention-final-source.json",
+    "bytes": 1241,
+    "sha256": "9534ae5d772ebd60c3a8ac91e7257c7f48f9a6100fc6d9a684e7e3b3d84caae3"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/retention-fix-source.json",
+    "bytes": 677,
+    "sha256": "40b5f08f502a5a5adfe4f48e6cf90698c47a2c45a4d5f97bdb527dd26a5570ce"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/retention-fix2-source.json",
+    "bytes": 822,
+    "sha256": "71d3377fc9d751e98753c7735f4e0a582806d03414ed659c9580857ead583566"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/retention-focused-source.json",
+    "bytes": 1155,
+    "sha256": "8b5bebe201f058b76e40e6e05c9362a6f9cef93f10167b40dbafdad55722ea30"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/scope-exec-100m.py",
+    "bytes": 1524,
+    "sha256": "4548f601be51650443d05cd39433b79e9d167fb66a483ec29272a4db4772cfef"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-baseline.log",
+    "bytes": 19542,
+    "sha256": "9a78c069a8eb149a1970649c48377a0af21c76885145e47eea86ff13c29e5af9"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-baseline.scope.json",
+    "bytes": 1790,
+    "sha256": "ef1350127f5ef10a9c3613c8efd2648067d70bc7528204ec9bffccaafd6789eb"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-baseline.sh",
+    "bytes": 1379,
+    "sha256": "d6ae8377aa31bfbd1d8554c311828ff51008a7d8276a3b284f2d623d9cbbc46c"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-baseline.telemetry.jsonl",
+    "bytes": 374221,
+    "sha256": "75ff6073f0093766416c5590691da4ee8a5a7aa5655e186b6f177f39542d3c06"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-baseline.verdict.json",
+    "bytes": 11669,
+    "sha256": "fd506bde043b49f73a1f7677dd26719de0aaa9a3b6be9824887473f9a3dddb53"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-final-summary.json",
+    "bytes": 3105,
+    "sha256": "abbf951a68de17c144f546db5d452823b218fb03924cd589b8dcced2c83cfa77"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-final.log",
+    "bytes": 128479,
+    "sha256": "0911518ac07776400eab5220b8ae69a384ac0bed71d80c6bccf3193cbe3b1c73"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-final.scope.json",
+    "bytes": 1783,
+    "sha256": "bbc8834eaf15f0a43776a226b9ba3de494e53c21f93911c4c556b0a42e68e3e8"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-final.sh",
+    "bytes": 2320,
+    "sha256": "45c5d478711ebe57cacd02ee489e3e2541b45f41670ee3666ffc0670614d28c3"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-final.telemetry.jsonl",
+    "bytes": 712582,
+    "sha256": "a86afa19d9f745609396d40883de717e20101dca6d0c28012d2f4ea223a126d5"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-final.verdict.json",
+    "bytes": 11661,
+    "sha256": "68200eea3af8d36a2664f1f2ed34f9d3ca9ad132f0b20c655a67d8530e49e0b4"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-fix.log",
+    "bytes": 19526,
+    "sha256": "7c039f3c21e038c34236c37a81c78d387b96a1f9e6d68aadeeb3226db19157d3"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-fix.scope.json",
+    "bytes": 1778,
+    "sha256": "00829fb93e99593d2338122bc508c15bc84d9e04cc2a809783339d970beb3e36"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-fix.sh",
+    "bytes": 1374,
+    "sha256": "9ba616c05fbff163a5631beedc431793b681a5e0f3f167d256a5c96093045b64"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-fix.telemetry.jsonl",
+    "bytes": 353739,
+    "sha256": "c4db3d2f32f9da2f774476a245556d6d1ac40c1e68fa94d7079210c709b8a814"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-fix.verdict.json",
+    "bytes": 11656,
+    "sha256": "b3390ddf259e599ea7ddcd8757d5714550d9aeeae8b50bee95e7db85d2c94f4e"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-fix2.log",
+    "bytes": 18308,
+    "sha256": "0339676c81cd3413da62b31e7dc16b0ad7f1ea5a0deccc8452d340c2da06bea9"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-fix2.scope.json",
+    "bytes": 1782,
+    "sha256": "fbc272252f64411231c47904b7af55484b7f88e0c473141a3f8e43eb25895613"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-fix2.sh",
+    "bytes": 1375,
+    "sha256": "fd51742dc417f60214575828eb9227854bbd75058e3f1efb2cc3b9c065ec91cc"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-fix2.telemetry.jsonl",
+    "bytes": 358858,
+    "sha256": "1926e9f41d47f56ecee25ae79598de6a998c19c88d5c958f18c9ade114c56be1"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-fix2.verdict.json",
+    "bytes": 11658,
+    "sha256": "148a28854006b72d672b4ed2264ee7f998c7e5b78b132d6f9e7e4430f97458c5"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-focused.log",
+    "bytes": 111315,
+    "sha256": "5ff9a377428ba24ff5276dc051a84a390c9047c3e9e4701b5d419b6feff9eff3"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-focused.scope.json",
+    "bytes": 1787,
+    "sha256": "2470da6f2ff591ac216c8275292a53fd48f6192add22a7df8e9b106ee36c2f5c"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-focused.sh",
+    "bytes": 1761,
+    "sha256": "b4afd78d980b766b05feeea3086d81c94fb58243442b962378dae64a6b5ba3d6"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-focused.telemetry.jsonl",
+    "bytes": 507531,
+    "sha256": "90d4e7ced26fe9d798db123d98ee3b9f57f34393c8ab4ba28404baac928b74a6"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/test-retention-focused.verdict.json",
+    "bytes": 11748,
+    "sha256": "6d6f0af1f4f14fdde9c974893179d23df39d9e6bc3194865f04036b2ffb42fd1"
+  },
+  {
+    "path": "build/jsonbench-campaign/evidence/upstream-recheck-before-100m.txt",
+    "bytes": 180,
+    "sha256": "f391c2275d6bbcf2fdc16c569f51b3e0a17430bd091e21ab1e1406957e73d7ec"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-baseline/bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.StreamingDictionaryOverflowRetentionTest.xml",
+    "bytes": 9482,
+    "sha256": "707cbf83cfb9610cb9dca6bde7788bc97fd13948d68c20602a8b8213d1ce0641"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-baseline/bundles/sirix-core/src/test/java/io/sirix/index/projection/StreamingDictionaryOverflowRetentionTest.java",
+    "bytes": 5637,
+    "sha256": "a07f2dbdcebb0cad274a4ac642d29e2e68d27aefe2d42345cd56b4d78df4cb99"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.AdoptedOverflowCarrierStagingTest.xml",
+    "bytes": 10721,
+    "sha256": "ad3d6459f3bce7b5ba5d4a9ff03553b4fba668938f47a4a2f6363d5a73e0b425"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.AsyncFlushFailurePathTest.xml",
+    "bytes": 64689,
+    "sha256": "2f1722f19a62fc171e1fa4ac244284f52d5d0d890a74a8d2994a713a726575a8"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.AsyncSnapshotEncodedCacheTest.xml",
+    "bytes": 2869,
+    "sha256": "dcd548636afd9f0cf47990954584000773002c593818aa71f0e66f095fcb29dd"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.HOTGuardedPageHandoffTest.xml",
+    "bytes": 1389,
+    "sha256": "bf20e68f8e072a554e736cb3d7fed4b59b64c5c8acedda5b5b42b661a7820fff"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.HOTLeafCacheCanonicalizationTest.xml",
+    "bytes": 3165,
+    "sha256": "212b1e8750e44bb0b0bc892c97427539f080dbf171e0e181ffa710fab1c7a7c9"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.cache.TransactionIntentLogActiveRecordPageTest.xml",
+    "bytes": 955,
+    "sha256": "142a5bee0db38e7447958111cafa45c91376e8a0a48d0f70c14e0d942efbc6e3"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.hot.HOTLeafUseAfterCloseTest.xml",
+    "bytes": 1324,
+    "sha256": "da0962cf2b35ead711581fe6271312da72edd925fd00d952c2718ab1900f4f67"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.hot.HOTLeafWriterGuardTest.xml",
+    "bytes": 3252,
+    "sha256": "d64a09570fa0bc8577bf8359db037c00812c2ee9e5cac8b717ba04d8917a3df4"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.hot.HOTReaderEvictionProgressTest.xml",
+    "bytes": 893,
+    "sha256": "a63b3c3b33d569e5ab0e0813070e8505c7b2ee762d1fef80b5d58730a0b7f76e"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.hot.HOTTrieReaderPextSeekTest.xml",
+    "bytes": 1336,
+    "sha256": "a43703e00362717e81a443b01f6cf31aff01fe3c2a9ad9a11f4e9de027539b6e"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionStreamingGlobalDictionaryTest.xml",
+    "bytes": 4948,
+    "sha256": "cdcfbcc05969adfe9f74f7ca11847d4ddad639b3a4748e0ab4bd973d1bad9821"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.StreamingDictionaryOverflowRetentionTest.xml",
+    "bytes": 13760,
+    "sha256": "ad15728298a4079b03486f057f252212738ca3145f5537bd0661629a7b9d26ef"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.page.HOTLeafPageFrameOwnershipTest.xml",
+    "bytes": 1013,
+    "sha256": "0d5d84678d228ad2955a6715ef042f3a9d49d8191196deee1cb23c6b363f4c5e"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.page.HOTLeafPageStampTest.xml",
+    "bytes": 1748,
+    "sha256": "89ad585635f70591d498968c286e1005b6ceb85ab89692c323b89de1f11086d0"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/build/test-results/test/TEST-io.sirix.page.KeyValueLeafPageFlushDeferralTest.xml",
+    "bytes": 622,
+    "sha256": "e61165573eb62bc89a43aad448f318308533fea74497ae149a26e9919cdb89e9"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java",
+    "bytes": 269327,
+    "sha256": "53f6c48f293cdb1e5d642e6c20910b42315cd0e7e3b7d93455da62c70d415ecc"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/src/main/java/io/sirix/cache/TransactionIntentLog.java",
+    "bytes": 127941,
+    "sha256": "5e3ce88fa303c27c360470f4368a937cf8e8bd0a554656624bfdd308ba26ed81"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java",
+    "bytes": 366755,
+    "sha256": "a6cd7ea473447cc0f85e26ca2a22d407169b82e3bd12762ed2cb549740f2aa87"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/src/test/java/io/sirix/cache/TransactionIntentLogActiveRecordPageTest.java",
+    "bytes": 4145,
+    "sha256": "c168b08d71b5c1eba6cbce338afd523ebbc81f6115a55a89573766c4b298fe0e"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/src/test/java/io/sirix/index/projection/StreamingDictionaryOverflowRetentionTest.java",
+    "bytes": 6178,
+    "sha256": "2f2dcf73164880ae01140adcb1d01681ba0bd5c8c1e9275fdece96220d468910"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-core/src/test/java/io/sirix/page/KeyValueLeafPageFlushDeferralTest.java",
+    "bytes": 2563,
+    "sha256": "3deab0db8f0ed59baa98fdaa8eb73aaf31df4bf8ed481b0c1f97aaf406324652"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-final/bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.JsonBenchShapeServingTest.xml",
+    "bytes": 4327,
+    "sha256": "fc5b11a09bb5dcb0ea1a32fab29a5e062ab01aceef38e5a647785867f400e60d"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-fix/bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.StreamingDictionaryOverflowRetentionTest.xml",
+    "bytes": 9460,
+    "sha256": "7377c5dfe7381d05c2d3cf9bbd60826769d726d0f400df9c458985e83cdbc501"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-fix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java",
+    "bytes": 269158,
+    "sha256": "61a61c1f29ae8cc09453069ec70d235dc7448a6aecd175331752fab313990d8a"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-fix/bundles/sirix-core/src/main/java/io/sirix/cache/TransactionIntentLog.java",
+    "bytes": 127899,
+    "sha256": "1c92f90708f1ec1a2fdb4e4b01e49a1f5ca4bc56890108cc72013c7531bf6971"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-fix/bundles/sirix-core/src/test/java/io/sirix/index/projection/StreamingDictionaryOverflowRetentionTest.java",
+    "bytes": 5637,
+    "sha256": "a07f2dbdcebb0cad274a4ac642d29e2e68d27aefe2d42345cd56b4d78df4cb99"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-fix2/bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.StreamingDictionaryOverflowRetentionTest.xml",
+    "bytes": 8790,
+    "sha256": "509e1c7aeddafbaae225f847a0bdea70efa953ce40b52b99da23c5e0a5a17085"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-fix2/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java",
+    "bytes": 269208,
+    "sha256": "4109254d7ede872fa407ccafb91450ce23549e31e37dfcbea0060a06a54e067c"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-fix2/bundles/sirix-core/src/main/java/io/sirix/cache/TransactionIntentLog.java",
+    "bytes": 127899,
+    "sha256": "1c92f90708f1ec1a2fdb4e4b01e49a1f5ca4bc56890108cc72013c7531bf6971"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-fix2/bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java",
+    "bytes": 366755,
+    "sha256": "a6cd7ea473447cc0f85e26ca2a22d407169b82e3bd12762ed2cb549740f2aa87"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-fix2/bundles/sirix-core/src/test/java/io/sirix/index/projection/StreamingDictionaryOverflowRetentionTest.java",
+    "bytes": 5637,
+    "sha256": "a07f2dbdcebb0cad274a4ac642d29e2e68d27aefe2d42345cd56b4d78df4cb99"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.AdoptedOverflowCarrierStagingTest.xml",
+    "bytes": 10720,
+    "sha256": "c8a54eccbd7b9d3c742c8ef7e6ca190b246a2f073c3f62648916627378643000"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.AsyncFlushFailurePathTest.xml",
+    "bytes": 65441,
+    "sha256": "8ff0ab8882caa03982adb0a2db505eec68883383acd143821ca8e9aadd33900a"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.AsyncSnapshotEncodedCacheTest.xml",
+    "bytes": 2867,
+    "sha256": "0fc5dc1260617d05b68ba3d0a616d45e89af554efe173a40a9667f8bd42489fe"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/build/test-results/test/TEST-io.sirix.cache.TransactionIntentLogActiveRecordPageTest.xml",
+    "bytes": 953,
+    "sha256": "a55aed0e0dd94cc101ab6870c835461e81b880f1c7f503bffe8cb1a0418799f7"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionStreamingGlobalDictionaryTest.xml",
+    "bytes": 4948,
+    "sha256": "aaf66640b6b4246a718ce54c61d9a28fa3220a61f7a17a9b74d93b62fd32bd44"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.StreamingDictionaryOverflowRetentionTest.xml",
+    "bytes": 13632,
+    "sha256": "8d576961eeae1bdab3d4e98bba37c28f048d35a23196475e9f2428244a3660e9"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/build/test-results/test/TEST-io.sirix.page.KeyValueLeafPageFlushDeferralTest.xml",
+    "bytes": 620,
+    "sha256": "74fb19ff50361a75ad0c9dbedfae33533979bd3faf27c72e41d99514d7db0357"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java",
+    "bytes": 269208,
+    "sha256": "4109254d7ede872fa407ccafb91450ce23549e31e37dfcbea0060a06a54e067c"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/src/main/java/io/sirix/cache/TransactionIntentLog.java",
+    "bytes": 127941,
+    "sha256": "5e3ce88fa303c27c360470f4368a937cf8e8bd0a554656624bfdd308ba26ed81"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java",
+    "bytes": 366755,
+    "sha256": "a6cd7ea473447cc0f85e26ca2a22d407169b82e3bd12762ed2cb549740f2aa87"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/src/test/java/io/sirix/cache/TransactionIntentLogActiveRecordPageTest.java",
+    "bytes": 4145,
+    "sha256": "c168b08d71b5c1eba6cbce338afd523ebbc81f6115a55a89573766c4b298fe0e"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/src/test/java/io/sirix/index/projection/StreamingDictionaryOverflowRetentionTest.java",
+    "bytes": 6178,
+    "sha256": "2f2dcf73164880ae01140adcb1d01681ba0bd5c8c1e9275fdece96220d468910"
+  },
+  {
+    "path": "build/jsonbench-campaign/source-retention-focused/bundles/sirix-core/src/test/java/io/sirix/page/KeyValueLeafPageFlushDeferralTest.java",
+    "bytes": 2563,
+    "sha256": "3deab0db8f0ed59baa98fdaa8eb73aaf31df4bf8ed481b0c1f97aaf406324652"
+  },
+  {
+    "path": "bundles/sirix-query/bench/jsonbench/evidence/20260911-record-carrier-retention/formatter-new-downloads.json",
+    "bytes": 2620,
+    "sha256": "80cd5195132c7f1750ce10a678379995c2946850ac2af1be1e9c4a8515e6ad67"
+  },
+  {
+    "path": "bundles/sirix-query/bench/jsonbench/evidence/20260911-record-carrier-retention/retention-final-jvm-runtime-manifest.json",
+    "bytes": 36899,
+    "sha256": "2addd4573f3932bbc2265285d9df87e1e426ffd758510136893852f27acbcb7c"
+  },
+  {
+    "path": "bundles/sirix-query/bench/jsonbench/evidence/20260911-record-carrier-retention/retention-final-source.json",
+    "bytes": 1241,
+    "sha256": "9534ae5d772ebd60c3a8ac91e7257c7f48f9a6100fc6d9a684e7e3b3d84caae3"
+  },
+  {
+    "path": "bundles/sirix-query/bench/jsonbench/evidence/20260911-record-carrier-retention/retention-import-comparison.json",
+    "bytes": 1693,
+    "sha256": "4e43b9a6e30bcf7a52accd0ef92673ad1933cfdc0210915ec0941c823e8dad1e"
+  },
+  {
+    "path": "bundles/sirix-query/bench/jsonbench/evidence/20260911-record-carrier-retention/test-retention-final-summary.json",
+    "bytes": 3105,
+    "sha256": "abbf951a68de17c144f546db5d452823b218fb03924cd589b8dcced2c83cfa77"
+  },
+  {
+    "path": "bundles/sirix-query/bench/jsonbench/evidence/20260911-record-carrier-retention/upstream-pin.json",
+    "bytes": 7983,
+    "sha256": "5681cdf5f4079f48c316fb2eaae26ce44d34c40b9bedf33806dadc81fd02051b"
+  }
+]
