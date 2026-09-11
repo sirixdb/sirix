@@ -1,0 +1,98 @@
+{
+  "suites": [
+    {
+      "file": "build/jsonbench-campaign/source-native-lz77-v1/bundles/sirix-core/build/test-results/test/TEST-io.sirix.node.CompressedBlockDecodeTakesTheNativePathTest.xml",
+      "name": "io.sirix.node.CompressedBlockDecodeTakesTheNativePathTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T19:43:42.539Z",
+      "hostname": "luna",
+      "time": "0.26"
+    },
+    {
+      "file": "build/jsonbench-campaign/source-native-lz77-v1/bundles/sirix-core/build/test-results/test/TEST-io.sirix.page.HOTLeafPageNativeWireTest.xml",
+      "name": "io.sirix.page.HOTLeafPageNativeWireTest",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T19:43:42.802Z",
+      "hostname": "luna",
+      "time": "0.285"
+    },
+    {
+      "file": "build/jsonbench-campaign/source-native-lz77-v1/bundles/sirix-core/build/test-results/test/TEST-io.sirix.page.OverflowPageNativeWireTest.xml",
+      "name": "io.sirix.page.OverflowPageNativeWireTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T19:43:43.087Z",
+      "hostname": "luna",
+      "time": "0.018"
+    },
+    {
+      "file": "build/jsonbench-campaign/source-native-lz77-v1/bundles/sirix-core/build/test-results/test/TEST-io.sirix.page.SirixLZ77CodecTest.xml",
+      "name": "SirixLZ77Codec",
+      "tests": "21",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T19:43:43.106Z",
+      "hostname": "luna",
+      "time": "6.06"
+    },
+    {
+      "file": "build/jsonbench-campaign/source-native-lz77-v1/bundles/sirix-core/build/test-results/test/TEST-io.sirix.page.SirixLZ77NativeContractTest.xml",
+      "name": "io.sirix.page.SirixLZ77NativeContractTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T19:43:49.167Z",
+      "hostname": "luna",
+      "time": "0.288"
+    },
+    {
+      "file": "build/jsonbench-campaign/source-native-lz77-v1/bundles/sirix-core/build/test-results/test/TEST-io.sirix.page.SirixLZ77NativeImageSmokeTest.xml",
+      "name": "io.sirix.page.SirixLZ77NativeImageSmokeTest",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T19:43:49.455Z",
+      "hostname": "luna",
+      "time": "0.003"
+    },
+    {
+      "file": "build/jsonbench-campaign/source-native-lz77-v1/bundles/sirix-core/build/test-results/test/TEST-io.sirix.page.StructuralPageNativeWireTest.xml",
+      "name": "io.sirix.page.StructuralPageNativeWireTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T19:43:49.458Z",
+      "hostname": "luna",
+      "time": "0.028"
+    },
+    {
+      "file": "build/jsonbench-campaign/source-native-lz77-v1/bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.JsonBenchShapeServingTest.xml",
+      "name": "io.sirix.query.JsonBenchShapeServingTest",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T19:43:58.524Z",
+      "hostname": "luna",
+      "time": "1.959"
+    }
+  ],
+  "totals": {
+    "tests": 43,
+    "skipped": 0,
+    "failures": 0,
+    "errors": 0
+  }
+}
