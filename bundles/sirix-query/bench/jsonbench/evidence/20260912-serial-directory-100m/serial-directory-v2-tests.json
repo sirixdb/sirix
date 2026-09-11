@@ -1,0 +1,65 @@
+{
+  "tests": 23,
+  "suites": [
+    {
+      "name": "io.sirix.query.JsonBenchShapeServingTest",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T21:51:47.216Z",
+      "hostname": "luna",
+      "time": "1.922"
+    },
+    {
+      "name": "io.sirix.index.projection.ProjectionCommittedSlotCorruptionTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T21:51:36.444Z",
+      "hostname": "luna",
+      "time": "0.628"
+    },
+    {
+      "name": "io.sirix.index.projection.ProjectionSideReferenceVersioningMatrixTest",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T21:51:38.004Z",
+      "hostname": "luna",
+      "time": "0.491"
+    },
+    {
+      "name": "io.sirix.index.projection.ProjectionParallelDirectoryWalkTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T21:51:37.073Z",
+      "hostname": "luna",
+      "time": "0.927"
+    },
+    {
+      "name": "HOT reader survives eviction racing the navigate-then-guard window",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T21:51:32.354Z",
+      "hostname": "luna",
+      "time": "4.087"
+    },
+    {
+      "name": "io.sirix.page.HOTLeafPageFrameOwnershipTest",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-11T21:51:38.496Z",
+      "hostname": "luna",
+      "time": "0.009"
+    }
+  ]
+}

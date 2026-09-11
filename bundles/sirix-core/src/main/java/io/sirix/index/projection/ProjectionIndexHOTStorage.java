@@ -2242,7 +2242,14 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   public static @Nullable List<RowGroupDirectory> readAllRowGroupDirectoriesFromColumnSegmentSlots(
       final StorageEngineReader reader, final int indexNumber, final int rowGroupCount, final int[] physicalOrder,
       final @Nullable ParallelWalkReaders workerReaders) {
-    if (workerReaders != null && PARALLEL_DIRECTORY_WALK && !reader.hasTrxIntentLog()) {
+    return readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, indexNumber, rowGroupCount, physicalOrder,
+        workerReaders, PARALLEL_DIRECTORY_WALK);
+  }
+
+  static @Nullable List<RowGroupDirectory> readAllRowGroupDirectoriesFromColumnSegmentSlots(
+      final StorageEngineReader reader, final int indexNumber, final int rowGroupCount, final int[] physicalOrder,
+      final @Nullable ParallelWalkReaders workerReaders, final boolean allowParallel) {
+    if (workerReaders != null && allowParallel && !reader.hasTrxIntentLog()) {
       List<RowGroupDirectory> parallel;
       try {
         parallel = parallelRowGroupDirectories(reader, indexNumber, rowGroupCount, physicalOrder, workerReaders);
@@ -2273,13 +2280,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
-   * Master switch for the parallel directory walk, {@code -Dsirix.projection.parallelWalk=false} to
-   * disable. Resolved once: it is a JVM-lifetime switch, and reading it per walk would put a lookup
-   * in the JDK's synchronized system-properties table on a path that also runs under a read lock.
-   * Tests exercise the two routes by entry point rather than by property.
+   * Opt in to the parallel directory walk with {@code -Dsirix.projection.parallelWalk=true}. The
+   * serial cursor avoids worker transactions, speculative capture buffers and coordinator replay;
+   * those costs can exceed parallel page decoding even on a large projection. Resolve the policy once
+   * rather than consulting synchronized system properties under a read lock. Tests exercise both
+   * policies explicitly, including the writer's mandatory serial path.
    */
-  private static final boolean PARALLEL_DIRECTORY_WALK =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.projection.parallelWalk", "true"));
+  private static final boolean PARALLEL_DIRECTORY_WALK = Boolean.getBoolean("sirix.projection.parallelWalk");
 
   /**
    * Worker ceiling. The walk is one-per-(resource, revision) and bounded by page I/O, not by cores;

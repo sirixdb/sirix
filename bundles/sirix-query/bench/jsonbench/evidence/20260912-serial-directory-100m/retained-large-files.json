@@ -1,0 +1,767 @@
+[
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/diagnose-directory-batch-attempt1/100m-after.iprof",
+    "bytes": 15480782,
+    "sha256": "0e5afe846242daf395ff433c9e7154512ad509f506d62b451490ac0a73161426"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/diagnose-directory-batch-attempt1/100m-before.iprof",
+    "bytes": 15576033,
+    "sha256": "6b8c379819d36db8d227a05eb75e84f5e50c5c7bf1358a945fd0b4526f5aec6f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/diagnose-directory-batch-attempt1/1m-after.iprof",
+    "bytes": 14929077,
+    "sha256": "e29302f4b6de6d08f4d065443ed36730f9714a29fecabcfe51a73d7a940e4951"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/diagnose-directory-batch-attempt1/1m-before.iprof",
+    "bytes": 14962505,
+    "sha256": "5a6fee39e4b37bd4aaf230ce0f2ed9da92eb329d336d1107d02eee6dd7fc125d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/correctness-after-q1.iprof",
+    "bytes": 14886332,
+    "sha256": "73b04e527a9da336010827df544863875de82aa34b2306ea2dca16594a29da70"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/correctness-after-q2.iprof",
+    "bytes": 15018469,
+    "sha256": "28313f47d11fdb71f58821c6d964c2053f3e11185199c70e26109fcfd303eae8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/correctness-after-q3.iprof",
+    "bytes": 15040353,
+    "sha256": "552d98b3fd871826f08e4b5e88eba054b0ec6642928c89b1ff4bf60df0dbf413"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/correctness-after-q4.iprof",
+    "bytes": 15031047,
+    "sha256": "16240dc764335534d563d78194d27935c9b700f928eb363878f8834afb7da416"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/correctness-after-q5.iprof",
+    "bytes": 15039144,
+    "sha256": "d7f1c074b904933ffcda80b8ee811d1353054d349729f419a2261a90517e969f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/correctness-before-q1.iprof",
+    "bytes": 14923022,
+    "sha256": "f0f10dd0c5ce1a2720aa55b0b347bae7aabe27263824390bfe39a45045f4134b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/correctness-before-q2.iprof",
+    "bytes": 15040605,
+    "sha256": "ad1d740df3ece89dd3628dccf5bcdd0d27ac7e548c59f756a67fc21a1bf9b5b7"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/correctness-before-q3.iprof",
+    "bytes": 15058426,
+    "sha256": "9363b71fba30cc11971547f1587af4ee56f8b2a4ce561f69ee7d626b0dff073e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/correctness-before-q4.iprof",
+    "bytes": 15052741,
+    "sha256": "ba61e3035514aefe66d65aa1e4d5a6982b338bf9df397ed0230d1c288e98776b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/correctness-before-q5.iprof",
+    "bytes": 15054309,
+    "sha256": "9e0a6cc4f1c0182587aae6762416c2fc1ae7836e8f1ad4ff42e4856cccf13421"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q1-after-a1.iprof",
+    "bytes": 14902950,
+    "sha256": "c38bcba88c7634113a56cb52be43dfc39ff06baad71727c4e96f452e7c2b2021"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q1-after-a2.iprof",
+    "bytes": 14893038,
+    "sha256": "8f725014ddf29221bc7fd899e0ef8f5a6a42fdf7194e46fd28d1785eb376ed98"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q1-after-a3.iprof",
+    "bytes": 14889181,
+    "sha256": "00e4cb942df792e66cf8945ea05467418581ea7850ca8246c78a84e2a458738e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q1-before-a1.iprof",
+    "bytes": 14918778,
+    "sha256": "c854ca9faa21466a40ee197198b285c908e84f920c79c8a411e47dfe6db395e6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q1-before-a2.iprof",
+    "bytes": 14910408,
+    "sha256": "cd4bcefc46337d1d75ddd082cc9e7fea1efeae51049753ace792bb97cefe90b6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q1-before-a3.iprof",
+    "bytes": 14908797,
+    "sha256": "78c3918777a39085fcc737b3fb07e2ea6a1148cdfb89327ff7bbf17a9304694c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q2-after-a1.iprof",
+    "bytes": 15016297,
+    "sha256": "26dfc242342974d66ff3ebe94c28a43f9b6985dcdc5e30f8d7c04ac46b30f4aa"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q2-after-a2.iprof",
+    "bytes": 15019308,
+    "sha256": "0b961e3f0ce4b7cb163bafc3f8a8489829506ac928b9e6248c7512f08278128f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q2-after-a3.iprof",
+    "bytes": 15016048,
+    "sha256": "d54f6a1386f3ea6a7858238ac3509f01bc2ea34c12cd223bca9a90edf9167642"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q2-before-a1.iprof",
+    "bytes": 15044794,
+    "sha256": "ec9d1163addae283b179db5d247edf1f069c3e2b2473a9fae409612ceb675294"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q2-before-a2.iprof",
+    "bytes": 15039635,
+    "sha256": "748368da4ee5cc407565f29b31f43f9d1c3128c0d8073728ae3217417097c1f9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q2-before-a3.iprof",
+    "bytes": 15044141,
+    "sha256": "48fa66180eedc4e307ce289786906d05888e4182adc17e0a594a94e3612f3f98"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q3-after-a1.iprof",
+    "bytes": 15041576,
+    "sha256": "0a31d820917728a33ea468646d063a52104e3dde4941885e065fecf1ee1f2cd4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q3-after-a2.iprof",
+    "bytes": 15052387,
+    "sha256": "a5d193f441ea33e4b72b9eb98a4750eef0600dcc33682c7970e444652acc0178"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q3-after-a3.iprof",
+    "bytes": 15044937,
+    "sha256": "98fc32e4c345af85faa39c783557bf7c4e36d15c6b300e08ddc20495d8678a81"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q3-before-a1.iprof",
+    "bytes": 15068400,
+    "sha256": "00e73c2703ed8735334ee1516015b1fa899a72f24826cff4a7c66ab31f1844a4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q3-before-a2.iprof",
+    "bytes": 15064345,
+    "sha256": "1594cb1f15ca544adb2ae9427d24a65bf99bcdaba44bb5e8f5b45a08abf0dd15"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q3-before-a3.iprof",
+    "bytes": 15060308,
+    "sha256": "5d627a6ac8852f7cd238bb4c6f38047baa35938e8acdc59d6e16f1668a4dae10"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q4-after-a1.iprof",
+    "bytes": 15036665,
+    "sha256": "00a34a391d387ca6f8f90900e8f202bee90d8c82351155ee6dd10cf6537352a6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q4-after-a2.iprof",
+    "bytes": 15036637,
+    "sha256": "c0b8e417295df5881eec0ef282a34d283363e46cbd7900defd3d0ece4117b98e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q4-after-a3.iprof",
+    "bytes": 15038032,
+    "sha256": "f5389cd710000bdb297f77b685cafd1400c44451303fad3ccef288bd10b4518b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q4-before-a1.iprof",
+    "bytes": 15051772,
+    "sha256": "1950ac802890ea1d4f34c03d79fe33a29660a7888d6e75ac932acbba2b343abb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q4-before-a2.iprof",
+    "bytes": 15044243,
+    "sha256": "5a34fa62ec63ed58ae8658ca8a85916ae4c868870814d773692b48d70c0365b0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q4-before-a3.iprof",
+    "bytes": 15051765,
+    "sha256": "970961c664eb5791e497d4f41ccfb6f0abdd5dee8a55dbb82dbde7a74c5cff57"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q5-after-a1.iprof",
+    "bytes": 15054534,
+    "sha256": "dade20df7512afd0922cc2330cc7d372dd2553d2004759cae5d03153df564dba"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q5-after-a2.iprof",
+    "bytes": 15050596,
+    "sha256": "5c0e8368977030670e7304ed1d72d55b69f5cc9e6d7d0e566cb8a37ef7db304f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q5-after-a3.iprof",
+    "bytes": 15034529,
+    "sha256": "7f0f5be7236ad880fceafa98adeaf56f48c01b74b82c577e0328c0c7d7afeee1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q5-before-a1.iprof",
+    "bytes": 15063508,
+    "sha256": "09adda123bc9668a987fc60857abd71f67f6adf69e43bdc2b21d085d41aae141"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q5-before-a2.iprof",
+    "bytes": 15060192,
+    "sha256": "4867caf84cd7a1e4481b01839410d4ef06e2e300cd382e7b06e7b3234295950b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r1-q5-before-a3.iprof",
+    "bytes": 15072646,
+    "sha256": "df164b1945a46615b1147ea610d6033cf577113097fc83b528f210da6485c7c4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q1-after-a1.iprof",
+    "bytes": 14894285,
+    "sha256": "6b3be37e768bff3cb177b190710f6785a52b5c0ea530f53c95866cffbba903b8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q1-after-a2.iprof",
+    "bytes": 14896293,
+    "sha256": "87a74b02a660f7502ea1b41131a9e60d80dc16fade51d0040806c6a82e66990c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q1-after-a3.iprof",
+    "bytes": 14893707,
+    "sha256": "5cd9a21bc7f8d27e76be8d374dbb2fe57a3cc8da8778bcc0bbdd98a44e5cda93"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q1-before-a1.iprof",
+    "bytes": 14922714,
+    "sha256": "bbb1029db0c8ea56d6517d8d1faf65f82c86e72f00d55c8be0abbf83f24c24db"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q1-before-a2.iprof",
+    "bytes": 14911435,
+    "sha256": "d7f45c86e0cce3ed8365525e8e861fb5004bc2119da91fe275afdf16de9d71f7"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q1-before-a3.iprof",
+    "bytes": 14913476,
+    "sha256": "4dc9e909c107109dcc8d4663abef88520a475ba61168d17b8dc323baa6d721b2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q2-after-a1.iprof",
+    "bytes": 15016793,
+    "sha256": "a6e16d353455732275558a975bc6217a4936cb71efd62ababab3d4ebd740389b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q2-after-a2.iprof",
+    "bytes": 15019515,
+    "sha256": "68da7962dd0d76fd2fcd5c2b3988d262f5053abfce62dd9951068ad056cadfa0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q2-after-a3.iprof",
+    "bytes": 15019020,
+    "sha256": "91e556b69e4793cd46ae8ea2c63da60ceb4fa3be733b45c6c33ae5fd62a0fea0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q2-before-a1.iprof",
+    "bytes": 15045644,
+    "sha256": "c3a6236d4b8f6f37259c39b33a9e26fcb2f678c3e19e5b9ac70292f4440c1571"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q2-before-a2.iprof",
+    "bytes": 15045952,
+    "sha256": "f6ede3f024795dcf039eeb9397b15ff2c6b33a0ae26cc9dff568a82afabbf48e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q2-before-a3.iprof",
+    "bytes": 15041233,
+    "sha256": "9725ba02427c9f8191302d9690efdbddef0e9de2b26102a724549b9b5a0dcc65"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q3-after-a1.iprof",
+    "bytes": 15046167,
+    "sha256": "0455c0c9ab6134970da577feed7a7c8833b01e97e4dc8070a4837396f3eb60a2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q3-after-a2.iprof",
+    "bytes": 15050948,
+    "sha256": "2746dee4f5bc481e1c0a4a350671ea162f6a25a42b03b139969303c6e3786f53"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q3-after-a3.iprof",
+    "bytes": 15046910,
+    "sha256": "e288d6de63e4ce1361a779029f1614a116042c1f9fbef06a8dd8479a53a9bc84"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q3-before-a1.iprof",
+    "bytes": 15066078,
+    "sha256": "cf2049ac80166d7fa18794c08b5dc8a3fbd78c2160a3473e6b634b9f5d7d081e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q3-before-a2.iprof",
+    "bytes": 15061077,
+    "sha256": "8de2dadd0128393eb2d725201fa7aa6a2a7dbad81b434a13ab0436b451108ea9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q3-before-a3.iprof",
+    "bytes": 15069420,
+    "sha256": "0124c8a985410f14df5e33d887d5dac02aec8262f22818df949effc1f2fb0b11"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q4-after-a1.iprof",
+    "bytes": 15030258,
+    "sha256": "06d39d48830baf82cdec0ceb4f5d37d93da67168b92beea1ba8df67da1e0df4e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q4-after-a2.iprof",
+    "bytes": 15025867,
+    "sha256": "b26b98a8f947be97cd9db104975872fe8530903742686e6633e1e08475608c48"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q4-after-a3.iprof",
+    "bytes": 15037080,
+    "sha256": "5c383d9f8ea22eb0a7dc8d2415caf9c7de1b266a091cdff7022c9b1d8464a816"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q4-before-a1.iprof",
+    "bytes": 15054337,
+    "sha256": "39cfe0dc76f9edfadb763c63484dea08c93034679c2397feb2e220bef951e8c8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q4-before-a2.iprof",
+    "bytes": 15052383,
+    "sha256": "fbdc5a5281cdff6f14e226954dcd280463958b8066ca093035ac406c01b92ff4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q4-before-a3.iprof",
+    "bytes": 15049825,
+    "sha256": "40215f27055967df7e2dd630ec1474041ac1e504cde0e95bf595f7ecec733c64"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q5-after-a1.iprof",
+    "bytes": 15042446,
+    "sha256": "3e91364c348c0ad6244f8db295cad8921f1827c1ba046f79a7bcf8d148534b54"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q5-after-a2.iprof",
+    "bytes": 15048380,
+    "sha256": "2a4a47aa1c6e822368bd1fdb6bea54dd90711e1ec61b3ff685445d3f6df93925"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q5-after-a3.iprof",
+    "bytes": 15049243,
+    "sha256": "0154b6a767493ea73920a28c0bd22f45d28b053e9c2e704ebce1db97804d377b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q5-before-a1.iprof",
+    "bytes": 15060865,
+    "sha256": "a74e50a3ade4bc1708458e96bdccf7711e0ae6031d155ddd9941285b724fed79"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q5-before-a2.iprof",
+    "bytes": 15067283,
+    "sha256": "51376fb0485127f1cc80c2bf48e701e1e7a1efdb4b277a6cd17b077be6a82783"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-directory-batch-instrument-1m-attempt1/r2-q5-before-a3.iprof",
+    "bytes": 15064251,
+    "sha256": "290b1cadf29ce6aeb363b85a02a1d8d816380940db49b85b7fd163585db430cf"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/correctness-after-q1.iprof",
+    "bytes": 14837222,
+    "sha256": "0e3cc1de2ef052d2fee3ed37d00598345421f1b7728e9849bace403b86471b85"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/correctness-after-q2.iprof",
+    "bytes": 14966543,
+    "sha256": "4f39a2f660c04df0cfb25b0c32e778800c78be23491c95680e8076aa2678a2c6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/correctness-after-q3.iprof",
+    "bytes": 14988500,
+    "sha256": "5d387e4bf1d9db15cff7f0fc5ce0e65b3feb07d7698ac66c668da02afe2a7767"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/correctness-after-q4.iprof",
+    "bytes": 14969477,
+    "sha256": "10cad8e500a4a4bed6f3de75931d8913a304207d1713587f039ca72032fc16a6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/correctness-after-q5.iprof",
+    "bytes": 14992441,
+    "sha256": "96ee0f6953639fd395bd23771b799386a0e598c87a4b53b875b5506496fbb1c7"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/correctness-before-q1.iprof",
+    "bytes": 14920709,
+    "sha256": "8144c9ab9e328960d3e9117d0101ad3265add14bd68b4c1b95fe5479b1deb572"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/correctness-before-q2.iprof",
+    "bytes": 15050223,
+    "sha256": "68ed7d12f0fa75ea7bbb36603c840eb63b701718f2c94724937827b78b643523"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/correctness-before-q3.iprof",
+    "bytes": 15056426,
+    "sha256": "3c0fe635890977ff86510571e42a1a19a912da2bd6660c1e20aedb0f8e75368e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/correctness-before-q4.iprof",
+    "bytes": 15043143,
+    "sha256": "f3c5cd0cf3559076f4b55d75a62906839f900f4927f411472dfe148318d88c3d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/correctness-before-q5.iprof",
+    "bytes": 15057574,
+    "sha256": "53ed721d7f601d49ec940e8805ab8c69b25896f9cac27d3a965fcf7487f566e8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q1-after-a1.iprof",
+    "bytes": 14844440,
+    "sha256": "78cd43134fdd4040476b9813b7d8a3c14d2acae448be83a9c6fa76d2569c0a6e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q1-after-a2.iprof",
+    "bytes": 14842430,
+    "sha256": "ab7ba6ae1c9137de90c7d8c2e51eabbbbfdbde1680d90999cadadd3a51ae1bdf"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q1-after-a3.iprof",
+    "bytes": 14843225,
+    "sha256": "3760e58cc518c3e965bb783833d67144f99c9ebd370a6c49cba82f4e6a64b4e2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q1-before-a1.iprof",
+    "bytes": 14916628,
+    "sha256": "f7493eb8d714c27ab86beb9ee8aa51398f38824a53007fe0d5097b4b55fe2269"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q1-before-a2.iprof",
+    "bytes": 14916046,
+    "sha256": "95a265cae2a828f12a30bd5f4bee1059f17628cf4db899e08971f282c1fdc2b2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q1-before-a3.iprof",
+    "bytes": 14910280,
+    "sha256": "b754736be7a22a29c32f42b233b0c87e160c459a78e4598b70c86a9df871ee8f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q2-after-a1.iprof",
+    "bytes": 14967990,
+    "sha256": "88e2f1160134e24d54709a4d3d93b8e1d6e6121add446646eec7bfdc120bfb5e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q2-after-a2.iprof",
+    "bytes": 14970000,
+    "sha256": "733d2b4c0c0d3ff4be77ab2eab0cb47009e177b8ed43e41a5e0ab39df6b1d4fd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q2-after-a3.iprof",
+    "bytes": 14976425,
+    "sha256": "cb084458089fbf49fb637fe5fc6ec6c9349f0f96da1da4a137eba8381adbc5ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q2-before-a1.iprof",
+    "bytes": 15044166,
+    "sha256": "ee9d70b7f17458dcea8a045c3fd1f28381485689b14d5017ad5198d35f109f7a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q2-before-a2.iprof",
+    "bytes": 15048370,
+    "sha256": "31c68566bc46f975dee371ae3f4cc7210192187c39ea65e3efa0ba654952d73a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q2-before-a3.iprof",
+    "bytes": 15039560,
+    "sha256": "9e38af9cf83c75328e7cee059c37d018b9fd4f2a8e4e048a092163615c1c148c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q3-after-a1.iprof",
+    "bytes": 14987306,
+    "sha256": "a0250976d3409553745c896446957acf046e0b1a2b30954b3576dbd73da48e10"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q3-after-a2.iprof",
+    "bytes": 14991310,
+    "sha256": "2d185bcda69241d10246ab13abf821dcfcd5f82c2c2815b41eed74381a7a5d12"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q3-after-a3.iprof",
+    "bytes": 14996060,
+    "sha256": "e354d855984cfee06fc22c394ff2d65fe269af45fd24e39fbc3ab766480f7f47"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q3-before-a1.iprof",
+    "bytes": 15058927,
+    "sha256": "e0f21a6ea7ffa919396b9ad5425258201d30eab57e11b2f6d54bce5b56b4c325"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q3-before-a2.iprof",
+    "bytes": 15064016,
+    "sha256": "ebad5bd34823e7084d3bad0cafc0e635b35c111346768f92c31ee98b9ca725b5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q3-before-a3.iprof",
+    "bytes": 15067746,
+    "sha256": "ca5832ce1eb3eafeb40870bade497629da3d16b22629e50d9a6fb293d4a459e3"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q4-after-a1.iprof",
+    "bytes": 14975844,
+    "sha256": "6cdf96977ef12b221ac8b33eae9287b71e167deaae0a11d752410ebfe3796169"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q4-after-a2.iprof",
+    "bytes": 14985870,
+    "sha256": "2e81cd0a432147e11a94182b9a48f9df264922eae0a6c9060e8a822af20bb9f6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q4-after-a3.iprof",
+    "bytes": 14982566,
+    "sha256": "659a3b017eb3ed3c16e69e4d33c8417ec100ba718cc406a75c49e98546e161a6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q4-before-a1.iprof",
+    "bytes": 15054636,
+    "sha256": "5a19acfd9f4b51a30f1f8579c5bdc5e9dcfb7225dca172a2f72ee52c482eb021"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q4-before-a2.iprof",
+    "bytes": 15063120,
+    "sha256": "58448958182d01f968ed1205b0660427639adf3dc4a5c1f620604e6893b61229"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q4-before-a3.iprof",
+    "bytes": 15056822,
+    "sha256": "a89c1dfd749fac02faf6f2d07025b2b2e12a5fa8b3e3618cd19535863db417a3"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q5-after-a1.iprof",
+    "bytes": 14990113,
+    "sha256": "9ac89cc12c9ce6c0241d47c1eb582d5cebd469ecb1fbc3003f0855ed0a671068"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q5-after-a2.iprof",
+    "bytes": 14986342,
+    "sha256": "4a3a4153f040a3aeda85ff48d1ccf56154a8f828888485794d2be7dd906721e6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q5-after-a3.iprof",
+    "bytes": 14991554,
+    "sha256": "9dd79800c28ebf7ed1f3adeb61d2275bc1761fe172cd280b77346cd0c5c01484"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q5-before-a1.iprof",
+    "bytes": 15062457,
+    "sha256": "35a07462feabba90b56875f9364c9132907fceab15116e30000ff35d7001c31a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q5-before-a2.iprof",
+    "bytes": 15060540,
+    "sha256": "37b5316a56ff018b81fb18a265f7caf9ca71a3640649303f20fbaf2c9eb6c366"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r1-q5-before-a3.iprof",
+    "bytes": 15067107,
+    "sha256": "260b96951deacc7e669c19195c9d139a984851ec2ab437ad3ab6ba09c29dd312"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q1-after-a1.iprof",
+    "bytes": 14842014,
+    "sha256": "cb32684b05d4fa01c4dbbd39331e2355366ac0e07a9ad10da5b7ca2377175aa9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q1-after-a2.iprof",
+    "bytes": 14837874,
+    "sha256": "8e0a9a6604397c49cee34ba6d82182e8707b55298703776767769cf99d70e131"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q1-after-a3.iprof",
+    "bytes": 14836293,
+    "sha256": "f6cb208458160b244ec1ba22db117a59edcdd84599bfd79fc1f6688a7a872472"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q1-before-a1.iprof",
+    "bytes": 14911340,
+    "sha256": "44f3e84f14210f8432a9f5654d6814facc16a83fb01d0de036885912c3e7b89c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q1-before-a2.iprof",
+    "bytes": 14915350,
+    "sha256": "62596a40f4179d95e4f4f3c1da47dc1896e3d1353bcd5f2db080545a9c2c2d8c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q1-before-a3.iprof",
+    "bytes": 14913845,
+    "sha256": "e24fb8864bd539f6b7a972a2cf8b3d3c8f2edf7bb5dbf86a8861cda947e164df"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q2-after-a1.iprof",
+    "bytes": 14968521,
+    "sha256": "c91034b1b731c451cb5763e14d1e9b107c318d90035170a8ca1feb4cdfc95576"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q2-after-a2.iprof",
+    "bytes": 14966478,
+    "sha256": "55570924b1059e2e05c0f68933ba788e72b8ce8670c816d9fbc2a91c8279136f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q2-after-a3.iprof",
+    "bytes": 14968444,
+    "sha256": "6ff66a1dcc36e6f0bf3767e2d39f6231c9b7372e362c689b89c6ee684edfb36e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q2-before-a1.iprof",
+    "bytes": 15045506,
+    "sha256": "dd8db0c1324fc012efc9593d1e94d01d05d02524bfab2701c02db32a6eaf9216"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q2-before-a2.iprof",
+    "bytes": 15043049,
+    "sha256": "df4fcdb02c558ba3ce5a1f7b054238f1f87ce03b7c1d7600fe1be21115db53f2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q2-before-a3.iprof",
+    "bytes": 15044618,
+    "sha256": "52b7043c5fb306fe16f123b67ce7fa979d22bb1c06f8eaa4a01f6a48f36ac17f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q3-after-a1.iprof",
+    "bytes": 14992830,
+    "sha256": "8c9fb825fb86bcd1aed1514e7c1083193d49f66effa99b2046c36aead8ef6b0d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q3-after-a2.iprof",
+    "bytes": 14995752,
+    "sha256": "3ad6103b9cb24c488c7529699ac9cafd6205319f2e8b6e277997c7a9221fd724"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q3-after-a3.iprof",
+    "bytes": 14993036,
+    "sha256": "a01f241ff8d51d094e42ae723240e99bf3057e77dac210b546d85d880598ad19"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q3-before-a1.iprof",
+    "bytes": 15059944,
+    "sha256": "279f2173b98d3de9fb85b2023302366e85dec05b18a1d2b705ccd8768817f216"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q3-before-a2.iprof",
+    "bytes": 15062867,
+    "sha256": "c89ae2ff88df46d6e25dcaea30b3779c916cd91a6ac5938c056a1533ee244da8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q3-before-a3.iprof",
+    "bytes": 15062612,
+    "sha256": "33aa34640cf2a9d793d241fbdf16d4b74ece69888ed61cce7834e238673cfeb7"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q4-after-a1.iprof",
+    "bytes": 14980709,
+    "sha256": "918e3fa05d40448664a6dbd7f2760338f97111e288267642f171d3161332cc97"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q4-after-a2.iprof",
+    "bytes": 14984659,
+    "sha256": "e3773020487079d3ee1a1f4c7ee5de07d304c30e4b5cf595055246b2f7eebed1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q4-after-a3.iprof",
+    "bytes": 14980685,
+    "sha256": "b6ea15d377da8cb1fb815db65d473905ba64fcca5621aef11447db92ea56d831"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q4-before-a1.iprof",
+    "bytes": 15046875,
+    "sha256": "5aca86e71a3e2e6a47f30b0e4a6c59323b6a4018c26b58217ec069b0c6c0dc33"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q4-before-a2.iprof",
+    "bytes": 15047928,
+    "sha256": "d10ab78df5a620c302f677914fedcb20f8f6947763b6822ada8c0b4a271bc1a1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q4-before-a3.iprof",
+    "bytes": 15051370,
+    "sha256": "a65b1f6f5128a067057cec10c4280a15a4fa30665167d5746092e59778163aa8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q5-after-a1.iprof",
+    "bytes": 14990804,
+    "sha256": "a95dc4a5205c1a5739ee2bc975901d434f6af95e5e3526d95f9002814cc0353c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q5-after-a2.iprof",
+    "bytes": 14994416,
+    "sha256": "6b3e3c9cb0d7d523cd6d6a818563d640907476367913bfb29f54942933287cfd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q5-after-a3.iprof",
+    "bytes": 14995455,
+    "sha256": "7c32f143f51330eb2e92535726f88796835adcb5b1674c7553f1c59a7af87b98"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q5-before-a1.iprof",
+    "bytes": 15079078,
+    "sha256": "f9f9f00c6739592de6f7867e0c117f7bd69e338097377cbd4091aa4422f57578"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q5-before-a2.iprof",
+    "bytes": 15060587,
+    "sha256": "58ffaa43c1ac264dec662dc1f68ac6a3957bc2da2bb5e98ad99288322fa9e495"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-serial-directory-instrument-1m-attempt1/r2-q5-before-a3.iprof",
+    "bytes": 15064002,
+    "sha256": "f55bc16b435a60f3108b9f364c138e5ac9baae6b2d13ba7f08275866723935f3"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-directory-batch-100m/jb",
+    "bytes": 57674208,
+    "sha256": "0a48a06ff0b073593a59f92b054d04c8a897194f07e08f5bb5806d5f9915d79e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-directory-batch-100m/jb-instr",
+    "bytes": 195496416,
+    "sha256": "755eb761f2b5f0832ef25209ed4030c3af528207574ef705b0792b78d9ea2363"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-directory-batch-100m/jsonbench-100m.iprof",
+    "bytes": 16666022,
+    "sha256": "d84ce4fcc12f38bca5681652ebe44e9b0ab97eb09f8c6b298cb1682461f6ae98"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-serial-directory-100m/jb",
+    "bytes": 57477600,
+    "sha256": "50ccd4f1938c0d87a16d5a6a6ebca257175e4b9cbcbec34fe3d9f5f6f0cbfe6c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-serial-directory-100m/jb-instr",
+    "bytes": 195561952,
+    "sha256": "41831b546c4a03bf0f13354764c24e9742f1f95bdc1ae8003654ebb24a1f7bdc"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-serial-directory-100m/jsonbench-100m.iprof",
+    "bytes": 16185862,
+    "sha256": "4204abf57f1a94e65c777a9499c8cb2a42c62db0c54e483a58ee498c397625c5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-directory-batch-v1.tar.gz",
+    "bytes": 100528790,
+    "sha256": "537e17ed841a548809f201a4605538d3f408f5ec0b649f70be47d1b8f886b3ec"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-serial-directory-v1.tar.gz",
+    "bytes": 100538545,
+    "sha256": "5234322330b2a901a37f978491da62cb04a9e7cc09be1dedd2ea377ae7ca54b9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-serial-directory-v2.tar.gz",
+    "bytes": 100538706,
+    "sha256": "b97c5d15fddf077f100a96fb2e0eb38f0aff9d97cea1b052b4a5cf5310a133de"
+  }
+]
