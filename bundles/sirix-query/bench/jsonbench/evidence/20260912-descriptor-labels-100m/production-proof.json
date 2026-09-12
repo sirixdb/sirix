@@ -1,0 +1,51 @@
+{
+  "provenance": {
+    "base_commit": "2d1700d18cd9dc8205d02acd60d6caa5f566c56d",
+    "verified_main_sources": 1213,
+    "parent_manifest_sha256": "78f7225cd9eb4d54b3c75c20384a319cbb33e8235cc4cbe495ee6efee19de83b",
+    "production_descriptor_matches_native_measured_bytecode": true,
+    "source_patch_sha256": "ad44d3e5b4afe22931b60ec137e3501d1b011dfce7296adc6c4aa17f34f06efb",
+    "test_sha256": "28d8bafabf6889c03d1e943acc7667884d0f4ab8690dfbb93723984d76fc924f"
+  },
+  "guards": {
+    "build-group-repeat-labels-production-v1-attempt1": {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-labels-production-v1-attempt1.verdict.json",
+      "bytes": 11878,
+      "sha256": "0230ce38d8274493b87b5e2a587831091660132f03bf559aa5d07f6fba0cf485",
+      "samples": 3
+    },
+    "test-group-repeat-labels-production-v1-attempt1": {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-labels-production-v1-attempt1.verdict.json",
+      "bytes": 11914,
+      "sha256": "46c0f88c6227cc502a49c2c0288b6566eda5e08ea2ed47e9193339f493b2e6be",
+      "samples": 7
+    },
+    "check-group-repeat-labels-production-v1-1m-attempt1": {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-labels-production-v1-1m-attempt1.verdict.json",
+      "bytes": 11888,
+      "sha256": "d63af9bea993d8ae007d72cd61806c09a08e8bdc197a1ba73bdf2baff8c99fdd",
+      "samples": 19
+    }
+  },
+  "tests": 60,
+  "exact_1m_queries": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "source_manifest": {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-labels-production-v1-manifest.json",
+    "bytes": 415200,
+    "sha256": "f20c6ed632cb1fb9a964684ff5831043e3696b872cafc4202a023b6b97053b52"
+  },
+  "test_manifest": {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/tests-attempt1/manifest.json",
+    "bytes": 34915,
+    "sha256": "05a6ef6724bf79c06f71321bb836f0389b6e89a43bb4d5fae377a46c4828e5be"
+  },
+  "native_latency_scope": "isolated RowGroupDescriptor change on v7/v10 bounded-reader classpaths",
+  "production_latency_claim": false,
+  "goal_achieved": false
+}

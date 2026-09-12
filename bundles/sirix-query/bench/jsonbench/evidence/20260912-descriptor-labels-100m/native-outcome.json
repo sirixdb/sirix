@@ -1,0 +1,286 @@
+{
+  "goal_achieved": false,
+  "ranked": false,
+  "purpose": "isolated descriptor-label change on frozen v7 versus v10",
+  "protocol": {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/protocol.json",
+    "sha256": "0df6eb95fd2f70d58ee98808e61373d48bc292182c8737374a4f7ac1b2aa47e1",
+    "bytes": 85268
+  },
+  "attempts": {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/attempts.jsonl",
+    "sha256": "9e8ba5556562fe5eebbf096953e999a0c3ce1a669a16f754571a4111bc48d5d0",
+    "bytes": 6607
+  },
+  "images": {
+    "before": {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-group-repeat-minimal-reader-v7-100m/jb",
+      "sha256": "64940fd389dbb877ca432943aeba8b7770468f2d1f77cb3ca7ddca649451a468",
+      "bytes": 57084384
+    },
+    "after": {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-group-repeat-minimal-reader-v10-100m/jb",
+      "sha256": "c42fbecb2dedad39e262a0d3ad827d5d6fce125d8181cb05234904531253594f",
+      "bytes": 57084384
+    }
+  },
+  "guards": {
+    "native-group-repeat-minimal-reader-v7-attempt1": {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/native-group-repeat-minimal-reader-v7-attempt1.verdict.json",
+      "sha256": "df3ec616c018ecf8be316c47796569be549ad7c797ca3e7b16df70f0bcaeb2cd",
+      "bytes": 11894,
+      "samples": 235
+    },
+    "native-group-repeat-minimal-reader-v10-attempt1": {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/native-group-repeat-minimal-reader-v10-attempt1.verdict.json",
+      "sha256": "15cfd26ef3348b7a6e6d30b6749daee44751bc687605b57bf3d6a8b2d7141433",
+      "bytes": 11898,
+      "samples": 236
+    },
+    "check-group-repeat-minimal-reader-v10-native-100m-attempt1": {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-native-100m-attempt1.verdict.json",
+      "sha256": "bdb4184a3ba73a49654fed0faf1bc904eceebeb1bbb83f30615d508445b408c7",
+      "bytes": 11902,
+      "samples": 389
+    }
+  },
+  "profile": {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-group-repeat-100m/jsonbench-100m.iprof",
+    "sha256": "bc4ab1d4725fc0b894c90cca064c4ed74125177d5ac39da793aa667cdc900f12"
+  },
+  "native_library_sha256": "b059b9c30b219da42239bb43ca480fb2daaf7ec5903cf37adee0ade1c5d5c035",
+  "class_equivalence": {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-class-equivalence.json",
+    "sha256": "ef3200ba69fc8160ec08fd540f404436c660986d9982a2493d586f4a4c66f264",
+    "bytes": 996
+  },
+  "exact_checks": [
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-before-q1.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-after-q1.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-before-q2.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-after-q2.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-before-q3.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-after-q3.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-before-q4.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-after-q4.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-before-q5.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-after-q5.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-before-q1.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-after-q1.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-before-q2.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-after-q2.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-before-q3.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-after-q3.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-before-q4.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-after-q4.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-before-q5.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-after-q5.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    }
+  ],
+  "cold_proofs": [
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-eviction.json",
+      "sha256": "9457c4940b6e649c404a1e0b92a2396b09b7222578af633687659e4db5d0cea2",
+      "bytes": 1156
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-eviction.json",
+      "sha256": "13556b740d48a4c141e70728c5da88559b62faef2852523ad0d8f3371f7e3a53",
+      "bytes": 1156
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-eviction.json",
+      "sha256": "3a89ae7a582b632a7feaed2cb4d3a84c79871ae2fbf569604137986e4530eb31",
+      "bytes": 1156
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-eviction.json",
+      "sha256": "dd0e642a5ee12e64ec06841dc69f24f09d403542e8f3a433a150d229554318f2",
+      "bytes": 1156
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-eviction.json",
+      "sha256": "5cd819cfa88d865ccd56ee0500caaea896a909af64027788fec44de1496da6eb",
+      "bytes": 1156
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-eviction.json",
+      "sha256": "b4aa8036faca07be03107e0b330d8f976f3cce1ae3e74a4fe8dc1119c6153f53",
+      "bytes": 1156
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-eviction.json",
+      "sha256": "7542b274499ff996d5d16211ac0f9fff2a33ec11039b4b28fdcb25bb527f19e6",
+      "bytes": 1156
+    },
+    {
+      "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-eviction.json",
+      "sha256": "8f643782e316e02643c5d58641064630df8354b3245b40e5d0d60577904b33fd",
+      "bytes": 1156
+    }
+  ],
+  "query_round_ratios": [
+    {
+      "round": 1,
+      "query": 1,
+      "seconds": {
+        "before": [
+          3.675,
+          3.298,
+          3.289
+        ],
+        "after": [
+          3.424,
+          3.048,
+          3.033
+        ]
+      },
+      "cold_ratio": 0.9318860244233379,
+      "hot_ratio": 0.9224007274931797
+    },
+    {
+      "round": 1,
+      "query": 4,
+      "seconds": {
+        "before": [
+          9.452,
+          8.738,
+          8.809
+        ],
+        "after": [
+          7.617,
+          7.078,
+          7.174
+        ]
+      },
+      "cold_ratio": 0.8060663707461425,
+      "hot_ratio": 0.8102423411065387
+    },
+    {
+      "round": 2,
+      "query": 1,
+      "seconds": {
+        "before": [
+          3.754,
+          3.416,
+          3.319
+        ],
+        "after": [
+          3.42,
+          2.971,
+          2.992
+        ]
+      },
+      "cold_ratio": 0.9112646121147715,
+      "hot_ratio": 0.8954641033343347
+    },
+    {
+      "round": 2,
+      "query": 4,
+      "seconds": {
+        "before": [
+          9.127,
+          8.747,
+          8.679
+        ],
+        "after": [
+          7.614,
+          7.177,
+          7.137
+        ]
+      },
+      "cold_ratio": 0.8344095436138775,
+      "hot_ratio": 0.8225342386925998
+    }
+  ],
+  "cache": "eight mincore-zero first attempts; fresh process every try; two later OS-hot tries per block",
+  "timing": "catalog remains inside timer; load/setup and process wall separate; diagnostics outside timed runs",
+  "score": "per-query (after + .010)/(before + .010); hot uses minimum of tries 2/3; no partial leaderboard aggregate",
+  "acceptance": "isolated native improvement in Q1/Q4 in both orders; all five queries exact at both tiers",
+  "limitations": [
+    "Q2/Q3/Q5 correctness-run times are unranked; no complete five-query paired score yet",
+    "retained baseline PGO predates these reader methods; this is not fresh-PGO acceptance",
+    "bounded-window serving as a whole remains slower than the historical eager path",
+    "accepted ClickHouse baseline is unchanged; no new leader comparison was run",
+    "mixed first-try JVM Q1 results remain recorded in group-repeat-reader-v10-outcome.md"
+  ]
+}

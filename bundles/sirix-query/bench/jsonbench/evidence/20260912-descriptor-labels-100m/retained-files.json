@@ -1,0 +1,3272 @@
+[
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/dump-q1/q1.jsonl",
+    "bytes": 452,
+    "sha256": "adfa463bba85a527df88e87b5c708b969ab2122caa975942840cbf577800341c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/dump-q2/q2.jsonl",
+    "bytes": 471,
+    "sha256": "1bd3927d7a80391ff82c34493a41fe414cfc56aadfc40fae24272310b957da54"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/dump-q3/q3.jsonl",
+    "bytes": 99,
+    "sha256": "f6fa15e1ed3e2946939be9dfc48fa3e083403a3e3ea9683076e3cdb52da4b2fa"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/dump-q4/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/dump-q5/q5.jsonl",
+    "bytes": 132,
+    "sha256": "d2234deec77ad97a1c37c915c21e98c301137cb3499b0fc984a1819dce27f404"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/protocol.json",
+    "bytes": 7581,
+    "sha256": "33fadc55aa856da50e56c1ee4d0966796d4f8d21ad4dde338e7f0c2a447f6e55"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q1-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q1-result.json",
+    "bytes": 255,
+    "sha256": "0a029ff1b3a71905a01868bdac68ca68cbd6f967b026125c0a8382eb8fae77a6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q1.command.json",
+    "bytes": 7567,
+    "sha256": "9dd89ba6dcae85ec31b9cc1fc4f492a85d98c0c1697f52cfceff6ae73b4f8167"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q1.stderr",
+    "bytes": 2382,
+    "sha256": "1d3ed3b0635836854d206749ee28cf6abe474a8a0466e26d98756cdcb1fb0304"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q1.stdout",
+    "bytes": 4208,
+    "sha256": "2c768142b0af4f82615616b9b618c48906c1568dd5daac33ab8788bbb10a1e9c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q1.usage.txt",
+    "bytes": 8039,
+    "sha256": "e60ade50bd3886eb07420c9c6e203fea96fcdfc6a12093008a7d89ae4c5dd3fd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q2-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q2-result.json",
+    "bytes": 255,
+    "sha256": "8fddefc27f2e5e1f4ef4e6f5a4c265a329e0aeb55f0f5c282cd1d45419a3f1fe"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q2.command.json",
+    "bytes": 7567,
+    "sha256": "fe9f97a2fec09419c0197966675386956abdbbeb1364d7331a5c904fe00aa083"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q2.stderr",
+    "bytes": 2799,
+    "sha256": "349038c9009dddec66a256116eb4ddc98d03e02aa3ff82a504ce284198777f5a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q2.stdout",
+    "bytes": 4208,
+    "sha256": "3b623936502d088fabd80f1e3bdaadbddc636c9336d117439337b75e96fa3a2c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q2.usage.txt",
+    "bytes": 8040,
+    "sha256": "59d1bd65d8e323901780b8955cedbbda660622c5057cccdc577f24edbecf0e75"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q3-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q3-result.json",
+    "bytes": 254,
+    "sha256": "ce82c24f7cf22ba4499af9bd97ebdf5dd1b490194bf9e30c59d97f76ac7924aa"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q3.command.json",
+    "bytes": 7567,
+    "sha256": "5b5070a6517a08e3e0dffb8fd52d6445cbda5f26dbdd9f191410444c121ccf24"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q3.stderr",
+    "bytes": 3106,
+    "sha256": "13aefe58349862ed4eb8dfc2278596b9be305b99739dd41e3006c9b42eacb24e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q3.stdout",
+    "bytes": 4208,
+    "sha256": "09f946ffb449029bbd0b2b927af9bc22a29e49b72c63b5a54b9824ddc7580edc"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q3.usage.txt",
+    "bytes": 8040,
+    "sha256": "5a315a9a504dc55310efcd1bd97b77ec7257f4ec214a2c8ccbdc3d30f6c52954"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q4-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q4-result.json",
+    "bytes": 255,
+    "sha256": "461e4d3434f48f84d3c8d022008becdb37bcd726322d5e7009fec6337afa93f0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q4.command.json",
+    "bytes": 7567,
+    "sha256": "902e63778406602a19eef670fb0f7625e02a3e5b667be56c9579512377c52d3f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q4.stderr",
+    "bytes": 2798,
+    "sha256": "6174f4aca5a3f2a5c0b0a051d6f4acb78df2b10a735ad8daeb25c72786817cfd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q4.stdout",
+    "bytes": 4208,
+    "sha256": "bc5b148af9c17c5c184152ab578d9830606b642881a48cfb000d1989dff7ef37"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q4.usage.txt",
+    "bytes": 8042,
+    "sha256": "00b88837f3e3bc427472e46e8285fa168a6a48f692c320111908a0f8ee32002d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q5-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q5-result.json",
+    "bytes": 255,
+    "sha256": "79489b2004069f7da533ed0ad77fbd23692de15cabc6734bffbd4eaffa540f74"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q5.command.json",
+    "bytes": 7567,
+    "sha256": "8d1134da1f39c1a510b9c5301014309d9fb74f7ed189ac203750e61e878d40c6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q5.stderr",
+    "bytes": 2798,
+    "sha256": "b2eeb209063e6c0f3e1a6d63c28b5fee400b7265f04f17776b5d65d6ae2bcce8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q5.stdout",
+    "bytes": 4208,
+    "sha256": "0c4d57b8e64ffd7035a9e9973caad8bdf56b8c552b0cce6cad6c96fc14d7a6b6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/q5.usage.txt",
+    "bytes": 8040,
+    "sha256": "799bc68766567c64db8d1765e5f3c16aa1bd01d959acda2f53be5911d09dbc11"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-labels-production-v1-1m-attempt1/results.json",
+    "bytes": 1617,
+    "sha256": "6641c9336da9e16ca64f8d109706347815bdb7765b414c661da7e2e8f974079d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/attempts.jsonl",
+    "bytes": 6607,
+    "sha256": "9e8ba5556562fe5eebbf096953e999a0c3ce1a669a16f754571a4111bc48d5d0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q1-result.json",
+    "bytes": 257,
+    "sha256": "820a0f6051386729498f8b287a1f081075a5f73688bd389a371eefa4e53ba826"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q1.command.json",
+    "bytes": 1173,
+    "sha256": "4fec1c97ef61fd5fc3891f1c9f2a900ce8c5e5e8db761ef8607f21f87140ef2d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q1.stderr",
+    "bytes": 144481,
+    "sha256": "37cbc41d1ec67aff4dbc9eef66a4683594c7db00eb5780b8bb0bfb7cac8aa210"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q1.stdout",
+    "bytes": 762,
+    "sha256": "c38c45482e4d63df743278f1e9cde6edfd73f0af7205028374a0f6b501bfe685"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q1.usage.txt",
+    "bytes": 1675,
+    "sha256": "c0dae947c54d00bc183dcc032ddc8d0b013b210f65f3c9b6cf6b399af5391c31"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q2-result.json",
+    "bytes": 257,
+    "sha256": "3dfed8bd1fbfe1bb9ddd398cca366bd656d6c7153444065a5c2336604a46e477"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q2.command.json",
+    "bytes": 1172,
+    "sha256": "bf8f1b97d9957d46a3061cbf787c545e558339e9de78f2c87ed1ad668f5213a3"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q2.stderr",
+    "bytes": 308447,
+    "sha256": "0af1e4688171386b26f02ffb02121c628bcaca8328ed87de123aa8a796c81f49"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q2.stdout",
+    "bytes": 762,
+    "sha256": "cd7b92e83efb3cdde7299e875229ef806b03f82c2df3f5172abab2d4e5c6c28e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q2.usage.txt",
+    "bytes": 1675,
+    "sha256": "88fc464720725b0e1e0cf585e473ee46e4413d4679866adaa054e3c8fe418e72"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q3-result.json",
+    "bytes": 257,
+    "sha256": "aba65d47a88467f348410fdd3be6ddd92c31863397a54694a5b0f7e4e3ad611a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q3.command.json",
+    "bytes": 1174,
+    "sha256": "d4321b6a4ba8e766e3487939938263a4995b6b266b2e5450efc045bdb6f2dfa7"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q3.stderr",
+    "bytes": 316298,
+    "sha256": "63815bd0b23ca6f47bb9410de8ccb3b308eda31208d8698814092cef796dc0d2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q3.stdout",
+    "bytes": 762,
+    "sha256": "3c00dc77c6c613e66c9658b902e79383d357dc4df2fe9c81c7ff57527ecd4303"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q3.usage.txt",
+    "bytes": 1675,
+    "sha256": "b73d2a190c38d75be2e3c67efa665b11390f1b28ec7e32a894b3b0da06643f8f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q4-result.json",
+    "bytes": 257,
+    "sha256": "716374fb83a4538d62dd809064ecabc1f2a9694348f4d409781f35a97e058fb8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q4.command.json",
+    "bytes": 1174,
+    "sha256": "84b46d99a614c2a7a04b55a3ca797491c69ab55488c89a00e01c25e4901ff114"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q4.stderr",
+    "bytes": 470457,
+    "sha256": "31c63a127b73af67288967a3f61f1833f85f87ea6101d74a01dd6a4ba50587df"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q4.stdout",
+    "bytes": 762,
+    "sha256": "cad8e7d854d350d017fce090da4ec54400304161549826af9173b5861f378859"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q4.usage.txt",
+    "bytes": 1677,
+    "sha256": "927d075f4197fb6f6a0e1ffc1f8a2b168a0276d8ee20c44567077276126e413f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q5-result.json",
+    "bytes": 257,
+    "sha256": "4904c7a6113f39fa78a04b85d79656c26ae262d19f44b096c7336a0b7d4bcc40"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q5.command.json",
+    "bytes": 1174,
+    "sha256": "4c8d87db037187578bf1cd0a696dd2e58e54504d4fafc0594d172e59ffd8f6c4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q5.stderr",
+    "bytes": 470392,
+    "sha256": "df69df7a94e1898eeb2b0f08b014673cf1d5b89cc985d1be60c67cd8904ac59a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q5.stdout",
+    "bytes": 762,
+    "sha256": "b2859fb0b5d10842edf2c27fce739bf6a436efb7a4f8deb8247dc52e13167f2b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-after-q5.usage.txt",
+    "bytes": 1677,
+    "sha256": "02bdb24d33340c0ca706ee0c0b1ed2ef619f3bfaeb62719f1735ad9a12650c87"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q1-result.json",
+    "bytes": 257,
+    "sha256": "f295e16cbddcea74e2740898efe4fe3d093c120306a9ebd27e0f61d100423423"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q1.command.json",
+    "bytes": 1175,
+    "sha256": "bc8d82a815b89cf92b2e5065af9675ed50bbee4fb665b525920ee6c03b015b2e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q1.stderr",
+    "bytes": 144489,
+    "sha256": "a22aa33628e43785ca258a5fff7e1c959a8939206d00439ad7b17e89ac59800f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q1.stdout",
+    "bytes": 763,
+    "sha256": "c5b19d06b44ba80be58b257698cf00644ec5a65b8c1f82e45e7f00f36c8f3c98"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q1.usage.txt",
+    "bytes": 1676,
+    "sha256": "3244073f97b392a72e07c5ad8a63146372e1db856c013b4e86e062b0cf1bab75"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q2-result.json",
+    "bytes": 255,
+    "sha256": "0423446223bc51b8637b075b30ef5d8854f3ae305ce5004d4a6af88cbb3a26b9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q2.command.json",
+    "bytes": 1175,
+    "sha256": "53dc1703216fd0c0126ba23e6dc34d63f790238ccce1aa444fe89f31b7d806be"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q2.stderr",
+    "bytes": 308458,
+    "sha256": "a402a83d14a3ffdf9613c42a5b1b73a9e7c343a4ec6205a285e1e5cf36c1dbcd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q2.stdout",
+    "bytes": 763,
+    "sha256": "774ff37ae322696f883d85ef914fb4f0eb60cde11b8b37dcb4019acaf96482b9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q2.usage.txt",
+    "bytes": 1680,
+    "sha256": "0b38ea5f6beea8d2e32fd176dd298d87f1e178b00ef61ede66e10ba4f385126d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q3-result.json",
+    "bytes": 257,
+    "sha256": "60c6847ca2be5c43748b820deca2b45eab4d0213036e73071031ba2e52c53485"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q3.command.json",
+    "bytes": 1175,
+    "sha256": "12ce815f1cb5315c95a6d24f91f72d2127559805a52692527ba99789aa15ca82"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q3.stderr",
+    "bytes": 316283,
+    "sha256": "005a61a1adac112694b5e4e72faaafc76cc1e4bf631f34fa93f71b33fd60af44"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q3.stdout",
+    "bytes": 763,
+    "sha256": "610ecfbb8173193d212c1b4331adfcedd42e1bc860502055eb1b3cc8fd4ea718"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q3.usage.txt",
+    "bytes": 1678,
+    "sha256": "0af2ba0178283990d48d285b5b4b5c4cc78959e2b5d7e6a4c1a6da38c24f1a10"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q4-result.json",
+    "bytes": 257,
+    "sha256": "1cbd972341500718939f470768a9565a2f952d009837df46f3857f4fe9558ba1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q4.command.json",
+    "bytes": 1175,
+    "sha256": "3355876c42e8ec62efdb73a37b534e418f32c2725c5bc9ad90cf0fa47937286b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q4.stderr",
+    "bytes": 470375,
+    "sha256": "6ae4b83befc9d2edf218afcf2d219ca9c3832f9b11b06fe273d8e87d8a686a95"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q4.stdout",
+    "bytes": 763,
+    "sha256": "1f5305fcb0ab141dc8fa1a9d818d8b67c1ee9869bf1bd401a1ba009c3f9d1b56"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q4.usage.txt",
+    "bytes": 1680,
+    "sha256": "7eda993938014d8c0d5754c355334494f3cce26c383b899c274321c489b50a80"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q5-result.json",
+    "bytes": 257,
+    "sha256": "32d5a61eb4b923869e4c031e015f93aabd5cc44b3857329423a39b3190f2e513"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q5.command.json",
+    "bytes": 1175,
+    "sha256": "d701c0fb86f33ffdac7e1a59af198c964481dada51b1d32999542382a26c4542"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q5.stderr",
+    "bytes": 470354,
+    "sha256": "d15b2aa27868b1951d25ab648c1734a9a3d0781bc70aaf90a3e990b6d68a95e3"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q5.stdout",
+    "bytes": 763,
+    "sha256": "b9c59012f08dc9d39bbe43333fc782cc14b077a81bb95d52bae56029b72e3a86"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-100m-before-q5.usage.txt",
+    "bytes": 1680,
+    "sha256": "d9cd3763de7f91b6511bd92ef28d84bf70a2d098689b349cf75ec9f51c87361e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q1-result.json",
+    "bytes": 255,
+    "sha256": "de17bedcddcc64833c072fc9fade0a710e4730050929b3605f0a0321de0847fd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q1.command.json",
+    "bytes": 1177,
+    "sha256": "c571499e93c952b1e0577bc530d04ce926a9120d4c734b8ca441206a6689c075"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q1.stderr",
+    "bytes": 3413,
+    "sha256": "ecd97c2cd6a77059f121c1bbda5c3cb9d7a3125d7eecec76ea71cf2977bb3bcd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q1.stdout",
+    "bytes": 765,
+    "sha256": "f3938917e310857e4499408c365cfe8c42eeaa438a8b21b1ef94741b3eee52c1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q1.usage.txt",
+    "bytes": 1671,
+    "sha256": "3615bf589b3804fd87bebc463805846ffc0cc3777f8457e690491de7ffe7b80b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q2-result.json",
+    "bytes": 255,
+    "sha256": "b7fcacab979c95326292db895a5426a2245302deb01c999dda97d2239e8fa9eb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q2.command.json",
+    "bytes": 1177,
+    "sha256": "1522bfc915fd6763952c1efba4514506c3522379030ba3e05f73c76207f9aeba"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q2.stderr",
+    "bytes": 5581,
+    "sha256": "22d487812746134a5fa05f7cdc7252d1211a155c24b0bdd0403029207791f7c5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q2.stdout",
+    "bytes": 765,
+    "sha256": "19a501087738aa66425a54b784d2ee1447e4ecf42a9c1da935598a22296cb364"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q2.usage.txt",
+    "bytes": 1671,
+    "sha256": "29d96c7bd78b8410a7a97aea9d28fd9eb1166037db260fbd750f6c0311a2766d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q3-result.json",
+    "bytes": 255,
+    "sha256": "f8ce154aa49c3a2b69f2651d13f3e9f39bf59ee19c1883edd0c942173421f37b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q3.command.json",
+    "bytes": 1177,
+    "sha256": "a8244229d38774f100ab16724458251afeb28777ca223ebba9319dbc4af7af92"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q3.stderr",
+    "bytes": 5564,
+    "sha256": "0dbb07db645215334cff96348c984034e83475f9b227370c491496a9f905024c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q3.stdout",
+    "bytes": 765,
+    "sha256": "738e492e310a3af7b7c5a09527cc0b3b8be509a1f9a521c81d0a4ae3441419db"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q3.usage.txt",
+    "bytes": 1671,
+    "sha256": "41f22580fce69e4fe1c8a6b8014649c3c5a0f671cf196b94d1e6b70e8c6fb280"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q4-result.json",
+    "bytes": 255,
+    "sha256": "64995a0af87aeac05c05a37d43ba12fbb7982be79a91ee72f5ddc66f353fabe5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q4.command.json",
+    "bytes": 1177,
+    "sha256": "857b0e00e592082fa314f4f63a08906eb76dcb8e49b69feccdbbba88a6c3b02a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q4.stderr",
+    "bytes": 10713,
+    "sha256": "0765175105ab388858bd6a4e35442151f500bc0b98283b9c81c43652414d689f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q4.stdout",
+    "bytes": 765,
+    "sha256": "d102a67c3f41bb177daef258662676d87752ccdfd608e20eefd1d5b58a8dfd4d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q4.usage.txt",
+    "bytes": 1671,
+    "sha256": "848430d8dca0b9ca8024caf2c06bcd0270dbd1cdacd7beb9396d5a7b4ada12fe"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q5-result.json",
+    "bytes": 255,
+    "sha256": "760d33051496aed3638dacdc4d0bb2ee2724f7bbdd6bb23e8821e6aef4ca9756"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q5.command.json",
+    "bytes": 1177,
+    "sha256": "40a7c0d22b9470f0fbaca785b85879e1005cf37b0d2507f3a2ba6df4b23cbfbc"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q5.stderr",
+    "bytes": 10712,
+    "sha256": "61f276cab1d97e7535fc78ad65182bc48575b8a88cdff07feee8ce3ebe3bcb00"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q5.stdout",
+    "bytes": 765,
+    "sha256": "7ac8771976f46e2df19b8b8fca2b67f53f913e22d6b72597dd1492f2a1f0a87d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-after-q5.usage.txt",
+    "bytes": 1671,
+    "sha256": "38ac720652d89b40532c3d749b44e0fe9eac4e0dc5b5f873c902b322e3a25933"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q1-result.json",
+    "bytes": 255,
+    "sha256": "0089483f42bd6ac7c992c0b3c9a15c920683cf9b5135ac25995a574e357e8cb4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q1.command.json",
+    "bytes": 1177,
+    "sha256": "3cbfc6a84e9b2ae7153095a9569bbc5913b397e16160381a424ce9b223ebf461"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q1.stderr",
+    "bytes": 3411,
+    "sha256": "b51890b6a0f022e54a5b998a3b6d3c6c44aa8ec318811e4a10ca78fd8f665e00"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q1.stdout",
+    "bytes": 766,
+    "sha256": "f2867f9bf195eb02f6c408285d7ef8b61581f72dbc470f9047fe2a558a8e2c02"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q1.usage.txt",
+    "bytes": 1674,
+    "sha256": "35040e3b196283240499a290e607664a23246161470464c7e65a81abd7eee5ac"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q2-result.json",
+    "bytes": 255,
+    "sha256": "990a3f3b0070a2c6500609f5cdbd9a0ed27dc7cd25872b785c22220a2117cb12"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q2.command.json",
+    "bytes": 1178,
+    "sha256": "854c1e96f55bca6c7557fcafe057130f7648632f80efb376152f051d49f9f944"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q2.stderr",
+    "bytes": 5577,
+    "sha256": "3bd221f4e4d54b0afd230b1b16ff1d1226f00bb56629104b7303b84af38d0dce"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q2.stdout",
+    "bytes": 766,
+    "sha256": "9a160ab9dfcd6eef00fab8064a2edf9f1eb8b6bc578ae91a3059c10a715696c2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q2.usage.txt",
+    "bytes": 1674,
+    "sha256": "087e4ff2b6a6a2573d1c8060b1e77e79aa81327f07c7cffc9e3396838a5fecf8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q3-result.json",
+    "bytes": 255,
+    "sha256": "4dbb1b7c2c02cce285d208a219f786a51cd4ab19ef7fc795ddda296bcdede937"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q3.command.json",
+    "bytes": 1178,
+    "sha256": "f0a55f410ce9fde197fe2fa3535fde50c8a7b404e8aab406da4d2ae893530357"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q3.stderr",
+    "bytes": 5565,
+    "sha256": "454977100f74900ea3ba3da8b4214dc998b8dbc76f8148691832752fadf1605b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q3.stdout",
+    "bytes": 766,
+    "sha256": "10cd94f20441b9b5a88fa54b1b389485c0372a6b924c8da2ce5e743045372f7f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q3.usage.txt",
+    "bytes": 1672,
+    "sha256": "0034549f852abb7aa18b6f17c9dd4dceb6037cf75efc41a540a856a846ed5860"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q4-result.json",
+    "bytes": 255,
+    "sha256": "ca2fa735af685b5b133c957d0d9cc6b3f6ee9a8a2d4ed0a8f92503649813706a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q4.command.json",
+    "bytes": 1178,
+    "sha256": "6df13ece923e81f55e1e0ac5cf1fe0a6a66ba7def1a26f96bd5952fdb8982075"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q4.stderr",
+    "bytes": 10711,
+    "sha256": "19d208df9a038409819cd2684f4a50f46983a7df10367ff829de29742c967cb8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q4.stdout",
+    "bytes": 766,
+    "sha256": "5f3ebeff602c57ab6212f52ee7782247f0ec3d81f788f6acb2f7061070d365ee"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q4.usage.txt",
+    "bytes": 1673,
+    "sha256": "da00bf1443e1eea77ad30dfa493cd3f792fbf054a42539e617080cebbe21682b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q5-result.json",
+    "bytes": 255,
+    "sha256": "bd1f13d1f2d2ab10cc37d96016ed687667a4532da13ccf401e9fc8a4309c02e4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q5.command.json",
+    "bytes": 1178,
+    "sha256": "f3db622555fd8509e6db3e46417e81a91a64d6d9135919d76dbab2e6f033e5c4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q5.stderr",
+    "bytes": 10712,
+    "sha256": "6ffbca9776e8a958d4c164ae91f4889011fc025dcddd2dd9d49f01ccfc9df023"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q5.stdout",
+    "bytes": 766,
+    "sha256": "25d4c819fc38d457700f3e73241b4a746c2dcb5a96dbd16838d865ce8b5ec13b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/correctness-1m-before-q5.usage.txt",
+    "bytes": 1672,
+    "sha256": "6d3f370f6220a8df228c91cdfd76a321f02ec5a4a24d432c3d12e97a89114019"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-after-q1.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-after-q2.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-after-q3.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-after-q4.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-after-q5.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-before-q1.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-before-q2.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-before-q3.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-before-q4.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-100m-before-q5.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-after-q1.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-after-q2.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-after-q3.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-after-q4.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-after-q5.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-before-q1.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-before-q2.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-before-q3.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-before-q4.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/differential-1m-before-q5.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-100m-after-q1/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-100m-after-q2/q2.jsonl",
+    "bytes": 613,
+    "sha256": "f3e5ccd66090d9c4ed7a4b82b7c0eb1787add4a4e3dc0f14b16443110628e911"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-100m-after-q3/q3.jsonl",
+    "bytes": 1907,
+    "sha256": "4a3f5f8830e1f37efb0e69b180fc774ba5a31a4859ea01d5cebb258984403cc8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-100m-after-q4/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-100m-after-q5/q5.jsonl",
+    "bytes": 138,
+    "sha256": "80a323f89aa0ff8209f4945f1267854f68860861e800f0ba835ea33bd7c2346a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-100m-before-q1/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-100m-before-q2/q2.jsonl",
+    "bytes": 613,
+    "sha256": "f3e5ccd66090d9c4ed7a4b82b7c0eb1787add4a4e3dc0f14b16443110628e911"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-100m-before-q3/q3.jsonl",
+    "bytes": 1907,
+    "sha256": "4a3f5f8830e1f37efb0e69b180fc774ba5a31a4859ea01d5cebb258984403cc8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-100m-before-q4/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-100m-before-q5/q5.jsonl",
+    "bytes": 138,
+    "sha256": "80a323f89aa0ff8209f4945f1267854f68860861e800f0ba835ea33bd7c2346a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-1m-after-q1/q1.jsonl",
+    "bytes": 452,
+    "sha256": "adfa463bba85a527df88e87b5c708b969ab2122caa975942840cbf577800341c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-1m-after-q2/q2.jsonl",
+    "bytes": 471,
+    "sha256": "1bd3927d7a80391ff82c34493a41fe414cfc56aadfc40fae24272310b957da54"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-1m-after-q3/q3.jsonl",
+    "bytes": 99,
+    "sha256": "f6fa15e1ed3e2946939be9dfc48fa3e083403a3e3ea9683076e3cdb52da4b2fa"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-1m-after-q4/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-1m-after-q5/q5.jsonl",
+    "bytes": 132,
+    "sha256": "d2234deec77ad97a1c37c915c21e98c301137cb3499b0fc984a1819dce27f404"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-1m-before-q1/q1.jsonl",
+    "bytes": 452,
+    "sha256": "adfa463bba85a527df88e87b5c708b969ab2122caa975942840cbf577800341c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-1m-before-q2/q2.jsonl",
+    "bytes": 471,
+    "sha256": "1bd3927d7a80391ff82c34493a41fe414cfc56aadfc40fae24272310b957da54"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-1m-before-q3/q3.jsonl",
+    "bytes": 99,
+    "sha256": "f6fa15e1ed3e2946939be9dfc48fa3e083403a3e3ea9683076e3cdb52da4b2fa"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-1m-before-q4/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/dump-1m-before-q5/q5.jsonl",
+    "bytes": 132,
+    "sha256": "d2234deec77ad97a1c37c915c21e98c301137cb3499b0fc984a1819dce27f404"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/protocol.json",
+    "bytes": 85268,
+    "sha256": "0df6eb95fd2f70d58ee98808e61373d48bc292182c8737374a4f7ac1b2aa47e1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a1.command.json",
+    "bytes": 934,
+    "sha256": "6692db947e5a2d570d5d04f2ec5711799a9b9face380f61d5f2608a3fdf0e861"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a1.result.json",
+    "bytes": 257,
+    "sha256": "d86a137a631f7f9f57addb72727a1fbe985b7162d453001d01df5c5244e37b3c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a1.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a1.stdout",
+    "bytes": 706,
+    "sha256": "abd888868193c9d4465e5fa5c591f40b3f7779753b3f685b73e79cab4782eb84"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a1.usage.txt",
+    "bytes": 1463,
+    "sha256": "8f3e3df788bd162886ca98b7800c0430b6278725a0f6033a93644042ddc60ece"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a2.command.json",
+    "bytes": 935,
+    "sha256": "1576993e6b4b841f6a78cdf96e27d38cbd12cb872e6b267eba0c832dc2e2a2fd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a2.result.json",
+    "bytes": 257,
+    "sha256": "ed22aeb6fc59ff5a0f8965b7828a45eeaa7716119314eb4513e8726ed996e3fd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a2.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a2.stdout",
+    "bytes": 706,
+    "sha256": "e29ac4b15bb5121c0e1322144b5e502b396cde7133999b81bbfc35179943f784"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a2.usage.txt",
+    "bytes": 1463,
+    "sha256": "eb2b761efecb7b05404900f4c3596b7e442304eb88a15b8b58e717412019e2ae"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a3.command.json",
+    "bytes": 934,
+    "sha256": "f8c6082dd3416b5ab0cd02bac6e861312e5732d9f70eb6000e1bc3400520935b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a3.result.json",
+    "bytes": 257,
+    "sha256": "4f82e8e9e09eb4d17a5412f13e56c0da60e0bca339cbb361da13b1b9ecd01901"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a3.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a3.stdout",
+    "bytes": 706,
+    "sha256": "c2f19b29c408c700081550a6676b92b75658696c5719bac90032bd3dc6d8b935"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-a3.usage.txt",
+    "bytes": 1463,
+    "sha256": "1e1e2c8b338b076b4231ddf47168eb9d423a6977d4abe9aefb2498c2365e68a5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-after-eviction.json",
+    "bytes": 1156,
+    "sha256": "9457c4940b6e649c404a1e0b92a2396b09b7222578af633687659e4db5d0cea2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a1.command.json",
+    "bytes": 934,
+    "sha256": "3f6cc24dc944970244db88be53663771ceaf6b7e499945fa1fd4e916b576f202"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a1.result.json",
+    "bytes": 257,
+    "sha256": "4bb1629e6b1020b838860f916df64da3d455609cfc7d71671ca8f9018ab5e519"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a1.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a1.stdout",
+    "bytes": 707,
+    "sha256": "07984b1c8a2abcb08410ea2d7ebf91102d8dad41e427690301caf58eac9855fd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a1.usage.txt",
+    "bytes": 1464,
+    "sha256": "99a8b471049067943ec13c2bdafbb83d51b3a1ef501b4de9d0a81c073f160fb1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a2.command.json",
+    "bytes": 935,
+    "sha256": "d38156f47984cc956ad08f11c49f3666a7035c07fd2d76b2252b7da1212216cc"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a2.result.json",
+    "bytes": 257,
+    "sha256": "9e351b7e79709291ab5c940da3b63f646d84c511871a6fb0e2b77efa27f09b87"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a2.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a2.stdout",
+    "bytes": 707,
+    "sha256": "8380e9fa489267e0274c80f6acd9142e1c8353ffd73c338018e89e8042fa8212"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a2.usage.txt",
+    "bytes": 1463,
+    "sha256": "3a4468a5d61ead81803b19c2d5ba989d4adf113efbfe0ba13d3c121540a358a0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a3.command.json",
+    "bytes": 935,
+    "sha256": "c49f75eb907a7bb048f65ed319e6dda711cea6c046a5f4fb31646ec79bbf5f66"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a3.result.json",
+    "bytes": 257,
+    "sha256": "b2f079279cd2c44683535d88894a19ba5ec4280d7da3cf0a5d3922e89f3b1d34"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a3.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a3.stdout",
+    "bytes": 707,
+    "sha256": "ceb8ac5563d80819b706566a33c63b4161d822ff4e7df2a84f1eb12293f38550"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-a3.usage.txt",
+    "bytes": 1463,
+    "sha256": "32c62a863f65d305d2b5dfb7939f6b40f8eed91786eb22a2e373f9b5b575d49e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q1-before-eviction.json",
+    "bytes": 1156,
+    "sha256": "13556b740d48a4c141e70728c5da88559b62faef2852523ad0d8f3371f7e3a53"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a1.command.json",
+    "bytes": 935,
+    "sha256": "870b08c8eafa36031c001f5f7e550d62ae0dc32e652d2ea867f8f436b749e9ab"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a1.result.json",
+    "bytes": 257,
+    "sha256": "69e96d72d6639ad911c9663c981654e9f44f74f837e974beb916eb4174f7651b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a1.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a1.stdout",
+    "bytes": 706,
+    "sha256": "2f664daceb05b10a6da208157a62a77380cabf6f259883f26225f542c035ccab"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a1.usage.txt",
+    "bytes": 1467,
+    "sha256": "3367daf07fec30ab73f54dfdc9b652243e71c0f63210958387fa1b52f976c4d8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a2.command.json",
+    "bytes": 935,
+    "sha256": "00f228a41b82d31d08db562779eb49ba74dfaf1f57dd007130934d76701e2439"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a2.result.json",
+    "bytes": 257,
+    "sha256": "3db1bcf26bc7c84bd2f014343b75dd2ca45cce81c8f41c262cd6b0b1daa4b0e2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a2.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a2.stdout",
+    "bytes": 706,
+    "sha256": "5aec1ee58a65c2870f30ec786caeb5f6c30aa3d044bb80013b3dd387c83c19b0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a2.usage.txt",
+    "bytes": 1464,
+    "sha256": "7ffc704f35bf78703694a9c1291ff52c646a6f85a462c4ea6e12092a4a0f2088"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a3.command.json",
+    "bytes": 935,
+    "sha256": "ea01dd4c80c188fbf43444256831c79769781227fe7a9791d3aaa72506126792"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a3.result.json",
+    "bytes": 257,
+    "sha256": "bae3635e14b4d4a349f6bcacd9259f2f65ef462de5621fc513f1d43302533f1d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a3.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a3.stdout",
+    "bytes": 706,
+    "sha256": "96a170cf0ce9a40235d7b0bf191471a600942586e966edd311726c4a8bc003ca"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-a3.usage.txt",
+    "bytes": 1464,
+    "sha256": "693f0975ba380f24b4181a6ddd89bd1aecf18597861907e774d4a26d750b318b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-after-eviction.json",
+    "bytes": 1156,
+    "sha256": "3a89ae7a582b632a7feaed2cb4d3a84c79871ae2fbf569604137986e4530eb31"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a1.command.json",
+    "bytes": 935,
+    "sha256": "1784eb9a597e105c6092f10ffef0c8ca6018daae5e5a4239d29e371035c1cc33"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a1.result.json",
+    "bytes": 257,
+    "sha256": "5a8621f4c5423aec7e775f3336eef6060c62e9721a1879917060dc267eb7a658"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a1.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a1.stdout",
+    "bytes": 707,
+    "sha256": "97775e37f45fad7c13be2b5302228b2b03b7f16f3779addecf91703cfb5da570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a1.usage.txt",
+    "bytes": 1470,
+    "sha256": "042176463bf3cf5268d1db25131f3d4b7f9654e4094ac5ffa97dec30da86fa1c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a2.command.json",
+    "bytes": 935,
+    "sha256": "1f8da2a2b67d4f627cda81757160f062dc37f09892e0d0b1d2765cd7d960701e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a2.result.json",
+    "bytes": 257,
+    "sha256": "29594c181dbdfef86c3ea532164c2d65c5887dad825dc91e68e82811b5773ef4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a2.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a2.stdout",
+    "bytes": 707,
+    "sha256": "708ee8450024277b2bd5513f2887bc4eeda8fb846c2b4ecc80b84fd942ced06b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a2.usage.txt",
+    "bytes": 1464,
+    "sha256": "b5a3b02492269354de00163bee3ce7126a5889c153764b5cb78cdb5194a086f7"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a3.command.json",
+    "bytes": 935,
+    "sha256": "c7e086ceb2757e0625a2135bb34e9101aa70af2aaa5da2154e43648be992edbb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a3.result.json",
+    "bytes": 257,
+    "sha256": "983510214bda957b0265d3234de2368d148e726d74bccecd589c13b7512809bb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a3.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a3.stdout",
+    "bytes": 707,
+    "sha256": "9e701a437f70c66c0ee0050440ddac1afa765d5a926655da8578b2c0bd7e14ae"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-a3.usage.txt",
+    "bytes": 1464,
+    "sha256": "88fee60df3d3604bc7176f0a3190aa6b6e758a83878849e81bfbbce3e18d72af"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r1-q4-before-eviction.json",
+    "bytes": 1156,
+    "sha256": "dd0e642a5ee12e64ec06841dc69f24f09d403542e8f3a433a150d229554318f2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a1.command.json",
+    "bytes": 935,
+    "sha256": "44ef20be30dd949058ff95028e0a393e17b148505bd42afbf2a7ce7ab7a402a3"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a1.result.json",
+    "bytes": 256,
+    "sha256": "80e9b9d49b6a51bc1d3b8c4a30e8f595cf5d16b4ddaffe00fb18032a70039709"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a1.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a1.stdout",
+    "bytes": 706,
+    "sha256": "5e060da58f191e97a35ad0673f16fbf67c2e4cdefd8bedad545aed8dc32e5ff2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a1.usage.txt",
+    "bytes": 1463,
+    "sha256": "f9bfbe25437f71d93ce788b28d65a437c041286bfbb48fd609d87b41b3371511"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a2.command.json",
+    "bytes": 935,
+    "sha256": "3eaea3d2667f2ac25577f14df38a7ac0ed627ac872d5e95ce0284b82b5fffb2a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a2.result.json",
+    "bytes": 257,
+    "sha256": "c120281805fb0314b35a6cd6591db7998c4fad22d0f5f9a25f56539c58036ab6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a2.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a2.stdout",
+    "bytes": 706,
+    "sha256": "20c24ad09235a0be871f9ae723fc86cea0324e9f02f97ea183de44ceede36e1d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a2.usage.txt",
+    "bytes": 1462,
+    "sha256": "af619d9edf57d18cb7e420977fab17a90802c779b2b5080f0c46439c9bd128d6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a3.command.json",
+    "bytes": 935,
+    "sha256": "4a71263bf653adc7a7c17a9651f0ff3ffbeb19322ceee57b297ebfe8621790b8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a3.result.json",
+    "bytes": 257,
+    "sha256": "56a22f8739f3d6eca868bd6068f7d284d5fd5161ec33959dae0eb825e4fcb18a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a3.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a3.stdout",
+    "bytes": 706,
+    "sha256": "e0e47c9cc7fe572171ca941a9a8baa068a6c3e924bb7b640e11591a10962f89c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-a3.usage.txt",
+    "bytes": 1463,
+    "sha256": "34eea2f595f95609525c7693390557eb9280aace848235a0f37240df3ce1fa53"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-after-eviction.json",
+    "bytes": 1156,
+    "sha256": "5cd819cfa88d865ccd56ee0500caaea896a909af64027788fec44de1496da6eb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a1.command.json",
+    "bytes": 935,
+    "sha256": "3477215e9ffbd1548c6ac291ea31034546d1eed8ba78a781e32f44751811f730"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a1.result.json",
+    "bytes": 257,
+    "sha256": "cebbd13c55ce131e34d2791c200281c84c1fc45de5d5ea83164c4ccaa77052ad"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a1.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a1.stdout",
+    "bytes": 707,
+    "sha256": "676a67402ff0fd6292fa2b80394c798175a995aa7d3f936bb9bbe9d11fca26e0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a1.usage.txt",
+    "bytes": 1463,
+    "sha256": "b29f62db336e0757770654abaada26a1ba3f733aa33e7e984889c4ca4ff4f847"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a2.command.json",
+    "bytes": 935,
+    "sha256": "9815d87998080335651ae234184fc708dc6ef3a8f48d7d553ff4f5fe5d24506b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a2.result.json",
+    "bytes": 257,
+    "sha256": "6d768e5c32644011366585dc6750bece804ac8f24eda1eb83ee0243ef9c6093d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a2.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a2.stdout",
+    "bytes": 707,
+    "sha256": "fa147495159d2232ca5eea850ebbd0586e34600be3fbc9be4928c63f760b864b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a2.usage.txt",
+    "bytes": 1463,
+    "sha256": "5e426943cb96e70763439eeb73108b227831a0f0d4befcd3ef11967eba815369"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a3.command.json",
+    "bytes": 934,
+    "sha256": "1e6a2286f20def982c1dbd433623b4a3f0c1636aa82ffcd8ab5292315d40a2e4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a3.result.json",
+    "bytes": 257,
+    "sha256": "85b8dabcef7b92ac2d6f36c2c7a208327362fdd3567fba96d153b05537dfdb2e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a3.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a3.stdout",
+    "bytes": 707,
+    "sha256": "2420936bf504535f207d05be624d4fd689d5e5ffbceef91fc2e906fce0446ddd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-a3.usage.txt",
+    "bytes": 1463,
+    "sha256": "ff539d526a2a0de6b6aa223f96cd457627d83b109d79846956aef4753021b18c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q1-before-eviction.json",
+    "bytes": 1156,
+    "sha256": "b4aa8036faca07be03107e0b330d8f976f3cce1ae3e74a4fe8dc1119c6153f53"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a1.command.json",
+    "bytes": 935,
+    "sha256": "ad084b0da29741e12093967944f71a4f4e7aa899add4c3a4ff179fee64aa3172"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a1.result.json",
+    "bytes": 257,
+    "sha256": "3ae7dea91925a38c5a22e9bd9439052828121cb0f665894edae683b037a10108"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a1.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a1.stdout",
+    "bytes": 706,
+    "sha256": "dffd856d1a4374a172d63f9d5298ef4f7e942b745aa92474f7464c0b4524cd29"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a1.usage.txt",
+    "bytes": 1466,
+    "sha256": "b059ef9e65d2a724452c3555c9eb32777468f2ce428bb0100f398fd2cd81a88d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a2.command.json",
+    "bytes": 935,
+    "sha256": "e0e23aaeb7fecaa0cb062d358e8f10c76b12b56fa6bf66910d30ed47a16dbb04"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a2.result.json",
+    "bytes": 257,
+    "sha256": "0458d1b6323f566e934ddd68d8a6e5d05411abc2f09d9cb446057cfd63280871"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a2.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a2.stdout",
+    "bytes": 706,
+    "sha256": "03d4231a64eb73313841d3b8adcf71c459b13467b176777e8e94e910bb49273c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a2.usage.txt",
+    "bytes": 1464,
+    "sha256": "213445af0b32ed2a544b342f8c523ed243e2b57de69af8feab1e53aca9340943"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a3.command.json",
+    "bytes": 935,
+    "sha256": "98f73ab9671a58e653cd6c8bde49f379dee21ff875a707286cd3c779b97fa9cb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a3.result.json",
+    "bytes": 257,
+    "sha256": "d1cc8b01ef59f2358b3fc109146c761cf8899b6f085f222d070909ce9caa73f2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a3.stderr",
+    "bytes": 471,
+    "sha256": "c0a6be609fd0a5d9d8b1d9eeb71469f40812f29cce3a00c73d7645b2204d2729"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a3.stdout",
+    "bytes": 706,
+    "sha256": "3174ddc14baff90a305271ff747676b86d6de6f1ddc3f3101a9fc06c10c493c1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-a3.usage.txt",
+    "bytes": 1464,
+    "sha256": "cc59ea9c5e7df72e211e37a4367f1add441a7294aae70ee6303dd1361b7e9f55"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-after-eviction.json",
+    "bytes": 1156,
+    "sha256": "7542b274499ff996d5d16211ac0f9fff2a33ec11039b4b28fdcb25bb527f19e6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a1.command.json",
+    "bytes": 935,
+    "sha256": "5c017529024510a81b4b195157fac537dba0766f3ec1b1d5b82e10285ea02bc8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a1.result.json",
+    "bytes": 257,
+    "sha256": "dd177876ea1ecd5dd116e98cb34c8826836768483942f17c41a1767aa0e1fb11"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a1.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a1.stdout",
+    "bytes": 707,
+    "sha256": "f0be831683163e7c112d4571b63821c264e0878753384186705429096c9e1706"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a1.usage.txt",
+    "bytes": 1465,
+    "sha256": "166183c5f3e7c66a114f46a339f889010a98bad9d2df899d0b32ea9a66374982"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a2.command.json",
+    "bytes": 935,
+    "sha256": "fce455f1e8b8f1bd9a00c3e4d89aa3bbcfca31dc17e82cda8ffdb752b8aa12a8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a2.result.json",
+    "bytes": 257,
+    "sha256": "40a4d7c5df7a853cca59cc7802b44f767aea6eb5164868c86a3a0e91eaa1ec39"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a2.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a2.stdout",
+    "bytes": 707,
+    "sha256": "aee6ab78d4ab4122807dde93d7e49617f453580e126ac5f0f65d45f44180c5f7"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a2.usage.txt",
+    "bytes": 1464,
+    "sha256": "5a96448e6f416b753e0e2c9663abc73e7fafc1c05e8998457e30217013b27338"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a3.command.json",
+    "bytes": 935,
+    "sha256": "39f08d07cb4ee71564686d7b3f73d5864ff3459e1896cb33cf30d350bed6b8a4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a3.result.json",
+    "bytes": 257,
+    "sha256": "bf5c1fce27bb9d140fbb2ea1c6fe09f5382313d3c4255788f50a6a6fbd2241c5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a3.stderr",
+    "bytes": 470,
+    "sha256": "8171d067cad4d7693f069ecc300c3c87c12d6175f309889e163d16af19fcd916"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a3.stdout",
+    "bytes": 707,
+    "sha256": "e662616642d9ae8ea799551fc693f79fef08b36efb018fc0292cae4bb7921566"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-a3.usage.txt",
+    "bytes": 1464,
+    "sha256": "43607020649588abeaf18ec3b428c954bb704a0263756cc2da91cf61cb58c7ec"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-100m-attempt1/r2-q4-before-eviction.json",
+    "bytes": 1156,
+    "sha256": "8f643782e316e02643c5d58641064630df8354b3245b40e5d0d60577904b33fd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/0-before-q1-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/0-before-q1-dump/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/0-before-q1-result.json",
+    "bytes": 255,
+    "sha256": "cdf5c1d9db4f7dee0adcb380bbfefb61505a4433a68b0e74b5e15e9d3e75eb88"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/0-before-q1.command.json",
+    "bytes": 8266,
+    "sha256": "a8748d793dd1b1cdc8d1ebd4219fd0f80f593a668b3f9bd9b7888ec768882fd6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/0-before-q1.stderr",
+    "bytes": 144560,
+    "sha256": "eed127052b407a1ec4ba1e68c6f38c98ad006d6cfc0abed9f944c910e38d8168"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/0-before-q1.stdout",
+    "bytes": 4214,
+    "sha256": "f5611c6ce2cea6dc5469a8114a819c23a6bd96abf880c1e5cb0608cfef111d13"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/0-before-q1.usage.txt",
+    "bytes": 8722,
+    "sha256": "ed0f88d36b02cc175ca7de34faf3f061622fbd876b633e754c16ed2dfc8c60fc"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/1-before-q4-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/1-before-q4-dump/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/1-before-q4-result.json",
+    "bytes": 257,
+    "sha256": "b7d506ef044079ba09890b92976f6f872373b390cb013ebac2eb348af8bb3b66"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/1-before-q4.command.json",
+    "bytes": 8266,
+    "sha256": "d346e7aa18dc409837f73db49eaf7e857c8babae6d8d1b5c320df3ad76b49d4c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/1-before-q4.stderr",
+    "bytes": 470594,
+    "sha256": "d694fe45c9467f58a29c16141fe0c64e578614fc79b0b4f246a05bf66a63f896"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/1-before-q4.stdout",
+    "bytes": 4214,
+    "sha256": "ef67ac56d76db08d84a6a08efc2afdf4eb4cfd3779769e202bb35bc9a1eccbfb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/1-before-q4.usage.txt",
+    "bytes": 8720,
+    "sha256": "f709cdd39a71b354dd339803be9341dadf8f16951d25045b70fddf913fbabc3e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/2-after-q1-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/2-after-q1-dump/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/2-after-q1-result.json",
+    "bytes": 258,
+    "sha256": "c8fc718b6c6626c53a9a7d77ae3b1968e5025879b61ea94d7ddc225641bd9b91"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/2-after-q1.command.json",
+    "bytes": 8392,
+    "sha256": "ee5df29dbb94b60b3d52f10fee7ff3aca4e88738e591f3b27eeb342cc6387379"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/2-after-q1.stderr",
+    "bytes": 144563,
+    "sha256": "566b157b160e1f3f7f860fbb7f648a99a7e81e0c8803cd58cb4e0e1e551f5f43"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/2-after-q1.stdout",
+    "bytes": 4214,
+    "sha256": "91a431626a0f4a255ae6d2aa6304e92a038ed2e7d52df703748e8de7946156b2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/2-after-q1.usage.txt",
+    "bytes": 8847,
+    "sha256": "d8fd163a28ab58bada72af016896461d5c7c63edef832bbcce231c7ea8169668"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/3-after-q2-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/3-after-q2-dump/q2.jsonl",
+    "bytes": 613,
+    "sha256": "f3e5ccd66090d9c4ed7a4b82b7c0eb1787add4a4e3dc0f14b16443110628e911"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/3-after-q2-result.json",
+    "bytes": 258,
+    "sha256": "cdce24d848a28f8bd0161df6d0f362d416762b14cfec93747c51bc23acb6f424"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/3-after-q2.command.json",
+    "bytes": 8392,
+    "sha256": "e60355c69bd1a69147030c4ff017e63d710ce4b05d09d6b14406d9971c8e91dd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/3-after-q2.stderr",
+    "bytes": 308426,
+    "sha256": "931bc18a81b61446b4dccefaf8d4edb69fdb0064695cc0345a0c029ac60c2035"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/3-after-q2.stdout",
+    "bytes": 4214,
+    "sha256": "fe5649c724744d2c1ec5a5a8d4dca3bb3ce6447a09bfc5049884df9cff3f8715"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/3-after-q2.usage.txt",
+    "bytes": 8848,
+    "sha256": "557d8c7e28009b2e7a1d79854a09170912711c5aed06e58e038d8dc3c342debb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/4-after-q3-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/4-after-q3-dump/q3.jsonl",
+    "bytes": 1907,
+    "sha256": "4a3f5f8830e1f37efb0e69b180fc774ba5a31a4859ea01d5cebb258984403cc8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/4-after-q3-result.json",
+    "bytes": 258,
+    "sha256": "e023ed210abdac80076de520934fc0169e647099c93808ceafec107a5077ff7c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/4-after-q3.command.json",
+    "bytes": 8392,
+    "sha256": "5d54ffc0dfdb04010d82626908cce0e635dff80f2c985f6f3b01c63827eba884"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/4-after-q3.stderr",
+    "bytes": 316381,
+    "sha256": "34574f352f101c72b1c84cb8bde4cd0e1c12c0bf477b529017c3553cbc4f6a11"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/4-after-q3.stdout",
+    "bytes": 4214,
+    "sha256": "b8e7f92889df839cd4e05fd53e737c7bec81ef06a581e30a519f2ed9abc9730d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/4-after-q3.usage.txt",
+    "bytes": 8847,
+    "sha256": "b116c988c2fdead85c653d5071ee80ff4298bcc72c6d82a5844fe1c48cd81beb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/5-after-q4-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/5-after-q4-dump/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/5-after-q4-result.json",
+    "bytes": 256,
+    "sha256": "6c27208cd8346985fd20208d0a4f5ea60132d9a87847ec1b1daab2d1b0641a40"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/5-after-q4.command.json",
+    "bytes": 8391,
+    "sha256": "ae095892d00889107200803bc556aaa264300e351307aec4d28e1c331a05473e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/5-after-q4.stderr",
+    "bytes": 470297,
+    "sha256": "67e903927e4d560e778483376a5a49f9e5183e48e054a295c79cce0c2fb488c8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/5-after-q4.stdout",
+    "bytes": 4213,
+    "sha256": "190da2c2e4b03296b11c26616b4d95b1f38bc1b2be7594f19d8ff8c560796843"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/5-after-q4.usage.txt",
+    "bytes": 8845,
+    "sha256": "9121a0471e695307f438e1408332f2f6088532d008300d59afe6f849355767fe"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/6-after-q5-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/6-after-q5-dump/q5.jsonl",
+    "bytes": 138,
+    "sha256": "80a323f89aa0ff8209f4945f1267854f68860861e800f0ba835ea33bd7c2346a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/6-after-q5-result.json",
+    "bytes": 257,
+    "sha256": "4ea9cdd80ceaa31d85fa25b69f6b44f09775fb29e0776fef7a04d40608437c38"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/6-after-q5.command.json",
+    "bytes": 8391,
+    "sha256": "e149450d86ca193d684eede0e8c431d56841705e84fc07355975d4025b113248"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/6-after-q5.stderr",
+    "bytes": 470346,
+    "sha256": "00566acbe81ffe31c47f290301d75febb3609b365c95eb9ed1fb5b6aa7b45d62"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/6-after-q5.stdout",
+    "bytes": 4213,
+    "sha256": "fe6080392980925448035c22d09dd105ef1d7d2da50ab2eb099f5bbf73595f43"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/6-after-q5.usage.txt",
+    "bytes": 8845,
+    "sha256": "7f017b61e5cfcba19234c637f36f29869b3682fbfed2cff85b9d3715fdf9b48e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/7-before-q4-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/7-before-q4-dump/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/7-before-q4-result.json",
+    "bytes": 257,
+    "sha256": "775206f7453a70b35bf05823e012b52dd2afe90d6f5eaa181b6c904e7baaee53"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/7-before-q4.command.json",
+    "bytes": 8266,
+    "sha256": "65cac9d069894f91682137e75ab9011125476bdab6a3901e3420670f87a0f82d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/7-before-q4.stderr",
+    "bytes": 470542,
+    "sha256": "092a96383621d50ec1a8facb5a12a53680f998217acaff9d607bb81d8aae27e5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/7-before-q4.stdout",
+    "bytes": 4214,
+    "sha256": "c63cea26f954e18c417e08129b251481ada019298baf3d890ca34dce1bf4d1bf"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/7-before-q4.usage.txt",
+    "bytes": 8721,
+    "sha256": "7f6dd5956f919910e70cb5188c59cf8b0298546b00db49c917976cc6aba0e2bc"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/8-before-q1-differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/8-before-q1-dump/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/8-before-q1-result.json",
+    "bytes": 257,
+    "sha256": "b8bc27181294c715829450cb48e81ef81150231e9be03f34065ed068d52bd82e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/8-before-q1.command.json",
+    "bytes": 8267,
+    "sha256": "6bd92fd84bc4bac388a0e782b8fd0f7edd589d96b91f17d6702575b9a37750cb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/8-before-q1.stderr",
+    "bytes": 144562,
+    "sha256": "1eeb46b9b508cf538923b603ff5ca2a76ec39cb0231598d3f0ea2f6b8f1c1eef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/8-before-q1.stdout",
+    "bytes": 4214,
+    "sha256": "57773498839d67d06207f82930789163c1fa9007e5f0435bc122a480c2f94f53"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/8-before-q1.usage.txt",
+    "bytes": 8722,
+    "sha256": "51a48c580d26b38d6be35629bf97b3d9b0664c849de1b58d8b2e488df20d75c9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/protocol.json",
+    "bytes": 16987,
+    "sha256": "cd8619f341bc95da5fc03e4830fd7f031565566c10f42774a951513fa77a61b0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1/results.json",
+    "bytes": 3449,
+    "sha256": "1e69485d134d1806a37119a0532574e3f3dbddb9f478e27e2e0b044177fe47a3"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt1/admission.json",
+    "bytes": 16267,
+    "sha256": "4b7db368e4ee18961a8e5ced209afa597a11612eb12e0219fa81c0bf8a9d68f6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt1/protocol.json",
+    "bytes": 25976,
+    "sha256": "26d294be86b863e272fdb60e50b6cc0a3c32bcaef2c91536de94098f1b4825a9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt1/r1-before-q1-result.json",
+    "bytes": 308,
+    "sha256": "45d24f8be81d0f8d3d80745e9269ba2c7686e869c4a28152cf5e8e120f9b1893"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt1/r1-before-q1.command.json",
+    "bytes": 8406,
+    "sha256": "7c2fab6f5a26a7a94b8b317b86dea3af07f845385223f3cd9e6b9ecd20e447f1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt1/r1-before-q1.stderr",
+    "bytes": 144564,
+    "sha256": "518b6cf17d6c9c19edcca73f96595dd78c8c5c821d622cdcb53236f791306618"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt1/r1-before-q1.stdout",
+    "bytes": 4445,
+    "sha256": "8e50dd9d43bdbf5fcf2e4d0b710fca5a59e863a5e593bf1c18c7d214e6b4a855"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt1/r1-before-q1.usage.txt",
+    "bytes": 8861,
+    "sha256": "48c5ee295c3d58c2c0b836e44fa1dbb990daed13cd95f9a7a8ef8d652bcaf585"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/admission.json",
+    "bytes": 16404,
+    "sha256": "3584dfadbbff6269de7a5f2923d5c1caa68e26aef76aad69656b3f896146c0cc"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/protocol.json",
+    "bytes": 25976,
+    "sha256": "26d294be86b863e272fdb60e50b6cc0a3c32bcaef2c91536de94098f1b4825a9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q1-dump/try-1/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q1-dump/try-2/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q1-dump/try-3/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q1-result.json",
+    "bytes": 309,
+    "sha256": "fd8e20692431931e758c22559d938462ec14a38b8da576e63671eb38cd91a751"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q1.command.json",
+    "bytes": 8530,
+    "sha256": "1fc07c29a1a0d9a21697a663b13b2d45a89216970ce7bd2f2f4279b6848fe268"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q1.differential.json",
+    "bytes": 36,
+    "sha256": "340deb2db34638c5a059fdf0d39fd7b42d717fc34e5405df93260486fa4d8a87"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q1.stderr",
+    "bytes": 439124,
+    "sha256": "abdf5552ed0e33aa1cf2a5d6e5d98b9cc37c374db9c8be8612678d54e0c0b934"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q1.stdout",
+    "bytes": 4267,
+    "sha256": "2eeb6c7026b99003a7a15f8be5338f3635eee87df2615ce7de450621356b485c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q1.usage.txt",
+    "bytes": 8987,
+    "sha256": "5a3cd14ff6e82404bb01f72fcc0982b1da6f317ea180ee0b32ec1238c95f6dbc"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q4-dump/try-1/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q4-dump/try-2/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q4-dump/try-3/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q4-result.json",
+    "bytes": 309,
+    "sha256": "b3758b28c0263dfe66856f650cd545bdbcf9ec0d09b8b3c2cd5fb3a7f79faf99"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q4.command.json",
+    "bytes": 8530,
+    "sha256": "4de942ffe791e271c70e0bb6638792c4dd243cce262094cdd844a73f2f4cb3e9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q4.differential.json",
+    "bytes": 36,
+    "sha256": "340deb2db34638c5a059fdf0d39fd7b42d717fc34e5405df93260486fa4d8a87"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q4.stderr",
+    "bytes": 1429430,
+    "sha256": "ec6df4c787102d5f4e69ae070b8597668636e13490cf3eb8c6753898eeabd743"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q4.stdout",
+    "bytes": 4266,
+    "sha256": "6d3d8d9f2ca24b6db96632189f7c4a3a7be33412503520170fc4fd7ccb61da26"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-after-q4.usage.txt",
+    "bytes": 8986,
+    "sha256": "c7abe4115f1640fcc3dcd6ede38e112e342120868edfb7b29e1e9bfa62a1c22b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q1-dump/try-1/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q1-dump/try-2/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q1-dump/try-3/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q1-result.json",
+    "bytes": 309,
+    "sha256": "4aa4227739d4870cc7acc3f25789f756206af6237d2d2da168532e6bdf348036"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q1.command.json",
+    "bytes": 8406,
+    "sha256": "48ae02fe89fd4884aa550972bd1e1b5c5148fa1e04631e8fd5bf87b95601b98b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q1.differential.json",
+    "bytes": 36,
+    "sha256": "340deb2db34638c5a059fdf0d39fd7b42d717fc34e5405df93260486fa4d8a87"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q1.stderr",
+    "bytes": 439125,
+    "sha256": "61ac94fa67b630b37095f80ff7e3abdb8f4cb4bbdf013b5fc6b3cba6c7a18a4c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q1.stdout",
+    "bytes": 4271,
+    "sha256": "2e33a15258af11ae2cc63704e9eb8d5ea19b8009a506cd0dfd7a60f1052d0dcc"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q1.usage.txt",
+    "bytes": 8862,
+    "sha256": "ee08f7f89096a4af74697dd17bd5dfcc83203d7ae9cd85491576feac8e1a23d8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q4-dump/try-1/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q4-dump/try-2/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q4-dump/try-3/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q4-result.json",
+    "bytes": 309,
+    "sha256": "d2938c0a3b07e066cdcebb687263b3e1316b54c59f88b3397464a99906d733fa"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q4.command.json",
+    "bytes": 8406,
+    "sha256": "d869137a43629db02935e24ce9a1b69baccc8b001d1b1c5572609577d6fd5fdd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q4.differential.json",
+    "bytes": 36,
+    "sha256": "340deb2db34638c5a059fdf0d39fd7b42d717fc34e5405df93260486fa4d8a87"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q4.stderr",
+    "bytes": 1429587,
+    "sha256": "ce8737e490b449b73eefd8ac2844afffc80a8ac742ae35d46c4983c9764e4c83"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q4.stdout",
+    "bytes": 4270,
+    "sha256": "d3d334c4718dbfd68b006543bbacc55a6c69ca20b3d68d09afd20d87c27a48f7"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r1-before-q4.usage.txt",
+    "bytes": 8861,
+    "sha256": "cb8578f42eed36e257584d69c78da591acdfe4ae5059b4cb8e50b98db36090d5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q1-dump/try-1/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q1-dump/try-2/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q1-dump/try-3/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q1-result.json",
+    "bytes": 307,
+    "sha256": "1e02bd5091db2f793077df0c593c17c52abfcef9672a8be0df54547b4da53e8e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q1.command.json",
+    "bytes": 8529,
+    "sha256": "6d639140a9412e00f1c9c2d0fe9dfc9b3af8919f8a2b318b42d99720ecdc1c84"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q1.differential.json",
+    "bytes": 36,
+    "sha256": "340deb2db34638c5a059fdf0d39fd7b42d717fc34e5405df93260486fa4d8a87"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q1.stderr",
+    "bytes": 439121,
+    "sha256": "8d29cd1f378306f6a9b362120cb754e18772643bf8bca5a866435eb0070c4695"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q1.stdout",
+    "bytes": 4266,
+    "sha256": "c4f61c9105db256e8a99f0747f42a20260a7f3219ca383f03df8e69e54816b5a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q1.usage.txt",
+    "bytes": 8987,
+    "sha256": "7f953edc6b2504f9ec112941dae3ab82459f4cc58c7bb9a699b39ec3a8f1043e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q4-dump/try-1/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q4-dump/try-2/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q4-dump/try-3/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q4-result.json",
+    "bytes": 309,
+    "sha256": "4653f8449781b4f9a986f75b69e987dd4fd8f50003ba85a4afedaf5f753230e9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q4.command.json",
+    "bytes": 8531,
+    "sha256": "321cee05df42d040b3289de4f7685abd7a6de428ee4bbe36ac840657acef2c5b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q4.differential.json",
+    "bytes": 36,
+    "sha256": "340deb2db34638c5a059fdf0d39fd7b42d717fc34e5405df93260486fa4d8a87"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q4.stderr",
+    "bytes": 1429281,
+    "sha256": "21ab3badf1cda010b22e3aa226b34b7e4eff31bbf8dac527deff929f3bfb3674"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q4.stdout",
+    "bytes": 4266,
+    "sha256": "8d9705fc88903cf4f29bcd6735d2a88175e412c6e30f13de4a0904dbc5660fcc"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-after-q4.usage.txt",
+    "bytes": 8985,
+    "sha256": "2b52352afc54a3d0280d984171b8662790e7656e7280e4d6e58ef6d73f38db08"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q1-dump/try-1/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q1-dump/try-2/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q1-dump/try-3/q1.jsonl",
+    "bytes": 563,
+    "sha256": "72be24a1cfe3d92729d3bc00f0c5b1089d77b9eb7c9a66bf3e8c67443fe4a94e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q1-result.json",
+    "bytes": 309,
+    "sha256": "806f5fc53c9388dc2f15c2fb4fd80f67bba768c7bd18912bed225916df273d2d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q1.command.json",
+    "bytes": 8406,
+    "sha256": "a26441373d7cfdde26a1a617ae38efcef8e9817f9edda72b2eca89b99db320b8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q1.differential.json",
+    "bytes": 36,
+    "sha256": "340deb2db34638c5a059fdf0d39fd7b42d717fc34e5405df93260486fa4d8a87"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q1.stderr",
+    "bytes": 439129,
+    "sha256": "e323667932d3a16dba0d1b3205e8bc29a71bf346ee177f217107f0a8567df491"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q1.stdout",
+    "bytes": 4272,
+    "sha256": "204de2d0823b59ce907542fef506504ac7313c3b40ab9aad0bf58273d0a6dbe8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q1.usage.txt",
+    "bytes": 8863,
+    "sha256": "80f1cceda326edb5d0bcaec1e14680a6d7953bf271ab99d734692dae2d3fe153"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q4-dump/try-1/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q4-dump/try-2/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q4-dump/try-3/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q4-result.json",
+    "bytes": 309,
+    "sha256": "613ce22676229d70256f458b5c1e8ddfac9c184468ff2a05226548ced544d68d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q4.command.json",
+    "bytes": 8406,
+    "sha256": "25b4f5fc7dd9e3f01bdd3aad4359a245de0a2d844c6bf34290e955e735820b13"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q4.differential.json",
+    "bytes": 36,
+    "sha256": "340deb2db34638c5a059fdf0d39fd7b42d717fc34e5405df93260486fa4d8a87"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q4.stderr",
+    "bytes": 1429579,
+    "sha256": "b462608458816e619daea0e198f8a707c352e32be887bcabe5274916bbfbac08"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q4.stdout",
+    "bytes": 4271,
+    "sha256": "23085e6539256332fd8d93449a004e38612a3683efcd69f52bd7f6e87f16d305"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/r2-before-q4.usage.txt",
+    "bytes": 8861,
+    "sha256": "377949a2b27a016fa6bb0a78784bd6dccb44624977e5747855c9f58d565e2132"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/check-group-repeat-reader-v10-jvm-repeat-attempt2/results.json",
+    "bytes": 3497,
+    "sha256": "f4c036685df179f4cc73b2d658f2d9c65add27d5d9eea92e4947ebf8a1e53718"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/archive-group-repeat-reader-v10-approved-logs-attempt1.log",
+    "bytes": 2485,
+    "sha256": "7ebc1cd624fcb1bd9f5f2b48ccc62aede6736dd23206d5de3664edf5e9dda9f5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/archive-group-repeat-reader-v10-approved-logs-attempt1.scope.json",
+    "bytes": 1095,
+    "sha256": "8d2f7fec57d3355f04a8fc5334fffc70bf7e9d045b033b4d1d4790c7fba6261e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/archive-group-repeat-reader-v10-approved-logs-attempt1.telemetry.jsonl",
+    "bytes": 128139,
+    "sha256": "951f1822a2cf0a396a78d248855888153e563ce297e9d9e62bd6580335c22e6a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/archive-group-repeat-reader-v10-approved-logs-attempt1.verdict.json",
+    "bytes": 12012,
+    "sha256": "2dce2e1a8a9c4cc65dc06ab72ebb563b33600a95b4747189d992928aa384a5d6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/archive-group-repeat-reader-v10-approved-logs-attempt2.log",
+    "bytes": 4264,
+    "sha256": "dda12e0b5b76ca980dbfebe51de80fb533a36523c14e1614ff15fb9ada4863d4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/archive-group-repeat-reader-v10-approved-logs-attempt2.scope.json",
+    "bytes": 1887,
+    "sha256": "802b1cddf969e3141c466c18fe43b0544e2e1f7cf93de200e616878871df996b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/archive-group-repeat-reader-v10-approved-logs-attempt2.telemetry.jsonl",
+    "bytes": 179393,
+    "sha256": "ba9ef6a11ccd556c19107e7b5736a2ac07a2511e75cd99238601a97d52980549"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/archive-group-repeat-reader-v10-approved-logs-attempt2.verdict.json",
+    "bytes": 11897,
+    "sha256": "99e85ff43e2bbea345b6cdc721fa6178c5b4ebbd40bee13239f415458cce6a4f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/archive-group-repeat-reader-v10-approved-logs.py",
+    "bytes": 2174,
+    "sha256": "bb0df388cd6e39562b76225c26147bc0e4e3100c22def8418232ad41836b8396"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-labels-production-v1-attempt1.admission.json",
+    "bytes": 17256,
+    "sha256": "c7d09cf5c31c5f414a00dab6bbc416989e5356ddbaef8320c5b4649034267183"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-labels-production-v1-attempt1.log",
+    "bytes": 727,
+    "sha256": "0cb70da5c7d8b6f6628dc732448b5c650cf68d324c25a717d43665150d9d0cfb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-labels-production-v1-attempt1.scope.json",
+    "bytes": 1872,
+    "sha256": "a18192ad07f72488bf0f69ec3b7e70f2cbdf4269594ac00e6a286c013d05b036"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-labels-production-v1-attempt1.telemetry.jsonl",
+    "bytes": 15379,
+    "sha256": "091112baef13ad27d3a8a2566a5580a045a8638242bf0991af51eda2fb3190d2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-labels-production-v1-attempt1.verdict.json",
+    "bytes": 11878,
+    "sha256": "0230ce38d8274493b87b5e2a587831091660132f03bf559aa5d07f6fba0cf485"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-labels-production-v1.py",
+    "bytes": 4034,
+    "sha256": "1909e5479ce5658a76f22fb8ced96429ec62e05a431ac98ff64cf58d7a7ad65f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-minimal-reader-v10-attempt1.log",
+    "bytes": 302,
+    "sha256": "d7e7b5e572a46573139d40e3a16285575bbb1f7788b44e9bbac52cbb01fef38d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-minimal-reader-v10-attempt1.scope.json",
+    "bytes": 1861,
+    "sha256": "8ae42f3fa5b7627f2c12f648db258b55de6b56974e4c115365da90d827e7459f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-minimal-reader-v10-attempt1.telemetry.jsonl",
+    "bytes": 20502,
+    "sha256": "89cd88dbca23a24ee82fab3cfb0f8d98e641b794c5e5f09e6109c4347276cd29"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-minimal-reader-v10-attempt1.verdict.json",
+    "bytes": 11864,
+    "sha256": "482f2394153cd8503f71db45eb725bca6b7d2f94bfeeddccb2c09b8c9b96b6ec"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-reader-v10-native-pair.py",
+    "bytes": 1772,
+    "sha256": "0de0255ed67598a3b4475d4e1c6e794ef23980267ac3a2044eb7b615d99b9e79"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-reader-v10-repeat-runner-attempt1.log",
+    "bytes": 81,
+    "sha256": "62d897cde7d72b6ffdbec866aeda542fade02b46e8b22d1114fea92f01c3511d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-reader-v10-repeat-runner-attempt1.scope.json",
+    "bytes": 1874,
+    "sha256": "f2e2cedac244d18070c7ba921239598c4eb8746e14a18d481fee45e08f79870e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-reader-v10-repeat-runner-attempt1.telemetry.jsonl",
+    "bytes": 15378,
+    "sha256": "d016414cd42767c1946eeee0d8ba08d6400e294268e31dbe79afc954748879da"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-reader-v10-repeat-runner-attempt1.verdict.json",
+    "bytes": 11882,
+    "sha256": "8bc0c959632bd4effe7b9d6f0f4fba6b0a000901a864a39b471ed0bf6c2442d5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-reader-v10-repeat.py",
+    "bytes": 1514,
+    "sha256": "116107c0a657ee72ff39047f012d8691624d90a527fe740243246c09b3d8f72a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/build-group-repeat-reader-v10.py",
+    "bytes": 2123,
+    "sha256": "122ab0c561ecbfbf363aa1e0478929a143373ca222814deb6fa6cf7159a35b69"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-labels-production-v1-1m-attempt1.admission.json",
+    "bytes": 17261,
+    "sha256": "0637fde5c6b30d8960eb9fd2a3fc788871babbeae7c950276f3fa9d5d1736f5b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-labels-production-v1-1m-attempt1.log",
+    "bytes": 1229,
+    "sha256": "8ab1d5c57e6154a61b0a5054d0a8145f7aaebd82947ecf55cdf3b1ba5074d65c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-labels-production-v1-1m-attempt1.scope.json",
+    "bytes": 1881,
+    "sha256": "a16f9c435100214c2496ac71cb10a00e8275c950dc88d1b7e54a3e309770e9f2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-labels-production-v1-1m-attempt1.telemetry.jsonl",
+    "bytes": 97383,
+    "sha256": "1e3b1635c198b22825ba12af1eea1de1790fe9d4dbbc83c014043610a0a98db4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-labels-production-v1-1m-attempt1.verdict.json",
+    "bytes": 11888,
+    "sha256": "d63af9bea993d8ae007d72cd61806c09a08e8bdc197a1ba73bdf2baff8c99fdd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-labels-production-v1-1m.py",
+    "bytes": 903,
+    "sha256": "161096932e1c1d7d3ece1fadd40a0e2f8a438587cf2c7a8d9047964af9bde78e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-1m-attempt1.log",
+    "bytes": 1228,
+    "sha256": "f4479f6f11e2aa2e782ccab88c17325ef9aa47aabeb57198d3eab5264792f422"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-1m-attempt1.scope.json",
+    "bytes": 1884,
+    "sha256": "ea0239b57ede49c403bcac5fd00450c66f5b5a2ebe2e1ec3fed94a08f533c47e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-1m-attempt1.telemetry.jsonl",
+    "bytes": 97385,
+    "sha256": "6e61f8129024cb8448792df39409b182a352e1304a7e5acb92d6a7832629c85c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-1m-attempt1.verdict.json",
+    "bytes": 11889,
+    "sha256": "44d84c72de8220141d5c2194d56a1da079c8b0d9d3b9d2706854251ffceb0597"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1.log",
+    "bytes": 2645,
+    "sha256": "ba39124c28b283b06a9e66ed6e2ba4aa3833c9514488bcfeeb9b2f0b3e920786"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1.scope.json",
+    "bytes": 1889,
+    "sha256": "06e86dfe4b07b1374ce71647313a12ac4252ff0f5683659e9b2da495d5ec9fb0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1.telemetry.jsonl",
+    "bytes": 984105,
+    "sha256": "eba643d60b48e75005aed7ce20a970da8429a88550231901eb644ba0f00c2d8f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-jvm-100m-attempt1.verdict.json",
+    "bytes": 11892,
+    "sha256": "9e02cf041bcfe4d11e57ad4eb41033ee6145a0f7dd1a0102fd30a3161941e528"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-native-100m-attempt1.log",
+    "bytes": 6383,
+    "sha256": "f5fea3d2fcfac91c2aad52feb0fef5e7e6ffbdb0fdfe9b20675dd4a0c7ab6a63"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-native-100m-attempt1.scope.json",
+    "bytes": 1896,
+    "sha256": "c6523f6072f763b440bf6548e730b49dc5cfed620d4b397c4dd4da7b9ff62c47"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-native-100m-attempt1.telemetry.jsonl",
+    "bytes": 1993827,
+    "sha256": "20f5301017f45fe1cd31aaf97d55327f5286cbc3b123d83699d96c6fc62e311a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-minimal-reader-v10-native-100m-attempt1.verdict.json",
+    "bytes": 11902,
+    "sha256": "bdb4184a3ba73a49654fed0faf1bc904eceebeb1bbb83f30615d508445b408c7"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-class-equivalence-attempt1.log",
+    "bytes": 996,
+    "sha256": "ef3200ba69fc8160ec08fd540f404436c660986d9982a2493d586f4a4c66f264"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-class-equivalence-attempt1.scope.json",
+    "bytes": 1886,
+    "sha256": "4782196e4a1e06577639fc67641c0b3d2c637b31f916e5ec474f210af018a43e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-class-equivalence-attempt1.telemetry.jsonl",
+    "bytes": 10252,
+    "sha256": "94df3a74ab8419a5f016b942f629f226a9b301aa8e5805c3c49cd1fe7d9a5857"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-class-equivalence-attempt1.verdict.json",
+    "bytes": 11901,
+    "sha256": "ef0e451a634e3499c9a1f73ba497f8a763c2b4267a12eb2e01e4f53f636192c1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-class-equivalence.py",
+    "bytes": 2398,
+    "sha256": "5d6c5ae860efbc8f700fe4ca1a320f5d184c72e9823e6dfb0c3217f5df1e845c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-jvm-100m.py",
+    "bytes": 740,
+    "sha256": "a0e130bab3e8479c837e68ce9b9026aa85e962c9d8b882b60a35800f0694f323"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-jvm-repeat-attempt1.log",
+    "bytes": 1027,
+    "sha256": "5c47104986b8b05625b8f0b2899f752a931f172190a9cc41fefbee48e690c4c0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-jvm-repeat-attempt1.scope.json",
+    "bytes": 1881,
+    "sha256": "c7f4a235b5c942dcdb111eeefb8a5af59c28c3c97259a27617280fb79d738220"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-jvm-repeat-attempt1.telemetry.jsonl",
+    "bytes": 107636,
+    "sha256": "fdfae1a25d499436585a4e268c283db827df711d9a66463dc64303f14ead8def"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-jvm-repeat-attempt1.verdict.json",
+    "bytes": 11882,
+    "sha256": "f7d1553b435f5cbaa2177c5a63dcda93010256647da6642e363c9c18cf3fae08"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-jvm-repeat-attempt2.log",
+    "bytes": 2398,
+    "sha256": "abceb374a1b762c8fa4f8fd26fe80b53860ac54fc92cd904ed2e7f8950c9617f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-jvm-repeat-attempt2.py",
+    "bytes": 948,
+    "sha256": "527432de656488ff2010ce0a1f0f6091b07a1eab8d2756d0d6dd7a64f776127b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-jvm-repeat-attempt2.scope.json",
+    "bytes": 1893,
+    "sha256": "45cd72dc1a3def18d4c636ca7a124c74b7e88666f59a015e042e282dd06f259b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-jvm-repeat-attempt2.telemetry.jsonl",
+    "bytes": 1219856,
+    "sha256": "aafffb9c3ba3243d2e16b3ff7914ee73761d7b050c197033b09e94686fe9ebca"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-jvm-repeat-attempt2.verdict.json",
+    "bytes": 11892,
+    "sha256": "6a5eb9ee4d36369d1b2b2dad80d3fe2b79b3292bab053e746b483e8765286c83"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-jvm-repeat.py",
+    "bytes": 5250,
+    "sha256": "5d3f51b56c67fa1f3a47f9c728186e72a1ca2ad69a9025a1a84e897b66d7cee5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/check-group-repeat-reader-v10-native-pair.py",
+    "bytes": 1545,
+    "sha256": "f2d41dba3e57c5997849b0ac57255298d3c47353822e8753cbc492fddff22702"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-labels-production-v1-manifest.json",
+    "bytes": 415200,
+    "sha256": "f20c6ed632cb1fb9a964684ff5831043e3696b872cafc4202a023b6b97053b52"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-minimal-reader-v10-manifest.json",
+    "bytes": 419889,
+    "sha256": "52a5e4da05a903223b189db647e83e36472dc3d7045e71ac5fb3fea008f6d107"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-admission.json",
+    "bytes": 15795,
+    "sha256": "9284c5c9efad4aa5e7d36b0d19cc77dc42e0375b4ddb2214e700e7c65f45a5f5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-approved-log-archives-attempt1-snapshot.json",
+    "bytes": 13480,
+    "sha256": "01865cca89cdf488c2f46c5ee7c3f0b76bd6d952de9705503b069d9f0e89a390"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-approved-log-archives-attempt1-snapshot.jsonl",
+    "bytes": 37258,
+    "sha256": "1664657c144ff9cd84fb977aea83fa32576d83c1500d1321d7b8676d19145f51"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-approved-log-archives-journal.jsonl",
+    "bytes": 79297,
+    "sha256": "6da657ad88d32efdd87263217eef2e65fcf022449c12d4737f183da1f4e7e3cc"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-approved-log-archives-result.json",
+    "bytes": 1023,
+    "sha256": "9fc3419ad4d03af048775d748712589db30617888d0672b906c4998c8c889b0b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-approved-log-archives.json",
+    "bytes": 31968,
+    "sha256": "a79d93d29a2db21c91e12666133b3adf939493b8a8dd34192331655ac50db150"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-archive-reconciliation-attempt2.json",
+    "bytes": 28934,
+    "sha256": "ef0cdf16ce777e05a89321910c7b47b82c607b529f0dae09d2d79bfea1b595a2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-archive-recovery.md",
+    "bytes": 5599,
+    "sha256": "cc80b9d6e67da9afa5609e134f844b91e8ca9d063e54a8f876e802053bcebf40"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-capacity-proposal.json",
+    "bytes": 53161,
+    "sha256": "8e092b9f89304f88f1e3ff01f5e526e949094b8342d0d7a20a185d5bd2eef16f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-class-equivalence.json",
+    "bytes": 996,
+    "sha256": "ef3200ba69fc8160ec08fd540f404436c660986d9982a2493d586f4a4c66f264"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-native-outcome.json",
+    "bytes": 13163,
+    "sha256": "e175f6e8e1c0282091bb5a1c293bf462eabc6c2990826c4222ee1fadf14e7f23"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-native-outcome.md",
+    "bytes": 2854,
+    "sha256": "c89ec8d90427561b431a1fd0b9c0c8da60f6b74c75de7cb1c84704c1576dfc18"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-native-query-admission.json",
+    "bytes": 16646,
+    "sha256": "f9cb8951e0e2e021dd384b68f5ea26e5d4826138c99421a1d53ba4cf8e90a397"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-outcome.md",
+    "bytes": 6828,
+    "sha256": "618c2eae2100cf7ab9c19dd446f53127b0b1a6ed10e7242b595a1353df31d606"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/group-repeat-reader-v10-pending-gate.md",
+    "bytes": 3629,
+    "sha256": "002c51b0d1039474e82efd26ecc3b5332d5f81dcdf16adc3e92c519a6af33fca"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/guard-100m-storage-before-reader-v10-esrch.py",
+    "bytes": 9610,
+    "sha256": "e4faf9a204368ab3a334d6abbea64d65e9c041183792b5dcde6f370febfcba22"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/native-group-repeat-minimal-reader-v10-attempt1.log",
+    "bytes": 69684,
+    "sha256": "fa0946f2442ffd9fbe2a4cb2784d00b705b414f7080598c496afe0ae6a2bd5f3"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/native-group-repeat-minimal-reader-v10-attempt1.scope.json",
+    "bytes": 1900,
+    "sha256": "e1d0f2b64daf81df8bab9dad8e08a75cdb696906487a1a31f70f4ca622a2dde8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/native-group-repeat-minimal-reader-v10-attempt1.telemetry.jsonl",
+    "bytes": 1209624,
+    "sha256": "6f73007dfc9d754493cebe598b881eeac965c5a9732a6244b4e4c3b8d5a9787b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/native-group-repeat-minimal-reader-v10-attempt1.verdict.json",
+    "bytes": 11898,
+    "sha256": "15cfd26ef3348b7a6e6d30b6749daee44751bc687605b57bf3d6a8b2d7141433"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/preflight-group-repeat-reader-v10-capacity-attempt1.log",
+    "bytes": 2340,
+    "sha256": "dd81e1eab0fb177a343cb7df6782d52bcfbe2a5a0c96623f20c60d58ccdf2735"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/preflight-group-repeat-reader-v10-capacity-attempt1.scope.json",
+    "bytes": 1880,
+    "sha256": "0b54e62dc3e2b442ab36eaaa1e6ea9b80dcc744f8b4705a207317106756f260e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/preflight-group-repeat-reader-v10-capacity-attempt1.telemetry.jsonl",
+    "bytes": 30753,
+    "sha256": "6bbae22d0bb73dfdc2ce66f842f9f7c6b21cf896082de20c95fb3e8ee2b83f55"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/preflight-group-repeat-reader-v10-capacity-attempt1.verdict.json",
+    "bytes": 11887,
+    "sha256": "de5c296c5306f1d34e600024dac0d704579e8ee185311bff2961e31475671eb4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/preflight-group-repeat-reader-v10-capacity.py",
+    "bytes": 9426,
+    "sha256": "d55c3a9075b1f3639b0a61aaf2984e9abea995601aef13b685d632324aa9660c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/profile-group-repeat-reader-v10-allocation-attempt1.log",
+    "bytes": 2859,
+    "sha256": "d60a731d00137a362d458f7fc7a98a3f91807d6d4bc2f8da38f03adb600c6a3a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/profile-group-repeat-reader-v10-allocation-attempt1.scope.json",
+    "bytes": 1884,
+    "sha256": "eecbb31e1c8f4bb8831dc88acccfe1639edf52622d4bebbf452938f6fcf9a2ce"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/profile-group-repeat-reader-v10-allocation-attempt1.telemetry.jsonl",
+    "bytes": 169139,
+    "sha256": "f0270fff43ace3224fa19507338179607623c2f5f8f3d35286bc263b2f3f843e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/profile-group-repeat-reader-v10-allocation-attempt1.verdict.json",
+    "bytes": 11888,
+    "sha256": "2bbbddfab6e7f52f9afcf460ac3987447b7470c2d6feee521efdf872f3e43100"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/profile-group-repeat-reader-v10-allocation.py",
+    "bytes": 6927,
+    "sha256": "a257d7094ca60423f6d8e51fad48ec18b1e5fadf5b7c757c3f42e21b139642d7"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/recover-group-repeat-reader-v10-approved-logs.py",
+    "bytes": 7021,
+    "sha256": "6bc320132267f0c894ae055355aed063d8429a663362e8eb714837aeb4809e63"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/restore-campaign-artifact-before-reader-v10.py",
+    "bytes": 6582,
+    "sha256": "7529a12058c5f692cd4317df612760eaa9030b7b914fd808c918ecebbe026188"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/summarize-group-repeat-reader-v10-native-attempt1.admission.json",
+    "bytes": 17129,
+    "sha256": "49075b0a6cb1d66a75c9adf61c91fe2e697bbd03fa3d49b6ba7131d3a2bae061"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/summarize-group-repeat-reader-v10-native-attempt1.log",
+    "bytes": 1587,
+    "sha256": "8fc7cb37e256fbbb952ab76a404a542b5feaf7c458b506b9ec464dfb9270acbf"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/summarize-group-repeat-reader-v10-native-attempt1.scope.json",
+    "bytes": 1870,
+    "sha256": "a9709a0a895277e6455724f0831d947e2606c89b4ec0ffb7437040a3ec283437"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/summarize-group-repeat-reader-v10-native-attempt1.telemetry.jsonl",
+    "bytes": 5127,
+    "sha256": "5bab792cc9216573d8c7966a9d1150f9fb549379eff5419e9ab4d180f6085691"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/summarize-group-repeat-reader-v10-native-attempt1.verdict.json",
+    "bytes": 11881,
+    "sha256": "6e45b815d91ccf6171428fef009fa7fbac1a13a4ce8e9a838d75afc3c1338701"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/summarize-group-repeat-reader-v10-native.py",
+    "bytes": 6068,
+    "sha256": "69c58afbd6dd930e92f9077a031991c445ca9eeeba14e15cd525d8eb5fcd7c24"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-labels-production-v1-attempt1.admission.json",
+    "bytes": 17253,
+    "sha256": "e4ee4e6eae7fc159db7229a0fe5256ae2f7fd723bffb583ceb626b5c88fdd70b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-labels-production-v1-attempt1.log",
+    "bytes": 9088,
+    "sha256": "d93ff01e30b4558821452dd73b2e3d0710a578b7e98aea3b63c9032a2a9826a9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-labels-production-v1-attempt1.scope.json",
+    "bytes": 1868,
+    "sha256": "c511f53d56de84531dd1adfbeec207fee6153b385b182beb891f4e6852d9bd3a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-labels-production-v1-attempt1.telemetry.jsonl",
+    "bytes": 35878,
+    "sha256": "4c574be1a1b610ba6b3d515176f4c62645a8c13a7e9ad8df1adb91ae39bccfbb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-labels-production-v1-attempt1.verdict.json",
+    "bytes": 11914,
+    "sha256": "46c0f88c6227cc502a49c2c0288b6566eda5e08ea2ed47e9193339f493b2e6be"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-labels-production-v1.py",
+    "bytes": 1763,
+    "sha256": "411ca8c01823f365321c7c68f6a878467cc0f2837b25e36c3cd5048ab489a89d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-after-attempt1.log",
+    "bytes": 9381,
+    "sha256": "5063e4866dc0d7d35fd2d30a4554530092e3b111b7f206e929179141ca4c7c38"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-after-attempt1.scope.json",
+    "bytes": 1870,
+    "sha256": "8a9881d730f0181bdc63fbde31eedc23f3fd6773641c5eaae3594663758850d4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-after-attempt1.telemetry.jsonl",
+    "bytes": 41004,
+    "sha256": "36d3aaa71aeb8b903e1d65417ee3bf14756e1cd8ff12998cd15a4e7a580f47d4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-after-attempt1.verdict.json",
+    "bytes": 11909,
+    "sha256": "95d2269ca813c8400eab294ada49e41ffa8199d108293827c2a92ec0c52745f9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-before-attempt1.log",
+    "bytes": 13039,
+    "sha256": "827ff7a0f0b35e1a93bb236fdc8ccdebb27d844d671bfa420973d84f324220e0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-before-attempt1.scope.json",
+    "bytes": 1871,
+    "sha256": "6fd8417afdc5a5169a40996a667f896e3161c1e9b4f5e5b5ec85f9a8bd98c904"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-before-attempt1.telemetry.jsonl",
+    "bytes": 25629,
+    "sha256": "af4b326324c9f290a6b4e4c9754ee187b4ca96c1370f5245fa41943566f1ef28"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-before-attempt1.verdict.json",
+    "bytes": 11872,
+    "sha256": "c7527e11ad8a1b24aa6d47003c6a0edf59b8ce84d757a6b76fe69f41de12eec4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-guard-esrch-after-attempt1.log",
+    "bytes": 1351,
+    "sha256": "f9555e3162a9c0d58cbb3b96ab45c80772872f3168bd94818d55bd62ed84a645"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-guard-esrch-after-attempt1.scope.json",
+    "bytes": 1986,
+    "sha256": "1b90672c7bc11d528f3d932a6567cbbc6b1a673fd8f9e41c717c7a1bdcd5574e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-guard-esrch-after-attempt1.telemetry.jsonl",
+    "bytes": 5127,
+    "sha256": "3816aaefd0ce6096d5d59ca0c3502a6fd1c1ffbe20ef12c60f1e7b84fa7b8d29"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-guard-esrch-after-attempt1.verdict.json",
+    "bytes": 12002,
+    "sha256": "d54ded53438ec23d63f9ab26ce8168d053670dc377255b643e6a4ffef2d94738"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-guard-esrch-before-attempt1.log",
+    "bytes": 3514,
+    "sha256": "9e16534cb46a21a7f371b71ef321b4cb9897ead9e9b38ac5cf7e23fc89c6b68d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-guard-esrch-before-attempt1.scope.json",
+    "bytes": 2012,
+    "sha256": "35f0917be8e573b2a21d730051027fd4054f3890870f6453d9238ec80da495ba"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-guard-esrch-before-attempt1.telemetry.jsonl",
+    "bytes": 5127,
+    "sha256": "14f277ceee2c234ebfaa5a1cbd6b6c65ebbb4652a1ca99c66722617a265b23c5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-guard-esrch-before-attempt1.verdict.json",
+    "bytes": 12025,
+    "sha256": "f393529af1ff8110f8b9b6c2803c205c7d34f2c9f68a9794a403bbff9573278d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10-guard-esrch.py",
+    "bytes": 6415,
+    "sha256": "c5181c58d4cbad383bfdb688e2100855685cff32aa1b3f708b512e8e6c103c88"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/evidence/test-group-repeat-reader-v10.py",
+    "bytes": 1953,
+    "sha256": "8d931d28fcd76f077ace16071a5da391b2f117515b4a11bb8cfc164b51d83073"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-group-repeat-minimal-reader-v10-100m/runtime-manifest.json",
+    "bytes": 40229,
+    "sha256": "89c63331825c690d56e65fbe8fd2b1eef4e858b0c5361ded22085f117226b373"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-group-repeat-minimal-reader-v7-100m/runtime-manifest.json",
+    "bytes": 39700,
+    "sha256": "78a92f535f33b8f3e90c694afaed05f65743c39a144be3de2019a57fdb42dd37"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/admission.json",
+    "bytes": 16128,
+    "sha256": "600b6d09708ce21356b1e92469cab7bfd60e7bf7757aacb4b7c1553124993c8d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/after-conversion.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/after-conversion.stdout",
+    "bytes": 36,
+    "sha256": "c46fb7c7d7430ee8b1002cf555230d0500c9deed4196732bc342950c3c5a33f2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/after-dump/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/after-result.json",
+    "bytes": 256,
+    "sha256": "98b354b181e3883ad66eaf70aabf26913104fb148851c97244cb8c701a9de594"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/after.collapsed.gz",
+    "bytes": 105397,
+    "sha256": "1e5d91e97c20970450962b0285e8d6e1dabd92f9480aed6e90a73bdfdb448203"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/after.command.json",
+    "bytes": 9200,
+    "sha256": "5df9bad6925d3b9b53ca22812c970e09c2f1f61bacecfecddd23129738d96871"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/after.differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/after.jfr",
+    "bytes": 449760,
+    "sha256": "ac58a1f7c357c2c77b11f846123defe60d0580f17ce8df5b95d95c6c53934c00"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/after.stderr",
+    "bytes": 470324,
+    "sha256": "e0807eb2e86eaf6cd9cefb11e62d2857baea50996568bafca1c51cd35c00b5b4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/after.stdout",
+    "bytes": 4218,
+    "sha256": "110f38ee275e494643c99330558405b07e5094b35b8927fa7d43ff2e08ecd5cf"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/after.usage.txt",
+    "bytes": 9137,
+    "sha256": "279407774ffcae3e07faad96981abc3e8e9f1dcaf421a6e68701879bd3f92a75"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/before-conversion.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/before-conversion.stdout",
+    "bytes": 37,
+    "sha256": "84cf5c5b3cd4295751322eb30b31c7aaafd8d02a9f60e6d9c7f9adef21acf990"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/before-dump/q4.jsonl",
+    "bytes": 162,
+    "sha256": "a4f07346964311ab4e4370f38595712708aa05c07a1791d342c0d14d7788f7ef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/before-result.json",
+    "bytes": 257,
+    "sha256": "cbe0324517ded06c788cb46eb4e5bd70651d8ee8abc7dd22ce080081156d7382"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/before.collapsed.gz",
+    "bytes": 124739,
+    "sha256": "7b77c9f2e7b89725645af6e7a10292fecf29e9fc3053241016e5ed264b2b0a0f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/before.command.json",
+    "bytes": 9077,
+    "sha256": "382bfa121dc48940b670180a75808070f0dedc74cb7d65c37131d9e9558f2589"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/before.differential.json",
+    "bytes": 3,
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/before.jfr",
+    "bytes": 504961,
+    "sha256": "db837e94debaa01017826c1b9f8a48548cbbb4d662689759b6ac8e86a1e7af83"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/before.stderr",
+    "bytes": 470470,
+    "sha256": "22b6ffd220e2be1662822425ad45305218920ae5373d507c501f48c65714ba20"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/before.stdout",
+    "bytes": 4223,
+    "sha256": "ffb6cf631d30ae506d3df921a605b54500f3bacf47858b41278abf557a0d7728"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/before.usage.txt",
+    "bytes": 9013,
+    "sha256": "70bfbd0260d40dcee6cdf278ebc48581c0362c4da8d1438bc4be4e02d9eb7873"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/profile-group-repeat-reader-v10-allocation-attempt1/manifest.json",
+    "bytes": 22383,
+    "sha256": "33dbe42834839511bed75cf593ea82cedf9cc4bfba8bcfce91c438490635dc76"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/approved-archive-recovery-runner.py",
+    "bytes": 3350,
+    "sha256": "48e9505378f8ac59b452fbee8fb2d20961c40428816431f2c3560c6118628d1f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/approved-archive-runner.py",
+    "bytes": 10474,
+    "sha256": "bde988732767eaacebe39c08fcf7f5c467dcb6aa1c804e7b28855a4f3f999ff1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/build-runner.py",
+    "bytes": 2292,
+    "sha256": "10900b9f2d8d987e8f296d94b751f078f88cee493ed4691f00521630ffb1c756"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/bundles/sirix-core/src/main/java/io/sirix/index/projection/RowGroupDescriptor.java",
+    "bytes": 27285,
+    "sha256": "ad44d3e5b4afe22931b60ec137e3501d1b011dfce7296adc6c4aa17f34f06efb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/bundles/sirix-core/src/test/java/io/sirix/index/projection/RowGroupDescriptorValidationTest.java",
+    "bytes": 5251,
+    "sha256": "28d8bafabf6889c03d1e943acc7667884d0f4ab8690dfbb93723984d76fc924f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/check-jvm-100m-runner.py",
+    "bytes": 3957,
+    "sha256": "4567cc8c4956df4f3cca49716c0a625e89d96855e72ba3c54f15e7c64f46cd84"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/classes/io/sirix/index/projection/RowGroupDescriptor.class",
+    "bytes": 10725,
+    "sha256": "23e115f9b4d42262fb393f636d63bb54290181063942b84779f9745960700cdd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/diagnostic-main/classes/io/sirix/query/bench/jsonbench/JsonBenchRunMain$Options.class",
+    "bytes": 3138,
+    "sha256": "029a43c616900306c9eb53b3880f9a146a0f6a1de8a5af7f9f0c8d98ea0f57a8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/diagnostic-main/classes/io/sirix/query/bench/jsonbench/JsonBenchRunMain.class",
+    "bytes": 23744,
+    "sha256": "eded5453ba4933352d390ce4b0ad50daeb7e93936019b73cdaaf3c53831a6b70"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/diagnostic-main/io/sirix/query/bench/jsonbench/JsonBenchRunMain.java",
+    "bytes": 25041,
+    "sha256": "ba293164355502aacb876009a88c394baa6c17cfe7959e95d2e17cd1d741e221"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/diagnostic-main/jsonbench-diagnostic-main.jar",
+    "bytes": 14027,
+    "sha256": "4d7bc71833c18544be8d48b49a08491687d3f497b004dbaa2abb49d7326102b6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/diagnostic-main/manifest.json",
+    "bytes": 8444,
+    "sha256": "bd84dc2df2fbde6bf0a04f8d3fb6285f5d39045aea3982b7172a2843e9ed7c88"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/diagnostic-main/repeat-attempt2-parent.sha256",
+    "bytes": 65,
+    "sha256": "08fff2edaa5a4801c40b2fe137238ef4d20a4e435b3ec5088dddd64982bc7acd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/diagnostic-main/repeat-attempt2-runner.py",
+    "bytes": 5339,
+    "sha256": "de26228105dc050239a06bf19776659a8a3d0548643bd3eea56873f7ba6464ba"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/native-build-pair-runner.py",
+    "bytes": 7219,
+    "sha256": "5fbe5a041c6643e1008c83be609978b1c392e3a8bc83486f05452e71b79ae2b6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/native-check-pair-runner.py",
+    "bytes": 6663,
+    "sha256": "4623e119376a996758e9df50f0b8e8e44494d6ceaacaf7383d230a417e70b571"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/parent-build-runner.sha256",
+    "bytes": 65,
+    "sha256": "a05ba6f4f9bcdb9ce9568f24b2f6799f864e729e198c141958ef374174d4283d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/parent-check-jvm-100m-runner.sha256",
+    "bytes": 65,
+    "sha256": "a50950c2556bbb177f3b92d26dbebbde5a4e8080c8613dcd98b1cc0f450ba826"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/sirix-core-override.jar",
+    "bytes": 6439,
+    "sha256": "d069467927c6be80156741b3a6ec875cba7160d7c8d6c3994677670f436cb5cb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/test-after-parent.sha256",
+    "bytes": 65,
+    "sha256": "e9b56a4ea238323add02da5892e4dd494542868d3471e207189fbba74980ff45"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/test-after-runner.py",
+    "bytes": 3908,
+    "sha256": "68da41274c3bb30a6704f00261155400fdd7b631802bbac78bb1d2ae415e75e5"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/test-before-parent.sha256",
+    "bytes": 65,
+    "sha256": "e9b56a4ea238323add02da5892e4dd494542868d3471e207189fbba74980ff45"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/test-before-runner.py",
+    "bytes": 3646,
+    "sha256": "bfcb61b0e18eb5d861c20766276337ba618afcdf3b0572f2a766107c7793ac61"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/tests-after-attempt1/classes/io/sirix/index/projection/ProjectionDirectoryWindowStorageTest.class",
+    "bytes": 8632,
+    "sha256": "8d0dea82fe0f4375f5abc9e980f758f7e9fa906445fdc47e07557c9583d097f3"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/tests-after-attempt1/classes/io/sirix/index/projection/ProjectionIndexColumnSegmentCodecTest.class",
+    "bytes": 60243,
+    "sha256": "73390767f12657f07246f676cab9b0ce967f65e13357c844713cad9240d53ad2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/tests-after-attempt1/classes/io/sirix/index/projection/RowGroupDescriptorValidationTest.class",
+    "bytes": 5145,
+    "sha256": "4d5872655ea19177766727131f3b17f9f39d5e6b6d87a19a97ee448b19d66d98"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/tests-after-attempt1/classes/io/sirix/index/projection/SegmentCellRoundTripTest$CountingEncoder.class",
+    "bytes": 631,
+    "sha256": "64569c182464aae70982752566bd5d14a6e09c1ef5419bcde5ad9383f7d32f0f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/tests-after-attempt1/classes/io/sirix/index/projection/SegmentCellRoundTripTest.class",
+    "bytes": 4696,
+    "sha256": "f34c36e5a8e8176b7b002656b7283bc12116933b65bc6cb2c4935df4cb775115"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/tests-after-attempt1/manifest.json",
+    "bytes": 38432,
+    "sha256": "2ce92a130c5ccc8e015444ad51fcf89f2d716964c9c6950ba7844fe454c2890b"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/tests-after-attempt1/reports/TEST-junit-jupiter.xml",
+    "bytes": 44286,
+    "sha256": "d281331cf75517ee81c9c414542bc00dfd0ff494557b29a79d6ec3c6e95e45b3"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/tests-before-attempt1/classes/io/sirix/index/projection/RowGroupDescriptorValidationTest.class",
+    "bytes": 5145,
+    "sha256": "4d5872655ea19177766727131f3b17f9f39d5e6b6d87a19a97ee448b19d66d98"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/tests-before-attempt1/manifest.json",
+    "bytes": 36120,
+    "sha256": "1a31f6b812122019961b9541ee09cb7a55108dd15f168c9a98697558b443e0c2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-demand-v10/tests-before-attempt1/reports/TEST-junit-jupiter.xml",
+    "bytes": 14854,
+    "sha256": "97a7ee3bcef1cdb83b550799eafdb85ec02c63208209e04730f8ca5029743586"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/build-runner.py",
+    "bytes": 2376,
+    "sha256": "28e02476e7721f5cb9a1a70c04e17a7f14d768379be57bfa4097a3e228bf9bb9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/bundles/sirix-core/src/main/java/io/sirix/index/projection/RowGroupDescriptor.java",
+    "bytes": 27285,
+    "sha256": "ad44d3e5b4afe22931b60ec137e3501d1b011dfce7296adc6c4aa17f34f06efb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/bundles/sirix-core/src/test/java/io/sirix/index/projection/RowGroupDescriptorValidationTest.java",
+    "bytes": 5251,
+    "sha256": "28d8bafabf6889c03d1e943acc7667884d0f4ab8690dfbb93723984d76fc924f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/check-1m-parent.sha256",
+    "bytes": 65,
+    "sha256": "a2faea9da6d20807825eca3e3860402b4e603377e6bc6429f2d6e113c8890013"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/check-1m-runner.py",
+    "bytes": 3302,
+    "sha256": "84bc77d727d7f543eb7066e49596cf9c2c21e8a274fdd1c64a33cfd4637c4e63"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/classes/io/sirix/index/projection/RowGroupDescriptor.class",
+    "bytes": 10725,
+    "sha256": "23e115f9b4d42262fb393f636d63bb54290181063942b84779f9745960700cdd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/production-provenance.json",
+    "bytes": 437,
+    "sha256": "976093777b8dde3ff3954d4bf62eca21bebcfa5c7cdfe0832a3b4ac7d1841794"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/sirix-core-override.jar",
+    "bytes": 6439,
+    "sha256": "b217d1c9692b98aadf09fe6a4be2559693f84f2da4f2ed4f569208071948c4d8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/test-parent.sha256",
+    "bytes": 65,
+    "sha256": "e9b56a4ea238323add02da5892e4dd494542868d3471e207189fbba74980ff45"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/test-runner.py",
+    "bytes": 3944,
+    "sha256": "a2b982f895f845b93c647186c8d66118afefd3045ff263ee8637766f141f6cf2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/tests-attempt1/classes/io/sirix/index/projection/ProjectionIndexColumnSegmentCodecTest.class",
+    "bytes": 60243,
+    "sha256": "73390767f12657f07246f676cab9b0ce967f65e13357c844713cad9240d53ad2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/tests-attempt1/classes/io/sirix/index/projection/RowGroupDescriptorValidationTest.class",
+    "bytes": 5145,
+    "sha256": "4d5872655ea19177766727131f3b17f9f39d5e6b6d87a19a97ee448b19d66d98"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/tests-attempt1/classes/io/sirix/index/projection/SegmentCellRoundTripTest$CountingEncoder.class",
+    "bytes": 631,
+    "sha256": "64569c182464aae70982752566bd5d14a6e09c1ef5419bcde5ad9383f7d32f0f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/tests-attempt1/classes/io/sirix/index/projection/SegmentCellRoundTripTest.class",
+    "bytes": 4696,
+    "sha256": "f34c36e5a8e8176b7b002656b7283bc12116933b65bc6cb2c4935df4cb775115"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/tests-attempt1/manifest.json",
+    "bytes": 34915,
+    "sha256": "05a6ef6724bf79c06f71321bb836f0389b6e89a43bb4d5fae377a46c4828e5be"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-labels-production-v1/tests-attempt1/reports/TEST-junit-jupiter.xml",
+    "bytes": 42400,
+    "sha256": "244c38882da0c48e139aad7d35f6498af14078ec6d51d041809b2a34db2c8f6d"
+  }
+]
