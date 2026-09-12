@@ -1,0 +1,377 @@
+[
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q1.iprof",
+    "bytes": 14853796,
+    "sha256": "4b3ae885e4c83e338b2ba1aa101f4b9aecd900d57681864dabe5a7c17ae22542"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q2.iprof",
+    "bytes": 14985680,
+    "sha256": "24aaf2813b7b79559c084736e7e0718d360efbdf5e5e30242b7f88b5b80fbe85"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q3.iprof",
+    "bytes": 15010421,
+    "sha256": "bf602e3805d932e146dbce068fa43638b3d821e44d474e3de3fe839bd3bf3da6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q4.iprof",
+    "bytes": 14995055,
+    "sha256": "4f1dfaead1faff783651acf4db4c2f60f0624e8102381e7e92b7b8cc6c0cfda2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q5.iprof",
+    "bytes": 15002196,
+    "sha256": "7aa1fdaaa03630ef824a5cf428519a099996395600d30897dbe7a7ce3ac03ea4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q1.iprof",
+    "bytes": 14839562,
+    "sha256": "10e6405fc454f391c96565d13b22b00215c07f9dd19fabb1d66a5b29f19348f9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q2.iprof",
+    "bytes": 14960152,
+    "sha256": "52bfd9468e63b84921bb7654b3e1bdc20c0b7a9a2b03ad1eed5399764e1da269"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q3.iprof",
+    "bytes": 14991594,
+    "sha256": "a450aef1431efae92af81c1a751feb1f8eb004fc1c81af3d7a61a0dd8d7778cd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q4.iprof",
+    "bytes": 14978984,
+    "sha256": "9407d573e42ae3ee4b8a5672d610240244b613223aeefcccd13edee4e687e25c"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q5.iprof",
+    "bytes": 14979544,
+    "sha256": "9cb244ee3ecbb12ec56f000c8b474a29600d8eed100f2052c3bb00fe8b0c4af8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-after-a1.iprof",
+    "bytes": 14860775,
+    "sha256": "37481d7373c5dd6414ee0e7ff940c4501b44d83af2d3f171f149a321ebed5cfb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-after-a2.iprof",
+    "bytes": 14862351,
+    "sha256": "8d3133f51b63f28a6a9dc30665c1f511d6634b7de6d0ceb0188633048fd26d0a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-after-a3.iprof",
+    "bytes": 14862894,
+    "sha256": "412d986eff7d253def51722b78da4383cc8cc52195715fc57fa780527ff9f91e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-before-a1.iprof",
+    "bytes": 14840375,
+    "sha256": "82ec54a4b5a771f7e1204d0b86e927851b433f938b29d1f2ef57d13200714bce"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-before-a2.iprof",
+    "bytes": 14842473,
+    "sha256": "ee0f933b985a85adc2b54af0a151a0820a00be3c1a6af0223772af2be46353ab"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-before-a3.iprof",
+    "bytes": 14843070,
+    "sha256": "5b1447fa687dfa8949f0fbd4b17e699f6ea0869e960504391b3692bef699075d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-after-a1.iprof",
+    "bytes": 14987011,
+    "sha256": "7ca619315c007cc98287360836a3369405122bfcfd1093307232dc95c3ea82f0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-after-a2.iprof",
+    "bytes": 14996492,
+    "sha256": "ab9fa6614e7a30ff67df4ea36d708c78f87a4e1cf1622decfd3b613d45585574"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-after-a3.iprof",
+    "bytes": 14989536,
+    "sha256": "927c39d123fdace759aed0aa9af11c97c7a2c4674feb444abcb392fb995fb9ee"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-before-a1.iprof",
+    "bytes": 14974571,
+    "sha256": "580336d6867e71bc078ecea3c614f5779a365543ee26b5adcf8ec8f4f2aee06f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-before-a2.iprof",
+    "bytes": 14967612,
+    "sha256": "6a5b1f721253e4306f0dcb5ae33a75c8dc40e33f513adc7b009ea4378adc7456"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-before-a3.iprof",
+    "bytes": 14967048,
+    "sha256": "d8e1dbf343233e8e4e34c1f10bd06dc0c7d372eea446c3cdfa6bc22e04bec8f6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-after-a1.iprof",
+    "bytes": 15012306,
+    "sha256": "1c64a858bec44828eea9c6ae5f91c7895a8e3c7e2b7d5cf4fce67d32bf45447a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-after-a2.iprof",
+    "bytes": 15013650,
+    "sha256": "838bfbb88d1d1cd0b5e95145086c3c3f56949128e12f275b4f9c943ffb54c403"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-after-a3.iprof",
+    "bytes": 15017615,
+    "sha256": "ff18ce85405f5175a1f51d48bc470c07f9a7c1a09385440f1f52a06e60892bc0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-before-a1.iprof",
+    "bytes": 14990222,
+    "sha256": "4fe65d17191fcdc73ef5fb57d1b8a940e4867e9a69e0ec67542f48abd8096bb9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-before-a2.iprof",
+    "bytes": 14991716,
+    "sha256": "00eec13f58ded259d123233d747cdd576283bf3ea392e2f91fe74bc19ef621ac"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-before-a3.iprof",
+    "bytes": 14991340,
+    "sha256": "0230ab1708ddafe69950ca34b84d717b061d9d97cf7c2ab41a3977e7f0ee9e7a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-after-a1.iprof",
+    "bytes": 15001960,
+    "sha256": "b34e009b223fb862caa7c7a2b42128010954b0a16d40e26834f889f611b35f27"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-after-a2.iprof",
+    "bytes": 15001890,
+    "sha256": "abf8cd2c9ed4b6a7496348f094ac2c801a6cab86797bac25570ae09be933cfcd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-after-a3.iprof",
+    "bytes": 14994474,
+    "sha256": "1d571d086ae071cbac67ef777702c5d0493fedd3a5127c3d0f2afd4fa31263f9"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-before-a1.iprof",
+    "bytes": 14982908,
+    "sha256": "8a3cad43926d6d6fa813f6779145fd3b85ea5e19e21b280090a3bfaadfeb4bc8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-before-a2.iprof",
+    "bytes": 14990385,
+    "sha256": "c17847ae919a0e32345c5559f8c0c220b5eac5f33ab191c90cd658c1f0fdfe93"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-before-a3.iprof",
+    "bytes": 14982428,
+    "sha256": "684ecec95883d2624e0c10a3b9b9a76437a62443d0ce2e6bc957863dbb8cec1d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-after-a1.iprof",
+    "bytes": 15018187,
+    "sha256": "e23d9fb4a011d18249a9e024554389bc6490deabfc92a8d95bdbaf03368e9eb0"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-after-a2.iprof",
+    "bytes": 15017800,
+    "sha256": "11a938cae7e2fc699f84abfe9fe4b8ce10c4e8b8e0c8ac458131795f92b2ae2d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-after-a3.iprof",
+    "bytes": 15009300,
+    "sha256": "aff9f1c7fc82ad18e99641aa888a0a4ca2dd0b458a72d7b2cd9c36f27ff272ff"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-before-a1.iprof",
+    "bytes": 14988912,
+    "sha256": "f03beee22ccce44f3f45bdad3aad853767ffa38a685630a7a20c0ceb4a2d2fef"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-before-a2.iprof",
+    "bytes": 14989835,
+    "sha256": "da8965ce859a104f54be3ae5a13949df8d88a7de5ac37e3b0828e0c186d099e6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-before-a3.iprof",
+    "bytes": 14991563,
+    "sha256": "7bbacd2a3fd12a6866867b16ddb4d0774ea4a181c0f7da37d0513256a81e57dd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-after-a1.iprof",
+    "bytes": 14866441,
+    "sha256": "b6333eb6c3dfa0645c10e56e11d805e3a4766648295c3f616a7d7aa331ccc84e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-after-a2.iprof",
+    "bytes": 14864051,
+    "sha256": "af910af780a520ffe337d483c69c1539de0ba4554c7fbde1fb262f32f54735c3"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-after-a3.iprof",
+    "bytes": 14861659,
+    "sha256": "1447923cbaf288f67c412cb522ca480aab3228dd17b25442051ca1e5b34cc7f4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-before-a1.iprof",
+    "bytes": 14839537,
+    "sha256": "34b1561c7bc132537278a77021653730c61bec49b5d52d547745066f8d6919c4"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-before-a2.iprof",
+    "bytes": 14839902,
+    "sha256": "3d2a2f4260ad661240e4c505aecd9fa90cd158f19c7a4e7050e472628d781766"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-before-a3.iprof",
+    "bytes": 14841561,
+    "sha256": "e855b07afb4e877c0dae6e337a4dba2e521a356bdda38251b94adbc17762192f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-after-a1.iprof",
+    "bytes": 14993070,
+    "sha256": "b151aabe63c90e4c6682d8dcb151591c3b6f7af1bf63366666ce686592d928f8"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-after-a2.iprof",
+    "bytes": 14991964,
+    "sha256": "159a3c8403cd61c6cf4e2dd01159e98ea39f865c187e0455ea68503aa272c172"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-after-a3.iprof",
+    "bytes": 14995148,
+    "sha256": "4511b12605ed3589003fdb23512489a9c387f0858bee48191db1a4c771316823"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-before-a1.iprof",
+    "bytes": 14970807,
+    "sha256": "db127725841a37f31431ecf961cdaec4901495dfcdf614b0fd1dc5e597f65b2a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-before-a2.iprof",
+    "bytes": 14971173,
+    "sha256": "3b21923c81dd4a82bb99e65a25aeb36619aaa63a170ec34ce8cfd5fe90aa82a1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-before-a3.iprof",
+    "bytes": 14969450,
+    "sha256": "8a3f63911f6c94f06df75400a2ccae8c2e9badd809ffd62442b99aff77f1cb4a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-after-a1.iprof",
+    "bytes": 15012764,
+    "sha256": "bece5ba7c93d12ca0689ec67dbf3126bddbee3a65063f72108303a58036c5a0a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-after-a2.iprof",
+    "bytes": 15015767,
+    "sha256": "3e8ca2d6d32d0fab89e8275e98b85a2bac96f4df6d1b8c6477cb5107285e13af"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-after-a3.iprof",
+    "bytes": 15012379,
+    "sha256": "c57aa5e76439966791b92fd2d6d7164a374bb7476f42a118c5bb0986445a83a1"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-before-a1.iprof",
+    "bytes": 14992180,
+    "sha256": "f29806f0673e0c94038f7b5c1a681229861163ca83e7fff04f0fefadb7685923"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-before-a2.iprof",
+    "bytes": 14993930,
+    "sha256": "65fdebb706aa6e3eccb2a3058932afc19c87d0df049e6812d5ebe5bbb40dfff6"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-before-a3.iprof",
+    "bytes": 14988221,
+    "sha256": "2646a3451b5bf58cf888672c271595288a53a4d4d998b01e7e073fd29ed9a302"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-after-a1.iprof",
+    "bytes": 15000576,
+    "sha256": "8c8756f56cb1523c1a16f2bc76715f7b688f56fd67288bde751cbc7f1385e636"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-after-a2.iprof",
+    "bytes": 14997061,
+    "sha256": "ee789fdd505900ba64276c19dfdb4d018c0f3008dc464028c8dbfce439f21bc2"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-after-a3.iprof",
+    "bytes": 14999318,
+    "sha256": "3828051c5c041c65729502870b2542efc99396895d322703f137c0ad592a25fd"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-before-a1.iprof",
+    "bytes": 14973385,
+    "sha256": "3820e53e04558ef03a91af19cb64dc25f8647af0ef17d468e2abfb3c7feb89ac"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-before-a2.iprof",
+    "bytes": 14979221,
+    "sha256": "ea1723809ac70b645b5b4e429c5abc43a8865ddde15f66a0952c82209f6a4e0a"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-before-a3.iprof",
+    "bytes": 14977084,
+    "sha256": "cc42ea2f62545246872be2a298e5ffde979dbad673410ce207dabf4e0211b942"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-after-a1.iprof",
+    "bytes": 15008201,
+    "sha256": "a0a59a45f9bf7f92e8dc96af13c4054b2ea3a1e13d8a1ab3a25b8721ba683e6d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-after-a2.iprof",
+    "bytes": 15014145,
+    "sha256": "cee25334b4baf1da9cbc6031e9585d765c8389a970fdfffe5d2b5b0f62711481"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-after-a3.iprof",
+    "bytes": 15015286,
+    "sha256": "63e566cb2b7141363db315a5f751f8016cae85707bb77c768b2f5867e2b1063e"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-before-a1.iprof",
+    "bytes": 14992461,
+    "sha256": "e79781889fdab279fb695e3033813602d288fcea57499c590852ac435c540617"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-before-a2.iprof",
+    "bytes": 14992230,
+    "sha256": "870ce81193adf5eabd0fd854a3aa0074f1ec88ba758f245ca9d2aa90187f4e75"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-before-a3.iprof",
+    "bytes": 14992260,
+    "sha256": "575d337b0aa76bbe5e4b45a7721f6ae734fce1c1aaff7e6c4bc05ec38cdcacaf"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-group-repeat-100m/jb",
+    "bytes": 57608672,
+    "sha256": "d30dc2cf56dd0caebc7c11a11e8929be2944042f5e9675365d654431b23f9afb"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-group-repeat-100m/jb-instr",
+    "bytes": 195561952,
+    "sha256": "f5b46509eb06fd5023d8130efba3c1979adc1fed19b460e5c5dea24150c3614f"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-group-repeat-100m/jsonbench-100m.iprof",
+    "bytes": 16368182,
+    "sha256": "bc4ab1d4725fc0b894c90cca064c4ed74125177d5ac39da793aa667cdc900f12"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-v1-base.tar.gz",
+    "bytes": 108193035,
+    "sha256": "d25cfcdc76af132f09ef8b230cf8b31f42ea781322d899977927ee3ae8e21b1d"
+  },
+  {
+    "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-group-repeat-v1.tar.gz",
+    "bytes": 107727767,
+    "sha256": "1aee21faaf4841c33ebef7660535dd7d18c303ce1c778c6aa59ee1f873931703"
+  }
+]
