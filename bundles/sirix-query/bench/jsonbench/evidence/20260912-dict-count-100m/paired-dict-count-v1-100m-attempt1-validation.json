@@ -1,0 +1,85 @@
+{
+  "rows": 99999968,
+  "exact_queries": 5,
+  "attempts": 60,
+  "sirix_route_checks": 30,
+  "verified_cold_blocks": 20,
+  "binary_sha256": "65bc39903b22b4f7126a4db454b6f675e005e4538ad4a33bdfd7f937f1a38d7b",
+  "source_manifest_sha256": "d7df8ad60b5be87ebbb16d6fb200dff4047a2276af3f06afc53afa705178dc97",
+  "profile_sha256": "3bc00ccf066e1c2024df6e1298ac0ecaa3340e441b473f024caed93f4cfe500f",
+  "guard_failures": [],
+  "guard_samples": 499,
+  "max_C": 71.0,
+  "max_sample_gap_s": 0.7488777800172102,
+  "rounds": [
+    {
+      "round": 1,
+      "metrics": {
+        "cold": {
+          "geometric_ratio": 10.323226715983404,
+          "query_ratios": [
+            33.18811881188119,
+            2.0989247311827954,
+            7.028662420382165,
+            15.950166112956811,
+            15.012738853503183
+          ],
+          "sirix_sum_s": 21.135,
+          "clickhouse_sum_s": 3.154
+        },
+        "hot": {
+          "geometric_ratio": 9.695843699765692,
+          "query_ratios": [
+            28.134615384615383,
+            2.000585480093677,
+            6.780096308186196,
+            14.493288590604028,
+            15.492700729927007
+          ],
+          "sirix_sum_s": 19.081,
+          "clickhouse_sum_s": 2.957
+        }
+      }
+    },
+    {
+      "round": 2,
+      "metrics": {
+        "cold": {
+          "geometric_ratio": 10.563619801395792,
+          "query_ratios": [
+            28.2280701754386,
+            2.238457042665108,
+            8.559852670349906,
+            15.682119205298013,
+            15.508250825082508
+          ],
+          "sirix_sum_s": 21.081,
+          "clickhouse_sum_s": 2.923
+        },
+        "hot": {
+          "geometric_ratio": 9.977471817449691,
+          "query_ratios": [
+            27.82178217821782,
+            2.084323712507074,
+            6.976702508960573,
+            15.453900709219855,
+            15.814814814814811
+          ],
+          "sirix_sum_s": 18.964,
+          "clickhouse_sum_s": 2.928
+        }
+      }
+    }
+  ],
+  "historical_unpaired_context_only": [
+    {
+      "cold": 1.0218618549224059,
+      "hot": 1.0432532644760342
+    },
+    {
+      "cold": 1.0879927766614699,
+      "hot": 1.0810489870893645
+    }
+  ],
+  "rank_one": false
+}

@@ -201,6 +201,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private boolean maintenanceFailed;
   /** Record nodeKeys touched by this transaction; lazily allocated. */
   private @Nullable LongOpenHashSet dirtyRecordKeys;
+  /** Last sorted key per touched record in this open transaction; null means filtered out. */
+  private @Nullable Long2ObjectOpenHashMap<byte[]> sortedKeyByRecord;
   private @Nullable Long2ObjectOpenHashMap<long[]> dirtyColumnWordsByRecord;
   /**
    * First authoritative root event plus structural membership provenance, keyed by record identity.
@@ -1713,6 +1715,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return;
     }
     applyPendingMaintenance();
+    sortedKeyByRecord = null;
   }
 
   /**
@@ -2389,6 +2392,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       locality.descriptorsRead = persistedLookup.descriptorsRead();
       locality.keySegmentsRead = persistedLookup.keySegmentsRead();
 
+      maintainSortedView(storage, dirty, locationByRecord);
+
       final int newRowGroupCount = fences.liveRowGroupCount();
       if (changedLeafSlots.isEmpty()) {
         recordMaintenanceTelemetry(dirty.size(), rowGroupsRead, 0, 0, fences, setValueRowCounts,
@@ -2411,6 +2416,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final ProjectionBloomChunks.RewriteStats bloomStats =
           ProjectionBloomChunks.rewriteTouchedChunks(storage, persistedKinds, newRowGroupCount,
               fences.physicalRowGroupCount(), changedColumnsByLeaf, newRowGroupCount != priorRowGroupCount);
+      ProjectionFlagSummaryChunks.rewriteTouched(storage, fences, changedLeafSlots, persistedKinds.length,
+          priorRowGroupCount, meta.buildRevision(), rtx.getRevisionNumber());
       // Slot 0 is the authoritative visibility marker. Publish it only after every row group,
       // locator, dictionary, summary, fence and Bloom unit it describes has been written. A failure
       // anywhere above therefore leaves the previous metadata in force and the transaction
@@ -2426,6 +2433,77 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       LAST_MAINTENANCE_LOCALITY = locality.snapshot();
       if (!rtx.moveTo(savedNodeKey)) {
         ((NodeCursor) rtx).moveToDocumentRoot();
+      }
+    }
+  }
+
+  /** Apply exact key changes after the base rows are patched and before metadata is published. */
+  private void maintainSortedView(final ProjectionIndexHOTStorage storage, final LongOpenHashSet dirty,
+      final Long2LongOpenHashMap locationByRecord) {
+    if (indexDef.getProjectionSortedSpec() == null) {
+      return;
+    }
+    Long2ObjectOpenHashMap<byte[]> keys = sortedKeyByRecord;
+    if (keys == null) {
+      keys = new Long2ObjectOpenHashMap<>(Math.max(16, dirty.size()));
+      sortedKeyByRecord = keys;
+    }
+    boolean needsPrior = false;
+    for (final LongIterator iterator = dirty.iterator(); iterator.hasNext();) {
+      final long recordKey = iterator.nextLong();
+      if (!keys.containsKey(recordKey)
+          && locationByRecord.get(recordKey) != ProjectionPersistedRecordLookup.ABSENT) {
+        needsPrior = true;
+        break;
+      }
+    }
+    final int priorRevision = maintenanceTrx.getRevisionNumber() - 1;
+    if (needsPrior && priorRevision < 1) {
+      throw new IllegalStateException("sorted projection has persisted rows without a prior document revision");
+    }
+    final var session = maintenanceTrx.getResourceSession();
+    try (NodeReadOnlyTrx priorReader = needsPrior ? session.beginNodeReadOnlyTrx(priorRevision) : null;
+        PathSummaryReader priorPaths = needsPrior ? session.openPathSummary(priorRevision) : null) {
+      final ProjectionIndexRowExtractor priorExtractor = needsPrior
+          ? new ProjectionIndexRowExtractor(indexDef, priorPaths)
+          : null;
+      final ProjectionSortedRowEncoder priorEncoder = needsPrior
+          ? new ProjectionSortedRowEncoder(indexDef, priorExtractor)
+          : null;
+      final ProjectionIndexRowExtractor currentExtractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
+      final ProjectionSortedRowEncoder currentEncoder = new ProjectionSortedRowEncoder(indexDef, currentExtractor);
+      final ProjectionSortedDirectory.Editor editor = new ProjectionSortedDirectory.Editor(storage);
+      for (final LongIterator iterator = dirty.iterator(); iterator.hasNext();) {
+        final long recordKey = iterator.nextLong();
+        final byte[] priorKey;
+        if (keys.containsKey(recordKey)) {
+          priorKey = keys.get(recordKey);
+        } else if (locationByRecord.get(recordKey) != ProjectionPersistedRecordLookup.ABSENT) {
+          if (!extractInto(priorExtractor, priorReader, recordKey)) {
+            throw new IllegalStateException("prior sorted projection record " + recordKey + " is missing");
+          }
+          priorKey = priorEncoder.writeKeyIfMatching(recordKey) ? priorEncoder.copyKey() : null;
+        } else {
+          priorKey = null;
+        }
+        final byte[] currentKey;
+        if (isCurrentRecordRoot(recordKey)) {
+          if (!extractInto(currentExtractor, maintenanceTrx, recordKey)) {
+            throw new IllegalStateException("current sorted projection record " + recordKey + " is missing");
+          }
+          currentKey = currentEncoder.writeKeyIfMatching(recordKey) ? currentEncoder.copyKey() : null;
+        } else {
+          currentKey = null;
+        }
+        if (!Arrays.equals(priorKey, currentKey)) {
+          if (priorKey != null) {
+            editor.remove(priorKey);
+          }
+          if (currentKey != null) {
+            editor.insert(currentKey, new byte[0]);
+          }
+        }
+        keys.put(recordKey, currentKey);
       }
     }
   }
@@ -2901,11 +2979,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       locality.descriptorsWritten++;
       for (int encodedIndex = 0; encodedIndex < encodedColumnCount; encodedIndex++) {
         final int column = encodedColumns[encodedIndex].column();
-        if (persistedKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+        if ((persistedKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+            && persistedKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT)
             || !columnSelected(actuallyChanged, column)) {
           continue;
         }
-        adjustSetValueRowCounts(setValueRowCounts, column, priorSlices[column], -1L);
+        adjustSetValueRowCounts(setValueRowCounts, column, persistedKinds[column], priorSlices[column], -1L);
         adjustSetValueRowCounts(setValueRowCounts, column, rebuiltColumns[column], 1L);
       }
       changedLeafSlots.add(slot);
@@ -3061,6 +3140,16 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   private static void adjustSetValueRowCounts(final ProjectionSetSummaryChunks.Accessor totals,
       final ProjectionIndexRowGroupPage leaf, final long sign, final long[] changedColumnWords) {
+    for (int column = 0; column < leaf.getColumnCount(); column++) {
+      if (columnSelected(changedColumnWords, column) && totals.hasCapability(column)
+          && leaf.columnKind(column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          && leaf.columnUnrepresentable(column)) {
+        if (sign < 0) {
+          throw new IllegalStateException("scalar summary covers an unrepresentable old leaf at column " + column);
+        }
+        totals.disable(column);
+      }
+    }
     final Map<Integer, Map<String, Long>> leafCounts = new LinkedHashMap<>();
     ProjectionIndexBuilder.accumulateSetValueRowCounts(leaf, leafCounts);
     for (final Map.Entry<Integer, Map<String, Long>> column : leafCounts.entrySet()) {
@@ -3071,20 +3160,50 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   private static void adjustSetValueRowCounts(final ProjectionSetSummaryChunks.Accessor totals,
-      final int persistedColumn, final ProjectionColumnStore.ColumnSlice prior, final long sign) {
+      final int persistedColumn, final byte kind, final ProjectionColumnStore.ColumnSlice prior, final long sign) {
+    if (!totals.hasCapability(persistedColumn)) {
+      return;
+    }
     final int[] countsByRow = prior.setCounts();
     final int[] ids = prior.stringDictIds();
     final byte[] dictionary = prior.dictBytes();
     final int[] offsets = prior.dictOffsets();
-    if (countsByRow == null || ids == null || dictionary == null || offsets == null) {
-      throw new IllegalStateException("decoded string-set column is incomplete");
+    if (ids == null || dictionary == null || offsets == null) {
+      throw new IllegalStateException("decoded string column is incomplete");
     }
-    final long[] counts =
-        ProjectionIndexColumnSegmentCodec.valueRowCounts(prior.dictSize(), countsByRow, ids, prior.rowCount());
+    if ((kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) != (countsByRow != null)) {
+      throw new IllegalStateException("decoded string column kind and set-count lane disagree");
+    }
+    final long[] counts;
+    long missingRows = 0L;
+    if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      counts = ProjectionIndexColumnSegmentCodec.valueRowCounts(prior.dictSize(), countsByRow, ids, prior.rowCount());
+    } else {
+      if ((prior.flags() & ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE) != 0) {
+        if (sign < 0) {
+          throw new IllegalStateException("scalar summary covers an unrepresentable old slice at column "
+              + persistedColumn);
+        }
+        totals.disable(persistedColumn);
+        return;
+      }
+      counts = new long[prior.dictSize()];
+      final long[] presence = prior.presenceWords();
+      for (int row = 0; row < prior.rowCount(); row++) {
+        if ((presence[row >>> 6] & (1L << (row & 63))) == 0L) {
+          missingRows++;
+        } else {
+          counts[ids[row]]++;
+        }
+      }
+    }
     if (counts == null) {
       return;
     }
     final Map<String, Long> values = new LinkedHashMap<>();
+    if (missingRows > 0) {
+      values.put(null, missingRows);
+    }
     for (int id = 0; id < counts.length; id++) {
       if (counts[id] > 0) {
         values.put(new String(dictionary, offsets[id], offsets[id + 1] - offsets[id], StandardCharsets.UTF_8),
@@ -3096,6 +3215,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   private static void adjustSetValueRowCounts(final ProjectionSetSummaryChunks.Accessor totals,
       final int persistedColumn, final ProjectionIndexRowGroupPage rebuiltColumn, final long sign) {
+    if (!totals.hasCapability(persistedColumn)) {
+      return;
+    }
+    if (rebuiltColumn.columnKind(0) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+        && rebuiltColumn.columnUnrepresentable(0)) {
+      if (sign < 0) {
+        throw new IllegalStateException("scalar summary covers an unrepresentable old column " + persistedColumn);
+      }
+      totals.disable(persistedColumn);
+      return;
+    }
     final Map<Integer, Map<String, Long>> counts = new LinkedHashMap<>();
     ProjectionIndexBuilder.accumulateSetValueRowCounts(rebuiltColumn, counts);
     final Map<String, Long> values = counts.get(0);

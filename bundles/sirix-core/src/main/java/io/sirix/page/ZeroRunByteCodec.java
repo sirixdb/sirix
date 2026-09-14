@@ -67,6 +67,9 @@ public final class ZeroRunByteCodec {
   /** Start-of-frame marker. */
   public static final byte FRAME_MARKER = (byte) 0xFF;
 
+  private static final int ZERO_FILL_BYTES = 4096;
+  private static final MemorySegment ZERO_FILL = MemorySegment.ofArray(new byte[ZERO_FILL_BYTES]);
+
   /**
    * Bytes of framing overhead: 1 byte marker + 1..5 byte varint(uncompressedSize).
    * Use this + literal-header overhead as the caller's output buffer size.
@@ -178,9 +181,9 @@ public final class ZeroRunByteCodec {
     if (inPos >= inEnd || input[inPos++] != FRAME_MARKER) {
       throw new IllegalStateException("ZeroRunByteCodec: missing frame marker");
     }
-    final long[] vr = readVarintPacked(input, inPos);
-    inPos = (int) vr[1];
-    final int uncompressed = (int) vr[0];
+    final long vr = readVarintPacked(input, inPos);
+    inPos = (int) (vr >>> Integer.SIZE);
+    final int uncompressed = (int) vr;
 
     long outPos = outputOff;
     final long outEnd = outputOff + uncompressed;
@@ -208,10 +211,10 @@ public final class ZeroRunByteCodec {
         outPos += zeroLen;
       } else {
         // Long zero run: varint(zeros).
-        final long[] vr2 = readVarintPacked(input, inPos);
-        inPos = (int) vr2[1];
-        final int zeroLen = (int) vr2[0];
-        if (outPos + zeroLen > outEnd) {
+        final long vr2 = readVarintPacked(input, inPos);
+        inPos = (int) (vr2 >>> Integer.SIZE);
+        final int zeroLen = (int) vr2;
+        if (zeroLen < 2 || outPos + zeroLen > outEnd) {
           throw new IllegalStateException("ZeroRunByteCodec: long zero-run overflow");
         }
         fillZeros(output, outPos, zeroLen);
@@ -221,9 +224,16 @@ public final class ZeroRunByteCodec {
     return uncompressed;
   }
 
-  /** Bulk zero-fill on an output segment; LLVM will fold to a vectorized memset. */
+  /** Reuse one zero source instead of allocating a segment slice for every decoded run. */
   private static void fillZeros(final MemorySegment output, final long offset, final int len) {
-    output.asSlice(offset, len).fill((byte) 0);
+    int remaining = len;
+    long position = offset;
+    while (remaining > 0) {
+      final int count = Math.min(remaining, ZERO_FILL_BYTES);
+      MemorySegment.copy(ZERO_FILL, 0, output, position, count);
+      remaining -= count;
+      position += count;
+    }
   }
 
   // ───────────────────────────────────────────────────────────────── varint
@@ -239,11 +249,10 @@ public final class ZeroRunByteCodec {
   }
 
   /**
-   * Reads a varint from {@code input} starting at {@code offset}. Returns
-   * an array {@code {value, nextPos}} (primitive packing keeps the HFT
-   * contract — no allocation because the hot path uses {@link #vrDec}).
+   * Reads a varint from {@code input} starting at {@code offset}. The low 32 bits contain the
+   * decoded value, and the high 32 bits contain the next input offset.
    */
-  private static long[] readVarintPacked(final byte[] input, final int offset) {
+  private static long readVarintPacked(final byte[] input, final int offset) {
     int pos = offset;
     int result = 0;
     int shift = 0;
@@ -254,6 +263,6 @@ public final class ZeroRunByteCodec {
       shift += 7;
       if (shift > 28) throw new IllegalStateException("varint too long");
     }
-    return new long[] { result, pos };
+    return ((long) pos << Integer.SIZE) | (result & 0xFFFFFFFFL);
   }
 }

@@ -377,6 +377,8 @@ public final class ProjectionRankPass {
     final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), indexNumber);
     final ProjectionIndexColumnSegmentCodec.EncodeWorkspace workspace =
         new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
+    final ProjectionFlagSummaryChunks.BuildWriter flagSummaryWriter =
+        new ProjectionFlagSummaryChunks.BuildWriter();
     int rewritten = 0;
     try (RandomAccessFile in = new RandomAccessFile(grouped.toFile(), "r")) {
       final byte[] record = new byte[TRIPLE_BYTES];
@@ -401,7 +403,10 @@ public final class ProjectionRankPass {
           localToGlobal[readInt(record, 4)] = readInt(record, 8);
         }
         page.remapStringDictColumnToGlobal(column, localToGlobal);
-        storage.putRowGroupAsColumnSegmentSlots(rowGroupId, ProjectionIndexColumnSegmentCodec.encode(page, workspace));
+        final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+            ProjectionIndexColumnSegmentCodec.encode(page, workspace);
+        storage.putRowGroupAsColumnSegmentSlots(rowGroupId, encoded);
+        flagSummaryWriter.append(storage, encoded.descriptor());
         rewritten++;
       }
     }
@@ -413,6 +418,7 @@ public final class ProjectionRankPass {
 
     final byte[] kinds = metadata.columnKinds();
     kinds[column] = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+    flagSummaryWriter.finish(storage, rowGroupCount, kinds.length, wtx.getRevisionNumber());
     long[] anchors = metadata.valueDictionaryHeaderKeys();
     if (anchors == null) {
       anchors = new long[kinds.length];

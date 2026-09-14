@@ -5,6 +5,7 @@ package io.sirix.access.trx.node.json;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.node.RecordToRevisionsIndex;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -109,7 +110,11 @@ public final class ParallelBulkJsonImporter {
   private final WtxBulkRecordSink wtxSink;
   private final RevisionRootPage revisionRootPage;
   private final ResourceConfiguration resourceConfig;
+  private final @Nullable RecordToRevisionsIndex nodeHistoryIndex;
   private final int chunkCharBudget;
+
+  /** Last dense document key whose creation revision has been indexed. */
+  private long historyIndexedThrough = Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
 
   /**
    * One canonical-name table for the WHOLE import. Every chunk gets its own scanner, so a per-scanner
@@ -286,6 +291,9 @@ public final class ParallelBulkJsonImporter {
     this.wtxSink = new WtxBulkRecordSink(wtx, false);
     this.revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
     this.resourceConfig = wtx.getResourceSession().getResourceConfig();
+    this.nodeHistoryIndex = resourceConfig.storeNodeHistory()
+        ? new RecordToRevisionsIndex(storageEngineWriter)
+        : null;
     this.chunkCharBudget = chunkCharBudget;
     this.projectionLoads = projectionLoads;
     this.pendingRecords = projectionLoads.length == 0
@@ -351,6 +359,10 @@ public final class ParallelBulkJsonImporter {
         : 0;
     final long rootArrayKey =
         wtxSink.createArrayNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), NULL_KEY, rootArrayPcr);
+    if (nodeHistoryIndex != null) {
+      nodeHistoryIndex.addToRecordToRevisionsIndex(rootArrayKey);
+      historyIndexedThrough = rootArrayKey;
+    }
     rememberRootArrayPcr(rootArrayPcr);
     adoptedWatermark = rootArrayKey;
     currentChunkLastKey = rootArrayKey;
@@ -529,9 +541,6 @@ public final class ParallelBulkJsonImporter {
     }
     if (config.areDeweyIDsStored) {
       throw new IllegalStateException("parallel bulk import does not support DeweyIDs");
-    }
-    if (config.storeNodeHistory()) {
-      throw new IllegalStateException("parallel bulk import does not support node history");
     }
     // Path statistics are SUPPORTED: workers collect per-chunk per-path partials
     // (ChunkPathStatsBatch, sharing the cursor path's PathStatsAccumulator semantics) and the
@@ -784,6 +793,10 @@ public final class ParallelBulkJsonImporter {
         throw new IllegalStateException(
             "the import finished with " + pendingRecordCount() + " records never handed to the projection build");
       }
+    }
+    if (nodeHistoryIndex != null && historyIndexedThrough != expectedNextReservation - 1) {
+      throw new IllegalStateException("parallel bulk import indexed node history through " + historyIndexedThrough
+          + " but reserved document keys through " + (expectedNextReservation - 1));
     }
 
     // Materialise the PATH/CAS/NAME indexes: every chunk's tuples are drained, so one flush per
@@ -1039,6 +1052,7 @@ public final class ParallelBulkJsonImporter {
           mergeAndRetire(prologue, page);
           storageEngineWriter.stageOverflowCarriersOfLiveLeaf(prologue);
           noteAdoptedPage(0);
+          indexAdoptedNodeHistory();
           continue;
         }
 
@@ -1409,6 +1423,7 @@ public final class ParallelBulkJsonImporter {
       // references, while retaining the bitmap-count fast path for ordinary all-inline pages.
       records += page.size();
       noteAdoptedPage(page.getPageKey());
+      indexAdoptedNodeHistory();
     }
     // Accounting after the burst lets the ordinary predicate rotate the flush epoch — the same
     // cadence machinery the sequential path drives per top-level record.
@@ -1432,13 +1447,26 @@ public final class ParallelBulkJsonImporter {
    * prologue chunk stops inside page 0.
    */
   private void noteAdoptedPage(final long pageKey) {
-    if (projectionLoads.length == 0) {
+    if (projectionLoads.length == 0 && nodeHistoryIndex == null) {
       return;
     }
     final long covered = Math.min(((pageKey + 1) << 10) - 1, currentChunkLastKey);
     if (covered > adoptedWatermark) {
       adoptedWatermark = covered;
     }
+  }
+
+  /** Index only the newly readable portion of the importer's contiguous reserved key range. */
+  private void indexAdoptedNodeHistory() {
+    final RecordToRevisionsIndex index = nodeHistoryIndex;
+    if (index == null) {
+      return;
+    }
+    final long upper = adoptedWatermark;
+    for (long key = historyIndexedThrough + 1; key <= upper; key++) {
+      index.addToRecordToRevisionsIndex(key);
+    }
+    historyIndexedThrough = upper;
   }
 
   /** Replays every record of {@code source} into {@code target} (same page key, disjoint slots). */

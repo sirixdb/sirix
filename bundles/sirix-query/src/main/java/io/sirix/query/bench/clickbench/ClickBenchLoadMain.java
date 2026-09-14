@@ -329,12 +329,6 @@ public final class ClickBenchLoadMain {
       throw new IllegalArgumentException("clickbench.parallelImport=true requires -DhashType=NONE, got " + hashType
           + "; set -Dclickbench.parallelImport=false for a hashed import");
     }
-    if (parallelImport && storeNodeHistory) {
-      throw new IllegalArgumentException(
-          "clickbench.parallelImport=true does not support node history; set -DstoreNodeHistory=false or "
-              + "-Dclickbench.parallelImport=false");
-    }
-
     // Configuration refusals above deliberately run first: a bad benchmark invocation must fail
     // before reserving a multi-gigabyte native pool or opening/replacing its target database.
     ClickBenchRigLease.holdForLoadProcess(dbDir);

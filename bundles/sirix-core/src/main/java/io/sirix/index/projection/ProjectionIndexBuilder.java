@@ -94,6 +94,10 @@ public final class ProjectionIndexBuilder {
   /** Shared per-record extraction engine (also used by incremental maintenance). */
   private final ProjectionIndexRowExtractor extractor;
 
+  /** Optional packed run and compiled row predicate for the catalogue's sorted view. */
+  private final @Nullable ProjectionSortedRowEncoder sortedRowEncoder;
+  private @Nullable ProjectionSortedRunAccumulator sortedRun;
+
   /**
    * The trie lane's encode-side resolver, or {@code null} when no prebuilt dictionaries are bound.
    *
@@ -650,6 +654,10 @@ public final class ProjectionIndexBuilder {
       this.rootAncestorPathNodeKeys = LongSets.EMPTY_SET;
       this.xmlRootsAreElements = true;
       this.extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
+      this.sortedRowEncoder = indexDef.getProjectionSortedSpec() == null
+          ? null
+          : new ProjectionSortedRowEncoder(indexDef, extractor);
+      this.sortedRun = sortedRowEncoder == null ? null : new ProjectionSortedRunAccumulator();
       this.sample = initialDictionarySample();
       this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
       return;
@@ -691,6 +699,10 @@ public final class ProjectionIndexBuilder {
     this.rootAncestorPathNodeKeys = computeAncestorPathNodeKeys(pathSummary, rootPathNodeKeys);
 
     this.extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
+    this.sortedRowEncoder = indexDef.getProjectionSortedSpec() == null
+        ? null
+        : new ProjectionSortedRowEncoder(indexDef, extractor);
+    this.sortedRun = sortedRowEncoder == null ? null : new ProjectionSortedRunAccumulator();
     this.sample = initialDictionarySample();
     this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
   }
@@ -940,6 +952,9 @@ public final class ProjectionIndexBuilder {
           columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i), indexDef.getProjectionFields().get(i));
         }
         try {
+          if (indexDef.getProjectionSortedSpec() != null) {
+            new ProjectionSortedDirectory.Builder(epoch.storage).finish();
+          }
           finishPersist(indexDef, epoch.storage, LongArrayList.of(), LongArrayList.of(), rtx.getRevisionNumber(),
               columnKinds, setSummaries, null, null);
           publishGlobalDictionaryColumnsBuilt(0);
@@ -954,8 +969,10 @@ public final class ProjectionIndexBuilder {
       // state is bounded: at most one 32-leaf fence tail, one 256-leaf Bloom window per
       // string column and only set-summary values that still fit their one persisted summary chunk.
       final ProjectionIndexFences.BuildWriter fenceWriter = new ProjectionIndexFences.BuildWriter();
+      final ProjectionFlagSummaryChunks.BuildWriter flagSummaryWriter =
+          new ProjectionFlagSummaryChunks.BuildWriter();
       final ProjectionBloomChunks.Writer bloomChunks = new ProjectionBloomChunks.Writer();
-      final boolean hasSetColumn = hasStringSetColumn(indexDef);
+      final boolean hasSetColumn = hasValueSummaryCandidate(indexDef);
       final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace =
           new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
       final ProjectionIndexBuilder builder = new ProjectionIndexBuilder(indexDef, pathSummary, leaf -> {
@@ -972,6 +989,7 @@ public final class ProjectionIndexBuilder {
         final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
             ProjectionIndexColumnSegmentCodec.encode(leaf, encodeWorkspace);
         epoch.storage.putRowGroupAsColumnSegmentSlots(physicalSlot, encoded);
+        flagSummaryWriter.append(epoch.storage, encoded.descriptor());
         fenceWriter.append(epoch.storage, leaf.firstRecordKey(), leaf.lastRecordKey());
         persistOrderExceptionLocators(leaf, physicalSlot, epoch.recordLocator);
         bloomChunks.append(encoded, physicalSlot, epoch.storage);
@@ -999,12 +1017,15 @@ public final class ProjectionIndexBuilder {
           postWalkHook.accept(epoch.storage);
         }
         final byte[] columnKinds = builder.columnKinds();
+        builder.persistSortedView(epoch.storage);
         bloomChunks.finishChunks(epoch.storage, fenceWriter.rowGroupCount(), columnKinds);
         // Dictionaries are written after the leaves, and only once: the leaves refer to values by id,
         // so nothing can be persisted about a dictionary until every id it will ever mint is known.
         final long[] valueDictionaryHeaderKeys = builder.valueDictionaryAnchors(storageEngineWriter);
         // A virgin initializer has no prior fence chunks to retire.
         fenceWriter.finish(epoch.storage);
+        flagSummaryWriter.finish(epoch.storage, fenceWriter.rowGroupCount(), columnKinds.length,
+            rtx.getRevisionNumber());
         finishPersistWithStreamingFences(indexDef, epoch.storage, fenceWriter.rowGroupCount(), rtx.getRevisionNumber(),
             columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
         builder.publishGlobalDictionaryColumnsBuilt();
@@ -1174,6 +1195,20 @@ public final class ProjectionIndexBuilder {
     return false;
   }
 
+  /** Scalar string counts share the bounded, revisioned per-value summary with set membership. */
+  static boolean hasValueSummaryCandidate(final IndexDef indexDef) {
+    final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
+    final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
+    for (int i = 0; i < fieldTypes.size(); i++) {
+      final byte kind = mapTypeToColumnKind(fieldTypes.get(i), fieldPaths.get(i));
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+          || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Fold one leaf's per-value ROW counts into the index-wide totals.
    *
@@ -1193,16 +1228,39 @@ public final class ProjectionIndexBuilder {
       return;
     }
     for (int c = 0; c < leaf.getColumnCount(); c++) {
-      if (leaf.columnKind(c) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      final byte kind = leaf.columnKind(c);
+      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+          && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
         continue;
       }
       final int dictSize = leaf.stringDictionarySize(c);
-      final long[] counts = ProjectionIndexColumnSegmentCodec.valueRowCounts(dictSize, leaf.stringSetCountColumn(c),
-          leaf.stringSetIdColumn(c), rowCount);
+      final long[] counts;
+      long missingRows = 0L;
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        counts = ProjectionIndexColumnSegmentCodec.valueRowCounts(dictSize, leaf.stringSetCountColumn(c),
+            leaf.stringSetIdColumn(c), rowCount);
+      } else {
+        if (leaf.columnUnrepresentable(c)) {
+          continue;
+        }
+        counts = new long[dictSize];
+        final int[] ids = leaf.stringDictIdColumn(c);
+        final long[] presence = leaf.presenceColumnBits(c);
+        for (int row = 0; row < rowCount; row++) {
+          if ((presence[row >>> 6] & (1L << (row & 63))) == 0L) {
+            missingRows++;
+          } else {
+            counts[ids[row]]++;
+          }
+        }
+      }
       if (counts == null) {
         continue;
       }
       final Map<String, Long> forColumn = into.computeIfAbsent(c, k -> new LinkedHashMap<>());
+      if (missingRows > 0) {
+        forColumn.merge(null, missingRows, Math::addExact);
+      }
       for (int i = 0; i < counts.length; i++) {
         if (counts[i] > 0) {
           forColumn.merge(new String(leaf.stringDictionaryEntryBacking(c, i), leaf.stringDictionaryEntryOffset(c, i),
@@ -1854,6 +1912,10 @@ public final class ProjectionIndexBuilder {
     if (!extractor.appendTo(currentLeaf, recordKey, orderException, orderLabelBytes)) {
       throw new IllegalStateException("a preflighted projection row group rejected one " + databaseType + " record");
     }
+    if (sortedRowEncoder != null && sortedRowEncoder.writeKeyIfMatching(recordKey)) {
+      final ProjectionSortedRunAccumulator run = Objects.requireNonNull(sortedRun, "sorted projection run");
+      run.append(sortedRowEncoder.keyBytesRef(), sortedRowEncoder.keyLength());
+    }
     lastOrderLabel = orderLabel;
     recordAppended(recordKey, orderException);
   }
@@ -2178,6 +2240,11 @@ public final class ProjectionIndexBuilder {
    * </p>
    */
   void releaseTransientState() {
+    final ProjectionSortedRunAccumulator run = sortedRun;
+    if (run != null) {
+      run.release();
+      sortedRun = null;
+    }
     final GlobalValueDictionaryWriter[] dictionaries = globalDictionaries;
     if (dictionaries != null) {
       for (final GlobalValueDictionaryWriter dictionary : dictionaries) {
@@ -2202,6 +2269,16 @@ public final class ProjectionIndexBuilder {
     }
     currentLeaf = null;
     reusableLeaf = null;
+  }
+
+  /** Finalize the optional sorted view before publishing the projection's usable metadata. */
+  void persistSortedView(final ProjectionIndexHOTStorage storage) {
+    final ProjectionSortedRunAccumulator run = sortedRun;
+    if (run != null) {
+      run.persist(Objects.requireNonNull(storage, "storage"));
+      run.release();
+      sortedRun = null;
+    }
   }
 
   private ProjectionIndexRowGroupPage newLeaf() {

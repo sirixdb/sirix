@@ -582,6 +582,32 @@ tasks.register('jsonBenchLoad', JavaExec) {
         : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
 }
 
+// One-time, revisioned scalar-count backfill over an existing projection column.
+tasks.register('jsonBenchBackfillScalarCounts', JavaExec) {
+    group = 'verification'
+    description = 'Backfill one JSONBench scalar count summary from existing projection segments.'
+    classpath = sourceSets.main.runtimeClasspath
+    if (project.hasProperty('enterprise.jars')) {
+        classpath += files(project.property('enterprise.jars').toString().split(':'))
+    }
+    mainClass = 'io.sirix.query.bench.jsonbench.JsonBenchScalarCountBackfillMain'
+    def argsStr = (findProperty('jsonbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx12g'
+    ]
+    def extraJvmArgs = (findProperty('jsonbench.jvmArgs') ?: '').toString().trim()
+    jvmArgs = extraJvmArgs.isEmpty()
+        ? baseJvmArgs
+        : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
 // JSONBench runner: runs the 5 Bluesky queries against a loaded resource. Usage:
 //   ./gradlew :sirix-query:jsonBench -Pjsonbench.args="/tmp/jb/db-1m --tries 3 --json /tmp/jb.json"
 //   ./gradlew :sirix-query:jsonBench -Pjsonbench.args="/tmp/jb/db-1m --tries 1 --dump /tmp/jb/dump-sirix"

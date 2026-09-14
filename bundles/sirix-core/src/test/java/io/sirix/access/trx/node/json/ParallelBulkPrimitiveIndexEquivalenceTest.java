@@ -15,6 +15,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.AtomicUtil;
@@ -24,6 +25,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,6 +39,7 @@ import java.util.Iterator;
 import java.util.Set;
 import java.util.TreeSet;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -157,6 +160,65 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
   }
 
   @Test
+  void parallelImportPreservesNodeHistoryAndFineGrainedRevisions() throws IOException {
+    final String corpus = corpus();
+    try (Database<JsonResourceSession> sequentialDb = createDatabase(SEQUENTIAL_DB_PATH, true);
+        Database<JsonResourceSession> parallelDb = createDatabase(PARALLEL_DB_PATH, true);
+        JsonResourceSession sequentialSession = sequentialDb.beginResourceSession(JsonTestHelper.RESOURCE);
+        JsonResourceSession parallelSession = parallelDb.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      try (JsonNodeTrx writer = sequentialSession.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(corpus), JsonNodeTrx.Commit.NO);
+        writer.commit();
+      }
+      try (JsonNodeTrx writer = parallelSession.beginNodeTrx()) {
+        ParallelBulkJsonImporter.assembleBytes(writer,
+            new ByteArrayInputStream(corpus.getBytes(StandardCharsets.UTF_8)), CHUNK_BUDGET_BYTES, BUILDERS);
+        writer.commit();
+      }
+
+      final long maxNodeKey;
+      try (JsonNodeReadOnlyTrx sequentialReader = sequentialSession.beginNodeReadOnlyTrx();
+          JsonNodeReadOnlyTrx parallelReader = parallelSession.beginNodeReadOnlyTrx()) {
+        maxNodeKey = sequentialReader.getMaxNodeKey();
+        assertEquals(maxNodeKey, parallelReader.getMaxNodeKey());
+      }
+      for (long key = 1; key <= maxNodeKey; key += 997) {
+        assertEquals(1, sequentialSession.getRecordChangeRevisions(key).length, "sequential key " + key);
+        assertEquals(1, parallelSession.getRecordChangeRevisions(key).length, "parallel key " + key);
+      }
+      for (final long key : new long[] {1, 2, 3, 1023, 1024, 1025, 2047, 2048, 2049, maxNodeKey - 1,
+          maxNodeKey}) {
+        assertEquals(1, parallelSession.getRecordChangeRevisions(key).length, "boundary key " + key);
+      }
+
+      final int initialRevision = parallelSession.getMostRecentRevisionNumber();
+      final long fieldKey;
+      final String original;
+      try (JsonNodeTrx writer = parallelSession.beginNodeTrx()) {
+        assertTrue(writer.moveToDocumentRoot());
+        assertTrue(writer.moveToFirstChild());
+        assertTrue(writer.moveToFirstChild());
+        assertTrue(writer.moveToFirstChild());
+        fieldKey = writer.getNodeKey();
+        original = writer.getValue();
+        writer.setStringValue("history-updated");
+        writer.commit();
+      }
+      final int changedRevision = parallelSession.getMostRecentRevisionNumber();
+      final int creationRevision = parallelSession.getRecordChangeRevisions(fieldKey)[0];
+      assertArrayEquals(new int[] {creationRevision, changedRevision},
+          parallelSession.getRecordChangeRevisions(fieldKey));
+      try (JsonNodeReadOnlyTrx before = parallelSession.beginNodeReadOnlyTrx(initialRevision);
+          JsonNodeReadOnlyTrx after = parallelSession.beginNodeReadOnlyTrx(changedRevision)) {
+        assertTrue(before.moveTo(fieldKey));
+        assertTrue(after.moveTo(fieldKey));
+        assertEquals(original, before.getValue());
+        assertEquals("history-updated", after.getValue());
+      }
+    }
+  }
+
+  @Test
   void aValidTimeIndexStillRefusesWithTheExactFamilyMessage() throws IOException {
     try (Database<JsonResourceSession> db = createDatabase(SEQUENTIAL_DB_PATH)) {
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -258,12 +320,17 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
   // ==== fixtures ===============================================================================
 
   private static Database<JsonResourceSession> createDatabase(final java.nio.file.Path databasePath) {
+    return createDatabase(databasePath, false);
+  }
+
+  private static Database<JsonResourceSession> createDatabase(final java.nio.file.Path databasePath,
+      final boolean nodeHistory) {
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
     database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                  .useDeweyIDs(false)
                                                  .hashKind(HashType.NONE)
-                                                 .storeNodeHistory(false)
+                                                 .storeNodeHistory(nodeHistory)
                                                  .buildPathSummary(true)
                                                  .build());
     return database;

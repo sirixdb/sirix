@@ -681,6 +681,7 @@ public final class ClickBenchSource {
    */
   private static final class JsonLinesAsArrayReader extends FilterReader {
 
+    private static final int INPUT_BUFFER_CHARS = 8192;
     private static final int STATE_OPEN = 0;
     private static final int STATE_BODY = 1;
     private static final int STATE_CLOSE = 2;
@@ -693,6 +694,9 @@ public final class ClickBenchSource {
     private boolean atLineStart = true;
     /** A character pulled from the delegate that did not fit into the caller's buffer. */
     private int pending = -1;
+    private final char[] inputBuffer = new char[INPUT_BUFFER_CHARS];
+    private int inputPosition;
+    private int inputLimit;
 
     private JsonLinesAsArrayReader(final Reader in) {
       super(in);
@@ -737,7 +741,7 @@ public final class ClickBenchSource {
           c = pending;
           pending = -1;
         } else {
-          c = in.read();
+          c = nextInputChar();
         }
         if (c == -1) {
           if (written == 0) {
@@ -771,6 +775,18 @@ public final class ClickBenchSource {
         cbuf[off + written++] = (char) c;
       }
       return written;
+    }
+
+    private int nextInputChar() throws IOException {
+      if (inputPosition == inputLimit) {
+        final int count = in.read(inputBuffer, 0, inputBuffer.length);
+        if (count <= 0) {
+          return count < 0 ? -1 : in.read();
+        }
+        inputPosition = 0;
+        inputLimit = count;
+      }
+      return inputBuffer[inputPosition++];
     }
   }
 }

@@ -527,6 +527,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private @Nullable KeyValueLeafPage secondCursorDurableReadPage;
 
+  /** NAME-page readback retention is bounded by the configured arena and a fixed page ceiling. */
+  private @Nullable WriterRecordPageCache recordReadPages;
+
+  // Swizzled overflow payloads are not bounded by a page's native allocation. Preserve the
+  // immediate-release route when that diagnostic mode explicitly requests retaining them.
+  private static final boolean CACHE_RECORD_READ_PAGES =
+      !"false".equals(System.getProperty("sirix.writer.cacheRecordReadPages"))
+          && !Boolean.getBoolean("sirix.overflow.swizzleIndexPages");
+
+  @Nullable WriterRecordPageCache cachedRecordReadPagesForTesting() {
+    return recordReadPages;
+  }
+
   /**
    * Owner of the two fixed native side-payload reservoirs. Lazily allocated and explicitly closed.
    */
@@ -1573,6 +1586,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return (V) storageEngineReader.checkItemIfDeleted(node);
     }
 
+    if (indexType == IndexType.NAME && CACHE_RECORD_READ_PAGES) {
+      WriterRecordPageCache cache = recordReadPages;
+      if (cache == null) {
+        cache = new WriterRecordPageCache(storageEngineReader);
+        recordReadPages = cache;
+      }
+      return (V) storageEngineReader.readDetachedRecord(cache.get(requireNonNull(durableReference)), recordKey);
+    }
     final KeyValueLeafPage durablePage =
         storageEngineReader.readRecordPageFromExactReference(requireNonNull(durableReference));
     try {
@@ -3833,7 +3854,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // eventual close must not invalidate those committed offsets.
       hasUncommittedReclaimableWrites = false;
       firstUncommittedPageOffset = Long.MAX_VALUE;
-      closeCursorDurableReadPage();
+      closeDurableReadPages();
 
       final long t4 = timing
           ? System.nanoTime()
@@ -4480,7 +4501,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     try {
-      closeCursorDurableReadPage();
+      closeDurableReadPages();
     } catch (final Throwable t) {
       teardownFailure = retainFirstFailure(teardownFailure, t);
     }
@@ -4618,7 +4639,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
     }
     try {
-      closeCursorDurableReadPage();
+      closeDurableReadPages();
     } catch (final Throwable t) {
       teardownFailure = retainFirstFailure(teardownFailure, t);
     }
@@ -5322,18 +5343,39 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
-  private void closeCursorDurableReadPage() {
+  private void closeDurableReadPages() {
+    final WriterRecordPageCache cache = recordReadPages;
     final KeyValueLeafPage firstPage = cursorDurableReadPage;
     final KeyValueLeafPage secondPage = secondCursorDurableReadPage;
+    recordReadPages = null;
     cursorDurableReadPage = null;
     cursorDurableReadOffset = Constants.NULL_ID_LONG;
     secondCursorDurableReadPage = null;
     secondCursorDurableReadOffset = Constants.NULL_ID_LONG;
-    if (firstPage != null && !firstPage.isClosed()) {
-      firstPage.retire();
+    Throwable failure = null;
+    try {
+      if (cache != null) {
+        cache.close();
+      }
+    } catch (final Throwable exception) {
+      failure = retainFirstFailure(failure, exception);
     }
-    if (secondPage != null && !secondPage.isClosed()) {
-      secondPage.retire();
+    try {
+      if (firstPage != null && !firstPage.isClosed()) {
+        firstPage.retire();
+      }
+    } catch (final Throwable exception) {
+      failure = retainFirstFailure(failure, exception);
+    }
+    try {
+      if (secondPage != null && !secondPage.isClosed()) {
+        secondPage.retire();
+      }
+    } catch (final Throwable exception) {
+      failure = retainFirstFailure(failure, exception);
+    }
+    if (failure != null) {
+      throw asRuntimeFailure(failure);
     }
   }
 
@@ -5771,7 +5813,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         storageEngineReader.getResourceId());
     hasUncommittedReclaimableWrites = false;
     firstUncommittedPageOffset = Long.MAX_VALUE;
-    closeCursorDurableReadPage();
+    closeDurableReadPages();
     // Path-class records are cached per (resource, revision), and truncateTo RE-ISSUES the
     // truncated revision numbers over different content -- the same offset-reuse hazard the page
     // caches are dropped for above. Without this a PathFilter/CASFilter at a re-issued revision is

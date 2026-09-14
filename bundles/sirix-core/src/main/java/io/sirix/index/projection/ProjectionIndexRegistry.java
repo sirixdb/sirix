@@ -169,6 +169,15 @@ public final class ProjectionIndexRegistry {
           : n;
     }
 
+    /** Exact revision-scoped scalar string counts, including a nullable missing-key entry. */
+    public @Nullable Map<String, Long> scalarValueRowCounts(final int column) {
+      if (columnKindOf(column) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        return null;
+      }
+      final Map<Integer, Map<String, Long>> counts = setValueRowCounts;
+      return counts == null ? null : counts.get(column);
+    }
+
     /** Attach the metadata's summary; called once, at construction time, by the catalog. */
     public void setSetValueRowCounts(final Map<Integer, Map<String, Long>> counts) {
       this.setValueRowCounts = counts;
@@ -553,6 +562,22 @@ public final class ProjectionIndexRegistry {
     private static final byte EV_PURE_ALL = 0x04;
 
     private volatile byte[] sliceEvidence;
+
+    /** Install revision-scoped persisted descriptor evidence before this handle is published. */
+    public void setFlagSummaryEvidence(final byte[] flags) {
+      Objects.requireNonNull(flags, "flags");
+      if (columnStore == null || flags.length != columnStore.columnCount()) {
+        throw new IllegalArgumentException("projection flag-summary column shape mismatch");
+      }
+      final byte[] complete = new byte[flags.length];
+      for (int column = 0; column < flags.length; column++) {
+        if ((flags[column] & ~(EV_UNREP_ANY | EV_NONINT_ANY | EV_PURE_ALL)) != 0) {
+          throw new IllegalArgumentException("invalid projection flag-summary evidence for column " + column);
+        }
+        complete[column] = (byte) (EV_RESOLVED | flags[column]);
+      }
+      sliceEvidence = complete;
+    }
 
     private byte sliceEvidence(final int col, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
       final byte[] ev = sliceEvidence;
@@ -1175,7 +1200,8 @@ public final class ProjectionIndexRegistry {
     public void kickSegmentPrefetch(final Executor executor, final Supplier<AutoCloseable> trxFactory,
         final Function<AutoCloseable, StorageEngineReader> readerOf) {
       final ProjectionColumnStore store = columnStore;
-      if (store == null || !segmentPrefetchKicked.compareAndSet(false, true)) {
+      if (store == null || store.hasLogicalSlotSources() || store.hasBoundedDirectoryWindows()
+          || !segmentPrefetchKicked.compareAndSet(false, true)) {
         return;
       }
       final CancellableBackgroundTask task = new CancellableBackgroundTask() {

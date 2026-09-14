@@ -144,10 +144,10 @@ public final class ProjectionIndexMetadata {
   private static final StaleReason[] STALE_REASONS = StaleReason.values();
 
   /**
-   * Wire-format version. Version zero stores set-summary capabilities separately from bounded chunks.
-   * Unknown versions are declined rather than interpreted with shifted fields.
+   * The wire-format version identifies slot ordering: zero is row-group-major, one column-major. Both
+   * versions have identical metadata fields. Unknown versions are declined.
    */
-  private static final byte VERSION = 0;
+  private final ProjectionSlotLayout slotLayout;
 
   private final String rootPath;
   private final String[] fieldPaths;
@@ -262,7 +262,16 @@ public final class ProjectionIndexMetadata {
   private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision, final byte flags,
       final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys,
-      final SegmentAnchor @org.jspecify.annotations.Nullable [] segmentAnchors) {
+      final SegmentAnchor @Nullable [] segmentAnchors) {
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, flags, setValueRowCounts,
+        valueDictionaryHeaderKeys, segmentAnchors, ProjectionSlotLayout.ROW_GROUP_MAJOR);
+  }
+
+  private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
+      final byte[] columnKinds, final int rowGroupCount, final int buildRevision, final byte flags,
+      final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys,
+      final SegmentAnchor @Nullable [] segmentAnchors, final ProjectionSlotLayout slotLayout) {
+    this.slotLayout = Objects.requireNonNull(slotLayout);
     Objects.requireNonNull(rootPath);
     Objects.requireNonNull(fieldPaths);
     Objects.requireNonNull(fieldNames);
@@ -301,8 +310,9 @@ public final class ProjectionIndexMetadata {
     if (setValueRowCounts != null) {
       for (final int column : setValueRowCounts.keySet()) {
         if (column < 0 || column >= columnKinds.length
-            || columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
-          throw new IllegalArgumentException("set-summary capability names non-set column " + column);
+            || (columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+                && columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT)) {
+          throw new IllegalArgumentException("value-summary capability names non-string column " + column);
         }
       }
     }
@@ -451,6 +461,32 @@ public final class ProjectionIndexMetadata {
     return buildRevision;
   }
 
+  /** Key ordering belongs to the persisted revision, never to the reader's runtime configuration. */
+  public ProjectionSlotLayout slotLayout() {
+    return slotLayout;
+  }
+
+  ProjectionIndexMetadata withSlotLayout(final ProjectionSlotLayout layout) {
+    return layout == slotLayout
+        ? this
+        : new ProjectionIndexMetadata(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision,
+            flags, setValueRowCounts, valueDictionaryHeaderKeys, segmentAnchors, layout);
+  }
+
+  /** Copy this revision's shape while publishing a newly backfilled value-summary capability. */
+  ProjectionIndexMetadata withValueSummaryColumn(final int column, final int revision) {
+    if (column < 0 || column >= columnKinds.length
+        || columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      throw new IllegalArgumentException("backfill requires a scalar string column: " + column);
+    }
+    final Map<Integer, Map<String, Long>> capabilities = setValueRowCounts == null
+        ? new LinkedHashMap<>()
+        : new LinkedHashMap<>(setValueRowCounts);
+    capabilities.put(column, Map.of());
+    return new ProjectionIndexMetadata(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, revision, flags,
+        capabilities, valueDictionaryHeaderKeys, segmentAnchors, slotLayout);
+  }
+
   /**
    * Whether slot 0 carries the stale tombstone: a dropped definition, an unfinished load-time build,
    * or the corruption valve. Ordinary maintenance fails its transaction instead of setting this.
@@ -512,8 +548,7 @@ public final class ProjectionIndexMetadata {
    * {@code (segment, column)} pair may appear twice: two anchors for one pair would let a page
    * resolve against whichever the reader happened to index last.
    */
-  private static void validateSegmentAnchors(final SegmentAnchor @org.jspecify.annotations.Nullable [] anchors,
-      final int columns) {
+  private static void validateSegmentAnchors(final SegmentAnchor @Nullable [] anchors, final int columns) {
     if (anchors == null) {
       return;
     }
@@ -535,7 +570,7 @@ public final class ProjectionIndexMetadata {
    * Segment-scoped dictionary anchors, or {@code null} when this projection has none. A copy: the
    * table is part of the persisted shape and callers must not be able to edit it in place.
    */
-  public SegmentAnchor @org.jspecify.annotations.Nullable [] segmentAnchors() {
+  public SegmentAnchor @Nullable [] segmentAnchors() {
     return segmentAnchors == null
         ? null
         : segmentAnchors.clone();
@@ -544,7 +579,7 @@ public final class ProjectionIndexMetadata {
   public byte[] serialize() {
     final ByteArrayOutputStream out = new ByteArrayOutputStream(256);
     putIntLE(out, MAGIC);
-    out.write(VERSION);
+    out.write(slotLayout.metadataVersion());
     out.write(flags);
     putIntLE(out, rowGroupCount);
     putIntLE(out, buildRevision);
@@ -622,7 +657,8 @@ public final class ProjectionIndexMetadata {
     try {
       final int[] pos = {4};
       final byte version = payload[pos[0]++];
-      if (version != VERSION) {
+      if (version != ProjectionSlotLayout.ROW_GROUP_MAJOR.metadataVersion()
+          && version != ProjectionSlotLayout.COLUMN_MAJOR.metadataVersion()) {
         // Unsupported format version: callers decline instead of interpreting shifted fields.
         return null;
       }
@@ -668,9 +704,10 @@ public final class ProjectionIndexMetadata {
       for (int c = 0; c < setCountColumns; c++) {
         final int column = getShortU(payload, pos);
         final int values = getShortU(payload, pos);
-        if (column >= n || kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET || values != 0) {
+        if (column >= n || (kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+            && kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) || values != 0) {
           throw new IllegalStateException(
-              "Projection metadata names an invalid set-summary capability at column " + column);
+              "Projection metadata names an invalid value-summary capability at column " + column);
         }
         if (counts == null) {
           counts = new LinkedHashMap<>(4);
@@ -732,7 +769,9 @@ public final class ProjectionIndexMetadata {
             "Projection metadata has " + (payload.length - pos[0]) + " byte(s) past its trailing sections");
       }
       return new ProjectionIndexMetadata(rootPath, paths, names, kinds, rowGroupCount, buildRevision, flags, counts,
-          dictionaryKeys, anchors);
+          dictionaryKeys, anchors, version == 0
+              ? ProjectionSlotLayout.ROW_GROUP_MAJOR
+              : ProjectionSlotLayout.COLUMN_MAJOR);
     } catch (final IndexOutOfBoundsException truncated) {
       throw new IllegalStateException("Corrupt projection metadata payload", truncated);
     }

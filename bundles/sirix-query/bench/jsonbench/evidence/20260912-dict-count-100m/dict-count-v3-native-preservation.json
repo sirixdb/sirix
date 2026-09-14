@@ -1,0 +1,31 @@
+{
+  "started": 1789183083.3113227,
+  "before_free_bytes": 71752306688,
+  "scope": "completed profiling captures and explicitly inactive PGO executables/debug files",
+  "files": [
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-dict-count-v3-retry1-100m/jb",
+      "original_bytes": 57412064,
+      "original_sha256": "00503db691552199ac6596785e538c69e55cad0cf350ff916cd04056df5c50f3",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-dict-count-v3-retry1-100m/jb.gz",
+      "retained_bytes": 22242227,
+      "retained_sha256": "1a1b2d68e6278df3fbe514d05d4a432fdbda133eb01f9d275035c76d8e84c8ed",
+      "mode": 509,
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-dict-count-v3-retry1-100m/jb-instr",
+      "original_bytes": 195561952,
+      "original_sha256": "4703410c15306a7f18ff465eb8eabf11b8b7bedf0438be9f6b9498887e63794e",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-dict-count-v3-retry1-100m/jb-instr.gz",
+      "retained_bytes": 79943479,
+      "retained_sha256": "10d49d4f19149b9e2c32970546400fd2d06b11e0caf0a92e461213da46dcfc16",
+      "mode": 509,
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    }
+  ],
+  "finished": 1789183101.6044571,
+  "after_free_bytes": 71902810112
+}

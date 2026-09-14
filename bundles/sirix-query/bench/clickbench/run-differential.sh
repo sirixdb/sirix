@@ -37,6 +37,7 @@ set -euo pipefail
 
 ROWS="${1:-200000}"
 WORKDIR="${2:-${TMPDIR:-/tmp}/clickbench-differential}"
+WORKDIR="$(realpath -m "${WORKDIR}")"
 SEED="${SEED:-42}"
 
 if [ -n "${HITS_JSON:-}" ] && [ -z "${EXPECTED_ROWS:-}" ] && [ "$#" -lt 1 ]; then
@@ -73,6 +74,7 @@ GRADLE="${GRADLE:-${repo}/gradlew}"
 GRADLE_FLAGS="${GRADLE_FLAGS:---console=plain}"
 
 DATA="${HITS_JSON:-${WORKDIR}/hits.json}"
+DATA="$(realpath -m "${DATA}")"
 DB="${WORKDIR}/sirix-db"
 OUT_VEC="${WORKDIR}/results-sirix-vectorized"
 OUT_GEN="${WORKDIR}/results-sirix-generic"
@@ -85,7 +87,7 @@ rm -rf "${DB}" "${OUT_VEC}" "${OUT_GEN}" "${OUT_DUCK}"
 # DuckDB's official-corpus table is large enough that the correctness run must
 # be able to use a file-backed database and a controlled spill directory. Keep
 # every writable DuckDB path inside this run's dedicated work directory.
-WORKDIR_ABS="$(realpath -m "${WORKDIR}")"
+WORKDIR_ABS="${WORKDIR}"
 DUCKDB_DB="${DUCKDB_DB:-:memory:}"
 DUCKDB_MEMORY_LIMIT="${DUCKDB_MEMORY_LIMIT:-}"
 DUCKDB_TEMP_DIRECTORY="${DUCKDB_TEMP_DIRECTORY:-${WORKDIR_ABS}/duckdb-tmp}"

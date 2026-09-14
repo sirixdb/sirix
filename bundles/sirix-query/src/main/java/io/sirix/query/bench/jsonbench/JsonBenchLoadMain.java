@@ -19,6 +19,7 @@ import io.sirix.query.bench.clickbench.ClickBenchSource;
 import io.sirix.query.json.BasicJsonDBStore;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.Reader;
 import java.io.StringReader;
@@ -28,6 +29,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
 
 /**
@@ -54,6 +56,8 @@ import java.util.stream.Stream;
  * shreds to roughly 31M nodes, i.e. ~237 windows, which is what bounds ingest memory;</li>
  * <li>{@code -Djsonbench.projection} (default true) — build the projection index over the five
  * columns the queries touch, as part of the load;</li>
+ * <li>{@code -Djsonbench.loader} ({@code parallel}, {@code gson}, or {@code jackson}; default
+ * {@code parallel}) — select the generic streaming ingestion path for a matched load comparison;</li>
  * <li>{@code -Djsonbench.projection.required} (default true) — make a failed second-pass projection
  * build fatal. Set this to false only to retain a completed shred for later repair with
  * {@code JsonBenchRunMain --build-projection}; such a load is not a valid benchmark result;</li>
@@ -91,7 +95,6 @@ public final class JsonBenchLoadMain {
     final String source = args[1];
 
     final long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
-    Allocators.getInstance().init(offheap);
 
     final int autoCommit = Integer.parseInt(System.getProperty("sirix.autoCommit.nodes", "131072"));
     final boolean projection = Boolean.parseBoolean(System.getProperty("jsonbench.projection", "true"));
@@ -114,20 +117,49 @@ public final class JsonBenchLoadMain {
     }
     final boolean pathStatistics = Boolean.parseBoolean(System.getProperty("buildPathStatistics", "false"));
     final HashType hashType = HashType.fromString(System.getProperty("hashType", "NONE"));
-
+    final String loader = System.getProperty("jsonbench.loader", "parallel").trim().toLowerCase(Locale.ROOT);
+    if (!loader.equals("gson") && !loader.equals("jackson") && !loader.equals("parallel")) {
+      throw new IllegalArgumentException("jsonbench.loader must be gson, jackson, or parallel: " + loader);
+    }
+    Allocators.getInstance().init(offheap);
     Files.createDirectories(dbDir);
     System.out.printf("# JSONBench load: db=%s source=%s%n", dbDir, source);
+    System.out.printf("# loader=%s%n", loader);
     System.out.printf("# offheap=%d MB autoCommit=%d pathSummary=%s pathStatistics=%s hash=%s%n", offheap / (1L << 20),
         autoCommit, pathSummary, pathStatistics, hashType);
 
     final long start = System.nanoTime();
     try (var store = newLoadStoreBuilder(dbDir, autoCommit, pathSummary, pathStatistics, hashType).build()) {
-      try (Reader src = ClickBenchSource.open(source); JsonReader jsonReader = new JsonReader(src)) {
-        if (projection && incrementalProjection) {
-          store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, jsonReader, JsonBenchProjection.spec());
-        } else {
-          store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, jsonReader);
+      switch (loader) {
+        case "gson" -> {
+          try (Reader src = ClickBenchSource.open(source); JsonReader jsonReader = new JsonReader(src)) {
+            if (projection && incrementalProjection) {
+              store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, jsonReader, JsonBenchProjection.spec());
+            } else {
+              store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, jsonReader);
+            }
+          }
         }
+        case "jackson" -> {
+          try (ClickBenchSource.JacksonSource src = ClickBenchSource.openJackson(source)) {
+            if (projection && incrementalProjection) {
+              store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, src.parser(),
+                  JsonBenchProjection.spec(), src.ldjson());
+            } else {
+              store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, src.parser(), src.ldjson());
+            }
+          }
+        }
+        case "parallel" -> {
+          try (InputStream src = ClickBenchSource.openParallelInput(source, false)) {
+            if (projection && incrementalProjection) {
+              store.createParallel(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, src, JsonBenchProjection.spec());
+            } else {
+              store.createParallel(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, src);
+            }
+          }
+        }
+        default -> throw new AssertionError("validated loader: " + loader);
       }
     }
     final double shredSeconds = (System.nanoTime() - start) / 1e9;

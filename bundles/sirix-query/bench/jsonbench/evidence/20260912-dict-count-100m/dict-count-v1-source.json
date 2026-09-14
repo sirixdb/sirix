@@ -1,0 +1,11 @@
+{
+  "base_commit": "d685cae276ae7055311a64e4e4b62b92d443f9a8",
+  "overrides": {
+    "bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionColumnGroupScan.java": "978bfa258c0fe8714d1e6efd0a9a04448017fb572d7a92bb70f28d8c158078de",
+    "bundles/sirix-core/src/test/java/io/sirix/index/projection/DictionaryCountFoldTest.java": "a8e680e3aa1ddaeb4f31a0f9f7ceb281dda985603b73c1376b289984c1c69d7a"
+  },
+  "source": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-dict-count-v1",
+  "archive": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-dict-count-v1.tar.gz",
+  "archive_sha256": "8b9765e024442a7ed3acc1d16f0d8308a807be288a4c12a69d2e9d93d9047f12",
+  "base_archive_sha256": "beae4d882ded4273b3bb58897223b9b578a6e789189f4baccf9fc5e44ee8b828"
+}

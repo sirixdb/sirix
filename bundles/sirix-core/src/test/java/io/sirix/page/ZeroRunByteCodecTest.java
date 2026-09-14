@@ -13,6 +13,7 @@ import java.util.SplittableRandom;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -130,6 +131,46 @@ final class ZeroRunByteCodecTest {
       for (int i = 0; i < n; i++) {
         assertEquals(0, out.get(ValueLayout.JAVA_BYTE, i));
       }
+    }
+  }
+
+  @Test
+  @DisplayName("long zero run clears only its offset output range across copy chunks")
+  void longZeroRunPreservesAdjacentBytes() {
+    final int length = 8193;
+    final int offset = 7;
+    try (Arena arena = Arena.ofConfined()) {
+      final MemorySegment input = arena.allocate(length);
+      final byte[] encoded = new byte[ZeroRunByteCodec.maxEncodedSize(length)];
+      final int encodedLength = ZeroRunByteCodec.encode(input, 0, length, encoded, 0);
+      final MemorySegment output = arena.allocate(length + offset + 9);
+      output.fill((byte) 0x5A);
+
+      assertEquals(length, ZeroRunByteCodec.decode(encoded, 0, encodedLength, output, offset));
+      for (int i = 0; i < offset; i++) {
+        assertEquals((byte) 0x5A, output.get(ValueLayout.JAVA_BYTE, i));
+      }
+      for (int i = offset; i < offset + length; i++) {
+        assertEquals((byte) 0, output.get(ValueLayout.JAVA_BYTE, i));
+      }
+      for (int i = offset + length; i < output.byteSize(); i++) {
+        assertEquals((byte) 0x5A, output.get(ValueLayout.JAVA_BYTE, i));
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("invalid long zero lengths are rejected")
+  void invalidLongZeroRunLengths() {
+    try (Arena arena = Arena.ofConfined()) {
+      final MemorySegment output = arena.allocate(2);
+      final byte[] zeroLength = {(byte) 0xFF, 2, (byte) 0xFF, 0};
+      final byte[] negativeLength = {(byte) 0xFF, 2, (byte) 0xFF,
+          (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0x0F};
+      assertThrows(IllegalStateException.class,
+          () -> ZeroRunByteCodec.decode(zeroLength, 0, zeroLength.length, output, 0));
+      assertThrows(IllegalStateException.class,
+          () -> ZeroRunByteCodec.decode(negativeLength, 0, negativeLength.length, output, 0));
     }
   }
 

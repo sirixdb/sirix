@@ -2,6 +2,7 @@ package io.sirix.index;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.brackit.query.atomic.QNm;
@@ -81,6 +82,27 @@ final class IndexDefPersistedDefinitionTest {
     assertFalse(projection.getProjectionFields().equals(reread.getProjectionFields()),
         "the relative field spelling no longer differs after the round trip — pick one that does");
     assertTrue(projection.hasSameDefinition(reread));
+  }
+
+  @Test
+  void sortedProjectionFilterAndOrderSurviveCataloguePersistence() {
+    final List<Path<QNm>> fields = List.of(json("/[]/kind"), json("/[]/did"), json("/[]/collection"));
+    final List<Type> types = List.of(Type.STR, Type.STR, Type.STR);
+    final ProjectionSortedSpec sorted = new ProjectionSortedSpec(List.of(1),
+        List.of(new ProjectionSortedSpec.Equality(0, "commit\0<&"),
+            new ProjectionSortedSpec.Equality(2, "")));
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4,
+        IndexDef.DbType.JSON, sorted);
+    final IndexDef reread = roundTrip(definition);
+    assertTrue(definition.hasSameDefinition(reread));
+    assertTrue(reread.hasSameDefinition(definition));
+    assertTrue(sorted.equals(reread.getProjectionSortedSpec()));
+    final IndexDef differentOrder = IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4,
+        IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(2), sorted.equalities()));
+    assertFalse(definition.hasSameDefinition(differentOrder));
+    assertThrows(IllegalArgumentException.class,
+        () -> IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4, IndexDef.DbType.JSON,
+            new ProjectionSortedSpec(List.of(3), List.of())));
   }
 
   @Test

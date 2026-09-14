@@ -1617,34 +1617,51 @@ final class GlobalValueDictionaryRadix {
         final long oldLevelOneKey = oldRootNode == null
             ? 0L
             : oldRootNode.childKey(high);
-        ValueDictionaryRadixNode updated = oldLevelOneKey == 0
+        final ValueDictionaryRadixNode prior = oldLevelOneKey == 0
             ? null
             : radixNode(oldLevelOneKey, indexKind, 1, namePage, databaseType, writer);
+        final int from = levelTwoIndex;
         while (levelTwoIndex < levelTwo.size && (levelTwo.values[levelTwoIndex] >>> 8) == high) {
-          final int prefix = levelTwo.values[levelTwoIndex];
-          updated = replaceRadixChild(1L, indexKind, (byte) 1, updated, prefix & 0xFF,
-              recordKeyAt(levelTwoRunStart, levelTwoIndex));
           levelTwoIndex++;
         }
         final long nodeKey = cursor.next();
-        put(copyRadixNode(nodeKey, updated), namePage, databaseType, writer, log);
+        put(updateUpperChildren(nodeKey, indexKind, (byte) 1, prior, levelTwo.values, from, levelTwoIndex,
+            levelTwoRunStart), namePage, databaseType, writer, log);
       }
       if (levelTwoIndex != levelTwo.size) {
         throw new IllegalStateException("forward radix prefix plan was not consumed exactly");
       }
-      ValueDictionaryRadixNode updatedRoot = oldRoot == 0
-          ? null
-          : oldRootNode;
-      int levelOneIndex = 0;
-      for (int index = 0; index < levelOne.size; index++) {
-        final int high = levelOne.values[index];
-        updatedRoot =
-            replaceRadixChild(1L, indexKind, (byte) 0, updatedRoot, high, recordKeyAt(levelOneRunStart, levelOneIndex));
-        levelOneIndex++;
-      }
       final long rootKey = cursor.next();
-      put(copyRadixNode(rootKey, updatedRoot), namePage, databaseType, writer, log);
+      put(updateUpperChildren(rootKey, indexKind, (byte) 0, oldRootNode, levelOne.values, 0, levelOne.size,
+          levelOneRunStart), namePage, databaseType, writer, log);
       return rootKey;
+    }
+
+    private static ValueDictionaryRadixNode updateUpperChildren(final long nodeKey, final byte indexKind,
+        final byte depth, final ValueDictionaryRadixNode prior, final int[] prefixes, final int from,
+        final int to, final long childRunStart) {
+      if (to <= from) {
+        throw new IllegalStateException("empty forward radix child update");
+      }
+      // Fine-grained appends often change just one child in a sparse node. A few sparse copies
+      // avoid expanding that case into a 256-entry scratch array.
+      if (to - from <= 4) {
+        ValueDictionaryRadixNode updated = prior;
+        for (int index = from; index < to; index++) {
+          updated = replaceRadixChild(nodeKey, indexKind, depth, updated, prefixes[index] & 0xFF,
+              recordKeyAt(childRunStart, index));
+        }
+        return updated;
+      }
+      // A bulk append may replace most children. Apply its whole run before freezing one node;
+      // the old immutable node and its historical revisions keep their own arrays.
+      final long[] children = prior == null
+          ? new long[ValueDictionaryRadixNode.FANOUT]
+          : prior.getChildKeys();
+      for (int index = from; index < to; index++) {
+        children[prefixes[index] & 0xFF] = recordKeyAt(childRunStart, index);
+      }
+      return new ValueDictionaryRadixNode(nodeKey, indexKind, depth, children);
     }
 
     /** Sorted primitive prefix set; its largest backing payload is 256 KiB plus one array header. */

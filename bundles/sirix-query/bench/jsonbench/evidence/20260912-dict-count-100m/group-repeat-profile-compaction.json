@@ -1,0 +1,709 @@
+{
+  "started": 1789176613.5125735,
+  "before_free_bytes": 71836258304,
+  "scope": "completed paired-attempt profiles only; training profiles and all databases preserved",
+  "files": [
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q1.iprof",
+      "original_bytes": 14853796,
+      "original_sha256": "4b3ae885e4c83e338b2ba1aa101f4b9aecd900d57681864dabe5a7c17ae22542",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q1.iprof.gz",
+      "retained_bytes": 2570398,
+      "retained_sha256": "235b7feb71556e1472b85b02bb0385e49d58377b24bbfda9bbd240db1e67d709",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q2.iprof",
+      "original_bytes": 14985680,
+      "original_sha256": "24aaf2813b7b79559c084736e7e0718d360efbdf5e5e30242b7f88b5b80fbe85",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q2.iprof.gz",
+      "retained_bytes": 2589915,
+      "retained_sha256": "95cac9166c23fb98026b2e20cb7a4ab5c10031f0ee571e8d39049e403ce319cf",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q3.iprof",
+      "original_bytes": 15010421,
+      "original_sha256": "bf602e3805d932e146dbce068fa43638b3d821e44d474e3de3fe839bd3bf3da6",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q3.iprof.gz",
+      "retained_bytes": 2593786,
+      "retained_sha256": "afc14046aadde4519b3b97e28f5041946a6c3cf49803ea8041ca0238ea1c3a3c",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q4.iprof",
+      "original_bytes": 14995055,
+      "original_sha256": "4f1dfaead1faff783651acf4db4c2f60f0624e8102381e7e92b7b8cc6c0cfda2",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q4.iprof.gz",
+      "retained_bytes": 2590801,
+      "retained_sha256": "37821afe5251462705c42251ae9e46a213bd8ed43c6d6d3d6b5953c27f78e1af",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q5.iprof",
+      "original_bytes": 15002196,
+      "original_sha256": "7aa1fdaaa03630ef824a5cf428519a099996395600d30897dbe7a7ce3ac03ea4",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-after-q5.iprof.gz",
+      "retained_bytes": 2591869,
+      "retained_sha256": "533aed88b5185ab4c60266a740ef1c49d69f65c7d98426d9a905ef87dec04deb",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q1.iprof",
+      "original_bytes": 14839562,
+      "original_sha256": "10e6405fc454f391c96565d13b22b00215c07f9dd19fabb1d66a5b29f19348f9",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q1.iprof.gz",
+      "retained_bytes": 2569711,
+      "retained_sha256": "c8091e188b9e702152cf264466b9bd1f2e9dfa814c78ccefeccad384e5748192",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q2.iprof",
+      "original_bytes": 14960152,
+      "original_sha256": "52bfd9468e63b84921bb7654b3e1bdc20c0b7a9a2b03ad1eed5399764e1da269",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q2.iprof.gz",
+      "retained_bytes": 2587689,
+      "retained_sha256": "8a24816a2c641146ae7020aab7564fbf349c8226ee45cc19f8920a29dfa52f62",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q3.iprof",
+      "original_bytes": 14991594,
+      "original_sha256": "a450aef1431efae92af81c1a751feb1f8eb004fc1c81af3d7a61a0dd8d7778cd",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q3.iprof.gz",
+      "retained_bytes": 2591913,
+      "retained_sha256": "7582b40f399fd42d669f9ae6b0ad10c381bb4bf083bba7e0454b8dbd0f199434",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q4.iprof",
+      "original_bytes": 14978984,
+      "original_sha256": "9407d573e42ae3ee4b8a5672d610240244b613223aeefcccd13edee4e687e25c",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q4.iprof.gz",
+      "retained_bytes": 2589423,
+      "retained_sha256": "d50def25cd0da99c4e9f5672348e00dc86148ef24e31b8b8e206acb36c7d0b39",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q5.iprof",
+      "original_bytes": 14979544,
+      "original_sha256": "9cb244ee3ecbb12ec56f000c8b474a29600d8eed100f2052c3bb00fe8b0c4af8",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/correctness-before-q5.iprof.gz",
+      "retained_bytes": 2590284,
+      "retained_sha256": "b1946d2deedd21f93eb69fdc69f10f18d4d617d2a09bd4d27fbb9306c6d0c568",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-after-a1.iprof",
+      "original_bytes": 14860775,
+      "original_sha256": "37481d7373c5dd6414ee0e7ff940c4501b44d83af2d3f171f149a321ebed5cfb",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-after-a1.iprof.gz",
+      "retained_bytes": 2571436,
+      "retained_sha256": "cb53ce0667fd18d21f40cef8bf77bee852f5f352d9cce6e7427fb66dd730f5c8",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-after-a2.iprof",
+      "original_bytes": 14862351,
+      "original_sha256": "8d3133f51b63f28a6a9dc30665c1f511d6634b7de6d0ceb0188633048fd26d0a",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-after-a2.iprof.gz",
+      "retained_bytes": 2571676,
+      "retained_sha256": "4355eec0418ef058760cd68c3d80d9a67646d77524beaefaa51180bd16e035de",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-after-a3.iprof",
+      "original_bytes": 14862894,
+      "original_sha256": "412d986eff7d253def51722b78da4383cc8cc52195715fc57fa780527ff9f91e",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-after-a3.iprof.gz",
+      "retained_bytes": 2571846,
+      "retained_sha256": "5eb108caa7f0ea179e20258a74c4a64aebf6fd4e187811b600d24ca0769b5b75",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-before-a1.iprof",
+      "original_bytes": 14840375,
+      "original_sha256": "82ec54a4b5a771f7e1204d0b86e927851b433f938b29d1f2ef57d13200714bce",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-before-a1.iprof.gz",
+      "retained_bytes": 2569644,
+      "retained_sha256": "250039118e7992efd17dee069bc87ab8f6edd4284d3a3b09f1b0f60fff098eb8",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-before-a2.iprof",
+      "original_bytes": 14842473,
+      "original_sha256": "ee0f933b985a85adc2b54af0a151a0820a00be3c1a6af0223772af2be46353ab",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-before-a2.iprof.gz",
+      "retained_bytes": 2570047,
+      "retained_sha256": "ca896a20cd9da8c071c9e475636e6c57f803a0daa6a5693268e5536e7a811e31",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-before-a3.iprof",
+      "original_bytes": 14843070,
+      "original_sha256": "5b1447fa687dfa8949f0fbd4b17e699f6ea0869e960504391b3692bef699075d",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q1-before-a3.iprof.gz",
+      "retained_bytes": 2569961,
+      "retained_sha256": "f346b93cec2d8775a79067ece26f8346e4a21476127fe5d1ab5d7e14ab987fae",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-after-a1.iprof",
+      "original_bytes": 14987011,
+      "original_sha256": "7ca619315c007cc98287360836a3369405122bfcfd1093307232dc95c3ea82f0",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-after-a1.iprof.gz",
+      "retained_bytes": 2589981,
+      "retained_sha256": "b4cc84f7aee2bd166df50dda4f8a105070343927c88ae2e19c794cafbdb3a4aa",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-after-a2.iprof",
+      "original_bytes": 14996492,
+      "original_sha256": "ab9fa6614e7a30ff67df4ea36d708c78f87a4e1cf1622decfd3b613d45585574",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-after-a2.iprof.gz",
+      "retained_bytes": 2590971,
+      "retained_sha256": "b7c0f65291f274b66bf59c606eb11d92f4d6d82c50e57cd9e7c6a25465424759",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-after-a3.iprof",
+      "original_bytes": 14989536,
+      "original_sha256": "927c39d123fdace759aed0aa9af11c97c7a2c4674feb444abcb392fb995fb9ee",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-after-a3.iprof.gz",
+      "retained_bytes": 2590058,
+      "retained_sha256": "0b44211be2f68ce9abf0b06787a841602c76ed003ec51ca9c7498cbbb542468a",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-before-a1.iprof",
+      "original_bytes": 14974571,
+      "original_sha256": "580336d6867e71bc078ecea3c614f5779a365543ee26b5adcf8ec8f4f2aee06f",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-before-a1.iprof.gz",
+      "retained_bytes": 2589594,
+      "retained_sha256": "b89d2ab062640312bf1e9db14991d94878240326cfe7861d3d1f5f01636c13a5",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-before-a2.iprof",
+      "original_bytes": 14967612,
+      "original_sha256": "6a5b1f721253e4306f0dcb5ae33a75c8dc40e33f513adc7b009ea4378adc7456",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-before-a2.iprof.gz",
+      "retained_bytes": 2588546,
+      "retained_sha256": "405b7ecdb1e77ed6922f38980b870da9428ab395fa584427e183f6da619239db",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-before-a3.iprof",
+      "original_bytes": 14967048,
+      "original_sha256": "d8e1dbf343233e8e4e34c1f10bd06dc0c7d372eea446c3cdfa6bc22e04bec8f6",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q2-before-a3.iprof.gz",
+      "retained_bytes": 2588282,
+      "retained_sha256": "8f00acbbd191e05077f706ca234b5d57e7ba85251bf3d70613501dc0c75d9627",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-after-a1.iprof",
+      "original_bytes": 15012306,
+      "original_sha256": "1c64a858bec44828eea9c6ae5f91c7895a8e3c7e2b7d5cf4fce67d32bf45447a",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-after-a1.iprof.gz",
+      "retained_bytes": 2593987,
+      "retained_sha256": "9c134e170cc68c07a030902885bfbce405c19d048f5e940d2f6e2dad4f678049",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-after-a2.iprof",
+      "original_bytes": 15013650,
+      "original_sha256": "838bfbb88d1d1cd0b5e95145086c3c3f56949128e12f275b4f9c943ffb54c403",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-after-a2.iprof.gz",
+      "retained_bytes": 2594212,
+      "retained_sha256": "388a75c7ca719cad9e72023554bc32fa2e2117d902bc55ddd0b616846bc245d6",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-after-a3.iprof",
+      "original_bytes": 15017615,
+      "original_sha256": "ff18ce85405f5175a1f51d48bc470c07f9a7c1a09385440f1f52a06e60892bc0",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-after-a3.iprof.gz",
+      "retained_bytes": 2594213,
+      "retained_sha256": "0b67e7b2291c27979229f99c65bb9385bcb525c974080467e30d8235f2ef8660",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-before-a1.iprof",
+      "original_bytes": 14990222,
+      "original_sha256": "4fe65d17191fcdc73ef5fb57d1b8a940e4867e9a69e0ec67542f48abd8096bb9",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-before-a1.iprof.gz",
+      "retained_bytes": 2592097,
+      "retained_sha256": "6f0b5df212d38427f46c9eb2c9a79c53a6904250e45046d824dea66fe6a48f27",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-before-a2.iprof",
+      "original_bytes": 14991716,
+      "original_sha256": "00eec13f58ded259d123233d747cdd576283bf3ea392e2f91fe74bc19ef621ac",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-before-a2.iprof.gz",
+      "retained_bytes": 2591958,
+      "retained_sha256": "1d4ef268471877a6ce754c5fb97f0e2c38b5e37feecfed2c69be9c9b0670d5d5",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-before-a3.iprof",
+      "original_bytes": 14991340,
+      "original_sha256": "0230ab1708ddafe69950ca34b84d717b061d9d97cf7c2ab41a3977e7f0ee9e7a",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q3-before-a3.iprof.gz",
+      "retained_bytes": 2592339,
+      "retained_sha256": "32c75e434b006bb2fa78e5ebb532380d4b2d08153f1c543b94286fafc78b1d08",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-after-a1.iprof",
+      "original_bytes": 15001960,
+      "original_sha256": "b34e009b223fb862caa7c7a2b42128010954b0a16d40e26834f889f611b35f27",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-after-a1.iprof.gz",
+      "retained_bytes": 2591049,
+      "retained_sha256": "2698113507f4b5aa5ef4d0120679a2f36aa42568aa6633f26b0dd2bd4078bebe",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-after-a2.iprof",
+      "original_bytes": 15001890,
+      "original_sha256": "abf8cd2c9ed4b6a7496348f094ac2c801a6cab86797bac25570ae09be933cfcd",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-after-a2.iprof.gz",
+      "retained_bytes": 2591488,
+      "retained_sha256": "e10ead8701911ff643065d95004fbd78f0519a5e1c641557f713d42f2fe0607f",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-after-a3.iprof",
+      "original_bytes": 14994474,
+      "original_sha256": "1d571d086ae071cbac67ef777702c5d0493fedd3a5127c3d0f2afd4fa31263f9",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-after-a3.iprof.gz",
+      "retained_bytes": 2590656,
+      "retained_sha256": "f9a34448fc665960e599b03a6514ceed4926c78e1883a1b4b7bd83bea9832427",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-before-a1.iprof",
+      "original_bytes": 14982908,
+      "original_sha256": "8a3cad43926d6d6fa813f6779145fd3b85ea5e19e21b280090a3bfaadfeb4bc8",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-before-a1.iprof.gz",
+      "retained_bytes": 2589454,
+      "retained_sha256": "8bf2c9ff380157f6c67590c9fc73757718c295fe692ebbbda60e679d967d548b",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-before-a2.iprof",
+      "original_bytes": 14990385,
+      "original_sha256": "c17847ae919a0e32345c5559f8c0c220b5eac5f33ab191c90cd658c1f0fdfe93",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-before-a2.iprof.gz",
+      "retained_bytes": 2590438,
+      "retained_sha256": "702601a4804a421856a951c4259fe88b748480d0f571cf731777ab08ef0855eb",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-before-a3.iprof",
+      "original_bytes": 14982428,
+      "original_sha256": "684ecec95883d2624e0c10a3b9b9a76437a62443d0ce2e6bc957863dbb8cec1d",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q4-before-a3.iprof.gz",
+      "retained_bytes": 2589844,
+      "retained_sha256": "676043011d20413fab90523245444f9a7403ed49e2ff6900f291738e7bf3070c",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-after-a1.iprof",
+      "original_bytes": 15018187,
+      "original_sha256": "e23d9fb4a011d18249a9e024554389bc6490deabfc92a8d95bdbaf03368e9eb0",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-after-a1.iprof.gz",
+      "retained_bytes": 2592783,
+      "retained_sha256": "802bdfb4a57350edb1d9519a6c6c5ab60cb0869c9a5c25ace2e72924c4087823",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-after-a2.iprof",
+      "original_bytes": 15017800,
+      "original_sha256": "11a938cae7e2fc699f84abfe9fe4b8ce10c4e8b8e0c8ac458131795f92b2ae2d",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-after-a2.iprof.gz",
+      "retained_bytes": 2593014,
+      "retained_sha256": "11b5e2526bb2efe53d866c08fcdadc753d98992339be01e7146a7f00c188b4cf",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-after-a3.iprof",
+      "original_bytes": 15009300,
+      "original_sha256": "aff9f1c7fc82ad18e99641aa888a0a4ca2dd0b458a72d7b2cd9c36f27ff272ff",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-after-a3.iprof.gz",
+      "retained_bytes": 2592216,
+      "retained_sha256": "900c17dface935d0f2353b639887a13b45f69d575ee0cdf002b0896bb345af81",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-before-a1.iprof",
+      "original_bytes": 14988912,
+      "original_sha256": "f03beee22ccce44f3f45bdad3aad853767ffa38a685630a7a20c0ceb4a2d2fef",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-before-a1.iprof.gz",
+      "retained_bytes": 2591313,
+      "retained_sha256": "a2f6349a50bbadcfe9e38c5434d0adcc73c00c178bc7ada1d473ff9c4b4a11eb",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-before-a2.iprof",
+      "original_bytes": 14989835,
+      "original_sha256": "da8965ce859a104f54be3ae5a13949df8d88a7de5ac37e3b0828e0c186d099e6",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-before-a2.iprof.gz",
+      "retained_bytes": 2591103,
+      "retained_sha256": "20be0db0ed1cbec1bb749a42e0f33b1410ebb25d4bd74d5fd2cdefa6a522bddb",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-before-a3.iprof",
+      "original_bytes": 14991563,
+      "original_sha256": "7bbacd2a3fd12a6866867b16ddb4d0774ea4a181c0f7da37d0513256a81e57dd",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r1-q5-before-a3.iprof.gz",
+      "retained_bytes": 2591690,
+      "retained_sha256": "4a2b900fb829021d2840b94112b6760f8a3a904db98fc2374d8a1e0b21d5d336",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-after-a1.iprof",
+      "original_bytes": 14866441,
+      "original_sha256": "b6333eb6c3dfa0645c10e56e11d805e3a4766648295c3f616a7d7aa331ccc84e",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-after-a1.iprof.gz",
+      "retained_bytes": 2572193,
+      "retained_sha256": "3474de0a149b93c529ac7386255f0ddb974f84a522e9b6a0a6e2f255cafaafb6",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-after-a2.iprof",
+      "original_bytes": 14864051,
+      "original_sha256": "af910af780a520ffe337d483c69c1539de0ba4554c7fbde1fb262f32f54735c3",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-after-a2.iprof.gz",
+      "retained_bytes": 2572084,
+      "retained_sha256": "5e6904cba7ba54b3129e219ed4fa48e22fc5a31f0e3c48dc9cf3a454ee15778e",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-after-a3.iprof",
+      "original_bytes": 14861659,
+      "original_sha256": "1447923cbaf288f67c412cb522ca480aab3228dd17b25442051ca1e5b34cc7f4",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-after-a3.iprof.gz",
+      "retained_bytes": 2571590,
+      "retained_sha256": "ab3cf99899a7bf8ea2c6317c0ecd9b527858a49241aa1ec0b692b0186587701c",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-before-a1.iprof",
+      "original_bytes": 14839537,
+      "original_sha256": "34b1561c7bc132537278a77021653730c61bec49b5d52d547745066f8d6919c4",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-before-a1.iprof.gz",
+      "retained_bytes": 2569564,
+      "retained_sha256": "e04b429f899e9e59349dcda0187fb719281417a828a5ec29e9ce46e339899422",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-before-a2.iprof",
+      "original_bytes": 14839902,
+      "original_sha256": "3d2a2f4260ad661240e4c505aecd9fa90cd158f19c7a4e7050e472628d781766",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-before-a2.iprof.gz",
+      "retained_bytes": 2569699,
+      "retained_sha256": "746086b0c3f427df8f7314248bf2a117e05584d0c4c0e75200338f81446401b3",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-before-a3.iprof",
+      "original_bytes": 14841561,
+      "original_sha256": "e855b07afb4e877c0dae6e337a4dba2e521a356bdda38251b94adbc17762192f",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q1-before-a3.iprof.gz",
+      "retained_bytes": 2569713,
+      "retained_sha256": "fc8031821bad5e05ac93ba97eaa8416eb88d24cca3337c5bae32c0c42d3af06d",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-after-a1.iprof",
+      "original_bytes": 14993070,
+      "original_sha256": "b151aabe63c90e4c6682d8dcb151591c3b6f7af1bf63366666ce686592d928f8",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-after-a1.iprof.gz",
+      "retained_bytes": 2590430,
+      "retained_sha256": "912f4dd1fcb063ac8ef8a816a6c8c851046f6a4aa96aba496a72f8a15021fa21",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-after-a2.iprof",
+      "original_bytes": 14991964,
+      "original_sha256": "159a3c8403cd61c6cf4e2dd01159e98ea39f865c187e0455ea68503aa272c172",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-after-a2.iprof.gz",
+      "retained_bytes": 2590691,
+      "retained_sha256": "75f8132f67841983dbf750976455103316ca968d38c921a693b3a751cd6eb67c",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-after-a3.iprof",
+      "original_bytes": 14995148,
+      "original_sha256": "4511b12605ed3589003fdb23512489a9c387f0858bee48191db1a4c771316823",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-after-a3.iprof.gz",
+      "retained_bytes": 2591061,
+      "retained_sha256": "ec6bb5bdbf12006ea3870f8f4d0234cc93a669b79342bc6685f6992d3535dc3d",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-before-a1.iprof",
+      "original_bytes": 14970807,
+      "original_sha256": "db127725841a37f31431ecf961cdaec4901495dfcdf614b0fd1dc5e597f65b2a",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-before-a1.iprof.gz",
+      "retained_bytes": 2588931,
+      "retained_sha256": "5b6a05485ae1d20b36d7488108d81bc3c490021b9e35be89990186f48e383641",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-before-a2.iprof",
+      "original_bytes": 14971173,
+      "original_sha256": "3b21923c81dd4a82bb99e65a25aeb36619aaa63a170ec34ce8cfd5fe90aa82a1",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-before-a2.iprof.gz",
+      "retained_bytes": 2589275,
+      "retained_sha256": "179142fae002eb0e8af54c0516a7c9b4abbbd34a8821d629ecef4cd54dbb7938",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-before-a3.iprof",
+      "original_bytes": 14969450,
+      "original_sha256": "8a3f63911f6c94f06df75400a2ccae8c2e9badd809ffd62442b99aff77f1cb4a",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q2-before-a3.iprof.gz",
+      "retained_bytes": 2588683,
+      "retained_sha256": "bec59cb4145df03c75d5431c3d7b18e2420dd79c4af0968f0b93f6411b8b2dde",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-after-a1.iprof",
+      "original_bytes": 15012764,
+      "original_sha256": "bece5ba7c93d12ca0689ec67dbf3126bddbee3a65063f72108303a58036c5a0a",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-after-a1.iprof.gz",
+      "retained_bytes": 2593807,
+      "retained_sha256": "ff51ba887e5dab5f23d7a61c938b28587062ca631dcaca1de13c9db4005b4916",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-after-a2.iprof",
+      "original_bytes": 15015767,
+      "original_sha256": "3e8ca2d6d32d0fab89e8275e98b85a2bac96f4df6d1b8c6477cb5107285e13af",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-after-a2.iprof.gz",
+      "retained_bytes": 2594473,
+      "retained_sha256": "d1eb11ee70b4d8aba031e71a541f236f279821f26f0bf9e6460aa42f153c0fe0",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-after-a3.iprof",
+      "original_bytes": 15012379,
+      "original_sha256": "c57aa5e76439966791b92fd2d6d7164a374bb7476f42a118c5bb0986445a83a1",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-after-a3.iprof.gz",
+      "retained_bytes": 2593789,
+      "retained_sha256": "23c5e44698734e525e951e6e1bcd3551376d260992ffa99f83e13ca370300763",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-before-a1.iprof",
+      "original_bytes": 14992180,
+      "original_sha256": "f29806f0673e0c94038f7b5c1a681229861163ca83e7fff04f0fefadb7685923",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-before-a1.iprof.gz",
+      "retained_bytes": 2592074,
+      "retained_sha256": "0bdcbd3a9f545898a04a3d87fd5b4b989f475c7ae9b159c9016e127061af4669",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-before-a2.iprof",
+      "original_bytes": 14993930,
+      "original_sha256": "65fdebb706aa6e3eccb2a3058932afc19c87d0df049e6812d5ebe5bbb40dfff6",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-before-a2.iprof.gz",
+      "retained_bytes": 2592105,
+      "retained_sha256": "afd260de199ef647631948a43a7e3e5426287ba3757f7962345ab2528371dd96",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-before-a3.iprof",
+      "original_bytes": 14988221,
+      "original_sha256": "2646a3451b5bf58cf888672c271595288a53a4d4d998b01e7e073fd29ed9a302",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q3-before-a3.iprof.gz",
+      "retained_bytes": 2591834,
+      "retained_sha256": "1ffa8c4440a8d088980c83a4d3cef610704878b89ece88af02775264bc4dc838",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-after-a1.iprof",
+      "original_bytes": 15000576,
+      "original_sha256": "8c8756f56cb1523c1a16f2bc76715f7b688f56fd67288bde751cbc7f1385e636",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-after-a1.iprof.gz",
+      "retained_bytes": 2591130,
+      "retained_sha256": "9e6376100422f7242ee3114e8f3594c062a31f4ccf8a50cb51696087db89157d",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-after-a2.iprof",
+      "original_bytes": 14997061,
+      "original_sha256": "ee789fdd505900ba64276c19dfdb4d018c0f3008dc464028c8dbfce439f21bc2",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-after-a2.iprof.gz",
+      "retained_bytes": 2591030,
+      "retained_sha256": "b878647efbe8a8b371e7cb82004a6db3e7fc2ab674ca68af85362c253bcd274e",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-after-a3.iprof",
+      "original_bytes": 14999318,
+      "original_sha256": "3828051c5c041c65729502870b2542efc99396895d322703f137c0ad592a25fd",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-after-a3.iprof.gz",
+      "retained_bytes": 2591209,
+      "retained_sha256": "d8132a8aeb9695f71ed80f5223b0f4a5274782e7400cc249bbe449ea88c04162",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-before-a1.iprof",
+      "original_bytes": 14973385,
+      "original_sha256": "3820e53e04558ef03a91af19cb64dc25f8647af0ef17d468e2abfb3c7feb89ac",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-before-a1.iprof.gz",
+      "retained_bytes": 2588726,
+      "retained_sha256": "e6e314c1d776627bcc9ec0171d34feec3b708174743415c80a3e3e9ac276da59",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-before-a2.iprof",
+      "original_bytes": 14979221,
+      "original_sha256": "ea1723809ac70b645b5b4e429c5abc43a8865ddde15f66a0952c82209f6a4e0a",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-before-a2.iprof.gz",
+      "retained_bytes": 2589186,
+      "retained_sha256": "82f8b76a793868b5ca1acb691cdede0769566244acb1041bb650e4beac734fb1",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-before-a3.iprof",
+      "original_bytes": 14977084,
+      "original_sha256": "cc42ea2f62545246872be2a298e5ffde979dbad673410ce207dabf4e0211b942",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q4-before-a3.iprof.gz",
+      "retained_bytes": 2589328,
+      "retained_sha256": "5e0bbf2bffe6479c610f5c8b5b20d09f74b2a558e1a7481f455b79d086cef31a",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-after-a1.iprof",
+      "original_bytes": 15008201,
+      "original_sha256": "a0a59a45f9bf7f92e8dc96af13c4054b2ea3a1e13d8a1ab3a25b8721ba683e6d",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-after-a1.iprof.gz",
+      "retained_bytes": 2592487,
+      "retained_sha256": "a6055bb43862eb1e4b677cd0403f209144857fecc5837c1db020afbc3966221b",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-after-a2.iprof",
+      "original_bytes": 15014145,
+      "original_sha256": "cee25334b4baf1da9cbc6031e9585d765c8389a970fdfffe5d2b5b0f62711481",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-after-a2.iprof.gz",
+      "retained_bytes": 2592792,
+      "retained_sha256": "40e1af6ff043e9d5c94b8f910a4767168b6c571a6c16b4d2350217ea92855c02",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-after-a3.iprof",
+      "original_bytes": 15015286,
+      "original_sha256": "63e566cb2b7141363db315a5f751f8016cae85707bb77c768b2f5867e2b1063e",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-after-a3.iprof.gz",
+      "retained_bytes": 2592631,
+      "retained_sha256": "9980fe1f6a5b91971d071ae3a1f567713843a089e871b4241d41a254cb91ee70",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-before-a1.iprof",
+      "original_bytes": 14992461,
+      "original_sha256": "e79781889fdab279fb695e3033813602d288fcea57499c590852ac435c540617",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-before-a1.iprof.gz",
+      "retained_bytes": 2591552,
+      "retained_sha256": "4191bfb271e5c3c18ec35875fbc1259b9a062d79ec9f25285657d20c47f35514",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-before-a2.iprof",
+      "original_bytes": 14992230,
+      "original_sha256": "870ce81193adf5eabd0fd854a3aa0074f1ec88ba758f245ca9d2aa90187f4e75",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-before-a2.iprof.gz",
+      "retained_bytes": 2591369,
+      "retained_sha256": "2ebb5fad63d354829959dd4236b938c03f1ab8af2ef3b343d90431295e102bd6",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    },
+    {
+      "original": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-before-a3.iprof",
+      "original_bytes": 14992260,
+      "original_sha256": "575d337b0aa76bbe5e4b45a7721f6ae734fce1c1aaff7e6c4bc05ec38cdcacaf",
+      "retained": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/paired-group-repeat-instrument-1m-attempt1/r2-q5-before-a3.iprof.gz",
+      "retained_bytes": 2591500,
+      "retained_sha256": "e2b251602668531bbf47d93d77d37ac73ca9c42fa3002921fb5daf999b56a42d",
+      "exact_decompression_verified": true,
+      "expanded_removed": true
+    }
+  ],
+  "finished": 1789176651.759348,
+  "after_free_bytes": 72702431232
+}

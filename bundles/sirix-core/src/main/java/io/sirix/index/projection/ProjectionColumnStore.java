@@ -95,6 +95,16 @@ public final class ProjectionColumnStore {
     default boolean rangedFetchIsConcurrent() {
       return false;
     }
+
+    /**
+     * Fetch logical slots from one column-major segment chain into the same output indices. Kept
+     * separate from physical offsets so an offset-only fetcher cannot misinterpret a trie key as a file
+     * address. Implementations use the calling session and this handle's revision.
+     */
+    default void fetchSlotRange(final int indexNumber, final long[] slotKeys, final int from, final int to,
+        final byte[][] out) {
+      throw new IllegalStateException("fetcher does not support logical projection slots");
+    }
   }
 
   /**
@@ -196,6 +206,9 @@ public final class ProjectionColumnStore {
   }
 
   private final List<RowGroupDirectory> directories;
+
+  /** Physical index identity for logical slot requests; -1 for directories of durable offsets. */
+  private final int logicalSlotIndexNumber;
   private final byte[] columnKinds;
 
   /** Lazily filled per column; slot = decoded slices for every leaf, ascending rowGroupId. */
@@ -423,11 +436,36 @@ public final class ProjectionColumnStore {
   private final byte[] stringSupplementary;
 
   public ProjectionColumnStore(final List<RowGroupDirectory> directories) {
+    this(directories, -1);
+  }
+
+  ProjectionColumnStore(final List<RowGroupDirectory> directories, final int indexNumber) {
     if (directories == null) {
       throw new IllegalArgumentException("directories must not be null");
     }
-    this.directories = List.copyOf(directories);
-    if (this.directories.isEmpty()) {
+    final ProjectionDirectoryWindows bounded = directories instanceof ProjectionDirectoryWindows windows
+        ? windows
+        : null;
+    this.directories = bounded == null ? List.copyOf(directories) : directories;
+    final boolean logical = bounded == null && !this.directories.isEmpty()
+        && this.directories.getFirst().logicalSlots();
+    if (logical && (indexNumber < 0 || indexNumber >= Constants.INP_REFERENCE_COUNT)) {
+      throw new IllegalArgumentException("logical directories require a valid projection index number");
+    }
+    if (bounded == null) {
+      for (final RowGroupDirectory directory : this.directories) {
+        if (directory.logicalSlots() != logical) {
+          throw new IllegalArgumentException("a column store cannot mix logical slots and physical offsets");
+        }
+      }
+    }
+    logicalSlotIndexNumber = logical
+        ? indexNumber
+        : -1;
+    if (bounded != null) {
+      // Every loaded window validates against the persisted metadata before becoming visible.
+      this.columnKinds = bounded.columnKinds();
+    } else if (this.directories.isEmpty()) {
       this.columnKinds = new byte[0];
     } else {
       final byte[] d0 = this.directories.get(0).descriptor();
@@ -3285,7 +3323,7 @@ public final class ProjectionColumnStore {
    * for a fetcher that declares {@link ColumnSegmentFetcher#rangedFetchIsConcurrent()}, which is what
    * promises each range a transaction of its own.
    */
-  private static byte[][] fetchRangesParallel(final ColumnSegmentFetcher fetcher, final long[] offsets, final int n,
+  private byte[][] fetchRangesParallel(final ColumnSegmentFetcher fetcher, final long[] offsets, final int n,
       final int workers) {
     final byte[][] segments = new byte[n][];
     final int chunk = (n + workers - 1) / workers;
@@ -3297,7 +3335,7 @@ public final class ProjectionColumnStore {
         return; // a range of inline-only or pruned leaves needs no transaction at all
       }
       try {
-        fetcher.fetchRange(offsets, from, to, segments);
+        fetchSegmentRange(fetcher, offsets, from, to, segments);
       } catch (final RuntimeException fetchFailed) {
         failed.compareAndSet(null, fetchFailed);
       }
@@ -3307,6 +3345,32 @@ public final class ProjectionColumnStore {
       throw fetchFailed;
     }
     return segments;
+  }
+
+  private void fetchSegmentRange(final ColumnSegmentFetcher fetcher, final long[] addresses, final int from,
+      final int to, final byte[][] out) {
+    if (logicalSlotIndexNumber >= 0) {
+      fetcher.fetchSlotRange(logicalSlotIndexNumber, addresses, from, to, out);
+    } else {
+      fetcher.fetchRange(addresses, from, to, out);
+    }
+  }
+
+  private byte[][] fetchAllSegments(final ColumnSegmentFetcher fetcher, final long[] addresses) {
+    if (logicalSlotIndexNumber < 0) {
+      return fetcher.fetchAll(addresses);
+    }
+    final byte[][] out = new byte[addresses.length][];
+    fetcher.fetchSlotRange(logicalSlotIndexNumber, addresses, 0, addresses.length, out);
+    return out;
+  }
+
+  boolean hasLogicalSlotSources() {
+    return logicalSlotIndexNumber >= 0;
+  }
+
+  public boolean hasBoundedDirectoryWindows() {
+    return directories instanceof ProjectionDirectoryWindows;
   }
 
   /** {@link #verifyFetchedSegments} split across {@code workers} contiguous leaf ranges. */
@@ -3443,7 +3507,7 @@ public final class ProjectionColumnStore {
           ? new byte[n][]
           : workers > 1 && fetcher.rangedFetchIsConcurrent()
               ? fetchRangesParallel(fetcher, offsets, n, workers)
-              : fetcher.fetchAll(offsets);
+              : fetchAllSegments(fetcher, offsets);
     } catch (final RuntimeException fetchFailed) {
       // Fetch-level failure (session closed mid-read, transient I/O): NOT memoized —
       // the next query retries against the caller's own live fetcher.
@@ -3529,6 +3593,11 @@ public final class ProjectionColumnStore {
    * failures are ignored and nothing is retained.
    */
   public void prefetchAllSegments(final StorageEngineReader reader) {
+    if (hasLogicalSlotSources()) {
+      // Resolving every column here would undo descriptor-only hydration. A demanded chain resolves
+      // its own slots and retains the backend's ordinary batch/coalesced read behavior.
+      return;
+    }
     final boolean diag = Boolean.getBoolean("sirix.projDiag");
     final long startNanos = diag
         ? System.nanoTime()
@@ -3832,7 +3901,7 @@ public final class ProjectionColumnStore {
       // Pruned leaves of a window are fetched with it (their offsets stay real); the kernel never
       // reads them, and the window's contiguity is what the backend's run coalescing lives on.
       try {
-        fetcher.fetchRange(offsets, 0, len, out);
+        fetchSegmentRange(fetcher, offsets, 0, len, out);
       } catch (final RuntimeException fetchFailed) {
         throw new IllegalStateException(
             "Segment fetch failed for segment id " + segId + ": " + fetchFailed.getMessage(), fetchFailed);

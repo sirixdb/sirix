@@ -1,6 +1,7 @@
 package io.sirix.query.bench.jsonbench;
 
 import io.brackit.query.Query;
+import io.sirix.index.ProjectionSortedSpec;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -73,7 +74,11 @@ public final class JsonBenchProjection {
     for (final String path : COLUMN_PATHS) {
       types.add(projectionType(path));
     }
-    return new ProjectionSpec(JsonBenchSchema.ROOT_PATH, COLUMN_PATHS, types);
+    return new ProjectionSpec(JsonBenchSchema.ROOT_PATH, COLUMN_PATHS, types,
+        new ProjectionSortedSpec(List.of(1, 2),
+            List.of(new ProjectionSortedSpec.Equality(0, "commit"),
+                new ProjectionSortedSpec.Equality(4, "create"),
+                new ProjectionSortedSpec.Equality(3, JsonBenchSchema.COLLECTION_POST))));
   }
 
   /** The {@code jn:create-projection-index} call for the projected columns. */

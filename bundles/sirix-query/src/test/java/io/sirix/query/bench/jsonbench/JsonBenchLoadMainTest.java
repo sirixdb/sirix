@@ -45,9 +45,10 @@ final class JsonBenchLoadMainTest {
         try (final var session = collection.getDatabase().beginResourceSession(JsonBenchSchema.RESOURCE)) {
           final int revision = session.getMostRecentRevisionNumber();
           final IllegalStateException failure =
-              assertThrows(IllegalStateException.class, () -> JsonBenchRunMain.warmCatalog(session, revision, false));
+              assertThrows(IllegalStateException.class,
+                  () -> JsonBenchRunMain.verifyProjectionHeader(session, revision, false));
           assertTrue(failure.getMessage().contains("usable projection"));
-          assertDoesNotThrow(() -> JsonBenchRunMain.warmCatalog(session, revision, true));
+          assertDoesNotThrow(() -> JsonBenchRunMain.verifyProjectionHeader(session, revision, true));
         }
       }
     } finally {

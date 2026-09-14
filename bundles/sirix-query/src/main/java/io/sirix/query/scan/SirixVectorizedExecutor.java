@@ -51,6 +51,7 @@ import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionSortedGroupScan;
 import io.sirix.index.projection.ProjectionDoubleEncoding;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
@@ -155,6 +156,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.Objects;
 import java.util.Set;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -1008,6 +1010,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /** Per-group aggregate servings (stage 7a) — test observability for served-vs-fallback. */
   private static final LongAdder GROUP_AGG_SERVED = new LongAdder();
 
+  private static final LongAdder GROUP_SORTED_SERVED = new LongAdder();
+
+  public static long groupSortedServedCount() {
+    return GROUP_SORTED_SERVED.sum();
+  }
+
   /** Total per-group aggregate queries SERVED from a projection so far. */
   public static long groupAggServedCount() {
     return GROUP_AGG_SERVED.sum();
@@ -1027,6 +1035,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /** Test observability for {@link #GROUP_AGG_SLICED_SERVED}. */
   public static long groupAggSlicedServedCount() {
     return GROUP_AGG_SLICED_SERVED.sum();
+  }
+
+  /** Revisioned per-value summary servings that avoided a row-group scan entirely. */
+  private static final LongAdder GROUP_AGG_SUMMARY_SERVED = new LongAdder();
+
+  public static long groupAggSummaryServedCount() {
+    return GROUP_AGG_SUMMARY_SERVED.sum();
   }
 
   /**
@@ -3159,6 +3174,31 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final ProjectionIndexScan.PredicateTree tree, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
     final long[] keep = ProjectionColumnScan.predicateKeepMask(store, NO_PREDICATES, tree, fetcher);
     return ProjectionColumnScan.resolveTreeColumnsShared(store, tree, fetcher, keep);
+  }
+
+  /**
+   * Reuse the current query's verified predicate slices when a composite key or operand names the
+   * same column. Its kernel tests the predicate before touching those cells; pruned leaves therefore
+   * need no full-column replacement. Keep this sharing query-local: a masked array must never be
+   * published as a complete column, nor used as evidence of full-column string identity.
+   */
+  private static ProjectionColumnStore.ColumnSlice[] compositeOperandColumn(final int column,
+      final ProjectionColumnStore store, final ProjectionColumnStore.ColumnSegmentFetcher fetcher,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final ProjectionColumnStore.ColumnSlice[][] predCols,
+      final ProjectionIndexScan.@Nullable PredicateTree tree,
+      final ProjectionColumnStore.ColumnSlice[] @Nullable [] treeCols) {
+    if (!"false".equals(System.getProperty("sirix.projection.reuseGroupPredicateSlices"))) {
+      // The tree is the complete WHERE when present. A separate conjunctive mask may not be used
+      // to narrow an OR branch, so consult only the shape the kernel actually evaluates.
+      final ProjectionIndexScan.ColumnPredicate[] leaves = tree == null ? predicates : tree.leaves;
+      final ProjectionColumnStore.ColumnSlice[][] columns = tree == null ? predCols : treeCols;
+      for (int i = 0; i < leaves.length; i++) {
+        if (leaves[i].column == column) {
+          return columns[i];
+        }
+      }
+    }
+    return store.column(column, fetcher);
   }
 
   /**
@@ -14619,6 +14659,34 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return mask;
   }
 
+  private static ServedGroups serveScalarValueCounts(final Map<String, Long> counts, final String keyName,
+      final String outputName, final boolean stringifyMissing) {
+    final long missing = stringifyMissing ? counts.getOrDefault(null, 0L) : 0L;
+    final ArrayList<Item> rows = new ArrayList<>(counts.size());
+    final QNm key = new QNm(keyName);
+    final QNm output = new QNm(outputName);
+    for (final Map.Entry<String, Long> entry : counts.entrySet()) {
+      final String value = entry.getKey();
+      if (stringifyMissing && value == null) {
+        continue;
+      }
+      final long count = stringifyMissing && "".equals(value)
+          ? Math.addExact(entry.getValue(), missing)
+          : entry.getValue();
+      if (count > 0) {
+        rows.add(new ArrayObject(new QNm[] {key, output},
+            new Sequence[] {value == null ? null : new Str(value), new Int64(count)}));
+      }
+    }
+    if (stringifyMissing && missing > 0 && !counts.containsKey("")) {
+      rows.add(new ArrayObject(new QNm[] {key, output},
+          new Sequence[] {new Str(""), new Int64(missing)}));
+    }
+    GROUP_AGG_SERVED.increment();
+    GROUP_AGG_SUMMARY_SERVED.increment();
+    return new ServedGroups(new ItemSequence(rows.toArray(new Item[0])), false);
+  }
+
   public ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
@@ -14666,6 +14734,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (keyCount < 1 || keyCount > ProjectionIndexByteScan.MAX_GROUP_COLUMNS || keyNames.length != keyCount) {
         return declineGroupAgg("keyCount " + keyCount + " vs max " + ProjectionIndexByteScan.MAX_GROUP_COLUMNS);
       }
+      final ServedGroups sortedGroups = trySortedGroupTopK(sourcePath, predicateOrNull, groupFields,
+          keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc, limit, keyOffsets, keySubstr,
+          keyCondFields, keyCondElse, keyRegexPattern, keyDivMod, keyStringify, having);
+      if (sortedGroups != null) {
+        return sortedGroups;
+      }
       // Unanchored: this route's kernels visit every row of every row group with per-leaf
       // presence masks, so an anchorless predicate (bare negation, true-on-missing) serves
       // exactly — the row-scan anchor guard must not veto it.
@@ -14691,10 +14765,36 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           required.add(raw);
         }
       }
+      final boolean scalarSummaryShape = predicateOrNull == null && keyCount == 1 && funcs.length == 1
+          && "count".equals(funcs[0]) && aggFields.length == 1 && aggFields[0] == null
+          && outNames.length == 1 && having == null && limit < 0
+          && orderIndexes != null && orderIndexes.length == 1 && orderIndexes[0] == 1
+          && orderAsc != null && orderAsc.length == 1 && !orderAsc[0]
+          && (keyCondFields == null || keyCondFields.length == 1 && keyCondFields[0] == null)
+          && (keyStringify == null || keyStringify.length == 1)
+          && anyKPlainKeys(1, keyOffsets, keySubstr, keyCondElse, keyRegexPattern, keyDivMod, null);
+      if (scalarSummaryShape && wtx == null) {
+        final Map<String, Long> counts = ProjectionIndexCatalog.lookupScalarValueRowCounts(session,
+            projectionRegistryKey, revision, sourcePath, groupFields[0]);
+        if (counts != null) {
+          return serveScalarValueCounts(counts, keyNames[0], outNames[0],
+              keyStringify != null && keyStringify[0]);
+        }
+      }
       final ProjectionIndexRegistry.Handle handle =
           lookupProjection(sourcePath, requiredFields(required.toArray(new String[0]), cp));
       if (handle == null) {
         return declineGroupAgg("no projection covers the source path and required fields");
+      }
+      if (scalarSummaryShape) {
+        final int summaryColumn = handle.columnOf(groupFields[0]);
+        if (summaryColumn >= 0) {
+          final Map<String, Long> counts = handle.scalarValueRowCounts(summaryColumn);
+          if (counts != null) {
+            return serveScalarValueCounts(counts, keyNames[0], outNames[0],
+                keyStringify != null && keyStringify[0]);
+          }
+        }
       }
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
       final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
@@ -15418,7 +15518,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int identityCol = cdStringDict && cdBlock >= 0 && cdBlock < aggColsFlat.length
           ? aggColsFlat[cdBlock]
           : -1;
-      final boolean slicedFits = !budgetRefused && slicedKinds && (tree == null || treeSliceable(groupStore, tree))
+      // A large bounded directory exists to stream its leaves. Pricing a whole-column resident
+      // fill would itself traverse every descriptor before the first window is scanned.
+      final boolean boundedStream = groupStore != null && groupStore.hasBoundedDirectoryWindows()
+          && groupStore.rowGroupCount() >= 1024 && !cdStringDict;
+      final boolean slicedFits = !boundedStream && !budgetRefused && slicedKinds
+          && (tree == null || treeSliceable(groupStore, tree))
           && allColumnsSliceable(groupStore, groupCols) && aggColumnsFillable(groupStore, aggColsFlat, cdStringDict
               ? cdBlock
               : -1)
@@ -15827,7 +15932,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             for (int k = 0; k < keyCount; k++) {
               cKeyKindsTrue[k] = groupStore.columnKind(groupCols[k]);
               cKeyKinds[k] = kernelKeyKind(cKeyKindsTrue[k]);
-              cKeyCols[k] = groupStore.column(groupCols[k], cFetcher);
+              cKeyCols[k] = compositeOperandColumn(groupCols[k], groupStore, cFetcher,
+                  preds, cPredCols, tree, cTreeCols);
             }
             // Resident: the whole column is here, so each segment-scoped key builds its value space
             // by the merge, over the rows the predicates keep — the kernels' own verdict, taken once
@@ -15845,7 +15951,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 throw new IllegalStateException(
                     "aggColumn " + aggColsFlat[a] + " is not NUMERIC_LONG or STRING_GLOBAL");
               }
-              cAggCols[a] = groupStore.column(aggColsFlat[a], cFetcher);
+              cAggCols[a] = compositeOperandColumn(aggColsFlat[a], groupStore, cFetcher,
+                  preds, cPredCols, tree, cTreeCols);
             }
             if (keyCondCols != null) {
               cCondCols = new ProjectionColumnStore.ColumnSlice[2 * keyCount][];
@@ -17344,6 +17451,98 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       failSoft(GROUP_AGG_FAILED, "group-aggregate serving", e);
       return null;
     }
+  }
+
+  private ServedGroups trySortedGroupTopK(final String[] sourcePath, final PredicateNode predicate,
+      final String[] groupFields, final String[] keyNames, final String[] funcs, final String[] aggFields,
+      final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc, final long limit,
+      final long[] keyOffsets, final int[] keySubstr, final String[] keyCondFields,
+      final String[] keyCondElse, final String[] keyRegexPattern, final long[] keyDivMod,
+      final boolean[] keyStringify, final long[] having) {
+    if (wtx != null || predicate == null || groupFields.length != 1 || funcs.length == 0
+        || funcs.length != aggFields.length || funcs.length != outNames.length || limit < 1 || limit > 32
+        || having != null || orderIndexes == null || orderIndexes.length != 1 || orderAsc == null
+        || orderAsc.length != 1 || !anyKPlainKeys(1, keyOffsets, keySubstr, keyCondElse,
+            keyRegexPattern, keyDivMod, keyStringify)
+        || keyCondFields != null && keyCondFields[0] != null) {
+      return null;
+    }
+    final int orderedAggregate = orderIndexes[0] - 1;
+    if (orderedAggregate < 0 || orderedAggregate >= funcs.length) {
+      return null;
+    }
+    final String field = aggFields[0];
+    if (field == null) {
+      return null;
+    }
+    for (int i = 0; i < funcs.length; i++) {
+      if (!field.equals(aggFields[i]) || !("min".equals(funcs[i]) || "max".equals(funcs[i])
+          || funcs[i].startsWith(SPAN_PREFIX))) {
+        return null;
+      }
+    }
+    final String orderedFunction = funcs[orderedAggregate];
+    final ProjectionSortedGroupScan.Order order;
+    final long divisor;
+    if ("min".equals(orderedFunction) && orderAsc[0]) {
+      order = ProjectionSortedGroupScan.Order.MIN_ASC;
+      divisor = 1;
+    } else if ("max".equals(orderedFunction) && !orderAsc[0]) {
+      order = ProjectionSortedGroupScan.Order.MAX_DESC;
+      divisor = 1;
+    } else if (orderedFunction.startsWith(SPAN_PREFIX) && !orderAsc[0]) {
+      order = ProjectionSortedGroupScan.Order.SPAN_DESC;
+      divisor = spanDivisor(orderedFunction);
+      if (divisor < 1) {
+        return null;
+      }
+    } else {
+      return null;
+    }
+    final Map<String, String> equalities = new HashMap<>(4);
+    if (!collectSortedEqualities(predicate, equalities) || equalities.isEmpty()) {
+      return null;
+    }
+    boolean minOnly = order == ProjectionSortedGroupScan.Order.MIN_ASC;
+    for (final String function : funcs) {
+      minOnly &= "min".equals(function);
+    }
+    final List<ProjectionSortedGroupScan.Group> groups = ProjectionIndexCatalog.sortedGroupTopK(session,
+        projectionRegistryKey, revision, sourcePath, equalities, groupFields[0], field,
+        (int) limit, order, divisor, minOnly);
+    if (groups == null) {
+      return null;
+    }
+    final ArrayList<Item> out = new ArrayList<>(groups.size());
+    final ArrayList<String> distinctFields = new ArrayList<>(1);
+    distinctFields.add(field);
+    for (final ProjectionSortedGroupScan.Group group : groups) {
+      final long[] acc = {1, 0, 1, 0, group.min(), group.max()};
+      out.add(groupAggRecord(group.key(), acc, keyNames[0], funcs, aggFields, outNames,
+          distinctFields, -1));
+    }
+    GROUP_SORTED_SERVED.increment();
+    GROUP_AGG_SERVED.increment();
+    return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), true);
+  }
+
+  private static boolean collectSortedEqualities(final PredicateNode predicate,
+      final Map<String, String> equalities) {
+    return switch (predicate) {
+      case PredicateNode.StrEq equality -> {
+        final String old = equalities.putIfAbsent(equality.field(), equality.value());
+        yield old == null || old.equals(equality.value());
+      }
+      case PredicateNode.And conjunction -> {
+        boolean exact = true;
+        for (final PredicateNode child : conjunction.children()) {
+          exact &= collectSortedEqualities(child, equalities);
+        }
+        yield exact;
+      }
+      case PredicateNode.AlwaysTrue ignored -> true;
+      default -> false;
+    };
   }
 
   /** Grouped COUNT(DISTINCT) served exactly from per-group sets (test oracle). */

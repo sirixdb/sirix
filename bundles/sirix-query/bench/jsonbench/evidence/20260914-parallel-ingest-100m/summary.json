@@ -1,0 +1,41 @@
+{
+  "corpus_sha256": "925e84df83435fb1dcb621ad89e9b48f859c8b7c0cbeedf084605bd3ff48312a",
+  "full_scale_100m": {
+    "rows_loaded": 99999968,
+    "parallel_load_seconds": 3423.214,
+    "sequential_load_seconds": 10274.52,
+    "observed_speedup": 3.001424976644756,
+    "parallel_database_bytes": 34553136826,
+    "sequential_database_bytes": 48931210935,
+    "database_size_reduction_fraction": 0.2938425972759957,
+    "revision": 1,
+    "node_history_samples_created_in_revision_one": "129/129",
+    "one_pass_projection": true,
+    "persistent_dictionary_probes": 0,
+    "clickhouse_differential_q1_to_q5": "exact",
+    "comparison_limit": "The full-scale loads used the same corpus and host at different times."
+  },
+  "matched_5m": {
+    "parallel_load_seconds": 138.794,
+    "sequential_load_seconds": 294.027,
+    "speedup": 2.118441719382682,
+    "parallel_database_bytes": 2215053020,
+    "sequential_database_bytes": 2995193559,
+    "node_history_samples_present": "141/141",
+    "queries_q1_to_q5": "byte-identical"
+  },
+  "clickbench_200k": {
+    "queries": 43,
+    "sirix_fast_vs_generic_exact": 43,
+    "sirix_vs_duckdb_exact": 33,
+    "sirix_vs_duckdb_strongly_verified_legal_tie_windows": 10,
+    "mismatches": 0,
+    "relative_workdir_rerun": "passed"
+  },
+  "tunings_rejected_after_abba_1m": [
+    "16 MiB chunks: 0.6% mean timing difference, within run variation",
+    "four builders: 4.7% slower than two",
+    "65536-node flush threshold: 0.9% slower than 131072",
+    "compact singleton revision history: 2.5% slower"
+  ]
+}

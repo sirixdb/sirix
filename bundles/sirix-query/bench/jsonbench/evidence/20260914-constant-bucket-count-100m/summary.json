@@ -1,0 +1,1084 @@
+{
+  "date": "2026-09-14",
+  "rows": 99999968,
+  "status": "accepted, uncommitted; ClickHouse parity not achieved",
+  "change": "Generic dictionary-id counting when every numeric group component is proven constant within a block",
+  "raw_evidence_root": "build/jsonbench-campaign/source-flag-summary-v47/constant-bucket-count-v1",
+  "paired_evidence_root": "build/jsonbench-campaign/source-flag-summary-v47/paired-constant-bucket-v56-100m-attempt1",
+  "sources": [
+    {
+      "path": "bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionColumnGroupScan.java",
+      "sha256": "6a223c2f7a9b2958602a0ee3931d015d8718fa895a2edaee2d1e1781aad40126"
+    },
+    {
+      "path": "bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionSortedDirectory.java",
+      "sha256": "4cd75b70fb49453ca481424d7e3cb0dbdce446df9c9eab75216e99fac82bd266"
+    },
+    {
+      "path": "bundles/sirix-core/src/test/java/io/sirix/index/projection/ConstantBucketGroupCountTest.java",
+      "sha256": "fab3158c3bcaa8cfea43ac0ec459c9cafc0c850be6f7baa34546138980a025b8"
+    }
+  ],
+  "baseline_source": {
+    "path": "build/jsonbench-campaign/source-flag-summary-v47/constant-bucket-count-v1/before/ProjectionColumnGroupScan.java",
+    "sha256": "1519aeb40c7b73641e9adcc45760c58239e13b3d43494be5c07d02da78b5f313"
+  },
+  "native_build": {
+    "path": "build/jsonbench-campaign/pgo-constant-bucket-v56-100m/jb",
+    "sha256": "f6e84d439d83a5c58fb32593ebc867b0bb625c2c1dcbe300561cf16e2562f8c5",
+    "baseline_binary_sha256": "05edf91b0da52c5f59e81442600fcef956ca3dac5dfc9174bb330df964c35994",
+    "unchanged_base_classes_verified": 2053,
+    "overlays": [
+      {
+        "path": "build/jsonbench-campaign/source-flag-summary-v47/constant-bucket-count-v1/candidate/io/sirix/index/projection/ProjectionColumnGroupScan$DictScratch.class",
+        "sha256": "1b7d9de62937390d11f6eb590a1e1a6d720a3f97642af4c217c295015656eecd"
+      },
+      {
+        "path": "build/jsonbench-campaign/source-flag-summary-v47/constant-bucket-count-v1/candidate/io/sirix/index/projection/ProjectionColumnGroupScan.class",
+        "sha256": "27a59d630621af82fce3adf21e0cb1bc6427e6cdf22a073c84b76904b64fd5bf"
+      },
+      {
+        "path": "build/jsonbench-campaign/source-flag-summary-v47/directory-prefix-jump-v1/candidate/io/sirix/index/projection/ProjectionSortedDirectory$Accessor$Cursor.class",
+        "sha256": "d0aafddcc3248651e4be4519dd734a908477aebaa68e6e60ffab886b217ae165"
+      },
+      {
+        "path": "build/jsonbench-campaign/source-flag-summary-v47/directory-prefix-jump-v1/candidate/io/sirix/index/projection/ProjectionSortedDirectory$Accessor.class",
+        "sha256": "60974635607d443223e982f14613cb2b1b7a96c62670bed39ac7f371a8379111"
+      },
+      {
+        "path": "build/jsonbench-campaign/source-flag-summary-v47/directory-prefix-jump-v1/candidate/io/sirix/index/projection/ProjectionSortedDirectory$Builder.class",
+        "sha256": "e38f93b1cfe5e28686fbd4eb02ced32e3222f3415bdca47e29549617fd4579ec"
+      },
+      {
+        "path": "build/jsonbench-campaign/source-flag-summary-v47/directory-prefix-jump-v1/candidate/io/sirix/index/projection/ProjectionSortedDirectory$Editor.class",
+        "sha256": "36db3665412b13ef2df2169bd98f808027d84ade71da683c9273faed9a30ea5a"
+      },
+      {
+        "path": "build/jsonbench-campaign/source-flag-summary-v47/directory-prefix-jump-v1/candidate/io/sirix/index/projection/ProjectionSortedDirectory.class",
+        "sha256": "9678fe5e9c39ca563debb5ceb9a20685739749911fc9a0e041e5c84faae45a09"
+      }
+    ],
+    "profiles": [
+      {
+        "path": "build/jsonbench-campaign/source-combined-v34b/training-100m-attempt1/q1.iprof.gz",
+        "sha256": "bd4c5b82653bc4ddde123c917ffc52559f3c604d595e0a3c22dfb0e72c27c096"
+      },
+      {
+        "path": "build/jsonbench-campaign/source-combined-v34b/training-100m-attempt1/q2.iprof.gz",
+        "sha256": "d50161b4b2f16f28bd4dd7bea009cad9dfd7ff6b6206e783ccbc4cfd267cfaba"
+      },
+      {
+        "path": "build/jsonbench-campaign/source-combined-v34b/training-100m-attempt1/q3.iprof.gz",
+        "sha256": "c41a4d4e8bee7218a70cfa7ed27f8f0041eaa6ef0b35e4c7ce2b4abc8086e7e6"
+      },
+      {
+        "path": "build/jsonbench-campaign/source-combined-v34b/training-100m-attempt1/q4.iprof.gz",
+        "sha256": "e7e8c17482053d020d364c928a866bf72594330bb717b390bc75ea1084be80ee"
+      },
+      {
+        "path": "build/jsonbench-campaign/source-combined-v34b/training-100m-attempt1/q5.iprof.gz",
+        "sha256": "780d90af18c70c959a8633aebffff7c999ca2e6990417a0f7e09eb262e167a3a"
+      }
+    ],
+    "manifest_path": "build/jsonbench-campaign/pgo-constant-bucket-v56-100m/build-outcome.json"
+  },
+  "native_paired": {
+    "protocol": {
+      "protocol": "jsonbench-isolated-v1",
+      "pairing": "per-query AB in odd rounds, BA in even rounds",
+      "tier": "100m",
+      "rows": 99999968,
+      "tries": 2,
+      "rounds": 2,
+      "score": "geomean((Sirix query seconds + .010) / (ClickHouse query seconds + .010))",
+      "cache": "first attempt verified evicted files and fresh process; remaining attempts fresh processes, warm OS cache",
+      "setup_in_ranking": false,
+      "sorted_queries": [],
+      "process_usage": "GNU time -v wraps every engine process; engine-reported query duration remains the ranked latency"
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "result": {
+          "sirix": [
+            [
+              0.016,
+              0.011
+            ],
+            [
+              3.99,
+              2.896
+            ],
+            [
+              3.849,
+              3.047
+            ],
+            [
+              2.017,
+              1.888
+            ],
+            [
+              2.115,
+              1.974
+            ]
+          ],
+          "ch": [
+            [
+              0.087,
+              0.078
+            ],
+            [
+              1.676,
+              1.785
+            ],
+            [
+              0.542,
+              0.557
+            ],
+            [
+              0.333,
+              0.304
+            ],
+            [
+              0.282,
+              0.307
+            ]
+          ]
+        },
+        "metrics": {
+          "cold": {
+            "geometric_ratio": 2.859532846023535,
+            "query_ratios": [
+              0.2680412371134021,
+              2.372479240806643,
+              6.990942028985507,
+              5.909620991253643,
+              7.277397260273973
+            ],
+            "sirix_sum_s": 11.987,
+            "clickhouse_sum_s": 2.92
+          },
+          "hot": {
+            "geometric_ratio": 2.395001694477906,
+            "query_ratios": [
+              0.23863636363636362,
+              1.6189415041782729,
+              5.391534391534391,
+              6.044585987261146,
+              6.2586750788643535
+            ],
+            "sirix_sum_s": 9.816,
+            "clickhouse_sum_s": 3.031
+          }
+        }
+      },
+      {
+        "round": 2,
+        "result": {
+          "sirix": [
+            [
+              0.015,
+              0.011
+            ],
+            [
+              3.749,
+              2.913
+            ],
+            [
+              4.172,
+              3.164
+            ],
+            [
+              2.049,
+              1.895
+            ],
+            [
+              2.118,
+              1.985
+            ]
+          ],
+          "ch": [
+            [
+              0.102,
+              0.088
+            ],
+            [
+              1.753,
+              1.702
+            ],
+            [
+              0.575,
+              0.594
+            ],
+            [
+              0.275,
+              0.299
+            ],
+            [
+              0.331,
+              0.326
+            ]
+          ]
+        },
+        "metrics": {
+          "cold": {
+            "geometric_ratio": 2.736275227333595,
+            "query_ratios": [
+              0.22321428571428575,
+              2.132161089052751,
+              7.148717948717948,
+              7.22456140350877,
+              6.240469208211143
+            ],
+            "sirix_sum_s": 12.103,
+            "clickhouse_sum_s": 3.036
+          },
+          "hot": {
+            "geometric_ratio": 2.3414542486751686,
+            "query_ratios": [
+              0.21428571428571427,
+              1.7073598130841119,
+              5.254966887417218,
+              6.165048543689321,
+              5.9375
+            ],
+            "sirix_sum_s": 9.968,
+            "clickhouse_sum_s": 3.009
+          }
+        }
+      }
+    ],
+    "exact_q1_q5": true,
+    "thermal_failure": [],
+    "scope": {
+      "command": [
+        "python3",
+        "build/jsonbench-campaign/evidence/prior_thermal_guard.py",
+        "--log",
+        "build/jsonbench-campaign/source-flag-summary-v47/constant-bucket-count-v1/paired-thermal.jsonl",
+        "--verdict",
+        "build/jsonbench-campaign/source-flag-summary-v47/constant-bucket-count-v1/paired-verdict.json",
+        "--",
+        "python3",
+        "build/jsonbench-campaign/evidence/paired-retention-100m.py",
+        "--tier",
+        "100m",
+        "--sirix",
+        "build/jsonbench-campaign/pgo-constant-bucket-v56-100m/jb",
+        "--db",
+        "build/jsonbench-campaign/db-100m-parallel-v1",
+        "--ch-db",
+        "build/jsonbench-campaign/ch26-sorted/ch-data-100m",
+        "--rows",
+        "99999968",
+        "--out",
+        "build/jsonbench-campaign/source-flag-summary-v47/paired-constant-bucket-v56-100m-attempt1",
+        "--tries",
+        "2",
+        "--rounds",
+        "2"
+      ],
+      "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/jsonbench-constant-bucket-v56-paired-100m.scope",
+      "before": {
+        "memory.max": "25769803776",
+        "memory.swap.max": "0",
+        "memory.current": "6627328",
+        "memory.peak": "6627328",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.swap.events": "high 0\nmax 0\nfail 0",
+        "cpu.stat": "usage_usec 62277\nuser_usec 46461\nsystem_usec 15816\ncore_sched.force_idle_usec 0",
+        "cpu.max.ancestors": {
+          "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/cpu.max": "max 100000",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/cpu.max": "max 100000",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/cpu.max": "max 100000",
+          "/sys/fs/cgroup/user.slice/cpu.max": "max 100000"
+        }
+      },
+      "started": 1789403634.388853,
+      "exit_code": 0,
+      "after": {
+        "memory.max": "25769803776",
+        "memory.swap.max": "0",
+        "memory.current": "1150951424",
+        "memory.peak": "10578333696",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.swap.events": "high 0\nmax 0\nfail 0",
+        "cpu.stat": "usage_usec 652408100\nuser_usec 445688678\nsystem_usec 206719421\ncore_sched.force_idle_usec 0",
+        "cpu.max.ancestors": {
+          "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/cpu.max": "max 100000",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/cpu.max": "max 100000",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/cpu.max": "max 100000",
+          "/sys/fs/cgroup/user.slice/cpu.max": "max 100000"
+        }
+      },
+      "finished": 1789403796.5474827
+    },
+    "prior_v55_hot_ratios": [
+      2.50585697,
+      2.67027894
+    ],
+    "comparison_limit": "Prior v55 rounds occurred at a different time. New score is a matched candidate/ClickHouse observation, not an isolated old/new code effect."
+  },
+  "jvm_q3": {
+    "protocol": "ABBA; 12 tries per JVM; median of last six; only group-scan overlay differs",
+    "rounds": [
+      {
+        "ordinal": 1,
+        "mode": "baseline",
+        "elapsed": 20.743,
+        "exact": true,
+        "timings": [
+          10.764,
+          1.708,
+          1.977,
+          0.57,
+          0.669,
+          0.446,
+          0.508,
+          0.441,
+          0.483,
+          0.556,
+          0.635,
+          0.433
+        ],
+        "last6_median": 0.4955,
+        "best_hot": 0.433
+      },
+      {
+        "ordinal": 2,
+        "mode": "candidate",
+        "elapsed": 15.331,
+        "exact": true,
+        "timings": [
+          7.143,
+          1.899,
+          1.68,
+          0.354,
+          0.329,
+          0.329,
+          0.399,
+          0.326,
+          0.263,
+          0.298,
+          0.284,
+          0.428
+        ],
+        "last6_median": 0.312,
+        "best_hot": 0.263
+      },
+      {
+        "ordinal": 3,
+        "mode": "candidate",
+        "elapsed": 14.071,
+        "exact": true,
+        "timings": [
+          7.058,
+          1.003,
+          1.673,
+          0.348,
+          0.392,
+          0.282,
+          0.282,
+          0.297,
+          0.324,
+          0.32,
+          0.261,
+          0.279
+        ],
+        "last6_median": 0.2895,
+        "best_hot": 0.261
+      },
+      {
+        "ordinal": 4,
+        "mode": "baseline",
+        "elapsed": 22.797,
+        "exact": true,
+        "timings": [
+          13.644,
+          2.587,
+          0.479,
+          0.845,
+          0.449,
+          0.487,
+          0.46,
+          0.519,
+          0.424,
+          0.423,
+          0.464,
+          0.478
+        ],
+        "last6_median": 0.462,
+        "best_hot": 0.423
+      }
+    ],
+    "reduction_fraction": 0.3718015665796346
+  },
+  "native_phase_diagnostic": {
+    "baseline_scan_ms": 371,
+    "candidate_scan_ms": 65,
+    "candidate_total_query_s": 3.328,
+    "candidate_directory_ms": 1242.5,
+    "candidate_column_fill_ms": [
+      535.5,
+      575.9
+    ],
+    "candidate_young_gc_pause_total_ms": 279.788,
+    "candidate_max_rss_kib": 4304728,
+    "limitation": "Single fresh-process diagnostic per binary with logging; timings overlap GC and are not ranked causal estimates."
+  },
+  "clickbench": {
+    "rows": 200000,
+    "queries": 43,
+    "full_rounds": [
+      {
+        "ordinal": 1,
+        "mode": "baseline",
+        "exact": true,
+        "elapsed_seconds": 11.39641176594887,
+        "hot_medians": [
+          0.003,
+          0.027,
+          0.01,
+          0.028,
+          0.024,
+          0.035,
+          0.004,
+          0.02,
+          0.058,
+          0.063,
+          0.014,
+          0.016,
+          0.02,
+          0.019,
+          0.026,
+          0.083,
+          0.103,
+          0.108,
+          0.199,
+          0.006,
+          0.009,
+          0.033,
+          0.016,
+          0.041,
+          0.008,
+          0.011,
+          0.007,
+          0.076,
+          0.101,
+          0.029,
+          0.03,
+          0.031,
+          0.134,
+          0.052,
+          0.051,
+          0.053,
+          0.035,
+          0.029,
+          0.012,
+          0.114,
+          0.007,
+          0.009,
+          0.018
+        ],
+        "hot_median_sum": 1.772
+      },
+      {
+        "ordinal": 2,
+        "mode": "candidate",
+        "exact": true,
+        "elapsed_seconds": 11.111678892979398,
+        "hot_medians": [
+          0.003,
+          0.023,
+          0.008,
+          0.028,
+          0.023,
+          0.033,
+          0.003,
+          0.017,
+          0.061,
+          0.062,
+          0.017,
+          0.023,
+          0.018,
+          0.019,
+          0.024,
+          0.056,
+          0.105,
+          0.104,
+          0.182,
+          0.006,
+          0.011,
+          0.019,
+          0.015,
+          0.042,
+          0.009,
+          0.011,
+          0.009,
+          0.081,
+          0.096,
+          0.029,
+          0.035,
+          0.036,
+          0.13,
+          0.053,
+          0.054,
+          0.057,
+          0.026,
+          0.028,
+          0.014,
+          0.121,
+          0.007,
+          0.007,
+          0.022
+        ],
+        "hot_median_sum": 1.727
+      },
+      {
+        "ordinal": 3,
+        "mode": "candidate",
+        "exact": true,
+        "elapsed_seconds": 11.127985109982546,
+        "hot_medians": [
+          0.002,
+          0.023,
+          0.009,
+          0.021,
+          0.033,
+          0.033,
+          0.005,
+          0.016,
+          0.065,
+          0.062,
+          0.036,
+          0.024,
+          0.039,
+          0.021,
+          0.026,
+          0.055,
+          0.107,
+          0.109,
+          0.198,
+          0.005,
+          0.025,
+          0.019,
+          0.015,
+          0.05,
+          0.008,
+          0.011,
+          0.008,
+          0.089,
+          0.102,
+          0.025,
+          0.028,
+          0.029,
+          0.131,
+          0.052,
+          0.056,
+          0.056,
+          0.035,
+          0.026,
+          0.013,
+          0.118,
+          0.007,
+          0.007,
+          0.016
+        ],
+        "hot_median_sum": 1.815
+      },
+      {
+        "ordinal": 4,
+        "mode": "baseline",
+        "exact": true,
+        "elapsed_seconds": 11.030442556017078,
+        "hot_medians": [
+          0.002,
+          0.024,
+          0.013,
+          0.024,
+          0.024,
+          0.034,
+          0.003,
+          0.02,
+          0.059,
+          0.064,
+          0.019,
+          0.016,
+          0.021,
+          0.019,
+          0.027,
+          0.056,
+          0.109,
+          0.104,
+          0.203,
+          0.007,
+          0.004,
+          0.021,
+          0.016,
+          0.057,
+          0.009,
+          0.011,
+          0.008,
+          0.075,
+          0.099,
+          0.03,
+          0.032,
+          0.038,
+          0.135,
+          0.047,
+          0.048,
+          0.048,
+          0.033,
+          0.027,
+          0.013,
+          0.112,
+          0.008,
+          0.007,
+          0.016
+        ],
+        "hot_median_sum": 1.742
+      }
+    ],
+    "warm_rounds": [
+      {
+        "ordinal": 1,
+        "mode": "baseline",
+        "exact": true,
+        "last20_medians": {
+          "4": 0.0095,
+          "10": 0.0115,
+          "11": 0.012,
+          "12": 0.017,
+          "14": 0.0215,
+          "16": 0.0995,
+          "17": 0.028
+        }
+      },
+      {
+        "ordinal": 2,
+        "mode": "candidate",
+        "exact": true,
+        "last20_medians": {
+          "4": 0.011,
+          "10": 0.01,
+          "11": 0.012,
+          "12": 0.0165,
+          "14": 0.019,
+          "16": 0.0985,
+          "17": 0.0195
+        }
+      },
+      {
+        "ordinal": 3,
+        "mode": "candidate",
+        "exact": true,
+        "last20_medians": {
+          "4": 0.009999999999999998,
+          "10": 0.012,
+          "11": 0.0115,
+          "12": 0.017,
+          "14": 0.02,
+          "16": 0.098,
+          "17": 0.02
+        }
+      },
+      {
+        "ordinal": 4,
+        "mode": "baseline",
+        "exact": true,
+        "last20_medians": {
+          "4": 0.009,
+          "10": 0.011,
+          "11": 0.012,
+          "12": 0.016,
+          "14": 0.02,
+          "16": 0.0955,
+          "17": 0.0335
+        }
+      }
+    ],
+    "full_screen_sum_change_fraction": 0.007968127490039612,
+    "differential": "43 exact interpreter matches; DuckDB 33 exact plus 10 strongly verified legal tie windows; no missing query in all four runs",
+    "limitation": "Small synthetic regression screen; four tries for full suite, forty tries for seven follow-up queries. Does not establish performance on full real ClickBench."
+  },
+  "io_gap_screen": {
+    "rounds": [
+      {
+        "round": 1,
+        "query": 2,
+        "gap_bytes": 262144,
+        "attempt": 1,
+        "cache": "cold",
+        "seconds": 3.775,
+        "wall_seconds": 4.172709163,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 1,
+        "query": 2,
+        "gap_bytes": 262144,
+        "attempt": 2,
+        "cache": "warm_os",
+        "seconds": 2.889,
+        "wall_seconds": 3.255689331,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 1,
+        "query": 3,
+        "gap_bytes": 262144,
+        "attempt": 1,
+        "cache": "cold",
+        "seconds": 3.938,
+        "wall_seconds": 4.262541625,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 1,
+        "query": 3,
+        "gap_bytes": 262144,
+        "attempt": 2,
+        "cache": "warm_os",
+        "seconds": 3.31,
+        "wall_seconds": 3.654420605,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 2,
+        "query": 2,
+        "gap_bytes": 4096,
+        "attempt": 1,
+        "cache": "cold",
+        "seconds": 3.179,
+        "wall_seconds": 3.540529783,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 2,
+        "query": 2,
+        "gap_bytes": 4096,
+        "attempt": 2,
+        "cache": "warm_os",
+        "seconds": 3.068,
+        "wall_seconds": 3.441298568,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 2,
+        "query": 3,
+        "gap_bytes": 4096,
+        "attempt": 1,
+        "cache": "cold",
+        "seconds": 3.735,
+        "wall_seconds": 4.149988429,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 2,
+        "query": 3,
+        "gap_bytes": 4096,
+        "attempt": 2,
+        "cache": "warm_os",
+        "seconds": 3.189,
+        "wall_seconds": 3.560926126,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 3,
+        "query": 2,
+        "gap_bytes": 4096,
+        "attempt": 1,
+        "cache": "cold",
+        "seconds": 3.225,
+        "wall_seconds": 3.584767272,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 3,
+        "query": 2,
+        "gap_bytes": 4096,
+        "attempt": 2,
+        "cache": "warm_os",
+        "seconds": 3.005,
+        "wall_seconds": 3.382645032,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 3,
+        "query": 3,
+        "gap_bytes": 4096,
+        "attempt": 1,
+        "cache": "cold",
+        "seconds": 3.53,
+        "wall_seconds": 3.88515599,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 3,
+        "query": 3,
+        "gap_bytes": 4096,
+        "attempt": 2,
+        "cache": "warm_os",
+        "seconds": 3.257,
+        "wall_seconds": 3.592623811,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 4,
+        "query": 2,
+        "gap_bytes": 262144,
+        "attempt": 1,
+        "cache": "cold",
+        "seconds": 3.661,
+        "wall_seconds": 4.027430566,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 4,
+        "query": 2,
+        "gap_bytes": 262144,
+        "attempt": 2,
+        "cache": "warm_os",
+        "seconds": 2.949,
+        "wall_seconds": 3.30095635,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 4,
+        "query": 3,
+        "gap_bytes": 262144,
+        "attempt": 1,
+        "cache": "cold",
+        "seconds": 3.811,
+        "wall_seconds": 4.145607799,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      },
+      {
+        "round": 4,
+        "query": 3,
+        "gap_bytes": 262144,
+        "attempt": 2,
+        "cache": "warm_os",
+        "seconds": 3.364,
+        "wall_seconds": 3.743842663,
+        "exact": true,
+        "routes": {
+          "predicateCounts": 0,
+          "groupAggregates": 1,
+          "numericGroupBys": 0,
+          "groupSliced": 1,
+          "groupSummary": 0,
+          "groupDense": 0,
+          "sortedScans": 0,
+          "sortedGroupBys": 0,
+          "predicateScans": 0,
+          "valueEmissions": 0
+        }
+      }
+    ],
+    "thermal_failure": [],
+    "decision": "Keep 256 KiB default: 4 KiB gap regresses warm Q2 by about 4%, despite improving cold queries."
+  },
+  "validation": {
+    "prior_targeted_tests": 95,
+    "additional_missing_value_case": 1,
+    "failures": 0,
+    "suites": [
+      "ConstantBucketGroupCountTest",
+      "NeutralGroupTransformTest",
+      "NumericGroupAggTableTest",
+      "CompositeDiscardedFoldTest",
+      "ProjectionIndexDenseCompositeTest",
+      "CompositeGroupIdentityCollisionTest",
+      "ProjectionStringIdentityRegistryTest",
+      "JsonBenchShapeServingTest",
+      "ProjectionSortedGroupServingTest"
+    ],
+    "logs": [
+      "core-tests.log",
+      "regression-tests.log",
+      "missing-values-test.log"
+    ],
+    "storage_format_and_write_paths_changed": false
+  }
+}

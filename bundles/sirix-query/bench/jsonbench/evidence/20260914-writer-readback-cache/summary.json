@@ -1,0 +1,4853 @@
+{
+  "load_10m": {
+    "records": [
+      {
+        "round": 1,
+        "candidate": false,
+        "load_seconds": 235.715,
+        "process_wall_seconds": 236.89442628,
+        "database_bytes": 4245096135,
+        "database": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/db-10m-ingestion-v67-r1-baseline",
+        "exact_queries": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "layout_and_creation_history": true
+      },
+      {
+        "round": 2,
+        "candidate": true,
+        "load_seconds": 161.25,
+        "process_wall_seconds": 162.468068819,
+        "database_bytes": 4245096136,
+        "database": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/db-10m-ingestion-v67-r2-candidate",
+        "bounds_exact": true,
+        "exact_queries": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "layout_and_creation_history": true
+      },
+      {
+        "round": 3,
+        "candidate": true,
+        "load_seconds": 160.403,
+        "process_wall_seconds": 161.617532994,
+        "database_bytes": 4245096136,
+        "database": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/db-10m-ingestion-v67-r3-candidate",
+        "bounds_exact": true,
+        "exact_queries": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "layout_and_creation_history": true
+      },
+      {
+        "round": 4,
+        "candidate": false,
+        "load_seconds": 237.3,
+        "process_wall_seconds": 238.471543144,
+        "database_bytes": 4245096135,
+        "database": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/db-10m-ingestion-v67-r4-baseline",
+        "exact_queries": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "layout_and_creation_history": true
+      }
+    ],
+    "baseline_mean_seconds": 236.5075,
+    "candidate_mean_seconds": 160.8265,
+    "speedup": 1.4705754337749064,
+    "elapsed_reduction_percent": 31.999408052598742,
+    "scope": "10M rows; identical input warmed before each isolated fresh load; ABBA; baseline v61 versus combined v67 including query improvements and bulk bounds fix"
+  },
+  "candidate_manifest": {
+    "classes": [
+      {
+        "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-flag-summary-v47/writer-cache-index-v67/candidate/io/sirix/access/trx/page/WriterRecordPageCache.class",
+        "sha256": "e86816704cd62592a76b3f31c375d4ec25bfab59aed449b5d0cafc2fba2762c8"
+      }
+    ],
+    "sources": [
+      {
+        "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/WriterRecordPageCache.java",
+        "sha256": "29be60a1898ef982a12027e9daa88ef28675898b973b5823570c3e53d1f8be83"
+      }
+    ]
+  },
+  "tests": [
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.access.trx.page.WriterRecordPageCacheTest",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:08.437Z",
+      "hostname": "luna",
+      "time": "1.923"
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.ProjectionStreamingGlobalDictionaryTest",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:33.822Z",
+      "hostname": "luna",
+      "time": "0.096"
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.GlobalValueDictionaryTailCowTest",
+      "tests": "20",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:11.963Z",
+      "hostname": "luna",
+      "time": "9.259"
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.GlobalValueDictionaryLengthTableTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:10.363Z",
+      "hostname": "luna",
+      "time": "0.554"
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.ProjectionSortedGroupSummaryTest",
+      "tests": "20",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:32.722Z",
+      "hostname": "luna",
+      "time": "1.099"
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.ParallelBulkProjectionEquivalenceTest",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:21.448Z",
+      "hostname": "luna",
+      "time": "6.343"
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.GlobalValueDictionaryProbeFrontTest",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:10.917Z",
+      "hostname": "luna",
+      "time": "0.053"
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.ProjectionGlobalDictionaryGenerationRotationTest",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:27.791Z",
+      "hostname": "luna",
+      "time": "4.931"
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.GlobalValueDictionaryVerdictRangeTest",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:21.223Z",
+      "hostname": "luna",
+      "time": "0.104"
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.GlobalValueDictionaryStringOpVerdictTest",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:11.836Z",
+      "hostname": "luna",
+      "time": "0.127"
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:10.970Z",
+      "hostname": "luna",
+      "time": "0.866"
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.index.projection.GlobalValueDictionaryWriterBudgetTest",
+      "tests": "18",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:21.328Z",
+      "hostname": "luna",
+      "time": "0.119"
+    },
+    {
+      "module": "sirix-query",
+      "name": "io.sirix.query.scan.CompositePredicateSliceReuseTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:40.523Z",
+      "hostname": "luna",
+      "time": "2.193"
+    },
+    {
+      "module": "sirix-query",
+      "name": "io.sirix.query.JsonBenchShapeServingTest",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-09-14T20:07:38.085Z",
+      "hostname": "luna",
+      "time": "2.434"
+    }
+  ],
+  "capacity_experiment": [
+    {
+      "round": 1,
+      "capacity": 8,
+      "process_wall_seconds": 12.691689538,
+      "exact": true,
+      "allocated_bytes_last32": 478731984,
+      "foreground_wall_ns_last32": 4664342983,
+      "foreground_cpu_ns_last32": 4652154186,
+      "generations": [
+        {
+          "generation": 0,
+          "allocated_bytes": 9347648,
+          "cpu_ns": 74374603,
+          "wall_ns": 74514143
+        },
+        {
+          "generation": 1,
+          "allocated_bytes": 9567408,
+          "cpu_ns": 77065824,
+          "wall_ns": 77181581
+        },
+        {
+          "generation": 2,
+          "allocated_bytes": 9277800,
+          "cpu_ns": 41669078,
+          "wall_ns": 41709650
+        },
+        {
+          "generation": 3,
+          "allocated_bytes": 9207272,
+          "cpu_ns": 47921490,
+          "wall_ns": 48101807
+        },
+        {
+          "generation": 4,
+          "allocated_bytes": 9344504,
+          "cpu_ns": 46540371,
+          "wall_ns": 46786527
+        },
+        {
+          "generation": 5,
+          "allocated_bytes": 8952680,
+          "cpu_ns": 48691097,
+          "wall_ns": 48722846
+        },
+        {
+          "generation": 6,
+          "allocated_bytes": 8865416,
+          "cpu_ns": 32571005,
+          "wall_ns": 32570433
+        },
+        {
+          "generation": 7,
+          "allocated_bytes": 8855304,
+          "cpu_ns": 25594943,
+          "wall_ns": 25625533
+        },
+        {
+          "generation": 8,
+          "allocated_bytes": 9064408,
+          "cpu_ns": 27285857,
+          "wall_ns": 27352362
+        },
+        {
+          "generation": 9,
+          "allocated_bytes": 8597000,
+          "cpu_ns": 35374282,
+          "wall_ns": 35391655
+        },
+        {
+          "generation": 10,
+          "allocated_bytes": 8630704,
+          "cpu_ns": 29335887,
+          "wall_ns": 29335352
+        },
+        {
+          "generation": 11,
+          "allocated_bytes": 9302512,
+          "cpu_ns": 53954432,
+          "wall_ns": 53962958
+        },
+        {
+          "generation": 12,
+          "allocated_bytes": 9477680,
+          "cpu_ns": 55709312,
+          "wall_ns": 55806588
+        },
+        {
+          "generation": 13,
+          "allocated_bytes": 9564512,
+          "cpu_ns": 35973289,
+          "wall_ns": 35993702
+        },
+        {
+          "generation": 14,
+          "allocated_bytes": 9243912,
+          "cpu_ns": 36903759,
+          "wall_ns": 36914243
+        },
+        {
+          "generation": 15,
+          "allocated_bytes": 9110680,
+          "cpu_ns": 39118042,
+          "wall_ns": 39117475
+        },
+        {
+          "generation": 16,
+          "allocated_bytes": 8395272,
+          "cpu_ns": 27490688,
+          "wall_ns": 27772881
+        },
+        {
+          "generation": 17,
+          "allocated_bytes": 8871808,
+          "cpu_ns": 39570907,
+          "wall_ns": 39605928
+        },
+        {
+          "generation": 18,
+          "allocated_bytes": 9048144,
+          "cpu_ns": 43357220,
+          "wall_ns": 43673563
+        },
+        {
+          "generation": 19,
+          "allocated_bytes": 8901504,
+          "cpu_ns": 36541183,
+          "wall_ns": 36540854
+        },
+        {
+          "generation": 20,
+          "allocated_bytes": 8989600,
+          "cpu_ns": 41127564,
+          "wall_ns": 41147157
+        },
+        {
+          "generation": 21,
+          "allocated_bytes": 10291864,
+          "cpu_ns": 69461748,
+          "wall_ns": 69474569
+        },
+        {
+          "generation": 22,
+          "allocated_bytes": 9706720,
+          "cpu_ns": 57487564,
+          "wall_ns": 57498731
+        },
+        {
+          "generation": 23,
+          "allocated_bytes": 9716288,
+          "cpu_ns": 62144082,
+          "wall_ns": 62143170
+        },
+        {
+          "generation": 24,
+          "allocated_bytes": 9956136,
+          "cpu_ns": 61581689,
+          "wall_ns": 61689730
+        },
+        {
+          "generation": 25,
+          "allocated_bytes": 9502368,
+          "cpu_ns": 52512525,
+          "wall_ns": 52511836
+        },
+        {
+          "generation": 26,
+          "allocated_bytes": 9393280,
+          "cpu_ns": 50938552,
+          "wall_ns": 50937893
+        },
+        {
+          "generation": 27,
+          "allocated_bytes": 11643896,
+          "cpu_ns": 102995657,
+          "wall_ns": 103009143
+        },
+        {
+          "generation": 28,
+          "allocated_bytes": 10083832,
+          "cpu_ns": 78147838,
+          "wall_ns": 78161085
+        },
+        {
+          "generation": 29,
+          "allocated_bytes": 10085152,
+          "cpu_ns": 76517020,
+          "wall_ns": 76516003
+        },
+        {
+          "generation": 30,
+          "allocated_bytes": 10280728,
+          "cpu_ns": 72242527,
+          "wall_ns": 72349292
+        },
+        {
+          "generation": 31,
+          "allocated_bytes": 10490616,
+          "cpu_ns": 84138301,
+          "wall_ns": 84137340
+        },
+        {
+          "generation": 32,
+          "allocated_bytes": 9525664,
+          "cpu_ns": 50328005,
+          "wall_ns": 50341005
+        },
+        {
+          "generation": 33,
+          "allocated_bytes": 9513688,
+          "cpu_ns": 55935562,
+          "wall_ns": 55949692
+        },
+        {
+          "generation": 34,
+          "allocated_bytes": 10191728,
+          "cpu_ns": 69405036,
+          "wall_ns": 69627047
+        },
+        {
+          "generation": 35,
+          "allocated_bytes": 10896504,
+          "cpu_ns": 94978799,
+          "wall_ns": 94997269
+        },
+        {
+          "generation": 36,
+          "allocated_bytes": 9771496,
+          "cpu_ns": 61258184,
+          "wall_ns": 61266930
+        },
+        {
+          "generation": 37,
+          "allocated_bytes": 9244776,
+          "cpu_ns": 44896834,
+          "wall_ns": 44908646
+        },
+        {
+          "generation": 38,
+          "allocated_bytes": 11302032,
+          "cpu_ns": 100706012,
+          "wall_ns": 100704996
+        },
+        {
+          "generation": 39,
+          "allocated_bytes": 11770200,
+          "cpu_ns": 95646378,
+          "wall_ns": 95661776
+        },
+        {
+          "generation": 40,
+          "allocated_bytes": 11038400,
+          "cpu_ns": 101772809,
+          "wall_ns": 101771482
+        },
+        {
+          "generation": 41,
+          "allocated_bytes": 11482416,
+          "cpu_ns": 108227258,
+          "wall_ns": 108238614
+        },
+        {
+          "generation": 42,
+          "allocated_bytes": 12693824,
+          "cpu_ns": 142100081,
+          "wall_ns": 142098263
+        },
+        {
+          "generation": 43,
+          "allocated_bytes": 11821776,
+          "cpu_ns": 117557095,
+          "wall_ns": 130414564
+        },
+        {
+          "generation": 44,
+          "allocated_bytes": 11205024,
+          "cpu_ns": 94741099,
+          "wall_ns": 94740069
+        },
+        {
+          "generation": 45,
+          "allocated_bytes": 10543512,
+          "cpu_ns": 77680910,
+          "wall_ns": 77691181
+        },
+        {
+          "generation": 46,
+          "allocated_bytes": 10296864,
+          "cpu_ns": 72051050,
+          "wall_ns": 72070791
+        },
+        {
+          "generation": 47,
+          "allocated_bytes": 10788280,
+          "cpu_ns": 87255110,
+          "wall_ns": 87253883
+        },
+        {
+          "generation": 48,
+          "allocated_bytes": 11351768,
+          "cpu_ns": 103418459,
+          "wall_ns": 103432183
+        },
+        {
+          "generation": 49,
+          "allocated_bytes": 11658576,
+          "cpu_ns": 102114066,
+          "wall_ns": 102113186
+        },
+        {
+          "generation": 50,
+          "allocated_bytes": 12108968,
+          "cpu_ns": 110824625,
+          "wall_ns": 110823660
+        },
+        {
+          "generation": 51,
+          "allocated_bytes": 11289160,
+          "cpu_ns": 101576595,
+          "wall_ns": 101589115
+        },
+        {
+          "generation": 52,
+          "allocated_bytes": 11165480,
+          "cpu_ns": 105217859,
+          "wall_ns": 105216580
+        },
+        {
+          "generation": 53,
+          "allocated_bytes": 11239864,
+          "cpu_ns": 109963160,
+          "wall_ns": 109961807
+        },
+        {
+          "generation": 54,
+          "allocated_bytes": 11999168,
+          "cpu_ns": 110599061,
+          "wall_ns": 110620939
+        },
+        {
+          "generation": 55,
+          "allocated_bytes": 12433832,
+          "cpu_ns": 128835700,
+          "wall_ns": 128834023
+        },
+        {
+          "generation": 56,
+          "allocated_bytes": 12332920,
+          "cpu_ns": 123696700,
+          "wall_ns": 123705635
+        },
+        {
+          "generation": 57,
+          "allocated_bytes": 12794032,
+          "cpu_ns": 136158685,
+          "wall_ns": 136169310
+        },
+        {
+          "generation": 58,
+          "allocated_bytes": 12051592,
+          "cpu_ns": 123499482,
+          "wall_ns": 123498375
+        },
+        {
+          "generation": 59,
+          "allocated_bytes": 12184616,
+          "cpu_ns": 116697588,
+          "wall_ns": 116710672
+        },
+        {
+          "generation": 60,
+          "allocated_bytes": 11938904,
+          "cpu_ns": 93902516,
+          "wall_ns": 93901559
+        },
+        {
+          "generation": 61,
+          "allocated_bytes": 13286136,
+          "cpu_ns": 135208693,
+          "wall_ns": 135207138
+        },
+        {
+          "generation": 62,
+          "allocated_bytes": 13736144,
+          "cpu_ns": 152370046,
+          "wall_ns": 162920984
+        },
+        {
+          "generation": 63,
+          "allocated_bytes": 14806232,
+          "cpu_ns": 179601313,
+          "wall_ns": 179617983
+        },
+        {
+          "generation": 64,
+          "allocated_bytes": 14015304,
+          "cpu_ns": 159981836,
+          "wall_ns": 159990306
+        },
+        {
+          "generation": 65,
+          "allocated_bytes": 13937176,
+          "cpu_ns": 149382852,
+          "wall_ns": 149411069
+        },
+        {
+          "generation": 66,
+          "allocated_bytes": 13860072,
+          "cpu_ns": 146352490,
+          "wall_ns": 146350993
+        },
+        {
+          "generation": 67,
+          "allocated_bytes": 13316856,
+          "cpu_ns": 131278851,
+          "wall_ns": 131277321
+        },
+        {
+          "generation": 68,
+          "allocated_bytes": 14751536,
+          "cpu_ns": 167493949,
+          "wall_ns": 167510548
+        },
+        {
+          "generation": 69,
+          "allocated_bytes": 13476344,
+          "cpu_ns": 141866406,
+          "wall_ns": 141864789
+        },
+        {
+          "generation": 70,
+          "allocated_bytes": 13445544,
+          "cpu_ns": 140618795,
+          "wall_ns": 140637226
+        },
+        {
+          "generation": 71,
+          "allocated_bytes": 14792816,
+          "cpu_ns": 157392807,
+          "wall_ns": 157416109
+        },
+        {
+          "generation": 72,
+          "allocated_bytes": 13037608,
+          "cpu_ns": 126992908,
+          "wall_ns": 127004455
+        },
+        {
+          "generation": 73,
+          "allocated_bytes": 13635384,
+          "cpu_ns": 132314673,
+          "wall_ns": 132312941
+        },
+        {
+          "generation": 74,
+          "allocated_bytes": 13848608,
+          "cpu_ns": 132440472,
+          "wall_ns": 132458558
+        },
+        {
+          "generation": 75,
+          "allocated_bytes": 15102664,
+          "cpu_ns": 156983824,
+          "wall_ns": 157231600
+        },
+        {
+          "generation": 76,
+          "allocated_bytes": 15796576,
+          "cpu_ns": 170571262,
+          "wall_ns": 170595703
+        },
+        {
+          "generation": 77,
+          "allocated_bytes": 14350008,
+          "cpu_ns": 152129847,
+          "wall_ns": 152127811
+        },
+        {
+          "generation": 78,
+          "allocated_bytes": 16077976,
+          "cpu_ns": 183879300,
+          "wall_ns": 183893419
+        },
+        {
+          "generation": 79,
+          "allocated_bytes": 13886872,
+          "cpu_ns": 141252267,
+          "wall_ns": 147781995
+        },
+        {
+          "generation": 80,
+          "allocated_bytes": 13519104,
+          "cpu_ns": 124528972,
+          "wall_ns": 124549774
+        },
+        {
+          "generation": 81,
+          "allocated_bytes": 14203992,
+          "cpu_ns": 136862370,
+          "wall_ns": 136861209
+        },
+        {
+          "generation": 82,
+          "allocated_bytes": 14475904,
+          "cpu_ns": 146890369,
+          "wall_ns": 147023541
+        },
+        {
+          "generation": 83,
+          "allocated_bytes": 14259712,
+          "cpu_ns": 132396482,
+          "wall_ns": 132395402
+        },
+        {
+          "generation": 84,
+          "allocated_bytes": 15813512,
+          "cpu_ns": 152567066,
+          "wall_ns": 152577701
+        },
+        {
+          "generation": 85,
+          "allocated_bytes": 15475512,
+          "cpu_ns": 178174327,
+          "wall_ns": 178199684
+        },
+        {
+          "generation": 86,
+          "allocated_bytes": 15616456,
+          "cpu_ns": 175670003,
+          "wall_ns": 175668241
+        },
+        {
+          "generation": 87,
+          "allocated_bytes": 16246952,
+          "cpu_ns": 178278125,
+          "wall_ns": 178285725
+        },
+        {
+          "generation": 88,
+          "allocated_bytes": 15660448,
+          "cpu_ns": 163367888,
+          "wall_ns": 163402653
+        },
+        {
+          "generation": 89,
+          "allocated_bytes": 16259736,
+          "cpu_ns": 135464977,
+          "wall_ns": 135476543
+        },
+        {
+          "generation": 90,
+          "allocated_bytes": 16660984,
+          "cpu_ns": 152037265,
+          "wall_ns": 152054020
+        },
+        {
+          "generation": 91,
+          "allocated_bytes": 16810968,
+          "cpu_ns": 147465241,
+          "wall_ns": 147463796
+        },
+        {
+          "generation": 92,
+          "allocated_bytes": 18488752,
+          "cpu_ns": 124472959,
+          "wall_ns": 124523011
+        },
+        {
+          "generation": 93,
+          "allocated_bytes": 16472824,
+          "cpu_ns": 110322444,
+          "wall_ns": 110342534
+        },
+        {
+          "generation": 94,
+          "allocated_bytes": 15337976,
+          "cpu_ns": 98089060,
+          "wall_ns": 98141131
+        },
+        {
+          "generation": 95,
+          "allocated_bytes": 16097808,
+          "cpu_ns": 104634099,
+          "wall_ns": 109513175
+        }
+      ],
+      "caches": [
+        {
+          "pages": 8,
+          "hits": 37460,
+          "misses": 15911
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "capacity": 64,
+      "process_wall_seconds": 8.198348481,
+      "exact": true,
+      "allocated_bytes_last32": 404016968,
+      "foreground_wall_ns_last32": 2514019865,
+      "foreground_cpu_ns_last32": 2497510592,
+      "generations": [
+        {
+          "generation": 0,
+          "allocated_bytes": 9347648,
+          "cpu_ns": 78045643,
+          "wall_ns": 78303531
+        },
+        {
+          "generation": 1,
+          "allocated_bytes": 9578736,
+          "cpu_ns": 76825105,
+          "wall_ns": 77109794
+        },
+        {
+          "generation": 2,
+          "allocated_bytes": 9277888,
+          "cpu_ns": 42625896,
+          "wall_ns": 42639466
+        },
+        {
+          "generation": 3,
+          "allocated_bytes": 9191440,
+          "cpu_ns": 49083564,
+          "wall_ns": 49369990
+        },
+        {
+          "generation": 4,
+          "allocated_bytes": 9285776,
+          "cpu_ns": 39762515,
+          "wall_ns": 39823905
+        },
+        {
+          "generation": 5,
+          "allocated_bytes": 9379872,
+          "cpu_ns": 41229709,
+          "wall_ns": 41239808
+        },
+        {
+          "generation": 6,
+          "allocated_bytes": 8791632,
+          "cpu_ns": 30270207,
+          "wall_ns": 30289864
+        },
+        {
+          "generation": 7,
+          "allocated_bytes": 8843256,
+          "cpu_ns": 27323948,
+          "wall_ns": 27324239
+        },
+        {
+          "generation": 8,
+          "allocated_bytes": 8608808,
+          "cpu_ns": 23635661,
+          "wall_ns": 23647104
+        },
+        {
+          "generation": 9,
+          "allocated_bytes": 8465256,
+          "cpu_ns": 20175838,
+          "wall_ns": 20289439
+        },
+        {
+          "generation": 10,
+          "allocated_bytes": 8560152,
+          "cpu_ns": 18230657,
+          "wall_ns": 18357049
+        },
+        {
+          "generation": 11,
+          "allocated_bytes": 8923264,
+          "cpu_ns": 20130609,
+          "wall_ns": 20240671
+        },
+        {
+          "generation": 12,
+          "allocated_bytes": 8981904,
+          "cpu_ns": 18988182,
+          "wall_ns": 19506873
+        },
+        {
+          "generation": 13,
+          "allocated_bytes": 9080480,
+          "cpu_ns": 18740723,
+          "wall_ns": 18758991
+        },
+        {
+          "generation": 14,
+          "allocated_bytes": 8786864,
+          "cpu_ns": 17700350,
+          "wall_ns": 17700111
+        },
+        {
+          "generation": 15,
+          "allocated_bytes": 9058984,
+          "cpu_ns": 20330270,
+          "wall_ns": 20344514
+        },
+        {
+          "generation": 16,
+          "allocated_bytes": 8658552,
+          "cpu_ns": 20580073,
+          "wall_ns": 20587150
+        },
+        {
+          "generation": 17,
+          "allocated_bytes": 8866008,
+          "cpu_ns": 22457179,
+          "wall_ns": 22555286
+        },
+        {
+          "generation": 18,
+          "allocated_bytes": 8944320,
+          "cpu_ns": 24875548,
+          "wall_ns": 24923501
+        },
+        {
+          "generation": 19,
+          "allocated_bytes": 9079792,
+          "cpu_ns": 25014705,
+          "wall_ns": 25020148
+        },
+        {
+          "generation": 20,
+          "allocated_bytes": 8961040,
+          "cpu_ns": 21286181,
+          "wall_ns": 21285923
+        },
+        {
+          "generation": 21,
+          "allocated_bytes": 9662304,
+          "cpu_ns": 29793930,
+          "wall_ns": 30042105
+        },
+        {
+          "generation": 22,
+          "allocated_bytes": 9539088,
+          "cpu_ns": 34421433,
+          "wall_ns": 34421271
+        },
+        {
+          "generation": 23,
+          "allocated_bytes": 9535072,
+          "cpu_ns": 40352343,
+          "wall_ns": 52019859
+        },
+        {
+          "generation": 24,
+          "allocated_bytes": 9536544,
+          "cpu_ns": 27969781,
+          "wall_ns": 27969175
+        },
+        {
+          "generation": 25,
+          "allocated_bytes": 9405968,
+          "cpu_ns": 26708630,
+          "wall_ns": 26722183
+        },
+        {
+          "generation": 26,
+          "allocated_bytes": 9226272,
+          "cpu_ns": 20783420,
+          "wall_ns": 20797437
+        },
+        {
+          "generation": 27,
+          "allocated_bytes": 10584768,
+          "cpu_ns": 57046836,
+          "wall_ns": 57057188
+        },
+        {
+          "generation": 28,
+          "allocated_bytes": 9535464,
+          "cpu_ns": 44856262,
+          "wall_ns": 44855892
+        },
+        {
+          "generation": 29,
+          "allocated_bytes": 9759056,
+          "cpu_ns": 41704146,
+          "wall_ns": 41703592
+        },
+        {
+          "generation": 30,
+          "allocated_bytes": 9670560,
+          "cpu_ns": 39653241,
+          "wall_ns": 39665812
+        },
+        {
+          "generation": 31,
+          "allocated_bytes": 9353024,
+          "cpu_ns": 44353715,
+          "wall_ns": 44365193
+        },
+        {
+          "generation": 32,
+          "allocated_bytes": 9040960,
+          "cpu_ns": 27787517,
+          "wall_ns": 27801699
+        },
+        {
+          "generation": 33,
+          "allocated_bytes": 8920216,
+          "cpu_ns": 25465006,
+          "wall_ns": 25477840
+        },
+        {
+          "generation": 34,
+          "allocated_bytes": 9331552,
+          "cpu_ns": 27235215,
+          "wall_ns": 27234746
+        },
+        {
+          "generation": 35,
+          "allocated_bytes": 9795112,
+          "cpu_ns": 33375991,
+          "wall_ns": 33388022
+        },
+        {
+          "generation": 36,
+          "allocated_bytes": 9242352,
+          "cpu_ns": 27421515,
+          "wall_ns": 27421060
+        },
+        {
+          "generation": 37,
+          "allocated_bytes": 8847616,
+          "cpu_ns": 24128591,
+          "wall_ns": 24137546
+        },
+        {
+          "generation": 38,
+          "allocated_bytes": 10065808,
+          "cpu_ns": 35155385,
+          "wall_ns": 35168641
+        },
+        {
+          "generation": 39,
+          "allocated_bytes": 10852808,
+          "cpu_ns": 45349567,
+          "wall_ns": 45360676
+        },
+        {
+          "generation": 40,
+          "allocated_bytes": 10035432,
+          "cpu_ns": 47078892,
+          "wall_ns": 47091105
+        },
+        {
+          "generation": 41,
+          "allocated_bytes": 10534296,
+          "cpu_ns": 46685272,
+          "wall_ns": 46685163
+        },
+        {
+          "generation": 42,
+          "allocated_bytes": 11258944,
+          "cpu_ns": 51939444,
+          "wall_ns": 51958267
+        },
+        {
+          "generation": 43,
+          "allocated_bytes": 10726264,
+          "cpu_ns": 58617346,
+          "wall_ns": 58650499
+        },
+        {
+          "generation": 44,
+          "allocated_bytes": 10001888,
+          "cpu_ns": 45465821,
+          "wall_ns": 45465343
+        },
+        {
+          "generation": 45,
+          "allocated_bytes": 9607224,
+          "cpu_ns": 34628555,
+          "wall_ns": 46973331
+        },
+        {
+          "generation": 46,
+          "allocated_bytes": 9499464,
+          "cpu_ns": 31319716,
+          "wall_ns": 31330417
+        },
+        {
+          "generation": 47,
+          "allocated_bytes": 9966400,
+          "cpu_ns": 39423249,
+          "wall_ns": 39422603
+        },
+        {
+          "generation": 48,
+          "allocated_bytes": 10480216,
+          "cpu_ns": 53687764,
+          "wall_ns": 53702265
+        },
+        {
+          "generation": 49,
+          "allocated_bytes": 10461104,
+          "cpu_ns": 47276297,
+          "wall_ns": 47288387
+        },
+        {
+          "generation": 50,
+          "allocated_bytes": 10950984,
+          "cpu_ns": 53717585,
+          "wall_ns": 53729047
+        },
+        {
+          "generation": 51,
+          "allocated_bytes": 10169816,
+          "cpu_ns": 39618820,
+          "wall_ns": 39618320
+        },
+        {
+          "generation": 52,
+          "allocated_bytes": 10117760,
+          "cpu_ns": 39250050,
+          "wall_ns": 39249566
+        },
+        {
+          "generation": 53,
+          "allocated_bytes": 10252952,
+          "cpu_ns": 47230889,
+          "wall_ns": 47244053
+        },
+        {
+          "generation": 54,
+          "allocated_bytes": 10895944,
+          "cpu_ns": 49003354,
+          "wall_ns": 49015182
+        },
+        {
+          "generation": 55,
+          "allocated_bytes": 11386736,
+          "cpu_ns": 63685887,
+          "wall_ns": 63692531
+        },
+        {
+          "generation": 56,
+          "allocated_bytes": 11052312,
+          "cpu_ns": 53821876,
+          "wall_ns": 53834561
+        },
+        {
+          "generation": 57,
+          "allocated_bytes": 11220008,
+          "cpu_ns": 53297752,
+          "wall_ns": 53309349
+        },
+        {
+          "generation": 58,
+          "allocated_bytes": 10838752,
+          "cpu_ns": 54662671,
+          "wall_ns": 54661989
+        },
+        {
+          "generation": 59,
+          "allocated_bytes": 10650592,
+          "cpu_ns": 49398635,
+          "wall_ns": 49410111
+        },
+        {
+          "generation": 60,
+          "allocated_bytes": 10574496,
+          "cpu_ns": 42147285,
+          "wall_ns": 42146490
+        },
+        {
+          "generation": 61,
+          "allocated_bytes": 11480712,
+          "cpu_ns": 53748993,
+          "wall_ns": 53760176
+        },
+        {
+          "generation": 62,
+          "allocated_bytes": 11484728,
+          "cpu_ns": 57000624,
+          "wall_ns": 56999782
+        },
+        {
+          "generation": 63,
+          "allocated_bytes": 12187088,
+          "cpu_ns": 69492040,
+          "wall_ns": 69491083
+        },
+        {
+          "generation": 64,
+          "allocated_bytes": 12149392,
+          "cpu_ns": 74432075,
+          "wall_ns": 74431260
+        },
+        {
+          "generation": 65,
+          "allocated_bytes": 11791912,
+          "cpu_ns": 63058520,
+          "wall_ns": 72257834
+        },
+        {
+          "generation": 66,
+          "allocated_bytes": 11622280,
+          "cpu_ns": 60400688,
+          "wall_ns": 60412235
+        },
+        {
+          "generation": 67,
+          "allocated_bytes": 11563432,
+          "cpu_ns": 55296395,
+          "wall_ns": 55295794
+        },
+        {
+          "generation": 68,
+          "allocated_bytes": 12484648,
+          "cpu_ns": 72735521,
+          "wall_ns": 72735084
+        },
+        {
+          "generation": 69,
+          "allocated_bytes": 11594768,
+          "cpu_ns": 63876666,
+          "wall_ns": 64305954
+        },
+        {
+          "generation": 70,
+          "allocated_bytes": 11362720,
+          "cpu_ns": 62302754,
+          "wall_ns": 62314125
+        },
+        {
+          "generation": 71,
+          "allocated_bytes": 12414120,
+          "cpu_ns": 70404872,
+          "wall_ns": 70416472
+        },
+        {
+          "generation": 72,
+          "allocated_bytes": 10837520,
+          "cpu_ns": 56066247,
+          "wall_ns": 56077734
+        },
+        {
+          "generation": 73,
+          "allocated_bytes": 11749376,
+          "cpu_ns": 64610122,
+          "wall_ns": 64609067
+        },
+        {
+          "generation": 74,
+          "allocated_bytes": 11818912,
+          "cpu_ns": 63176165,
+          "wall_ns": 63255760
+        },
+        {
+          "generation": 75,
+          "allocated_bytes": 12660416,
+          "cpu_ns": 73290182,
+          "wall_ns": 73300624
+        },
+        {
+          "generation": 76,
+          "allocated_bytes": 13169744,
+          "cpu_ns": 79844290,
+          "wall_ns": 79860805
+        },
+        {
+          "generation": 77,
+          "allocated_bytes": 12166304,
+          "cpu_ns": 77189657,
+          "wall_ns": 77200436
+        },
+        {
+          "generation": 78,
+          "allocated_bytes": 13590840,
+          "cpu_ns": 97508315,
+          "wall_ns": 97518699
+        },
+        {
+          "generation": 79,
+          "allocated_bytes": 12079200,
+          "cpu_ns": 75725526,
+          "wall_ns": 75724445
+        },
+        {
+          "generation": 80,
+          "allocated_bytes": 11663856,
+          "cpu_ns": 64009103,
+          "wall_ns": 64008554
+        },
+        {
+          "generation": 81,
+          "allocated_bytes": 11699912,
+          "cpu_ns": 67518966,
+          "wall_ns": 67527899
+        },
+        {
+          "generation": 82,
+          "allocated_bytes": 12362296,
+          "cpu_ns": 77166892,
+          "wall_ns": 77177830
+        },
+        {
+          "generation": 83,
+          "allocated_bytes": 11900120,
+          "cpu_ns": 63196651,
+          "wall_ns": 63196004
+        },
+        {
+          "generation": 84,
+          "allocated_bytes": 13332288,
+          "cpu_ns": 76975674,
+          "wall_ns": 83551607
+        },
+        {
+          "generation": 85,
+          "allocated_bytes": 12859424,
+          "cpu_ns": 94311808,
+          "wall_ns": 94322833
+        },
+        {
+          "generation": 86,
+          "allocated_bytes": 12778992,
+          "cpu_ns": 84549380,
+          "wall_ns": 84560767
+        },
+        {
+          "generation": 87,
+          "allocated_bytes": 13680352,
+          "cpu_ns": 94679065,
+          "wall_ns": 94689489
+        },
+        {
+          "generation": 88,
+          "allocated_bytes": 13452016,
+          "cpu_ns": 87312757,
+          "wall_ns": 87338229
+        },
+        {
+          "generation": 89,
+          "allocated_bytes": 13695536,
+          "cpu_ns": 90426027,
+          "wall_ns": 90438142
+        },
+        {
+          "generation": 90,
+          "allocated_bytes": 13823872,
+          "cpu_ns": 94153010,
+          "wall_ns": 94164550
+        },
+        {
+          "generation": 91,
+          "allocated_bytes": 13966408,
+          "cpu_ns": 93491796,
+          "wall_ns": 93503724
+        },
+        {
+          "generation": 92,
+          "allocated_bytes": 14994208,
+          "cpu_ns": 103637542,
+          "wall_ns": 103656308
+        },
+        {
+          "generation": 93,
+          "allocated_bytes": 14166608,
+          "cpu_ns": 109511464,
+          "wall_ns": 109510143
+        },
+        {
+          "generation": 94,
+          "allocated_bytes": 13153464,
+          "cpu_ns": 93749968,
+          "wall_ns": 93755829
+        },
+        {
+          "generation": 95,
+          "allocated_bytes": 13432032,
+          "cpu_ns": 92902494,
+          "wall_ns": 92901629
+        }
+      ],
+      "caches": [
+        {
+          "pages": 64,
+          "hits": 47015,
+          "misses": 6356
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "capacity": 256,
+      "process_wall_seconds": 5.842758676,
+      "exact": true,
+      "allocated_bytes_last32": 369859912,
+      "foreground_wall_ns_last32": 1123064860,
+      "foreground_cpu_ns_last32": 1109271469,
+      "generations": [
+        {
+          "generation": 0,
+          "allocated_bytes": 9339024,
+          "cpu_ns": 78135462,
+          "wall_ns": 78614761
+        },
+        {
+          "generation": 1,
+          "allocated_bytes": 9573376,
+          "cpu_ns": 74827707,
+          "wall_ns": 75138976
+        },
+        {
+          "generation": 2,
+          "allocated_bytes": 9277800,
+          "cpu_ns": 41692982,
+          "wall_ns": 41743613
+        },
+        {
+          "generation": 3,
+          "allocated_bytes": 9191440,
+          "cpu_ns": 49668911,
+          "wall_ns": 49816806
+        },
+        {
+          "generation": 4,
+          "allocated_bytes": 9301608,
+          "cpu_ns": 45573487,
+          "wall_ns": 68488036
+        },
+        {
+          "generation": 5,
+          "allocated_bytes": 9378712,
+          "cpu_ns": 39680960,
+          "wall_ns": 39693665
+        },
+        {
+          "generation": 6,
+          "allocated_bytes": 8791432,
+          "cpu_ns": 30242432,
+          "wall_ns": 30291008
+        },
+        {
+          "generation": 7,
+          "allocated_bytes": 8843392,
+          "cpu_ns": 24766940,
+          "wall_ns": 24766911
+        },
+        {
+          "generation": 8,
+          "allocated_bytes": 8977352,
+          "cpu_ns": 24720509,
+          "wall_ns": 24723169
+        },
+        {
+          "generation": 9,
+          "allocated_bytes": 8464064,
+          "cpu_ns": 23359580,
+          "wall_ns": 23359347
+        },
+        {
+          "generation": 10,
+          "allocated_bytes": 8561048,
+          "cpu_ns": 21622170,
+          "wall_ns": 21689310
+        },
+        {
+          "generation": 11,
+          "allocated_bytes": 8923232,
+          "cpu_ns": 19782493,
+          "wall_ns": 19791682
+        },
+        {
+          "generation": 12,
+          "allocated_bytes": 8981872,
+          "cpu_ns": 19506171,
+          "wall_ns": 19644450
+        },
+        {
+          "generation": 13,
+          "allocated_bytes": 9080448,
+          "cpu_ns": 18947588,
+          "wall_ns": 18994637
+        },
+        {
+          "generation": 14,
+          "allocated_bytes": 8786832,
+          "cpu_ns": 17572334,
+          "wall_ns": 17572173
+        },
+        {
+          "generation": 15,
+          "allocated_bytes": 8996448,
+          "cpu_ns": 18526858,
+          "wall_ns": 18670990
+        },
+        {
+          "generation": 16,
+          "allocated_bytes": 8646608,
+          "cpu_ns": 17791179,
+          "wall_ns": 18059186
+        },
+        {
+          "generation": 17,
+          "allocated_bytes": 8388448,
+          "cpu_ns": 14589836,
+          "wall_ns": 14622075
+        },
+        {
+          "generation": 18,
+          "allocated_bytes": 8457856,
+          "cpu_ns": 19942157,
+          "wall_ns": 19942032
+        },
+        {
+          "generation": 19,
+          "allocated_bytes": 8589752,
+          "cpu_ns": 20498543,
+          "wall_ns": 20498455
+        },
+        {
+          "generation": 20,
+          "allocated_bytes": 8490416,
+          "cpu_ns": 18880421,
+          "wall_ns": 18889832
+        },
+        {
+          "generation": 21,
+          "allocated_bytes": 9149312,
+          "cpu_ns": 17699149,
+          "wall_ns": 17698761
+        },
+        {
+          "generation": 22,
+          "allocated_bytes": 9007440,
+          "cpu_ns": 19413695,
+          "wall_ns": 19413633
+        },
+        {
+          "generation": 23,
+          "allocated_bytes": 8882264,
+          "cpu_ns": 18566883,
+          "wall_ns": 18566475
+        },
+        {
+          "generation": 24,
+          "allocated_bytes": 8996104,
+          "cpu_ns": 16344333,
+          "wall_ns": 16344176
+        },
+        {
+          "generation": 25,
+          "allocated_bytes": 8896728,
+          "cpu_ns": 18435882,
+          "wall_ns": 18448370
+        },
+        {
+          "generation": 26,
+          "allocated_bytes": 8732520,
+          "cpu_ns": 15547188,
+          "wall_ns": 15546710
+        },
+        {
+          "generation": 27,
+          "allocated_bytes": 9814568,
+          "cpu_ns": 21693761,
+          "wall_ns": 21693374
+        },
+        {
+          "generation": 28,
+          "allocated_bytes": 8919312,
+          "cpu_ns": 16671820,
+          "wall_ns": 16671464
+        },
+        {
+          "generation": 29,
+          "allocated_bytes": 9155864,
+          "cpu_ns": 18318293,
+          "wall_ns": 18317736
+        },
+        {
+          "generation": 30,
+          "allocated_bytes": 9197392,
+          "cpu_ns": 18201694,
+          "wall_ns": 18201429
+        },
+        {
+          "generation": 31,
+          "allocated_bytes": 9205152,
+          "cpu_ns": 19043736,
+          "wall_ns": 19058806
+        },
+        {
+          "generation": 32,
+          "allocated_bytes": 8939352,
+          "cpu_ns": 17378039,
+          "wall_ns": 17405246
+        },
+        {
+          "generation": 33,
+          "allocated_bytes": 8833264,
+          "cpu_ns": 15769502,
+          "wall_ns": 15769510
+        },
+        {
+          "generation": 34,
+          "allocated_bytes": 9121680,
+          "cpu_ns": 15581066,
+          "wall_ns": 15605023
+        },
+        {
+          "generation": 35,
+          "allocated_bytes": 9572104,
+          "cpu_ns": 21086453,
+          "wall_ns": 21086250
+        },
+        {
+          "generation": 36,
+          "allocated_bytes": 9067056,
+          "cpu_ns": 20119862,
+          "wall_ns": 20137170
+        },
+        {
+          "generation": 37,
+          "allocated_bytes": 8678488,
+          "cpu_ns": 15926459,
+          "wall_ns": 15933863
+        },
+        {
+          "generation": 38,
+          "allocated_bytes": 9765048,
+          "cpu_ns": 21941363,
+          "wall_ns": 22072733
+        },
+        {
+          "generation": 39,
+          "allocated_bytes": 10569264,
+          "cpu_ns": 30077875,
+          "wall_ns": 30077529
+        },
+        {
+          "generation": 40,
+          "allocated_bytes": 9567464,
+          "cpu_ns": 27462414,
+          "wall_ns": 27897353
+        },
+        {
+          "generation": 41,
+          "allocated_bytes": 10070120,
+          "cpu_ns": 33099429,
+          "wall_ns": 33099046
+        },
+        {
+          "generation": 42,
+          "allocated_bytes": 10813232,
+          "cpu_ns": 34599350,
+          "wall_ns": 34608100
+        },
+        {
+          "generation": 43,
+          "allocated_bytes": 10135176,
+          "cpu_ns": 29349338,
+          "wall_ns": 29348813
+        },
+        {
+          "generation": 44,
+          "allocated_bytes": 9714616,
+          "cpu_ns": 35954517,
+          "wall_ns": 35954091
+        },
+        {
+          "generation": 45,
+          "allocated_bytes": 9405416,
+          "cpu_ns": 22491223,
+          "wall_ns": 29358250
+        },
+        {
+          "generation": 46,
+          "allocated_bytes": 9337696,
+          "cpu_ns": 20518190,
+          "wall_ns": 20518002
+        },
+        {
+          "generation": 47,
+          "allocated_bytes": 9700224,
+          "cpu_ns": 28839150,
+          "wall_ns": 28863494
+        },
+        {
+          "generation": 48,
+          "allocated_bytes": 9996112,
+          "cpu_ns": 31918364,
+          "wall_ns": 31918217
+        },
+        {
+          "generation": 49,
+          "allocated_bytes": 10037344,
+          "cpu_ns": 22504031,
+          "wall_ns": 22539589
+        },
+        {
+          "generation": 50,
+          "allocated_bytes": 10410024,
+          "cpu_ns": 21077260,
+          "wall_ns": 21087565
+        },
+        {
+          "generation": 51,
+          "allocated_bytes": 9895688,
+          "cpu_ns": 20721842,
+          "wall_ns": 20721763
+        },
+        {
+          "generation": 52,
+          "allocated_bytes": 9737128,
+          "cpu_ns": 17756232,
+          "wall_ns": 17755892
+        },
+        {
+          "generation": 53,
+          "allocated_bytes": 9757928,
+          "cpu_ns": 17680399,
+          "wall_ns": 17680417
+        },
+        {
+          "generation": 54,
+          "allocated_bytes": 10471152,
+          "cpu_ns": 21280432,
+          "wall_ns": 21299308
+        },
+        {
+          "generation": 55,
+          "allocated_bytes": 10790592,
+          "cpu_ns": 27921604,
+          "wall_ns": 28025347
+        },
+        {
+          "generation": 56,
+          "allocated_bytes": 10506040,
+          "cpu_ns": 23753031,
+          "wall_ns": 23835240
+        },
+        {
+          "generation": 57,
+          "allocated_bytes": 10651272,
+          "cpu_ns": 20442626,
+          "wall_ns": 20514225
+        },
+        {
+          "generation": 58,
+          "allocated_bytes": 10223240,
+          "cpu_ns": 23949628,
+          "wall_ns": 23949413
+        },
+        {
+          "generation": 59,
+          "allocated_bytes": 10196672,
+          "cpu_ns": 18133547,
+          "wall_ns": 18203244
+        },
+        {
+          "generation": 60,
+          "allocated_bytes": 10189568,
+          "cpu_ns": 22249550,
+          "wall_ns": 22295831
+        },
+        {
+          "generation": 61,
+          "allocated_bytes": 11004168,
+          "cpu_ns": 28299783,
+          "wall_ns": 28375651
+        },
+        {
+          "generation": 62,
+          "allocated_bytes": 10790512,
+          "cpu_ns": 21917138,
+          "wall_ns": 21951937
+        },
+        {
+          "generation": 63,
+          "allocated_bytes": 11304832,
+          "cpu_ns": 31642093,
+          "wall_ns": 31649695
+        },
+        {
+          "generation": 64,
+          "allocated_bytes": 11239824,
+          "cpu_ns": 28986668,
+          "wall_ns": 29156661
+        },
+        {
+          "generation": 65,
+          "allocated_bytes": 11040120,
+          "cpu_ns": 25056529,
+          "wall_ns": 25056358
+        },
+        {
+          "generation": 66,
+          "allocated_bytes": 10975128,
+          "cpu_ns": 24904043,
+          "wall_ns": 24967586
+        },
+        {
+          "generation": 67,
+          "allocated_bytes": 10881048,
+          "cpu_ns": 24818947,
+          "wall_ns": 30644793
+        },
+        {
+          "generation": 68,
+          "allocated_bytes": 11584448,
+          "cpu_ns": 28867714,
+          "wall_ns": 28933408
+        },
+        {
+          "generation": 69,
+          "allocated_bytes": 10808328,
+          "cpu_ns": 27739973,
+          "wall_ns": 27829060
+        },
+        {
+          "generation": 70,
+          "allocated_bytes": 10556696,
+          "cpu_ns": 24107987,
+          "wall_ns": 24189033
+        },
+        {
+          "generation": 71,
+          "allocated_bytes": 11389648,
+          "cpu_ns": 28196315,
+          "wall_ns": 28279897
+        },
+        {
+          "generation": 72,
+          "allocated_bytes": 10228552,
+          "cpu_ns": 28365021,
+          "wall_ns": 28364656
+        },
+        {
+          "generation": 73,
+          "allocated_bytes": 10856328,
+          "cpu_ns": 26884673,
+          "wall_ns": 26884341
+        },
+        {
+          "generation": 74,
+          "allocated_bytes": 11054768,
+          "cpu_ns": 31588355,
+          "wall_ns": 31691611
+        },
+        {
+          "generation": 75,
+          "allocated_bytes": 11620824,
+          "cpu_ns": 29353595,
+          "wall_ns": 29433177
+        },
+        {
+          "generation": 76,
+          "allocated_bytes": 12060736,
+          "cpu_ns": 33331047,
+          "wall_ns": 33407092
+        },
+        {
+          "generation": 77,
+          "allocated_bytes": 11236136,
+          "cpu_ns": 37808759,
+          "wall_ns": 37808445
+        },
+        {
+          "generation": 78,
+          "allocated_bytes": 12204896,
+          "cpu_ns": 41829242,
+          "wall_ns": 41828650
+        },
+        {
+          "generation": 79,
+          "allocated_bytes": 11111008,
+          "cpu_ns": 33274761,
+          "wall_ns": 33274817
+        },
+        {
+          "generation": 80,
+          "allocated_bytes": 10731872,
+          "cpu_ns": 29134611,
+          "wall_ns": 29134528
+        },
+        {
+          "generation": 81,
+          "allocated_bytes": 10871280,
+          "cpu_ns": 35173591,
+          "wall_ns": 35242936
+        },
+        {
+          "generation": 82,
+          "allocated_bytes": 11349768,
+          "cpu_ns": 34514938,
+          "wall_ns": 34580521
+        },
+        {
+          "generation": 83,
+          "allocated_bytes": 10876880,
+          "cpu_ns": 23211882,
+          "wall_ns": 23281019
+        },
+        {
+          "generation": 84,
+          "allocated_bytes": 12247208,
+          "cpu_ns": 34749513,
+          "wall_ns": 34749401
+        },
+        {
+          "generation": 85,
+          "allocated_bytes": 11488328,
+          "cpu_ns": 42541131,
+          "wall_ns": 42540821
+        },
+        {
+          "generation": 86,
+          "allocated_bytes": 11416512,
+          "cpu_ns": 36120178,
+          "wall_ns": 36120099
+        },
+        {
+          "generation": 87,
+          "allocated_bytes": 12236856,
+          "cpu_ns": 46407210,
+          "wall_ns": 53363475
+        },
+        {
+          "generation": 88,
+          "allocated_bytes": 12227568,
+          "cpu_ns": 38282834,
+          "wall_ns": 38282561
+        },
+        {
+          "generation": 89,
+          "allocated_bytes": 12410992,
+          "cpu_ns": 42490898,
+          "wall_ns": 42490479
+        },
+        {
+          "generation": 90,
+          "allocated_bytes": 12445552,
+          "cpu_ns": 44532649,
+          "wall_ns": 44532506
+        },
+        {
+          "generation": 91,
+          "allocated_bytes": 12585144,
+          "cpu_ns": 42592428,
+          "wall_ns": 42592414
+        },
+        {
+          "generation": 92,
+          "allocated_bytes": 13202328,
+          "cpu_ns": 43052866,
+          "wall_ns": 43052207
+        },
+        {
+          "generation": 93,
+          "allocated_bytes": 12936528,
+          "cpu_ns": 54352730,
+          "wall_ns": 54352143
+        },
+        {
+          "generation": 94,
+          "allocated_bytes": 11909400,
+          "cpu_ns": 46611431,
+          "wall_ns": 46611218
+        },
+        {
+          "generation": 95,
+          "allocated_bytes": 12075208,
+          "cpu_ns": 40388950,
+          "wall_ns": 40388947
+        }
+      ],
+      "caches": [
+        {
+          "pages": 256,
+          "hits": 51340,
+          "misses": 2031
+        }
+      ]
+    },
+    {
+      "round": 4,
+      "capacity": 256,
+      "process_wall_seconds": 6.153557385,
+      "exact": true,
+      "allocated_bytes_last32": 369321776,
+      "foreground_wall_ns_last32": 1318022523,
+      "foreground_cpu_ns_last32": 1304368149,
+      "generations": [
+        {
+          "generation": 0,
+          "allocated_bytes": 9347648,
+          "cpu_ns": 72104879,
+          "wall_ns": 72449533
+        },
+        {
+          "generation": 1,
+          "allocated_bytes": 9573080,
+          "cpu_ns": 74173963,
+          "wall_ns": 74279948
+        },
+        {
+          "generation": 2,
+          "allocated_bytes": 9288168,
+          "cpu_ns": 47302367,
+          "wall_ns": 47769441
+        },
+        {
+          "generation": 3,
+          "allocated_bytes": 9196904,
+          "cpu_ns": 47390349,
+          "wall_ns": 47481886
+        },
+        {
+          "generation": 4,
+          "allocated_bytes": 9286072,
+          "cpu_ns": 40055085,
+          "wall_ns": 40168750
+        },
+        {
+          "generation": 5,
+          "allocated_bytes": 9378544,
+          "cpu_ns": 39754982,
+          "wall_ns": 39778094
+        },
+        {
+          "generation": 6,
+          "allocated_bytes": 9305952,
+          "cpu_ns": 34677904,
+          "wall_ns": 34714309
+        },
+        {
+          "generation": 7,
+          "allocated_bytes": 8843312,
+          "cpu_ns": 28317771,
+          "wall_ns": 28317600
+        },
+        {
+          "generation": 8,
+          "allocated_bytes": 8977488,
+          "cpu_ns": 28336963,
+          "wall_ns": 28375528
+        },
+        {
+          "generation": 9,
+          "allocated_bytes": 8832984,
+          "cpu_ns": 21942928,
+          "wall_ns": 22100237
+        },
+        {
+          "generation": 10,
+          "allocated_bytes": 8928168,
+          "cpu_ns": 20367124,
+          "wall_ns": 20478311
+        },
+        {
+          "generation": 11,
+          "allocated_bytes": 9290904,
+          "cpu_ns": 20830588,
+          "wall_ns": 20832833
+        },
+        {
+          "generation": 12,
+          "allocated_bytes": 9349304,
+          "cpu_ns": 20191434,
+          "wall_ns": 20203609
+        },
+        {
+          "generation": 13,
+          "allocated_bytes": 9080480,
+          "cpu_ns": 19492742,
+          "wall_ns": 19605645
+        },
+        {
+          "generation": 14,
+          "allocated_bytes": 8786864,
+          "cpu_ns": 18191952,
+          "wall_ns": 18191504
+        },
+        {
+          "generation": 15,
+          "allocated_bytes": 8996864,
+          "cpu_ns": 18958159,
+          "wall_ns": 18957982
+        },
+        {
+          "generation": 16,
+          "allocated_bytes": 8647376,
+          "cpu_ns": 21851006,
+          "wall_ns": 21947631
+        },
+        {
+          "generation": 17,
+          "allocated_bytes": 8847200,
+          "cpu_ns": 19502131,
+          "wall_ns": 19501821
+        },
+        {
+          "generation": 18,
+          "allocated_bytes": 8917376,
+          "cpu_ns": 21755377,
+          "wall_ns": 21756661
+        },
+        {
+          "generation": 19,
+          "allocated_bytes": 9048888,
+          "cpu_ns": 22584019,
+          "wall_ns": 22597267
+        },
+        {
+          "generation": 20,
+          "allocated_bytes": 8949168,
+          "cpu_ns": 19716499,
+          "wall_ns": 34227185
+        },
+        {
+          "generation": 21,
+          "allocated_bytes": 9607680,
+          "cpu_ns": 19219007,
+          "wall_ns": 19230951
+        },
+        {
+          "generation": 22,
+          "allocated_bytes": 9465424,
+          "cpu_ns": 21943794,
+          "wall_ns": 21943289
+        },
+        {
+          "generation": 23,
+          "allocated_bytes": 9340680,
+          "cpu_ns": 20713032,
+          "wall_ns": 20712874
+        },
+        {
+          "generation": 24,
+          "allocated_bytes": 9454088,
+          "cpu_ns": 18006157,
+          "wall_ns": 18005791
+        },
+        {
+          "generation": 25,
+          "allocated_bytes": 9355096,
+          "cpu_ns": 20436046,
+          "wall_ns": 20488656
+        },
+        {
+          "generation": 26,
+          "allocated_bytes": 9191272,
+          "cpu_ns": 17001569,
+          "wall_ns": 17001095
+        },
+        {
+          "generation": 27,
+          "allocated_bytes": 10273320,
+          "cpu_ns": 24426881,
+          "wall_ns": 24426284
+        },
+        {
+          "generation": 28,
+          "allocated_bytes": 9378064,
+          "cpu_ns": 18528650,
+          "wall_ns": 18528192
+        },
+        {
+          "generation": 29,
+          "allocated_bytes": 9614504,
+          "cpu_ns": 20984247,
+          "wall_ns": 20996042
+        },
+        {
+          "generation": 30,
+          "allocated_bytes": 9656144,
+          "cpu_ns": 20173038,
+          "wall_ns": 20173085
+        },
+        {
+          "generation": 31,
+          "allocated_bytes": 9663904,
+          "cpu_ns": 20933048,
+          "wall_ns": 20932595
+        },
+        {
+          "generation": 32,
+          "allocated_bytes": 9398104,
+          "cpu_ns": 19610996,
+          "wall_ns": 19622980
+        },
+        {
+          "generation": 33,
+          "allocated_bytes": 9291288,
+          "cpu_ns": 17873906,
+          "wall_ns": 17873699
+        },
+        {
+          "generation": 34,
+          "allocated_bytes": 9580824,
+          "cpu_ns": 16292873,
+          "wall_ns": 16292454
+        },
+        {
+          "generation": 35,
+          "allocated_bytes": 10030856,
+          "cpu_ns": 23061246,
+          "wall_ns": 23073750
+        },
+        {
+          "generation": 36,
+          "allocated_bytes": 9525424,
+          "cpu_ns": 22692360,
+          "wall_ns": 22691861
+        },
+        {
+          "generation": 37,
+          "allocated_bytes": 9136856,
+          "cpu_ns": 17899433,
+          "wall_ns": 17899091
+        },
+        {
+          "generation": 38,
+          "allocated_bytes": 10223800,
+          "cpu_ns": 26588158,
+          "wall_ns": 26587748
+        },
+        {
+          "generation": 39,
+          "allocated_bytes": 11027632,
+          "cpu_ns": 32615699,
+          "wall_ns": 32615403
+        },
+        {
+          "generation": 40,
+          "allocated_bytes": 10025832,
+          "cpu_ns": 29702540,
+          "wall_ns": 29701753
+        },
+        {
+          "generation": 41,
+          "allocated_bytes": 10453496,
+          "cpu_ns": 36172143,
+          "wall_ns": 36205779
+        },
+        {
+          "generation": 42,
+          "allocated_bytes": 10813232,
+          "cpu_ns": 37720282,
+          "wall_ns": 37719813
+        },
+        {
+          "generation": 43,
+          "allocated_bytes": 10135176,
+          "cpu_ns": 32876578,
+          "wall_ns": 32889035
+        },
+        {
+          "generation": 44,
+          "allocated_bytes": 9714616,
+          "cpu_ns": 36501347,
+          "wall_ns": 36500930
+        },
+        {
+          "generation": 45,
+          "allocated_bytes": 9405800,
+          "cpu_ns": 24958870,
+          "wall_ns": 24968263
+        },
+        {
+          "generation": 46,
+          "allocated_bytes": 9338464,
+          "cpu_ns": 23072492,
+          "wall_ns": 23072209
+        },
+        {
+          "generation": 47,
+          "allocated_bytes": 9700224,
+          "cpu_ns": 28747365,
+          "wall_ns": 28746768
+        },
+        {
+          "generation": 48,
+          "allocated_bytes": 9996880,
+          "cpu_ns": 37134829,
+          "wall_ns": 37134057
+        },
+        {
+          "generation": 49,
+          "allocated_bytes": 10037728,
+          "cpu_ns": 34504564,
+          "wall_ns": 34504028
+        },
+        {
+          "generation": 50,
+          "allocated_bytes": 10410024,
+          "cpu_ns": 26544337,
+          "wall_ns": 26557531
+        },
+        {
+          "generation": 51,
+          "allocated_bytes": 9895600,
+          "cpu_ns": 31222827,
+          "wall_ns": 31222244
+        },
+        {
+          "generation": 52,
+          "allocated_bytes": 9737128,
+          "cpu_ns": 23940288,
+          "wall_ns": 23940118
+        },
+        {
+          "generation": 53,
+          "allocated_bytes": 9757928,
+          "cpu_ns": 21547286,
+          "wall_ns": 21546657
+        },
+        {
+          "generation": 54,
+          "allocated_bytes": 10471152,
+          "cpu_ns": 28301244,
+          "wall_ns": 28300791
+        },
+        {
+          "generation": 55,
+          "allocated_bytes": 10790592,
+          "cpu_ns": 40114070,
+          "wall_ns": 40113069
+        },
+        {
+          "generation": 56,
+          "allocated_bytes": 10506040,
+          "cpu_ns": 37688581,
+          "wall_ns": 37688072
+        },
+        {
+          "generation": 57,
+          "allocated_bytes": 10650888,
+          "cpu_ns": 29678380,
+          "wall_ns": 29677849
+        },
+        {
+          "generation": 58,
+          "allocated_bytes": 10222472,
+          "cpu_ns": 27141846,
+          "wall_ns": 27140794
+        },
+        {
+          "generation": 59,
+          "allocated_bytes": 10196672,
+          "cpu_ns": 22696639,
+          "wall_ns": 22696196
+        },
+        {
+          "generation": 60,
+          "allocated_bytes": 10188800,
+          "cpu_ns": 31926724,
+          "wall_ns": 31939177
+        },
+        {
+          "generation": 61,
+          "allocated_bytes": 11003784,
+          "cpu_ns": 41235166,
+          "wall_ns": 41234289
+        },
+        {
+          "generation": 62,
+          "allocated_bytes": 10790512,
+          "cpu_ns": 31305600,
+          "wall_ns": 31305165
+        },
+        {
+          "generation": 63,
+          "allocated_bytes": 11304832,
+          "cpu_ns": 51639203,
+          "wall_ns": 51638783
+        },
+        {
+          "generation": 64,
+          "allocated_bytes": 11239824,
+          "cpu_ns": 43211108,
+          "wall_ns": 43223409
+        },
+        {
+          "generation": 65,
+          "allocated_bytes": 11040120,
+          "cpu_ns": 39571777,
+          "wall_ns": 39584220
+        },
+        {
+          "generation": 66,
+          "allocated_bytes": 10975128,
+          "cpu_ns": 36982271,
+          "wall_ns": 44104390
+        },
+        {
+          "generation": 67,
+          "allocated_bytes": 10881224,
+          "cpu_ns": 36501658,
+          "wall_ns": 36512202
+        },
+        {
+          "generation": 68,
+          "allocated_bytes": 11584464,
+          "cpu_ns": 46691215,
+          "wall_ns": 46843469
+        },
+        {
+          "generation": 69,
+          "allocated_bytes": 10808328,
+          "cpu_ns": 44553028,
+          "wall_ns": 44552295
+        },
+        {
+          "generation": 70,
+          "allocated_bytes": 10556520,
+          "cpu_ns": 33179611,
+          "wall_ns": 33179315
+        },
+        {
+          "generation": 71,
+          "allocated_bytes": 11389648,
+          "cpu_ns": 37866416,
+          "wall_ns": 37879031
+        },
+        {
+          "generation": 72,
+          "allocated_bytes": 10234400,
+          "cpu_ns": 39201316,
+          "wall_ns": 39200686
+        },
+        {
+          "generation": 73,
+          "allocated_bytes": 10862176,
+          "cpu_ns": 36294245,
+          "wall_ns": 36293597
+        },
+        {
+          "generation": 74,
+          "allocated_bytes": 11060616,
+          "cpu_ns": 46908195,
+          "wall_ns": 46920009
+        },
+        {
+          "generation": 75,
+          "allocated_bytes": 11626672,
+          "cpu_ns": 40448932,
+          "wall_ns": 40448246
+        },
+        {
+          "generation": 76,
+          "allocated_bytes": 12066584,
+          "cpu_ns": 47852917,
+          "wall_ns": 47852300
+        },
+        {
+          "generation": 77,
+          "allocated_bytes": 11241984,
+          "cpu_ns": 52816913,
+          "wall_ns": 52816492
+        },
+        {
+          "generation": 78,
+          "allocated_bytes": 12210744,
+          "cpu_ns": 54971759,
+          "wall_ns": 54986348
+        },
+        {
+          "generation": 79,
+          "allocated_bytes": 11116856,
+          "cpu_ns": 40550109,
+          "wall_ns": 40549627
+        },
+        {
+          "generation": 80,
+          "allocated_bytes": 10737720,
+          "cpu_ns": 34974796,
+          "wall_ns": 34974155
+        },
+        {
+          "generation": 81,
+          "allocated_bytes": 10877128,
+          "cpu_ns": 42725333,
+          "wall_ns": 42724446
+        },
+        {
+          "generation": 82,
+          "allocated_bytes": 11330960,
+          "cpu_ns": 41307307,
+          "wall_ns": 41306706
+        },
+        {
+          "generation": 83,
+          "allocated_bytes": 10862104,
+          "cpu_ns": 26926810,
+          "wall_ns": 26939413
+        },
+        {
+          "generation": 84,
+          "allocated_bytes": 12207216,
+          "cpu_ns": 36978774,
+          "wall_ns": 36992002
+        },
+        {
+          "generation": 85,
+          "allocated_bytes": 11431424,
+          "cpu_ns": 46213438,
+          "wall_ns": 46226252
+        },
+        {
+          "generation": 86,
+          "allocated_bytes": 11373048,
+          "cpu_ns": 35309616,
+          "wall_ns": 41083444
+        },
+        {
+          "generation": 87,
+          "allocated_bytes": 12183752,
+          "cpu_ns": 40641067,
+          "wall_ns": 40640389
+        },
+        {
+          "generation": 88,
+          "allocated_bytes": 12183720,
+          "cpu_ns": 35004513,
+          "wall_ns": 35151939
+        },
+        {
+          "generation": 89,
+          "allocated_bytes": 12355208,
+          "cpu_ns": 38299712,
+          "wall_ns": 38299209
+        },
+        {
+          "generation": 90,
+          "allocated_bytes": 12381536,
+          "cpu_ns": 40689837,
+          "wall_ns": 40728432
+        },
+        {
+          "generation": 91,
+          "allocated_bytes": 12524680,
+          "cpu_ns": 39531843,
+          "wall_ns": 39544299
+        },
+        {
+          "generation": 92,
+          "allocated_bytes": 13142232,
+          "cpu_ns": 39240237,
+          "wall_ns": 39240006
+        },
+        {
+          "generation": 93,
+          "allocated_bytes": 12852912,
+          "cpu_ns": 48666252,
+          "wall_ns": 48672161
+        },
+        {
+          "generation": 94,
+          "allocated_bytes": 11907640,
+          "cpu_ns": 42618606,
+          "wall_ns": 42915717
+        },
+        {
+          "generation": 95,
+          "allocated_bytes": 12075208,
+          "cpu_ns": 37638538,
+          "wall_ns": 37638317
+        }
+      ],
+      "caches": [
+        {
+          "pages": 256,
+          "hits": 51340,
+          "misses": 2031
+        }
+      ]
+    },
+    {
+      "round": 5,
+      "capacity": 64,
+      "process_wall_seconds": 8.160075079,
+      "exact": true,
+      "allocated_bytes_last32": 404968224,
+      "foreground_wall_ns_last32": 2517843897,
+      "foreground_cpu_ns_last32": 2506421591,
+      "generations": [
+        {
+          "generation": 0,
+          "allocated_bytes": 9339024,
+          "cpu_ns": 80821873,
+          "wall_ns": 81195425
+        },
+        {
+          "generation": 1,
+          "allocated_bytes": 9578704,
+          "cpu_ns": 71849670,
+          "wall_ns": 72221418
+        },
+        {
+          "generation": 2,
+          "allocated_bytes": 9275200,
+          "cpu_ns": 39763105,
+          "wall_ns": 39769454
+        },
+        {
+          "generation": 3,
+          "allocated_bytes": 9189736,
+          "cpu_ns": 49235281,
+          "wall_ns": 49240806
+        },
+        {
+          "generation": 4,
+          "allocated_bytes": 9285776,
+          "cpu_ns": 43438640,
+          "wall_ns": 66342613
+        },
+        {
+          "generation": 5,
+          "allocated_bytes": 9385336,
+          "cpu_ns": 44837080,
+          "wall_ns": 44879096
+        },
+        {
+          "generation": 6,
+          "allocated_bytes": 8791632,
+          "cpu_ns": 35748445,
+          "wall_ns": 35826316
+        },
+        {
+          "generation": 7,
+          "allocated_bytes": 8843256,
+          "cpu_ns": 25360280,
+          "wall_ns": 25360305
+        },
+        {
+          "generation": 8,
+          "allocated_bytes": 8977488,
+          "cpu_ns": 25154843,
+          "wall_ns": 25167063
+        },
+        {
+          "generation": 9,
+          "allocated_bytes": 8832824,
+          "cpu_ns": 24112120,
+          "wall_ns": 24337932
+        },
+        {
+          "generation": 10,
+          "allocated_bytes": 8561048,
+          "cpu_ns": 19818462,
+          "wall_ns": 20263884
+        },
+        {
+          "generation": 11,
+          "allocated_bytes": 8923264,
+          "cpu_ns": 19120248,
+          "wall_ns": 19584344
+        },
+        {
+          "generation": 12,
+          "allocated_bytes": 8981904,
+          "cpu_ns": 19798953,
+          "wall_ns": 19831755
+        },
+        {
+          "generation": 13,
+          "allocated_bytes": 9080448,
+          "cpu_ns": 18589755,
+          "wall_ns": 18612491
+        },
+        {
+          "generation": 14,
+          "allocated_bytes": 8786832,
+          "cpu_ns": 22048173,
+          "wall_ns": 22112121
+        },
+        {
+          "generation": 15,
+          "allocated_bytes": 9058952,
+          "cpu_ns": 22272757,
+          "wall_ns": 22287322
+        },
+        {
+          "generation": 16,
+          "allocated_bytes": 8658552,
+          "cpu_ns": 18814763,
+          "wall_ns": 18822523
+        },
+        {
+          "generation": 17,
+          "allocated_bytes": 8870392,
+          "cpu_ns": 19971373,
+          "wall_ns": 20006171
+        },
+        {
+          "generation": 18,
+          "allocated_bytes": 8944320,
+          "cpu_ns": 27940306,
+          "wall_ns": 27965714
+        },
+        {
+          "generation": 19,
+          "allocated_bytes": 9079792,
+          "cpu_ns": 25845514,
+          "wall_ns": 25845113
+        },
+        {
+          "generation": 20,
+          "allocated_bytes": 8961040,
+          "cpu_ns": 21632619,
+          "wall_ns": 21645474
+        },
+        {
+          "generation": 21,
+          "allocated_bytes": 9662304,
+          "cpu_ns": 32199641,
+          "wall_ns": 32246285
+        },
+        {
+          "generation": 22,
+          "allocated_bytes": 9539088,
+          "cpu_ns": 33958235,
+          "wall_ns": 33957516
+        },
+        {
+          "generation": 23,
+          "allocated_bytes": 9535072,
+          "cpu_ns": 45859107,
+          "wall_ns": 57904053
+        },
+        {
+          "generation": 24,
+          "allocated_bytes": 9536544,
+          "cpu_ns": 27996401,
+          "wall_ns": 27995958
+        },
+        {
+          "generation": 25,
+          "allocated_bytes": 9405968,
+          "cpu_ns": 31815882,
+          "wall_ns": 31828177
+        },
+        {
+          "generation": 26,
+          "allocated_bytes": 9226272,
+          "cpu_ns": 20421458,
+          "wall_ns": 20421175
+        },
+        {
+          "generation": 27,
+          "allocated_bytes": 10584768,
+          "cpu_ns": 56812313,
+          "wall_ns": 56872754
+        },
+        {
+          "generation": 28,
+          "allocated_bytes": 9535464,
+          "cpu_ns": 39784526,
+          "wall_ns": 39823133
+        },
+        {
+          "generation": 29,
+          "allocated_bytes": 9759056,
+          "cpu_ns": 40297091,
+          "wall_ns": 40336366
+        },
+        {
+          "generation": 30,
+          "allocated_bytes": 9822632,
+          "cpu_ns": 37867572,
+          "wall_ns": 37867399
+        },
+        {
+          "generation": 31,
+          "allocated_bytes": 9825976,
+          "cpu_ns": 43251766,
+          "wall_ns": 43290856
+        },
+        {
+          "generation": 32,
+          "allocated_bytes": 9511800,
+          "cpu_ns": 37165654,
+          "wall_ns": 37200469
+        },
+        {
+          "generation": 33,
+          "allocated_bytes": 9390624,
+          "cpu_ns": 31985415,
+          "wall_ns": 31984900
+        },
+        {
+          "generation": 34,
+          "allocated_bytes": 9804304,
+          "cpu_ns": 42815085,
+          "wall_ns": 42842384
+        },
+        {
+          "generation": 35,
+          "allocated_bytes": 10276728,
+          "cpu_ns": 57703253,
+          "wall_ns": 57738310
+        },
+        {
+          "generation": 36,
+          "allocated_bytes": 9247952,
+          "cpu_ns": 49735722,
+          "wall_ns": 49785724
+        },
+        {
+          "generation": 37,
+          "allocated_bytes": 8849816,
+          "cpu_ns": 43864673,
+          "wall_ns": 43879505
+        },
+        {
+          "generation": 38,
+          "allocated_bytes": 10084768,
+          "cpu_ns": 50336319,
+          "wall_ns": 50335972
+        },
+        {
+          "generation": 39,
+          "allocated_bytes": 10871928,
+          "cpu_ns": 48054215,
+          "wall_ns": 48061754
+        },
+        {
+          "generation": 40,
+          "allocated_bytes": 10052632,
+          "cpu_ns": 49445073,
+          "wall_ns": 49471409
+        },
+        {
+          "generation": 41,
+          "allocated_bytes": 10554736,
+          "cpu_ns": 47335455,
+          "wall_ns": 47334600
+        },
+        {
+          "generation": 42,
+          "allocated_bytes": 11283184,
+          "cpu_ns": 55510370,
+          "wall_ns": 55563282
+        },
+        {
+          "generation": 43,
+          "allocated_bytes": 10746104,
+          "cpu_ns": 59368575,
+          "wall_ns": 59367874
+        },
+        {
+          "generation": 44,
+          "allocated_bytes": 10019528,
+          "cpu_ns": 45943936,
+          "wall_ns": 45982954
+        },
+        {
+          "generation": 45,
+          "allocated_bytes": 9641432,
+          "cpu_ns": 37845157,
+          "wall_ns": 37844761
+        },
+        {
+          "generation": 46,
+          "allocated_bytes": 9559856,
+          "cpu_ns": 35513998,
+          "wall_ns": 44847419
+        },
+        {
+          "generation": 47,
+          "allocated_bytes": 10043040,
+          "cpu_ns": 40733288,
+          "wall_ns": 40732887
+        },
+        {
+          "generation": 48,
+          "allocated_bytes": 10586808,
+          "cpu_ns": 55304167,
+          "wall_ns": 55303704
+        },
+        {
+          "generation": 49,
+          "allocated_bytes": 10554136,
+          "cpu_ns": 49077286,
+          "wall_ns": 49076643
+        },
+        {
+          "generation": 50,
+          "allocated_bytes": 11054968,
+          "cpu_ns": 55119071,
+          "wall_ns": 55118592
+        },
+        {
+          "generation": 51,
+          "allocated_bytes": 10246272,
+          "cpu_ns": 44569332,
+          "wall_ns": 44579292
+        },
+        {
+          "generation": 52,
+          "allocated_bytes": 10190536,
+          "cpu_ns": 43292373,
+          "wall_ns": 43291916
+        },
+        {
+          "generation": 53,
+          "allocated_bytes": 10346264,
+          "cpu_ns": 51462010,
+          "wall_ns": 51461240
+        },
+        {
+          "generation": 54,
+          "allocated_bytes": 10995704,
+          "cpu_ns": 52128188,
+          "wall_ns": 52127772
+        },
+        {
+          "generation": 55,
+          "allocated_bytes": 11514952,
+          "cpu_ns": 67402332,
+          "wall_ns": 67422445
+        },
+        {
+          "generation": 56,
+          "allocated_bytes": 11073992,
+          "cpu_ns": 55157398,
+          "wall_ns": 55156826
+        },
+        {
+          "generation": 57,
+          "allocated_bytes": 11244392,
+          "cpu_ns": 54706025,
+          "wall_ns": 54705586
+        },
+        {
+          "generation": 58,
+          "allocated_bytes": 10859432,
+          "cpu_ns": 56349416,
+          "wall_ns": 56348960
+        },
+        {
+          "generation": 59,
+          "allocated_bytes": 10670592,
+          "cpu_ns": 44889946,
+          "wall_ns": 44905112
+        },
+        {
+          "generation": 60,
+          "allocated_bytes": 10594672,
+          "cpu_ns": 42749479,
+          "wall_ns": 42749206
+        },
+        {
+          "generation": 61,
+          "allocated_bytes": 11504472,
+          "cpu_ns": 53564516,
+          "wall_ns": 53579082
+        },
+        {
+          "generation": 62,
+          "allocated_bytes": 11507448,
+          "cpu_ns": 57489326,
+          "wall_ns": 57525185
+        },
+        {
+          "generation": 63,
+          "allocated_bytes": 12213352,
+          "cpu_ns": 69053257,
+          "wall_ns": 69052478
+        },
+        {
+          "generation": 64,
+          "allocated_bytes": 12175200,
+          "cpu_ns": 72912937,
+          "wall_ns": 72912226
+        },
+        {
+          "generation": 65,
+          "allocated_bytes": 11816872,
+          "cpu_ns": 62058489,
+          "wall_ns": 62057933
+        },
+        {
+          "generation": 66,
+          "allocated_bytes": 11647240,
+          "cpu_ns": 59495817,
+          "wall_ns": 59508972
+        },
+        {
+          "generation": 67,
+          "allocated_bytes": 11586736,
+          "cpu_ns": 55080072,
+          "wall_ns": 61644838
+        },
+        {
+          "generation": 68,
+          "allocated_bytes": 12511248,
+          "cpu_ns": 72633198,
+          "wall_ns": 72657999
+        },
+        {
+          "generation": 69,
+          "allocated_bytes": 11617528,
+          "cpu_ns": 63332397,
+          "wall_ns": 63344238
+        },
+        {
+          "generation": 70,
+          "allocated_bytes": 11383840,
+          "cpu_ns": 61254891,
+          "wall_ns": 61254244
+        },
+        {
+          "generation": 71,
+          "allocated_bytes": 12439840,
+          "cpu_ns": 69414433,
+          "wall_ns": 69413675
+        },
+        {
+          "generation": 72,
+          "allocated_bytes": 10864880,
+          "cpu_ns": 55371784,
+          "wall_ns": 55371303
+        },
+        {
+          "generation": 73,
+          "allocated_bytes": 11779408,
+          "cpu_ns": 65224982,
+          "wall_ns": 65224417
+        },
+        {
+          "generation": 74,
+          "allocated_bytes": 11850488,
+          "cpu_ns": 63122897,
+          "wall_ns": 63122231
+        },
+        {
+          "generation": 75,
+          "allocated_bytes": 12694256,
+          "cpu_ns": 73780341,
+          "wall_ns": 73779507
+        },
+        {
+          "generation": 76,
+          "allocated_bytes": 13204544,
+          "cpu_ns": 80426769,
+          "wall_ns": 80426310
+        },
+        {
+          "generation": 77,
+          "allocated_bytes": 12197904,
+          "cpu_ns": 78010496,
+          "wall_ns": 78009515
+        },
+        {
+          "generation": 78,
+          "allocated_bytes": 13626480,
+          "cpu_ns": 98800940,
+          "wall_ns": 98800059
+        },
+        {
+          "generation": 79,
+          "allocated_bytes": 12110160,
+          "cpu_ns": 77095338,
+          "wall_ns": 77106635
+        },
+        {
+          "generation": 80,
+          "allocated_bytes": 11692936,
+          "cpu_ns": 64798598,
+          "wall_ns": 64813627
+        },
+        {
+          "generation": 81,
+          "allocated_bytes": 11728792,
+          "cpu_ns": 68374174,
+          "wall_ns": 68373608
+        },
+        {
+          "generation": 82,
+          "allocated_bytes": 12393536,
+          "cpu_ns": 78060747,
+          "wall_ns": 78074012
+        },
+        {
+          "generation": 83,
+          "allocated_bytes": 11931160,
+          "cpu_ns": 62860717,
+          "wall_ns": 62860216
+        },
+        {
+          "generation": 84,
+          "allocated_bytes": 13368848,
+          "cpu_ns": 76681518,
+          "wall_ns": 76696326
+        },
+        {
+          "generation": 85,
+          "allocated_bytes": 12891304,
+          "cpu_ns": 95233417,
+          "wall_ns": 95255618
+        },
+        {
+          "generation": 86,
+          "allocated_bytes": 12812312,
+          "cpu_ns": 85446512,
+          "wall_ns": 90135086
+        },
+        {
+          "generation": 87,
+          "allocated_bytes": 13715952,
+          "cpu_ns": 95418266,
+          "wall_ns": 95417540
+        },
+        {
+          "generation": 88,
+          "allocated_bytes": 13486536,
+          "cpu_ns": 87700110,
+          "wall_ns": 87699347
+        },
+        {
+          "generation": 89,
+          "allocated_bytes": 13723416,
+          "cpu_ns": 90461236,
+          "wall_ns": 90474200
+        },
+        {
+          "generation": 90,
+          "allocated_bytes": 13852152,
+          "cpu_ns": 94553355,
+          "wall_ns": 94563340
+        },
+        {
+          "generation": 91,
+          "allocated_bytes": 13995648,
+          "cpu_ns": 93885006,
+          "wall_ns": 93884117
+        },
+        {
+          "generation": 92,
+          "allocated_bytes": 15025592,
+          "cpu_ns": 106988779,
+          "wall_ns": 106987667
+        },
+        {
+          "generation": 93,
+          "allocated_bytes": 14195448,
+          "cpu_ns": 110338200,
+          "wall_ns": 110357649
+        },
+        {
+          "generation": 94,
+          "allocated_bytes": 13176344,
+          "cpu_ns": 94118222,
+          "wall_ns": 94131411
+        },
+        {
+          "generation": 95,
+          "allocated_bytes": 13471624,
+          "cpu_ns": 93486953,
+          "wall_ns": 93486031
+        }
+      ],
+      "caches": [
+        {
+          "pages": 64,
+          "hits": 47015,
+          "misses": 6356
+        }
+      ]
+    },
+    {
+      "round": 6,
+      "capacity": 8,
+      "process_wall_seconds": 14.787914294,
+      "exact": true,
+      "allocated_bytes_last32": 479819328,
+      "foreground_wall_ns_last32": 5941607941,
+      "foreground_cpu_ns_last32": 5934408518,
+      "generations": [
+        {
+          "generation": 0,
+          "allocated_bytes": 9349392,
+          "cpu_ns": 79623161,
+          "wall_ns": 79943539
+        },
+        {
+          "generation": 1,
+          "allocated_bytes": 9575672,
+          "cpu_ns": 78449554,
+          "wall_ns": 78843127
+        },
+        {
+          "generation": 2,
+          "allocated_bytes": 9277800,
+          "cpu_ns": 45547963,
+          "wall_ns": 45586817
+        },
+        {
+          "generation": 3,
+          "allocated_bytes": 9191440,
+          "cpu_ns": 50563326,
+          "wall_ns": 50634136
+        },
+        {
+          "generation": 4,
+          "allocated_bytes": 9342600,
+          "cpu_ns": 50340087,
+          "wall_ns": 73095737
+        },
+        {
+          "generation": 5,
+          "allocated_bytes": 9471072,
+          "cpu_ns": 55414762,
+          "wall_ns": 55435401
+        },
+        {
+          "generation": 6,
+          "allocated_bytes": 9376304,
+          "cpu_ns": 36617566,
+          "wall_ns": 36710971
+        },
+        {
+          "generation": 7,
+          "allocated_bytes": 9365952,
+          "cpu_ns": 30096092,
+          "wall_ns": 30285027
+        },
+        {
+          "generation": 8,
+          "allocated_bytes": 9573216,
+          "cpu_ns": 33200099,
+          "wall_ns": 33298968
+        },
+        {
+          "generation": 9,
+          "allocated_bytes": 8965760,
+          "cpu_ns": 35653129,
+          "wall_ns": 35690821
+        },
+        {
+          "generation": 10,
+          "allocated_bytes": 8998152,
+          "cpu_ns": 30294777,
+          "wall_ns": 30294109
+        },
+        {
+          "generation": 11,
+          "allocated_bytes": 9302840,
+          "cpu_ns": 56242095,
+          "wall_ns": 56251746
+        },
+        {
+          "generation": 12,
+          "allocated_bytes": 9477680,
+          "cpu_ns": 81510980,
+          "wall_ns": 81516223
+        },
+        {
+          "generation": 13,
+          "allocated_bytes": 9564512,
+          "cpu_ns": 60468424,
+          "wall_ns": 60467678
+        },
+        {
+          "generation": 14,
+          "allocated_bytes": 9243912,
+          "cpu_ns": 38276615,
+          "wall_ns": 38282975
+        },
+        {
+          "generation": 15,
+          "allocated_bytes": 9496072,
+          "cpu_ns": 37913495,
+          "wall_ns": 37913356
+        },
+        {
+          "generation": 16,
+          "allocated_bytes": 8854024,
+          "cpu_ns": 25675776,
+          "wall_ns": 25791636
+        },
+        {
+          "generation": 17,
+          "allocated_bytes": 8862528,
+          "cpu_ns": 43684737,
+          "wall_ns": 43802009
+        },
+        {
+          "generation": 18,
+          "allocated_bytes": 9038704,
+          "cpu_ns": 46826197,
+          "wall_ns": 46825566
+        },
+        {
+          "generation": 19,
+          "allocated_bytes": 8891744,
+          "cpu_ns": 40924719,
+          "wall_ns": 40960000
+        },
+        {
+          "generation": 20,
+          "allocated_bytes": 8979640,
+          "cpu_ns": 41472789,
+          "wall_ns": 41472144
+        },
+        {
+          "generation": 21,
+          "allocated_bytes": 10277144,
+          "cpu_ns": 69306320,
+          "wall_ns": 69315276
+        },
+        {
+          "generation": 22,
+          "allocated_bytes": 9692880,
+          "cpu_ns": 62108800,
+          "wall_ns": 62107873
+        },
+        {
+          "generation": 23,
+          "allocated_bytes": 9703408,
+          "cpu_ns": 58690168,
+          "wall_ns": 58689542
+        },
+        {
+          "generation": 24,
+          "allocated_bytes": 9942496,
+          "cpu_ns": 68352262,
+          "wall_ns": 68480898
+        },
+        {
+          "generation": 25,
+          "allocated_bytes": 9530168,
+          "cpu_ns": 59956450,
+          "wall_ns": 59975988
+        },
+        {
+          "generation": 26,
+          "allocated_bytes": 9458112,
+          "cpu_ns": 52722638,
+          "wall_ns": 52722277
+        },
+        {
+          "generation": 27,
+          "allocated_bytes": 11807496,
+          "cpu_ns": 111081472,
+          "wall_ns": 111166861
+        },
+        {
+          "generation": 28,
+          "allocated_bytes": 10193952,
+          "cpu_ns": 79984828,
+          "wall_ns": 79983979
+        },
+        {
+          "generation": 29,
+          "allocated_bytes": 10193328,
+          "cpu_ns": 79936559,
+          "wall_ns": 79949593
+        },
+        {
+          "generation": 30,
+          "allocated_bytes": 10389248,
+          "cpu_ns": 80378584,
+          "wall_ns": 80420527
+        },
+        {
+          "generation": 31,
+          "allocated_bytes": 10620064,
+          "cpu_ns": 91125029,
+          "wall_ns": 91160380
+        },
+        {
+          "generation": 32,
+          "allocated_bytes": 9597144,
+          "cpu_ns": 60174199,
+          "wall_ns": 60185569
+        },
+        {
+          "generation": 33,
+          "allocated_bytes": 9592136,
+          "cpu_ns": 64364520,
+          "wall_ns": 64376183
+        },
+        {
+          "generation": 34,
+          "allocated_bytes": 10282944,
+          "cpu_ns": 84658005,
+          "wall_ns": 84862607
+        },
+        {
+          "generation": 35,
+          "allocated_bytes": 10979688,
+          "cpu_ns": 117609313,
+          "wall_ns": 117664158
+        },
+        {
+          "generation": 36,
+          "allocated_bytes": 9784832,
+          "cpu_ns": 72259881,
+          "wall_ns": 72479813
+        },
+        {
+          "generation": 37,
+          "allocated_bytes": 9235056,
+          "cpu_ns": 52960817,
+          "wall_ns": 52974035
+        },
+        {
+          "generation": 38,
+          "allocated_bytes": 11336944,
+          "cpu_ns": 121036115,
+          "wall_ns": 121062284
+        },
+        {
+          "generation": 39,
+          "allocated_bytes": 11831768,
+          "cpu_ns": 111878697,
+          "wall_ns": 111887506
+        },
+        {
+          "generation": 40,
+          "allocated_bytes": 11075032,
+          "cpu_ns": 125148105,
+          "wall_ns": 125209333
+        },
+        {
+          "generation": 41,
+          "allocated_bytes": 11495272,
+          "cpu_ns": 122070532,
+          "wall_ns": 122079350
+        },
+        {
+          "generation": 42,
+          "allocated_bytes": 12729296,
+          "cpu_ns": 164624428,
+          "wall_ns": 164655227
+        },
+        {
+          "generation": 43,
+          "allocated_bytes": 11859968,
+          "cpu_ns": 141133287,
+          "wall_ns": 141358831
+        },
+        {
+          "generation": 44,
+          "allocated_bytes": 11269680,
+          "cpu_ns": 114189671,
+          "wall_ns": 114188553
+        },
+        {
+          "generation": 45,
+          "allocated_bytes": 10534232,
+          "cpu_ns": 100336238,
+          "wall_ns": 107256882
+        },
+        {
+          "generation": 46,
+          "allocated_bytes": 10296448,
+          "cpu_ns": 81208449,
+          "wall_ns": 81207133
+        },
+        {
+          "generation": 47,
+          "allocated_bytes": 10778120,
+          "cpu_ns": 99099933,
+          "wall_ns": 99111139
+        },
+        {
+          "generation": 48,
+          "allocated_bytes": 11342048,
+          "cpu_ns": 119196950,
+          "wall_ns": 119230915
+        },
+        {
+          "generation": 49,
+          "allocated_bytes": 11644672,
+          "cpu_ns": 115373213,
+          "wall_ns": 115385035
+        },
+        {
+          "generation": 50,
+          "allocated_bytes": 12105768,
+          "cpu_ns": 125742138,
+          "wall_ns": 125750326
+        },
+        {
+          "generation": 51,
+          "allocated_bytes": 11273912,
+          "cpu_ns": 114548761,
+          "wall_ns": 114570395
+        },
+        {
+          "generation": 52,
+          "allocated_bytes": 11159360,
+          "cpu_ns": 119651724,
+          "wall_ns": 119672746
+        },
+        {
+          "generation": 53,
+          "allocated_bytes": 11231464,
+          "cpu_ns": 125196307,
+          "wall_ns": 125210666
+        },
+        {
+          "generation": 54,
+          "allocated_bytes": 11984760,
+          "cpu_ns": 126867529,
+          "wall_ns": 126935133
+        },
+        {
+          "generation": 55,
+          "allocated_bytes": 12437768,
+          "cpu_ns": 146153730,
+          "wall_ns": 146152086
+        },
+        {
+          "generation": 56,
+          "allocated_bytes": 12330248,
+          "cpu_ns": 143559746,
+          "wall_ns": 143584319
+        },
+        {
+          "generation": 57,
+          "allocated_bytes": 12776992,
+          "cpu_ns": 156410864,
+          "wall_ns": 156430957
+        },
+        {
+          "generation": 58,
+          "allocated_bytes": 12037792,
+          "cpu_ns": 145332908,
+          "wall_ns": 145346083
+        },
+        {
+          "generation": 59,
+          "allocated_bytes": 12170016,
+          "cpu_ns": 134176833,
+          "wall_ns": 134175340
+        },
+        {
+          "generation": 60,
+          "allocated_bytes": 11930408,
+          "cpu_ns": 109903858,
+          "wall_ns": 109950111
+        },
+        {
+          "generation": 61,
+          "allocated_bytes": 13276296,
+          "cpu_ns": 153256588,
+          "wall_ns": 153254900
+        },
+        {
+          "generation": 62,
+          "allocated_bytes": 13719304,
+          "cpu_ns": 175595869,
+          "wall_ns": 175619366
+        },
+        {
+          "generation": 63,
+          "allocated_bytes": 14788432,
+          "cpu_ns": 208040921,
+          "wall_ns": 208071845
+        },
+        {
+          "generation": 64,
+          "allocated_bytes": 14010280,
+          "cpu_ns": 183251862,
+          "wall_ns": 189808195
+        },
+        {
+          "generation": 65,
+          "allocated_bytes": 13933176,
+          "cpu_ns": 173153271,
+          "wall_ns": 173179770
+        },
+        {
+          "generation": 66,
+          "allocated_bytes": 13843272,
+          "cpu_ns": 166782373,
+          "wall_ns": 166833021
+        },
+        {
+          "generation": 67,
+          "allocated_bytes": 13297016,
+          "cpu_ns": 149611725,
+          "wall_ns": 149622550
+        },
+        {
+          "generation": 68,
+          "allocated_bytes": 14742568,
+          "cpu_ns": 192934423,
+          "wall_ns": 192943273
+        },
+        {
+          "generation": 69,
+          "allocated_bytes": 13461944,
+          "cpu_ns": 161011046,
+          "wall_ns": 161022288
+        },
+        {
+          "generation": 70,
+          "allocated_bytes": 13426736,
+          "cpu_ns": 161072147,
+          "wall_ns": 161111409
+        },
+        {
+          "generation": 71,
+          "allocated_bytes": 14786528,
+          "cpu_ns": 179598969,
+          "wall_ns": 179597042
+        },
+        {
+          "generation": 72,
+          "allocated_bytes": 13034840,
+          "cpu_ns": 147160637,
+          "wall_ns": 147185149
+        },
+        {
+          "generation": 73,
+          "allocated_bytes": 13625312,
+          "cpu_ns": 153450460,
+          "wall_ns": 153460680
+        },
+        {
+          "generation": 74,
+          "allocated_bytes": 13850440,
+          "cpu_ns": 153564038,
+          "wall_ns": 153584525
+        },
+        {
+          "generation": 75,
+          "allocated_bytes": 15101040,
+          "cpu_ns": 180821274,
+          "wall_ns": 180846711
+        },
+        {
+          "generation": 76,
+          "allocated_bytes": 15796104,
+          "cpu_ns": 198729610,
+          "wall_ns": 198755057
+        },
+        {
+          "generation": 77,
+          "allocated_bytes": 14350200,
+          "cpu_ns": 177957967,
+          "wall_ns": 177996492
+        },
+        {
+          "generation": 78,
+          "allocated_bytes": 16096192,
+          "cpu_ns": 216589448,
+          "wall_ns": 216615955
+        },
+        {
+          "generation": 79,
+          "allocated_bytes": 13940240,
+          "cpu_ns": 172918379,
+          "wall_ns": 172927012
+        },
+        {
+          "generation": 80,
+          "allocated_bytes": 13541832,
+          "cpu_ns": 148513008,
+          "wall_ns": 148524996
+        },
+        {
+          "generation": 81,
+          "allocated_bytes": 14231528,
+          "cpu_ns": 162592286,
+          "wall_ns": 162606238
+        },
+        {
+          "generation": 82,
+          "allocated_bytes": 14502512,
+          "cpu_ns": 170657759,
+          "wall_ns": 170695296
+        },
+        {
+          "generation": 83,
+          "allocated_bytes": 14254032,
+          "cpu_ns": 156699710,
+          "wall_ns": 156712030
+        },
+        {
+          "generation": 84,
+          "allocated_bytes": 15805792,
+          "cpu_ns": 178961083,
+          "wall_ns": 178967184
+        },
+        {
+          "generation": 85,
+          "allocated_bytes": 15552176,
+          "cpu_ns": 206885038,
+          "wall_ns": 206899571
+        },
+        {
+          "generation": 86,
+          "allocated_bytes": 15708416,
+          "cpu_ns": 209650609,
+          "wall_ns": 209688700
+        },
+        {
+          "generation": 87,
+          "allocated_bytes": 16354248,
+          "cpu_ns": 209625506,
+          "wall_ns": 209646917
+        },
+        {
+          "generation": 88,
+          "allocated_bytes": 15771112,
+          "cpu_ns": 199087199,
+          "wall_ns": 199098406
+        },
+        {
+          "generation": 89,
+          "allocated_bytes": 16412056,
+          "cpu_ns": 206106664,
+          "wall_ns": 206110581
+        },
+        {
+          "generation": 90,
+          "allocated_bytes": 16775304,
+          "cpu_ns": 222074935,
+          "wall_ns": 222119059
+        },
+        {
+          "generation": 91,
+          "allocated_bytes": 16907480,
+          "cpu_ns": 224497627,
+          "wall_ns": 224530277
+        },
+        {
+          "generation": 92,
+          "allocated_bytes": 18610864,
+          "cpu_ns": 233564401,
+          "wall_ns": 233561711
+        },
+        {
+          "generation": 93,
+          "allocated_bytes": 16627104,
+          "cpu_ns": 228835769,
+          "wall_ns": 228833497
+        },
+        {
+          "generation": 94,
+          "allocated_bytes": 15405320,
+          "cpu_ns": 196569790,
+          "wall_ns": 196620770
+        },
+        {
+          "generation": 95,
+          "allocated_bytes": 16063664,
+          "cpu_ns": 211479505,
+          "wall_ns": 211503579
+        }
+      ],
+      "caches": [
+        {
+          "pages": 8,
+          "hits": 37460,
+          "misses": 15911
+        }
+      ]
+    }
+  ],
+  "raw_root": "build/jsonbench-campaign/source-flag-summary-v47/writer-cache-index-v67",
+  "full_100m_ingestion": {
+    "records": [
+      {
+        "round": 1,
+        "candidate": false,
+        "database": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/db-100m-ingestion-v67-r1-baseline",
+        "load_seconds": 2654.245,
+        "process_wall_seconds": 2655.541332462,
+        "database_bytes": 34519582408,
+        "source_sha256": "925e84df83435fb1dcb621ad89e9b48f859c8b7c0cbeedf084605bd3ff48312a",
+        "classpath_sha256": "edb4266a42cb977fc6009feccc12bad5c5d6bc021717ccfeec7048e1025be19f",
+        "exact_queries": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "layout_and_creation_history": true,
+        "summaries_exact": true,
+        "verified_database_reclaimed": true
+      },
+      {
+        "round": 2,
+        "candidate": true,
+        "database": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/db-100m-ingestion-v67-r2-candidate",
+        "load_seconds": 1959.165,
+        "process_wall_seconds": 1960.412498291,
+        "database_bytes": 34519582409,
+        "source_sha256": "925e84df83435fb1dcb621ad89e9b48f859c8b7c0cbeedf084605bd3ff48312a",
+        "classpath_sha256": "9280f602a1053c6b2b127f50c7cdfd51fc3a35d8e8be884d414eb861958d501d",
+        "bounds_exact": true,
+        "exact_queries": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "layout_and_creation_history": true,
+        "summaries_exact": true
+      }
+    ],
+    "speedup": 1.3547837981997433,
+    "elapsed_reduction_percent": 26.187484576593345,
+    "scope": "One isolated full-100M baseline/candidate pair after the repeated 10M ABBA; identical verified gzip input and resource limits."
+  },
+  "uncommitted": true,
+  "thermal_guard_passed": true,
+  "scope_memory_bytes": 25769803776,
+  "scope_swap_bytes": 0,
+  "full_100m_cpu_gc": [
+    {
+      "arm": "r1-baseline",
+      "user_seconds": 5240.25,
+      "system_seconds": 246.16,
+      "max_rss_kib": 9722488.0,
+      "gc_pause_count": 114,
+      "gc_pause_seconds": 1.408289,
+      "max_gc_pause_ms": 83.027
+    },
+    {
+      "arm": "r2-candidate",
+      "user_seconds": 4555.09,
+      "system_seconds": 221.31,
+      "max_rss_kib": 9632188.0,
+      "gc_pause_count": 88,
+      "gc_pause_seconds": 1.393816,
+      "max_gc_pause_ms": 65.291
+    }
+  ],
+  "full_100m_guard": {
+    "passed": true,
+    "memory_peak_bytes": 18801405952,
+    "memory_limit_bytes": 25769803776,
+    "swap_limit_bytes": 0,
+    "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+  },
+  "final_checksum_identity_fix": "Complete: regression failed on v67; all 106 tests passed with the v68 checksum-presence identity check. Original v67 timed load classpaths remained frozen.",
+  "final_v68_validation": {
+    "status": "complete",
+    "raw_root": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-flag-summary-v47/writer-cache-identity-v68",
+    "candidate_manifest": {
+      "classes": [
+        {
+          "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-flag-summary-v47/writer-cache-identity-v68/candidate/io/sirix/access/trx/page/WriterRecordPageCache.class",
+          "sha256": "02fcd626457ffaebe77fd80bd1296ddfa171bcb49c3e11a0a5b0e66d47304884"
+        }
+      ],
+      "sources": [
+        {
+          "path": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/WriterRecordPageCache.java",
+          "sha256": "386a1cd01843d5fca0f45e139228e9f92c4dde2441eb03aac1a9b4175bbbfad1"
+        }
+      ]
+    },
+    "native_binary": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/pgo-combined-v68-100m/jb",
+    "native_sha256": "175fe322da7b4f5ecad8ad85839a9fb861c6064c5419f904f9af01a347c674d4",
+    "focused_test_totals": {
+      "tests": 106,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0
+    },
+    "focused_tests": [
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.access.trx.page.WriterRecordPageCacheTest",
+        "tests": "8",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:15.794Z",
+        "hostname": "luna",
+        "time": "2.05"
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.index.projection.ProjectionStreamingGlobalDictionaryTest",
+        "tests": "5",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:40.588Z",
+        "hostname": "luna",
+        "time": "0.09"
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.index.projection.GlobalValueDictionaryTailCowTest",
+        "tests": "20",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:19.442Z",
+        "hostname": "luna",
+        "time": "9.374"
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.index.projection.GlobalValueDictionaryLengthTableTest",
+        "tests": "2",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:17.847Z",
+        "hostname": "luna",
+        "time": "0.568"
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.index.projection.ProjectionSortedGroupSummaryTest",
+        "tests": "20",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:39.454Z",
+        "hostname": "luna",
+        "time": "1.134"
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.index.projection.ParallelBulkProjectionEquivalenceTest",
+        "tests": "5",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:29.011Z",
+        "hostname": "luna",
+        "time": "6.201"
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.index.projection.GlobalValueDictionaryProbeFrontTest",
+        "tests": "5",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:18.415Z",
+        "hostname": "luna",
+        "time": "0.053"
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.index.projection.ProjectionGlobalDictionaryGenerationRotationTest",
+        "tests": "1",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:35.212Z",
+        "hostname": "luna",
+        "time": "4.242"
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.index.projection.GlobalValueDictionaryVerdictRangeTest",
+        "tests": "4",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:28.817Z",
+        "hostname": "luna",
+        "time": "0.091"
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.index.projection.GlobalValueDictionaryStringOpVerdictTest",
+        "tests": "4",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:19.299Z",
+        "hostname": "luna",
+        "time": "0.142"
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest",
+        "tests": "3",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:18.468Z",
+        "hostname": "luna",
+        "time": "0.83"
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.index.projection.GlobalValueDictionaryWriterBudgetTest",
+        "tests": "18",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:28.908Z",
+        "hostname": "luna",
+        "time": "0.103"
+      },
+      {
+        "module": "sirix-query",
+        "name": "io.sirix.query.scan.CompositePredicateSliceReuseTest",
+        "tests": "3",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:47.840Z",
+        "hostname": "luna",
+        "time": "2.103"
+      },
+      {
+        "module": "sirix-query",
+        "name": "io.sirix.query.JsonBenchShapeServingTest",
+        "tests": "8",
+        "skipped": "0",
+        "failures": "0",
+        "errors": "0",
+        "timestamp": "2026-09-14T21:50:45.393Z",
+        "hostname": "luna",
+        "time": "2.443"
+      }
+    ],
+    "checksum_presence_cost_pair_10m": {
+      "records": [
+        {
+          "round": 1,
+          "candidate": false,
+          "load_seconds": 161.526,
+          "process_wall_seconds": 162.684762286,
+          "database_bytes": 4245096135,
+          "database": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/db-10m-ingestion-v68-r1-baseline",
+          "exact_queries": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "layout_and_creation_history": true
+        },
+        {
+          "round": 2,
+          "candidate": true,
+          "load_seconds": 162.646,
+          "process_wall_seconds": 163.807829781,
+          "database_bytes": 4245096136,
+          "database": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/db-10m-ingestion-v68-r2-candidate",
+          "bounds_exact": true,
+          "exact_queries": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "layout_and_creation_history": true
+        }
+      ],
+      "baseline_mean_seconds": 161.526,
+      "candidate_mean_seconds": 162.646,
+      "speedup": 0.9931138792223604,
+      "elapsed_reduction_percent": -0.6933868231739693,
+      "scope": "10M rows; identical input warmed before each isolated fresh load; one v67/v68 pair measuring the added checksum-presence identity check"
+    },
+    "full_100m_ingestion_scope": "The full 100M ingestion gain is v67 versus v61. The final checksum-presence correction was separately checked at 10M; no full 100M v68 load pair is claimed.",
+    "jsonbench": {
+      "rows": 99999968,
+      "database": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/db-100m-ingestion-v67-r2-candidate",
+      "exact_queries": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "result": {
+            "sirix": [
+              [
+                0.012,
+                0.011
+              ],
+              [
+                3.663,
+                1.67
+              ],
+              [
+                2.87,
+                1.548
+              ],
+              [
+                0.119,
+                0.033
+              ],
+              [
+                1.309,
+                0.877
+              ]
+            ],
+            "ch": [
+              [
+                0.087,
+                0.078
+              ],
+              [
+                1.659,
+                1.655
+              ],
+              [
+                0.632,
+                0.576
+              ],
+              [
+                0.282,
+                0.299
+              ],
+              [
+                0.297,
+                0.282
+              ]
+            ]
+          },
+          "metrics": {
+            "cold": {
+              "geometric_ratio": 1.335602598609861,
+              "query_ratios": [
+                0.2268041237113402,
+                2.2007189934092266,
+                4.485981308411215,
+                0.44178082191780826,
+                4.296416938110749
+              ],
+              "sirix_sum_s": 7.973,
+              "clickhouse_sum_s": 2.957
+            },
+            "hot": {
+              "geometric_ratio": 0.769964052556114,
+              "query_ratios": [
+                0.23863636363636362,
+                1.009009009009009,
+                2.658703071672355,
+                0.13915857605177995,
+                3.0376712328767126
+              ],
+              "sirix_sum_s": 4.139,
+              "clickhouse_sum_s": 2.89
+            }
+          }
+        },
+        {
+          "round": 2,
+          "result": {
+            "sirix": [
+              [
+                0.01,
+                0.011
+              ],
+              [
+                2.757,
+                1.65
+              ],
+              [
+                2.082,
+                1.584
+              ],
+              [
+                0.053,
+                0.033
+              ],
+              [
+                1.568,
+                0.894
+              ]
+            ],
+            "ch": [
+              [
+                0.075,
+                0.082
+              ],
+              [
+                1.609,
+                1.711
+              ],
+              [
+                0.601,
+                0.584
+              ],
+              [
+                0.281,
+                0.264
+              ],
+              [
+                0.314,
+                0.306
+              ]
+            ]
+          },
+          "metrics": {
+            "cold": {
+              "geometric_ratio": 1.0774092005392992,
+              "query_ratios": [
+                0.23529411764705885,
+                1.7090796788140827,
+                3.4238952536824874,
+                0.21649484536082472,
+                4.87037037037037
+              ],
+              "sirix_sum_s": 6.47,
+              "clickhouse_sum_s": 2.88
+            },
+            "hot": {
+              "geometric_ratio": 0.7668880307734857,
+              "query_ratios": [
+                0.22826086956521738,
+                0.9645554909936083,
+                2.683501683501684,
+                0.15693430656934307,
+                2.8607594936708862
+              ],
+              "sirix_sum_s": 4.172,
+              "clickhouse_sum_s": 2.947
+            }
+          }
+        }
+      ],
+      "score_formula": "geomean((Sirix seconds + .010) / (ClickHouse seconds + .010)); lower is better",
+      "interpretation": "Warm geometric score wins in both rounds. Warm total elapsed time remains higher for Sirix; Q3 and Q5 remain slower and Q2 is near parity.",
+      "cold_scope": "Fresh process after fsync, fadvise and zero mincore residency on visible files. eCryptfs lower filesystem cache uncontrolled; these are not verified disk-cold rankings.",
+      "cold_io_evidence": {
+        "input_block_bytes": 512,
+        "earlier_v64_q2_blocks": [
+          0,
+          208
+        ],
+        "final_first_q2_blocks": 4529144,
+        "same_db_q2_abba_blocks": [
+          2862184,
+          64328,
+          9936,
+          3680
+        ],
+        "interpretation": "Unequal lower cache state is an inference from the stacked filesystem and observed I/O; no like-for-like disk-cold regression or victory is established.",
+        "filesystem_reference": "https://www.kernel.org/doc/html/latest/filesystems/ecryptfs.html"
+      }
+    },
+    "same_database_control": {
+      "raw_summary": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-flag-summary-v47/writer-cache-identity-v68/same-database-query-abba/summary.json",
+      "database": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/db-100m-ingestion-v67-r2-candidate",
+      "queries": {
+        "2": {
+          "visible_mapping_evicted": {
+            "baseline": 2.4619999999999997,
+            "candidate": 2.1515
+          },
+          "warm": {
+            "baseline": 1.8005,
+            "candidate": 1.609
+          }
+        },
+        "3": {
+          "visible_mapping_evicted": {
+            "baseline": 1.9575,
+            "candidate": 1.9735
+          },
+          "warm": {
+            "baseline": 1.56,
+            "candidate": 1.532
+          }
+        },
+        "4": {
+          "visible_mapping_evicted": {
+            "baseline": 0.0455,
+            "candidate": 0.04
+          },
+          "warm": {
+            "baseline": 0.033,
+            "candidate": 0.035500000000000004
+          }
+        },
+        "5": {
+          "visible_mapping_evicted": {
+            "baseline": 1.0310000000000001,
+            "candidate": 1.052
+          },
+          "warm": {
+            "baseline": 0.884,
+            "candidate": 0.883
+          }
+        }
+      },
+      "interpretation": "No broad query regression; small Q4 warm difference retained. Visible-eviction comparisons are confounded by changing I/O."
+    },
+    "clickbench": {
+      "rows": 200000,
+      "query_count": 43,
+      "exact_dumps": 344,
+      "screens": [
+        {
+          "order": "ABBA",
+          "records": [
+            {
+              "round": 1,
+              "mode": "baseline",
+              "exact": true,
+              "wall_seconds": 11.064530538,
+              "hot_medians": [
+                0.003,
+                0.008,
+                0.009,
+                0.026,
+                0.027,
+                0.026,
+                0.007,
+                0.015,
+                0.062,
+                0.064,
+                0.012,
+                0.019,
+                0.019,
+                0.024,
+                0.024,
+                0.054,
+                0.105,
+                0.101,
+                0.192,
+                0.006,
+                0.013,
+                0.018,
+                0.019,
+                0.048,
+                0.008,
+                0.011,
+                0.008,
+                0.089,
+                0.115,
+                0.031,
+                0.03,
+                0.027,
+                0.126,
+                0.054,
+                0.052,
+                0.052,
+                0.036,
+                0.028,
+                0.012,
+                0.114,
+                0.009,
+                0.01,
+                0.017
+              ],
+              "hot_median_sum": 1.73
+            },
+            {
+              "round": 2,
+              "mode": "candidate",
+              "exact": true,
+              "wall_seconds": 10.949790817,
+              "hot_medians": [
+                0.002,
+                0.007,
+                0.01,
+                0.023,
+                0.022,
+                0.03,
+                0.004,
+                0.018,
+                0.062,
+                0.065,
+                0.015,
+                0.017,
+                0.025,
+                0.022,
+                0.024,
+                0.06,
+                0.105,
+                0.107,
+                0.19,
+                0.005,
+                0.028,
+                0.018,
+                0.017,
+                0.034,
+                0.009,
+                0.012,
+                0.007,
+                0.083,
+                0.102,
+                0.03,
+                0.031,
+                0.03,
+                0.139,
+                0.052,
+                0.051,
+                0.053,
+                0.035,
+                0.027,
+                0.012,
+                0.117,
+                0.008,
+                0.008,
+                0.018
+              ],
+              "hot_median_sum": 1.734
+            },
+            {
+              "round": 3,
+              "mode": "candidate",
+              "exact": true,
+              "wall_seconds": 10.999085546,
+              "hot_medians": [
+                0.002,
+                0.008,
+                0.011,
+                0.031,
+                0.024,
+                0.026,
+                0.003,
+                0.021,
+                0.058,
+                0.063,
+                0.029,
+                0.017,
+                0.022,
+                0.018,
+                0.025,
+                0.091,
+                0.107,
+                0.11,
+                0.191,
+                0.003,
+                0.029,
+                0.029,
+                0.019,
+                0.036,
+                0.008,
+                0.011,
+                0.009,
+                0.076,
+                0.108,
+                0.04,
+                0.028,
+                0.027,
+                0.129,
+                0.047,
+                0.046,
+                0.047,
+                0.03,
+                0.027,
+                0.013,
+                0.11,
+                0.007,
+                0.008,
+                0.016
+              ],
+              "hot_median_sum": 1.76
+            },
+            {
+              "round": 4,
+              "mode": "baseline",
+              "exact": true,
+              "wall_seconds": 10.795795689,
+              "hot_medians": [
+                0.002,
+                0.007,
+                0.013,
+                0.027,
+                0.024,
+                0.033,
+                0.005,
+                0.022,
+                0.06,
+                0.059,
+                0.03,
+                0.018,
+                0.02,
+                0.022,
+                0.025,
+                0.073,
+                0.103,
+                0.103,
+                0.194,
+                0.003,
+                0.005,
+                0.02,
+                0.015,
+                0.039,
+                0.007,
+                0.012,
+                0.01,
+                0.073,
+                0.115,
+                0.022,
+                0.03,
+                0.036,
+                0.128,
+                0.046,
+                0.046,
+                0.048,
+                0.038,
+                0.028,
+                0.014,
+                0.123,
+                0.007,
+                0.008,
+                0.018
+              ],
+              "hot_median_sum": 1.7309999999999999
+            }
+          ],
+          "means_seconds": {
+            "baseline": 1.7305,
+            "candidate": 1.7469999999999999
+          },
+          "candidate_change_percent": 0.9534816527015266
+        },
+        {
+          "order": "BAAB",
+          "records": [
+            {
+              "round": 1,
+              "mode": "candidate",
+              "exact": true,
+              "wall_seconds": 11.233171982,
+              "hot_medians": [
+                0.003,
+                0.012,
+                0.008,
+                0.025,
+                0.022,
+                0.027,
+                0.003,
+                0.019,
+                0.061,
+                0.068,
+                0.013,
+                0.017,
+                0.019,
+                0.023,
+                0.023,
+                0.069,
+                0.108,
+                0.107,
+                0.185,
+                0.006,
+                0.026,
+                0.02,
+                0.025,
+                0.053,
+                0.01,
+                0.013,
+                0.008,
+                0.086,
+                0.111,
+                0.026,
+                0.03,
+                0.035,
+                0.126,
+                0.056,
+                0.054,
+                0.053,
+                0.039,
+                0.028,
+                0.012,
+                0.116,
+                0.007,
+                0.008,
+                0.021
+              ],
+              "hot_median_sum": 1.781
+            },
+            {
+              "round": 2,
+              "mode": "baseline",
+              "exact": true,
+              "wall_seconds": 10.910365656,
+              "hot_medians": [
+                0.002,
+                0.007,
+                0.01,
+                0.037,
+                0.026,
+                0.03,
+                0.003,
+                0.011,
+                0.063,
+                0.061,
+                0.027,
+                0.017,
+                0.021,
+                0.023,
+                0.028,
+                0.071,
+                0.115,
+                0.101,
+                0.195,
+                0.007,
+                0.021,
+                0.019,
+                0.016,
+                0.046,
+                0.008,
+                0.011,
+                0.009,
+                0.081,
+                0.111,
+                0.032,
+                0.029,
+                0.035,
+                0.137,
+                0.055,
+                0.055,
+                0.056,
+                0.04,
+                0.027,
+                0.011,
+                0.121,
+                0.007,
+                0.007,
+                0.019
+              ],
+              "hot_median_sum": 1.808
+            },
+            {
+              "round": 3,
+              "mode": "baseline",
+              "exact": true,
+              "wall_seconds": 11.143534358,
+              "hot_medians": [
+                0.003,
+                0.007,
+                0.011,
+                0.022,
+                0.026,
+                0.027,
+                0.005,
+                0.021,
+                0.058,
+                0.064,
+                0.023,
+                0.018,
+                0.021,
+                0.023,
+                0.026,
+                0.071,
+                0.106,
+                0.104,
+                0.205,
+                0.006,
+                0.013,
+                0.017,
+                0.018,
+                0.046,
+                0.011,
+                0.011,
+                0.007,
+                0.08,
+                0.102,
+                0.028,
+                0.034,
+                0.03,
+                0.131,
+                0.051,
+                0.053,
+                0.053,
+                0.035,
+                0.027,
+                0.011,
+                0.113,
+                0.008,
+                0.007,
+                0.023
+              ],
+              "hot_median_sum": 1.756
+            },
+            {
+              "round": 4,
+              "mode": "candidate",
+              "exact": true,
+              "wall_seconds": 11.13884823,
+              "hot_medians": [
+                0.002,
+                0.013,
+                0.01,
+                0.032,
+                0.03,
+                0.036,
+                0.006,
+                0.026,
+                0.059,
+                0.06,
+                0.028,
+                0.018,
+                0.023,
+                0.021,
+                0.028,
+                0.05,
+                0.104,
+                0.103,
+                0.191,
+                0.006,
+                0.014,
+                0.018,
+                0.015,
+                0.043,
+                0.011,
+                0.012,
+                0.009,
+                0.083,
+                0.126,
+                0.029,
+                0.031,
+                0.035,
+                0.13,
+                0.047,
+                0.048,
+                0.048,
+                0.039,
+                0.028,
+                0.013,
+                0.116,
+                0.008,
+                0.009,
+                0.018
+              ],
+              "hot_median_sum": 1.776
+            }
+          ],
+          "means_seconds": {
+            "baseline": 1.782,
+            "candidate": 1.7785
+          },
+          "candidate_change_percent": -0.19640852974186496
+        }
+      ],
+      "combined_means_seconds": {
+        "baseline": 1.75625,
+        "candidate": 1.76275
+      },
+      "combined_candidate_change_percent": 0.370106761565836,
+      "interpretation": "Timing direction reverses between ABBA and BAAB, with differences within observed run spread. No consistent regression in this 200K-row screen; not a full-scale test or proof of equivalence."
+    },
+    "completed_diagnostic_profile": {
+      "raw_summary": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-flag-summary-v47/writer-cache-identity-v68/combined-load-profile-10m/summary.json",
+      "rows": 10000000,
+      "exact": true,
+      "ranked": false,
+      "capture_seconds": 45,
+      "instrumented_load_seconds": 169.53467693703715,
+      "allocation_sample_weight_bytes": 23501733936,
+      "inclusive_profile_percent": {
+        "dictionary_planning": {
+          "cpu": 14.725431686724837,
+          "wall": 0.0,
+          "alloc": 54.73162885354861
+        },
+        "snapshot_serialization": {
+          "cpu": 29.77613101214804,
+          "wall": 0.0,
+          "alloc": 0.0
+        },
+        "writer_cache_reads": {
+          "cpu": 0.0,
+          "wall": 0.0,
+          "alloc": 45.26837094221114
+        }
+      },
+      "interpretation": "Includes CPU, wall and allocation events. Inclusive paths overlap; do not add percentages. Cache hits are preallocated, but read misses and other loader paths allocate. Different windows prevent a matched allocation reduction claim against the earlier failed load."
+    },
+    "guards": {
+      "final": {
+        "passed": true,
+        "peak_bytes": 22158790656,
+        "memory_bytes": 25769803776,
+        "swap_bytes": 0,
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "scope_record": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-flag-summary-v47/writer-cache-identity-v68/final-scope.scope.json",
+        "thermal_record": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-flag-summary-v47/writer-cache-identity-v68/final-verdict.json"
+      },
+      "same-db": {
+        "passed": true,
+        "peak_bytes": 15316631552,
+        "memory_bytes": 25769803776,
+        "swap_bytes": 0,
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "scope_record": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-flag-summary-v47/writer-cache-identity-v68/same-db-scope.scope.json",
+        "thermal_record": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-flag-summary-v47/writer-cache-identity-v68/same-db-verdict.json"
+      },
+      "clickbench-repeat": {
+        "passed": true,
+        "peak_bytes": 1315209216,
+        "memory_bytes": 25769803776,
+        "swap_bytes": 0,
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "scope_record": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-flag-summary-v47/writer-cache-identity-v68/clickbench-repeat-scope.scope.json",
+        "thermal_record": "/home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-flag-summary-v47/writer-cache-identity-v68/clickbench-repeat-verdict.json"
+      }
+    },
+    "uncommitted": true
+  }
+}

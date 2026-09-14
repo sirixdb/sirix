@@ -88,6 +88,52 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void unfilteredCollectionCountUsesRevisionedScalarSummary() throws IOException {
+    query(STORE);
+    query(INDEX);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    assertSummaryServesUnfilteredCount();
+
+    query("""
+          let $doc := jn:doc('json-path1','jbshape.jn')
+          return replace json value of $doc[0].commit.collection with "likes"
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    assertSummaryServesUnfilteredCount();
+  }
+
+  private void assertSummaryServesUnfilteredCount() throws IOException {
+    withFixture((chain, ctx, executor) -> {
+      final long before = SirixVectorizedExecutor.groupAggSummaryServedCount();
+      assertServed(chain, ctx, group(""), "unfiltered collection count");
+      if (!recording) {
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggSummaryServedCount() - before,
+            "unfiltered count should read the persisted summary");
+        Assertions.assertEquals(0L, ProjectionIndexCatalog.dataCacheSize(),
+            "summary serving must not hydrate the row-group handle");
+      }
+      final String stringified = """
+            for $e in jn:doc('json-path1','jbshape.jn')[]
+            let $k := string($e.commit.collection)
+            group by $k
+            let $c := count($e)
+            order by $c descending
+            return {"event": $k, "count": $c}
+          """;
+      final long beforeStringified = SirixVectorizedExecutor.groupAggSummaryServedCount();
+      assertServed(chain, ctx, stringified, "stringified unfiltered collection count");
+      if (!recording) {
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggSummaryServedCount() - beforeStringified,
+            "missing and empty values should merge from the persisted summary");
+        Assertions.assertEquals(0L, ProjectionIndexCatalog.dataCacheSize(),
+            "stringified summary serving must not hydrate the row-group handle");
+      }
+    });
+  }
+
+  @Test
   public void nestedDerefPredicatesServeAtEverySelectivity() throws IOException {
     query(STORE);
     query(INDEX);
@@ -233,6 +279,78 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
       Assertions.assertEquals(
           "{\"event\":\"\",\"count\":4} {\"event\":\"posts\",\"count\":2}" + " {\"event\":\"likes\",\"count\":2}",
           evaluateQuery(chain, ctx, all), "absent rows and the stored empty string must share one group");
+    });
+  }
+
+  @Test
+  public void lowCardinalityStringifiedKeyPreservesExactMissingAndStringGroups() throws IOException {
+    final String[] records =
+        {"{}", "{\"commit\":{}}", "{\"commit\":{\"collection\":\"\"}}", "{\"commit\":{\"collection\":\"null\"}}",
+            "{\"commit\":{\"collection\":\"β\"}}", "{\"commit\":{\"collection\":\"alpha\"}}"};
+    final StringBuilder data = new StringBuilder(8192).append('[');
+    for (int row = 0; row < 240; row++) {
+      if (row != 0) {
+        data.append(',');
+      }
+      data.append(records[row % records.length]);
+    }
+    data.append(']');
+    query("jn:store('json-path1','jbshape.jn','" + data + "')");
+    query(INDEX);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String all = """
+        for $e in jn:doc('json-path1','jbshape.jn')[]
+        let $k := string($e.commit.collection)
+        group by $k
+        let $c := count($e)
+        order by $c descending
+        return {"event": $k, "count": $c}
+        """;
+    withFixture((chain, ctx, executor) -> {
+      assertServed(chain, ctx, all, "the low-cardinality Q1 compiler path");
+      Assertions.assertEquals("{\"event\":\"\",\"count\":120} {\"event\":\"null\",\"count\":40}"
+          + " {\"event\":\"β\",\"count\":40} {\"event\":\"alpha\",\"count\":40}", evaluateQuery(chain, ctx, all));
+    });
+  }
+
+  @Test
+  public void lowCardinalityDictionaryTransformsKeepTheirComputedIdentity() throws IOException {
+    final String[] values = {"10", "11", "20", "21"};
+    final StringBuilder data = new StringBuilder(8192).append('[');
+    for (int row = 0; row < 240; row++) {
+      if (row != 0) {
+        data.append(',');
+      }
+      data.append("{\"commit\":{\"collection\":\"").append(values[row % values.length]).append("\"}}");
+    }
+    data.append(']');
+    query("jn:store('json-path1','jbshape.jn','" + data + "')");
+    query(INDEX);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    withFixture((chain, ctx, executor) -> {
+      for (final int offset : new int[] {0, 3}) {
+        final String key = "xs:integer(substring($e.commit.collection, 1, 1))" + (offset == 0
+            ? ""
+            : " + 3");
+        final String transformed = """
+            for $e in jn:doc('json-path1','jbshape.jn')[]
+            let $k := %s
+            group by $k
+            let $c := count($e)
+            order by $c descending
+            return {"event": $k, "count": $c}
+            """.formatted(key);
+        if (offset == 0) {
+          assertServed(chain, ctx, transformed, "a nonzero substring transform");
+        } else {
+          assertDeclined(chain, ctx, transformed, "the unsupported arithmetic over a substring cast");
+        }
+        Assertions.assertEquals(
+            "{\"event\":" + (1 + offset) + ",\"count\":120} {\"event\":" + (2 + offset) + ",\"count\":120}",
+            evaluateQuery(chain, ctx, transformed));
+      }
     });
   }
 

@@ -126,6 +126,8 @@ public final class ProjectionBulkLoad {
 
   /** Bounded fence-chunk stream; only its current 32-leaf tail remains on heap. */
   private final ProjectionIndexFences.BuildWriter fenceWriter = new ProjectionIndexFences.BuildWriter();
+  private final ProjectionFlagSummaryChunks.BuildWriter flagSummaryWriter =
+      new ProjectionFlagSummaryChunks.BuildWriter();
 
   /** Bounded 256-row-group fingerprint accumulator; full chunks are persisted eagerly. */
   private final ProjectionBloomChunks.Writer bloomChunks = new ProjectionBloomChunks.Writer();
@@ -143,6 +145,12 @@ public final class ProjectionBulkLoad {
    * notification instead of paying one per node.
    */
   private final boolean arrayElementRoot;
+
+  /** Only a single child-array step guarantees the record set is the document root's sole child. */
+  private final boolean directArrayElementRoot;
+
+  /** Previous notification-fed record's local order label, carried across storage epochs. */
+  private @Nullable SirixDeweyID lastNotificationRecordLocal;
 
   /**
    * The record currently being shredded, or {@code -1} before the first one. Held back from every
@@ -247,8 +255,10 @@ public final class ProjectionBulkLoad {
     this.ownerToken = Objects.requireNonNull(ownerToken, "ownerToken must not be null");
     final RowGroupPublisher checkedPublisher =
         Objects.requireNonNull(rowGroupPublisher, "rowGroupPublisher must not be null");
-    this.hasSetColumn = ProjectionIndexBuilder.hasStringSetColumn(indexDef);
+    this.hasSetColumn = ProjectionIndexBuilder.hasValueSummaryCandidate(indexDef);
     this.arrayElementRoot = ProjectionIndexBuilder.isArrayLayerPath(indexDef.getProjectionRootPath());
+    final var rootSteps = indexDef.getProjectionRootPath().steps();
+    this.directArrayElementRoot = rootSteps.size() == 1 && rootSteps.get(0).getAxis() == Path.Axis.CHILD_ARRAY;
     this.builder = ProjectionIndexBuilder.streamingBorrowed(indexDef, pathSummary, leaf -> {
       if (leaf.getRowCount() == 0) {
         throw new IllegalStateException("Projection leaf " + fenceWriter.rowGroupCount() + " is empty");
@@ -261,6 +271,7 @@ public final class ProjectionBulkLoad {
           ProjectionIndexColumnSegmentCodec.encode(leaf, encodeWorkspace);
       final ProjectionIndexHOTStorage currentStorage = currentStorage();
       checkedPublisher.publish(currentStorage, physicalSlot, encoded);
+      flagSummaryWriter.append(currentStorage, encoded.descriptor());
       fenceWriter.append(currentStorage, leaf.firstRecordKey(), leaf.lastRecordKey());
       ProjectionIndexBuilder.persistOrderExceptionLocators(leaf, physicalSlot,
           ProjectionRecordLocator.open(currentStorage));
@@ -741,10 +752,19 @@ public final class ProjectionBulkLoad {
       // acquired a path class, and an extractor that predates it would record the field ABSENT.
       builder.refreshFieldPaths(pathSummary);
       diagDrains++;
+      final boolean inOrderTopLevelAppend =
+          directArrayElementRoot && arrayRootInstanceCount == 1 && activeArrayRootKey >= 0;
       for (int i = 0; i < completedRecordKeys.size(); i++) {
         final long recordKey = completedRecordKeys.getLong(i);
-        final SirixDeweyID orderLabel = structuralOrderDirectory.fullLabel(recordKey, documentNodeLookup,
-            ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
+        final SirixDeweyID orderLabel;
+        if (inOrderTopLevelAppend) {
+          orderLabel = structuralOrderDirectory.fullLabelForInOrderAppend(recordKey, activeArrayRootKey,
+              Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), lastNotificationRecordLocal);
+          lastNotificationRecordLocal = structuralOrderDirectory.lastInOrderAppendedLocal();
+        } else {
+          orderLabel = structuralOrderDirectory.fullLabel(recordKey, documentNodeLookup,
+              ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
+        }
         if (!appendRecord(rtx, recordKey, orderLabel)) {
           diagExtractFailures++;
         }
@@ -854,9 +874,11 @@ public final class ProjectionBulkLoad {
       builder.beginStreamingDictionaryEpoch(storageEngineWriter);
       builder.finishStreaming();
       final byte[] columnKinds = builder.columnKinds();
+      builder.persistSortedView(storage);
       bloomChunks.finishChunks(storage, fenceWriter.rowGroupCount(), columnKinds);
       final long[] valueDictionaryHeaderKeys = builder.flushStreamingDictionaryGeneration(storageEngineWriter);
       fenceWriter.finish(storage);
+      flagSummaryWriter.finish(storage, fenceWriter.rowGroupCount(), columnKinds.length, buildRevision);
       // A bulk load owns the virgin sub-tree it created itself; publication never replaces prior units.
       ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(),
           buildRevision, columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
