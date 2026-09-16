@@ -27,6 +27,41 @@ public final class ProjectionSortedGroupScan {
   private static final int MAX_SUMMARY_WORKERS =
       Math.max(1, Math.min(8, Integer.getInteger("sirix.projection.sortedSummaryMaxWorkers", 4)));
 
+  /**
+   * Candidate summary leaves the bound walk (here) and the best-first span scan
+   * ({@link ProjectionSortedSpanScan}) fetch together, in one batch, ahead of consuming them. The
+   * candidate ORDER is fixed before the first read; only the stop point depends on the data, so the
+   * next {@code window} candidates are known and their leaves can be in flight at once — cold, each
+   * one otherwise waits its own device round trip. {@code 1} restores the one-read-per-step loop
+   * exactly; at most {@code window - 1} leaves (twice that for run edges in the span scan) are fetched
+   * past the stop point for nothing. Conservative default; {@code -Dsirix.projection.sortedLookahead=N}.
+   */
+  static final int SORTED_LOOKAHEAD =
+      Math.max(1, Math.min(64, Integer.getInteger("sirix.projection.sortedLookahead", 8)));
+
+  /** Lookahead accounting on stderr, only under {@code -Dsirix.projDiag=true}; never in timed runs. */
+  static final boolean LOOKAHEAD_DIAG = Boolean.getBoolean("sirix.projDiag");
+
+  /**
+   * Lookahead accounting for the focused equivalence tests and the diagnostic line: leaves fetched
+   * ahead, leaves of those actually consumed, and reads charged (the count the serial loop would
+   * have made, and for the span scan the count its budget saw).
+   */
+  static final class LookaheadStats {
+    int fetched;
+    int consumed;
+    int charged;
+
+    int wasted() {
+      return fetched - consumed;
+    }
+
+    @Override
+    public String toString() {
+      return "fetched=" + fetched + " consumed=" + consumed + " wasted=" + wasted() + " charged=" + charged;
+    }
+  }
+
   public enum Order {
     MIN_ASC, MAX_DESC, SPAN_DESC
   }
@@ -187,6 +222,21 @@ public final class ProjectionSortedGroupScan {
    */
   static @Nullable List<Group> topKFromBounds(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory, final int limit) {
+    return topKFromBounds(reader, indexNumber, directory, limit, SORTED_LOOKAHEAD, null);
+  }
+
+  /**
+   * {@code lookahead} candidates' summaries are fetched together ahead of consumption; the break test,
+   * the missing-summary return and every validation run when a candidate is CONSUMED, exactly where
+   * the one-read-per-step loop ran them, so the decision sequence and the result are its own.
+   * {@code stats}, when given, receives the lookahead accounting.
+   */
+  static @Nullable List<Group> topKFromBounds(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSortedDirectory.Accessor directory, final int limit, final int lookahead,
+      final @Nullable LookaheadStats stats) {
+    if (lookahead < 1 || lookahead > 64) {
+      throw new IllegalArgumentException("unsupported sorted lookahead: " + lookahead);
+    }
     final ProjectionSortedLeafBounds.Candidates candidates =
         ProjectionSortedLeafBounds.read(reader, indexNumber, directory);
     if (candidates == null) {
@@ -200,39 +250,97 @@ public final class ProjectionSortedGroupScan {
     final byte[] payload = new byte[ProjectionSortedGroupSummary.PAYLOAD_BYTES];
     byte[] key = new byte[128];
     int retained = 0;
-    for (final int candidate : candidates.order()) {
-      final long boundMin = candidates.minimums()[candidate];
-      if (retained == capacity && boundMin > scores[retained - 1]) {
-        break;
-      }
-      final ProjectionSortedLeaf summary =
-          ProjectionSortedGroupSummary.read(reader, indexNumber, candidates.leafIds()[candidate]);
-      if (summary == null) {
-        return null;
-      }
-      long actualMin = Long.MAX_VALUE;
-      long actualMax = Long.MIN_VALUE;
-      for (int row = 0; row < summary.rowCount(); row++) {
-        final int length = summary.keyLength(row);
-        if (length > key.length) {
-          key = new byte[length];
+    final int[] order = candidates.order();
+    final LookaheadStats accounting = stats != null
+        ? stats
+        : LOOKAHEAD_DIAG
+            ? new LookaheadStats()
+            : null;
+    // The next `window` candidates' summaries, fetched in one batch (k trie descents on one reader,
+    // one coalesced payload read) and consumed in order. A failed batch falls back to per-candidate
+    // reads for that window: a candidate the serial loop would never reach must not fail the scan,
+    // and one it would reach fails identically from its own read.
+    final int window = Math.min(lookahead, order.length);
+    final int[] windowLeafIds = window > 1
+        ? new int[window]
+        : null;
+    final ProjectionSortedLeaf[] staged = window > 1
+        ? new ProjectionSortedLeaf[window]
+        : null;
+    int stagedFrom = 0;
+    int stagedCount = 0;
+    try {
+      for (int position = 0; position < order.length; position++) {
+        final int candidate = order[position];
+        final long boundMin = candidates.minimums()[candidate];
+        if (retained == capacity && boundMin > scores[retained - 1]) {
+          break;
         }
-        summary.copyKeyTo(row, key);
-        if (stringPrefixLength(key, length) != length || summary.payloadLength(row) != payload.length) {
-          throw new IllegalStateException("invalid sorted group summary entry");
+        ProjectionSortedLeaf summary = null;
+        boolean fromStage = false;
+        if (window > 1) {
+          if (position >= stagedFrom + stagedCount) {
+            stagedFrom = position;
+            stagedCount = Math.min(window, order.length - position);
+            for (int i = 0; i < stagedCount; i++) {
+              windowLeafIds[i] = candidates.leafIds()[order[position + i]];
+            }
+            try {
+              ProjectionSortedGroupSummary.readBatch(reader, indexNumber, windowLeafIds, 0, stagedCount, staged);
+              if (accounting != null) {
+                accounting.fetched += stagedCount;
+              }
+            } catch (final RuntimeException batchFailure) {
+              Arrays.fill(staged, null);
+              stagedCount = 0;
+            }
+          }
+          if (position < stagedFrom + stagedCount) {
+            summary = staged[position - stagedFrom];
+            staged[position - stagedFrom] = null;
+            fromStage = true;
+          }
         }
-        summary.copyPayloadTo(row, payload, 0);
-        final long min = ProjectionIndexRowGroupCodec.getLongLE(payload, 0);
-        final long max = ProjectionIndexRowGroupCodec.getLongLE(payload, Long.BYTES);
-        if (min > max) {
-          throw new IllegalStateException("invalid sorted group summary extrema");
+        if (!fromStage) {
+          summary = ProjectionSortedGroupSummary.read(reader, indexNumber, candidates.leafIds()[candidate]);
         }
-        actualMin = Math.min(actualMin, min);
-        actualMax = Math.max(actualMax, max);
-        retained = offerDistinctMinimum(key, length, min, winners, minimums, maximums, scores, retained);
+        if (accounting != null) {
+          accounting.charged++;
+          if (fromStage) {
+            accounting.consumed++;
+          }
+        }
+        if (summary == null) {
+          return null;
+        }
+        long actualMin = Long.MAX_VALUE;
+        long actualMax = Long.MIN_VALUE;
+        for (int row = 0; row < summary.rowCount(); row++) {
+          final int length = summary.keyLength(row);
+          if (length > key.length) {
+            key = new byte[length];
+          }
+          summary.copyKeyTo(row, key);
+          if (stringPrefixLength(key, length) != length || summary.payloadLength(row) != payload.length) {
+            throw new IllegalStateException("invalid sorted group summary entry");
+          }
+          summary.copyPayloadTo(row, payload, 0);
+          final long min = ProjectionIndexRowGroupCodec.getLongLE(payload, 0);
+          final long max = ProjectionIndexRowGroupCodec.getLongLE(payload, Long.BYTES);
+          if (min > max) {
+            throw new IllegalStateException("invalid sorted group summary extrema");
+          }
+          actualMin = Math.min(actualMin, min);
+          actualMax = Math.max(actualMax, max);
+          retained = offerDistinctMinimum(key, length, min, winners, minimums, maximums, scores, retained);
+        }
+        if (summary.rowCount() == 0 || actualMin != boundMin || actualMax != candidates.maximums()[candidate]) {
+          throw new IllegalStateException("sorted leaf bounds disagree with their group summary");
+        }
       }
-      if (summary.rowCount() == 0 || actualMin != boundMin || actualMax != candidates.maximums()[candidate]) {
-        throw new IllegalStateException("sorted leaf bounds disagree with their group summary");
+    } finally {
+      if (LOOKAHEAD_DIAG && accounting != null) {
+        System.err.println("[sortedLookahead] bounds window=" + window + " " + accounting);
       }
     }
     return finish(winners, minimums, maximums, scores, retained, limit);

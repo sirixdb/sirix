@@ -37,6 +37,7 @@ import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.Semaphore;
 
@@ -195,6 +196,14 @@ public final class HOTTrieReader implements AutoCloseable {
    * branching depth where the searchKey actually diverges from the candidate leaf's key.
    */
   private final short[] pathMsbAtDepth = new short[MAX_TREE_HEIGHT];
+  /**
+   * Per-level watermark of the sibling window already hinted for the node at that depth (exclusive
+   * child index). Without it every leaf advance re-hinted the same {@value #PREFETCH_WINDOW}
+   * successors — a sibling was hinted up to sixteen times before the cursor reached it, one advice
+   * call each. A backend without a prefetch primitive never saw those calls; one that has it must
+   * not pay for them on the hot path of every range step.
+   */
+  private final int[] pathPrefetchedUntil = new int[MAX_TREE_HEIGHT];
   private int pathDepth = 0;
 
   // Uncontended reads use stamps without guard churn. A torn read switches the rest of this walk
@@ -872,12 +881,18 @@ public final class HOTTrieReader implements AutoCloseable {
       }
 
       // Async SSD prefetch: fire-and-forget load of the next sibling's page on a virtual thread.
-      // Overlaps SSD I/O with the CPU work of descending into the current subtree.
-      final int nextSibling = childIndex + 1;
-      if (nextSibling < hotNode.getNumChildren()) {
-        final PageReference siblingRef = hotNode.getChildReference(nextSibling);
-        if (siblingRef != null && siblingRef.getPage() == null && siblingRef.getKey() >= 0) {
-          prefetchPage(siblingRef);
+      // Overlaps SSD I/O with the CPU work of descending into the current subtree. Only on the
+      // opt-in thread route: a point descent has no evidence that the sibling is needed next (the
+      // range cursor's window carries the sequential case, and a multi-key batch carries its own),
+      // so on an advisory backend this would be one speculative advice syscall per level of every
+      // lookup — on the hot path, for a page that is usually never read.
+      if (!spanPrefetchCapable) {
+        final int nextSibling = childIndex + 1;
+        if (nextSibling < hotNode.getNumChildren()) {
+          final PageReference siblingRef = hotNode.getChildReference(nextSibling);
+          if (siblingRef != null && siblingRef.getPage() == null && siblingRef.getKey() >= 0) {
+            prefetchPage(siblingRef);
+          }
         }
       }
 
@@ -962,9 +977,11 @@ public final class HOTTrieReader implements AutoCloseable {
         }
         // Prefetch-batch: issue PREFETCH_WINDOW in-flight reads for the upcoming
         // siblings. Deepens NVMe/io_uring queue depth — on FFM-io_uring storage
-        // these coalesce into a single submit; on FILE_CHANNEL each fires on
-        // a separate virtual thread and kernel I/O scheduler interleaves them.
-        prefetchSiblingWindow(parent, nextChildIdx + 1, numChildren);
+        // these coalesce into a single submit; on FILE_CHANNEL the advisory route
+        // hands the window to the kernel as one readahead batch (or, opted in, each
+        // fires on a separate virtual thread). The per-level watermark makes this
+        // one batch per window of leaves, not one per leaf.
+        prefetchSiblingWindow(parent, nextChildIdx + 1, numChildren, parentIdx);
 
         return descendToLeftmostLeaf(nextChildRef);
       }
@@ -1002,13 +1019,13 @@ public final class HOTTrieReader implements AutoCloseable {
     if (numChildren == 0) {
       throw structuralCorruption("leftmost descent reached an empty indirect page");
     }
-    prefetchSiblingWindow(hotNode, 1, numChildren);
-
     final PageReference childRef = hotNode.getChildReference(0);
     if (childRef == null) {
       throw structuralCorruption("leftmost descendant has no child reference");
     }
+    // Push first: the hint watermark lives on the path slot this node now occupies.
     pushPath(ref, hotNode, 0);
+    prefetchSiblingWindow(hotNode, 1, numChildren, pathDepth - 1);
     return descendToLeftmostLeaf(childRef);
   }
 
@@ -1024,13 +1041,20 @@ public final class HOTTrieReader implements AutoCloseable {
    * spots and, on FFM-io_uring storage, the individual reads can be batched into a single
    * {@code io_uring_enter} submit on the underlying reader.
    */
-  private void prefetchSiblingWindow(final HOTIndirectPage parent, final int startIdx, final int numChildren) {
+  private void prefetchSiblingWindow(final HOTIndirectPage parent, final int startIdx, final int numChildren,
+      final int depth) {
+    // Hint each sibling once per visit of its parent: start past the watermark, and advance it.
+    final int from = Math.max(startIdx, pathPrefetchedUntil[depth]);
     final int end = Math.min(startIdx + PREFETCH_WINDOW, numChildren);
+    if (from >= end) {
+      return;
+    }
+    pathPrefetchedUntil[depth] = end;
     if (spanPrefetchCapable) {
       // One batched span hint for the whole window: zero threads, zero locks, and the
       // backend coalesces (WILLNEED readahead on mmap; one ring submit on io_uring).
       int n = 0;
-      for (int i = startIdx; i < end; i++) {
+      for (int i = from; i < end; i++) {
         final PageReference ref = parent.getChildReference(i);
         if (ref != null && ref.getPage() == null && ref.getKey() >= 0) {
           spanScratch[n++] = ref;
@@ -1041,11 +1065,96 @@ public final class HOTTrieReader implements AutoCloseable {
       }
       return;
     }
-    for (int i = startIdx; i < end; i++) {
+    for (int i = from; i < end; i++) {
       final PageReference ref = parent.getChildReference(i);
       if (ref != null && ref.getPage() == null && ref.getKey() >= 0) {
         prefetchPage(ref);
       }
+    }
+  }
+
+  /** References per advisory hint batch of {@link #prefetchLeafPaths}; the projection walk's frontier size. */
+  private static final int LEAF_PATH_HINT_BATCH = 128;
+
+  /**
+   * Level-synchronous warm-up for a batch of point lookups: all keys descend together, and at each
+   * level every not-yet-resident child page of the whole batch is hinted in one advisory batch
+   * BEFORE any of them is loaded, so a level's device round trips overlap instead of following each
+   * other key by key (a lookup at a time turns depth × k dependent reads into depth batches).
+   *
+   * <p>
+   * Pages are loaded through the ordinary {@link #loadPage} route — swizzled onto their references,
+   * stamp-checked like any descent — so the per-key navigation that follows finds every page of its
+   * path resident and re-derives the identical answer; the total decode work is the same, only its
+   * I/O is overlapped. A no-op on a backend without the advisory primitive (nothing is even walked),
+   * and it never reports a malformed route: the key's own descent does that, exactly as today.
+   *
+   * @param rootRef the trie root
+   * @param keys {@code count} serialized keys, key {@code i} at {@code [i * keyLen, (i + 1) * keyLen)}
+   * @param keyLen the serialized key length
+   * @param count the number of keys
+   */
+  public void prefetchLeafPaths(final PageReference rootRef, final byte[] keys, final int keyLen, final int count) {
+    Objects.requireNonNull(rootRef, "rootRef");
+    Objects.requireNonNull(keys, "keys");
+    if (keyLen <= 0 || count < 0 || (long) count * keyLen > keys.length) {
+      throw new IllegalArgumentException("invalid key batch: " + count + " keys of " + keyLen + " bytes");
+    }
+    if (!spanPrefetchCapable || count < 2) {
+      return;
+    }
+    final PageReference[] frontier = new PageReference[count];
+    Arrays.fill(frontier, rootRef);
+    final PageReference[] hints = new PageReference[Math.min(count, LEAF_PATH_HINT_BATCH)];
+    final byte[] key = new byte[keyLen];
+    int active = count;
+    try {
+      for (int depth = 0; depth < MAX_TREE_HEIGHT && active > 0; depth++) {
+        // Hint this level's frontier — every reference not yet swizzled, once (consecutive keys
+        // share nodes, so adjacent duplicates are the common case).
+        int hinted = 0;
+        PageReference last = null;
+        for (int i = 0; i < count; i++) {
+          final PageReference ref = frontier[i];
+          if (ref == null || ref == last || ref.getPage() != null || ref.getKey() < 0) {
+            continue;
+          }
+          last = ref;
+          hints[hinted++] = ref;
+          if (hinted == hints.length) {
+            storageEngineReader.prefetchPageSpans(hints, hinted);
+            hinted = 0;
+          }
+        }
+        if (hinted > 0) {
+          storageEngineReader.prefetchPageSpans(hints, hinted);
+        }
+        // Load the level (page-cache hits after the hints) and step every key one level down.
+        active = 0;
+        for (int i = 0; i < count; i++) {
+          final PageReference ref = frontier[i];
+          if (ref == null) {
+            continue;
+          }
+          final Page page = loadPage(ref);
+          if (!(page instanceof HOTIndirectPage hotNode)) {
+            frontier[i] = null; // a leaf (resident now), or a route the key's own descent will report
+            continue;
+          }
+          System.arraycopy(keys, i * keyLen, key, 0, keyLen);
+          final int childIndex = hotNode.findChildIndex(key, keyLen);
+          final PageReference childRef = childIndex < 0
+              ? null
+              : hotNode.getChildReference(childIndex);
+          frontier[i] = childRef;
+          if (childRef != null) {
+            active++;
+          }
+        }
+      }
+    } catch (final RuntimeException advisoryFailure) {
+      // Advisory only: whatever failed here fails identically, with its own diagnostics, on the
+      // key's own descent — which is where a corrupt route has always been reported.
     }
   }
 
@@ -1059,6 +1168,7 @@ public final class HOTTrieReader implements AutoCloseable {
     pathRefs[pathDepth] = ref;
     pathNodes[pathDepth] = node;
     pathChildIndices[pathDepth] = childIdx;
+    pathPrefetchedUntil[pathDepth] = 0;
     pathDepth++;
   }
 

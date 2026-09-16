@@ -9191,9 +9191,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * the sole discovery route, matching the other persisted index families and remaining correct
    * across commits, rollbacks, and time travel.
    */
-  /** Whole-projection background readahead on first resolution (advisory; property-gated). */
+  /**
+   * Whole-projection background readahead on first resolution (advisory; property-gated). OFF by
+   * default: it sweeps EVERY sliceable column's segment chains of the projection, not the columns the
+   * query touches, so on a backend that honours span hints (the standard file-channel reader now does)
+   * it is a store-wide prepass that competes with the query's own reads for the device and the page
+   * cache. Opt in with {@code -Dsirix.projection.prefetchAll=true} for a long-lived process whose
+   * later queries will touch most columns anyway.
+   */
   private static final boolean PREFETCH_ALL_SEGMENTS =
-      !"false".equals(System.getProperty("sirix.projection.prefetchAll"));
+      Boolean.parseBoolean(System.getProperty("sirix.projection.prefetchAll", "false"));
 
   /** Emergency/A-B switch; normal production serving remains enabled. */
   private static final boolean PROJECTION_SERVING_ENABLED = !Boolean.getBoolean("sirix.projection.serving.disabled");

@@ -79,11 +79,38 @@ public final class FileChannelReader extends AbstractReader {
   /** Decode a coalesced page while its read buffer is still exclusively owned by this call. */
   private final boolean borrowBatchInput = borrowedInputEnabled("sirix.filechannel.borrowBatchInput");
 
-  /** Requested offsets only: bounded OS read-ahead without queued tasks or staged page objects. */
+  /**
+   * Requested offsets only: bounded OS read-ahead without queued tasks or staged page objects.
+   *
+   * <p>
+   * {@code BATCH_READ_AHEAD} is how many pages of a batch may be hinted ahead of the batch's read
+   * cursor. Every caller today hands at most 1,024 references, so the default hints the WHOLE batch up
+   * front — the kernel then has every page of the batch in flight while the first run is still being
+   * read, instead of the sixteen-page trickle that kept a cold coalesced fill at queue depth one for
+   * most of its life. The bound exists for a pathological batch, not for the ordinary one.
+   *
+   * <p>
+   * {@code BATCH_READ_AHEAD_BYTES} is the tail hinted past an offset whose page length is unknown —
+   * the last page of a run, or every page of an advisory {@link #prefetch} whose successor is farther
+   * away than this. A page is bounded by the next page's offset in an append-only data file, so every
+   * other page's extent is exact and hinting it costs no bandwidth. 32 KiB covers the length header and
+   * the whole body of the typical page (the 100M JSONBench Q4/Q5 cold reads average 9–12 KiB) so the
+   * body read that follows the header is a cache hit rather than a second device round trip.
+   */
   private static final int BATCH_READ_AHEAD =
-      Math.max(0, Math.min(256, Integer.getInteger("sirix.filechannel.batchReadAhead", 16)));
+      Math.max(0, Math.min(4096, Integer.getInteger("sirix.filechannel.batchReadAhead", 1024)));
   private static final long BATCH_READ_AHEAD_BYTES =
-      Math.max(4096L, Math.min(1024 * 1024L, Long.getLong("sirix.filechannel.batchReadAheadBytes", 4096L)));
+      Math.max(4096L, Math.min(1024 * 1024L, Long.getLong("sirix.filechannel.batchReadAheadBytes", 32L * 1024)));
+
+  /**
+   * Pages per advisory {@link #prefetch} batch advertised through {@link #preferredPrefetchBatch()};
+   * {@code 0} disables the advisory route and restores the pre-hint behaviour of every caller (the
+   * HOT trie sibling window, the projection directory walk and the column-store sweep all gate on it).
+   * 32 matches the NVMe queue-depth sweet spot the callers were sized for.
+   */
+  private static final int PREFETCH_BATCH =
+      Math.max(0, Math.min(1024, Integer.getInteger("sirix.filechannel.prefetchBatch", 32)));
+
   private static final int UNRESOLVED_READ_AHEAD_FD = -2;
   private volatile int readAheadFd = UNRESOLVED_READ_AHEAD_FD;
 
@@ -571,38 +598,32 @@ public final class FileChannelReader extends AbstractReader {
     }
     // Ordinary single-page readers pay no native-advice setup. Concurrent first batches may
     // resolve the same descriptor twice; publication needs no lock and retains no extra resource.
-    int batchReadAheadFd = -1;
-    if (BATCH_READ_AHEAD > 0 && n > 1) {
-      batchReadAheadFd = readAheadFd;
-      if (batchReadAheadFd == UNRESOLVED_READ_AHEAD_FD) {
-        batchReadAheadFd = PosixFadvise.extractFd(dataFileChannel);
-        readAheadFd = batchReadAheadFd;
-      }
-    }
+    final int batchReadAheadFd = BATCH_READ_AHEAD > 0 && n > 1
+        ? readAheadFd()
+        : -1;
+    // Unresolved references sort first; the durable part of the batch starts after them.
     int i = 0;
-    int prefetchedUntil = 0;
+    while (i < n && keyOf(references[order[i]]) < 0) {
+      i++;
+    }
+    // Hint cursor: the first position whose RUN has not been hinted yet. Hints run ahead of the
+    // reads by at most BATCH_READ_AHEAD pages and are issued per run, so a whole batch costs one
+    // advice call per coalesced span rather than one per page — and every span is in flight
+    // before its predecessor's synchronous pread returns.
+    int hintFrom = i;
     while (i < n) {
-      if (batchReadAheadFd >= 0 && i >= prefetchedUntil) {
-        prefetchedUntil = Math.min(n, i + BATCH_READ_AHEAD);
-        for (int ahead = i; ahead < prefetchedUntil; ahead++) {
-          PosixFadvise.adviseWillNeed(batchReadAheadFd, keyOf(references[order[ahead]]), BATCH_READ_AHEAD_BYTES);
+      final int j = runEnd(references, order, i, n);
+      if (batchReadAheadFd >= 0) {
+        final int hintLimit = Math.min(n, i + BATCH_READ_AHEAD);
+        while (hintFrom < hintLimit) {
+          final int hintTo = runEnd(references, order, hintFrom, n);
+          adviseRun(batchReadAheadFd, keyOf(references[order[hintFrom]]), keyOf(references[order[hintTo]]),
+              hintTo + 1 < n
+                  ? keyOf(references[order[hintTo + 1]])
+                  : Long.MAX_VALUE,
+              batchFileSize);
+          hintFrom = hintTo + 1;
         }
-      }
-      final long start = keyOf(references[order[i]]);
-      if (start < 0) {
-        i++;
-        continue;
-      }
-      // Grow the run while offsets stay ascending, near-adjacent, and inside the span cap.
-      int j = i;
-      long last = start;
-      while (j + 1 < n) {
-        final long next = keyOf(references[order[j + 1]]);
-        if (next <= last || next - last > COALESCE_MAX_GAP || next - start > COALESCE_MAX_SPAN) {
-          break;
-        }
-        last = next;
-        j++;
       }
       if (j == i) {
         pages[order[i]] = read(references[order[i]], resourceConfiguration, false, batchFileSize);
@@ -613,6 +634,144 @@ public final class FileChannelReader extends AbstractReader {
       i = j + 1;
     }
     return pages;
+  }
+
+  /**
+   * Last index (in sorted {@code order}) of the coalesced run that starts at {@code from}: offsets
+   * stay strictly ascending, near-adjacent, and inside the span cap. {@code from} must name a durable
+   * reference.
+   */
+  private static int runEnd(final PageReference[] references, final int[] order, final int from, final int n) {
+    final long start = keyOf(references[order[from]]);
+    long last = start;
+    int j = from;
+    while (j + 1 < n) {
+      final long next = keyOf(references[order[j + 1]]);
+      if (next <= last || next - last > COALESCE_MAX_GAP || next - start > COALESCE_MAX_SPAN) {
+        break;
+      }
+      last = next;
+      j++;
+    }
+    return j;
+  }
+
+  /**
+   * One {@code WILLNEED} for a whole coalesced run: its span up to the last member's length header,
+   * plus a bounded tail for the last body whose length is unknown until that header is read. The tail
+   * never reaches into the next run (that run gets its own hint, and in an append-only file the body
+   * ends before the next page anyway) nor past the file. Advisory only: a declined hint changes
+   * nothing about the reads that follow.
+   */
+  private static void adviseRun(final int fd, final long start, final long lastOffset, final long nextRunStart,
+      final long fileSize) {
+    long end = lastOffset + Integer.BYTES + BATCH_READ_AHEAD_BYTES;
+    if (nextRunStart > lastOffset && nextRunStart < end) {
+      end = nextRunStart;
+    }
+    if (fileSize >= 0L && end > fileSize) {
+      end = fileSize;
+    }
+    if (end > start) {
+      PosixFadvise.adviseWillNeed(fd, start, end - start);
+    }
+  }
+
+  /**
+   * The data channel's raw descriptor for native advice, resolved once per reader; {@code -1} when
+   * the platform cannot provide it (then every advisory route below is a no-op).
+   */
+  private int readAheadFd() {
+    int fd = readAheadFd;
+    if (fd == UNRESOLVED_READ_AHEAD_FD) {
+      fd = PosixFadvise.extractFd(dataFileChannel);
+      readAheadFd = fd;
+    }
+    return fd;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>
+   * The standard backend advertises its batch only where the advice can actually reach the kernel
+   * (Linux, extractable descriptor). Resolved once per reader — this is called once per transaction
+   * — so the scan loops that gate on it pay nothing per page.
+   */
+  @Override
+  public int preferredPrefetchBatch() {
+    if (PREFETCH_BATCH == 0) {
+      return 0;
+    }
+    return readAheadFd() >= 0
+        ? PREFETCH_BATCH
+        : 0;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>
+   * {@code posix_fadvise(WILLNEED)} over the referenced offsets: the kernel submits every page of
+   * the batch to the device at once and the {@link #read(PageReference, ResourceConfiguration)} that
+   * follows for each of them finds the bytes in the page cache instead of waiting one device round
+   * trip per page. Extents are derived from the SORTED keys — a page ends where the next one begins
+   * in an append-only file — so touching pages merge into one advice call and only a page without a
+   * near successor is hinted with the bounded tail. Stages nothing, reads no page objects, and
+   * never throws: {@link PosixFadvise#adviseWillNeed} swallows every failure, so a declined hint
+   * leaves the subsequent reads exactly as they are without it.
+   */
+  @Override
+  public void prefetch(final PageReference[] references, final int count) {
+    if (references == null || count <= 0) {
+      return;
+    }
+    final int fd = readAheadFd();
+    if (fd < 0) {
+      return;
+    }
+    final int n = Math.min(count, references.length);
+    if (n == 1) {
+      // The single-reference hint of a trie descent: no sort, no scratch.
+      final long key = keyOf(references[0]);
+      if (key >= 0) {
+        PosixFadvise.adviseWillNeed(fd, key, BATCH_READ_AHEAD_BYTES);
+      }
+      return;
+    }
+    final long[] keys = new long[n];
+    int durable = 0;
+    for (int i = 0; i < n; i++) {
+      final long key = keyOf(references[i]);
+      if (key >= 0) {
+        keys[durable++] = key;
+      }
+    }
+    if (durable == 0) {
+      return;
+    }
+    Arrays.sort(keys, 0, durable);
+    long start = keys[0];
+    long end = start;
+    for (int i = 0; i < durable; i++) {
+      final long key = keys[i];
+      if (key > end) {
+        // A gap the tail did not bridge: this extent is complete, the next one starts here.
+        PosixFadvise.adviseWillNeed(fd, start, end - start);
+        start = key;
+      }
+      long pageEnd = key + BATCH_READ_AHEAD_BYTES;
+      if (i + 1 < durable) {
+        final long span = keys[i + 1] - key;
+        if (span > 0 && span < BATCH_READ_AHEAD_BYTES) {
+          pageEnd = key + span; // exact: the page cannot extend past its successor's offset
+        }
+      }
+      if (pageEnd > end) {
+        end = pageEnd;
+      }
+    }
+    PosixFadvise.adviseWillNeed(fd, start, end - start);
   }
 
   private static long keyOf(final @Nullable PageReference reference) {

@@ -183,9 +183,15 @@ final class ProjectionSortedLeafBounds {
     final long[] minimums = new long[count];
     final long[] maximums = new long[count];
     final int[] order = new int[count];
-    for (int from = 0; from < count;) {
+    // Every chunk slot is known now, so the chunks are fetched together (one coalesced batch per
+    // 1,024 chunks) instead of one root-to-leaf descent plus one payload read per chunk; the loop
+    // below still validates them in order and still stops at the first missing chunk.
+    final byte @Nullable [][] chunks = readChunks(reader, indexNumber, leafIds);
+    for (int from = 0, chunk = 0; from < count; chunk++) {
       final long slot = slot(leafIds[from]);
-      final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot);
+      final byte[] bytes = chunks != null
+          ? chunks[chunk]
+          : ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot);
       if (bytes == null) {
         return null;
       }
@@ -216,6 +222,55 @@ final class ProjectionSortedLeafBounds {
     }
     return new Candidates(leafIds, minimums, maximums, order);
   }
+
+  /**
+   * Fetch every distinct bounds chunk of the sorted physical ids in batches. {@code null} means "read
+   * them one by one": a single chunk gains nothing from a batch, and a failing batch must not report
+   * a chunk the serial order would never have reached — the per-chunk reads then fail (or stop at a
+   * missing chunk) exactly as before.
+   */
+  private static byte @Nullable [] @Nullable [] readChunks(final StorageEngineReader reader, final int indexNumber,
+      final int[] sortedLeafIds) {
+    int distinct = 0;
+    long previous = -1;
+    for (final int leafId : sortedLeafIds) {
+      final long slot = slot(leafId);
+      if (slot != previous) {
+        distinct++;
+        previous = slot;
+      }
+    }
+    if (distinct < 2) {
+      return null;
+    }
+    final long[] slots = new long[distinct];
+    int at = 0;
+    previous = -1;
+    for (final int leafId : sortedLeafIds) {
+      final long slot = slot(leafId);
+      if (slot != previous) {
+        slots[at++] = slot;
+        previous = slot;
+      }
+    }
+    final byte[][] chunks = new byte[distinct][];
+    try {
+      for (int from = 0; from < distinct; from += CHUNK_BATCH) {
+        final int to = Math.min(distinct, from + CHUNK_BATCH);
+        final byte[][] batch = ProjectionIndexHOTStorage.readBlobBatch(reader, indexNumber,
+            from == 0 && to == distinct
+                ? slots
+                : Arrays.copyOfRange(slots, from, to));
+        System.arraycopy(batch, 0, chunks, from, to - from);
+      }
+    } catch (final RuntimeException batchFailure) {
+      return null;
+    }
+    return chunks;
+  }
+
+  /** Slots per {@link ProjectionIndexHOTStorage#readBlobBatch} call, its documented maximum. */
+  private static final int CHUNK_BATCH = 1024;
 
   static long slot(final int leafId) {
     if (leafId < 1) {

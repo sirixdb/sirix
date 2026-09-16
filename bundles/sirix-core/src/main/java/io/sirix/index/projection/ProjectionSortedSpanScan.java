@@ -45,12 +45,37 @@ final class ProjectionSortedSpanScan {
   private final long[] maximums;
   private final long[] scores;
   private int retained;
+  // Lookahead (ProjectionSortedGroupScan.SORTED_LOOKAHEAD): the next ordinals of the priority order,
+  // taken together and consumed in that order, and the summaries staged for their deterministic
+  // leaves. read(ordinal) consumes a staged summary exactly where the one-read-per-step loop would
+  // have read it — charging the budget and validating there — so a staged-but-never-consumed leaf
+  // is neither charged nor validated, and the stop point is the serial loop's.
+  private final int lookahead;
+  private final ProjectionSortedGroupScan.@Nullable LookaheadStats stats;
+  private final int[] pending;
+  private int pendingFrom;
+  private int pendingCount;
+  private final int[] stagedOrdinals;
+  private final int[] stagedLeafIds;
+  private final ProjectionSortedLeaf[] staged;
+  private int stagedCount;
 
   private ProjectionSortedSpanScan(final StorageEngineReader reader, final int indexNumber, final int count,
-      final int limit, final long divisor) {
+      final int limit, final long divisor, final int lookahead,
+      final ProjectionSortedGroupScan.@Nullable LookaheadStats stats) {
     this.reader = reader;
     this.indexNumber = indexNumber;
     this.divisor = divisor;
+    this.lookahead = lookahead;
+    this.stats = stats;
+    pending = new int[lookahead];
+    // A run member stages two leaves (the run's last leaf and the one before its first), hence 2x.
+    final int stagingCapacity = lookahead > 1
+        ? 2 * lookahead
+        : 0;
+    stagedOrdinals = new int[stagingCapacity];
+    stagedLeafIds = new int[stagingCapacity];
+    staged = new ProjectionSortedLeaf[stagingCapacity];
     readBudget = count <= CACHE_SIZE
         ? Integer.MAX_VALUE
         : Math.min(4096, Math.max(32, count >>> 3));
@@ -71,8 +96,18 @@ final class ProjectionSortedSpanScan {
 
   static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory, final int limit, final long divisor) {
+    return topK(reader, indexNumber, directory, limit, divisor, ProjectionSortedGroupScan.SORTED_LOOKAHEAD, null);
+  }
+
+  /** {@code lookahead} candidates taken together per step ({@code 1}: the serial loop); {@code stats} optional. */
+  static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSortedDirectory.Accessor directory, final int limit, final long divisor, final int lookahead,
+      final ProjectionSortedGroupScan.@Nullable LookaheadStats stats) {
     if (limit < 1 || limit > 32 || divisor < 1) {
       throw new IllegalArgumentException("unsupported sorted span top-K request");
+    }
+    if (lookahead < 1 || lookahead > 64) {
+      throw new IllegalArgumentException("unsupported sorted lookahead: " + lookahead);
     }
     final int count = directory.dataLeafCount();
     if (count > MAX_LEAVES || reader.hasTrxIntentLog()) {
@@ -83,7 +118,8 @@ final class ProjectionSortedSpanScan {
     if (bounds == null) {
       return null;
     }
-    final ProjectionSortedSpanScan scan = new ProjectionSortedSpanScan(reader, indexNumber, count, limit, divisor);
+    final ProjectionSortedSpanScan scan =
+        new ProjectionSortedSpanScan(reader, indexNumber, count, limit, divisor, lookahead, stats);
     if (!scan.capture(directory, bounds)) {
       return null;
     }
@@ -99,7 +135,16 @@ final class ProjectionSortedSpanScan {
     } else {
       LongArrays.quickSortIndirect(order, scan.upper);
     }
-    return scan.visit(order, limit, heap);
+    try {
+      return scan.visit(order, limit, heap);
+    } finally {
+      if (ProjectionSortedGroupScan.LOOKAHEAD_DIAG) {
+        System.err.println("[sortedLookahead] span window=" + lookahead + " reads=" + scan.reads + " budget="
+            + scan.readBudget + (stats != null
+                ? " " + stats
+                : ""));
+      }
+    }
   }
 
   private boolean capture(final ProjectionSortedDirectory.Accessor directory,
@@ -190,19 +235,17 @@ final class ProjectionSortedSpanScan {
 
   private @Nullable List<Group> visit(final int[] order, final int limit, final boolean heap) {
     int remaining = order.length;
-    while (remaining > 0) {
-      final int ordinal = heap
-          ? order[0]
-          : order[remaining - 1];
+    while (pendingCount > 0 || remaining > 0) {
+      if (pendingCount == 0) {
+        remaining = takePending(order, remaining, heap);
+      }
+      final int ordinal = pending[pendingFrom];
       // Keep K+1 exact groups and use a strict comparison: ties must reach the existing fallback.
       if (retained == winners.length && upper[ordinal] < scores[retained - 1]) {
         break;
       }
-      remaining--;
-      if (heap && remaining > 0) {
-        order[0] = order[remaining];
-        siftDown(order, upper, 0, remaining);
-      }
+      pendingFrom++;
+      pendingCount--;
       if (ordinal < ends[ordinal]) {
         // The next leaf starts with the same group: this entire leaf belongs to that group.
         if (!completeRun(starts[ordinal])) {
@@ -237,6 +280,105 @@ final class ProjectionSortedSpanScan {
       }
     }
     return ProjectionSortedGroupScan.finish(winners, minimums, maximums, scores, retained, limit);
+  }
+
+  /**
+   * Take the next {@code lookahead} ordinals of the priority order — the very sequence the
+   * one-at-a-time loop would pop, since popping is deterministic and nothing feeds back into the
+   * order — and fetch their deterministic leaves together. Returns the remaining count.
+   */
+  private int takePending(final int[] order, int remaining, final boolean heap) {
+    pendingFrom = 0;
+    pendingCount = 0;
+    while (pendingCount < lookahead && remaining > 0) {
+      final int ordinal = heap
+          ? order[0]
+          : order[remaining - 1];
+      remaining--;
+      if (heap && remaining > 0) {
+        order[0] = order[remaining];
+        siftDown(order, upper, 0, remaining);
+      }
+      pending[pendingCount++] = ordinal;
+    }
+    if (pendingCount > 1) {
+      stageLeaves();
+    }
+    return remaining;
+  }
+
+  /**
+   * The leaves the pending ordinals will read whatever the data says: a run member completes its run
+   * from the run's last leaf and the leaf before its first; any other ordinal reads itself. Leaves
+   * already cached, already completed or already staged are skipped, and never more than the read
+   * budget still allows, so a batch can never fetch what the budget forbids. One batch fetch: k trie
+   * descents on one reader (level-hinted where the backend allows) and one coalesced payload read.
+   */
+  private void stageLeaves() {
+    stagedCount = 0;
+    final int budgetLeft = readBudget - reads;
+    for (int p = 0; p < pendingCount; p++) {
+      final int ordinal = pending[p];
+      if (ordinal < ends[ordinal]) {
+        final int start = starts[ordinal];
+        if ((completed[start >>> 6] & 1L << start) != 0) {
+          continue;
+        }
+        stage(ends[start], budgetLeft);
+        if (start > 0) {
+          stage(start - 1, budgetLeft);
+        }
+      } else {
+        stage(ordinal, budgetLeft);
+      }
+    }
+    if (stagedCount == 0) {
+      return;
+    }
+    for (int i = 0; i < stagedCount; i++) {
+      stagedLeafIds[i] = leafIds[stagedOrdinals[i]];
+    }
+    try {
+      ProjectionSortedGroupSummary.readBatch(reader, indexNumber, stagedLeafIds, 0, stagedCount, staged);
+    } catch (final RuntimeException batchFailure) {
+      // A leaf the serial loop would never reach must not fail the scan; one it would reach fails
+      // identically from its own read. Consumption below reads one by one for this window.
+      Arrays.fill(staged, 0, stagedCount, null);
+      stagedCount = 0;
+      return;
+    }
+    if (stats != null) {
+      stats.fetched += stagedCount;
+    }
+  }
+
+  private void stage(final int ordinal, final int budgetLeft) {
+    if (stagedCount >= budgetLeft || stagedCount == stagedOrdinals.length
+        || cachedOrdinals[ordinal & (CACHE_SIZE - 1)] == ordinal) {
+      return;
+    }
+    for (int i = 0; i < stagedCount; i++) {
+      if (stagedOrdinals[i] == ordinal) {
+        return;
+      }
+    }
+    stagedOrdinals[stagedCount++] = ordinal;
+  }
+
+  /** The staged summary for {@code ordinal}, handed over once; {@code null} when it was not staged. */
+  private @Nullable ProjectionSortedLeaf takeStaged(final int ordinal) {
+    for (int i = 0; i < stagedCount; i++) {
+      if (stagedOrdinals[i] == ordinal) {
+        final ProjectionSortedLeaf summary = staged[i];
+        staged[i] = null;
+        stagedOrdinals[i] = -1;
+        if (summary != null && stats != null) {
+          stats.consumed++;
+        }
+        return summary;
+      }
+    }
+    return null;
   }
 
   /** Restore a maximum-bound root in the reused primitive candidate permutation. */
@@ -319,7 +461,13 @@ final class ProjectionSortedSpanScan {
       return null;
     }
     reads++;
-    final ProjectionSortedLeaf summary = ProjectionSortedGroupSummary.read(reader, indexNumber, leafIds[ordinal]);
+    if (stats != null) {
+      stats.charged++;
+    }
+    final ProjectionSortedLeaf stagedSummary = takeStaged(ordinal);
+    final ProjectionSortedLeaf summary = stagedSummary != null
+        ? stagedSummary
+        : ProjectionSortedGroupSummary.read(reader, indexNumber, leafIds[ordinal]);
     if (summary == null) {
       return null;
     }

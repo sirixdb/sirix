@@ -116,7 +116,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   private static final byte[] TOMBSTONE = new byte[0];
 
   /** 8-byte scratch for encoding slot keys. */
-  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[8]);
+  /** Serialized slot-key length ({@link PathKeySerializer}); sizes every slot-key buffer here. */
+  private static final int SLOT_KEY_BYTES = Long.BYTES;
+  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[SLOT_KEY_BYTES]);
 
   private final PathKeySerializer keySerializer = PathKeySerializer.INSTANCE;
 
@@ -3939,6 +3941,16 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           out[i] = readBlob(reader, trieReader, rootRef, keyBuf, slotKeys[i]);
         }
         return out;
+      }
+      if (count > 1 && reader.recordPagePrefetchBatch() > 0) {
+        // Level-synchronous warm-up of the k descents below: each trie level's pages go to the
+        // device together instead of one descent at a time (see HOTTrieReader#prefetchLeafPaths);
+        // the descents themselves then run on resident pages. Advisory — nothing here can fail a read.
+        final byte[] keys = new byte[count * SLOT_KEY_BYTES];
+        for (int i = 0; i < count; i++) {
+          PathKeySerializer.INSTANCE.serialize(slotKeys[i], keys, i * SLOT_KEY_BYTES);
+        }
+        trieReader.prefetchLeafPaths(rootRef, keys, SLOT_KEY_BYTES, count);
       }
       final byte[][] markers = new byte[count][];
       final long[] offsets = new long[count];
