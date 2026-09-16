@@ -7,6 +7,7 @@ import io.sirix.api.StorageEngineReader;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 /** Per-data-leaf extrema for sorted (string group, ordered long, record key) tuples. */
 final class ProjectionSortedGroupSummary {
@@ -52,7 +53,29 @@ final class ProjectionSortedGroupSummary {
   static @Nullable ProjectionSortedLeaf read(final StorageEngineReader reader, final int indexNumber,
       final int leafId) {
     final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot(leafId));
-    return bytes == null ? null : ProjectionSortedLeaf.open(bytes);
+    return bytes == null
+        ? null
+        : ProjectionSortedLeaf.open(bytes);
+  }
+
+  /** Input-aligned summary window; blob integrity is verified before opening any returned leaf. */
+  static void readBatch(final StorageEngineReader reader, final int indexNumber, final int[] leafIds, final int from,
+      final int to, final ProjectionSortedLeaf[] out) {
+    Objects.requireNonNull(leafIds, "leafIds");
+    Objects.requireNonNull(out, "out");
+    Objects.checkFromToIndex(from, to, leafIds.length);
+    Objects.checkFromToIndex(from, to, out.length);
+    final long[] slots = new long[to - from];
+    for (int i = from; i < to; i++) {
+      slots[i - from] = slot(leafIds[i]);
+    }
+    final byte[][] payloads = ProjectionIndexHOTStorage.readBlobBatch(reader, indexNumber, slots);
+    for (int i = from; i < to; i++) {
+      final byte[] bytes = payloads[i - from];
+      out[i] = bytes == null
+          ? null
+          : ProjectionSortedLeaf.open(bytes);
+    }
   }
 
   static long slot(final int leafId) {

@@ -4,7 +4,9 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.node.MemorySegmentBytesIn;
+import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.RegionsOnlyPage;
@@ -20,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -39,12 +42,28 @@ public abstract class AbstractReader implements Reader {
    */
   protected final PagePersister pagePersister;
 
+  /** Only overflow decoders always finish with independently owned payload bytes. */
+  private final boolean borrowOverflowInput;
+
+  /** Native images keep the established owned-input default; JVM readers use borrowed views. */
+  private static final boolean DEFAULT_BORROWED_INPUT = System.getProperty("org.graalvm.nativeimage.imagecode") == null;
+
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractReader.class);
 
   public AbstractReader(ByteHandler byteHandler, PagePersister pagePersister, SerializationType type) {
     this.byteHandler = byteHandler;
     this.pagePersister = pagePersister;
     this.type = type;
+    this.borrowOverflowInput = byteHandler instanceof ByteHandlerPipeline pipeline && pipeline.isEmpty()
+        && borrowedInputEnabled("sirix.io.borrowOverflowInput");
+  }
+
+  /** Each input-borrowing option can independently override the runtime's default. */
+  protected static boolean borrowedInputEnabled(final String option) {
+    final String configured = System.getProperty(option);
+    return configured == null
+        ? DEFAULT_BORROWED_INPUT
+        : !"false".equals(configured);
   }
 
   /**
@@ -263,6 +282,15 @@ public abstract class AbstractReader implements Reader {
       PageReference reference, boolean lazyRecordPage) throws IOException {
     if (!byteHandler.supportsMemorySegments()) {
       throw new UnsupportedOperationException("ByteHandler does not support MemorySegment operations");
+    }
+
+    if (borrowOverflowInput && compressedPage.byteSize() > 0
+        && compressedPage.get(ValueLayout.JAVA_BYTE, 0L) == PageKind.OVERFLOWPAGE.getID()) {
+      // The empty pipeline needs no transformation. Both raw and region-compressed overflow
+      // decoders produce their own byte array before returning, so this input can remain borrowed.
+      // Record/HOT pages still take the owned-buffer path below. Overflow pages have no references
+      // to fix up, and their ordinary decoder retains all version, length and codec checks.
+      return pagePersister.deserializePage(resourceConfiguration, new MemorySegmentBytesIn(compressedPage), type);
     }
 
     // Decompress - ownership may be transferred to page for zero-copy

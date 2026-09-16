@@ -347,6 +347,43 @@ class FrameSlotAllocatorTest {
   }
 
   @Test
+  void recycledScanWrapsToAnEarlierWordWithoutAllocatingAFreshSlot() {
+    final int classIdx = FrameSlotAllocator.indexForSize(4096);
+    final FrameSlot[] held = new FrameSlot[2 * Long.SIZE + 1];
+    try {
+      for (int index = 0; index < held.length; index++) {
+        held[index] = allocator.allocateSlot(4096);
+        assertNotNull(held[index]);
+        assertEquals(index, held[index].slotIndex());
+      }
+      final long previousVersion = held[0].versionAtAlloc();
+      held[0].close();
+      held[0] = null;
+      held[held.length - 1].close();
+      held[held.length - 1] = null;
+
+      held[held.length - 1] = allocator.allocateSlot(4096);
+      assertNotNull(held[held.length - 1]);
+      assertEquals(held.length - 1, held[held.length - 1].slotIndex());
+      assertEquals(3, allocator.recycledScanWord(classIdx),
+          "draining the hinted word starts the next scan beyond all remaining recycled slots");
+
+      held[0] = allocator.allocateSlot(4096);
+      assertNotNull(held[0]);
+      assertEquals(0, held[0].slotIndex(), "the scan must wrap before falling back to fresh capacity");
+      assertFalse(allocator.validateVersion(classIdx, 0, previousVersion));
+      assertEquals(0, allocator.recycledSlotCount(classIdx));
+      assertEquals(0, allocator.recycledSlotBitCount(classIdx));
+    } finally {
+      for (final FrameSlot slot : held) {
+        if (slot != null) {
+          slot.close();
+        }
+      }
+    }
+  }
+
+  @Test
   void writerObservesOddVersionDuringRelease() throws Exception {
     // Observe that during release the version transitions through an odd
     // ("writer in progress") value. Done by having a slow release (injected

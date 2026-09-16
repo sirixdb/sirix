@@ -164,6 +164,37 @@ final class ProjectionStringIdentityRegistryTest {
   }
 
   @Test
+  void reusingLocalCacheAcrossRegistriesCannotReuseAnUnregisteredProof() {
+    final ProjectionStringIdentityRegistry first = new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
+    final ProjectionStringIdentityRegistry second = new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
+    final ProjectionStringIdentityRegistry.LocalProofCache cache =
+        new ProjectionStringIdentityRegistry.LocalProofCache(1);
+    final byte[] gold = utf8("gold");
+    final byte[] silver = utf8("silver");
+    final long a = first.laneA(gold, 0, gold.length, 0L);
+    final long b = first.laneB(gold, 0, gold.length);
+    assertTrue(cache.prove(first, 0, a, b, gold, 0, gold.length));
+    assertTrue(cache.prove(second, 0, a, b, gold, 0, gold.length));
+    assertFalse(second.prove(0, a, b, silver, 0, silver.length),
+        "a hit from another registry must register its bytes before it can prove identity here");
+    assertTrue(second.collisionDetected());
+    assertFalse(cache.prove(second, 0, a, b, gold, 0, gold.length),
+        "reusing a batch cache must still observe a collision reported outside it");
+    assertTrue(cache.prove(first, 0, a, b, gold, 0, gold.length));
+    assertTrue(first.identityProven(), "one query's collision must not poison another query");
+  }
+
+  @Test
+  void reusedProofCacheRejectsIncompatibleComponentCounts() {
+    final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(2, ALL_COLLIDE, 1 << 20);
+    final ProjectionStringIdentityRegistry.LocalProofCache cache =
+        new ProjectionStringIdentityRegistry.LocalProofCache(1);
+    assertThrows(IllegalArgumentException.class, () -> cache.bind(registry, 2));
+    assertThrows(IllegalArgumentException.class, () -> cache.bind(registry, 1));
+    assertThrows(IllegalArgumentException.class, () -> cache.bind(null, 1));
+  }
+
+  @Test
   @DisplayName("growth preserves every canonical value")
   void growthPreservesCanonicalValues() {
     final ProjectionStringIdentityRegistry registry =

@@ -280,6 +280,11 @@ public final class ProjectionBloomChunks {
       return chunks.size();
     }
 
+    /** Physical chunk boundaries must also be disjoint logical mask-word boundaries. */
+    boolean parallelPruningIsSafe() {
+      return logicalByPhysical == null;
+    }
+
     private int pruneChunks(final long[] hashes, final long[][] keeps,
         final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final int chunkFrom, final int chunkTo) {
       final ProjectionIndexHOTStorage.BlobLocators localChunks = chunks;

@@ -53,7 +53,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class HOTCompleteDumpFragmentBoundaryTest {
 
   private static final String RESOURCE = "resource";
-  private static final long RETAINED_LEFT_KEY = 0;
+  private static final long RETAINED_LEFT_KEY = 2;
   private static final long SPLIT_INSERTED_KEY = 1;
   private static final long MOVED_RIGHT_KEY = 512;
   private static final long ROOT_SPLIT_OUTLIER_KEY = 1L << 40;
@@ -142,8 +142,13 @@ final class HOTCompleteDumpFragmentBoundaryTest {
     try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
         JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0);
-      for (long entry = 0; entry < HOTLeafPage.MAX_ENTRIES; entry++) {
-        storage.putColumnSegmentSlot(entry * 2, SMALL_SEGMENT);
+      // Slot 0 belongs to projection metadata. Keep all entries below 1024 so the later
+      // insertion still splits on bit 9, retaining key 2 and moving key 512 to the right.
+      for (long entry = 1; entry <= HOTLeafPage.MAX_ENTRIES; entry++) {
+        final long slotKey = entry == HOTLeafPage.MAX_ENTRIES
+            ? entry * 2 - 1
+            : entry * 2;
+        storage.putColumnSegmentSlot(slotKey, SMALL_SEGMENT);
       }
       storage.putColumnSegmentSlot(ROOT_SPLIT_OUTLIER_KEY, SMALL_SEGMENT);
       wtx.commit();

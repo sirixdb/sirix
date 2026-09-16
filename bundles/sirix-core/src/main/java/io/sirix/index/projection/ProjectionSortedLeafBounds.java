@@ -21,7 +21,8 @@ final class ProjectionSortedLeafBounds {
 
   private ProjectionSortedLeafBounds() {}
 
-  record Candidates(int[] leafIds, long[] minimums, long[] maximums, int[] order) {}
+  record Candidates(int[] leafIds, long[] minimums, long[] maximums, int[] order) {
+  }
 
   /** Invalidate before changing the source; an interrupted update then takes the exact fallback. */
   static void invalidate(final ProjectionIndexHOTStorage storage, final int leafId) {
@@ -93,9 +94,9 @@ final class ProjectionSortedLeafBounds {
   }
 
   /**
-   * Initial-build accumulator. Consecutive physical ids let each chunk be published once, which
-   * keeps its side-page key append-only until bulk staging has completed. Owns at most one chunk;
-   * a published byte array is never reused because storage may retain it in an immutable page.
+   * Initial-build accumulator. Consecutive physical ids let each chunk be published once, which keeps
+   * its side-page key append-only until bulk staging has completed. Owns at most one chunk; a
+   * published byte array is never reused because storage may retain it in an immutable page.
    */
   static final class Builder {
     private final ProjectionIndexHOTStorage storage;
@@ -150,6 +151,17 @@ final class ProjectionSortedLeafBounds {
    */
   static @Nullable Candidates read(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory) {
+    return read(reader, indexNumber, directory, true);
+  }
+
+  /** Span scans supply their own priority order after resolving groups crossing leaf boundaries. */
+  static @Nullable Candidates readUnordered(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSortedDirectory.Accessor directory) {
+    return read(reader, indexNumber, directory, false);
+  }
+
+  private static @Nullable Candidates read(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSortedDirectory.Accessor directory, final boolean orderByMinimum) {
     final int count = directory.dataLeafCount();
     if (count > MAX_CANDIDATE_LEAVES) {
       return null;
@@ -199,7 +211,9 @@ final class ProjectionSortedLeafBounds {
       }
       from = to;
     }
-    LongArrays.quickSortIndirect(order, minimums);
+    if (orderByMinimum) {
+      LongArrays.quickSortIndirect(order, minimums);
+    }
     return new Candidates(leafIds, minimums, maximums, order);
   }
 
@@ -211,8 +225,8 @@ final class ProjectionSortedLeafBounds {
   }
 
   private static void validate(final byte[] bytes) {
-    if (bytes.length != CHUNK_BYTES || ProjectionIndexRowGroupCodec.getIntLE(bytes, 0) != MAGIC
-        || bytes[4] != 1 || bytes[5] != 6 || bytes[6] != 0 || bytes[7] != 0) {
+    if (bytes.length != CHUNK_BYTES || ProjectionIndexRowGroupCodec.getIntLE(bytes, 0) != MAGIC || bytes[4] != 1
+        || bytes[5] != 6 || bytes[6] != 0 || bytes[7] != 0) {
       throw new IllegalStateException("invalid sorted leaf bounds chunk");
     }
   }

@@ -1,7 +1,9 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import io.sirix.index.projection.ProjectionColumnStore.PackedDictionaryIds;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
+import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
 import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.jspecify.annotations.Nullable;
@@ -355,6 +357,16 @@ public final class ProjectionColumnGroupScan {
     int[][] stringLengths; // per aggregate block: transformed length per dictionary entry (lazy)
     /** COUNT(DISTINCT) over a STRING_DICT operand: per-leaf dictId → content hash (0 = unhashed). */
     long[] cdHash = new long[64];
+    int[] counts = new int[0];
+    int[] firstRows = new int[0];
+
+    void ensureCounts(final int size) {
+      if (counts.length < size) {
+        final int capacity = Math.max(64, Math.max(counts.length * 2, size));
+        counts = new int[capacity];
+        firstRows = new int[capacity];
+      }
+    }
 
     void ensure(final int dictSize) {
       if (hash.length < dictSize) {
@@ -432,6 +444,12 @@ public final class ProjectionColumnGroupScan {
     // [key, count, firstSeen, aux] stripe. Loop-invariant — the dict cache below is the group
     // identity and stays in both shapes.
     final boolean countOnly = aggCount == 0 && distinctBlock < 0;
+    if (countOnly && !globalGroup && keyRegex == null
+        && !"false".equals(System.getProperty("sirix.projection.dictionaryCountBatches"))) {
+      countByLocalDictionary(store, predicates, predCols, treeOrNull, treeCols, groupCol, fromLeaf, toLeaf, out,
+          missingAcc, budget, mask, ds);
+      return;
+    }
     if (stringLengthModes != null && (ds.stringLengths == null || ds.stringLengths.length < aggCount)) {
       ds.stringLengths = new int[Math.max(4, aggCount)][];
     }
@@ -689,6 +707,82 @@ public final class ProjectionColumnGroupScan {
                 bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, dwords,
                 sumExactMask, leafLengthTables);
           }
+        }
+      }
+    }
+  }
+
+  /**
+   * Fold each used dictionary entry once per leaf. The row pass touches only compact ID counters; the
+   * table receives the same hash, count and earliest source ordinal as the general row kernel.
+   */
+  private static void countByLocalDictionary(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
+      final ColumnSlice[][] predCols, final PredicateTree tree, final ColumnSlice[][] treeCols,
+      final ColumnSlice[] groups, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
+      final long[] missingAcc, final long[] budget, final long[] mask, final DictScratch scratch) {
+    final boolean packedCounts = !"false".equals(System.getProperty("sirix.projection.packedDictionaryCounts"));
+    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+      if (budget != null && budget[1] != 0L) {
+        return;
+      }
+      final int rows = tree != null
+          ? ProjectionColumnScan.evaluateMaskTree(tree, treeCols, leaf, store.rowCount(leaf), mask)
+          : ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
+      if (rows <= 0) {
+        continue;
+      }
+      final ColumnSlice group = groups[leaf];
+      final int dictSize = group.dictSize();
+      scratch.ensureCounts(dictSize + 1);
+      final int[] counts = scratch.counts;
+      final int[] firstRows = scratch.firstRows;
+      Arrays.fill(counts, 0, dictSize + 1, 0);
+      final PackedDictionaryIds packed = packedCounts
+          ? group.packedStringIds()
+          : null;
+      if (packed != null && !packed.isMaterialized()) {
+        packed.countSelected(dictSize, mask, group.presenceWords(), counts, firstRows);
+      } else {
+        countDictionaryRows(rows, dictSize, mask, group.presenceWords(), group.stringDictIds(), counts, firstRows);
+      }
+      final long ordinalBase = (long) leaf << 20;
+      final int missing = counts[dictSize];
+      if (missing != 0) {
+        if (missingAcc[0] == 0L) {
+          missingAcc[1] = ordinalBase | firstRows[dictSize];
+        }
+        missingAcc[0] += missing;
+      }
+      final byte[] bytes = group.dictBytes();
+      final int[] offsets = group.dictOffsets();
+      for (int id = 0; id < dictSize; id++) {
+        final int count = counts[id];
+        if (count == 0) {
+          continue;
+        }
+        final int offset = offsets[id];
+        final long hash = ProjectionIndexByteScan.fnv1a64(bytes, offset, offsets[id + 1] - offset);
+        final long ordinal = ordinalBase | firstRows[id];
+        if (hash == 0L) {
+          final boolean fresh = !out.hasZeroKey();
+          final long[] zero = out.acquireZero(ordinal);
+          if (fresh || ordinal < zero[1]) {
+            zero[1] = ordinal;
+            out.setZeroAux(ordinalBase | id);
+          }
+          zero[0] += count;
+        } else {
+          final int handle = out.acquire(hash, ordinal);
+          if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
+            continue;
+          }
+          final long[] values = out.storageAtAccBase(handle);
+          final int base = out.offsetAtAccBase(handle);
+          if (values[base] == 0L || ordinal < values[base + 1]) {
+            values[base + 1] = ordinal;
+            out.setAuxAtAccBase(handle, ordinalBase | id);
+          }
+          values[base] += count;
         }
       }
     }
@@ -1021,6 +1115,25 @@ public final class ProjectionColumnGroupScan {
       final int[] keyCondCols, final ColumnSlice[][] condCols, final long[] keyCondLits,
       final byte[][] keyCondElseBytes, final long[] keyDivMod, final GlobalValueDictionary.ReadView[] globalKeyViews,
       final ProjectionStringIdentityRegistry identityRegistry, final long[] globalCondElseIds) {
+    aggregateByGroupCompositeFlat(store, predicates, predCols, treeOrNull, treeCols, keyCols, keyKinds, aggCols,
+        fromLeaf, toLeaf, out, distinctBlock, distinctOut, budget, keyOffsets, keySubstr, declineFlag, keyCondCols,
+        condCols, keyCondLits, keyCondElseBytes, keyDivMod, globalKeyViews, identityRegistry, globalCondElseIds, null);
+  }
+
+  /**
+   * Worker-scratch overload. A cache may span sequential subchunks, but must never be shared by
+   * concurrent workers. Null retains invocation-local allocation, only when identity proof is needed.
+   */
+  public static void aggregateByGroupCompositeFlat(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
+      final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[][] keyCols,
+      final byte[] keyKinds, final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf,
+      final NumericGroupAggTable out, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
+      final long[] budget, final long[] keyOffsets, final int[] keySubstr, final long[] declineFlag,
+      final int[] keyCondCols, final ColumnSlice[][] condCols, final long[] keyCondLits,
+      final byte[][] keyCondElseBytes, final long[] keyDivMod, final GlobalValueDictionary.ReadView[] globalKeyViews,
+      final ProjectionStringIdentityRegistry identityRegistry, final long[] globalCondElseIds,
+      final ProjectionStringIdentityRegistry.LocalProofCache workerProofCache) {
     if (predicates == null || out == null || aggCols == null || keyCols == null) {
       throw new IllegalArgumentException("predicates, out, aggCols and keyCols must not be null");
     }
@@ -1092,8 +1205,13 @@ public final class ProjectionColumnGroupScan {
     // Built only when some component still has something to prove: a fully pre-proven key pays
     // neither its arena nor a single registry probe.
     final ProjectionStringIdentityRegistry.LocalProofCache proofCache = anyProof
-        ? new ProjectionStringIdentityRegistry.LocalProofCache(keyCount)
+        ? workerProofCache != null
+            ? workerProofCache
+            : new ProjectionStringIdentityRegistry.LocalProofCache(keyCount)
         : null;
+    if (proofCache != null) {
+      proofCache.bind(identityRegistry, keyCount);
+    }
     final long[] condElseHash = keyCondCols != null
         ? new long[keyCount]
         : null;
@@ -1167,8 +1285,13 @@ public final class ProjectionColumnGroupScan {
           && (keySubstr == null || keySubstr[2 * k] == 0 && keySubstr[2 * k + 1] == 0)
           && (keyCondCols == null || keyCondCols[2 * k] < 0 && keyCondCols[2 * k + 1] < 0);
     }
-    final int countDictionaryKey = countOnly ? constantCountDictionaryKey(keyKinds, keySubstr, keyCondCols) : -1;
-    final long[] constantHashes = countDictionaryKey >= 0 ? new long[keyCount] : null;
+    final int countDictionaryKey = countOnly
+        ? constantCountDictionaryKey(keyKinds, keySubstr, keyCondCols)
+        : -1;
+    final boolean packedCount = !"false".equals(System.getProperty("sirix.projection.packedDictionaryCounts"));
+    final long[] constantHashes = countDictionaryKey >= 0
+        ? new long[keyCount]
+        : null;
     int[] dictionaryCounts = null;
     int[] dictionaryFirstRows = null;
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
@@ -1279,7 +1402,11 @@ public final class ProjectionColumnGroupScan {
               }
             }
           }
-          compIds[k] = slice.stringDictIds();
+          // Defer dense compatibility until this leaf actually needs the general row loop.
+          compIds[k] = packedCount && k == countDictionaryKey && slice.packedStringIds() != null
+              && !slice.packedStringIds().isMaterialized()
+                  ? null
+                  : slice.stringDictIds();
           compValues[k] = null;
         }
       }
@@ -1302,8 +1429,8 @@ public final class ProjectionColumnGroupScan {
       // When every numeric component is constant over this selected block, only the local
       // dictionary id varies. Count in its compact id space and prove/probe each used identity
       // once per block. No row hashes, transformed-value arrays, or cached table handles.
-      if (countDictionaryKey >= 0 && prepareConstantCountKeys(keyCols, leaf, countDictionaryKey,
-          keyOffsets, keyDivMod, idLane, mask, rowCount, identity, constantHashes)) {
+      if (countDictionaryKey >= 0 && prepareConstantCountKeys(keyCols, leaf, countDictionaryKey, keyOffsets, keyDivMod,
+          idLane, mask, rowCount, identity, constantHashes)) {
         final int k = countDictionaryKey;
         final int dictSize = compDictOffsets[k].length - 1;
         if (dictionaryCounts == null || dictionaryCounts.length <= dictSize) {
@@ -1311,26 +1438,14 @@ public final class ProjectionColumnGroupScan {
           dictionaryFirstRows = new int[dictionaryCounts.length];
         }
         Arrays.fill(dictionaryCounts, 0, dictSize + 1, 0);
-        final int[] ids = compIds[k];
-        for (int w = 0; w < stride; w++) {
-          final long selected = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
-          long present = selected & compPresence[k][w];
-          final int rowBase = w << 6;
-          while (present != 0L) {
-            final int row = rowBase + Long.numberOfTrailingZeros(present);
-            present &= present - 1L;
-            final int id = ids[row];
-            if (dictionaryCounts[id]++ == 0) {
-              dictionaryFirstRows[id] = row;
-            }
-          }
-          final long missing = selected & ~compPresence[k][w];
-          if (missing != 0L) {
-            if (dictionaryCounts[dictSize] == 0) {
-              dictionaryFirstRows[dictSize] = rowBase + Long.numberOfTrailingZeros(missing);
-            }
-            dictionaryCounts[dictSize] += Long.bitCount(missing);
-          }
+        final PackedDictionaryIds packed = compIds[k] == null
+            ? keyCols[k][leaf].packedStringIds()
+            : null;
+        if (packed != null) {
+          packed.countSelected(dictSize, mask, compPresence[k], dictionaryCounts, dictionaryFirstRows);
+        } else {
+          countDictionaryRows(rowCount, dictSize, mask, compPresence[k], compIds[k], dictionaryCounts,
+              dictionaryFirstRows);
         }
         final int lane = idLane[k];
         for (int id = 0; id <= dictSize; id++) {
@@ -1352,8 +1467,8 @@ public final class ProjectionColumnGroupScan {
             }
           } else {
             if (compNeedsProof[k] && !ProjectionIndexByteScan.proveOnFirstUse(identityRegistry, proofCache, k,
-                compDictProven[k], id, compDictIdA[k][id], compDictIdB[k][id], compDictBytes[k],
-                compDictOffsets[k][id], compDictOffsets[k][id + 1] - compDictOffsets[k][id])) {
+                compDictProven[k], id, compDictIdA[k][id], compDictIdB[k][id], compDictBytes[k], compDictOffsets[k][id],
+                compDictOffsets[k][id + 1] - compDictOffsets[k][id])) {
               return;
             }
             constantHashes[k] = compDictHash[k][id];
@@ -1380,6 +1495,9 @@ public final class ProjectionColumnGroupScan {
           slot[base] += count;
         }
         continue;
+      }
+      if (countDictionaryKey >= 0 && compIds[countDictionaryKey] == null) {
+        compIds[countDictionaryKey] = keyCols[countDictionaryKey][leaf].stringDictIds();
       }
       // NO-TRANSFORM fast loop (the common suite shape): no conditional keys, no substring
       // casts, no shifts — per row each component is one presence test + one load + one mix,
@@ -1644,10 +1762,36 @@ public final class ProjectionColumnGroupScan {
     return dictionary;
   }
 
+  /** Keep the per-row count loop independently compilable from the general grouping kernel. */
+  private static void countDictionaryRows(final int rowCount, final int dictSize, final long[] mask,
+      final long[] presence, final int[] ids, final int[] counts, final int[] firstRows) {
+    final int stride = (rowCount + 63) >>> 6;
+    for (int w = 0; w < stride; w++) {
+      final long selected = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+      long present = selected & presence[w];
+      final int rowBase = w << 6;
+      while (present != 0L) {
+        final int row = rowBase + Long.numberOfTrailingZeros(present);
+        present &= present - 1L;
+        final int id = ids[row];
+        if (counts[id]++ == 0) {
+          firstRows[id] = row;
+        }
+      }
+      final long missing = selected & ~presence[w];
+      if (missing != 0L) {
+        if (counts[dictSize] == 0) {
+          firstRows[dictSize] = rowBase + Long.numberOfTrailingZeros(missing);
+        }
+        counts[dictSize] += Long.bitCount(missing);
+      }
+    }
+  }
+
   /** Prove a single present transformed value for every non-dictionary component of this block. */
-  private static boolean prepareConstantCountKeys(final ColumnSlice[][] columns, final int leaf,
-      final int dictionary, final long[] offsets, final long[] divMod, final int[] lanes, final long[] selected,
-      final int rows, final long[] identity, final long[] hashes) {
+  private static boolean prepareConstantCountKeys(final ColumnSlice[][] columns, final int leaf, final int dictionary,
+      final long[] offsets, final long[] divMod, final int[] lanes, final long[] selected, final int rows,
+      final long[] identity, final long[] hashes) {
     final int words = (rows + 63) >>> 6;
     for (int k = 0; k < columns.length; k++) {
       if (k == dictionary) {
@@ -1657,7 +1801,9 @@ public final class ProjectionColumnGroupScan {
       if (slice.flags() != 0 || slice.min() > slice.max()) {
         return false;
       }
-      final long offset = offsets == null ? 0L : offsets[k];
+      final long offset = offsets == null
+          ? 0L
+          : offsets[k];
       long low = slice.min() + offset;
       long high = slice.max() + offset;
       if (((slice.min() ^ low) & (offset ^ low)) < 0 || ((slice.max() ^ high) & (offset ^ high)) < 0) {

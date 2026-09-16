@@ -32,20 +32,18 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * P1 spike + regression suite for the segment-page commit chain
- * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §9 P0/P1): a
- * referenced segment page (an {@code OverflowPage}) referenced from a {@code HOTLeafPage}'s side
- * map must survive commit → cold reopen → read-back, across deep split
- * cascades, sparse-fragment second commits, and rollbacks — exercising
- * hazards 5.2-a (commit-order key resolution) and 5.2-b (sparse dirty-entry
- * emit + fragment-merge carry) before any projection storage code moves to
- * the new layout.
+ * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §9 P0/P1): a referenced segment page (an
+ * {@code OverflowPage}) referenced from a {@code HOTLeafPage}'s side map must survive commit → cold
+ * reopen → read-back, across deep split cascades, sparse-fragment second commits, and rollbacks —
+ * exercising hazards 5.2-a (commit-order key resolution) and 5.2-b (sparse dirty-entry emit +
+ * fragment-merge carry) before any projection storage code moves to the new layout.
  *
- * <p>Owner slots are fabricated in the historical chunk-0 form
- * ({@code ownerSlotKey = rowGroupId << 8}) through the package-private
- * {@code writeSlotValue} seam (the legacy chunked put API is gone); the
- * side-map convention {@code (ownerSlotKey << 8) | columnSegmentId} is identical
- * for production descriptor keys, so the hazards exercised here are
- * layout-independent.
+ * <p>
+ * Owner slots are fabricated in the historical chunk-0 form
+ * ({@code ownerSlotKey = (rowGroupId + 1) << 8}) through the package-private {@code writeSlotValue}
+ * seam (the legacy chunked put API is gone); the side-map convention
+ * {@code (ownerSlotKey << 16) | columnSegmentId} is identical for production descriptor keys, so
+ * the hazards exercised here are layout-independent.
  */
 final class ProjectionSegmentPageCommitTest {
 
@@ -70,25 +68,25 @@ final class ProjectionSegmentPageCommitTest {
     Databases.getGlobalBufferManager().clearAllCaches();
   }
 
-  /** Owner slot of leaf {@code rowGroupId}'s chunk-0 slot under the historical layout. */
+  /** Map zero-based fixture IDs to nonzero historical chunk-0 slots; slot 0 holds metadata. */
   private static long ownerSlot(final long rowGroupId) {
-    return rowGroupId << 8;
+    return (rowGroupId + 1) << 8;
   }
 
   /** Fixed chunk size of the removed pre-redesign chunked layout. */
   private static final int LEGACY_CHUNK_SIZE = 4096;
 
   /**
-   * Fabricates the PRE-redesign chunked slot layout byte-for-byte: 4096-byte chunks written at
-   * raw composite keys {@code (rowGroupId << 8) | chunkIdx} via the writeSlotValue seam.
+   * Fabricates the PRE-redesign chunked slot layout byte-for-byte: 4096-byte chunks written at raw
+   * composite keys {@code ownerSlot(rowGroupId) | chunkIdx} via the writeSlotValue seam.
    */
-  private static void writeLegacyChunkedLeaf(final ProjectionIndexHOTStorage storage,
-      final long rowGroupId, final byte[] payload) {
+  private static void writeLegacyChunkedLeaf(final ProjectionIndexHOTStorage storage, final long rowGroupId,
+      final byte[] payload) {
     final int chunks = Math.max(1, (payload.length + LEGACY_CHUNK_SIZE - 1) / LEGACY_CHUNK_SIZE);
     for (int chunkIdx = 0; chunkIdx < chunks; chunkIdx++) {
       final int off = chunkIdx * LEGACY_CHUNK_SIZE;
       final int len = Math.min(LEGACY_CHUNK_SIZE, payload.length - off);
-      storage.writeSlotValue((rowGroupId << 8) | chunkIdx, Arrays.copyOfRange(payload, off, off + len));
+      storage.writeSlotValue(ownerSlot(rowGroupId) | chunkIdx, Arrays.copyOfRange(payload, off, off + len));
     }
   }
 
@@ -100,7 +98,7 @@ final class ProjectionSegmentPageCommitTest {
       final byte[] keyBuf = new byte[8];
       byte[] out = new byte[0];
       for (int chunkIdx = 0; chunkIdx < 256; chunkIdx++) {
-        PathKeySerializer.INSTANCE.serialize((rowGroupId << 8) | chunkIdx, keyBuf, 0);
+        PathKeySerializer.INSTANCE.serialize(ownerSlot(rowGroupId) | chunkIdx, keyBuf, 0);
         final MemorySegment slice = trieReader.get(rootRef, keyBuf);
         if (slice == null || slice.byteSize() == 0) {
           break;
@@ -132,7 +130,7 @@ final class ProjectionSegmentPageCommitTest {
   @Test
   void segmentRefSurvivesCommitAndColdReopen() {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -150,27 +148,24 @@ final class ProjectionSegmentPageCommitTest {
 
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         assertArrayEquals(segmentBytes(ownerSlot(0), 1, 900),
-            ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER,
-                ownerSlot(0), 1),
+            ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER, ownerSlot(0), 1),
             "segment 1 must survive commit + cold reopen");
         assertArrayEquals(segmentBytes(ownerSlot(0), 2, 3000),
-            ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER,
-                ownerSlot(0), 2),
+            ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER, ownerSlot(0), 2),
             "segment 2 must survive commit + cold reopen");
-        assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER,
-                ownerSlot(0), 3),
+        assertNull(
+            ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER, ownerSlot(0), 3),
             "absent segment id must read as null");
         // The chunk payload sharing the leaf is untouched by the refs section.
-        assertArrayEquals(chunkPayload(0, 2048, 0xA5A5L),
-            readLegacyChunkedLeaf(rtx.getStorageEngineReader(), 0));
+        assertArrayEquals(chunkPayload(0, 2048, 0xA5A5L), readLegacyChunkedLeaf(rtx.getStorageEngineReader(), 0));
       }
     }
   }
 
   /**
-   * Refs attached EARLY must follow their owner slots through the split
-   * cascades caused by hundreds of later multi-chunk puts
-   * ({@code HOTLeafPage#moveOverflowPageRefsAfterSplit} across all split variants).
+   * Refs attached EARLY must follow their owner slots through the split cascades caused by hundreds
+   * of later multi-chunk puts ({@code HOTLeafPage#moveOverflowPageRefsAfterSplit} across all split
+   * variants).
    */
   @Test
   void segmentRefsSurviveDeepSplitCascades() {
@@ -180,7 +175,7 @@ final class ProjectionSegmentPageCommitTest {
     final long seed = 0xDEE9_5EEDL;
 
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -198,8 +193,7 @@ final class ProjectionSegmentPageCommitTest {
 
         // Pre-commit readback through writer-side navigation.
         for (int i = 0; i < numLeaves; i++) {
-          assertArrayEquals(segmentBytes(ownerSlot(i), 1, 700 + i),
-              storage.getSegmentPageBytes(ownerSlot(i), 1),
+          assertArrayEquals(segmentBytes(ownerSlot(i), 1, 700 + i), storage.getSegmentPageBytes(ownerSlot(i), 1),
               "pre-commit segment of leaf " + i + " must resolve after split cascades");
         }
         wtx.commit();
@@ -210,13 +204,12 @@ final class ProjectionSegmentPageCommitTest {
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         for (int i = 0; i < numLeaves; i++) {
           assertArrayEquals(segmentBytes(ownerSlot(i), 1, 700 + i),
-              ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER,
-                  ownerSlot(i), 1),
+              ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER, ownerSlot(i),
+                  1),
               "committed segment of leaf " + i + " must survive the split cascade");
         }
         for (int i = 0; i < numLeaves; i++) {
-          assertArrayEquals(chunkPayload(i, chunkSize, seed),
-              readLegacyChunkedLeaf(rtx.getStorageEngineReader(), i),
+          assertArrayEquals(chunkPayload(i, chunkSize, seed), readLegacyChunkedLeaf(rtx.getStorageEngineReader(), i),
               "chunk payload of leaf " + i + " must be unaffected by side-map refs");
         }
       }
@@ -224,9 +217,9 @@ final class ProjectionSegmentPageCommitTest {
   }
 
   /**
-   * Second commit touching a subset of leaves: replaced refs serve new bytes,
-   * untouched refs carry forward by reference (sparse dirty-entry emit +
-   * newest-fragment-authoritative merge), and removed refs stay removed.
+   * Second commit touching a subset of leaves: replaced refs serve new bytes, untouched refs carry
+   * forward by reference (sparse dirty-entry emit + newest-fragment-authoritative merge), and removed
+   * refs stay removed.
    */
   @Test
   void secondCommitFragmentMergeCarriesAndReplacesRefs() {
@@ -235,7 +228,7 @@ final class ProjectionSegmentPageCommitTest {
     final long seed = 0xF00D_5EEDL;
 
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -268,13 +261,10 @@ final class ProjectionSegmentPageCommitTest {
           final byte[] expected1 = (i % 3 == 0)
               ? segmentBytes(ownerSlot(i), 1, 5000 + i)
               : segmentBytes(ownerSlot(i), 1, 500 + i);
-          assertArrayEquals(expected1,
-              ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER,
-                  ownerSlot(i), 1),
-              "segment 1 of leaf " + i + " after second commit");
-          final byte[] actual2 =
-              ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER,
-                  ownerSlot(i), 2);
+          assertArrayEquals(expected1, ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
+              INDEX_NUMBER, ownerSlot(i), 1), "segment 1 of leaf " + i + " after second commit");
+          final byte[] actual2 = ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(),
+              INDEX_NUMBER, ownerSlot(i), 2);
           if (i % 5 == 0) {
             assertNull(actual2, "removed segment 2 of leaf " + i + " must not resurrect");
           } else {
@@ -288,12 +278,12 @@ final class ProjectionSegmentPageCommitTest {
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
         for (int i = 0; i < numLeaves; i++) {
           assertArrayEquals(segmentBytes(ownerSlot(i), 1, 500 + i),
-              ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER,
-                  ownerSlot(i), 1),
+              ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER, ownerSlot(i),
+                  1),
               "revision 1 segment 1 of leaf " + i + " must be unaffected by the later commit");
           assertArrayEquals(segmentBytes(ownerSlot(i), 2, 1200 + i),
-              ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER,
-                  ownerSlot(i), 2),
+              ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER, ownerSlot(i),
+                  2),
               "revision 1 segment 2 of leaf " + i + " must be unaffected by the later removal");
         }
       }
@@ -304,7 +294,7 @@ final class ProjectionSegmentPageCommitTest {
   @Test
   void rolledBackSegmentRefsAreNeverWritten() {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -314,8 +304,8 @@ final class ProjectionSegmentPageCommitTest {
       }
 
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        assertNull(ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER,
-                ownerSlot(0), 1),
+        assertNull(
+            ProjectionIndexHOTStorage.readSegmentPageBytes(rtx.getStorageEngineReader(), INDEX_NUMBER, ownerSlot(0), 1),
             "rolled-back segment must not exist in any committed revision");
       }
     }

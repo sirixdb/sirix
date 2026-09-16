@@ -29,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -45,6 +46,55 @@ final class ProjectionIndexColumnSegmentCodecTest {
           ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG};
 
   private static final String[] DEPTS = {"Eng", "Sales", "Mkt", "Ops", "HR", "Finance", "Legal", "Supp"};
+
+  @Test
+  void constantDictionarySlicesKeepIndependentDenseArraysValuesAndPresence() {
+    final int rows = ProjectionIndexRowGroupPage.MAX_ROWS;
+    final String[] leftValues = new String[rows];
+    final String[] rightValues = new String[rows];
+    Arrays.fill(leftValues, "α");
+    Arrays.fill(rightValues, "");
+    for (int row = 0; row < rows; row += 31) {
+      rightValues[row] = null;
+    }
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup left =
+        ProjectionIndexColumnSegmentCodec.encode(sparseStringLeaf(leftValues).serialize());
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup right =
+        ProjectionIndexColumnSegmentCodec.encode(sparseStringLeaf(rightValues).serialize());
+    final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0);
+    final int dictionaryId = ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(0);
+    final ProjectionIndexColumnSegmentCodec.SegmentResolver leftResolver = resolverOf(left);
+    final ProjectionIndexColumnSegmentCodec.SegmentResolver rightResolver = resolverOf(right);
+    final ProjectionColumnStore.ColumnSlice leftSlice = ProjectionIndexColumnSegmentCodec.decodeStringSlice(
+        left.descriptor(), leftResolver.segment(bodyId), leftResolver.segment(dictionaryId), 0);
+    final ProjectionColumnStore.ColumnSlice rightSlice = ProjectionIndexColumnSegmentCodec.decodeStringSlice(
+        right.descriptor(), rightResolver.segment(bodyId), rightResolver.segment(dictionaryId), 0);
+    assertNotSame(leftSlice.stringDictIds(), rightSlice.stringDictIds());
+    assertEquals(rows, leftSlice.stringDictIds().length);
+    assertNotSame(leftSlice.presenceWords(), rightSlice.presenceWords());
+    for (int row = 0; row < rows; row++) {
+      assertEquals(0, leftSlice.stringDictIds()[row]);
+      assertEquals("α", leftSlice.dictString(leftSlice.stringDictIds()[row]));
+      assertEquals(row % 31 != 0, (rightSlice.presenceWords()[row >>> 6] & (1L << (row & 63))) != 0);
+      if (row % 31 != 0) {
+        assertEquals("", rightSlice.dictString(rightSlice.stringDictIds()[row]));
+      }
+    }
+    final int[] writable =
+        ProjectionIndexRowGroupCodec.decodePackedIds(new ProjectionIndexRowGroupCodec.Cursor(new byte[] {0}, 0), rows);
+    assertNotSame(leftSlice.stringDictIds(), writable);
+    writable[17] = 7;
+    assertEquals(0, leftSlice.stringDictIds()[17], "mutable decoding must retain an independent buffer");
+    final int[] partial = ProjectionIndexRowGroupCodec.decodePackedIds(
+        new ProjectionIndexRowGroupCodec.Cursor(new byte[] {0}, 0), rows - 1);
+    assertEquals(rows - 1, partial.length, "partial groups retain their exact array shape");
+    assertNotSame(leftSlice.stringDictIds(), partial);
+    final byte[] corrupt = leftResolver.segment(bodyId).clone();
+    corrupt[corrupt.length - 1] ^= 1;
+    assertThrows(IllegalStateException.class,
+        () -> ProjectionIndexColumnSegmentCodec.decodeStringSlice(left.descriptor(), corrupt,
+            leftResolver.segment(dictionaryId), 0));
+  }
 
   /** Representative bench-shaped row group with mixed scalar column kinds. */
   private static ProjectionIndexRowGroupPage benchLeaf(final int rows, final long keyBase) {

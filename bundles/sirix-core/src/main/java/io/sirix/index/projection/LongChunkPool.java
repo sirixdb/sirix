@@ -44,6 +44,11 @@ import java.util.concurrent.atomic.LongAdder;
  * that would carry the total retained past the ceiling regardless of the pool it lands in.
  *
  * <p>
+ * Dense scans can retain the active payload geometry and a separate compact-index pool together.
+ * Both use this same global ceiling; changing payload geometry drains obsolete payload pools, and a
+ * scan that does not retain an index drains that pool too.
+ *
+ * <p>
  * Chunks are zeroed when GIVEN, not when taken: a pooled chunk is therefore always an empty bucket
  * range, a take is one dequeue, and a stale reference into a released chunk reads EMPTY buckets
  * instead of another table's groups. Thread-safe; the counters are for diagnostics and tests.
@@ -99,9 +104,36 @@ public final class LongChunkPool {
    * what keeps the ceiling a bound on the heap rather than on each pool.
    */
   public static LongChunkPool shared(final int chunkLanes, final int maxChunks) {
-    final LongChunkPool pool = SHARED.computeIfAbsent(chunkLanes, lanes -> new LongChunkPool(lanes, 1, true));
+    return sharedKeeping(chunkLanes, chunkLanes, maxChunks, 0);
+  }
+
+  /** Retain the current payload geometry together with its separately owned dense index pool. */
+  static LongChunkPool sharedWithProbe(final int chunkLanes, final int maxChunks, final int probeLanes) {
+    if (probeLanes <= 0) {
+      throw new IllegalArgumentException("probeLanes must be positive: " + probeLanes);
+    }
+    return sharedKeeping(chunkLanes, chunkLanes, maxChunks, -probeLanes);
+  }
+
+  /** Index pools use negative map keys, so equal array lengths still have distinct owners. */
+  static LongChunkPool sharedProbe(final int chunkLanes, final int maxChunks, final int payloadLanes) {
+    if (payloadLanes <= 0) {
+      throw new IllegalArgumentException("payloadLanes must be positive: " + payloadLanes);
+    }
+    return sharedKeeping(-chunkLanes, chunkLanes, maxChunks, payloadLanes);
+  }
+
+  private static LongChunkPool sharedKeeping(final int key, final int chunkLanes, final int maxChunks,
+      final int companionKey) {
+    if (chunkLanes <= 0 || maxChunks <= 0) {
+      throw new IllegalArgumentException("chunkLanes and maxChunks must be positive");
+    }
+    final LongChunkPool pool = SHARED.computeIfAbsent(key, geometry -> new LongChunkPool(Math.abs(geometry), 1, true));
+    final LongChunkPool companion = companionKey == 0
+        ? null
+        : SHARED.get(companionKey);
     for (final LongChunkPool other : SHARED.values()) {
-      if (other != pool) {
+      if (other != pool && other != companion) {
         other.drain();
       }
     }

@@ -1262,6 +1262,61 @@ final class ProjectionColumnScanParityTest {
         "the fused kernels must never fold unverified bytes");
   }
 
+  @Test
+  void maskedFillsRejectCorruptionBeforeReturningOrPublishingSlices() {
+    for (final int leaves : new int[] {3, 129}) {
+      for (final int col : new int[] {0, 3}) {
+        for (final byte segmentKind : new byte[] {ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY,
+            ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT}) {
+          if (col == 0 && segmentKind == ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT) {
+            continue;
+          }
+          final Fixture fixture = buildFixture(29, leaves, false);
+          final long[] keep = new long[(leaves + 63) >>> 6];
+          Arrays.fill(keep, -1L);
+          final ColumnSegmentFetcher corrupting = offsets -> {
+            final byte[][] bytes = fixture.fetcher().fetchAll(offsets);
+            for (int leaf = 0; leaf < bytes.length; leaf++) {
+              final byte[] segment = bytes[leaf];
+              if (segment != null && segment[5] == segmentKind) {
+                bytes[leaf] = segment.clone();
+                bytes[leaf][segment.length - 1] ^= 0x40;
+                break;
+              }
+            }
+            return bytes;
+          };
+          assertThrows(IllegalStateException.class, () -> fixture.store().columnMasked(col, corrupting, keep));
+          assertFalse(fixture.store().columnFilled(col));
+          assertThrows(IllegalStateException.class, () -> fixture.store().columnBytes(col, fixture.fetcher()),
+              "a detected checksum failure must poison this column, including later raw-byte reads");
+        }
+      }
+    }
+  }
+
+  @Test
+  void bucketViewsCannotAcquireUnverifiedColumnBytes() {
+    for (final int leaves : new int[] {3, 129}) {
+      final Fixture fixture = buildFixture(29, leaves, false, true, true);
+      final ColumnSegmentFetcher corrupting = offsets -> {
+        final byte[][] bytes = fixture.fetcher().fetchAll(offsets);
+        for (int leaf = 0; leaf < bytes.length; leaf++) {
+          if (bytes[leaf] != null) {
+            bytes[leaf] = bytes[leaf].clone();
+            bytes[leaf][bytes[leaf].length - 1] ^= 0x40;
+            break;
+          }
+        }
+        return bytes;
+      };
+      assertThrows(IllegalStateException.class,
+          () -> fixture.store().numericBucketKeyColumn(0, corrupting, 0, 10_000, 24));
+      assertFalse(fixture.store().columnFilled(0));
+      assertThrows(IllegalStateException.class, () -> fixture.store().columnBytes(0, fixture.fetcher()));
+    }
+  }
+
   // The store keeps its directories private; rebuild identical fixtures from the same seed
   // instead of reaching into internals (deterministic by construction).
   private static List<RowGroupDirectory> directoriesOf(final Fixture fx) {

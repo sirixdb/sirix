@@ -126,6 +126,7 @@ public final class ProjectionBulkLoad {
 
   /** Bounded fence-chunk stream; only its current 32-leaf tail remains on heap. */
   private final ProjectionIndexFences.BuildWriter fenceWriter = new ProjectionIndexFences.BuildWriter();
+  private final ProjectionNumericProofs.Builder numericProofWriter = new ProjectionNumericProofs.Builder();
   private final ProjectionFlagSummaryChunks.BuildWriter flagSummaryWriter =
       new ProjectionFlagSummaryChunks.BuildWriter();
 
@@ -271,6 +272,7 @@ public final class ProjectionBulkLoad {
           ProjectionIndexColumnSegmentCodec.encode(leaf, encodeWorkspace);
       final ProjectionIndexHOTStorage currentStorage = currentStorage();
       checkedPublisher.publish(currentStorage, physicalSlot, encoded);
+      numericProofWriter.append(currentStorage, physicalSlot, encoded);
       flagSummaryWriter.append(currentStorage, encoded.descriptor());
       fenceWriter.append(currentStorage, leaf.firstRecordKey(), leaf.lastRecordKey());
       ProjectionIndexBuilder.persistOrderExceptionLocators(leaf, physicalSlot,
@@ -878,6 +880,7 @@ public final class ProjectionBulkLoad {
       bloomChunks.finishChunks(storage, fenceWriter.rowGroupCount(), columnKinds);
       final long[] valueDictionaryHeaderKeys = builder.flushStreamingDictionaryGeneration(storageEngineWriter);
       fenceWriter.finish(storage);
+      numericProofWriter.finish(storage);
       flagSummaryWriter.finish(storage, fenceWriter.rowGroupCount(), columnKinds.length, buildRevision);
       // A bulk load owns the virgin sub-tree it created itself; publication never replaces prior units.
       ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(),

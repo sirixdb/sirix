@@ -444,6 +444,22 @@ public interface StorageEngineWriter extends StorageEngineReader {
     return false;
   }
 
+  /**
+   * Stage an immutable page with an opaque locality group. Implementations may place equal groups
+   * next to each other within a bounded append batch retained across storage-only flushes. The owner
+   * must keep the parent independently pinned while this page is pending; parents that must serialize
+   * in the next record-page snapshot must use the ungrouped overload instead. Explicit drains and
+   * final commits still drain all pending pages before root publication. Implementations without
+   * grouping retain ordinary staging.
+   *
+   * @param reference fresh unresolved immutable page reference
+   * @param localityGroup opaque grouping key; every long value is supported
+   * @return whether ownership moved into the pending-write batch
+   */
+  default boolean stageUncommittedOverflowPage(final PageReference reference, final long localityGroup) {
+    return stageUncommittedOverflowPage(reference);
+  }
+
   PageContainer dereferenceRecordPageForModification(PageReference reference);
 
   /**

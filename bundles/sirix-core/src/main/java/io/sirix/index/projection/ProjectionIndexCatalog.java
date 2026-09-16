@@ -17,6 +17,7 @@ import org.jspecify.annotations.Nullable;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.index.IndexDef;
+import io.sirix.index.projection.ProjectionDirectoryLoad.Result;
 import io.sirix.index.ProjectionSortedSpec;
 import io.sirix.index.Indexes;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -280,13 +281,12 @@ public final class ProjectionIndexCatalog {
 
   /**
    * Check that a covering projection has a usable persisted header without opening its row groups.
-   * This is a planning/preflight check; the serving path still validates the referenced data when
-   * it reads it. A caller that only needs a summary or sorted access path must not hydrate every
+   * This is a planning/preflight check; the serving path still validates the referenced data when it
+   * reads it. A caller that only needs a summary or sorted access path must not hydrate every
    * row-group directory just to establish that the projection exists.
    */
-  public static boolean hasUsableCoveringProjection(final ResourceSession<?, ?> session,
-      final String resourceKey, final int revision, final String[] sourcePath,
-      final String[] requiredFields) {
+  public static boolean hasUsableCoveringProjection(final ResourceSession<?, ?> session, final String resourceKey,
+      final int revision, final String[] sourcePath, final String[] requiredFields) {
     Objects.requireNonNull(session, "session");
     Objects.requireNonNull(resourceKey, "resourceKey");
     Objects.requireNonNull(requiredFields, "requiredFields");
@@ -298,8 +298,7 @@ public final class ProjectionIndexCatalog {
         requiredFields)) {
       final Probe probe = PROBES.get(new ProbeKey(resourceKey, candidate.def.getID(), revision),
           key -> probeMetadata(session, revision, candidate.def));
-      if (probe != null && probe != UNUSABLE && probe.buildRevision >= 0
-          && probe.buildRevision <= revision) {
+      if (probe != null && probe != UNUSABLE && probe.buildRevision >= 0 && probe.buildRevision <= revision) {
         return true;
       }
     }
@@ -356,9 +355,8 @@ public final class ProjectionIndexCatalog {
    * Read an exact scalar count summary through the revision's catalog and two small persisted blobs.
    * A missing or malformed capability falls back to ordinary projection serving.
    */
-  public static @Nullable Map<String, Long> lookupScalarValueRowCounts(
-      final ResourceSession<?, ?> session, final String resourceKey, final int revision,
-      final String[] sourcePath, final String field) {
+  public static @Nullable Map<String, Long> lookupScalarValueRowCounts(final ResourceSession<?, ?> session,
+      final String resourceKey, final int revision, final String[] sourcePath, final String field) {
     Objects.requireNonNull(session, "session");
     Objects.requireNonNull(resourceKey, "resourceKey");
     Objects.requireNonNull(field, "field");
@@ -366,8 +364,8 @@ public final class ProjectionIndexCatalog {
     if (root == null) {
       return null;
     }
-    final DefEntry[] candidates = selectCandidates(defEntries(session, resourceKey, revision), root,
-        new String[] {field});
+    final DefEntry[] candidates =
+        selectCandidates(defEntries(session, resourceKey, revision), root, new String[] {field});
     for (final DefEntry candidate : candidates) {
       final int column = columnOf(candidate, field);
       if (column < 0) {
@@ -375,12 +373,11 @@ public final class ProjectionIndexCatalog {
       }
       try (NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
         final StorageEngineReader reader = rtx.getStorageEngineReader();
-        final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(
-            ProjectionIndexHOTStorage.readBlob(reader, candidate.def.getID(), 0L));
-        if (metadata == null || metadata.isStale()
-            || metadata.buildRevision() > revision
-            || !metadata.matches(candidate.def.getProjectionRootPath().toString(),
-                defFieldPaths(candidate.def), defColumnKinds(candidate.def))) {
+        final ProjectionIndexMetadata metadata =
+            ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(reader, candidate.def.getID(), 0L));
+        if (metadata == null || metadata.isStale() || metadata.buildRevision() > revision
+            || !metadata.matches(candidate.def.getProjectionRootPath().toString(), defFieldPaths(candidate.def),
+                defColumnKinds(candidate.def))) {
           continue;
         }
         final byte[] kinds = metadata.columnKinds();
@@ -389,15 +386,14 @@ public final class ProjectionIndexCatalog {
             || capabilities == null || !capabilities.containsKey(column)) {
           continue;
         }
-        final Map<String, Long> counts =
-            ProjectionSetSummaryChunks.readColumn(reader, candidate.def.getID(), column);
+        final Map<String, Long> counts = ProjectionSetSummaryChunks.readColumn(reader, candidate.def.getID(), column);
         if (counts != null) {
           SERVED.increment();
           return counts;
         }
       } catch (final IllegalStateException corrupt) {
-        LOGGER.warn("Scalar summary for projection definition #" + candidate.def.getID()
-            + " is unusable at revision " + revision + ": " + corrupt.getMessage());
+        LOGGER.warn("Scalar summary for projection definition #" + candidate.def.getID() + " is unusable at revision "
+            + revision + ": " + corrupt.getMessage());
       } catch (final RuntimeException transientFailure) {
         LOGGER.warn("Scalar summary lookup failed for resource " + resourceKey + ", definition #"
             + candidate.def.getID() + " at revision " + revision + ": " + transientFailure.getMessage());
@@ -408,15 +404,14 @@ public final class ProjectionIndexCatalog {
   }
 
   /**
-   * Serve a filtered grouped extremum from an exactly matching, revisioned sorted access path.
-   * The declaration must cover precisely the query's equality predicates and sort by the requested
-   * group and aggregate fields. No decoded row groups are loaded for this path.
+   * Serve a filtered grouped extremum from an exactly matching, revisioned sorted access path. The
+   * declaration must cover precisely the query's equality predicates and sort by the requested group
+   * and aggregate fields. No decoded row groups are loaded for this path.
    */
-  public static @Nullable List<ProjectionSortedGroupScan.Group> sortedGroupTopK(
-      final ResourceSession<?, ?> session, final String resourceKey, final int revision,
-      final String[] sourcePath, final Map<String, String> equalities, final String groupField,
-      final String aggregateField, final int limit, final ProjectionSortedGroupScan.Order order,
-      final long spanDivisor, final boolean minOnly) {
+  public static @Nullable List<ProjectionSortedGroupScan.Group> sortedGroupTopK(final ResourceSession<?, ?> session,
+      final String resourceKey, final int revision, final String[] sourcePath, final Map<String, String> equalities,
+      final String groupField, final String aggregateField, final int limit,
+      final ProjectionSortedGroupScan.Order order, final long spanDivisor, final boolean minOnly) {
     Objects.requireNonNull(session, "session");
     Objects.requireNonNull(resourceKey, "resourceKey");
     Objects.requireNonNull(equalities, "equalities");
@@ -444,7 +439,8 @@ public final class ProjectionIndexCatalog {
       boolean sameFilter = true;
       for (final ProjectionSortedSpec.Equality equality : sorted.equalities()) {
         final String field = candidate.fieldChains[equality.column()] == null
-            ? candidate.fieldNames[equality.column()] : candidate.fieldChains[equality.column()];
+            ? candidate.fieldNames[equality.column()]
+            : candidate.fieldChains[equality.column()];
         sameFilter &= equality.literal().equals(equalities.get(field));
       }
       if (!sameFilter) {
@@ -466,14 +462,18 @@ public final class ProjectionIndexCatalog {
         if (probe == UNUSABLE || probe.buildRevision < 0 || probe.buildRevision > revision) {
           continue;
         }
-        final List<ProjectionSortedGroupScan.Group> groups = ProjectionSortedGroupScan.topK(
-            reader, candidate.def.getID(), limit, order, spanDivisor, minOnly);
+        final List<ProjectionSortedGroupScan.Group> groups = ProjectionSortedGroupScan.topK(reader,
+            candidate.def.getID(), limit, order, spanDivisor, minOnly, worker -> {
+              try (NodeReadOnlyTrx lane = session.beginNodeReadOnlyTrx(revision)) {
+                worker.accept(lane.getStorageEngineReader());
+              }
+            });
         if (groups != null) {
           return groups;
         }
       } catch (final RuntimeException e) {
-        LOGGER.warn("Sorted grouped projection #" + candidate.def.getID() + " declined at revision "
-            + revision + ": " + e.getMessage());
+        LOGGER.warn("Sorted grouped projection #" + candidate.def.getID() + " declined at revision " + revision + ": "
+            + e.getMessage());
       }
     }
     return null;
@@ -622,8 +622,8 @@ public final class ProjectionIndexCatalog {
       }
       // A bounded-window loader closes over this caller's session and revision. Keep it out of the
       // process-wide handle cache, even when another caller asks for the same committed revision.
-      final boolean bounded = DIRECTORY_WINDOWS && probe.rowGroupCount >= 1024
-          && probe.slotLayout == ProjectionSlotLayout.ROW_GROUP_MAJOR;
+      final boolean bounded =
+          DIRECTORY_WINDOWS && probe.rowGroupCount >= 1024 && probe.slotLayout == ProjectionSlotLayout.ROW_GROUP_MAJOR;
       final ProjectionIndexRegistry.Handle handle = bounded
           ? decodeRowGroups(session, revision, def)
           : DATA.get(new DataKey(resourceKey, def.getID(), probe.buildRevision),
@@ -742,40 +742,39 @@ public final class ProjectionIndexCatalog {
       if (metadata == null || metadata.isStale()) {
         return NOT_USABLE;
       }
-      physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, def.getID(), metadata.rowGroupCount());
       tParse = DIAG
           ? System.nanoTime()
           : 0L;
-      // A committed column-major index needs only descriptor slots here. Each demanded segment
-      // chain later resolves its own contiguous key range using a caller-scoped transaction.
-      // Legacy indexes capture physical offsets and inline bytes with the existing directory walk.
-      // Only committed readers may offer independent leases for an explicitly enabled parallel
-      // walk; writer readers retain the serial path because their intent log has mutable state.
+      // Committed column-major directories contain immutable descriptors; their independent leases
+      // always bind to this exact revision. Writer readers keep their intent-log-local path.
       if (metadata.slotLayout() == ProjectionSlotLayout.COLUMN_MAJOR && !reader.hasTrxIntentLog()) {
-        directories = ProjectionIndexHOTStorage.readColumnMajorDirectories(reader, def.getID(),
-            metadata.rowGroupCount(), physicalOrder, worker -> {
-              try (NodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
-                worker.accept(laneRtx.getStorageEngineReader());
-              }
-            });
-      } else if (DIRECTORY_WINDOWS && metadata.rowGroupCount() >= 1024
-          && metadata.slotLayout() == ProjectionSlotLayout.ROW_GROUP_MAJOR
-          && !reader.hasTrxIntentLog()) {
-        directories = new ProjectionDirectoryWindows(metadata.rowGroupCount(), metadata.columnKinds(), number -> {
-          final int from = number * ProjectionDirectoryWindows.WINDOW_SIZE;
-          final int to = Math.min(from + ProjectionDirectoryWindows.WINDOW_SIZE, physicalOrder.length);
-          try (NodeReadOnlyTrx windowRtx = session.beginNodeReadOnlyTrx(revision)) {
-            return ProjectionIndexHOTStorage.readDirectoryWindow(windowRtx.getStorageEngineReader(), def.getID(),
-                physicalOrder, from, to);
+        final Result loaded = ProjectionDirectoryLoad.read(reader, def.getID(), metadata.rowGroupCount(), worker -> {
+          try (NodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
+            worker.accept(laneRtx.getStorageEngineReader());
           }
-        });
+        }, !"false".equals(System.getProperty("sirix.projection.overlapDirectoryLoad")));
+        physicalOrder = loaded.physicalOrder();
+        directories = loaded.directories();
       } else {
-        directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader,
-            def.getID(), metadata.rowGroupCount(), physicalOrder, worker -> {
-              try (NodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
-                worker.accept(laneRtx.getStorageEngineReader());
-              }
-            });
+        physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, def.getID(), metadata.rowGroupCount());
+        if (DIRECTORY_WINDOWS && metadata.rowGroupCount() >= 1024
+            && metadata.slotLayout() == ProjectionSlotLayout.ROW_GROUP_MAJOR && !reader.hasTrxIntentLog()) {
+          directories = new ProjectionDirectoryWindows(metadata.rowGroupCount(), metadata.columnKinds(), number -> {
+            final int from = number * ProjectionDirectoryWindows.WINDOW_SIZE;
+            final int to = Math.min(from + ProjectionDirectoryWindows.WINDOW_SIZE, physicalOrder.length);
+            try (NodeReadOnlyTrx windowRtx = session.beginNodeReadOnlyTrx(revision)) {
+              return ProjectionIndexHOTStorage.readDirectoryWindow(windowRtx.getStorageEngineReader(), def.getID(),
+                  physicalOrder, from, to);
+            }
+          });
+        } else {
+          directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, def.getID(),
+              metadata.rowGroupCount(), physicalOrder, worker -> {
+                try (NodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
+                  worker.accept(laneRtx.getStorageEngineReader());
+                }
+              });
+        }
       }
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during " + "directory walk ("
@@ -804,7 +803,9 @@ public final class ProjectionIndexCatalog {
     // Worst-case RESIDENT weight (Caffeine weights are fixed at insert): the raw leaves a
     // whole-leaf consumer materializes (Σ segment byteLens) PLUS the decoded column-slice
     // arrays (bit-packed segments decode to 8 bytes/value — up to ~8× their packed size).
-    long projectedBytes = live instanceof ProjectionDirectoryWindows ? 1L << 60 : 0;
+    long projectedBytes = live instanceof ProjectionDirectoryWindows
+        ? 1L << 60
+        : 0;
     if (!(live instanceof ProjectionDirectoryWindows)) {
       for (final ProjectionIndexHOTStorage.RowGroupDirectory dir : live) {
         projectedBytes += residentWeightOf(dir.descriptor());
@@ -825,7 +826,7 @@ public final class ProjectionIndexCatalog {
     if (DIAG) {
       final long tBloom = System.nanoTime();
       System.err.printf(
-          "[cat] lazy-handle timings: metaParse %.1f ms, directoryWalk %.1f ms, bloomBlocks %.1f ms (%d leaves,"
+          "[cat] lazy-handle timings: metadata %.1f ms, orderAndDirectoryWalk %.1f ms, bloomBlocks %.1f ms (%d leaves,"
               + " projectedWeight %d MB)%n",
           (tParse - t0) / 1e6, (tWalk - tParse) / 1e6, (tBloom - tWalk) / 1e6, rowGroupCount, projectedBytes >> 20);
     }
@@ -836,7 +837,9 @@ public final class ProjectionIndexCatalog {
         metadata.buildRevision(), metadata.fieldNames(), store, def.getID(), projectedBytes);
     if (rowGroupCount >= 1024 && metadata.columnKinds().length <= ProjectionFlagSummaryChunks.MAX_COLUMNS
         && !"false".equals(System.getProperty("sirix.projection.flagSummary"))) {
-      final long flagsStart = DIAG ? System.nanoTime() : 0L;
+      final long flagsStart = DIAG
+          ? System.nanoTime()
+          : 0L;
       final byte[] evidence = ProjectionFlagSummaryChunks.readAll(reader, def.getID(), rowGroupCount,
           metadata.columnKinds().length, metadata.buildRevision());
       if (evidence != null) {
@@ -976,6 +979,25 @@ public final class ProjectionIndexCatalog {
   public static ProjectionColumnStore.ColumnSegmentFetcher columnSegmentFetcher(final ResourceSession<?, ?> session,
       final int revision) {
     return new ProjectionColumnStore.ColumnSegmentFetcher() {
+      @Override
+      public byte[] @Nullable [] fetchNumericProofs(final int indexNumber, final int column, final long[] slots) {
+        try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+          final StorageEngineReader reader = fetchRtx.getStorageEngineReader();
+          if (!ProjectionNumericProofs.available(
+              ProjectionIndexHOTStorage.readBlob(reader, indexNumber, ProjectionNumericProofs.HEADER_SLOT), column)) {
+            return null;
+          }
+          final byte[][] chunks = new byte[slots.length][];
+          for (int from = 0; from < slots.length; from += 1024) {
+            final int to = Math.min(from + 1024, slots.length);
+            final byte[][] part =
+                ProjectionIndexHOTStorage.readBlobBatch(reader, indexNumber, Arrays.copyOfRange(slots, from, to));
+            System.arraycopy(part, 0, chunks, from, part.length);
+          }
+          return chunks;
+        }
+      }
+
       @Override
       public void fetchSlotRange(final int indexNumber, final long[] slotKeys, final int from, final int to,
           final byte[][] out) {
@@ -1502,7 +1524,9 @@ public final class ProjectionIndexCatalog {
       final String chain = entry.fieldChains == null || entry.fieldChains.length != entry.fieldNames.length
           ? null
           : entry.fieldChains[column];
-      if (chain == null ? entry.fieldNames[column].equals(field) : chain.equals(field)) {
+      if (chain == null
+          ? entry.fieldNames[column].equals(field)
+          : chain.equals(field)) {
         return column;
       }
     }

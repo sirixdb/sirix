@@ -941,7 +941,8 @@ public final class ClickBenchRunMain {
         if (Double.isNaN(t)) {
           row.add((Number) null);
         } else {
-          row.add(Math.round(t * 1000.0) / 1000.0);
+          // Preserve measured precision for paired regression analysis; display formatting is separate.
+          row.add(t);
         }
       }
       result.add(row);

@@ -657,7 +657,9 @@ public final class ProjectionIndexBuilder {
       this.sortedRowEncoder = indexDef.getProjectionSortedSpec() == null
           ? null
           : new ProjectionSortedRowEncoder(indexDef, extractor);
-      this.sortedRun = sortedRowEncoder == null ? null : new ProjectionSortedRunAccumulator();
+      this.sortedRun = sortedRowEncoder == null
+          ? null
+          : new ProjectionSortedRunAccumulator();
       this.sample = initialDictionarySample();
       this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
       return;
@@ -702,7 +704,9 @@ public final class ProjectionIndexBuilder {
     this.sortedRowEncoder = indexDef.getProjectionSortedSpec() == null
         ? null
         : new ProjectionSortedRowEncoder(indexDef, extractor);
-    this.sortedRun = sortedRowEncoder == null ? null : new ProjectionSortedRunAccumulator();
+    this.sortedRun = sortedRowEncoder == null
+        ? null
+        : new ProjectionSortedRunAccumulator();
     this.sample = initialDictionarySample();
     this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
   }
@@ -969,8 +973,8 @@ public final class ProjectionIndexBuilder {
       // state is bounded: at most one 32-leaf fence tail, one 256-leaf Bloom window per
       // string column and only set-summary values that still fit their one persisted summary chunk.
       final ProjectionIndexFences.BuildWriter fenceWriter = new ProjectionIndexFences.BuildWriter();
-      final ProjectionFlagSummaryChunks.BuildWriter flagSummaryWriter =
-          new ProjectionFlagSummaryChunks.BuildWriter();
+      final ProjectionNumericProofs.Builder numericProofWriter = new ProjectionNumericProofs.Builder();
+      final ProjectionFlagSummaryChunks.BuildWriter flagSummaryWriter = new ProjectionFlagSummaryChunks.BuildWriter();
       final ProjectionBloomChunks.Writer bloomChunks = new ProjectionBloomChunks.Writer();
       final boolean hasSetColumn = hasValueSummaryCandidate(indexDef);
       final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace =
@@ -989,6 +993,7 @@ public final class ProjectionIndexBuilder {
         final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
             ProjectionIndexColumnSegmentCodec.encode(leaf, encodeWorkspace);
         epoch.storage.putRowGroupAsColumnSegmentSlots(physicalSlot, encoded);
+        numericProofWriter.append(epoch.storage, physicalSlot, encoded);
         flagSummaryWriter.append(epoch.storage, encoded.descriptor());
         fenceWriter.append(epoch.storage, leaf.firstRecordKey(), leaf.lastRecordKey());
         persistOrderExceptionLocators(leaf, physicalSlot, epoch.recordLocator);
@@ -1024,6 +1029,7 @@ public final class ProjectionIndexBuilder {
         final long[] valueDictionaryHeaderKeys = builder.valueDictionaryAnchors(storageEngineWriter);
         // A virgin initializer has no prior fence chunks to retire.
         fenceWriter.finish(epoch.storage);
+        numericProofWriter.finish(epoch.storage);
         flagSummaryWriter.finish(epoch.storage, fenceWriter.rowGroupCount(), columnKinds.length,
             rtx.getRevisionNumber());
         finishPersistWithStreamingFences(indexDef, epoch.storage, fenceWriter.rowGroupCount(), rtx.getRevisionNumber(),

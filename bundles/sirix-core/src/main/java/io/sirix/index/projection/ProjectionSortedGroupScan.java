@@ -5,6 +5,7 @@ package io.sirix.index.projection;
 
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.index.projection.ProjectionIndexHOTStorage.ParallelWalkReaders;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
@@ -12,37 +13,53 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 /** Bounded grouped extrema over a revision's partial sorted projection. */
 public final class ProjectionSortedGroupScan {
 
+  /**
+   * Bound independent readers and their caches; the directory also requires 1,024 leaves per lane.
+   */
+  private static final boolean BATCH_SUMMARIES =
+      Boolean.parseBoolean(System.getProperty("sirix.projection.batchSortedSummaries", "true"));
+  private static final int MAX_SUMMARY_WORKERS =
+      Math.max(1, Math.min(8, Integer.getInteger("sirix.projection.sortedSummaryMaxWorkers", 4)));
+
   public enum Order {
-    MIN_ASC,
-    MAX_DESC,
-    SPAN_DESC
+    MIN_ASC, MAX_DESC, SPAN_DESC
   }
 
-  public record Group(@Nullable String key, long min, long max) {}
+  public record Group(@Nullable String key, long min, long max) {
+  }
 
   private ProjectionSortedGroupScan() {}
 
   /**
-   * Scan a two-field sorted view (string group, ordered long value), retaining at most {@code limit+1}
-   * groups. Returns {@code null} when the key shape or an ordering tie cannot be proved exact. Ties
-   * need the original document-first group ordinal, which a key-ordered page does not carry.
+   * Scan a two-field sorted view (string group, ordered long value), retaining at most
+   * {@code limit+1} groups. Returns {@code null} when the key shape or an ordering tie cannot be
+   * proved exact. Ties need the original document-first group ordinal, which a key-ordered page does
+   * not carry.
    */
-  public static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber,
-      final int limit, final Order order, final long spanDivisor) {
+  public static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber, final int limit,
+      final Order order, final long spanDivisor) {
     return topK(reader, indexNumber, limit, order, spanDivisor, false);
   }
 
   /** {@code minOnly} permits jumping over every row after each group's first ordered value. */
-  public static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber,
-      final int limit, final Order order, final long spanDivisor, final boolean minOnly) {
+  public static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber, final int limit,
+      final Order order, final long spanDivisor, final boolean minOnly) {
+    return topK(reader, indexNumber, limit, order, spanDivisor, minOnly, null);
+  }
+
+  /** Catalog-owned workers must open independent readers at the caller's committed revision. */
+  static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber, final int limit,
+      final Order order, final long spanDivisor, final boolean minOnly,
+      final @Nullable ParallelWalkReaders workerReaders) {
     Objects.requireNonNull(reader, "reader");
     Objects.requireNonNull(order, "order");
-    if (limit < 1 || limit > 32 || order == Order.SPAN_DESC && spanDivisor < 1
-        || minOnly && order != Order.MIN_ASC) {
+    if (limit < 1 || limit > 32 || order == Order.SPAN_DESC && spanDivisor < 1 || minOnly && order != Order.MIN_ASC) {
       throw new IllegalArgumentException("unsupported sorted group top-K request");
     }
     final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(reader, indexNumber);
@@ -50,14 +67,26 @@ public final class ProjectionSortedGroupScan {
       return null;
     }
     if (!"false".equals(System.getProperty("sirix.projection.sortedGroupSummaries"))) {
+      if (order == Order.SPAN_DESC && !reader.hasTrxIntentLog()
+          && !"false".equals(System.getProperty("sirix.projection.sortedSpanBounds"))) {
+        final List<Group> bounded = ProjectionSortedSpanScan.topK(reader, indexNumber, directory, limit, spanDivisor);
+        if (bounded != null) {
+          return bounded;
+        }
+      }
       if (minOnly && !"false".equals(System.getProperty("sirix.projection.sortedMinBounds"))) {
         final List<Group> bounded = topKFromBounds(reader, indexNumber, directory, limit);
         if (bounded != null) {
           return bounded;
         }
       }
+      final int workers = workerReaders == null || reader.hasTrxIntentLog()
+          || "false".equals(System.getProperty("sirix.projection.parallelSortedSummaries"))
+              ? 0
+              : Math.min(MAX_SUMMARY_WORKERS,
+                  Math.min(Runtime.getRuntime().availableProcessors(), directory.dataLeafCount() / 1024));
       final List<Group> summarized =
-          topKFromSummaries(reader, indexNumber, directory, limit, order, spanDivisor, minOnly);
+          topKFromSummaries(reader, indexNumber, directory, limit, order, spanDivisor, minOnly, workerReaders, workers);
       if (summarized != null) {
         return summarized;
       }
@@ -82,13 +111,12 @@ public final class ProjectionSortedGroupScan {
         }
         cursor.copyKeyTo(key);
         final int groupLength = stringPrefixLength(key, length);
-        if (groupLength < 0 || length != groupLength + 1 + Long.BYTES + Long.BYTES
-            || key[groupLength] != 1) {
+        if (groupLength < 0 || length != groupLength + 1 + Long.BYTES + Long.BYTES || key[groupLength] != 1) {
           return null;
         }
         final long value = readOrderedLong(key, groupLength + 1);
-        retained = offer(key, groupLength, value, value, order, spanDivisor,
-            winners, minimums, maximums, scores, retained);
+        retained =
+            offer(key, groupLength, value, value, order, spanDivisor, winners, minimums, maximums, scores, retained);
         cursor.skipPrefix(key, groupLength);
       }
     } else {
@@ -99,8 +127,7 @@ public final class ProjectionSortedGroupScan {
         }
         cursor.copyKeyTo(key);
         final int groupLength = stringPrefixLength(key, length);
-        if (groupLength < 0 || length != groupLength + 1 + Long.BYTES + Long.BYTES
-            || key[groupLength] != 1) {
+        if (groupLength < 0 || length != groupLength + 1 + Long.BYTES + Long.BYTES || key[groupLength] != 1) {
           return null;
         }
         final long groupMin = readOrderedLong(key, groupLength + 1);
@@ -117,8 +144,8 @@ public final class ProjectionSortedGroupScan {
           return null;
         }
         final long groupMax = readOrderedLong(key, groupLength + 1);
-        retained = offer(currentGroup, groupLength, groupMin, groupMax, order, spanDivisor,
-            winners, minimums, maximums, scores, retained);
+        retained = offer(currentGroup, groupLength, groupMin, groupMax, order, spanDivisor, winners, minimums, maximums,
+            scores, retained);
       }
     }
     return finish(winners, minimums, maximums, scores, retained, limit);
@@ -155,13 +182,13 @@ public final class ProjectionSortedGroupScan {
 
   /**
    * Visit summaries in ascending leaf-minimum order. Once an unseen leaf's minimum is greater than
-   * the current (K+1)-th distinct group's minimum, it cannot change a winner or its tie cutline.
-   * A group may cross many leaves, so each offer merges by exact encoded group identity.
+   * the current (K+1)-th distinct group's minimum, it cannot change a winner or its tie cutline. A
+   * group may cross many leaves, so each offer merges by exact encoded group identity.
    */
   static @Nullable List<Group> topKFromBounds(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory, final int limit) {
-    final ProjectionSortedLeafBounds.Candidates candidates = ProjectionSortedLeafBounds.read(reader, indexNumber,
-        directory);
+    final ProjectionSortedLeafBounds.Candidates candidates =
+        ProjectionSortedLeafBounds.read(reader, indexNumber, directory);
     if (candidates == null) {
       return null;
     }
@@ -234,8 +261,15 @@ public final class ProjectionSortedGroupScan {
   }
 
   static @Nullable List<Group> topKFromSummaries(final StorageEngineReader reader, final int indexNumber,
-      final ProjectionSortedDirectory.Accessor directory, final int limit, final Order order,
-      final long spanDivisor, final boolean minOnly) {
+      final ProjectionSortedDirectory.Accessor directory, final int limit, final Order order, final long spanDivisor,
+      final boolean minOnly) {
+    return topKFromSummaries(reader, indexNumber, directory, limit, order, spanDivisor, minOnly, null, 0);
+  }
+
+  /** Explicit worker count keeps parallel/serial equivalence tests independent of machine size. */
+  static @Nullable List<Group> topKFromSummaries(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSortedDirectory.Accessor directory, final int limit, final Order order, final long spanDivisor,
+      final boolean minOnly, final @Nullable ParallelWalkReaders workerReaders, final int workers) {
     final int capacity = limit + 1;
     final byte[][] winners = new byte[capacity][];
     final long[] minimums = new long[capacity];
@@ -248,9 +282,9 @@ public final class ProjectionSortedGroupScan {
     long groupMin = 0;
     long groupMax = 0;
     int retained = 0;
-    final ProjectionSortedDirectory.Accessor.LeafCursor cursor = directory.leaves();
-    while (cursor.id() != 0) {
-      final ProjectionSortedLeaf summary = ProjectionSortedGroupSummary.read(reader, indexNumber, cursor.id());
+    final SummaryWindow summaries = new SummaryWindow(reader, indexNumber, directory, workerReaders, workers);
+    while (summaries.hasNext()) {
+      final ProjectionSortedLeaf summary = summaries.next();
       if (summary == null) {
         return null; // an old or partially backfilled revision still uses the full-key route
       }
@@ -269,7 +303,8 @@ public final class ProjectionSortedGroupScan {
         if (min > max) {
           throw new IllegalStateException("invalid sorted group summary extrema");
         }
-        final int comparison = groupLength == 0 ? -1
+        final int comparison = groupLength == 0
+            ? -1
             : Arrays.compareUnsigned(currentGroup, 0, groupLength, key, 0, length);
         if (comparison > 0) {
           throw new IllegalStateException("sorted group summaries are out of order");
@@ -279,8 +314,9 @@ public final class ProjectionSortedGroupScan {
           groupMax = Math.max(groupMax, max);
         } else {
           if (groupLength != 0) {
-            retained = offer(currentGroup, groupLength, groupMin, minOnly ? groupMin : groupMax, order, spanDivisor,
-                winners, minimums, maximums, scores, retained);
+            retained = offer(currentGroup, groupLength, groupMin, minOnly
+                ? groupMin
+                : groupMax, order, spanDivisor, winners, minimums, maximums, scores, retained);
           }
           if (length > currentGroup.length) {
             currentGroup = new byte[length];
@@ -291,17 +327,114 @@ public final class ProjectionSortedGroupScan {
           groupMax = max;
         }
       }
-      cursor.advance();
     }
     if (groupLength != 0) {
-      retained = offer(currentGroup, groupLength, groupMin, minOnly ? groupMin : groupMax, order, spanDivisor,
-          winners, minimums, maximums, scores, retained);
+      retained = offer(currentGroup, groupLength, groupMin, minOnly
+          ? groupMin
+          : groupMax, order, spanDivisor, winners, minimums, maximums, scores, retained);
     }
     return finish(winners, minimums, maximums, scores, retained, limit);
   }
 
-  private static @Nullable List<Group> finish(final byte[][] winners, final long[] minimums,
-      final long[] maximums, final long[] scores, final int retained, final int limit) {
+  /** Read at most 1,024 summaries (64 MiB of encoded payload) before folding them in key order. */
+  private static final class SummaryWindow {
+    private final StorageEngineReader reader;
+    private final int indexNumber;
+    private final ProjectionSortedDirectory.Accessor.LeafCursor cursor;
+    private final @Nullable ParallelWalkReaders workerReaders;
+    private final int workers;
+    private final int[] leafIds;
+    private final ProjectionSortedLeaf[] summaries;
+    private int position;
+    private int size;
+
+    SummaryWindow(final StorageEngineReader reader, final int indexNumber,
+        final ProjectionSortedDirectory.Accessor directory, final @Nullable ParallelWalkReaders workerReaders,
+        final int requestedWorkers) {
+      if (requestedWorkers < 0 || requestedWorkers > 8) {
+        throw new IllegalArgumentException("invalid sorted-summary worker count: " + requestedWorkers);
+      }
+      this.reader = reader;
+      this.indexNumber = indexNumber;
+      this.cursor = directory.leaves();
+      this.workerReaders = workerReaders;
+      this.workers = workerReaders == null || reader.hasTrxIntentLog()
+          ? 0
+          : requestedWorkers;
+      final int capacity = workers < 2
+          ? 1
+          : 1024;
+      this.leafIds = new int[capacity];
+      this.summaries = new ProjectionSortedLeaf[capacity];
+    }
+
+    boolean hasNext() {
+      return position < size || cursor.id() != 0;
+    }
+
+    @Nullable
+    ProjectionSortedLeaf next() {
+      if (position == size) {
+        fill();
+      }
+      final ProjectionSortedLeaf summary = summaries[position];
+      summaries[position++] = null;
+      return summary;
+    }
+
+    private void fill() {
+      size = 0;
+      position = 0;
+      while (size < leafIds.length && cursor.id() != 0) {
+        leafIds[size++] = cursor.id();
+        cursor.advance();
+      }
+      if (size == 0) {
+        throw new IllegalStateException("sorted summary window is exhausted");
+      }
+      if (workers < 2 || size == 1) {
+        summaries[0] = ProjectionSortedGroupSummary.read(reader, indexNumber, leafIds[0]);
+        return;
+      }
+      final int lanes = Math.min(workers, size);
+      final int revision = reader.getRevisionNumber();
+      final AtomicReference<Throwable> failed = new AtomicReference<>();
+      IntStream.range(0, lanes).parallel().forEach(worker -> {
+        if (failed.get() != null) {
+          return;
+        }
+        try {
+          workerReaders.runWithReader(lane -> {
+            if (lane.hasTrxIntentLog() || lane.getRevisionNumber() != revision) {
+              throw new IllegalArgumentException("summary workers must read the same committed revision");
+            }
+            final int from = worker * size / lanes;
+            final int to = (worker + 1) * size / lanes;
+            if (BATCH_SUMMARIES) {
+              ProjectionSortedGroupSummary.readBatch(lane, indexNumber, leafIds, from, to, summaries);
+            } else {
+              for (int at = from; at < to; at++) {
+                summaries[at] = ProjectionSortedGroupSummary.read(lane, indexNumber, leafIds[at]);
+              }
+            }
+          });
+        } catch (final RuntimeException | Error failure) {
+          failed.compareAndSet(null, failure);
+        }
+      });
+      // The parallel terminal operation joins every started lane, including its reader cleanup.
+      final Throwable failure = failed.get();
+      if (failure instanceof RuntimeException runtime) {
+        throw runtime;
+      }
+      if (failure instanceof Error error) {
+        throw error;
+      }
+    }
+  }
+
+  static @Nullable List<Group> finish(final byte[][] winners, final long[] minimums, final long[] maximums,
+      final long[] scores, final int retained, final int limit) {
     // The interpreter's stable sort uses document-first group order for equal scores. The sorted
     // view orders groups by key, so decline a tie among winners or across the cut line.
     for (int i = 1, end = Math.min(retained, limit + 1); i < end; i++) {
@@ -317,9 +450,9 @@ public final class ProjectionSortedGroupScan {
     return result;
   }
 
-  private static int offer(final byte[] group, final int groupLength, final long min, final long max,
-      final Order order, final long divisor, final byte[][] winners, final long[] minimums,
-      final long[] maximums, final long[] scores, final int retained) {
+  static int offer(final byte[] group, final int groupLength, final long min, final long max, final Order order,
+      final long divisor, final byte[][] winners, final long[] minimums, final long[] maximums, final long[] scores,
+      final int retained) {
     final long score;
     try {
       score = switch (order) {
@@ -331,7 +464,9 @@ public final class ProjectionSortedGroupScan {
       throw new IllegalStateException("sorted group span exceeds a long", e);
     }
     int at = 0;
-    while (at < retained && (order == Order.MIN_ASC ? scores[at] <= score : scores[at] >= score)) {
+    while (at < retained && (order == Order.MIN_ASC
+        ? scores[at] <= score
+        : scores[at] >= score)) {
       at++;
     }
     if (at == winners.length) {

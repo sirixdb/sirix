@@ -12,10 +12,12 @@ import java.util.Objects;
 /**
  * Sparse, revisioned fence hierarchy over sorted covering leaves.
  *
- * <p>Each directory entry is the first key of one child plus its four-byte child id. The hierarchy
+ * <p>
+ * Each directory entry is the first key of one child plus its four-byte child id. The hierarchy
  * uses the same bounded, prefix-compressed leaf format as the data. Only the selected path is read
  * for a seek; the data leaves remain separate copy-on-write blobs. A newly built hierarchy becomes
- * visible only when its small root header is published at the end of the owning transaction.</p>
+ * visible only when its small root header is published at the end of the owning transaction.
+ * </p>
  */
 final class ProjectionSortedDirectory {
 
@@ -30,7 +32,9 @@ final class ProjectionSortedDirectory {
   static @Nullable Accessor open(final StorageEngineReader reader, final int indexNumber) {
     Objects.requireNonNull(reader, "reader");
     final byte[] header = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, HEADER_SLOT);
-    return header == null ? null : new Accessor(reader, indexNumber, header);
+    return header == null
+        ? null
+        : new Accessor(reader, indexNumber, header);
   }
 
   static final class Accessor {
@@ -54,11 +58,12 @@ final class ProjectionSortedDirectory {
       this.dataLeafCount = getInt(header, 14);
       this.maxLeafId = getInt(header, 18);
       if (height > 8 || nodeCount < 0 || dataLeafCount < 0 || (rootId == 0) != (dataLeafCount == 0)
-          || (dataLeafCount == 0) != (height == 0) || rootId > nodeCount
-          || maxLeafId < dataLeafCount) {
+          || (dataLeafCount == 0) != (height == 0) || rootId > nodeCount || maxLeafId < dataLeafCount) {
         throw new IllegalStateException("invalid sorted projection directory dimensions");
       }
-      this.root = rootId == 0 ? null : readNode(rootId);
+      this.root = rootId == 0
+          ? null
+          : readNode(rootId);
     }
 
     int dataLeafCount() {
@@ -77,8 +82,11 @@ final class ProjectionSortedDirectory {
       }
       for (int depth = height; depth > 0; depth--) {
         final int lower = node.lowerBound(key);
-        final int index = lower == node.rowCount() ? lower - 1
-            : lower == 0 || node.compareRowKey(lower, key) == 0 ? lower : lower - 1;
+        final int index = lower == node.rowCount()
+            ? lower - 1
+            : lower == 0 || node.compareRowKey(lower, key) == 0
+                ? lower
+                : lower - 1;
         final int childId = node.intPayloadAt(index);
         if (childId < 1) {
           throw new IllegalStateException("sorted projection directory names a nonpositive child id");
@@ -105,8 +113,11 @@ final class ProjectionSortedDirectory {
       for (int level = 0; level < height; level++) {
         cursor.nodes[level] = node;
         final int lower = node.lowerBound(key);
-        final int position = lower == node.rowCount() ? lower - 1
-            : lower == 0 || node.compareRowKey(lower, key) == 0 ? lower : lower - 1;
+        final int position = lower == node.rowCount()
+            ? lower - 1
+            : lower == 0 || node.compareRowKey(lower, key) == 0
+                ? lower
+                : lower - 1;
         cursor.positions[level] = position;
         final int childId = node.intPayloadAt(position);
         if (level == height - 1) {
@@ -147,6 +158,19 @@ final class ProjectionSortedDirectory {
 
       int id() {
         return id;
+      }
+
+      /** First tuple of the current data leaf, available from the directory without reading it. */
+      int firstKeyLength() {
+        if (id == 0) {
+          throw new IllegalStateException("sorted leaf cursor is exhausted");
+        }
+        return nodes[height - 1].keyLength(positions[height - 1]);
+      }
+
+      void copyFirstKeyTo(final byte[] target) {
+        firstKeyLength();
+        nodes[height - 1].copyKeyTo(positions[height - 1], target);
       }
 
       boolean advance() {
@@ -295,9 +319,9 @@ final class ProjectionSortedDirectory {
       }
 
       /**
-       * Jump to the last later leaf whose fence has the current prefix. Every intervening key
-       * belongs to that prefix by sorted order. The destination still needs reading: it can also
-       * contain the next group, and its last matching row supplies a captured maximum.
+       * Jump to the last later leaf whose fence has the current prefix. Every intervening key belongs to
+       * that prefix by sorted order. The destination still needs reading: it can also contain the next
+       * group, and its last matching row supplies a captured maximum.
        */
       private boolean moveToLastPrefixLeaf(final byte[] prefix, final int length) {
         int selectedLevel = -1;
@@ -408,8 +432,7 @@ final class ProjectionSortedDirectory {
     Editor(final ProjectionIndexHOTStorage storage) {
       this.storage = Objects.requireNonNull(storage, "storage");
       final byte[] header = storage.getBlob(HEADER_SLOT);
-      if (header == null || header.length != HEADER_BYTES || getInt(header, 0) != MAGIC
-          || header[4] != VERSION) {
+      if (header == null || header.length != HEADER_BYTES || getInt(header, 0) != MAGIC || header[4] != VERSION) {
         throw new IllegalStateException("sorted projection directory is absent or invalid");
       }
       height = header[5] & 0xFF;
@@ -417,9 +440,8 @@ final class ProjectionSortedDirectory {
       nodeHighWater = getInt(header, 10);
       activeLeafCount = getInt(header, 14);
       leafHighWater = getInt(header, 18);
-      if (height > pathIds.length || nodeHighWater < 0 || activeLeafCount < 0
-          || leafHighWater < activeLeafCount || (rootId == 0) != (activeLeafCount == 0)
-          || (rootId == 0) != (height == 0) || rootId > nodeHighWater) {
+      if (height > pathIds.length || nodeHighWater < 0 || activeLeafCount < 0 || leafHighWater < activeLeafCount
+          || (rootId == 0) != (activeLeafCount == 0) || (rootId == 0) != (height == 0) || rootId > nodeHighWater) {
         throw new IllegalStateException("invalid sorted projection directory dimensions");
       }
     }
@@ -428,8 +450,7 @@ final class ProjectionSortedDirectory {
       Objects.requireNonNull(key, "key");
       Objects.requireNonNull(payload, "payload");
       if (rootId == 0) {
-        final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.encode(new byte[][] {key},
-            new byte[][] {payload}, 1);
+        final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.encode(new byte[][] {key}, new byte[][] {payload}, 1);
         if (leaf == null) {
           throw new IllegalArgumentException("sorted projection row exceeds a bounded leaf");
         }
@@ -517,8 +538,11 @@ final class ProjectionSortedDirectory {
         final ProjectionSortedLeaf node = readNode(id);
         pathIds[level] = id;
         final int lower = node.lowerBound(key);
-        final int position = lower == node.rowCount() ? lower - 1
-            : lower == 0 || node.compareRowKey(lower, key) == 0 ? lower : lower - 1;
+        final int position = lower == node.rowCount()
+            ? lower - 1
+            : lower == 0 || node.compareRowKey(lower, key) == 0
+                ? lower
+                : lower - 1;
         pathPositions[level] = position;
         id = node.intPayloadAt(position);
       }
@@ -564,7 +588,11 @@ final class ProjectionSortedDirectory {
           splitChildFirst = null;
           continue;
         }
-        final int capacity = oldNode.rowCount() + (childRemoved ? -1 : splitChildId == 0 ? 0 : 1);
+        final int capacity = oldNode.rowCount() + (childRemoved
+            ? -1
+            : splitChildId == 0
+                ? 0
+                : 1);
         final byte[][] keys = new byte[capacity][];
         final byte[][] payloads = new byte[capacity][];
         int count = 0;
@@ -610,10 +638,11 @@ final class ProjectionSortedDirectory {
           throw new IllegalStateException("sorted projection directory exceeds eight levels");
         }
         final int newRootId = allocateNodeId();
-        writeNode(newRootId, ProjectionSortedLeaf.encode(
-            new byte[][] {Objects.requireNonNull(childFirst, "childFirst"),
-                Objects.requireNonNull(splitChildFirst, "splitChildFirst")},
-            new byte[][] {intPayload(rootId), intPayload(splitChildId)}, 2));
+        writeNode(newRootId,
+            ProjectionSortedLeaf.encode(
+                new byte[][] {Objects.requireNonNull(childFirst, "childFirst"),
+                    Objects.requireNonNull(splitChildFirst, "splitChildFirst")},
+                new byte[][] {intPayload(rootId), intPayload(splitChildId)}, 2));
         rootId = newRootId;
         height++;
       }
@@ -683,22 +712,23 @@ final class ProjectionSortedDirectory {
   }
 
   /** Materialization is reserved for a page split; ordinary changes copy within one bounded page. */
-  private static ProjectionSortedLeaf[] splitRows(final byte[][] keys, final byte[][] payloads,
-      final int count) {
+  private static ProjectionSortedLeaf[] splitRows(final byte[][] keys, final byte[][] payloads, final int count) {
     final int middle = count >>> 1;
     for (int displacement = 0; displacement <= middle; displacement++) {
       for (int sign = 0; sign < 2; sign++) {
-        final int cut = middle + (sign == 0 ? displacement : -displacement);
+        final int cut = middle + (sign == 0
+            ? displacement
+            : -displacement);
         if (cut < 1 || cut >= count) {
           continue;
         }
-        final ProjectionSortedLeaf left = ProjectionSortedLeaf.encode(
-            Arrays.copyOfRange(keys, 0, cut), Arrays.copyOfRange(payloads, 0, cut), cut);
+        final ProjectionSortedLeaf left =
+            ProjectionSortedLeaf.encode(Arrays.copyOfRange(keys, 0, cut), Arrays.copyOfRange(payloads, 0, cut), cut);
         if (left == null) {
           continue;
         }
-        final ProjectionSortedLeaf right = ProjectionSortedLeaf.encode(
-            Arrays.copyOfRange(keys, cut, count), Arrays.copyOfRange(payloads, cut, count), count - cut);
+        final ProjectionSortedLeaf right = ProjectionSortedLeaf.encode(Arrays.copyOfRange(keys, cut, count),
+            Arrays.copyOfRange(payloads, cut, count), count - cut);
         if (right != null) {
           return new ProjectionSortedLeaf[] {left, right};
         }
@@ -738,7 +768,9 @@ final class ProjectionSortedDirectory {
         throw new IllegalStateException("sorted projection exhausted data leaf ids");
       }
       if (count == keys.length) {
-        final int capacity = keys.length <= Integer.MAX_VALUE / 2 ? keys.length << 1 : Integer.MAX_VALUE;
+        final int capacity = keys.length <= Integer.MAX_VALUE / 2
+            ? keys.length << 1
+            : Integer.MAX_VALUE;
         keys = Arrays.copyOf(keys, capacity);
         ids = Arrays.copyOf(ids, capacity);
       }
@@ -800,7 +832,9 @@ final class ProjectionSortedDirectory {
       putInt(header, 0, MAGIC);
       header[4] = VERSION;
       header[5] = (byte) height;
-      putInt(header, 6, count == 0 ? 0 : levelIds[0]);
+      putInt(header, 6, count == 0
+          ? 0
+          : levelIds[0]);
       putInt(header, 10, nextNodeId - 1);
       putInt(header, 14, count);
       putInt(header, 18, count);
