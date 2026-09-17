@@ -222,6 +222,26 @@ final class ProjectionColumnMajorStorageTest {
     assertEquals(3, opened.get());
     assertEquals(opened.get(), closed.get());
     assertEquals(directories.size(), parallel.size());
+    // A worker count above the former fixed ceiling of 8 is accepted (bounded by the leaf count) and
+    // reads the same directories; a count past the hard ceiling is still refused.
+    final List<RowGroupDirectory> wide = ProjectionIndexHOTStorage.readColumnMajorDirectories(reader, 1,
+        order.length, order, worker -> {
+          try (JsonNodeReadOnlyTrx lane = session.beginNodeReadOnlyTrx(revision)) {
+            worker.accept(lane.getStorageEngineReader());
+          }
+        }, 32);
+    assertEquals(directories.size(), wide.size());
+    for (int i = 0; i < directories.size(); i++) {
+      assertEquals(directories.get(i).rowGroupId(), wide.get(i).rowGroupId());
+      assertArrayEquals(directories.get(i).descriptor(), wide.get(i).descriptor());
+      assertArrayEquals(directories.get(i).columnSegmentOffsets(), wide.get(i).columnSegmentOffsets());
+    }
+    assertThrows(IllegalArgumentException.class, () -> ProjectionIndexHOTStorage.readColumnMajorDirectories(reader,
+        1, order.length, order, worker -> {
+          try (JsonNodeReadOnlyTrx lane = session.beginNodeReadOnlyTrx(revision)) {
+            worker.accept(lane.getStorageEngineReader());
+          }
+        }, ProjectionIndexHOTStorage.MAX_COLUMN_DIRECTORY_WORKERS + 1));
     for (int i = 0; i < directories.size(); i++) {
       final RowGroupDirectory serial = directories.get(i);
       final RowGroupDirectory concurrent = parallel.get(i);

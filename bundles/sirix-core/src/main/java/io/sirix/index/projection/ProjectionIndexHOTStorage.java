@@ -2272,16 +2272,30 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final int workers = workerReaders == null || reader.hasTrxIntentLog()
         || "false".equals(System.getProperty("sirix.projection.parallelColumnDirectory"))
             ? 0
-            : Math.min(MAX_DIRECTORY_WALK_WORKERS,
+            : Math.min(COLUMN_DIRECTORY_WORKERS,
                 Math.min(Runtime.getRuntime().availableProcessors(), rowGroupCount / 1024));
     return readColumnMajorDirectories(reader, indexNumber, rowGroupCount, physicalOrder, workerReaders, workers);
   }
+
+  /** Hard ceiling of {@link #COLUMN_DIRECTORY_WORKERS}, and of the explicit test count. */
+  static final int MAX_COLUMN_DIRECTORY_WORKERS = 64;
+
+  /**
+   * Worker ceiling of the column-major descriptor walk ({@code -Dsirix.projection.columnDirectoryWorkers},
+   * clamped to 1–{@value #MAX_COLUMN_DIRECTORY_WORKERS}, default 32), further limited by the core count
+   * and one worker per 1,024 leaves. Each worker walks a disjoint range of the descriptor key space on
+   * its own short-lived reader of the same committed revision, so the walk is bounded by the slower
+   * of leaf decoding (hot) and leaf I/O latency (cold), and both keep scaling past the previous fixed
+   * ceiling of 8 on machines with more cores.
+   */
+  private static final int COLUMN_DIRECTORY_WORKERS = Math.max(1, Math.min(MAX_COLUMN_DIRECTORY_WORKERS,
+      Integer.getInteger("sirix.projection.columnDirectoryWorkers", 32)));
 
   /** Explicit worker count for serial/parallel equivalence and corruption tests. */
   static List<RowGroupDirectory> readColumnMajorDirectories(final StorageEngineReader reader, final int indexNumber,
       final int rowGroupCount, final int[] physicalOrder, final @Nullable ParallelWalkReaders workerReaders,
       final int requestedWorkers) {
-    if (requestedWorkers < 0 || requestedWorkers > MAX_DIRECTORY_WALK_WORKERS) {
+    if (requestedWorkers < 0 || requestedWorkers > MAX_COLUMN_DIRECTORY_WORKERS) {
       throw new IllegalArgumentException("invalid descriptor worker count: " + requestedWorkers);
     }
     if (workerReaders == null || reader.hasTrxIntentLog() || requestedWorkers < 2 || rowGroupCount < 2) {

@@ -45,8 +45,14 @@ public abstract class AbstractReader implements Reader {
   /** Only overflow decoders always finish with independently owned payload bytes. */
   private final boolean borrowOverflowInput;
 
-  /** Native images keep the established owned-input default; JVM readers use borrowed views. */
-  private static final boolean DEFAULT_BORROWED_INPUT = System.getProperty("org.graalvm.nativeimage.imagecode") == null;
+  /**
+   * Borrowed input is the default on every runtime; each option can still be set to {@code false} to
+   * restore the owned-buffer path. Native images used to default to owned input: there, every page of
+   * a page-heavy scan paid a frame-slot allocation, a copy into the frame, the decoder's own copy and a
+   * release, and on a 100M-row column scan those allocator round trips were the largest single cost of
+   * the column fills.
+   */
+  private static final boolean DEFAULT_BORROWED_INPUT = true;
 
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractReader.class);
 

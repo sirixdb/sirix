@@ -299,7 +299,9 @@ final class ProjectionBloomChunksTest {
         };
         final long rejected = hashRejectedBy(bloomSegment(encoded));
         final long[] keep = prune(evidence[0], rowGroupCount, rejected, tracking);
-        assertEquals(2, fetchStats[0], "five chunks must fetch as one four-chunk and one padded window");
+        final int windows = (evidence[0].chunkCount() + ProjectionBloomChunks.FETCH_WINDOW_CHUNKS - 1)
+            / ProjectionBloomChunks.FETCH_WINDOW_CHUNKS;
+        assertEquals(windows, fetchStats[0], "five chunks must fetch in whole windows, the last one padded");
         assertEquals(ProjectionBloomChunks.FETCH_WINDOW_CHUNKS, fetchStats[1]);
         assertDropped(keep, 0, "valid first chunk must prune");
         assertDropped(keep, rowGroupCount - 1, "valid final chunk must prune");
@@ -374,7 +376,8 @@ final class ProjectionBloomChunksTest {
         }
         fetches[0] = 0;
         final long manyDropped = evidence[0].pruneMany(hashes, many, rowGroupCount, tracking, 0, 5);
-        assertEquals(2, fetches[0], "eight literals over five chunks fetch two windows, once");
+        assertEquals((5 + ProjectionBloomChunks.FETCH_WINDOW_CHUNKS - 1) / ProjectionBloomChunks.FETCH_WINDOW_CHUNKS,
+            fetches[0], "eight literals over five chunks fetch whole windows, once");
         assertTrue(ProjectionBloomChunks.fetchScratchIsClearForTesting());
         // ... equals one walk per literal.
         long singleDropped = 0;
@@ -560,6 +563,15 @@ final class ProjectionBloomChunksTest {
             "the shared evidence walk preserves total exclusions for both literals");
         assertArrayEquals(fullMasks[0], batchedMasks[0]);
         assertArrayEquals(fullMasks[1], batchedMasks[1]);
+        // One literal through the store takes the same many-literal walk (split over the common pool
+        // when the fetcher allows it) and must clear exactly the bits the evidence's own single-literal
+        // walk clears.
+        final long[] direct = initial.clone();
+        final long[] viaStore = initial.clone();
+        final int directCount = evidence.prune(hash, direct, rowGroupCount, delegate);
+        assertEquals(directCount, store.applyBloomPrune(0, hash, viaStore, concurrent),
+            "a single literal through the store drops what the evidence's own walk drops");
+        assertArrayEquals(direct, viaStore);
       }
     } finally {
       writer.release();

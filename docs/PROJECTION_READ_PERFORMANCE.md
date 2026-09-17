@@ -109,8 +109,8 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.projection.reuseWorkerProofCache` | `true` | Retain worker proof caches across subchunks; false restores invocation-local caches. |
 | `sirix.filechannel.batchFileSize` | `true` | Reuse one allocation bound within each batch. |
 | `sirix.filechannel.lockFreeBuffers` | `true` | Use atomic buffer slots; false restores the bounded queue. |
-| `sirix.io.borrowOverflowInput` | JVM: `true`; native image: `false` | Borrow overflow input only for an empty byte pipeline; false restores the owned temporary frame. |
-| `sirix.filechannel.borrowBatchInput` | JVM: `true`; native image: `false` | Decode coalesced page views while the read buffer remains exclusively owned. |
+| `sirix.io.borrowOverflowInput` | `true` | Borrow overflow input only for an empty byte pipeline; false restores the owned temporary frame. |
+| `sirix.filechannel.borrowBatchInput` | `true` | Decode coalesced page views while the read buffer remains exclusively owned. |
 | `sirix.projection.batchPhysicalOrder` | `true` | Batch fence reads for bounded, dense committed physical orders. |
 | `sirix.projection.overlapDirectoryLoad` | `true` | Overlap dense committed document-order and column-descriptor reads using independent revision-bound readers. |
 | `sirix.projection.coalesceBlobBatches` | `true` | Coalesce bare durable blob offsets after capturing verified leaf state. |
@@ -246,16 +246,16 @@ The composite COUNT kernel also defers dense dictionary-ID materialization when 
 
 ## Runtime defaults for input borrowing
 
-Borrowed overflow input and coalesced-buffer views default on for JVM readers, including JVMs using
-the native LZ77 codec. Ahead-of-time native-image executables keep
-the existing owned-input paths by default. Both modes are supported and preserve the same ownership
-and checksum contracts. Either property can explicitly enable (`true`) or disable (`false`) its
-path, independently of the runtime default. The options are resolved once per reader.
+Borrowed overflow input and coalesced-buffer views default on for every runtime, including
+ahead-of-time native-image executables and JVMs using the native LZ77 codec. Both modes are
+supported and preserve the same ownership and checksum contracts. Either property can explicitly
+disable (`false`) its path. The options are resolved once per reader.
 
 The selection is independent of schema, query text, row count, and persisted format. Controlled
-measurements found lower JVM allocation and better JVM aggregate query time with borrowing, while
-the native hot-query suite slightly favored owned input. Some larger native scans benefit from
-borrowing, so native deployments can enable it after measuring their workload.
+measurements found lower JVM allocation and better JVM aggregate query time with borrowing. An
+earlier native hot-query suite over a small database slightly favored owned input; on a 100M-row
+column scan the owned path's per-page frame-slot allocation, copy and release were the largest
+single cost of the column fills, so native images now borrow by default as well.
 
 
 ## Local dictionary COUNT batches

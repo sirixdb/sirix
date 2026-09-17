@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.stream.IntStream;
 
 /**
  * Revision-scoped, catalog-driven access to projection indexes — the projection analogue of how
@@ -807,9 +808,7 @@ public final class ProjectionIndexCatalog {
         ? 1L << 60
         : 0;
     if (!(live instanceof ProjectionDirectoryWindows)) {
-      for (final ProjectionIndexHOTStorage.RowGroupDirectory dir : live) {
-        projectedBytes += residentWeightOf(dir.descriptor());
-      }
+      projectedBytes += residentWeightOf(live);
     }
     // The shared store carries only immutable descriptor state; every fill binds to the
     // CALLER's own live fetcher, threaded in per call — nothing session-scoped is stored.
@@ -945,6 +944,26 @@ public final class ProjectionIndexCatalog {
    * the raw segments a whole-leaf consumer materializes PLUS what they decode to (a bit-packed
    * segment becomes 8 bytes per value, up to ~8× its packed size).
    */
+  /** Leaves at or above which the resident-weight sum is reduced on the common pool. */
+  private static final int PARALLEL_WEIGHT_MIN_LEAVES = 4096;
+
+  /**
+   * The resident weight of every directory in {@code live}, summed. A leaf's weight is a pure function
+   * of its immutable descriptor bytes, so a large store's sum is reduced over disjoint index ranges on
+   * the common pool; the total is the same in any order, and a small store keeps the serial loop.
+   */
+  static long residentWeightOf(final List<ProjectionIndexHOTStorage.RowGroupDirectory> live) {
+    final int leaves = live.size();
+    if (leaves < PARALLEL_WEIGHT_MIN_LEAVES) {
+      long bytes = 0;
+      for (int leaf = 0; leaf < leaves; leaf++) {
+        bytes += residentWeightOf(live.get(leaf).descriptor());
+      }
+      return bytes;
+    }
+    return IntStream.range(0, leaves).parallel().mapToLong(leaf -> residentWeightOf(live.get(leaf).descriptor())).sum();
+  }
+
   private static long residentWeightOf(final byte[] descriptor) {
     long bytes = 0;
     final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(descriptor);

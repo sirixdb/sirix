@@ -16,10 +16,12 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.IntToLongFunction;
 import java.util.stream.IntStream;
 
 /**
@@ -517,7 +519,10 @@ public final class ProjectionColumnStore {
         ? blocks[col]
         : null;
     if (block != null) {
-      return block.prune(literalHash, keep, n, fetcher);
+      // One literal is the degenerate case of the many-literal walk, which splits the chunk range
+      // over the common pool when the fetcher permits concurrent ranged fetches; the per-leaf probe
+      // is the same allocation-free single-literal test either way.
+      return (int) applyBloomPruneMany(col, new long[] {literalHash}, new long[][] {keep}, fetcher);
     }
     final byte[][] chain = stringBloomSegments(col, fetcher);
     if (chain == null) {
@@ -781,12 +786,41 @@ public final class ProjectionColumnStore {
    */
   private void verifyEveryLeafAgreesWithLeafZero(final byte[] d0) {
     final int leaves = directories.size();
-    for (int leaf = 1; leaf < leaves; leaf++) {
-      final byte[] di = directories.get(leaf).descriptor();
-      RowGroupDescriptor.validate(di);
-      if (!RowGroupDescriptor.kindsAgree(d0, di)) {
-        throw new ProjectionStoreInconsistentException(leaf, describeDisagreement(d0, di));
+    if (leaves < PARALLEL_VERIFY_MIN_LEAVES) {
+      for (int leaf = 1; leaf < leaves; leaf++) {
+        verifyLeafAgreesWithLeafZero(d0, leaf);
       }
+      return;
+    }
+    // Every leaf's check is independent and reads only immutable descriptor bytes, so a large store's
+    // leaves are checked over disjoint index ranges on the common pool. A failure is reported for the
+    // LOWEST failing leaf and re-run serially, so the exception is the one the serial loop throws.
+    final AtomicInteger firstFailure = new AtomicInteger(Integer.MAX_VALUE);
+    IntStream.range(1, leaves).parallel().forEach(leaf -> {
+      if (leaf >= firstFailure.get()) {
+        return;
+      }
+      try {
+        verifyLeafAgreesWithLeafZero(d0, leaf);
+      } catch (final RuntimeException failure) {
+        firstFailure.accumulateAndGet(leaf, Math::min);
+      }
+    });
+    final int failed = firstFailure.get();
+    if (failed != Integer.MAX_VALUE) {
+      verifyLeafAgreesWithLeafZero(d0, failed);
+      throw new IllegalStateException("leaf " + failed + " failed its descriptor check concurrently but not serially");
+    }
+  }
+
+  /** Leaves at or above which {@link #verifyEveryLeafAgreesWithLeafZero} runs on the common pool. */
+  private static final int PARALLEL_VERIFY_MIN_LEAVES = 4096;
+
+  private void verifyLeafAgreesWithLeafZero(final byte[] d0, final int leaf) {
+    final byte[] di = directories.get(leaf).descriptor();
+    RowGroupDescriptor.validate(di);
+    if (!RowGroupDescriptor.kindsAgree(d0, di)) {
+      throw new ProjectionStoreInconsistentException(leaf, describeDisagreement(d0, di));
     }
   }
 
@@ -1789,15 +1823,13 @@ public final class ProjectionColumnStore {
       return known;
     }
     final int bodySegId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
-    long total = 0;
-    final int n = directories.size();
-    for (int i = 0; i < n; i++) {
+    final long total = sumOverLeaves(directories.size(), i -> {
       final byte[] descriptor = directories.get(i).descriptor();
       final int bodyEntry = RowGroupDescriptor.entryIndexOf(descriptor, bodySegId);
-      if (bodyEntry >= 0) {
-        total += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
-      }
-    }
+      return bodyEntry >= 0
+          ? RowGroupDescriptor.entryByteLen(descriptor, bodyEntry)
+          : 0L;
+    });
     // A benign same-column race writes the identical sum twice.
     cached[col] = Math.max(1, total);
     return cached[col];
@@ -1832,25 +1864,24 @@ public final class ProjectionColumnStore {
     }
     final int bodySegId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
     final int dictSegId = ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col);
-    long total = 0;
-    final int n = directories.size();
-    for (int i = 0; i < n; i++) {
+    final byte kind = columnKinds[col];
+    return sumOverLeaves(directories.size(), i -> {
       final int word = i >>> 6;
       if (word >= keepWords.length || (keepWords[word] & (1L << (i & 63))) == 0) {
-        continue;
+        return 0L;
       }
       final byte[] descriptor = directories.get(i).descriptor();
+      long bytes = 0;
       final int bodyEntry = RowGroupDescriptor.entryIndexOf(descriptor, bodySegId);
       if (bodyEntry >= 0) {
-        total += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
+        bytes += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
       }
       final int dictEntry = RowGroupDescriptor.entryIndexOf(descriptor, dictSegId);
       if (dictEntry >= 0) {
-        total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
+        bytes += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
       }
-      total += decodedColumnResidentBytes(descriptor, col, columnKinds[col]);
-    }
-    return total;
+      return bytes + decodedColumnResidentBytes(descriptor, col, kind);
+    });
   }
 
   /**
@@ -2164,23 +2195,43 @@ public final class ProjectionColumnStore {
     }
     final int bodySegId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
     final int dictSegId = ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col);
-    long total = 0;
-    final int n = directories.size();
-    for (int i = 0; i < n; i++) {
+    final byte kind = columnKinds[col];
+    final long total = sumOverLeaves(directories.size(), i -> {
       final byte[] descriptor = directories.get(i).descriptor();
+      long bytes = 0;
       final int bodyEntry = RowGroupDescriptor.entryIndexOf(descriptor, bodySegId);
       if (bodyEntry >= 0) {
-        total += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
+        bytes += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
       }
       final int dictEntry = RowGroupDescriptor.entryIndexOf(descriptor, dictSegId);
       if (dictEntry >= 0) {
-        total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
+        bytes += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
       }
-      total += decodedColumnResidentBytes(descriptor, col, columnKinds[col]);
-    }
+      return bytes + decodedColumnResidentBytes(descriptor, col, kind);
+    });
     // A benign same-column race writes the identical sum twice.
     cached[col] = Math.max(1, total);
     return cached[col];
+  }
+
+  /** Leaves at or above which a pricing walk over the descriptors is reduced on the common pool. */
+  private static final int PARALLEL_PRICING_MIN_LEAVES = 4096;
+
+  /**
+   * {@code Σ perLeaf(i)} over {@code [0, n)}. Every pricing walk of this store is a pure function of
+   * the immutable descriptors, so a large store's sum is reduced over disjoint index ranges on the
+   * common pool: the total is the same in any order, and the main thread no longer walks 100k
+   * descriptors alone once per column and per pricing call. Small stores keep the serial loop.
+   */
+  private static long sumOverLeaves(final int n, final IntToLongFunction perLeaf) {
+    if (n < PARALLEL_PRICING_MIN_LEAVES) {
+      long total = 0;
+      for (int i = 0; i < n; i++) {
+        total += perLeaf.applyAsLong(i);
+      }
+      return total;
+    }
+    return IntStream.range(0, n).parallel().mapToLong(perLeaf).sum();
   }
 
   /**
