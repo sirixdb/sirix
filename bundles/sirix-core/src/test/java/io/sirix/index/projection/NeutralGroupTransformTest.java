@@ -138,11 +138,21 @@ final class NeutralGroupTransformTest {
   }
 
   private static void assertNumericCount(final NumericGroupAggTable table, final long key, final long count) {
-    final long hash = ProjectionIndexByteScan.FNV_SEED * ProjectionIndexByteScan.FNV_PRIME ^ HashCommon.mix(key);
+    final long hash = fold(ProjectionIndexByteScan.FNV_SEED, key);
     final int size = table.size();
     final int handle = table.acquireExact(hash, Long.MAX_VALUE, new long[] {0L, key}, 0);
     assertEquals(size, table.size(), "the transformed identity must already exist");
     assertEquals(count, table.storageAtAccBase(handle)[table.offsetAtAccBase(handle)]);
+  }
+
+  /**
+   * One fold step of the kernel, {@code h * FNV_PRIME ^ mix(component)}. A method for the reason
+   * given on {@link CompositeGroupIdentityCollisionTest}'s helper of the same name: inline over two
+   * constant operands, javac folds FNV's deliberate wraparound at compile time and Error Prone
+   * rejects it as {@code [ConstantOverflow]}.
+   */
+  private static long fold(final long h, final long component) {
+    return h * ProjectionIndexByteScan.FNV_PRIME ^ HashCommon.mix(component);
   }
 
   private static void scan(final Fixture fixture, final NumericGroupAggTable table,

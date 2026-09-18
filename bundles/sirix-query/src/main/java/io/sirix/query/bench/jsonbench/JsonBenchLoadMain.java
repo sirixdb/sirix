@@ -57,7 +57,8 @@ import java.util.stream.Stream;
  * <li>{@code -Djsonbench.projection} (default true) — build the projection index over the five
  * columns the queries touch, as part of the load;</li>
  * <li>{@code -Djsonbench.loader} ({@code parallel}, {@code gson}, or {@code jackson}; default
- * {@code parallel}) — select the generic streaming ingestion path for a matched load comparison;</li>
+ * {@code parallel}) — select the generic streaming ingestion path for a matched load
+ * comparison;</li>
  * <li>{@code -Djsonbench.projection.required} (default true) — make a failed second-pass projection
  * build fatal. Set this to false only to retain a completed shred for later repair with
  * {@code JsonBenchRunMain --build-projection}; such a load is not a valid benchmark result;</li>
@@ -143,8 +144,8 @@ public final class JsonBenchLoadMain {
         case "jackson" -> {
           try (ClickBenchSource.JacksonSource src = ClickBenchSource.openJackson(source)) {
             if (projection && incrementalProjection) {
-              store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, src.parser(),
-                  JsonBenchProjection.spec(), src.ldjson());
+              store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, src.parser(), JsonBenchProjection.spec(),
+                  src.ldjson());
             } else {
               store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, src.parser(), src.ldjson());
             }

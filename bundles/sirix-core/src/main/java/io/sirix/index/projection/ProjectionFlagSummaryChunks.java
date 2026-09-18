@@ -16,9 +16,11 @@ import java.util.Objects;
 /**
  * Revision-local, bounded copy-on-write evidence for BODY-column flags.
  *
- * <p>Each 32-leaf chunk keeps one liveness byte and one three-bit evidence byte per column and
+ * <p>
+ * Each 32-leaf chunk keeps one liveness byte and one three-bit evidence byte per column and
  * physical leaf. A maintenance commit patches only chunks containing changed leaves. Old indexes
- * have no header and continue deriving evidence from descriptors.</p>
+ * have no header and continue deriving evidence from descriptors.
+ * </p>
  */
 final class ProjectionFlagSummaryChunks {
   static final long CHUNK_SLOT_BASE = 1L << 45;
@@ -81,8 +83,8 @@ final class ProjectionFlagSummaryChunks {
       }
     }
 
-    void finish(final ProjectionIndexHOTStorage storage, final int expectedPhysicalCount,
-        final int expectedColumns, final int revision) {
+    void finish(final ProjectionIndexHOTStorage storage, final int expectedPhysicalCount, final int expectedColumns,
+        final int revision) {
       Objects.requireNonNull(storage, "storage");
       if (finished || physicalCount != expectedPhysicalCount || revision < 0
           || (columns >= 0 && columns != expectedColumns) || expectedColumns < 0) {
@@ -109,8 +111,8 @@ final class ProjectionFlagSummaryChunks {
    * leaves its descriptor fallback intact. A malformed existing header fails the owning commit.
    */
   static void rewriteTouched(final ProjectionIndexHOTStorage storage, final ProjectionIndexFences.Accessor fences,
-      final LongOpenHashSet changedSlots, final int columns, final int priorLiveCount,
-      final int priorRevision, final int newRevision) {
+      final LongOpenHashSet changedSlots, final int columns, final int priorLiveCount, final int priorRevision,
+      final int newRevision) {
     Objects.requireNonNull(storage, "storage");
     Objects.requireNonNull(fences, "fences");
     Objects.requireNonNull(changedSlots, "changedSlots");
@@ -129,8 +131,7 @@ final class ProjectionFlagSummaryChunks {
     }
     final int newPhysicalCount = fences.physicalRowGroupCount();
     final int chunkCount = (newPhysicalCount + CHUNK_LEAVES - 1) / CHUNK_LEAVES;
-    final Int2ObjectOpenHashMap<byte[]> chunks =
-        new Int2ObjectOpenHashMap<>(Math.min(changedSlots.size(), chunkCount));
+    final Int2ObjectOpenHashMap<byte[]> chunks = new Int2ObjectOpenHashMap<>(Math.min(changedSlots.size(), chunkCount));
     int liveDelta = 0;
     for (final LongIterator iterator = changedSlots.iterator(); iterator.hasNext();) {
       final long slot = iterator.nextLong();
@@ -143,11 +144,14 @@ final class ProjectionFlagSummaryChunks {
         final int first = chunkId * CHUNK_LEAVES;
         final int oldEntries = Math.max(0, Math.min(CHUNK_LEAVES, prior.physicalCount - first));
         final int newEntries = Math.min(CHUNK_LEAVES, newPhysicalCount - first);
-        final byte[] old = oldEntries == 0 ? null : storage.getBlob(CHUNK_SLOT_BASE + chunkId);
+        final byte[] old = oldEntries == 0
+            ? null
+            : storage.getBlob(CHUNK_SLOT_BASE + chunkId);
         if (oldEntries > 0 && (old == null || old.length != oldEntries * (columns + 1))) {
           throw new IllegalStateException("missing or malformed prior projection flag-summary chunk " + chunkId);
         }
-        chunk = old == null ? new byte[newEntries * (columns + 1)]
+        chunk = old == null
+            ? new byte[newEntries * (columns + 1)]
             : Arrays.copyOf(old, newEntries * (columns + 1));
         chunks.put(chunkId, chunk);
       }
@@ -166,7 +170,12 @@ final class ProjectionFlagSummaryChunks {
       } else {
         Arrays.fill(chunk, offset, offset + columns + 1, (byte) 0);
       }
-      liveDelta += (isLive ? 1 : 0) - (wasLive ? 1 : 0);
+      liveDelta += (isLive
+          ? 1
+          : 0)
+          - (wasLive
+              ? 1
+              : 0);
     }
     if (prior.liveCount + liveDelta != fences.liveRowGroupCount()) {
       throw new IllegalStateException("projection flag-summary changed-slot set misses a live leaf");
@@ -174,13 +183,12 @@ final class ProjectionFlagSummaryChunks {
     for (final Int2ObjectMap.Entry<byte[]> entry : chunks.int2ObjectEntrySet()) {
       storage.putBlob(CHUNK_SLOT_BASE + entry.getIntKey(), entry.getValue());
     }
-    storage.putBlob(HEADER_SLOT,
-        header(newPhysicalCount, fences.liveRowGroupCount(), columns, newRevision));
+    storage.putBlob(HEADER_SLOT, header(newPhysicalCount, fences.liveRowGroupCount(), columns, newRevision));
   }
 
   /** Return three-bit per-column evidence, or {@code null} so the descriptor gate runs instead. */
-  static byte @Nullable [] readAll(final StorageEngineReader reader, final int indexNumber,
-      final int expectedLiveCount, final int expectedColumns, final int expectedRevision) {
+  static byte @Nullable [] readAll(final StorageEngineReader reader, final int indexNumber, final int expectedLiveCount,
+      final int expectedColumns, final int expectedRevision) {
     Objects.requireNonNull(reader, "reader");
     if (expectedColumns < 0 || expectedColumns > MAX_COLUMNS || expectedLiveCount < 0) {
       return null;
@@ -227,19 +235,21 @@ final class ProjectionFlagSummaryChunks {
           }
         }
       }
-      return liveCount == expectedLiveCount ? evidence : null;
+      return liveCount == expectedLiveCount
+          ? evidence
+          : null;
     } catch (final IllegalStateException unavailable) {
       return null;
     }
   }
 
-  private static void writeEntry(final byte[] chunk, final int offset, final byte[] descriptor,
-      final int columns) {
+  private static void writeEntry(final byte[] chunk, final int offset, final byte[] descriptor, final int columns) {
     chunk[offset] = LIVE;
     for (int column = 0; column < columns; column++) {
-      final int entry = RowGroupDescriptor.entryIndexOf(descriptor,
-          ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column));
-      final byte flags = entry < 0 ? ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE
+      final int entry =
+          RowGroupDescriptor.entryIndexOf(descriptor, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column));
+      final byte flags = entry < 0
+          ? ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE
           : RowGroupDescriptor.entryColFlags(descriptor, entry);
       byte bits = 0;
       if ((flags & ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE) != 0) {
@@ -255,11 +265,9 @@ final class ProjectionFlagSummaryChunks {
     }
   }
 
-  private static byte[] header(final int physicalCount, final int liveCount, final int columns,
-      final int revision) {
-    if (physicalCount < 0 || physicalCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS
-        || liveCount < 0 || liveCount > physicalCount || columns < 0 || columns > MAX_COLUMNS
-        || revision < 0) {
+  private static byte[] header(final int physicalCount, final int liveCount, final int columns, final int revision) {
+    if (physicalCount < 0 || physicalCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS || liveCount < 0
+        || liveCount > physicalCount || columns < 0 || columns > MAX_COLUMNS || revision < 0) {
       throw new IllegalArgumentException("invalid projection flag-summary header shape");
     }
     final byte[] bytes = new byte[HEADER_BYTES];
@@ -277,20 +285,20 @@ final class ProjectionFlagSummaryChunks {
     if (bytes == null) {
       return null;
     }
-    if (bytes.length != HEADER_BYTES || ProjectionIndexRowGroupCodec.getIntLE(bytes, 0) != MAGIC
-        || bytes[4] != VERSION || bytes[6] != CHUNK_LEAVES || bytes[7] != 0
-        || Byte.toUnsignedInt(bytes[5]) > MAX_COLUMNS) {
+    if (bytes.length != HEADER_BYTES || ProjectionIndexRowGroupCodec.getIntLE(bytes, 0) != MAGIC || bytes[4] != VERSION
+        || bytes[6] != CHUNK_LEAVES || bytes[7] != 0 || Byte.toUnsignedInt(bytes[5]) > MAX_COLUMNS) {
       return null;
     }
     final int physicalCount = ProjectionIndexRowGroupCodec.getIntLE(bytes, 8);
     final int liveCount = ProjectionIndexRowGroupCodec.getIntLE(bytes, 12);
     final int revision = ProjectionIndexRowGroupCodec.getIntLE(bytes, 16);
-    if (physicalCount < 0 || physicalCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS
-        || liveCount < 0 || liveCount > physicalCount || revision < 0) {
+    if (physicalCount < 0 || physicalCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS || liveCount < 0
+        || liveCount > physicalCount || revision < 0) {
       return null;
     }
     return new Header(physicalCount, liveCount, Byte.toUnsignedInt(bytes[5]), revision);
   }
 
-  private record Header(int physicalCount, int liveCount, int columns, int revision) {}
+  private record Header(int physicalCount, int liveCount, int columns, int revision) {
+  }
 }

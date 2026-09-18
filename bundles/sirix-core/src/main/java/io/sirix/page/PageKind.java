@@ -8316,8 +8316,8 @@ public enum PageKind {
    * <p>
    * {@link SirixLZ77Codec#decode} requires output tail slack for native decoding. An
    * {@link OverflowPage} owns an exact-length heap array, so decode into padded thread-local storage
-   * and copy the result into that array. This also applies to small frames: the Java fallback for
-   * an exact-length destination already uses scratch storage and a final copy.
+   * and copy the result into that array. This also applies to small frames: the Java fallback for an
+   * exact-length destination already uses scratch storage and a final copy.
    * </p>
    *
    * <p>

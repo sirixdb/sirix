@@ -69,22 +69,21 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
    * after the first record's {@code posts} becomes {@code likes}: posts 7, likes 4, stored "" 1,
    * absent 2.
    */
-  private static final String UNTIED_STORE =
-      """
-            jn:store('json-path1','jbshape.jn','[
-              {"commit":{"collection":"posts"}}, {"commit":{"collection":"likes"}}, {"commit":{"collection":"posts"}},
-              {}, {"commit":{"collection":"posts"}}, {"commit":{"collection":"likes"}}, {"commit":{"collection":""}},
-              {"commit":{"collection":"posts"}}, {"commit":{}}, {"commit":{"collection":"posts"}},
-              {"commit":{"collection":"likes"}}, {"commit":{"collection":"posts"}}, {"commit":{"collection":"likes"}},
-              {"commit":{"collection":"posts"}}
-            ]')
-          """;
+  private static final String UNTIED_STORE = """
+        jn:store('json-path1','jbshape.jn','[
+          {"commit":{"collection":"posts"}}, {"commit":{"collection":"likes"}}, {"commit":{"collection":"posts"}},
+          {}, {"commit":{"collection":"posts"}}, {"commit":{"collection":"likes"}}, {"commit":{"collection":""}},
+          {"commit":{"collection":"posts"}}, {"commit":{}}, {"commit":{"collection":"posts"}},
+          {"commit":{"collection":"likes"}}, {"commit":{"collection":"posts"}}, {"commit":{"collection":"likes"}},
+          {"commit":{"collection":"posts"}}
+        ]')
+      """;
 
   /**
    * Equal counts whose first appearances are out of key order. Plain key: likes 3, absent 2, posts 2,
    * then "", a, b, U+FF21 and U+1F600 once each. With {@code fn:string} the two absent records join
-   * the stored "" for 3 beside likes 3. U+1F600 is a surrogate pair, so UTF-16 unit order would put it
-   * before U+FF21, where codepoint order puts it after.
+   * the stored "" for 3 beside likes 3. U+1F600 is a surrogate pair, so UTF-16 unit order would put
+   * it before U+FF21, where codepoint order puts it after.
    */
   private static final String TIED_STORE = """
         jn:store('json-path1','jbshape.jn','[
@@ -95,12 +94,16 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
         ]')
       """;
 
-  /** {@link #TIED_STORE} by count descending, then by key: the absent group first, then codepoints. */
+  /**
+   * {@link #TIED_STORE} by count descending, then by key: the absent group first, then codepoints.
+   */
   private static final String TIED_ORDER = "{\"event\":\"likes\",\"count\":3} {\"event\":null,\"count\":2}"
       + " {\"event\":\"posts\",\"count\":2} {\"event\":\"\",\"count\":1} {\"event\":\"a\",\"count\":1}"
       + " {\"event\":\"b\",\"count\":1} {\"event\":\"\uFF21\",\"count\":1} {\"event\":\"\uD83D\uDE00\",\"count\":1}";
 
-  /** {@link #TIED_STORE} under {@code fn:string}: the merged "" is an ordinary string among its ties. */
+  /**
+   * {@link #TIED_STORE} under {@code fn:string}: the merged "" is an ordinary string among its ties.
+   */
   private static final String TIED_STRINGIFIED_ORDER = "{\"event\":\"\",\"count\":3} {\"event\":\"likes\",\"count\":3}"
       + " {\"event\":\"posts\",\"count\":2} {\"event\":\"a\",\"count\":1} {\"event\":\"b\",\"count\":1}"
       + " {\"event\":\"\uFF21\",\"count\":1} {\"event\":\"\uD83D\uDE00\",\"count\":1}";
@@ -583,7 +586,9 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
         """.formatted(where);
   }
 
-  /** The JSONBench Q1 count over one pinned revision, the key wrapped in {@code fn:string} if asked. */
+  /**
+   * The JSONBench Q1 count over one pinned revision, the key wrapped in {@code fn:string} if asked.
+   */
   private static String countAt(final int revision, final boolean stringified) {
     return """
         for $e in jn:doc('json-path1','jbshape.jn',%d)[]
@@ -640,7 +645,8 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
               what + " must be SERVED from the projection");
           Assertions.assertEquals(fromSummary
               ? 1L
-              : 0L, SirixVectorizedExecutor.groupAggSummaryServedCount() - summary, what + (fromSummary
+              : 0L, SirixVectorizedExecutor.groupAggSummaryServedCount() - summary,
+              what + (fromSummary
                   ? " must read the persisted per-value counts"
                   : " must scan the row groups"));
           return answer;

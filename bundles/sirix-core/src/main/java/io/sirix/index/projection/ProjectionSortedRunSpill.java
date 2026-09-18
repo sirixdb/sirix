@@ -39,7 +39,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * Where, and through which byte handlers, the initial build of a resource's sorted projection view
  * spills its sorted runs.
  *
- * <p>Runs live in a directory of the resource itself, {@code <resource>/projection-sort-spill}. When
+ * <p>
+ * Runs live in a directory of the resource itself, {@code <resource>/projection-sort-spill}. When
  * {@code -Dsirix.projection.sortedRun.spillDirectory} is set it replaces that location's root, and
  * each resource still spills into its own subdirectory under it, named after the resource and a
  * digest of its path, so cleaning one resource can never touch another resource's runs. Every run
@@ -47,12 +48,15 @@ import java.util.concurrent.atomic.AtomicLong;
  * an empty pipeline stores the keys as they are, a pipeline whose handlers all work on memory
  * segments encodes independent blocks, and any other pipeline, an {@code Encryptor} included, wraps
  * the whole run in its stream handlers, so a run never holds a plaintext key the resource's pages
- * would not.</p>
+ * would not.
+ * </p>
  *
- * <p>Each build owns one directory below the resource's spill directory, registered as live for as
+ * <p>
+ * Each build owns one directory below the resource's spill directory, registered as live for as
  * long as it exists. {@link #removeOrphanedRuns} deletes every other entry there when a resource is
- * opened: the runs of a build whose process died, and anything else found in the directory. It never
- * deletes a live build of this JVM or a build owned by another live process.</p>
+ * opened: the runs of a build whose process died, and anything else found in the directory. It
+ * never deletes a live build of this JVM or a build owned by another live process.
+ * </p>
  */
 public final class ProjectionSortedRunSpill {
 
@@ -103,10 +107,12 @@ public final class ProjectionSortedRunSpill {
   /**
    * Delete the sorted runs that builds of this resource left behind when their process died.
    *
-   * <p>Both the resource's own spill directory and, when
+   * <p>
+   * Both the resource's own spill directory and, when
    * {@code -Dsirix.projection.sortedRun.spillDirectory} is set, the resource's subdirectory under it
-   * are cleaned. Builds live in this JVM or owned by another live process are kept. Cleanup is
-   * best effort: a failure is logged and never fails the open.</p>
+   * are cleaned. Builds live in this JVM or owned by another live process are kept. Cleanup is best
+   * effort: a failure is logged and never fails the open.
+   * </p>
    *
    * @param resourceConfig the resource being opened
    */
@@ -132,8 +138,8 @@ public final class ProjectionSortedRunSpill {
   }
 
   /**
-   * Create a build's private run directory, registered as live before it exists so that no
-   * concurrent cleanup in this JVM can remove it.
+   * Create a build's private run directory, registered as live before it exists so that no concurrent
+   * cleanup in this JVM can remove it.
    */
   Path createBuildDirectory() throws IOException {
     Files.createDirectories(directory);
@@ -171,8 +177,8 @@ public final class ProjectionSortedRunSpill {
       return Files.newOutputStream(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
     }
     if (pipeline.supportsMemorySegments()) {
-      return new BlockOutputStream(
-          FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE), pipeline);
+      return new BlockOutputStream(FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE),
+          pipeline);
     }
     final OutputStream raw = new BufferedOutputStream(
         Files.newOutputStream(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE), STREAM_BUFFER_BYTES);
@@ -361,7 +367,10 @@ public final class ProjectionSortedRunSpill {
     }
   }
 
-  /** Reads the blocks of a {@link BlockOutputStream}, keeping one decoded block of its exact plain length. */
+  /**
+   * Reads the blocks of a {@link BlockOutputStream}, keeping one decoded block of its exact plain
+   * length.
+   */
   private static final class BlockInputStream extends InputStream {
     private final FileChannel channel;
     private final ByteHandlerPipeline pipeline;
@@ -424,8 +433,8 @@ public final class ProjectionSortedRunSpill {
           pipeline.decompressScoped(MemorySegment.ofArray(encoded).asSlice(0, size))) {
         final MemorySegment plain = result.segment();
         if (plain.byteSize() < plainBytes) {
-          throw new IOException("corrupt sorted projection run block: decoded " + plain.byteSize()
-              + " of its " + plainBytes + " plain bytes");
+          throw new IOException("corrupt sorted projection run block: decoded " + plain.byteSize() + " of its "
+              + plainBytes + " plain bytes");
         }
         if (decoded.length < plainBytes) {
           decoded = new byte[plainBytes];

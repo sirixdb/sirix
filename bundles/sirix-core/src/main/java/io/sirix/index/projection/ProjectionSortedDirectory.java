@@ -47,8 +47,8 @@ final class ProjectionSortedDirectory {
   }
 
   /** Parsed, validated root header shared by readers and the transaction's editor. */
-  private record Header(int height, int rootId, int nodeCount, int dataLeafCount, int maxLeafId,
-      long unencodableRows, ProjectionSortKeyCodec.Layout layout) {
+  private record Header(int height, int rootId, int nodeCount, int dataLeafCount, int maxLeafId, long unencodableRows,
+      ProjectionSortKeyCodec.Layout layout) {
 
     static Header parse(final byte[] header) {
       if (header.length < FIXED_HEADER_BYTES + 1 || getInt(header, 0) != MAGIC || header[4] != VERSION
@@ -92,7 +92,10 @@ final class ProjectionSortedDirectory {
     }
   }
 
-  /** Directory row whose fence is at or immediately below {@code key}; the first row below the minimum. */
+  /**
+   * Directory row whose fence is at or immediately below {@code key}; the first row below the
+   * minimum.
+   */
   private static int atOrBelow(final ProjectionSortedLeaf node, final byte[] key) {
     final int lower = node.lowerBound(key);
     return lower == node.rowCount()
@@ -230,7 +233,10 @@ final class ProjectionSortedDirectory {
           : Arrays.copyOf(ids, count);
     }
 
-    /** Leaves of {@link #leaves(byte[], byte[])}, counted up to {@code cap}; the whole view needs no walk. */
+    /**
+     * Leaves of {@link #leaves(byte[], byte[])}, counted up to {@code cap}; the whole view needs no
+     * walk.
+     */
     int leafCount(final byte[] from, final byte @Nullable [] upperExclusive, final int cap) {
       if (from.length == 0 && upperExclusive == null) {
         return Math.min(dataLeafCount, cap);
@@ -328,8 +334,7 @@ final class ProjectionSortedDirectory {
       }
 
       private boolean belowUpper() {
-        return upperExclusive == null
-            || nodes[height - 1].compareRowKey(positions[height - 1], upperExclusive) < 0;
+        return upperExclusive == null || nodes[height - 1].compareRowKey(positions[height - 1], upperExclusive) < 0;
       }
 
       private void descend(final int level, final int child) {
@@ -986,8 +991,8 @@ final class ProjectionSortedDirectory {
    * reserved for a multi-edit rewrite or a split; single edits copy within one bounded page.
    */
   private static ProjectionSortedLeaf[] pack(final byte[][] keys, final byte[][] payloads, final int count) {
-    for (int pieces = Math.max(1, (count + ProjectionSortedLeaf.MAX_ROWS - 1) / ProjectionSortedLeaf.MAX_ROWS);
-        pieces <= count; pieces++) {
+    for (int pieces = Math.max(1,
+        (count + ProjectionSortedLeaf.MAX_ROWS - 1) / ProjectionSortedLeaf.MAX_ROWS); pieces <= count; pieces++) {
       final ProjectionSortedLeaf[] pages = new ProjectionSortedLeaf[pieces];
       final int base = count / pieces;
       final int larger = count % pieces;

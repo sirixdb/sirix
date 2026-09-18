@@ -1638,8 +1638,8 @@ final class GlobalValueDictionaryRadix {
     }
 
     private static ValueDictionaryRadixNode updateUpperChildren(final long nodeKey, final byte indexKind,
-        final byte depth, final ValueDictionaryRadixNode prior, final int[] prefixes, final int from,
-        final int to, final long childRunStart) {
+        final byte depth, final ValueDictionaryRadixNode prior, final int[] prefixes, final int from, final int to,
+        final long childRunStart) {
       if (to <= from) {
         throw new IllegalStateException("empty forward radix child update");
       }

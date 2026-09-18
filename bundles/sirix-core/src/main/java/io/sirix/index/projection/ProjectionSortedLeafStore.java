@@ -69,7 +69,9 @@ final class ProjectionSortedLeafStore {
       throw new NullPointerException("storage reader is required");
     }
     final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot(leafId));
-    return bytes == null ? null : ProjectionSortedLeaf.open(bytes);
+    return bytes == null
+        ? null
+        : ProjectionSortedLeaf.open(bytes);
   }
 
   static @Nullable ProjectionSortedLeaf read(final ProjectionIndexHOTStorage storage, final int leafId) {
@@ -77,7 +79,9 @@ final class ProjectionSortedLeafStore {
       throw new NullPointerException("sorted leaf storage is required");
     }
     final byte[] bytes = storage.getBlob(slot(leafId));
-    return bytes == null ? null : ProjectionSortedLeaf.open(bytes);
+    return bytes == null
+        ? null
+        : ProjectionSortedLeaf.open(bytes);
   }
 
   static void remove(final ProjectionIndexHOTStorage storage, final int leafId) {

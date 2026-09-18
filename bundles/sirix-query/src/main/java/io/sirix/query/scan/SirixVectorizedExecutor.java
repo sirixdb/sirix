@@ -9194,10 +9194,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /**
    * Whole-projection background readahead on first resolution (advisory; property-gated). OFF by
    * default: it sweeps EVERY sliceable column's segment chains of the projection, not the columns the
-   * query touches, so on a backend that honours span hints (the standard file-channel reader now does)
-   * it is a store-wide prepass that competes with the query's own reads for the device and the page
-   * cache. Opt in with {@code -Dsirix.projection.prefetchAll=true} for a long-lived process whose
-   * later queries will touch most columns anyway.
+   * query touches, so on a backend that honours span hints (the standard file-channel reader now
+   * does) it is a store-wide prepass that competes with the query's own reads for the device and the
+   * page cache. Opt in with {@code -Dsirix.projection.prefetchAll=true} for a long-lived process
+   * whose later queries will touch most columns anyway.
    */
   private static final boolean PREFETCH_ALL_SEGMENTS =
       Boolean.parseBoolean(System.getProperty("sirix.projection.prefetchAll", "false"));
@@ -13549,9 +13549,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * projection's leaves. Groups emit in DOCUMENT first-appearance order (the interpreter's grouping
    * order), except that a single plain key ordered by its count alone is returned already ordered,
    * equal counts by key (see {@link #orderCountTiesByKey}); matching rows missing a group field carry
-   * the empty-sequence key for that component
-   * (single-key: the null-key group). Returns {@code null} to fall back (callers compile the generic
-   * pipeline alongside).
+   * the empty-sequence key for that component (single-key: the null-key group). Returns {@code null}
+   * to fall back (callers compile the generic pipeline alongside).
    */
   /** Shared empty result of {@link #summedColumns} — no allocation on the min/max/count-only path. */
   private static final int[] EMPTY_INT_ARRAY = new int[0];
@@ -14714,8 +14713,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static boolean countDescendingPlainKey(final PredicateNode predicateOrNull, final int keyCount,
       final String[] funcs, final String[] aggFields, final String[] outNames, final int[] orderIndexes,
       final boolean[] orderAsc, final long limit, final long[] keyOffsets, final int[] keySubstr,
-      final String[] keyCondFields, final String[] keyCondElse, final String[] keyRegexPattern,
-      final long[] keyDivMod, final boolean[] keyStringify, final long[] having) {
+      final String[] keyCondFields, final String[] keyCondElse, final String[] keyRegexPattern, final long[] keyDivMod,
+      final boolean[] keyStringify, final long[] having) {
     return predicateOrNull == null && keyCount == 1 && funcs.length == 1 && "count".equals(funcs[0])
         && aggFields.length == 1 && aggFields[0] == null && outNames.length == 1 && having == null && limit < 0
         && orderIndexes != null && orderIndexes.length == 1 && orderIndexes[0] == 1 && orderAsc != null
@@ -14916,9 +14915,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           required.add(raw);
         }
       }
-      final boolean scalarSummaryShape = countDescendingPlainKey(predicateOrNull, keyCount, funcs, aggFields,
-          outNames, orderIndexes, orderAsc, limit, keyOffsets, keySubstr, keyCondFields, keyCondElse,
-          keyRegexPattern, keyDivMod, keyStringify, having);
+      final boolean scalarSummaryShape =
+          countDescendingPlainKey(predicateOrNull, keyCount, funcs, aggFields, outNames, orderIndexes, orderAsc, limit,
+              keyOffsets, keySubstr, keyCondFields, keyCondElse, keyRegexPattern, keyDivMod, keyStringify, having);
       if (scalarSummaryShape && wtx == null) {
         final Map<String, Long> counts = ProjectionIndexCatalog.lookupScalarValueRowCounts(session,
             projectionRegistryKey, revision, sourcePath, groupFields[0]);

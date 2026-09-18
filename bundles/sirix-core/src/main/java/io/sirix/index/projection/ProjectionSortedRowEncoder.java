@@ -12,12 +12,14 @@ import java.util.Objects;
 /**
  * Compiled, transaction-confined key encoding for a sorted projection view.
  *
- * <p>Every extracted row has exactly one key, read from the extractor's reusable primitive buffers
+ * <p>
+ * Every extracted row has exactly one key, read from the extractor's reusable primitive buffers
  * without allocating or probing a dictionary. Sort keys use the original UTF-8 bytes, since
  * dictionary ids reflect insertion order rather than value order. A row whose key field cannot be
  * represented exactly receives the reserved unencodable key instead of failing its load or commit;
  * the view then declines to serve until no such row remains. Callers must copy the borrowed key
- * before extracting the next row.</p>
+ * before extracting the next row.
+ * </p>
  */
 final class ProjectionSortedRowEncoder {
 
@@ -31,8 +33,8 @@ final class ProjectionSortedRowEncoder {
   ProjectionSortedRowEncoder(final IndexDef definition, final ProjectionIndexRowExtractor extractor) {
     Objects.requireNonNull(definition, "definition");
     this.extractor = Objects.requireNonNull(extractor, "extractor");
-    final ProjectionSortedSpec spec = Objects.requireNonNull(definition.getProjectionSortedSpec(),
-        "projection has no sorted-view declaration");
+    final ProjectionSortedSpec spec =
+        Objects.requireNonNull(definition.getProjectionSortedSpec(), "projection has no sorted-view declaration");
     final byte[] columnKinds = extractor.columnKindsRef();
     keyColumns = keyColumns(spec);
     keyKinds = new byte[keyColumns.length];
@@ -44,8 +46,8 @@ final class ProjectionSortedRowEncoder {
 
   /** Key layout of {@code definition}'s sorted view over a projection with {@code columnKinds}. */
   static ProjectionSortKeyCodec.Layout layoutOf(final IndexDef definition, final byte[] columnKinds) {
-    final ProjectionSortedSpec spec = Objects.requireNonNull(definition.getProjectionSortedSpec(),
-        "projection has no sorted-view declaration");
+    final ProjectionSortedSpec spec =
+        Objects.requireNonNull(definition.getProjectionSortedSpec(), "projection has no sorted-view declaration");
     return ProjectionSortKeyCodec.Layout.of(columnKinds, keyColumns(spec));
   }
 

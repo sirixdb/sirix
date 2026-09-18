@@ -22,9 +22,12 @@ input directly: both raw and compressed overflow decoders finish with independen
 temporary native-frame allocation, copy, and release. Other page kinds still use the owned-buffer
 pipeline because record and HOT pages can retain that storage. Configured byte handlers always run.
 
-Batches with multiple page references can submit small Linux `POSIX_FADV_WILLNEED` hints for
-upcoming requested offsets before reading and decoding the current window. The default window is
-16 offsets with 4 KiB hints. Hints do not queue Java tasks, retain page objects, or change the normal
+Batches with multiple page references can submit Linux `POSIX_FADV_WILLNEED` hints for upcoming
+requested offsets before reading and decoding the current run: one hint per coalesced run, covering
+the run plus a bounded tail for its last page. The default window of 1,024 offsets hints an ordinary
+batch whole, up front, with 32 KiB tails. The advisory `prefetch` route that HOT, directory and
+column-store scans use hints sorted offsets the same way; a page followed closely by another is
+hinted exactly up to it. Hints do not queue Java tasks, retain page objects, or change the normal
 integrity checks. Descriptor discovery is lazy; single-page readers and unsupported platforms keep
 ordinary reads. Whole-file access hints remain separate opt-in policies.
 
@@ -104,8 +107,9 @@ executables; the bounded overrides also support controlled comparisons on other 
 | --- | --- | --- |
 | `sirix.filechannel.pagePrefixBytes` | `1024` | Prefix bytes, clamped to 4–65,536; 4 restores a separate header read. |
 | `sirix.filechannel.coalesceGapBytes` | `65536` | Maximum gap between adjacent references in a coalesced run. |
-| `sirix.filechannel.batchReadAhead` | `16` | Requested-offset hint window, clamped to 0–256; 0 disables advice. |
-| `sirix.filechannel.batchReadAheadBytes` | `4096` | Bytes per hint, clamped to 4 KiB–1 MiB. |
+| `sirix.filechannel.batchReadAhead` | `1024` | Requested-offset hint window, clamped to 0–4,096; 0 disables advice. |
+| `sirix.filechannel.batchReadAheadBytes` | `32768` | Tail hinted past a page whose length is unknown, clamped to 4 KiB–1 MiB. |
+| `sirix.filechannel.prefetchBatch` | `32` | References per advisory `prefetch` batch, clamped to 0–1,024; 0 disables the advisory route. |
 | `sirix.projection.reuseWorkerProofCache` | `true` | Retain worker proof caches across subchunks; false restores invocation-local caches. |
 | `sirix.filechannel.batchFileSize` | `true` | Reuse one allocation bound within each batch. |
 | `sirix.filechannel.lockFreeBuffers` | `true` | Use atomic buffer slots; false restores the bounded queue. |
@@ -113,6 +117,10 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.filechannel.borrowBatchInput` | value of `sirix.io.borrowOverflowInput` | Decode coalesced page views while the read buffer remains exclusively owned; an explicit value overrides the overflow switch. |
 | `sirix.projection.batchPhysicalOrder` | `true` | Batch fence reads for bounded, dense committed physical orders. |
 | `sirix.projection.overlapDirectoryLoad` | `true` | Overlap dense committed document-order and column-descriptor reads using independent revision-bound readers. |
+| `sirix.projection.columnDirectoryWorkers` | `32` | Column-major descriptor-walk worker ceiling, clamped to 1–64 and further limited by CPUs and one worker per 1,024 leaves. |
+| `sirix.projection.parallelWalk` | `false` | Opt in to the parallel row-group-major directory walk; the serial cursor is the default. |
+| `sirix.projection.prefetchAll` | `false` | Opt in to the background read-ahead sweep of every sliceable column on the first projection lookup. |
+| `sirix.projection.bloomFetchWindowChunks` | `16` | Bloom chunk payloads fetched per ranged read of one pruning call, clamped to 1–64. |
 | `sirix.projection.coalesceBlobBatches` | `true` | Coalesce bare durable blob offsets after capturing verified leaf state. |
 | `sirix.projection.packedStringSlices` | `true` | Keep eligible scalar dictionary IDs packed until needed densely. |
 | `sirix.projection.constantBucketSlices` | `true` | Enable query-local numeric grouping representatives. |
@@ -122,7 +130,8 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.projection.dictionaryCountBatches` | `true` | Accumulate plain local-dictionary COUNT groups in reusable per-entry counters before folding the group table. |
 | `sirix.projection.parallelSortedSummaries` | `true` | Permit independent readers for committed sorted summaries. |
 | `sirix.projection.batchSortedSummaries` | `true` | Reuse traversal workspace within each summary window; false restores per-blob readers. |
-| `sirix.projection.sortedSummaryMaxWorkers` | `4` | Worker ceiling, clamped to 1–8 and further limited by CPUs and leaf count. |
+| `sirix.projection.sortedSummaryMaxWorkers` | `4` | Worker ceiling, clamped to 1–8 and further limited by CPUs and one worker per 1,024 leaves of the queried key range. |
+| `sirix.projection.sortedLookahead` | `8` | Candidate leaves the sorted bound walk and span scan fetch as one batch, clamped to 1–64; 1 restores one read per step. |
 | `sirix.projection.sortedSpanBounds` | `true` | Enable bounded best-first grouped spans on committed revisions. |
 | `sirix.projection.heapSpanPriority` | `true` | Reuse the candidate permutation as a max-heap for span views with at least 1,024 leaves. |
 | `sirix.projection.denseSpanBounds` | `true` | Index validated dense physical leaf bounds directly; sparse IDs retain binary search. |

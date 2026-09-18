@@ -19,7 +19,8 @@ import java.util.Objects;
 /**
  * Packed, heap-bounded external sort of one initial build of a sorted projection view.
  *
- * <p>Keys are copied into grow-only byte blocks; one primitive long per row names its block and
+ * <p>
+ * Keys are copied into grow-only byte blocks; one primitive long per row names its block and
  * offset, and sorting moves only those longs. The blocks and the reference array together never
  * exceed {@code -Dsirix.projection.sortedRun.budgetBytes} (default {@code min(heap/16, 512 MiB)}):
  * before an append would cross it, the current run is sorted and spilled, through the resource's
@@ -30,7 +31,8 @@ import java.util.Objects;
  * system. An I/O failure while spilling or merging fails the build with a {@link SirixIOException}
  * naming the spill directory and its cause. The owning build releases the run, including every
  * spill file and the build's directory, after the transaction has published its sorted directory or
- * aborted.</p>
+ * aborted.
+ * </p>
  */
 final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySource {
 
@@ -106,8 +108,11 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
     return runs.size();
   }
 
-  /** This build's directory of spilled runs, or {@code null} before the first spill and after release. */
-  @Nullable Path runDirectory() {
+  /**
+   * This build's directory of spilled runs, or {@code null} before the first spill and after release.
+   */
+  @Nullable
+  Path runDirectory() {
     return runDirectory;
   }
 
@@ -240,8 +245,8 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
     final byte[] rightBlock = blockOf(right);
     final int leftOffset = ((int) left) + Short.BYTES;
     final int rightOffset = ((int) right) + Short.BYTES;
-    return Arrays.compareUnsigned(leftBlock, leftOffset, leftOffset + keyLength(left),
-        rightBlock, rightOffset, rightOffset + keyLength(right));
+    return Arrays.compareUnsigned(leftBlock, leftOffset, leftOffset + keyLength(left), rightBlock, rightOffset,
+        rightOffset + keyLength(right));
   }
 
   /** Encode the largest prefix of {@code count} keys that fits one bounded leaf; return how many. */
@@ -301,7 +306,9 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
     blockUsed = 0;
   }
 
-  /** Sort the resident run, write it as one length-prefixed key file, and keep its blocks for reuse. */
+  /**
+   * Sort the resident run, write it as one length-prefixed key file, and keep its blocks for reuse.
+   */
   private void spill() {
     sort();
     try {
@@ -378,8 +385,7 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
     }
   }
 
-  private long merge(final ProjectionSortedDirectory.Builder directory, final RunReader[] readers)
-      throws IOException {
+  private long merge(final ProjectionSortedDirectory.Builder directory, final RunReader[] readers) throws IOException {
     final int runCount = readers.length;
     final int[] heap = new int[runCount];
     int size = 0;
@@ -398,8 +404,8 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
     int previousLength = -1;
     while (size > 0) {
       final RunReader reader = readers[heap[0]];
-      if (previousLength >= 0 && Arrays.compareUnsigned(previous, 0, previousLength, reader.key, 0,
-          reader.length) >= 0) {
+      if (previousLength >= 0
+          && Arrays.compareUnsigned(previous, 0, previousLength, reader.key, 0, reader.length) >= 0) {
         throw new IllegalStateException("sorted projection run contains a duplicate row key");
       }
       if (reader.length > previous.length) {
@@ -418,8 +424,7 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
       siftDown(heap, readers, 0, size);
     }
     while (stage.keyCount() > 0) {
-      stage.drop(appendLeaf(directory, stage, 0,
-          Math.min(ProjectionSortedLeaf.MAX_ROWS, stage.keyCount())));
+      stage.drop(appendLeaf(directory, stage, 0, Math.min(ProjectionSortedLeaf.MAX_ROWS, stage.keyCount())));
     }
     if (rows != spilledRows) {
       throw new IllegalStateException("sorted projection merge read " + rows + " of " + spilledRows + " rows");
@@ -501,8 +506,8 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
       }
     }
     if (failure != null) {
-      throw new SirixIOException("Sorted projection view cannot delete its sorted runs in " + directory + ": "
-          + failure + ". They are removed the next time the resource is opened.", failure);
+      throw new SirixIOException("Sorted projection view cannot delete its sorted runs in " + directory + ": " + failure
+          + ". They are removed the next time the resource is opened.", failure);
     }
   }
 

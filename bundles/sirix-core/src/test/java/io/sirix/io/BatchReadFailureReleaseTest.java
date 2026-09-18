@@ -54,8 +54,9 @@ import static org.mockito.Mockito.when;
  * A batched read that fails part way must not strand the allocator frames of the members it had
  * already decoded: the failure propagates unchanged and every decoded member is released, for the
  * file-channel backend (one coalesced run and members read individually), the memory-mapped backend
- * and the interface's default batch loop. A reader that hands out the instances it stores keeps them:
- * its failed batch leaves every page it returned open, also when reached through a forwarding reader.
+ * and the interface's default batch loop. A reader that hands out the instances it stores keeps
+ * them: its failed batch leaves every page it returned open, also when reached through a forwarding
+ * reader.
  */
 final class BatchReadFailureReleaseTest {
 
@@ -83,8 +84,8 @@ final class BatchReadFailureReleaseTest {
       "FILE_CHANNEL, 4096, 2, false", "FILE_CHANNEL, 131072, 1, true", "FILE_CHANNEL, 131072, 2, true",
       "MEMORY_MAPPED, 4096, 1, true", "MEMORY_MAPPED, 4096, 2, true"})
   @ResourceLock(Resources.SYSTEM_PROPERTIES)
-  void aFailingMemberReleasesEveryPageDecodedBeforeIt(final Backend backend, final int stride,
-      final int failingMember, final boolean borrowBatchInput) throws IOException {
+  void aFailingMemberReleasesEveryPageDecodedBeforeIt(final Backend backend, final int stride, final int failingMember,
+      final boolean borrowBatchInput) throws IOException {
     final String previous = System.getProperty(BORROW_BATCH_INPUT);
     System.setProperty(BORROW_BATCH_INPUT, Boolean.toString(borrowBatchInput));
     try (Arena arena = Arena.ofConfined()) {

@@ -50,17 +50,17 @@ final class ProjectionSortedRunSpillTest {
     final Path databasePath = temporaryDirectory.resolve("lz4-spill");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      assertTrue(database.createResource(ResourceConfiguration.newBuilder("lz4")
-                                                              .byteHandlerPipeline(
-                                                                  new ByteHandlerPipeline(new FFILz4Compressor()))
-                                                              .build()));
+      assertTrue(database.createResource(
+          ResourceConfiguration.newBuilder("lz4")
+                               .byteHandlerPipeline(new ByteHandlerPipeline(new FFILz4Compressor()))
+                               .build()));
       createPlainResources(database);
       final ResourceConfiguration lz4 = ResourceConfiguration.deserialize(resourcePath(databasePath, "lz4"));
       assertTrue(lz4.byteHandlePipeline.supportsMemorySegments());
       final ProjectionSortedRunSpill spill = ProjectionSortedRunSpill.forResource(lz4);
       assertEquals(lz4.getResource().toAbsolutePath().normalize().resolve("projection-sort-spill"), spill.directory());
-      final ProjectionSortedRunAccumulator spilled = new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE,
-          BUDGET, spill);
+      final ProjectionSortedRunAccumulator spilled =
+          new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE, BUDGET, spill);
       final List<byte[]> keys = appendUntilSpilled(spilled, 3, false);
       assertEquals(keys.size(), spilled.rowCount());
       final Path runs = spilled.runDirectory();
@@ -121,8 +121,8 @@ final class ProjectionSortedRunSpillTest {
     final Path stray;
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
-      final ProjectionSortedRunSpill spill =
-          ProjectionSortedRunSpill.forResource(ResourceConfiguration.deserialize(resourcePath(databasePath, "resource")));
+      final ProjectionSortedRunSpill spill = ProjectionSortedRunSpill.forResource(
+          ResourceConfiguration.deserialize(resourcePath(databasePath, "resource")));
       live = spill.createBuildDirectory();
       Files.writeString(live.resolve("run-0.keys"), "live");
       deadProcess = Files.createDirectories(spill.directory().resolve("build-" + Long.MAX_VALUE + "-3"));
@@ -151,11 +151,9 @@ final class ProjectionSortedRunSpillTest {
     final Path notADirectory = Files.writeString(temporaryDirectory.resolve("spill-is-a-file"), "x");
     final ProjectionSortedRunAccumulator run = new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE,
         BUDGET, new ProjectionSortedRunSpill(notADirectory.resolve("resource"), new ByteHandlerPipeline()));
-    final SirixIOException failure =
-        assertThrows(SirixIOException.class, () -> appendUntilSpilled(run, 1, false));
+    final SirixIOException failure = assertThrows(SirixIOException.class, () -> appendUntilSpilled(run, 1, false));
     assertTrue(failure.getMessage().contains(notADirectory.resolve("resource").toString()), failure.getMessage());
-    assertTrue(failure.getMessage().contains(ProjectionSortedRunSpill.SPILL_DIRECTORY_PROPERTY),
-        failure.getMessage());
+    assertTrue(failure.getMessage().contains(ProjectionSortedRunSpill.SPILL_DIRECTORY_PROPERTY), failure.getMessage());
     run.release();
   }
 
@@ -188,8 +186,9 @@ final class ProjectionSortedRunSpillTest {
     final ProjectionSortKeyCodec.Writer writer = new ProjectionSortKeyCodec.Writer();
     long record = 1;
     while (run.spilledRunCount() < runs) {
-      final byte[] group =
-          ((marked ? "PLAINTEXT-SORT-KEY-MARKER-" : "group-") + (record % 97)).getBytes(StandardCharsets.UTF_8);
+      final byte[] group = ((marked
+          ? "PLAINTEXT-SORT-KEY-MARKER-"
+          : "group-") + (record % 97)).getBytes(StandardCharsets.UTF_8);
       writer.reset();
       writer.appendUtf8(group, 0, group.length);
       writer.appendLong(record * 1_000L);
@@ -205,7 +204,9 @@ final class ProjectionSortedRunSpillTest {
     assertTrue(database.createResource(ResourceConfiguration.newBuilder("resident").build()));
   }
 
-  /** Persist the spilled build and a resident build of the same keys; both views must be identical. */
+  /**
+   * Persist the spilled build and a resident build of the same keys; both views must be identical.
+   */
   private static void assertPersistsLikeAResidentBuild(final Database<JsonResourceSession> database,
       final ProjectionSortedRunAccumulator spilled, final List<byte[]> keys) {
     final ProjectionSortedRunAccumulator resident = new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE,
@@ -218,7 +219,8 @@ final class ProjectionSortedRunSpillTest {
         JsonResourceSession residentSession = database.beginResourceSession("resident")) {
       try (JsonNodeTrx spilledWriter = spilledSession.beginNodeTrx();
           JsonNodeTrx residentWriter = residentSession.beginNodeTrx()) {
-        assertEquals(keys.size(), spilled.persist(new ProjectionIndexHOTStorage(spilledWriter.getStorageEngineWriter(), 0)));
+        assertEquals(keys.size(),
+            spilled.persist(new ProjectionIndexHOTStorage(spilledWriter.getStorageEngineWriter(), 0)));
         assertEquals(keys.size(),
             resident.persist(new ProjectionIndexHOTStorage(residentWriter.getStorageEngineWriter(), 0)));
         spilledWriter.commit();

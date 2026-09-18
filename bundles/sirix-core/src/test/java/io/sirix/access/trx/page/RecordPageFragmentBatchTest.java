@@ -34,8 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The batched fragment-chain load must hand every consumer exactly the fragments the per-fragment
- * loop handed it, in the same (newest-first) order, on cold caches and on a cache-hit/miss mix — and
- * every value of every revision must come out unchanged.
+ * loop handed it, in the same (newest-first) order, on cold caches and on a cache-hit/miss mix —
+ * and every value of every revision must come out unchanged.
  */
 final class RecordPageFragmentBatchTest {
   private static final int VALUES = 2_600;

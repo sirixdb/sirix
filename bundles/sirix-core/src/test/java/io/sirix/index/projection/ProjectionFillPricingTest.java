@@ -12,8 +12,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * The fill-budget pricing walks (projected column fill bytes, and the masked variant) are reduced on
- * the common pool above a leaf-count threshold. For a small store (serial route) and a large one
+ * The fill-budget pricing walks (projected column fill bytes, and the masked variant) are reduced
+ * on the common pool above a leaf-count threshold. For a small store (serial route) and a large one
  * (parallel route) the sums must equal an independent serial fold of the same per-leaf formula, and
  * a masked walk must price exactly the surviving leaves.
  */
@@ -35,8 +35,10 @@ final class ProjectionFillPricingTest {
       }
       for (int col = 0; col < KINDS.length; col++) {
         final long expectedFull = oracle(directories, col, null);
-        assertEquals(Math.max(1, expectedFull), store.projectedColumnFillBytes(col), "column " + col + " leaves " + leaves);
-        assertEquals(store.projectedColumnFillBytes(col), store.projectedColumnFillBytes(col), "memoized sum is stable");
+        assertEquals(Math.max(1, expectedFull), store.projectedColumnFillBytes(col),
+            "column " + col + " leaves " + leaves);
+        assertEquals(store.projectedColumnFillBytes(col), store.projectedColumnFillBytes(col),
+            "memoized sum is stable");
         assertEquals(oracle(directories, col, keep), store.projectedMaskedFillBytes(col, keep),
             "masked column " + col + " leaves " + leaves);
         assertEquals(store.projectedColumnFillBytes(col), store.projectedMaskedFillBytes(col, null));

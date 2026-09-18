@@ -404,8 +404,10 @@ answered from the projected column.
 ## 11. Serving status and diagnosing a decline
 
 All five queries are served from the projection index — one `groupAggregates` increment each, so a
-three-try run reports `groupAggregates=15`. At 100 M the dense group table adds `groupDense=2`. The
-answers are byte-identical to the generic pipeline's and match the ClickHouse reference 5/5.
+three-try run reports `groupAggregates=15`; Q4 and Q5 each also add one `sortedGroupBys` increment
+per try. Unless `--allow-missing-projection` is given, the runner fails a suite whose counts do not
+match the tries it ran. At 100 M the dense group table adds `groupDense=2`. The answers are
+byte-identical to the generic pipeline's and match the ClickHouse reference 5/5.
 
 A declined pipeline used to be silent, indistinguishable from "no fast path exists". Run with
 `-Pjsonbench.jvmArgs="-Dsirix.projDiag=true"` and the detection stage prints one line per declined

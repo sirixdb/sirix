@@ -78,8 +78,7 @@ final class ProjectionSortedLeafTest {
     assertEquals(2, leaf.firstNonPrefixRowAfter(0, new byte[] {1, 1, 10}, 3));
     assertEquals(2, leaf.firstNonPrefixRowAfter(1, new byte[] {1, 1, 10}, 3));
     assertEquals(4, leaf.firstNonPrefixRowAfter(3, new byte[] {1, 2}, 2));
-    assertThrows(IllegalArgumentException.class,
-        () -> leaf.firstNonPrefixRowAfter(0, new byte[] {1, 2}, 2));
+    assertThrows(IllegalArgumentException.class, () -> leaf.firstNonPrefixRowAfter(0, new byte[] {1, 2}, 2));
   }
 
   @Test

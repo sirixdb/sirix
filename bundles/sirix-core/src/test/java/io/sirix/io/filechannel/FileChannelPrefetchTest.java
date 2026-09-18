@@ -33,7 +33,8 @@ import static org.mockito.Mockito.mock;
 
 /**
  * The standard backend's advisory prefetch: it must be advertised only where the advice can reach
- * the kernel, must never change what a read returns, and must never fail a read when it is declined.
+ * the kernel, must never change what a read returns, and must never fail a read when it is
+ * declined.
  */
 final class FileChannelPrefetchTest {
   private static final ResourceConfiguration CONFIG =

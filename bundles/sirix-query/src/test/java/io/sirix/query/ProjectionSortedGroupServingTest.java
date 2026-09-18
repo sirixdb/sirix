@@ -172,8 +172,9 @@ final class ProjectionSortedGroupServingTest {
   void streamingLoadersPublishSortedViewFromNdjson(final String loader) throws IOException {
     final Path source = Files.writeString(directory.resolve("events.ndjson"), NDJSON_ROWS);
     final ProjectionSpec spec = new ProjectionSpec("/[]", EVENT_FIELDS, EVENT_TYPES, EVENT_ORDER);
-    try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).hashType(HashType.NONE)
-        .storeNodeHistory(true).build();
+    try (
+        BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(directory).hashType(HashType.NONE).storeNodeHistory(true).build();
         SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
         SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection;
@@ -207,15 +208,13 @@ final class ProjectionSortedGroupServingTest {
 
   @Test
   void groupedMinUsesSortedViewForUnrelatedSchemaAndFilter() throws IOException {
-    final ProjectionSpec spec = new ProjectionSpec("/[]",
-        List.of("/[]/tenant", "/[]/sku", "/[]/price", "/[]/state"),
-        List.of("string", "string", "long", "string"),
-        new ProjectionSortedSpec(List.of(3, 0, 1, 2)));
+    final ProjectionSpec spec = new ProjectionSpec("/[]", List.of("/[]/tenant", "/[]/sku", "/[]/price", "/[]/state"),
+        List.of("string", "string", "long", "string"), new ProjectionSortedSpec(List.of(3, 0, 1, 2)));
     try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
         SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
         SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      final JsonDBCollection collection = store.create("inventory", "entries",
-          new JsonReader(new StringReader(INVENTORY_ROWS)), spec);
+      final JsonDBCollection collection =
+          store.create("inventory", "entries", new JsonReader(new StringReader(INVENTORY_ROWS)), spec);
       final String expected = evaluate(chain, context, INVENTORY_MIN);
       try (JsonResourceSession session = collection.getDatabase().beginResourceSession("entries")) {
         final SirixVectorizedExecutor executor =
@@ -280,8 +279,11 @@ final class ProjectionSortedGroupServingTest {
           """);
       try (JsonResourceSession session = collection.getDatabase().beginResourceSession("events")) {
         final int revision = session.getMostRecentRevisionNumber();
-        assertTrue(session.getRtxIndexController(revision).getIndexes().getIndexDefs().stream()
-            .anyMatch(definition -> EVENT_ORDER.equals(definition.getProjectionSortedSpec())));
+        assertTrue(session.getRtxIndexController(revision)
+                          .getIndexes()
+                          .getIndexDefs()
+                          .stream()
+                          .anyMatch(definition -> EVENT_ORDER.equals(definition.getProjectionSortedSpec())));
         final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
         SequentialPipelineStrategy.setVectorizedExecutor(executor);
         try {
@@ -302,8 +304,8 @@ final class ProjectionSortedGroupServingTest {
     try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
         SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
         SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      final JsonDBCollection collection = store.create("sorted", "events",
-          new JsonReader(new StringReader("[{\"kind\":\"commit\",\"score\":1.5},{\"kind\":\"identity\",\"score\":2.5}]")));
+      final JsonDBCollection collection = store.create("sorted", "events", new JsonReader(
+          new StringReader("[{\"kind\":\"commit\",\"score\":1.5},{\"kind\":\"identity\",\"score\":2.5}]")));
       try (JsonResourceSession session = collection.getDatabase().beginResourceSession("events");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         assertTrue(writer.moveToDocumentRoot());
@@ -315,8 +317,10 @@ final class ProjectionSortedGroupServingTest {
             return jn:create-projection-index($doc, '/[]', ('/[]/kind', '/[]/score'), ('string', 'double'),
                 ('/[]/score'))
             """));
-        assertEquals(0, session.getWtxIndexController(writer.getRevisionNumber()).getIndexes()
-                                .getNrOfIndexDefsWithType(IndexType.PROJECTION),
+        assertEquals(0,
+            session.getWtxIndexController(writer.getRevisionNumber())
+                   .getIndexes()
+                   .getNrOfIndexDefsWithType(IndexType.PROJECTION),
             "a rejected declaration must not be catalogued in the caller's transaction");
         assertTrue(writer.moveToDocumentRoot());
         assertTrue(writer.moveToFirstChild());
@@ -351,20 +355,19 @@ final class ProjectionSortedGroupServingTest {
               ('/[]/kind', '/[]/did', '/[]/time_us', '/[]/commit/collection', '/[]/commit/operation'))
           """);
       try (JsonResourceSession session = collection.getDatabase().beginResourceSession("events")) {
-        final Indexes indexes =
-            session.getRtxIndexController(session.getMostRecentRevisionNumber()).getIndexes();
+        final Indexes indexes = session.getRtxIndexController(session.getMostRecentRevisionNumber()).getIndexes();
         assertEquals(1, indexes.getNrOfIndexDefsWithType(IndexType.PROJECTION),
             "a create without sort columns must reuse the same-shape sorted projection");
-        final IndexDef sorted = indexes.getIndexDefs().stream().filter(IndexDef::isProjectionIndex).findFirst()
-                                       .orElseThrow();
+        final IndexDef sorted =
+            indexes.getIndexDefs().stream().filter(IndexDef::isProjectionIndex).findFirst().orElseThrow();
         assertEquals(EVENT_ORDER, sorted.getProjectionSortedSpec());
         assertEquals(Integer.toString(sorted.getID()), found.trim());
       }
     }
   }
 
-  private static String evaluate(final SirixCompileChain chain, final SirixQueryContext context,
-      final String query) throws IOException {
+  private static String evaluate(final SirixCompileChain chain, final SirixQueryContext context, final String query)
+      throws IOException {
     final StringWriter buffer = new StringWriter();
     try (PrintWriter output = new PrintWriter(buffer)) {
       new Query(chain, query).serialize(context, output);

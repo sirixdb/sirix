@@ -711,7 +711,9 @@ public final class ProjectionIndexBuilder {
     this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
   }
 
-  /** The sorted view's heap-bounded run, spilling into the spill directory of the summary's resource. */
+  /**
+   * The sorted view's heap-bounded run, spilling into the spill directory of the summary's resource.
+   */
   private static ProjectionSortedRunAccumulator newSortedRun(final ProjectionSortedRowEncoder sortedRowEncoder,
       final PathSummaryReader pathSummary) {
     final var resourceSession = Objects.requireNonNull(pathSummary.getResourceSession(),

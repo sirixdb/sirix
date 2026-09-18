@@ -781,7 +781,9 @@ public final class ClickBenchSource {
       if (inputPosition == inputLimit) {
         final int count = in.read(inputBuffer, 0, inputBuffer.length);
         if (count <= 0) {
-          return count < 0 ? -1 : in.read();
+          return count < 0
+              ? -1
+              : in.read();
         }
         inputPosition = 0;
         inputLimit = count;

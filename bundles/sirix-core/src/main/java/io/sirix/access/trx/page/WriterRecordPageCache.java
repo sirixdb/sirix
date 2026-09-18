@@ -46,7 +46,9 @@ final class WriterRecordPageCache implements AutoCloseable {
     mask = capacity - 1;
   }
 
-  /** At most 1/32 of the configured arena in maximum-size frames, with the original eight-page floor. */
+  /**
+   * At most 1/32 of the configured arena in maximum-size frames, with the original eight-page floor.
+   */
   static int capacityForBudget(final long arenaBytes) {
     if (arenaBytes < 0) {
       throw new IllegalArgumentException("negative off-heap budget");
@@ -62,13 +64,14 @@ final class WriterRecordPageCache implements AutoCloseable {
     final List<PageFragmentKey> history = reference.getPageFragments();
     final int cached = slots.get(offset);
     if (cached >= 0 && hashes[cached] == hash && hashPresent[cached] == present
-        && sameFragments(fragments[cached], history)
-        && !pages[cached].isClosed()) {
+        && sameFragments(fragments[cached], history) && !pages[cached].isClosed()) {
       return pages[cached];
     }
     // Evict before allocating the replacement, so the native-page count never exceeds the cap.
     // A changed hash/history at the same offset replaces that entry, never aliases its old page.
-    final int at = cached >= 0 ? cached : next;
+    final int at = cached >= 0
+        ? cached
+        : next;
     final KeyValueLeafPage previous = pages[at];
     pages[at] = null;
     fragments[at] = null;
@@ -76,7 +79,9 @@ final class WriterRecordPageCache implements AutoCloseable {
       slots.remove(offsets[at]);
       previous.retire();
     }
-    final long[] captured = history.isEmpty() ? NO_FRAGMENTS : new long[Math.multiplyExact(history.size(), 2)];
+    final long[] captured = history.isEmpty()
+        ? NO_FRAGMENTS
+        : new long[Math.multiplyExact(history.size(), 2)];
     for (int i = 0; i < history.size(); i++) {
       captured[i * 2] = history.get(i).key();
       captured[i * 2 + 1] = history.get(i).revision();

@@ -272,8 +272,8 @@ final class HOTLeafPageNativeWireTest {
       final byte[] nextWire = serializeWithLegacyHeapPayload(config, base);
       final byte[] stream = Arrays.copyOf(sparseWire, sparseWire.length + nextWire.length);
       System.arraycopy(nextWire, 0, stream, sparseWire.length, nextWire.length);
-      final BytesIn<?>[] sources = {new ByteArrayBytesIn(stream),
-          new MemorySegmentBytesIn(MemorySegment.ofArray(stream))};
+      final BytesIn<?>[] sources =
+          {new ByteArrayBytesIn(stream), new MemorySegmentBytesIn(MemorySegment.ofArray(stream))};
       for (final BytesIn<?> source : sources) {
         final HOTLeafPage sparse =
             (HOTLeafPage) new PagePersister().deserializePage(config, source, SerializationType.DATA);
@@ -300,8 +300,8 @@ final class HOTLeafPageNativeWireTest {
     try {
       final byte[] wire = serializeWithLegacyHeapPayload(config, original);
       final byte[] truncated = Arrays.copyOf(wire, wire.length - original.getUsedSlotsSize() - 1);
-      final BytesIn<?>[] sources = {new ByteArrayBytesIn(truncated),
-          new MemorySegmentBytesIn(MemorySegment.ofArray(truncated))};
+      final BytesIn<?>[] sources =
+          {new ByteArrayBytesIn(truncated), new MemorySegmentBytesIn(MemorySegment.ofArray(truncated))};
       for (final BytesIn<?> source : sources) {
         assertThrows(IndexOutOfBoundsException.class,
             () -> new PagePersister().deserializePage(config, source, SerializationType.DATA));

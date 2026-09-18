@@ -56,12 +56,9 @@ final class ProjectionSortedRowEncoderTest {
         }
         try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx();
             PathSummaryReader pathSummary = session.openPathSummary()) {
-          final IndexDef definition = IndexDefs.createProjectionIdxDef(
-              parse("/[]", PathParser.Type.JSON),
-              List.of(parse("/[]/kind", PathParser.Type.JSON),
-                  parse("/[]/op", PathParser.Type.JSON),
-                  parse("/[]/did", PathParser.Type.JSON),
-                  parse("/[]/time", PathParser.Type.JSON)),
+          final IndexDef definition = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
+              List.of(parse("/[]/kind", PathParser.Type.JSON), parse("/[]/op", PathParser.Type.JSON),
+                  parse("/[]/did", PathParser.Type.JSON), parse("/[]/time", PathParser.Type.JSON)),
               List.of(Type.STR, Type.STR, Type.STR, Type.LON), 0, IndexDef.DbType.JSON,
               new ProjectionSortedSpec(List.of(0, 1, 2, 3)));
           final ProjectionIndexRowExtractor extractor = new ProjectionIndexRowExtractor(definition, pathSummary);

@@ -72,8 +72,7 @@ final class ProjectionFlagSummaryChunksTest {
           secondRevision = writer.getRevisionNumber();
           final LongOpenHashSet changed = new LongOpenHashSet();
           changed.add(slot);
-          ProjectionFlagSummaryChunks.rewriteTouched(storage, fences, changed, 1, slot, firstRevision,
-              secondRevision);
+          ProjectionFlagSummaryChunks.rewriteTouched(storage, fences, changed, 1, slot, firstRevision, secondRevision);
           assertArrayEquals(firstChunk, storage.getBlob(ProjectionFlagSummaryChunks.CHUNK_SLOT_BASE));
           writer.commit();
         }
@@ -86,8 +85,9 @@ final class ProjectionFlagSummaryChunksTest {
               INDEX_NUMBER, ProjectionFlagSummaryChunks.CHUNK_LEAVES + 1, 1, secondRevision));
           assertArrayEquals(firstChunk, ProjectionIndexHOTStorage.readBlob(newReader.getStorageEngineReader(),
               INDEX_NUMBER, ProjectionFlagSummaryChunks.CHUNK_SLOT_BASE));
-          assertNull(ProjectionFlagSummaryChunks.readAll(newReader.getStorageEngineReader(), INDEX_NUMBER,
-              ProjectionFlagSummaryChunks.CHUNK_LEAVES + 1, 1, firstRevision),
+          assertNull(
+              ProjectionFlagSummaryChunks.readAll(newReader.getStorageEngineReader(), INDEX_NUMBER,
+                  ProjectionFlagSummaryChunks.CHUNK_LEAVES + 1, 1, firstRevision),
               "a summary for a different revision cannot certify this snapshot");
         }
       }
@@ -117,19 +117,18 @@ final class ProjectionFlagSummaryChunksTest {
           writer.commit();
         }
         try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
-          assertNull(ProjectionFlagSummaryChunks.readAll(reader.getStorageEngineReader(), INDEX_NUMBER, 1, 1,
-              revision));
+          assertNull(
+              ProjectionFlagSummaryChunks.readAll(reader.getStorageEngineReader(), INDEX_NUMBER, 1, 1, revision));
         }
       }
     }
   }
 
-  private static ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded(final long key,
-      final boolean nonIntegral) {
-    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(
-        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
-    assertTrue(page.appendRow(key, new long[] {17L}, new boolean[] {false}, new String[] {null},
-        new boolean[] {true}, new boolean[] {false}, new boolean[] {nonIntegral}));
+  private static ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded(final long key, final boolean nonIntegral) {
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    assertTrue(page.appendRow(key, new long[] {17L}, new boolean[] {false}, new String[] {null}, new boolean[] {true},
+        new boolean[] {false}, new boolean[] {nonIntegral}));
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
         ProjectionIndexColumnSegmentCodec.encode(page.serialize());
     assertFalse(encoded.descriptor().length == 0);

@@ -67,8 +67,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private volatile boolean isClosed;
 
   /**
-   * Central repository of all resource-ID/resource-name tuples.
-   * Uses two synchronized maps (forward + inverse) as a replacement for Guava BiMap.
+   * Central repository of all resource-ID/resource-name tuples. Uses two synchronized maps (forward +
+   * inverse) as a replacement for Guava BiMap.
    */
   private final Map<Long, String> resourceIDsToResourceNames;
   private final Map<String, Long> resourceNamesToResourceIDs;
@@ -180,8 +180,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final Path path = dataDir.resolve(resourceConfig.resourcePath).normalize();
 
     if (!path.startsWith(dataDir)) {
-      throw new SirixUsageException("Invalid resource name: path traversal detected in '"
-          + resourceConfig.resourcePath + "'");
+      throw new SirixUsageException(
+          "Invalid resource name: path traversal detected in '" + resourceConfig.resourcePath + "'");
     }
 
     // If file is existing, skip.
@@ -256,8 +256,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         Files.createFile(encryptionKeyPath);
         final KeysetHandle handle =
             KeysetHandle.generateNew(PredefinedStreamingAeadParameters.AES256_CTR_HMAC_SHA256_4KB);
-        final String keysetJson =
-            TinkJsonProtoKeysetFormat.serializeKeyset(handle, InsecureSecretKeyAccess.get());
+        final String keysetJson = TinkJsonProtoKeysetFormat.serializeKeyset(handle, InsecureSecretKeyAccess.get());
         Files.writeString(encryptionKeyPath, keysetJson);
       } catch (final GeneralSecurityException | IOException e) {
         throw new IllegalStateException(e);
@@ -374,8 +373,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   /**
-   * BiMap-style forcePut: removes any existing mapping for either the key or the value,
-   * then inserts the new mapping into both forward and inverse maps.
+   * BiMap-style forcePut: removes any existing mapping for either the key or the value, then inserts
+   * the new mapping into both forward and inverse maps.
    */
   private void biMapForcePut(final long id, final String name) {
     // Remove existing mapping for this value (name) if present
@@ -429,26 +428,25 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   @Override
   public Transaction beginTransaction() {
-    throw new UnsupportedOperationException(
-        "Multi-resource transactions are not yet implemented. "
-            + "Use beginNodeTrx() on individual ResourceSession instances instead.");
+    throw new UnsupportedOperationException("Multi-resource transactions are not yet implemented. "
+        + "Use beginNodeTrx() on individual ResourceSession instances instead.");
   }
 
   /**
    * Close this database.
    *
-   * <p>Deregistration runs in a {@code finally} because {@code isClosed} is set before any of the
-   * cleanup that can throw. Without it, one exception out of {@code resourceStore.close()} left
-   * the instance flagged closed but still registered in the session pool, and every later
-   * {@code close()} returned at the guard above without ever retrying the removal — so the entry
-   * survived for the life of the JVM. {@link Databases#removeDatabase} refuses to delete anything
-   * while a handle is registered, so that one stranded entry made the database permanently
-   * un-removable; its files then outlived the removal, and because
-   * {@link Databases#createJsonDatabase} and {@link #createResource} both no-op silently when the
-   * target already exists, whatever was created at that path next silently reused the old
-   * resource — its committed data and its persisted index definitions included. That is how a
-   * write transaction ends up rebinding index listeners for indexes its own resource never
-   * defined.
+   * <p>
+   * Deregistration runs in a {@code finally} because {@code isClosed} is set before any of the
+   * cleanup that can throw. Without it, one exception out of {@code resourceStore.close()} left the
+   * instance flagged closed but still registered in the session pool, and every later {@code close()}
+   * returned at the guard above without ever retrying the removal — so the entry survived for the
+   * life of the JVM. {@link Databases#removeDatabase} refuses to delete anything while a handle is
+   * registered, so that one stranded entry made the database permanently un-removable; its files then
+   * outlived the removal, and because {@link Databases#createJsonDatabase} and
+   * {@link #createResource} both no-op silently when the target already exists, whatever was created
+   * at that path next silently reused the old resource — its committed data and its persisted index
+   * definitions included. That is how a write transaction ends up rebinding index listeners for
+   * indexes its own resource never defined.
    */
   @Override
   public synchronized void close() {

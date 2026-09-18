@@ -26,9 +26,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The standard FILE_CHANNEL backend now advertises an advisory prefetch batch, which switches on the
- * span hints the scan paths already issue. Read transactions see the batch, write transactions never
- * do, and hinting never changes what is read.
+ * The standard FILE_CHANNEL backend now advertises an advisory prefetch batch, which switches on
+ * the span hints the scan paths already issue. Read transactions see the batch, write transactions
+ * never do, and hinting never changes what is read.
  */
 final class RecordPagePrefetchGateTest {
   private static final int VALUES = 3_000;

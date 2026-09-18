@@ -104,7 +104,10 @@ final class ProjectionSortedSpanScan {
         ProjectionSortedGroupScan.SORTED_LOOKAHEAD, null);
   }
 
-  /** {@code lookahead} candidates taken together per step ({@code 1}: the serial loop); {@code stats} optional. */
+  /**
+   * {@code lookahead} candidates taken together per step ({@code 1}: the serial loop); {@code stats}
+   * optional.
+   */
   static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory, final int limit, final long divisor, final int lookahead,
       final ProjectionSortedGroupScan.@Nullable LookaheadStats stats) {
@@ -387,7 +390,9 @@ final class ProjectionSortedSpanScan {
     stagedOrdinals[stagedCount++] = ordinal;
   }
 
-  /** The staged summary for {@code ordinal}, handed over once; {@code null} when it was not staged. */
+  /**
+   * The staged summary for {@code ordinal}, handed over once; {@code null} when it was not staged.
+   */
   private @Nullable ProjectionSortedLeaf takeStaged(final int ordinal) {
     for (int i = 0; i < stagedCount; i++) {
       if (stagedOrdinals[i] == ordinal) {
@@ -504,8 +509,8 @@ final class ProjectionSortedSpanScan {
         checkKey = new byte[length];
       }
       summary.copyKeyTo(row, checkKey);
-      if (!layout.isGroup(checkKey, length)
-          || summary.payloadLength(row) != payload.length || row == 0 && !equalsFirst(ordinal, checkKey, length)
+      if (!layout.isGroup(checkKey, length) || summary.payloadLength(row) != payload.length
+          || row == 0 && !equalsFirst(ordinal, checkKey, length)
           || row > 0 && Arrays.compareUnsigned(previousKey, 0, previousLength, checkKey, 0, length) >= 0) {
         throw new IllegalStateException("sorted span summary disagrees with its directory");
       }

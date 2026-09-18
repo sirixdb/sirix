@@ -44,9 +44,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 final class ProjectionSortedPrefixRangeTest {
 
-  private static final ProjectionSortKeyCodec.Layout LAYOUT = new ProjectionSortKeyCodec.Layout(new byte[] {
-      ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_STRING,
-      ProjectionSortKeyCodec.FIELD_LONG});
+  private static final ProjectionSortKeyCodec.Layout LAYOUT =
+      new ProjectionSortKeyCodec.Layout(new byte[] {ProjectionSortKeyCodec.FIELD_STRING,
+          ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_LONG});
 
   private static final String[][] PREFIXES = {{"a", "x"}, {"a", "y"}, {"b", "x"}, {"c", "x"}};
 
@@ -73,9 +73,8 @@ final class ProjectionSortedPrefixRangeTest {
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
         final int revision;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          final ProjectionSortedDirectory.Builder builder =
-              new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0),
-                  LAYOUT);
+          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(
+              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), LAYOUT);
           for (int from = 0, leaf = 0; from < keys.length; leaf++) {
             final int to = Math.min(keys.length, from + LEAF_SIZES[leaf % LEAF_SIZES.length]);
             builder.append(ProjectionSortedLeaf.encode(keys, null, from, to - from));
@@ -160,7 +159,8 @@ final class ProjectionSortedPrefixRangeTest {
   }
 
   private static void assertRoutes(final StorageEngineReader reader, final ProjectionSortedDirectory.Accessor directory,
-      final byte[] prefix, final byte[] upper, final List<Row> rows, final int limit, final ParallelWalkReaders workers) {
+      final byte[] prefix, final byte[] upper, final List<Row> rows, final int limit,
+      final ParallelWalkReaders workers) {
     final List<Group> minOnly = expected(rows, limit, Order.MIN_ASC, 1, true);
     final List<Group> minimum = expected(rows, limit, Order.MIN_ASC, 1, false);
     final List<Group> maximum = expected(rows, limit, Order.MAX_DESC, 1, false);
@@ -179,12 +179,30 @@ final class ProjectionSortedPrefixRangeTest {
       assertEquals(span, inOrder(reader, prefix, limit, Order.SPAN_DESC, divisor, false));
     }
     for (final boolean parallel : new boolean[] {false, true}) {
-      assertEquals(minOnly, ProjectionSortedGroupScan.topKFromSummaries(reader, 0, directory, prefix, upper, limit,
-          Order.MIN_ASC, 1, true, parallel ? workers : null, parallel ? 4 : 0));
-      assertEquals(minimum, ProjectionSortedGroupScan.topKFromSummaries(reader, 0, directory, prefix, upper, limit,
-          Order.MIN_ASC, 1, false, parallel ? workers : null, parallel ? 4 : 0));
-      assertEquals(maximum, ProjectionSortedGroupScan.topKFromSummaries(reader, 0, directory, prefix, upper, limit,
-          Order.MAX_DESC, 1, false, parallel ? workers : null, parallel ? 4 : 0));
+      assertEquals(minOnly,
+          ProjectionSortedGroupScan.topKFromSummaries(reader, 0, directory, prefix, upper, limit, Order.MIN_ASC, 1,
+              true, parallel
+                  ? workers
+                  : null,
+              parallel
+                  ? 4
+                  : 0));
+      assertEquals(minimum,
+          ProjectionSortedGroupScan.topKFromSummaries(reader, 0, directory, prefix, upper, limit, Order.MIN_ASC, 1,
+              false, parallel
+                  ? workers
+                  : null,
+              parallel
+                  ? 4
+                  : 0));
+      assertEquals(maximum,
+          ProjectionSortedGroupScan.topKFromSummaries(reader, 0, directory, prefix, upper, limit, Order.MAX_DESC, 1,
+              false, parallel
+                  ? workers
+                  : null,
+              parallel
+                  ? 4
+                  : 0));
     }
     assertEquals(minOnly, inOrder(reader, prefix, limit, Order.MIN_ASC, 1, true));
     assertEquals(minimum, inOrder(reader, prefix, limit, Order.MIN_ASC, 1, false));
@@ -193,7 +211,9 @@ final class ProjectionSortedPrefixRangeTest {
     assertEquals(maximum, ProjectionSortedGroupScan.topK(reader, 0, prefix, limit, Order.MAX_DESC, 1, false, workers));
   }
 
-  /** The full-key route: a prefix seek, then an in-order walk that stops at the first key outside it. */
+  /**
+   * The full-key route: a prefix seek, then an in-order walk that stops at the first key outside it.
+   */
   private static @Nullable List<Group> inOrder(final StorageEngineReader reader, final byte[] prefix, final int limit,
       final Order order, final long divisor, final boolean minOnly) {
     final String previous = System.getProperty("sirix.projection.sortedGroupSummaries");
@@ -214,8 +234,7 @@ final class ProjectionSortedPrefixRangeTest {
       final long divisor, final boolean minOnly) {
     final Map<String, long[]> extrema = new HashMap<>();
     for (final Row row : rows) {
-      final long[] range =
-          extrema.computeIfAbsent(row.group(), ignored -> new long[] {Long.MAX_VALUE, Long.MIN_VALUE});
+      final long[] range = extrema.computeIfAbsent(row.group(), ignored -> new long[] {Long.MAX_VALUE, Long.MIN_VALUE});
       range[0] = Math.min(range[0], row.value());
       range[1] = Math.max(range[1], row.value());
     }
@@ -226,8 +245,8 @@ final class ProjectionSortedPrefixRangeTest {
     final Comparator<Group> comparator = switch (order) {
       case MIN_ASC -> Comparator.comparingLong(Group::min);
       case MAX_DESC -> Comparator.comparingLong(Group::max).reversed();
-      case SPAN_DESC -> Comparator.<Group>comparingLong(group -> group.max() / divisor - group.min() / divisor)
-          .reversed();
+      case SPAN_DESC ->
+        Comparator.<Group>comparingLong(group -> group.max() / divisor - group.min() / divisor).reversed();
     };
     groups.sort(comparator);
     for (int i = 1; i < Math.min(groups.size(), limit + 1); i++) {

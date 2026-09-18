@@ -63,8 +63,8 @@ final class ProjectionStoreKindConsistencyTest {
   }
 
   /**
-   * Above {@code PARALLEL_VERIFY_MIN_LEAVES} the constructor checks the leaves on the common pool. The
-   * refusal must still name the LOWEST disagreeing leaf (two disagree here, in reverse discovery
+   * Above {@code PARALLEL_VERIFY_MIN_LEAVES} the constructor checks the leaves on the common pool.
+   * The refusal must still name the LOWEST disagreeing leaf (two disagree here, in reverse discovery
    * order), carry the same typed exception, and a store of the same size whose leaves agree must
    * construct — the control that proves the parallel route ran to completion.
    */

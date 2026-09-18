@@ -480,18 +480,20 @@ public interface StorageEngineReader extends AutoCloseable {
    * @param reference the page reference
    * @return the page (HOTLeafPage or HOTIndirectPage), or null if not found
    */
-  @Nullable Page loadHOTPage(PageReference reference);
+  @Nullable
+  Page loadHOTPage(PageReference reference);
 
   /**
-   * Load a HOT page, transferring one lifetime guard to the caller when the result is a leaf.
-   * The guard must be acquired before a newly loaded leaf becomes evictable, and retained across
-   * cache handoff. The caller must release it with {@link HOTLeafPage#releaseGuard()}.
-   * Indirect pages require no guard. A lost eviction race must reload, never report absence.
+   * Load a HOT page, transferring one lifetime guard to the caller when the result is a leaf. The
+   * guard must be acquired before a newly loaded leaf becomes evictable, and retained across cache
+   * handoff. The caller must release it with {@link HOTLeafPage#releaseGuard()}. Indirect pages
+   * require no guard. A lost eviction race must reload, never report absence.
    *
    * @param reference the page reference
    * @return the guarded leaf, an indirect page, or {@code null} if the reference has no page
    */
-  @Nullable Page loadHOTPageAndGuard(PageReference reference);
+  @Nullable
+  Page loadHOTPageAndGuard(PageReference reference);
 
   /**
    * Load the raw HOT leaf fragments of {@code chainRef}'s versioning window, newest first and

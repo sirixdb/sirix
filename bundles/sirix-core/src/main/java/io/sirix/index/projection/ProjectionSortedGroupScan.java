@@ -35,19 +35,22 @@ public final class ProjectionSortedGroupScan {
    * candidate ORDER is fixed before the first read; only the stop point depends on the data, so the
    * next {@code window} candidates are known and their leaves can be in flight at once — cold, each
    * one otherwise waits its own device round trip. {@code 1} restores the one-read-per-step loop
-   * exactly; at most {@code window - 1} leaves (twice that for run edges in the span scan) are fetched
-   * past the stop point for nothing. Conservative default; {@code -Dsirix.projection.sortedLookahead=N}.
+   * exactly; at most {@code window - 1} leaves (twice that for run edges in the span scan) are
+   * fetched past the stop point for nothing. Conservative default;
+   * {@code -Dsirix.projection.sortedLookahead=N}.
    */
   static final int SORTED_LOOKAHEAD =
       Math.max(1, Math.min(64, Integer.getInteger("sirix.projection.sortedLookahead", 8)));
 
-  /** Lookahead accounting on stderr, only under {@code -Dsirix.projDiag=true}; never in timed runs. */
+  /**
+   * Lookahead accounting on stderr, only under {@code -Dsirix.projDiag=true}; never in timed runs.
+   */
   static final boolean LOOKAHEAD_DIAG = Boolean.getBoolean("sirix.projDiag");
 
   /**
    * Lookahead accounting for the focused equivalence tests and the diagnostic line: leaves fetched
-   * ahead, leaves of those actually consumed, and reads charged (the count the serial loop would
-   * have made, and for the span scan the count its budget saw).
+   * ahead, leaves of those actually consumed, and reads charged (the count the serial loop would have
+   * made, and for the span scan the count its budget saw).
    */
   static final class LookaheadStats {
     int fetched;
@@ -94,10 +97,10 @@ public final class ProjectionSortedGroupScan {
   }
 
   /**
-   * Grouped extrema over the rows whose leading key fields equal the encoded {@code prefix}: the
-   * next key field groups and the last, ordered long field is aggregated. The prefix bounds every
-   * route to one contiguous key range. Catalog-owned workers must open independent readers at the
-   * caller's committed revision.
+   * Grouped extrema over the rows whose leading key fields equal the encoded {@code prefix}: the next
+   * key field groups and the last, ordered long field is aggregated. The prefix bounds every route to
+   * one contiguous key range. Catalog-owned workers must open independent readers at the caller's
+   * committed revision.
    */
   static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber, final byte[] prefix,
       final int limit, final Order order, final long spanDivisor, final boolean minOnly,
@@ -127,9 +130,8 @@ public final class ProjectionSortedGroupScan {
     if (!"false".equals(System.getProperty("sirix.projection.sortedGroupSummaries"))) {
       if (order == Order.SPAN_DESC && !reader.hasTrxIntentLog()
           && !"false".equals(System.getProperty("sirix.projection.sortedSpanBounds"))) {
-        final List<Group> bounded =
-            ProjectionSortedSpanScan.topK(reader, indexNumber, directory, prefix, upper, limit, spanDivisor,
-                SORTED_LOOKAHEAD, null);
+        final List<Group> bounded = ProjectionSortedSpanScan.topK(reader, indexNumber, directory, prefix, upper, limit,
+            spanDivisor, SORTED_LOOKAHEAD, null);
         if (bounded != null) {
           return bounded;
         }
@@ -144,9 +146,10 @@ public final class ProjectionSortedGroupScan {
       final int workers = workerReaders == null || reader.hasTrxIntentLog()
           || "false".equals(System.getProperty("sirix.projection.parallelSortedSummaries"))
               ? 0
-              : Math.min(MAX_SUMMARY_WORKERS, Math.min(Runtime.getRuntime().availableProcessors(),
-                  directory.leafCount(prefix, upper, MAX_SUMMARY_WORKERS * LEAVES_PER_SUMMARY_WORKER)
-                      / LEAVES_PER_SUMMARY_WORKER));
+              : Math.min(MAX_SUMMARY_WORKERS,
+                  Math.min(Runtime.getRuntime().availableProcessors(),
+                      directory.leafCount(prefix, upper, MAX_SUMMARY_WORKERS * LEAVES_PER_SUMMARY_WORKER)
+                          / LEAVES_PER_SUMMARY_WORKER));
       final List<Group> summarized = topKFromSummaries(reader, indexNumber, directory, prefix, upper, limit, order,
           spanDivisor, minOnly, workerReaders, workers);
       if (summarized != null) {
@@ -196,8 +199,8 @@ public final class ProjectionSortedGroupScan {
         return null;
       }
       final long groupMax = readOrderedLong(key, groupEnd + 1);
-      retained = offer(currentGroup, prefix.length, groupEnd, groupMin, groupMax, order, spanDivisor, winners,
-          minimums, maximums, scores, retained);
+      retained = offer(currentGroup, prefix.length, groupEnd, groupMin, groupMax, order, spanDivisor, winners, minimums,
+          maximums, scores, retained);
     }
     return finish(winners, minimums, maximums, scores, retained, limit);
   }
@@ -250,9 +253,9 @@ public final class ProjectionSortedGroupScan {
   }
 
   /**
-   * {@code lookahead} candidates' summaries are fetched together ahead of consumption; the break test,
-   * the missing-summary return and every validation run when a candidate is CONSUMED, exactly where
-   * the one-read-per-step loop ran them, so the decision sequence and the result are its own.
+   * {@code lookahead} candidates' summaries are fetched together ahead of consumption; the break
+   * test, the missing-summary return and every validation run when a candidate is CONSUMED, exactly
+   * where the one-read-per-step loop ran them, so the decision sequence and the result are its own.
    * {@code stats}, when given, receives the lookahead accounting. Only the leaves that can hold
    * {@code prefix} are candidates; a boundary leaf's bound also covers its other groups, which only
    * makes it a weaker, still valid lower bound.
@@ -364,8 +367,8 @@ public final class ProjectionSortedGroupScan {
           actualMin = Math.min(actualMin, min);
           actualMax = Math.max(actualMax, max);
           if (ProjectionSortKeyCodec.startsWith(key, length, prefix)) {
-            retained = offerDistinctMinimum(key, prefix.length, length, min, winners, minimums, maximums, scores,
-                retained);
+            retained =
+                offerDistinctMinimum(key, prefix.length, length, min, winners, minimums, maximums, scores, retained);
           }
         }
         if (summary.rowCount() == 0 || actualMin != boundMin || actualMax != candidates.maximums()[candidate]) {
@@ -399,8 +402,7 @@ public final class ProjectionSortedGroupScan {
         break;
       }
     }
-    return offer(group, from, to, minimum, minimum, Order.MIN_ASC, 1, winners, minimums, maximums, scores,
-        retained);
+    return offer(group, from, to, minimum, minimum, Order.MIN_ASC, 1, winners, minimums, maximums, scores, retained);
   }
 
   static @Nullable List<Group> topKFromSummaries(final StorageEngineReader reader, final int indexNumber,
@@ -612,9 +614,9 @@ public final class ProjectionSortedGroupScan {
   }
 
   /** Offer the group {@code group[from, to)}, which excludes the query's equality prefix. */
-  static int offer(final byte[] group, final int from, final int to, final long min, final long max,
-      final Order order, final long divisor, final byte[][] winners, final long[] minimums, final long[] maximums,
-      final long[] scores, final int retained) {
+  static int offer(final byte[] group, final int from, final int to, final long min, final long max, final Order order,
+      final long divisor, final byte[][] winners, final long[] minimums, final long[] maximums, final long[] scores,
+      final int retained) {
     final long score;
     try {
       score = switch (order) {

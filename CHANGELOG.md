@@ -21,6 +21,14 @@ All notable changes to SirixDB are documented in this file.
   `jn:create-projection-index` walk. Until the load's final commit the projection's metadata slot
   holds the stale tombstone, so an interrupted load leaves queries on the generic pipeline rather
   than on a half-filled index. See `docs/PROJECTION_INDEXES.md`.
+- **Sorted projection views** — a projection may declare sort columns (`ProjectionSortedSpec`, a
+  `ProjectionSpec` for load-time builds, or the optional fifth argument of
+  `jn:create-projection-index`) and then keeps every projected record ordered by them, like a
+  table's `ORDER BY` key. A grouped extremum whose string equality filter covers a leading run of
+  those columns is answered from that key range; commits maintain the view per touched leaf.
+  Projection indexes built by this code cannot be opened by earlier releases; downgrading means
+  dropping and rebuilding them. See `docs/PROJECTION_READ_PERFORMANCE.md` and the Compatibility
+  section of `docs/DISK_FORMAT.md`.
 - **Bulk JSON loaders for fresh resources** — `BulkJsonTreeAssembler` (sequential) and
   `ParallelBulkJsonImporter` (feeder scan + worker page builders + ordered adoption, for corpora
   whose top level is an array; NDJSON rides `NdjsonAsArrayInputStream`). Both build trees

@@ -377,8 +377,7 @@ public final class ProjectionRankPass {
     final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), indexNumber);
     final ProjectionIndexColumnSegmentCodec.EncodeWorkspace workspace =
         new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
-    final ProjectionFlagSummaryChunks.BuildWriter flagSummaryWriter =
-        new ProjectionFlagSummaryChunks.BuildWriter();
+    final ProjectionFlagSummaryChunks.BuildWriter flagSummaryWriter = new ProjectionFlagSummaryChunks.BuildWriter();
     int rewritten = 0;
     try (RandomAccessFile in = new RandomAccessFile(grouped.toFile(), "r")) {
       final byte[] record = new byte[TRIPLE_BYTES];

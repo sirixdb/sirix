@@ -20,9 +20,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 final class BorrowBatchInputResolutionTest {
 
   @ParameterizedTest(name = "batch={0}, overflow={1} -> {2}")
-  @CsvSource(nullValues = "unset", value = {"unset, unset, true", "unset, true, true", "unset, false, false",
-      "unset, '', true", "true, unset, true", "true, false, true", "'', false, true", "false, unset, false",
-      "false, true, false", "false, false, false"})
+  @CsvSource(nullValues = "unset",
+      value = {"unset, unset, true", "unset, true, true", "unset, false, false", "unset, '', true", "true, unset, true",
+          "true, false, true", "'', false, true", "false, unset, false", "false, true, false", "false, false, false"})
   void anExplicitBatchSwitchWinsAndAnUnsetOneFollowsTheOverflowSwitch(final @Nullable String batchInput,
       final @Nullable String overflowInput, final boolean expected) {
     final String previousBatch = System.getProperty(FileChannelReader.BORROW_BATCH_INPUT);

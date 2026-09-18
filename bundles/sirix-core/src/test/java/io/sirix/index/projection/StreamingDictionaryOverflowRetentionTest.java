@@ -60,16 +60,15 @@ final class StreamingDictionaryOverflowRetentionTest {
         "bounded carrier staging requires deterministically closed reservoirs");
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .storageType(StorageType.FILE_CHANNEL)
-          .versioningApproach(versioningType)
-          .hashKind(HashType.NONE)
-          .useDeweyIDs(false)
-          .storeNodeHistory(false)
-          .build());
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioningType)
+                                                   .hashKind(HashType.NONE)
+                                                   .useDeweyIDs(false)
+                                                   .storeNodeHistory(false)
+                                                   .build());
     }
     final ProjectionIndexBuilder.StreamingGlobalDictionary dictionary =
-        new ProjectionIndexBuilder.StreamingGlobalDictionary(0,
-            new GlobalValueDictionaryWriter(0, 64L << 20));
+        new ProjectionIndexBuilder.StreamingGlobalDictionary(0, new GlobalValueDictionaryWriter(0, 64L << 20));
     long headerKey = 0L;
     int maxResidentRecordPages = 0;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
@@ -100,9 +99,8 @@ final class StreamingDictionaryOverflowRetentionTest {
         final long activeBytes = Allocators.getInstance() instanceof FrameSlotAllocator allocator
             ? allocator.getActiveMemoryBytes()
             : -1L;
-        System.out.printf("epoch=%d values=%d residentRecordPages=%d pinned=%d activeFrameBytes=%d%n",
-            epoch + 1, (epoch + 1) * VALUES_PER_EPOCH, residentRecordPages,
-            writer.getLog().pinnedSize(), activeBytes);
+        System.out.printf("epoch=%d values=%d residentRecordPages=%d pinned=%d activeFrameBytes=%d%n", epoch + 1,
+            (epoch + 1) * VALUES_PER_EPOCH, residentRecordPages, writer.getLog().pinnedSize(), activeBytes);
       }
       transaction.commit();
     } finally {

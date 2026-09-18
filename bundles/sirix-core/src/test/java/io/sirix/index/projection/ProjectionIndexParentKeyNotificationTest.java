@@ -46,12 +46,12 @@ import static org.mockito.Mockito.when;
  * Parent-key propagation coverage for the projection notification hot path.
  *
  * <p>
- * The listener feeds a REAL {@link ProjectionBulkLoad} and reads the transaction's REAL path summary,
- * and every assertion on the load is against its observable state. Both classes are final, so a
- * Mockito mock of either is an inline retransformation of the production class itself; once earlier
- * tests have warmed the listener up, a JIT that inlined the real getter keeps running it and bypasses
- * the mock. Only interfaces are mocked here: the storage writer (the failure-injection seam), the
- * maintenance transaction and the record handed back by a read.
+ * The listener feeds a REAL {@link ProjectionBulkLoad} and reads the transaction's REAL path
+ * summary, and every assertion on the load is against its observable state. Both classes are final,
+ * so a Mockito mock of either is an inline retransformation of the production class itself; once
+ * earlier tests have warmed the listener up, a JIT that inlined the real getter keeps running it
+ * and bypasses the mock. Only interfaces are mocked here: the storage writer (the failure-injection
+ * seam), the maintenance transaction and the record handed back by a read.
  * </p>
  */
 final class ProjectionIndexParentKeyNotificationTest {
@@ -142,10 +142,8 @@ final class ProjectionIndexParentKeyNotificationTest {
     ProjectionBulkLoad load = null;
     try {
       wtx = session.beginNodeTrx();
-      new JsonShredder.Builder(wtx, JsonShredder.createStringReader("[{\"value\":1}]"), InsertPosition.AS_FIRST_CHILD)
-          .commitAfterwards()
-          .build()
-          .call();
+      new JsonShredder.Builder(wtx, JsonShredder.createStringReader("[{\"value\":1}]"),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
 
       final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
           List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER, IndexDef.DbType.JSON);

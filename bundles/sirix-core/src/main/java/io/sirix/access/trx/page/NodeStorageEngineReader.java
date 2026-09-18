@@ -743,12 +743,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // that into an attributable error instead of a ClassCastException deep in a scan.
     final var loadedPage = pageReader.read(reference, resourceSession.getResourceConfig());
     if (!(loadedPage instanceof OverflowPage segmentPage)) {
-      final SirixIOException dangling = new SirixIOException("Side-map overflow reference (offset key "
-          + reference.getKey() + ") resolved to "
-          + (loadedPage == null
-              ? "null"
-              : loadedPage.getClass().getSimpleName())
-          + " — dangling or corrupted side-map reference.");
+      final SirixIOException dangling =
+          new SirixIOException("Side-map overflow reference (offset key " + reference.getKey() + ") resolved to "
+              + (loadedPage == null
+                  ? "null"
+                  : loadedPage.getClass().getSimpleName())
+              + " — dangling or corrupted side-map reference.");
       retireUnadoptedPage(loadedPage, dangling);
       throw dangling;
     }
@@ -781,9 +781,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         continue;
       }
       if (!(loadedPage instanceof OverflowPage segmentPage)) {
-        final SirixIOException dangling = new SirixIOException("Side-map overflow reference (offset key "
-            + offsets[i] + ") resolved to " + loadedPage.getClass().getSimpleName()
-            + " — dangling or corrupted side-map reference.");
+        final SirixIOException dangling =
+            new SirixIOException("Side-map overflow reference (offset key " + offsets[i] + ") resolved to "
+                + loadedPage.getClass().getSimpleName() + " — dangling or corrupted side-map reference.");
         retireUnadoptedPages(loadedPages, 0, dangling);
         throw dangling;
       }
@@ -2363,9 +2363,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // the bytes in the page cache instead of each waiting its own device round trip.
     final PageReference[] fragmentRefs = new PageReference[count - 1];
     for (int i = 1; i < count; i++) {
-      fragmentRefs[i - 1] = new PageReference().setKey(fragmentKeys.get(i - 1).key())
-                                               .setDatabaseId(databaseId)
-                                               .setResourceId(resourceId);
+      fragmentRefs[i - 1] =
+          new PageReference().setKey(fragmentKeys.get(i - 1).key()).setDatabaseId(databaseId).setResourceId(resourceId);
     }
     hintDurableReferences(fragmentRefs, count - 1);
     try {
@@ -2901,8 +2900,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     try {
       for (; handed < count; handed++) {
         if (!(loaded[handed] instanceof KeyValueLeafPage recordPage)) {
-          throw new SirixIOException("Durable key " + references[handed].getKey()
-              + " does not reference a record page");
+          throw new SirixIOException(
+              "Durable key " + references[handed].getKey() + " does not reference a record page");
         }
         pages.add(recordPage);
       }
@@ -3175,15 +3174,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * read per fragment: a guarded probe of the fragment cache for every key, then ONE
    * {@link Reader#read(PageReference[], ResourceConfiguration)} for every miss — the backend
    * coalesces adjacent fragments into ranged reads and hints the whole batch before the first pread,
-   * so the misses' device round trips overlap instead of queueing behind each other. Each loaded
-   * page is then adopted through the same atomic cache-or-store as before, the loser of an adoption
-   * race is closed, and the result is sorted by revision exactly as the per-fragment loop sorted it.
+   * so the misses' device round trips overlap instead of queueing behind each other. Each loaded page
+   * is then adopted through the same atomic cache-or-store as before, the loser of an adoption race
+   * is closed, and the result is sorted by revision exactly as the per-fragment loop sorted it.
    *
    * <p>
-   * Reads happen on THIS thread with the reader this transaction already owns: borrowing a reader
-   * per fragment took a storage-wide monitor twice per fragment (measured at 19.07 ms of thread time
-   * per reconstructed page against 0.92 ms to merge it), and hopping to another thread bought nothing
-   * for a caller that blocks on the result anyway.
+   * Reads happen on THIS thread with the reader this transaction already owns: borrowing a reader per
+   * fragment took a storage-wide monitor twice per fragment (measured at 19.07 ms of thread time per
+   * reconstructed page against 0.92 ms to merge it), and hopping to another thread bought nothing for
+   * a caller that blocks on the result anyway.
    *
    * <p>
    * On failure every guard this call took is released and every page the batch read but nobody
@@ -3214,7 +3213,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           misses = new PageReference[count - i];
           missKeys = new PageFragmentKey[count - i];
         }
-        misses[missCount] = new PageReference().setKey(fragment.key()).setDatabaseId(databaseId).setResourceId(resourceId);
+        misses[missCount] =
+            new PageReference().setKey(fragment.key()).setDatabaseId(databaseId).setResourceId(resourceId);
         missKeys[missCount++] = fragment;
       }
       if (missCount > 0) {
@@ -3281,12 +3281,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /**
-   * The backend's batched read for a chain's durable references. A backend that answers the batch form
-   * with nothing at all — a partial implementation, a test double stubbing only the scalar read — gets
-   * the scalar reads the batch replaced, one per reference, so it still serves every load it served
-   * before; a misaligned answer is a backend fault and is reported as one, with whatever it returned
-   * retired rather than leaked. Real backends take neither branch: the contract is one page per
-   * reference, input-aligned.
+   * The backend's batched read for a chain's durable references. A backend that answers the batch
+   * form with nothing at all — a partial implementation, a test double stubbing only the scalar read
+   * — gets the scalar reads the batch replaced, one per reference, so it still serves every load it
+   * served before; a misaligned answer is a backend fault and is reported as one, with whatever it
+   * returned retired rather than leaked. Real backends take neither branch: the contract is one page
+   * per reference, input-aligned.
    */
   private Page[] readDurableBatch(final PageReference[] references) {
     final Page[] loaded = pageReader.read(references, resourceConfig);
@@ -3303,8 +3303,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return scalar;
     }
     if (loaded.length != references.length) {
-      final SirixIOException misaligned = new SirixIOException("Backend returned " + loaded.length + " pages for "
-          + references.length + " references");
+      final SirixIOException misaligned =
+          new SirixIOException("Backend returned " + loaded.length + " pages for " + references.length + " references");
       retireUnadoptedPages(loaded, 0, misaligned);
       throw misaligned;
     }
@@ -3314,9 +3314,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   /**
    * Advisory read-ahead for the fragments of a chain that are not resident in the fragment cache,
    * issued before the chain's first fragment is read so the device works on all of them at once.
-   * Gated on the backend's batch (zero probes, zero syscalls on a backend without the primitive);
-   * not on the intent log — fragment keys are committed offsets, valid for a writer's reader too.
-   * A declined hint changes nothing: the pages read normally afterwards.
+   * Gated on the backend's batch (zero probes, zero syscalls on a backend without the primitive); not
+   * on the intent log — fragment keys are committed offsets, valid for a writer's reader too. A
+   * declined hint changes nothing: the pages read normally afterwards.
    */
   private void hintUncachedFragments(final List<PageFragmentKey> fragments) {
     if (recordPagePrefetchBatch == 0) {
@@ -4039,8 +4039,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /**
-   * Load the chain fragments of a HOT leaf window through {@link BufferManager#getHOTLeafFragmentCache()},
-   * GUARDED, appending them to {@code fragments} in chain order.
+   * Load the chain fragments of a HOT leaf window through
+   * {@link BufferManager#getHOTLeafFragmentCache()}, GUARDED, appending them to {@code fragments} in
+   * chain order.
    *
    * <p>
    * Every key of the chain is known before the first read, so the window is loaded in TWO passes
@@ -4098,9 +4099,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     int missCount = 0;
     try {
       for (int i = 0; i < count; i++) {
-        final PageReference fragmentRef = new PageReference().setKey(pageFragments.get(i).key())
-                                                             .setDatabaseId(databaseId)
-                                                             .setResourceId(resourceId);
+        final PageReference fragmentRef =
+            new PageReference().setKey(pageFragments.get(i).key()).setDatabaseId(databaseId).setResourceId(resourceId);
         HOTLeafPage cached = null;
         try {
           cached = fragmentCache.getAndGuard(fragmentRef);
@@ -4167,15 +4167,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
       final int physicalRevision = hotFragment.getRevision();
       if (fragmentKey.revision() != physicalRevision) {
-        throw new SirixIOException("HOT fragment revision mismatch at key " + fragmentKey.key()
-            + ": metadata revision=" + fragmentKey.revision() + ", physical header revision=" + physicalRevision);
+        throw new SirixIOException("HOT fragment revision mismatch at key " + fragmentKey.key() + ": metadata revision="
+            + fragmentKey.revision() + ", physical header revision=" + physicalRevision);
       }
     }
   }
 
   /**
-   * Adopt one freshly read chain fragment into the fragment cache, guarded for the caller; the
-   * scalar tail of the load described on {@link #loadChainFragmentsGuarded}.
+   * Adopt one freshly read chain fragment into the fragment cache, guarded for the caller; the scalar
+   * tail of the load described on {@link #loadChainFragmentsGuarded}.
    *
    * @return the guarded fragment, or {@code null} if the page is absent or not a HOT leaf
    */
@@ -4226,8 +4226,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /**
-   * Free the pages a batch read that no adoption ever reached (a failure part way), best effort. Pages
-   * of a backend that {@linkplain Reader#returnsSharedPages() returns shared pages} stay with it.
+   * Free the pages a batch read that no adoption ever reached (a failure part way), best effort.
+   * Pages of a backend that {@linkplain Reader#returnsSharedPages() returns shared pages} stay with
+   * it.
    */
   private void retireUnadoptedPages(final Page[] loaded, final int from, final Throwable primary) {
     if (pageReader.returnsSharedPages()) {

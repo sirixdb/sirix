@@ -14,8 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * The catalog's resident weight of a directory list is reduced on the common pool above a size
  * threshold. The sum must equal an independent serial fold of the same per-leaf formula for both a
- * small list (the serial route) and a large one (the parallel route), so the handle weight a
- * cache admits with cannot depend on which route computed it.
+ * small list (the serial route) and a large one (the parallel route), so the handle weight a cache
+ * admits with cannot depend on which route computed it.
  */
 final class ProjectionResidentWeightTest {
 
@@ -31,7 +31,9 @@ final class ProjectionResidentWeightTest {
     assertEquals(0L, ProjectionIndexCatalog.residentWeightOf(List.of()));
   }
 
-  /** The per-leaf formula of {@code ProjectionIndexCatalog.residentWeightOf(byte[])}, folded serially. */
+  /**
+   * The per-leaf formula of {@code ProjectionIndexCatalog.residentWeightOf(byte[])}, folded serially.
+   */
   private static long oracle(final List<RowGroupDirectory> directories) {
     long bytes = 0;
     for (final RowGroupDirectory directory : directories) {

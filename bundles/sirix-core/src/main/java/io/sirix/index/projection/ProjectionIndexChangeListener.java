@@ -2440,10 +2440,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   /**
    * Apply exact key changes after the base rows are patched and before metadata is published. A
    * record's prior key is what the view holds for it: the key of its last state seen in this
-   * transaction, otherwise of the revision the writer represents (which after {@code revertTo} is
-   * the reverted-to revision). A view built inside this transaction holds build-time keys instead,
-   * so there each derived prior key is checked against the view and any other record is found by
-   * one scan. The whole pass is one batched edit that rewrites each touched leaf once.
+   * transaction, otherwise of the revision the writer represents (which after {@code revertTo} is the
+   * reverted-to revision). A view built inside this transaction holds build-time keys instead, so
+   * there each derived prior key is checked against the view and any other record is found by one
+   * scan. The whole pass is one batched edit that rewrites each touched leaf once.
    */
   private void maintainSortedView(final ProjectionIndexHOTStorage storage, final LongOpenHashSet dirty,
       final Long2LongOpenHashMap locationByRecord) {
@@ -2458,8 +2458,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     boolean needsPrior = false;
     for (final LongIterator iterator = dirty.iterator(); iterator.hasNext();) {
       final long recordKey = iterator.nextLong();
-      if (!keys.containsKey(recordKey)
-          && locationByRecord.get(recordKey) != ProjectionPersistedRecordLookup.ABSENT) {
+      if (!keys.containsKey(recordKey) && locationByRecord.get(recordKey) != ProjectionPersistedRecordLookup.ABSENT) {
         needsPrior = true;
         break;
       }
@@ -2472,10 +2471,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final int priorRevision = storageEngineWriter.getRevisionToRepresent();
     final var session = maintenanceTrx.getResourceSession();
     LongOpenHashSet unresolved = null;
-    try (NodeReadOnlyTrx priorReader = needsPrior ? session.beginNodeReadOnlyTrx(priorRevision) : null;
-        PathSummaryReader priorPaths = needsPrior ? session.openPathSummary(priorRevision) : null) {
-      final boolean viewPredatesTransaction = needsPrior
-          && ProjectionSortedDirectory.open(priorReader.getStorageEngineReader(), indexDef.getID()) != null;
+    try (NodeReadOnlyTrx priorReader = needsPrior
+        ? session.beginNodeReadOnlyTrx(priorRevision)
+        : null;
+        PathSummaryReader priorPaths = needsPrior
+            ? session.openPathSummary(priorRevision)
+            : null) {
+      final boolean viewPredatesTransaction =
+          needsPrior && ProjectionSortedDirectory.open(priorReader.getStorageEngineReader(), indexDef.getID()) != null;
       final ProjectionIndexRowExtractor priorExtractor = needsPrior
           ? new ProjectionIndexRowExtractor(indexDef, priorPaths)
           : null;
@@ -2550,9 +2553,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   /** One ordered scan of the transaction's view for the rows of the given records. */
   private Long2ObjectOpenHashMap<byte[]> findViewKeys(final LongOpenHashSet recordKeys) {
     final Long2ObjectOpenHashMap<byte[]> found = new Long2ObjectOpenHashMap<>(recordKeys.size());
-    final ProjectionSortedDirectory.Accessor view =
-        Objects.requireNonNull(ProjectionSortedDirectory.open(storageEngineWriter, indexDef.getID()),
-            "sorted projection directory");
+    final ProjectionSortedDirectory.Accessor view = Objects.requireNonNull(
+        ProjectionSortedDirectory.open(storageEngineWriter, indexDef.getID()), "sorted projection directory");
     final ProjectionSortedDirectory.Accessor.Cursor cursor = view.first();
     byte[] key = new byte[128];
     while (cursor.isValid() && found.size() < recordKeys.size()) {
@@ -3243,8 +3245,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     } else {
       if ((prior.flags() & ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE) != 0) {
         if (sign < 0) {
-          throw new IllegalStateException("scalar summary covers an unrepresentable old slice at column "
-              + persistedColumn);
+          throw new IllegalStateException(
+              "scalar summary covers an unrepresentable old slice at column " + persistedColumn);
         }
         totals.disable(persistedColumn);
         return;

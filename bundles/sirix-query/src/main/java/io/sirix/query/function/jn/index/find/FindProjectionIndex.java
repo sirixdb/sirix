@@ -24,25 +24,24 @@ import java.util.List;
 
 /**
  * <p>
- * Function for finding a projection index by its shape — the projection
- * sibling of {@code jn:find-path-index}. Returns the index definition
- * number, or {@code -1} if no projection with that shape is catalogued at
- * the document's revision. Supported signature:
+ * Function for finding a projection index by its shape — the projection sibling of
+ * {@code jn:find-path-index}. Returns the index definition number, or {@code -1} if no projection
+ * with that shape is catalogued at the document's revision. Supported signature:
  * </p>
  * <ul>
  * <li><code>jn:find-projection-index($doc as json-item(), $rootPath as
  * xs:string, $fields as xs:string*) as xs:int</code></li>
  * </ul>
  *
- * <p>Matching uses the parsed paths' canonical form (same identity rule as
- * {@code jn:create-projection-index}); declared column types are not part
- * of the lookup key here — shapes differing only in types are rare and the
- * id feeds {@code jn:drop-projection-index}, where dropping either is
- * intended. A sorted-view declaration is not part of the key either: the
- * function returns the first catalogued projection of the shape, sorted or
- * not. {@code jn:create-projection-index} without sort columns reuses that
- * same projection, so one shape normally has one definition; a second one
- * exists only when it was created with different sort columns.
+ * <p>
+ * Matching uses the parsed paths' canonical form (same identity rule as
+ * {@code jn:create-projection-index}); declared column types are not part of the lookup key here —
+ * shapes differing only in types are rare and the id feeds {@code jn:drop-projection-index}, where
+ * dropping either is intended. A sorted-view declaration is not part of the key either: the
+ * function returns the first catalogued projection of the shape, sorted or not.
+ * {@code jn:create-projection-index} without sort columns reuses that same projection, so one shape
+ * normally has one definition; a second one exists only when it was created with different sort
+ * columns.
  *
  * @author Johannes Lichtenberger
  */
@@ -64,8 +63,7 @@ public final class FindProjectionIndex extends AbstractFunction {
 
     final JsonDBItem document = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = document.getTrx();
-    final JsonIndexController controller =
-        rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
+    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     final Path<QNm> rootPath = Path.parse(((Str) args[1]).stringValue(), PathParser.Type.JSON);
     final List<Path<QNm>> fieldPaths = new ArrayList<>();
@@ -76,7 +74,10 @@ public final class FindProjectionIndex extends AbstractFunction {
       next = it.next();
     }
 
-    return controller.getIndexes().findProjectionIndex(rootPath, fieldPaths, null)
-        .map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));
+    return controller.getIndexes()
+                     .findProjectionIndex(rootPath, fieldPaths, null)
+                     .map(IndexDef::getID)
+                     .map(Int32::new)
+                     .orElse(new Int32(-1));
   }
 }

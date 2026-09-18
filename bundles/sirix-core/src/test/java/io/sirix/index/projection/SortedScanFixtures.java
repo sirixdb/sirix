@@ -18,7 +18,10 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-/** Sorted-projection fixtures shared by the lookahead equivalence tests (mirrors the span-scan test's). */
+/**
+ * Sorted-projection fixtures shared by the lookahead equivalence tests (mirrors the span-scan
+ * test's).
+ */
 final class SortedScanFixtures {
   /** A view keyed by one string group field and one ordered long value field. */
   static final ProjectionSortKeyCodec.Layout GROUP_VALUE = new ProjectionSortKeyCodec.Layout(
@@ -55,8 +58,8 @@ final class SortedScanFixtures {
   static void build(final JsonNodeTrx writer, final List<Row> rows, final int[] sizes) {
     final byte[][] keys = rows.stream().map(SortedScanFixtures::key).toArray(byte[][]::new);
     Arrays.sort(keys, Arrays::compareUnsigned);
-    final ProjectionSortedDirectory.Builder builder =
-        new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
+    final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(
+        new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
     for (int from = 0, batch = 0; from < keys.length; batch++) {
       final int to = Math.min(keys.length, from + sizes[batch % sizes.length]);
       final byte[][] leafKeys = Arrays.copyOfRange(keys, from, to);
@@ -81,7 +84,10 @@ final class SortedScanFixtures {
     return key.copyKey();
   }
 
-  /** Independent fold: the top-{@code limit} groups by span, {@code null} on a tie within or at the cut. */
+  /**
+   * Independent fold: the top-{@code limit} groups by span, {@code null} on a tie within or at the
+   * cut.
+   */
   static @Nullable List<Group> expectedSpan(final List<Row> rows, final int limit, final long divisor) {
     final Comparator<Group> comparator =
         Comparator.comparingLong(group -> group.max() / divisor - group.min() / divisor);

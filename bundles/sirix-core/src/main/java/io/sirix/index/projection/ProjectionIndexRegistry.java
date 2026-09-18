@@ -175,7 +175,9 @@ public final class ProjectionIndexRegistry {
         return null;
       }
       final Map<Integer, Map<String, Long>> counts = setValueRowCounts;
-      return counts == null ? null : counts.get(column);
+      return counts == null
+          ? null
+          : counts.get(column);
     }
 
     /** Attach the metadata's summary; called once, at construction time, by the catalog. */

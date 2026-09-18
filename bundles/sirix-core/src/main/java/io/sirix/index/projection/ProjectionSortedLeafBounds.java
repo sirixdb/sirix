@@ -13,9 +13,9 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * Revisioned extrema of bounded sorted leaves. One 272-byte chunk covers 16 physical leaf ids, small
- * enough to live inline in its trie entry: a chunk written by a build therefore never becomes a
- * staged side page, and maintenance later in the same transaction can still replace it.
+ * Revisioned extrema of bounded sorted leaves. One 272-byte chunk covers 16 physical leaf ids,
+ * small enough to live inline in its trie entry: a chunk written by a build therefore never becomes
+ * a staged side page, and maintenance later in the same transaction can still replace it.
  */
 final class ProjectionSortedLeafBounds {
   static final long SLOT_BASE = ProjectionSortedGroupSummary.SLOT_BASE + (1L << 32);
@@ -47,9 +47,9 @@ final class ProjectionSortedLeafBounds {
   }
 
   /**
-   * Coalesces one maintenance pass's bound changes: each touched chunk is copied once, edited in place
-   * for every touched leaf it covers, and published once. A published array is never edited again,
-   * because storage may retain it in an immutable page.
+   * Coalesces one maintenance pass's bound changes: each touched chunk is copied once, edited in
+   * place for every touched leaf it covers, and published once. A published array is never edited
+   * again, because storage may retain it in an immutable page.
    */
   static final class Updater {
     private final ProjectionIndexHOTStorage storage;
@@ -224,8 +224,8 @@ final class ProjectionSortedLeafBounds {
     return read(reader, indexNumber, leafIds, false);
   }
 
-  private static @Nullable Candidates read(final StorageEngineReader reader, final int indexNumber,
-      final int[] leafIds, final boolean orderByMinimum) {
+  private static @Nullable Candidates read(final StorageEngineReader reader, final int indexNumber, final int[] leafIds,
+      final boolean orderByMinimum) {
     final int count = leafIds.length;
     if (count > MAX_CANDIDATE_LEAVES) {
       return null;
@@ -308,10 +308,9 @@ final class ProjectionSortedLeafBounds {
     try {
       for (int from = 0; from < distinct; from += CHUNK_BATCH) {
         final int to = Math.min(distinct, from + CHUNK_BATCH);
-        final byte[][] batch = ProjectionIndexHOTStorage.readBlobBatch(reader, indexNumber,
-            from == 0 && to == distinct
-                ? slots
-                : Arrays.copyOfRange(slots, from, to));
+        final byte[][] batch = ProjectionIndexHOTStorage.readBlobBatch(reader, indexNumber, from == 0 && to == distinct
+            ? slots
+            : Arrays.copyOfRange(slots, from, to));
         System.arraycopy(batch, 0, chunks, from, to - from);
       }
     } catch (final RuntimeException batchFailure) {

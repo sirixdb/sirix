@@ -186,8 +186,7 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
         assertEquals(1, sequentialSession.getRecordChangeRevisions(key).length, "sequential key " + key);
         assertEquals(1, parallelSession.getRecordChangeRevisions(key).length, "parallel key " + key);
       }
-      for (final long key : new long[] {1, 2, 3, 1023, 1024, 1025, 2047, 2048, 2049, maxNodeKey - 1,
-          maxNodeKey}) {
+      for (final long key : new long[] {1, 2, 3, 1023, 1024, 1025, 2047, 2048, 2049, maxNodeKey - 1, maxNodeKey}) {
         assertEquals(1, parallelSession.getRecordChangeRevisions(key).length, "boundary key " + key);
       }
 

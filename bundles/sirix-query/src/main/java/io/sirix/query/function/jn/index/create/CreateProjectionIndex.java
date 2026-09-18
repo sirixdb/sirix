@@ -68,12 +68,12 @@ import java.util.function.Consumer;
  * <p>
  * {@code $sortColumns}, when non-empty, additionally declares a sorted view of every record ordered
  * by those columns, like a table's {@code ORDER BY} key. Each entry names one of {@code $fields},
- * spelled as a field path that parses to the same path; the columns must be string, long, boolean or
- * temporal. A query whose string equality filter covers a leading run of the sort columns, grouping
- * by the next column and taking the extremum of the last, is answered from that key range. Sort
- * columns refine a projection's identity only when they are given: a call with sort columns reuses
- * only a same-shape projection with exactly those sort columns, while a call without them reuses any
- * same-shape projection, sorted or not.
+ * spelled as a field path that parses to the same path; the columns must be string, long, boolean
+ * or temporal. A query whose string equality filter covers a leading run of the sort columns,
+ * grouping by the next column and taking the extremum of the last, is answered from that key range.
+ * Sort columns refine a projection's identity only when they are given: a call with sort columns
+ * reuses only a same-shape projection with exactly those sort columns, while a call without them
+ * reuses any same-shape projection, sorted or not.
  *
  * <p>
  * Projection indexes work like the other index families ({@code jn:create-path-index} etc.): each
@@ -222,8 +222,8 @@ public final class CreateProjectionIndex extends AbstractFunction {
    * The sort-column declaration: each entry must name a distinct declared field path of a sortable
    * type. Validated before any write transaction is begun, reused or reverted.
    */
-  private static @Nullable ProjectionSortedSpec sortedSpec(final Sequence sortColumns,
-      final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes) {
+  private static @Nullable ProjectionSortedSpec sortedSpec(final Sequence sortColumns, final List<Path<QNm>> fieldPaths,
+      final List<Type> fieldTypes) {
     final List<Integer> keyColumns = new ArrayList<>(fieldPaths.size());
     forEachString(sortColumns, value -> {
       final String canonical = Path.parse(value, PathParser.Type.JSON).toString();

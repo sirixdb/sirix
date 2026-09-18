@@ -88,17 +88,17 @@ final class ProjectionSortedBuildIntegrationTest {
       assertFalse(cursor.advance());
       assertEquals(1, directory.dataLeafCount());
       assertEquals(0, directory.unencodableRows());
-      assertEquals(List.of(new ProjectionSortedGroupScan.Group(null, 5, 5),
-              new ProjectionSortedGroupScan.Group("z", 20, 20)),
+      assertEquals(
+          List.of(new ProjectionSortedGroupScan.Group(null, 5, 5), new ProjectionSortedGroupScan.Group("z", 20, 20)),
           topK(reader, commitCreate, 2, ProjectionSortedGroupScan.Order.MIN_ASC, false));
       assertEquals(List.of(new ProjectionSortedGroupScan.Group("a", 30, 30)),
           topK(reader, commitCreate, 1, ProjectionSortedGroupScan.Order.MAX_DESC, false));
       assertEquals(List.of(new ProjectionSortedGroupScan.Group("b", 10, 10)),
           topK(reader, prefix("identity", "create"), 1, ProjectionSortedGroupScan.Order.MIN_ASC, true));
-      assertEquals(List.of(), topK(reader, prefix("commit", "delete"), 1, ProjectionSortedGroupScan.Order.MIN_ASC,
-          true));
-      assertEquals(List.of(new ProjectionSortedGroupScan.Group(null, 5, 5),
-              new ProjectionSortedGroupScan.Group("z", 20, 20)),
+      assertEquals(List.of(),
+          topK(reader, prefix("commit", "delete"), 1, ProjectionSortedGroupScan.Order.MIN_ASC, true));
+      assertEquals(
+          List.of(new ProjectionSortedGroupScan.Group(null, 5, 5), new ProjectionSortedGroupScan.Group("z", 20, 20)),
           sortedTopK(session, reader.getRevisionNumber(), Map.of("kind", "commit", "op", "create"), 2));
     }
 
@@ -132,11 +132,11 @@ final class ProjectionSortedBuildIntegrationTest {
       assertArrayEquals(oldKey, oldDirectory.seek(oldKey).copyKey());
       assertArrayEquals(newKey, newDirectory.seek(newKey).copyKey());
       assertFalse(Arrays.equals(oldKey, newDirectory.seek(oldKey).copyKey()));
-      assertEquals(List.of(new ProjectionSortedGroupScan.Group(null, 5, 5),
-              new ProjectionSortedGroupScan.Group("z", 20, 20)),
+      assertEquals(
+          List.of(new ProjectionSortedGroupScan.Group(null, 5, 5), new ProjectionSortedGroupScan.Group("z", 20, 20)),
           topK(before, commitCreate, 2, ProjectionSortedGroupScan.Order.MIN_ASC, true));
-      assertEquals(List.of(new ProjectionSortedGroupScan.Group(null, 5, 5),
-              new ProjectionSortedGroupScan.Group("b", 20, 20)),
+      assertEquals(
+          List.of(new ProjectionSortedGroupScan.Group(null, 5, 5), new ProjectionSortedGroupScan.Group("b", 20, 20)),
           sortedTopK(session, changedRevision, Map.of("kind", "commit", "op", "create"), 2));
     }
 
@@ -174,9 +174,12 @@ final class ProjectionSortedBuildIntegrationTest {
         JsonNodeTrx writer = session.beginNodeTrx()) {
       writer.moveToDocumentRoot();
       assertTrue(writer.moveToFirstChild());
-      insertedKey = writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"kind\":\"commit\",\"op\":\"create\",\"did\":\"c\",\"time\":40}"),
-          JsonNodeTrx.Commit.NO).getNodeKey();
+      insertedKey = writer
+                          .insertSubtreeAsFirstChild(
+                              JsonShredder.createStringReader(
+                                  "{\"kind\":\"commit\",\"op\":\"create\",\"did\":\"c\",\"time\":40}"),
+                              JsonNodeTrx.Commit.NO)
+                          .getNodeKey();
       writer.commit();
     }
     try (Database<JsonResourceSession> reopened = Databases.openJsonDatabase(databasePath);
@@ -226,7 +229,8 @@ final class ProjectionSortedBuildIntegrationTest {
           reverted = writer.getRevisionNumber();
           writer.commit();
         }
-        assertEquals(List.of(new ProjectionSortedGroupScan.Group("a", 50, 50),
+        assertEquals(
+            List.of(new ProjectionSortedGroupScan.Group("a", 50, 50),
                 new ProjectionSortedGroupScan.Group("b", 200, 200)),
             sortedTopK(session, reverted, Map.of("kind", "commit", "op", "create"), 2));
         final int revertedAgain;
@@ -236,7 +240,8 @@ final class ProjectionSortedBuildIntegrationTest {
           revertedAgain = writer.getRevisionNumber();
           writer.commit();
         }
-        assertEquals(List.of(new ProjectionSortedGroupScan.Group("a", 70, 70),
+        assertEquals(
+            List.of(new ProjectionSortedGroupScan.Group("a", 70, 70),
                 new ProjectionSortedGroupScan.Group("b", 200, 200)),
             sortedTopK(session, revertedAgain, Map.of("kind", "commit", "op", "create"), 2));
         try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revertedAgain)) {
@@ -277,7 +282,8 @@ final class ProjectionSortedBuildIntegrationTest {
           revision = writer.getRevisionNumber();
           writer.commit();
         }
-        assertEquals(List.of(new ProjectionSortedGroupScan.Group("a", 60, 60),
+        assertEquals(
+            List.of(new ProjectionSortedGroupScan.Group("a", 60, 60),
                 new ProjectionSortedGroupScan.Group("b", 200, 200)),
             sortedTopK(session, revision, Map.of("kind", "commit", "op", "create"), 2));
         try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
@@ -329,8 +335,7 @@ final class ProjectionSortedBuildIntegrationTest {
         final int repaired = session.getMostRecentRevisionNumber();
         assertEquals(0, unencodableRows(session, repaired));
         assertEquals(List.of(new ProjectionSortedGroupScan.Group("a", 100, 100),
-                new ProjectionSortedGroupScan.Group("b", 200, 200)),
-            sortedTopK(session, repaired, filter, 2));
+            new ProjectionSortedGroupScan.Group("b", 200, 200)), sortedTopK(session, repaired, filter, 2));
       }
     }
   }
@@ -371,8 +376,12 @@ final class ProjectionSortedBuildIntegrationTest {
         for (int i = 0; i < 12; i++) {
           rows.append(i == 0
               ? ""
-              : ",").append("{\"kind\":\"commit\",\"op\":\"create\",\"did\":\"d").append(i).append("\",\"time\":")
-              .append(1000 + i).append('}');
+              : ",")
+              .append("{\"kind\":\"commit\",\"op\":\"create\",\"did\":\"d")
+              .append(i)
+              .append("\",\"time\":")
+              .append(1000 + i)
+              .append('}');
         }
         rows.append(']');
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
@@ -396,7 +405,8 @@ final class ProjectionSortedBuildIntegrationTest {
         }
         assertEquals(1, writesByLeaf.size());
         assertEquals(1, writesByLeaf.get(1));
-        assertEquals(List.of(new ProjectionSortedGroupScan.Group("d0", 10, 10),
+        assertEquals(
+            List.of(new ProjectionSortedGroupScan.Group("d0", 10, 10),
                 new ProjectionSortedGroupScan.Group("d2", 12, 12)),
             sortedTopK(session, session.getMostRecentRevisionNumber(), Map.of("kind", "commit", "op", "create"), 2));
       }

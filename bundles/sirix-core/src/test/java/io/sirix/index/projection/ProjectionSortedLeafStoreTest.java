@@ -54,10 +54,14 @@ final class ProjectionSortedLeafStoreTest {
         }
         try (JsonNodeReadOnlyTrx oldReader = session.beginNodeReadOnlyTrx(oldRevision);
             JsonNodeReadOnlyTrx newReader = session.beginNodeReadOnlyTrx(newRevision)) {
-          final ProjectionSortedLeaf oldFirst = ProjectionSortedLeafStore.read(oldReader.getStorageEngineReader(), 0, 1);
-          final ProjectionSortedLeaf newFirst = ProjectionSortedLeafStore.read(newReader.getStorageEngineReader(), 0, 1);
-          final ProjectionSortedLeaf oldSecond = ProjectionSortedLeafStore.read(oldReader.getStorageEngineReader(), 0, 2);
-          final ProjectionSortedLeaf newSecond = ProjectionSortedLeafStore.read(newReader.getStorageEngineReader(), 0, 2);
+          final ProjectionSortedLeaf oldFirst =
+              ProjectionSortedLeafStore.read(oldReader.getStorageEngineReader(), 0, 1);
+          final ProjectionSortedLeaf newFirst =
+              ProjectionSortedLeafStore.read(newReader.getStorageEngineReader(), 0, 1);
+          final ProjectionSortedLeaf oldSecond =
+              ProjectionSortedLeafStore.read(oldReader.getStorageEngineReader(), 0, 2);
+          final ProjectionSortedLeaf newSecond =
+              ProjectionSortedLeafStore.read(newReader.getStorageEngineReader(), 0, 2);
           assertNotNull(oldFirst);
           assertNotNull(newFirst);
           assertNotNull(oldSecond);
@@ -80,8 +84,7 @@ final class ProjectionSortedLeafStoreTest {
         }
       }
     }
-    assertThrows(NullPointerException.class, () -> ProjectionSortedLeafStore.read(
-        (ProjectionIndexHOTStorage) null, 0));
+    assertThrows(NullPointerException.class, () -> ProjectionSortedLeafStore.read((ProjectionIndexHOTStorage) null, 0));
   }
 
   private static ProjectionSortedLeaf leaf(final byte value) {

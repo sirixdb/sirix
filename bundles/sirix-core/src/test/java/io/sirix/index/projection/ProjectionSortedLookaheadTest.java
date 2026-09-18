@@ -33,10 +33,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The lookahead windows of the Q4 bound walk and the Q5 best-first span scan must produce the serial
- * loop's results, tie outcomes and read-budget accounting exactly, for every window and every
- * versioning strategy, on deleted, inserted and reordered histories; their waste stays within the
- * documented bound.
+ * The lookahead windows of the Q4 bound walk and the Q5 best-first span scan must produce the
+ * serial loop's results, tie outcomes and read-budget accounting exactly, for every window and
+ * every versioning strategy, on deleted, inserted and reordered histories; their waste stays within
+ * the documented bound.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 final class ProjectionSortedLookaheadTest {
@@ -103,7 +103,8 @@ final class ProjectionSortedLookaheadTest {
               assertEquals(serial.charged, serial.charged);
               for (final int window : WINDOWS) {
                 final LookaheadStats stats = new LookaheadStats();
-                assertEquals(expected, ProjectionSortedSpanScan.topK(reader, 0, accessor, limit, divisor, window, stats),
+                assertEquals(expected,
+                    ProjectionSortedSpanScan.topK(reader, 0, accessor, limit, divisor, window, stats),
                     "span window " + window + " limit " + limit + " divisor " + divisor);
                 assertEquals(serial.charged, stats.charged,
                     "the budget must see the serial loop's reads (window " + window + ")");
@@ -114,11 +115,13 @@ final class ProjectionSortedLookaheadTest {
             }
             final List<Group> expectedMin = SortedScanFixtures.expectedMin(rows, limit);
             final LookaheadStats serialMin = new LookaheadStats();
-            final List<Group> serialBounds = ProjectionSortedGroupScan.topKFromBounds(reader, 0, accessor, limit, 1, serialMin);
+            final List<Group> serialBounds =
+                ProjectionSortedGroupScan.topKFromBounds(reader, 0, accessor, limit, 1, serialMin);
             assertEquals(expectedMin, serialBounds, "the bound walk must match an independent fold");
             for (final int window : WINDOWS) {
               final LookaheadStats stats = new LookaheadStats();
-              assertEquals(serialBounds, ProjectionSortedGroupScan.topKFromBounds(reader, 0, accessor, limit, window, stats),
+              assertEquals(serialBounds,
+                  ProjectionSortedGroupScan.topKFromBounds(reader, 0, accessor, limit, window, stats),
                   "bound window " + window + " limit " + limit);
               assertEquals(serialMin.charged, stats.charged, "bound walk reads (window " + window + ")");
               assertTrue(stats.wasted() <= window - 1, "waste " + stats.wasted() + " for window " + window);
@@ -143,7 +146,8 @@ final class ProjectionSortedLookaheadTest {
           writer.commit();
         }
         try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
-          final ProjectionSortedDirectory.Accessor accessor = ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0);
+          final ProjectionSortedDirectory.Accessor accessor =
+              ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0);
           for (final int window : WINDOWS) {
             assertEquals(List.of(new Group("c", -100, 100)),
                 ProjectionSortedSpanScan.topK(trx.getStorageEngineReader(), 0, accessor, 1, 3, window, null));
@@ -176,7 +180,8 @@ final class ProjectionSortedLookaheadTest {
           writer.commit();
         }
         try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
-          final ProjectionSortedDirectory.Accessor accessor = ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0);
+          final ProjectionSortedDirectory.Accessor accessor =
+              ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0);
           final LookaheadStats serial = new LookaheadStats();
           assertNull(ProjectionSortedSpanScan.topK(trx.getStorageEngineReader(), 0, accessor, 3, 1, 1, serial));
           assertTrue(serial.charged > 0);
@@ -218,7 +223,8 @@ final class ProjectionSortedLookaheadTest {
             assertEquals(List.of(new Group("a", 0, 1000)),
                 ProjectionSortedSpanScan.topK(first.getStorageEngineReader(), 0, firstAccessor, 1, 1, window, null),
                 "window " + window);
-            assertNull(ProjectionSortedSpanScan.topK(second.getStorageEngineReader(), 0, secondAccessor, 1, 1, window, null));
+            assertNull(
+                ProjectionSortedSpanScan.topK(second.getStorageEngineReader(), 0, secondAccessor, 1, 1, window, null));
             assertNull(ProjectionSortedGroupScan.topKFromBounds(second.getStorageEngineReader(), 0, secondAccessor, 1,
                 window, null));
           }

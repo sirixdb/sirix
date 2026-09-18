@@ -53,8 +53,8 @@ final class WriterRecordPageCacheTest {
   @Test
   void boundedCacheReusesOnlyTheExactOffsetHashAndFragmentHistoryAndDrainsAfterFailure() {
     final NodeStorageEngineReader reader = mock(NodeStorageEngineReader.class);
-    when(reader.readRecordPageFromExactReference(any(PageReference.class)))
-        .thenAnswer(invocation -> mock(KeyValueLeafPage.class));
+    when(reader.readRecordPageFromExactReference(any(PageReference.class))).thenAnswer(
+        invocation -> mock(KeyValueLeafPage.class));
     final WriterRecordPageCache cache = new WriterRecordPageCache(reader, WriterRecordPageCache.MIN_CAPACITY);
     final PageReference reference = new PageReference().setKey(100);
     final KeyValueLeafPage first = cache.get(reference);
@@ -90,8 +90,8 @@ final class WriterRecordPageCacheTest {
   @Test
   void absentAndPresentZeroChecksumsRequireSeparateReads() {
     final NodeStorageEngineReader reader = mock(NodeStorageEngineReader.class);
-    when(reader.readRecordPageFromExactReference(any(PageReference.class)))
-        .thenAnswer(invocation -> mock(KeyValueLeafPage.class));
+    when(reader.readRecordPageFromExactReference(any(PageReference.class))).thenAnswer(
+        invocation -> mock(KeyValueLeafPage.class));
     final PageReference reference = new PageReference().setKey(100);
     try (WriterRecordPageCache cache = new WriterRecordPageCache(reader, WriterRecordPageCache.MIN_CAPACITY)) {
       final KeyValueLeafPage unchecked = cache.get(reference);
@@ -129,8 +129,8 @@ final class WriterRecordPageCacheTest {
   @Test
   void primitiveIndexRetainsTheWorkingSetAndRemovesFailedReplacements() {
     final NodeStorageEngineReader reader = mock(NodeStorageEngineReader.class);
-    when(reader.readRecordPageFromExactReference(any(PageReference.class)))
-        .thenAnswer(invocation -> mock(KeyValueLeafPage.class));
+    when(reader.readRecordPageFromExactReference(any(PageReference.class))).thenAnswer(
+        invocation -> mock(KeyValueLeafPage.class));
     final int capacity = WriterRecordPageCache.MAX_CAPACITY;
     try (WriterRecordPageCache cache = new WriterRecordPageCache(reader, capacity)) {
       final KeyValueLeafPage[] pages = new KeyValueLeafPage[capacity];
@@ -146,7 +146,8 @@ final class WriterRecordPageCacheTest {
       assertThrows(IllegalStateException.class, () -> cache.get(replacement));
       verify(pages[0]).retire();
       assertNotSame(pages[0], cache.get(new PageReference().setKey(0)), "failed replacement left no stale slot");
-      assertSame(pages[capacity - 1], cache.get(new PageReference().setKey((long) (capacity - 1) << 32 | capacity - 1)));
+      assertSame(pages[capacity - 1],
+          cache.get(new PageReference().setKey((long) (capacity - 1) << 32 | capacity - 1)));
     }
   }
 
@@ -156,8 +157,12 @@ final class WriterRecordPageCacheTest {
     final Path path = directory.resolve("dictionary");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder("resource").versioningApproach(versioning)
-          .maxNumberOfRevisionsToRestore(3).storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build());
+      database.createResource(ResourceConfiguration.newBuilder("resource")
+                                                   .versioningApproach(versioning)
+                                                   .maxNumberOfRevisionsToRestore(3)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .storeDiffs(false)
+                                                   .build());
       try (JsonResourceSession session = database.beginResourceSession("resource");
           JsonNodeTrx trx = session.beginNodeTrx(Integer.MAX_VALUE, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         trx.insertObjectAsFirstChild();
@@ -208,7 +213,9 @@ final class WriterRecordPageCacheTest {
       for (int revision = 1; revision <= 2; revision++) {
         try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx(revision)) {
           assertEquals("updated", read(trx.getStorageEngineReader(), 1));
-          assertEquals(revision == 1 ? "neighbor" : "revision-two", read(trx.getStorageEngineReader(), 2));
+          assertEquals(revision == 1
+              ? "neighbor"
+              : "revision-two", read(trx.getStorageEngineReader(), 2));
         }
       }
     }

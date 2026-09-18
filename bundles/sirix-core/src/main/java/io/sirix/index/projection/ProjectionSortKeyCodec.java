@@ -9,21 +9,27 @@ import java.util.Objects;
 /**
  * Order-preserving keys for a projection's independently sorted access path.
  *
- * <p>Every declared field has one fixed type in the index definition. The caller appends fields in
+ * <p>
+ * Every declared field has one fixed type in the index definition. The caller appends fields in
  * that order and finishes a row with its stable record key. Missing sorts before present. Numeric
  * values use sign-flipped big-endian bytes; strings use unsigned UTF-8 bytes with zero escaping and
  * a zero-zero terminator. The resulting unsigned byte order is the tuple order, and a complete
- * field prefix can be used directly as a lower-bound seek key.</p>
+ * field prefix can be used directly as a lower-bound seek key.
+ * </p>
  *
- * <p>A row whose sort field cannot be represented exactly (an unrepresentable or non-integral cell,
- * or a string longer than {@link #MAX_STRING_FIELD_BYTES}) is kept under the reserved
+ * <p>
+ * A row whose sort field cannot be represented exactly (an unrepresentable or non-integral cell, or
+ * a string longer than {@link #MAX_STRING_FIELD_BYTES}) is kept under the reserved
  * {@link #UNENCODABLE} lead byte followed by its record key. Such keys sort after every ordinary
- * key, and the view counts them so readers can decline it while any exist.</p>
+ * key, and the view counts them so readers can decline it while any exist.
+ * </p>
  *
- * <p>A dictionary id is never a sort key: dictionary ids follow insertion order, not value order.
+ * <p>
+ * A dictionary id is never a sort key: dictionary ids follow insertion order, not value order.
  * Builders and mutation listeners must resolve a string's UTF-8 bytes before calling
  * {@link Writer#appendUtf8(byte[], int, int)}. The writer reuses its buffer across rows and copies
- * only when the caller retains a finished key.</p>
+ * only when the caller retains a finished key.
+ * </p>
  */
 final class ProjectionSortKeyCodec {
 
@@ -167,8 +173,8 @@ final class ProjectionSortKeyCodec {
     }
 
     /**
-     * Offset of the last field of a well-formed row key (every field, then the eight-byte record
-     * key), or -1. Unencodable keys are never well formed.
+     * Offset of the last field of a well-formed row key (every field, then the eight-byte record key),
+     * or -1. Unencodable keys are never well formed.
      */
     int lastFieldOffset(final byte[] key, final int length) {
       final int fieldsEnd = length - Long.BYTES;
@@ -203,7 +209,10 @@ final class ProjectionSortKeyCodec {
     }
   }
 
-  /** End of an escaped, zero-zero terminated present string field starting at {@code at}; -1 if malformed. */
+  /**
+   * End of an escaped, zero-zero terminated present string field starting at {@code at}; -1 if
+   * malformed.
+   */
   static int stringFieldEnd(final byte[] key, final int at, final int end) {
     for (int i = at + 1; i + 1 < end; i++) {
       if (key[i] == 0) {
@@ -247,7 +256,9 @@ final class ProjectionSortKeyCodec {
     void appendBoolean(final boolean value) {
       ensureCapacity(2);
       bytes[length++] = PRESENT;
-      bytes[length++] = value ? (byte) 1 : (byte) 0;
+      bytes[length++] = value
+          ? (byte) 1
+          : (byte) 0;
     }
 
     void appendUtf8(final byte[] value, final int offset, final int valueLength) {
@@ -325,7 +336,9 @@ final class ProjectionSortKeyCodec {
       if (required <= bytes.length) {
         return;
       }
-      final int doubled = bytes.length <= MAX_KEY_BYTES / 2 ? bytes.length << 1 : MAX_KEY_BYTES;
+      final int doubled = bytes.length <= MAX_KEY_BYTES / 2
+          ? bytes.length << 1
+          : MAX_KEY_BYTES;
       bytes = Arrays.copyOf(bytes, Math.max(required, doubled));
     }
   }

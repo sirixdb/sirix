@@ -254,8 +254,8 @@ public final class Indexes implements Materializable {
 
   /**
    * As {@link #findProjectionIndex(Path, List, List)}, additionally requiring exactly the given
-   * sorted-view declaration: {@code jn:create-projection-index} refines a projection's identity by its
-   * sort columns when they are given.
+   * sorted-view declaration: {@code jn:create-projection-index} refines a projection's identity by
+   * its sort columns when they are given.
    */
   public Optional<IndexDef> findProjectionIndex(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
       final List<Type> fieldTypesOrNull, final ProjectionSortedSpec sortedSpec) {
@@ -263,8 +263,8 @@ public final class Indexes implements Materializable {
     requireNonNull(fieldPaths);
     requireNonNull(sortedSpec);
     for (final IndexDef index : indexes) {
-      if (sortedSpec.equals(index.getProjectionSortedSpec()) && sameProjectionShape(index, rootPath,
-          fieldPaths, fieldTypesOrNull)) {
+      if (sortedSpec.equals(index.getProjectionSortedSpec())
+          && sameProjectionShape(index, rootPath, fieldPaths, fieldTypesOrNull)) {
         return Optional.of(index);
       }
     }

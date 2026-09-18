@@ -51,8 +51,7 @@ final class CompositePredicateSliceReuseTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {
-      "where $e.cat = 'keep' and $e.time_us ge 1024",
+  @ValueSource(strings = {"where $e.cat = 'keep' and $e.time_us ge 1024",
       "where ($e.cat = 'keep' or $e.cat = 'also') and $e.time_us ge 1024",
       "where ($e.cat = 'missing' or $e.cat = 'also') and $e.time_us ge 2048"})
   void filteredOperandsAreSharedWithoutPoisoningTheNextQuery(final String where) throws IOException {
@@ -63,9 +62,13 @@ final class CompositePredicateSliceReuseTest {
       if (row != 0) {
         data.append(',');
       }
-      data.append("{\"cat\":\"").append(categories[row / 1024])
-          .append("\",\"kind\":").append(row % 2)
-          .append(",\"time_us\":").append(row).append('}');
+      data.append("{\"cat\":\"")
+          .append(categories[row / 1024])
+          .append("\",\"kind\":")
+          .append(row % 2)
+          .append(",\"time_us\":")
+          .append(row)
+          .append('}');
     }
     data.append(']');
     try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
@@ -94,9 +97,9 @@ final class CompositePredicateSliceReuseTest {
           final long before = SirixVectorizedExecutor.groupAggSlicedServedCount();
           assertEquals(expectedFiltered, evaluate(vectorized, context, filtered));
           assertEquals(before + 1, SirixVectorizedExecutor.groupAggSlicedServedCount());
-          final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
-              session.getResourceConfig().getResource().toString(), session.getMostRecentRevisionNumber(),
-              new String[] {"[]"}, new String[] {"cat", "kind", "time_us"});
+          final ProjectionIndexRegistry.Handle handle =
+              ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(),
+                  session.getMostRecentRevisionNumber(), new String[] {"[]"}, new String[] {"cat", "kind", "time_us"});
           assertNotNull(handle);
           final ProjectionColumnStore columns = handle.columnStoreOrNull();
           assertNotNull(columns);

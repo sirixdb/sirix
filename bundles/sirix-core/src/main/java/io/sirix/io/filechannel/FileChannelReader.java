@@ -90,18 +90,18 @@ public final class FileChannelReader extends AbstractReader {
    *
    * <p>
    * {@code BATCH_READ_AHEAD} is how many pages of a batch may be hinted ahead of the batch's read
-   * cursor. Every caller today hands at most 1,024 references, so the default hints the WHOLE batch up
-   * front — the kernel then has every page of the batch in flight while the first run is still being
-   * read, instead of the sixteen-page trickle that kept a cold coalesced fill at queue depth one for
-   * most of its life. The bound exists for a pathological batch, not for the ordinary one.
+   * cursor. Every caller today hands at most 1,024 references, so the default hints the WHOLE batch
+   * up front — the kernel then has every page of the batch in flight while the first run is still
+   * being read, instead of the sixteen-page trickle that kept a cold coalesced fill at queue depth
+   * one for most of its life. The bound exists for a pathological batch, not for the ordinary one.
    *
    * <p>
    * {@code BATCH_READ_AHEAD_BYTES} is the tail hinted past an offset whose page length is unknown —
    * the last page of a run, or every page of an advisory {@link #prefetch} whose successor is farther
    * away than this. A page is bounded by the next page's offset in an append-only data file, so every
-   * other page's extent is exact and hinting it costs no bandwidth. 32 KiB covers the length header and
-   * the whole body of the typical page (the 100M JSONBench Q4/Q5 cold reads average 9–12 KiB) so the
-   * body read that follows the header is a cache hit rather than a second device round trip.
+   * other page's extent is exact and hinting it costs no bandwidth. 32 KiB covers the length header
+   * and the whole body of the typical page (the 100M JSONBench Q4/Q5 cold reads average 9–12 KiB) so
+   * the body read that follows the header is a cache hit rather than a second device round trip.
    */
   private static final int BATCH_READ_AHEAD =
       Math.max(0, Math.min(4096, Integer.getInteger("sirix.filechannel.batchReadAhead", 1024)));
@@ -111,8 +111,8 @@ public final class FileChannelReader extends AbstractReader {
   /**
    * Pages per advisory {@link #prefetch} batch advertised through {@link #preferredPrefetchBatch()};
    * {@code 0} disables the advisory route and restores the pre-hint behaviour of every caller (the
-   * HOT trie sibling window, the projection directory walk and the column-store sweep all gate on it).
-   * 32 matches the NVMe queue-depth sweet spot the callers were sized for.
+   * HOT trie sibling window, the projection directory walk and the column-store sweep all gate on
+   * it). 32 matches the NVMe queue-depth sweet spot the callers were sized for.
    */
   private static final int PREFETCH_BATCH =
       Math.max(0, Math.min(1024, Integer.getInteger("sirix.filechannel.prefetchBatch", 32)));
@@ -706,8 +706,8 @@ public final class FileChannelReader extends AbstractReader {
    *
    * <p>
    * The standard backend advertises its batch only where the advice can actually reach the kernel
-   * (Linux, extractable descriptor). Resolved once per reader — this is called once per transaction
-   * — so the scan loops that gate on it pay nothing per page.
+   * (Linux, extractable descriptor). Resolved once per reader — this is called once per transaction —
+   * so the scan loops that gate on it pay nothing per page.
    */
   @Override
   public int preferredPrefetchBatch() {
@@ -723,14 +723,14 @@ public final class FileChannelReader extends AbstractReader {
    * {@inheritDoc}
    *
    * <p>
-   * {@code posix_fadvise(WILLNEED)} over the referenced offsets: the kernel submits every page of
-   * the batch to the device at once and the {@link #read(PageReference, ResourceConfiguration)} that
+   * {@code posix_fadvise(WILLNEED)} over the referenced offsets: the kernel submits every page of the
+   * batch to the device at once and the {@link #read(PageReference, ResourceConfiguration)} that
    * follows for each of them finds the bytes in the page cache instead of waiting one device round
    * trip per page. Extents are derived from the SORTED keys — a page ends where the next one begins
    * in an append-only file — so touching pages merge into one advice call and only a page without a
-   * near successor is hinted with the bounded tail. Stages nothing, reads no page objects, and
-   * never throws: {@link PosixFadvise#adviseWillNeed} swallows every failure, so a declined hint
-   * leaves the subsequent reads exactly as they are without it.
+   * near successor is hinted with the bounded tail. Stages nothing, reads no page objects, and never
+   * throws: {@link PosixFadvise#adviseWillNeed} swallows every failure, so a declined hint leaves the
+   * subsequent reads exactly as they are without it.
    */
   @Override
   public void prefetch(final PageReference[] references, final int count) {
@@ -788,8 +788,8 @@ public final class FileChannelReader extends AbstractReader {
   /**
    * Resolves whether coalesced batch reads decode from the borrowed read buffer. An explicitly set
    * {@code sirix.filechannel.borrowBatchInput} decides on its own; while it is unset the batch path
-   * follows {@code sirix.io.borrowOverflowInput}, so setting only that switch to {@code false} restores
-   * owned input on both paths. With neither set, input is borrowed.
+   * follows {@code sirix.io.borrowOverflowInput}, so setting only that switch to {@code false}
+   * restores owned input on both paths. With neither set, input is borrowed.
    *
    * @return {@code true} if batch members may be decoded from the borrowed read buffer
    */

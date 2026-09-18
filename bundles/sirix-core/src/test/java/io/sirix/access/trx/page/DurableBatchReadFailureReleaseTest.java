@@ -42,10 +42,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Pages the reader's batched durable reads obtained from the backend must be released when the batch
- * fails part way: through the scalar fallback a backend without the batch primitive gets, and when a
- * side-map read, batched or single, resolves to a page of the wrong kind. A backend that hands out
- * the instances it stores keeps them: the same failures leave its pages open.
+ * Pages the reader's batched durable reads obtained from the backend must be released when the
+ * batch fails part way: through the scalar fallback a backend without the batch primitive gets, and
+ * when a side-map read, batched or single, resolves to a page of the wrong kind. A backend that
+ * hands out the instances it stores keeps them: the same failures leave its pages open.
  */
 final class DurableBatchReadFailureReleaseTest {
 
@@ -129,8 +129,8 @@ final class DurableBatchReadFailureReleaseTest {
   void sideMapBatchReleasesItsPagesWhenAMemberHasTheWrongKind() {
     final AtomicInteger releases = new AtomicInteger();
     final HOTLeafPage misplaced = leaf(20L, releases);
-    when(disk.read(any(PageReference[].class), any(ResourceConfiguration.class)))
-        .thenReturn(new Page[] {new OverflowPage(new byte[] {1, 2, 3}), misplaced});
+    when(disk.read(any(PageReference[].class), any(ResourceConfiguration.class))).thenReturn(
+        new Page[] {new OverflowPage(new byte[] {1, 2, 3}), misplaced});
 
     assertThrows(SirixIOException.class, () -> storage.readSideOverflowPageBatch(new long[] {10L, 20L}));
 

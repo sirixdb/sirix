@@ -169,8 +169,8 @@ public final class JsonBenchRunMain {
           + "Use --allow-missing-projection only for diagnostic generic-pipeline runs");
     }
     if (PHASE_DIAG) {
-      System.err.printf("[phase] projection header check=%.1f ms | t=%.1f..%.1f%n", (tLookup - t0) / 1e6,
-          t0 / 1e6, tLookup / 1e6);
+      System.err.printf("[phase] projection header check=%.1f ms | t=%.1f..%.1f%n", (tLookup - t0) / 1e6, t0 / 1e6,
+          tLookup / 1e6);
     }
   }
 
@@ -350,9 +350,8 @@ public final class JsonBenchRunMain {
             + "sortedScans=%d sortedGroupBys=%d predicateScans=%d valueEmissions=%d%n",
         SirixVectorizedExecutor.projectionCountsServed(), SirixVectorizedExecutor.groupAggServedCount(),
         SirixVectorizedExecutor.numericGroupByServedCount(), SirixVectorizedExecutor.groupAggSlicedServedCount(),
-        SirixVectorizedExecutor.groupAggSummaryServedCount(),
-        SirixVectorizedExecutor.groupDenseServedCount(), SirixVectorizedExecutor.sortedScanServedCount(),
-        SirixVectorizedExecutor.groupSortedServedCount(),
+        SirixVectorizedExecutor.groupAggSummaryServedCount(), SirixVectorizedExecutor.groupDenseServedCount(),
+        SirixVectorizedExecutor.sortedScanServedCount(), SirixVectorizedExecutor.groupSortedServedCount(),
         SirixVectorizedExecutor.predicateScanServedCount(),
         SirixVectorizedExecutor.predicateValueEmissionsServedCount());
   }

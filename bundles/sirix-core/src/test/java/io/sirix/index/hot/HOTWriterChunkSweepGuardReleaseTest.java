@@ -91,8 +91,8 @@ final class HOTWriterChunkSweepGuardReleaseTest {
     }
 
     private HOTLeafPage newLeaf() {
-      final HOTLeafPage leaf = spy(new HOTLeafPage(123L, 1, IndexType.PATH,
-          arena.allocate(HOTLeafPage.DEFAULT_SIZE), null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0));
+      final HOTLeafPage leaf = spy(new HOTLeafPage(123L, 1, IndexType.PATH, arena.allocate(HOTLeafPage.DEFAULT_SIZE),
+          null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0));
       final byte[] composite = new byte[HOTLongKeySerializer.CHUNKED_SERIALIZED_SIZE];
       PathKeySerializer.INSTANCE.serialize(LOGICAL_KEY, composite, 0);
       HOTKeySerializer.writeChunkIdxBE(composite, HOTLongKeySerializer.SERIALIZED_SIZE, 0);

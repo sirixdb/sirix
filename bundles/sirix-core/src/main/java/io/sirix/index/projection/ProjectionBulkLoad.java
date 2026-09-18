@@ -66,14 +66,13 @@ import java.util.function.LongFunction;
  * {@link ProjectionSortedRunAccumulator}); keys beyond that budget are spilled as sorted runs,
  * through the resource's byte handlers, into the resource's spill directory (see
  * {@link ProjectionSortedRunSpill}) and merged into the view at {@link #finish}, so the view's heap
- * does not grow with the row count. A spill failure fails the load; {@link #abort} deletes the runs.
- * Complete fence and Bloom windows stream to storage eagerly; the
- * partial tails, Bloom manifests, set summaries and live metadata publish at {@link #finish}. Slot
- * 0 holds the {@link ProjectionIndexMetadata#staleTombstone() stale tombstone} for the whole load,
- * so a load that dies half-way leaves a projection every reader SKIPS in favour of the generic
- * pipeline. Writing a truthful-looking {@code rowGroupCount=0} metadata instead would make every
- * query answer from an empty index — zero rows, silently, which is the one outcome worse than being
- * slow.
+ * does not grow with the row count. A spill failure fails the load; {@link #abort} deletes the
+ * runs. Complete fence and Bloom windows stream to storage eagerly; the partial tails, Bloom
+ * manifests, set summaries and live metadata publish at {@link #finish}. Slot 0 holds the
+ * {@link ProjectionIndexMetadata#staleTombstone() stale tombstone} for the whole load, so a load
+ * that dies half-way leaves a projection every reader SKIPS in favour of the generic pipeline.
+ * Writing a truthful-looking {@code rowGroupCount=0} metadata instead would make every query answer
+ * from an empty index — zero rows, silently, which is the one outcome worse than being slow.
  */
 public final class ProjectionBulkLoad {
 

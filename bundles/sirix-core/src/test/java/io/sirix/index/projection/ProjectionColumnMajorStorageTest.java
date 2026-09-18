@@ -220,8 +220,8 @@ final class ProjectionColumnMajorStorageTest {
         ProjectionIndexHOTStorage.readColumnMajorDirectories(reader, 1, order.length, order);
     final AtomicInteger opened = new AtomicInteger();
     final AtomicInteger closed = new AtomicInteger();
-    final List<RowGroupDirectory> parallel = ProjectionIndexHOTStorage.readColumnMajorDirectories(reader, 1,
-        order.length, order, worker -> {
+    final List<RowGroupDirectory> parallel =
+        ProjectionIndexHOTStorage.readColumnMajorDirectories(reader, 1, order.length, order, worker -> {
           try (JsonNodeReadOnlyTrx lane = session.beginNodeReadOnlyTrx(revision)) {
             opened.incrementAndGet();
             worker.accept(lane.getStorageEngineReader());
@@ -234,8 +234,8 @@ final class ProjectionColumnMajorStorageTest {
     assertEquals(directories.size(), parallel.size());
     // A worker count above the former fixed ceiling of 8 is accepted (bounded by the leaf count) and
     // reads the same directories; a count past the hard ceiling is still refused.
-    final List<RowGroupDirectory> wide = ProjectionIndexHOTStorage.readColumnMajorDirectories(reader, 1,
-        order.length, order, worker -> {
+    final List<RowGroupDirectory> wide =
+        ProjectionIndexHOTStorage.readColumnMajorDirectories(reader, 1, order.length, order, worker -> {
           try (JsonNodeReadOnlyTrx lane = session.beginNodeReadOnlyTrx(revision)) {
             worker.accept(lane.getStorageEngineReader());
           }
@@ -246,8 +246,8 @@ final class ProjectionColumnMajorStorageTest {
       assertArrayEquals(directories.get(i).descriptor(), wide.get(i).descriptor());
       assertArrayEquals(directories.get(i).columnSegmentOffsets(), wide.get(i).columnSegmentOffsets());
     }
-    assertThrows(IllegalArgumentException.class, () -> ProjectionIndexHOTStorage.readColumnMajorDirectories(reader,
-        1, order.length, order, worker -> {
+    assertThrows(IllegalArgumentException.class,
+        () -> ProjectionIndexHOTStorage.readColumnMajorDirectories(reader, 1, order.length, order, worker -> {
           try (JsonNodeReadOnlyTrx lane = session.beginNodeReadOnlyTrx(revision)) {
             worker.accept(lane.getStorageEngineReader());
           }
@@ -311,13 +311,11 @@ final class ProjectionColumnMajorStorageTest {
           final ProjectionIndexHOTStorage storage = freshStorage(wtx, ProjectionSlotLayout.COLUMN_MAJOR);
           storage.putBlob(0, metadata(4, 1).serialize());
           for (final int id : new int[] {2, 4, 6, 8}) {
-            storage.putRowGroupAsColumnSegmentSlots(id,
-                ProjectionIndexColumnSegmentCodec.encode(rowGroup(16, id, 0)));
+            storage.putRowGroupAsColumnSegmentSlots(id, ProjectionIndexColumnSegmentCodec.encode(rowGroup(16, id, 0)));
           }
           wtx.commit();
         }
-        final int[][] wrongOrders = {
-            {8, 4, 6}, // orphan before the first expected key
+        final int[][] wrongOrders = {{8, 4, 6}, // orphan before the first expected key
             {6, 2, 4}, // orphan after the last expected key
             {8, 2, 6}, // orphan in a gap
             {8, 2, 6, 9}, // one missing key and one unexpected key; same total count
@@ -417,15 +415,16 @@ final class ProjectionColumnMajorStorageTest {
     final AtomicInteger opened = new AtomicInteger();
     final AtomicInteger closed = new AtomicInteger();
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
-      assertThrows(IllegalStateException.class, () -> ProjectionIndexHOTStorage.readColumnMajorDirectories(
-          rtx.getStorageEngineReader(), 1, order.length, order, worker -> {
-            try (JsonNodeReadOnlyTrx lane = session.beginNodeReadOnlyTrx(revision)) {
-              opened.incrementAndGet();
-              worker.accept(lane.getStorageEngineReader());
-            } finally {
-              closed.incrementAndGet();
-            }
-          }, 3));
+      assertThrows(IllegalStateException.class,
+          () -> ProjectionIndexHOTStorage.readColumnMajorDirectories(rtx.getStorageEngineReader(), 1, order.length,
+              order, worker -> {
+                try (JsonNodeReadOnlyTrx lane = session.beginNodeReadOnlyTrx(revision)) {
+                  opened.incrementAndGet();
+                  worker.accept(lane.getStorageEngineReader());
+                } finally {
+                  closed.incrementAndGet();
+                }
+              }, 3));
       assertEquals(opened.get(), closed.get(), "all readers must be closed before failure returns");
     }
   }

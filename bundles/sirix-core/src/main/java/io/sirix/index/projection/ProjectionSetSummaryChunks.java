@@ -72,8 +72,8 @@ final class ProjectionSetSummaryChunks {
           continue;
         }
         final int dictionarySize = leaf.stringDictionarySize(column);
-        if (dictionarySize > MAX_VALUES || (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-            && leaf.columnUnrepresentable(column))) {
+        if (dictionarySize > MAX_VALUES
+            || (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && leaf.columnUnrepresentable(column))) {
           disable(column, values(column));
           continue;
         }
@@ -483,15 +483,21 @@ final class ProjectionSetSummaryChunks {
     }
     final ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(MAX_BYTES, 256));
     putInt(out, MAGIC);
-    out.write(values.containsKey(null) ? VERSION : 0);
+    out.write(values.containsKey(null)
+        ? VERSION
+        : 0);
     putShort(out, values.size());
     for (final Map.Entry<String, Long> entry : values.entrySet()) {
       final String key = entry.getKey();
-      final byte[] value = key == null ? null : key.getBytes(StandardCharsets.UTF_8);
+      final byte[] value = key == null
+          ? null
+          : key.getBytes(StandardCharsets.UTF_8);
       if ((value != null && value.length >= MISSING_VALUE_LENGTH) || entry.getValue() < 0) {
         return null;
       }
-      putShort(out, value == null ? MISSING_VALUE_LENGTH : value.length);
+      putShort(out, value == null
+          ? MISSING_VALUE_LENGTH
+          : value.length);
       if (value != null) {
         out.write(value, 0, value.length);
       }
@@ -513,17 +519,23 @@ final class ProjectionSetSummaryChunks {
     }
     final ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(MAX_BYTES, 256));
     putInt(out, MAGIC);
-    out.write(values != null && values.containsKey(null) ? VERSION : 0);
+    out.write(values != null && values.containsKey(null)
+        ? VERSION
+        : 0);
     putShort(out, size);
     if (values != null) {
       for (final Object2LongMap.Entry<String> entry : values.object2LongEntrySet()) {
         final String key = entry.getKey();
-        final byte[] value = key == null ? null : key.getBytes(StandardCharsets.UTF_8);
+        final byte[] value = key == null
+            ? null
+            : key.getBytes(StandardCharsets.UTF_8);
         final long rows = entry.getLongValue();
         if ((value != null && value.length >= MISSING_VALUE_LENGTH) || rows < 0) {
           return null;
         }
-        putShort(out, value == null ? MISSING_VALUE_LENGTH : value.length);
+        putShort(out, value == null
+            ? MISSING_VALUE_LENGTH
+            : value.length);
         if (value != null) {
           out.write(value, 0, value.length);
         }

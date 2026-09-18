@@ -39,10 +39,11 @@ final class ProjectionSortedDirectoryTest {
         final int revision;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          final ProjectionSortedDirectory.Builder directory = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
+          final ProjectionSortedDirectory.Builder directory =
+              new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
           for (int i = 0; i < 300; i++) {
-            final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.encode(
-                new byte[][] {key(i * 2)}, new byte[][] {key(i)}, 1);
+            final ProjectionSortedLeaf leaf =
+                ProjectionSortedLeaf.encode(new byte[][] {key(i * 2)}, new byte[][] {key(i)}, 1);
             assertNotNull(leaf);
             assertEquals(i + 1, directory.append(leaf));
           }
@@ -120,10 +121,11 @@ final class ProjectionSortedDirectoryTest {
         final int before;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
+          final ProjectionSortedDirectory.Builder builder =
+              new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
           for (int i = 0; i < 300; i++) {
-            final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.encode(
-                new byte[][] {key(3 * i), key(3 * i + 1), key(3 * i + 2)}, null, 3);
+            final ProjectionSortedLeaf leaf =
+                ProjectionSortedLeaf.encode(new byte[][] {key(3 * i), key(3 * i + 1), key(3 * i + 2)}, null, 3);
             assertNotNull(leaf);
             builder.append(leaf);
           }
@@ -133,8 +135,8 @@ final class ProjectionSortedDirectoryTest {
         }
         final int after;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          final ProjectionSortedDirectory.Editor editor = new ProjectionSortedDirectory.Editor(
-              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+          final ProjectionSortedDirectory.Editor editor =
+              new ProjectionSortedDirectory.Editor(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
           editor.remove(key(511));
           editor.remove(key(512));
           after = writer.getRevisionNumber();

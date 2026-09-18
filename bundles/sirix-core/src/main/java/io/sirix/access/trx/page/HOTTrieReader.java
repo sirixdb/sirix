@@ -200,8 +200,8 @@ public final class HOTTrieReader implements AutoCloseable {
    * Per-level watermark of the sibling window already hinted for the node at that depth (exclusive
    * child index). Without it every leaf advance re-hinted the same {@value #PREFETCH_WINDOW}
    * successors — a sibling was hinted up to sixteen times before the cursor reached it, one advice
-   * call each. A backend without a prefetch primitive never saw those calls; one that has it must
-   * not pay for them on the hot path of every range step.
+   * call each. A backend without a prefetch primitive never saw those calls; one that has it must not
+   * pay for them on the hot path of every range step.
    */
   private final int[] pathPrefetchedUntil = new int[MAX_TREE_HEIGHT];
   private int pathDepth = 0;
@@ -1073,14 +1073,17 @@ public final class HOTTrieReader implements AutoCloseable {
     }
   }
 
-  /** References per advisory hint batch of {@link #prefetchLeafPaths}; the projection walk's frontier size. */
+  /**
+   * References per advisory hint batch of {@link #prefetchLeafPaths}; the projection walk's frontier
+   * size.
+   */
   private static final int LEAF_PATH_HINT_BATCH = 128;
 
   /**
    * Level-synchronous warm-up for a batch of point lookups: all keys descend together, and at each
-   * level every not-yet-resident child page of the whole batch is hinted in one advisory batch
-   * BEFORE any of them is loaded, so a level's device round trips overlap instead of following each
-   * other key by key (a lookup at a time turns depth × k dependent reads into depth batches).
+   * level every not-yet-resident child page of the whole batch is hinted in one advisory batch BEFORE
+   * any of them is loaded, so a level's device round trips overlap instead of following each other
+   * key by key (a lookup at a time turns depth × k dependent reads into depth batches).
    *
    * <p>
    * Pages are loaded through the ordinary {@link #loadPage} route — swizzled onto their references,
@@ -1090,7 +1093,8 @@ public final class HOTTrieReader implements AutoCloseable {
    * and it never reports a malformed route: the key's own descent does that, exactly as today.
    *
    * @param rootRef the trie root
-   * @param keys {@code count} serialized keys, key {@code i} at {@code [i * keyLen, (i + 1) * keyLen)}
+   * @param keys {@code count} serialized keys, key {@code i} at
+   *        {@code [i * keyLen, (i + 1) * keyLen)}
    * @param keyLen the serialized key length
    * @param count the number of keys
    */
@@ -1455,7 +1459,9 @@ public final class HOTTrieReader implements AutoCloseable {
    * Release the currently guarded leaf page.
    */
   private void clearCurrentLeaf() {
-    final HOTLeafPage guarded = currentLeafGuarded ? currentLeaf : null;
+    final HOTLeafPage guarded = currentLeafGuarded
+        ? currentLeaf
+        : null;
     currentLeaf = null;
     currentLeafRef = null;
     currentLeafBinding = HOTLeafPage.STAMP_INVALID;

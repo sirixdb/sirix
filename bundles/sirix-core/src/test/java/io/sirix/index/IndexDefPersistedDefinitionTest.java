@@ -89,8 +89,8 @@ final class IndexDefPersistedDefinitionTest {
     final List<Path<QNm>> fields = List.of(json("/[]/kind"), json("/[]/did"), json("/[]/collection"));
     final List<Type> types = List.of(Type.STR, Type.STR, Type.STR);
     final ProjectionSortedSpec sorted = new ProjectionSortedSpec(List.of(0, 2, 1));
-    final IndexDef definition = IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4,
-        IndexDef.DbType.JSON, sorted);
+    final IndexDef definition =
+        IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4, IndexDef.DbType.JSON, sorted);
     final IndexDef reread = roundTrip(definition);
     assertTrue(definition.hasSameDefinition(reread));
     assertTrue(reread.hasSameDefinition(definition));
@@ -100,9 +100,8 @@ final class IndexDefPersistedDefinitionTest {
     assertFalse(definition.hasSameDefinition(differentOrder));
     assertFalse(definition.hasSameDefinition(
         IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4, IndexDef.DbType.JSON)));
-    assertThrows(IllegalArgumentException.class,
-        () -> IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4, IndexDef.DbType.JSON,
-            new ProjectionSortedSpec(List.of(3))));
+    assertThrows(IllegalArgumentException.class, () -> IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4,
+        IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(3))));
     assertThrows(IllegalArgumentException.class, () -> new ProjectionSortedSpec(List.of(1, 1)));
     assertThrows(IllegalArgumentException.class,
         () -> IndexDefs.createProjectionIdxDef(json("/[]"), List.of(json("/[]/kind"), json("/[]/score")),

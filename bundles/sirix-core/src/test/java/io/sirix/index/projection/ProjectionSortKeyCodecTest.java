@@ -65,8 +65,8 @@ final class ProjectionSortKeyCodecTest {
     appendString(writer, "create");
     final byte[] prefix = writer.copyKey();
     final byte[] upper = ProjectionSortKeyCodec.prefixUpperExclusive(prefix);
-    final String[][] rows = {{"commit", "create"}, {"commit", "created"},
-        {"commits", "create"}, {"commit", "delete"}, {"commit", "create"}};
+    final String[][] rows = {{"commit", "create"}, {"commit", "created"}, {"commits", "create"}, {"commit", "delete"},
+        {"commit", "create"}};
     for (int i = 0; i < rows.length; i++) {
       writer.reset();
       appendString(writer, rows[i][0]);
@@ -74,8 +74,7 @@ final class ProjectionSortKeyCodecTest {
       appendString(writer, "app.bsky.feed.post");
       writer.appendRecordKey(i);
       final byte[] key = writer.copyKey();
-      final boolean inRange = Arrays.compareUnsigned(key, prefix) >= 0
-          && Arrays.compareUnsigned(key, upper) < 0;
+      final boolean inRange = Arrays.compareUnsigned(key, prefix) >= 0 && Arrays.compareUnsigned(key, upper) < 0;
       assertEquals(i == 0 || i == 4, inRange, "row " + i);
     }
     assertArrayEquals(new byte[] {1, 3}, ProjectionSortKeyCodec.prefixUpperExclusive(new byte[] {1, 2, (byte) 0xFF}));

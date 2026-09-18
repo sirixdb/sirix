@@ -159,7 +159,8 @@ final class ProjectionSortedRunAccumulatorTest {
           JsonResourceSession residentSession = database.beginResourceSession("resident")) {
         try (JsonNodeTrx writerOfSpilled = spilledSession.beginNodeTrx();
             JsonNodeTrx writerOfResident = residentSession.beginNodeTrx()) {
-          assertEquals(rows, spilled.persist(new ProjectionIndexHOTStorage(writerOfSpilled.getStorageEngineWriter(), 0)));
+          assertEquals(rows,
+              spilled.persist(new ProjectionIndexHOTStorage(writerOfSpilled.getStorageEngineWriter(), 0)));
           assertEquals(rows,
               resident.persist(new ProjectionIndexHOTStorage(writerOfResident.getStorageEngineWriter(), 0)));
           writerOfSpilled.commit();
@@ -236,8 +237,8 @@ final class ProjectionSortedRunAccumulatorTest {
     return new ProjectionSortedRunSpill(directory, new ByteHandlerPipeline());
   }
 
-  private static void addGroupRow(final ProjectionSortedRunAccumulator run, final String group,
-      final long value, final long recordKey) {
+  private static void addGroupRow(final ProjectionSortedRunAccumulator run, final String group, final long value,
+      final long recordKey) {
     final ProjectionSortKeyCodec.Writer writer = new ProjectionSortKeyCodec.Writer();
     final byte[] utf8 = group.getBytes(StandardCharsets.UTF_8);
     writer.appendUtf8(utf8, 0, utf8.length);

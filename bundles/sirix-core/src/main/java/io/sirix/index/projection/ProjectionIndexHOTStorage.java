@@ -1515,8 +1515,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   static void collectSlotsRange(final StorageEngineReader reader, final int indexNumber, final int rowGroupCount,
       final long fromRowGroup, final long toRowGroup, final Long2ObjectRBTreeMap<RawBlobSlot> descriptors,
       final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
-    collectSlotsRange(reader, indexNumber, readSlotLayout(reader, indexNumber), rowGroupCount, fromRowGroup,
-        toRowGroup, descriptors, segmentSlotsOut);
+    collectSlotsRange(reader, indexNumber, readSlotLayout(reader, indexNumber), rowGroupCount, fromRowGroup, toRowGroup,
+        descriptors, segmentSlotsOut);
   }
 
   /**
@@ -2330,15 +2330,16 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   static final int MAX_COLUMN_DIRECTORY_WORKERS = 64;
 
   /**
-   * Worker ceiling of the column-major descriptor walk ({@code -Dsirix.projection.columnDirectoryWorkers},
-   * clamped to 1–{@value #MAX_COLUMN_DIRECTORY_WORKERS}, default 32), further limited by the core count
-   * and one worker per 1,024 leaves. Each worker walks a disjoint range of the descriptor key space on
-   * its own short-lived reader of the same committed revision, so the walk is bounded by the slower
-   * of leaf decoding (hot) and leaf I/O latency (cold), and both keep scaling past the previous fixed
+   * Worker ceiling of the column-major descriptor walk
+   * ({@code -Dsirix.projection.columnDirectoryWorkers}, clamped to
+   * 1–{@value #MAX_COLUMN_DIRECTORY_WORKERS}, default 32), further limited by the core count and one
+   * worker per 1,024 leaves. Each worker walks a disjoint range of the descriptor key space on its
+   * own short-lived reader of the same committed revision, so the walk is bounded by the slower of
+   * leaf decoding (hot) and leaf I/O latency (cold), and both keep scaling past the previous fixed
    * ceiling of 8 on machines with more cores.
    */
-  private static final int COLUMN_DIRECTORY_WORKERS = Math.max(1, Math.min(MAX_COLUMN_DIRECTORY_WORKERS,
-      Integer.getInteger("sirix.projection.columnDirectoryWorkers", 32)));
+  private static final int COLUMN_DIRECTORY_WORKERS = Math.max(1,
+      Math.min(MAX_COLUMN_DIRECTORY_WORKERS, Integer.getInteger("sirix.projection.columnDirectoryWorkers", 32)));
 
   /** Explicit worker count for serial/parallel equivalence and corruption tests. */
   static List<RowGroupDirectory> readColumnMajorDirectories(final StorageEngineReader reader, final int indexNumber,

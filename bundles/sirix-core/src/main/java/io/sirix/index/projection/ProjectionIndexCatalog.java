@@ -439,8 +439,7 @@ public final class ProjectionIndexCatalog {
       }
       final List<Integer> keyColumns = sorted.keyColumns();
       final int prefixColumns = equalities.size();
-      if (keyColumns.size() != prefixColumns + 2
-          || keyColumns.get(prefixColumns) != columnOf(candidate, groupField)
+      if (keyColumns.size() != prefixColumns + 2 || keyColumns.get(prefixColumns) != columnOf(candidate, groupField)
           || keyColumns.get(prefixColumns + 1) != columnOf(candidate, aggregateField)) {
         continue;
       }
@@ -969,9 +968,10 @@ public final class ProjectionIndexCatalog {
   private static final int PARALLEL_WEIGHT_MIN_LEAVES = 4096;
 
   /**
-   * The resident weight of every directory in {@code live}, summed. A leaf's weight is a pure function
-   * of its immutable descriptor bytes, so a large store's sum is reduced over disjoint index ranges on
-   * the common pool; the total is the same in any order, and a small store keeps the serial loop.
+   * The resident weight of every directory in {@code live}, summed. A leaf's weight is a pure
+   * function of its immutable descriptor bytes, so a large store's sum is reduced over disjoint index
+   * ranges on the common pool; the total is the same in any order, and a small store keeps the serial
+   * loop.
    */
   static long residentWeightOf(final List<ProjectionIndexHOTStorage.RowGroupDirectory> live) {
     final int leaves = live.size();

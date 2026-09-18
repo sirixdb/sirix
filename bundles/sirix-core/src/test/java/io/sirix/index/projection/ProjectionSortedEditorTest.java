@@ -56,8 +56,8 @@ final class ProjectionSortedEditorTest {
         }
         final int populated;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          final ProjectionSortedDirectory.Editor editor = new ProjectionSortedDirectory.Editor(
-              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+          final ProjectionSortedDirectory.Editor editor =
+              new ProjectionSortedDirectory.Editor(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
           for (final int value : order) {
             editor.insert(key(value), key(value ^ 0x55));
           }
@@ -81,8 +81,8 @@ final class ProjectionSortedEditorTest {
         }
         final int emptied;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          final ProjectionSortedDirectory.Editor editor = new ProjectionSortedDirectory.Editor(
-              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+          final ProjectionSortedDirectory.Editor editor =
+              new ProjectionSortedDirectory.Editor(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
           for (final int value : order) {
             editor.remove(key(value));
           }
@@ -115,7 +115,8 @@ final class ProjectionSortedEditorTest {
         final int before;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
+          final ProjectionSortedDirectory.Builder builder =
+              new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
           final byte[][] keys = new byte[ProjectionSortedLeaf.MAX_ROWS][];
           for (int i = 0; i < keys.length; i++) {
             keys[i] = key(2 * i + 2);
@@ -192,7 +193,8 @@ final class ProjectionSortedEditorTest {
         final int before;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
+          final ProjectionSortedDirectory.Builder builder =
+              new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
           builder.append(single(10));
           builder.finish();
           before = writer.getRevisionNumber();
@@ -200,16 +202,16 @@ final class ProjectionSortedEditorTest {
         }
         final int empty;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          final ProjectionSortedDirectory.Editor editor = new ProjectionSortedDirectory.Editor(
-              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+          final ProjectionSortedDirectory.Editor editor =
+              new ProjectionSortedDirectory.Editor(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
           editor.remove(key(10));
           empty = writer.getRevisionNumber();
           writer.commit();
         }
         final int after;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          final ProjectionSortedDirectory.Editor editor = new ProjectionSortedDirectory.Editor(
-              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+          final ProjectionSortedDirectory.Editor editor =
+              new ProjectionSortedDirectory.Editor(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
           editor.insert(key(5), new byte[0]);
           after = writer.getRevisionNumber();
           writer.commit();
@@ -324,7 +326,9 @@ final class ProjectionSortedEditorTest {
     for (int i = 0; i < 256; i++) {
       assertTrue(cursor.isValid());
       assertArrayEquals(key(2 * i + 2), cursor.copyKey());
-      assertEquals(i < 127 || !withOne ? 1 : 257, cursor.leafId());
+      assertEquals(i < 127 || !withOne
+          ? 1
+          : 257, cursor.leafId());
       assertTrue(cursor.advance());
     }
     for (int i = 0; i < 255; i++) {

@@ -305,8 +305,8 @@ public final class RowGroupDescriptor {
       requireKnownColumnKind(kind, column);
 
       final int bodyEntry = entry;
-      entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column),
-          "BODY", column);
+      entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column), "BODY",
+          column);
       requireMinimumBytes(descriptor, bodyEntry,
           ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES + 1 + (rowCount == 0
               ? 0
@@ -338,8 +338,8 @@ public final class RowGroupDescriptor {
           || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
       if (rowCount > 0 && localString) {
         final int dictEntry = entry;
-        entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(column),
-            "DICT", column);
+        entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(column), "DICT",
+            column);
         requireNonBodyMirror(descriptor, dictEntry, "DICT", column);
 
         if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET && entry < segmentCount
@@ -354,8 +354,8 @@ public final class RowGroupDescriptor {
         }
 
         final int bloomEntry = entry;
-        entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(column),
-            "BLOOM", column);
+        entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(column), "BLOOM",
+            column);
         requireNonBodyMirror(descriptor, bloomEntry, "BLOOM", column);
       }
     }
@@ -386,8 +386,8 @@ public final class RowGroupDescriptor {
       final String actual = entryIndex >= count
           ? "<missing>"
           : Integer.toString(entryColumnSegmentId(descriptor, entryIndex));
-      throw new IllegalStateException(
-          "Corrupt leaf descriptor: expected " + segmentName(name, column) + " segment id " + expectedId + " but found " + actual);
+      throw new IllegalStateException("Corrupt leaf descriptor: expected " + segmentName(name, column) + " segment id "
+          + expectedId + " but found " + actual);
     }
     if (expectedId >= HOTLeafPage.MAX_OVERFLOW_PAGE_REF_SUB_ID) {
       throw new IllegalStateException(
@@ -403,32 +403,36 @@ public final class RowGroupDescriptor {
     }
   }
 
-  private static void requireNonBodyMirror(final byte[] descriptor, final int entry, final String name, final int column) {
+  private static void requireNonBodyMirror(final byte[] descriptor, final int entry, final String name,
+      final int column) {
     if (entryColFlags(descriptor, entry) != 0 || entryMin(descriptor, entry) != 0L
         || entryMax(descriptor, entry) != 0L) {
-      throw new IllegalStateException("Corrupt leaf descriptor: " + segmentName(name, column) + " carries BODY-only mirror fields");
+      throw new IllegalStateException(
+          "Corrupt leaf descriptor: " + segmentName(name, column) + " carries BODY-only mirror fields");
     }
   }
 
   private static void requireMinimumBytes(final byte[] descriptor, final int entry, final int minimum,
       final String name, final int column) {
     if (entryByteLen(descriptor, entry) < minimum) {
-      throw new IllegalStateException("Corrupt leaf descriptor: " + segmentName(name, column) + " has " + entryByteLen(descriptor, entry)
-          + " bytes, expected at least " + minimum);
+      throw new IllegalStateException("Corrupt leaf descriptor: " + segmentName(name, column) + " has "
+          + entryByteLen(descriptor, entry) + " bytes, expected at least " + minimum);
     }
   }
 
-  private static void requireSentinelPair(final String name, final int column, final String suffix,
-      final long min, final long max) {
+  private static void requireSentinelPair(final String name, final int column, final String suffix, final long min,
+      final long max) {
     if (min != Long.MAX_VALUE || max != Long.MIN_VALUE) {
-      throw new IllegalStateException("Corrupt leaf descriptor: empty " + segmentName(name, column) + suffix + " is [" + min + ", " + max
-          + "] instead of the canonical sentinel pair");
+      throw new IllegalStateException("Corrupt leaf descriptor: empty " + segmentName(name, column) + suffix + " is ["
+          + min + ", " + max + "] instead of the canonical sentinel pair");
     }
   }
 
   /** Format column-qualified names only when validation has already failed. */
   private static String segmentName(final String name, final int column) {
-    return column < 0 ? name : name + '(' + column + ')';
+    return column < 0
+        ? name
+        : name + '(' + column + ')';
   }
 
   public static int rowCount(final byte[] d) {

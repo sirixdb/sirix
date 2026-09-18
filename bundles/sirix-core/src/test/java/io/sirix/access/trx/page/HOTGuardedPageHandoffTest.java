@@ -34,8 +34,8 @@ final class HOTGuardedPageHandoffTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void coldCachedAndSwizzledLoadsEachTransferExactlyOneGuard(final VersioningType versioning) {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("guard-handoff")
-        .versioningApproach(versioning).build();
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("guard-handoff").versioningApproach(versioning).build();
     final InternalResourceSession<?, ?> session = mock(InternalResourceSession.class);
     final RevisionEpochTracker tracker = mock(RevisionEpochTracker.class);
     when(tracker.register(anyInt())).thenReturn(mock(Ticket.class));
@@ -50,8 +50,8 @@ final class HOTGuardedPageHandoffTest {
     try (final Arena arena = Arena.ofShared();
         final NodeStorageEngineReader storage = new NodeStorageEngineReader(1, session, new UberPage(), 1, disk,
             buffers, mock(RevisionRootPageReader.class), null)) {
-      final HOTLeafPage leaf = new HOTLeafPage(123L, 1, IndexType.PATH,
-          arena.allocate(HOTLeafPage.DEFAULT_SIZE), null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+      final HOTLeafPage leaf = new HOTLeafPage(123L, 1, IndexType.PATH, arena.allocate(HOTLeafPage.DEFAULT_SIZE), null,
+          new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
       final PageReference reference = new PageReference().setKey(123L);
       when(disk.read(any(PageReference.class), any(ResourceConfiguration.class))).thenReturn(leaf);
 

@@ -81,8 +81,8 @@ final class HOTReaderEvictionProgressTest {
       final IllegalStateException failure = new IllegalStateException("stable payload failure");
       fixture.guardedReadFailure = failure;
 
-      assertSame(failure, assertThrows(IllegalStateException.class,
-          () -> fixture.reader.get(LOGICAL_KEY, SearchMode.EQUAL)));
+      assertSame(failure,
+          assertThrows(IllegalStateException.class, () -> fixture.reader.get(LOGICAL_KEY, SearchMode.EQUAL)));
 
       assertTrue(fixture.evictions > 0);
       for (final HOTLeafPage leaf : fixture.leaves) {
@@ -118,8 +118,8 @@ final class HOTReaderEvictionProgressTest {
     }
 
     private HOTLeafPage newLeaf() {
-      final HOTLeafPage leaf = spy(new HOTLeafPage(123L, 1, IndexType.PATH,
-          arena.allocate(HOTLeafPage.DEFAULT_SIZE), null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0));
+      final HOTLeafPage leaf = spy(new HOTLeafPage(123L, 1, IndexType.PATH, arena.allocate(HOTLeafPage.DEFAULT_SIZE),
+          null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0));
       final byte[] composite = new byte[HOTLongKeySerializer.CHUNKED_SERIALIZED_SIZE];
       PathKeySerializer.INSTANCE.serialize(LOGICAL_KEY, composite, 0);
       HOTKeySerializer.writeChunkIdxBE(composite, HOTLongKeySerializer.SERIALIZED_SIZE, 0);

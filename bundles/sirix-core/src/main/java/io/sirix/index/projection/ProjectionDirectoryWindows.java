@@ -12,8 +12,8 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.IntFunction;
 
 /**
- * Query-owned directory windows. The fixed-size cache retains no transaction or native page view;
- * a loader returns owned, validated bytes and closes its revision-pinned read before publication.
+ * Query-owned directory windows. The fixed-size cache retains no transaction or native page view; a
+ * loader returns owned, validated bytes and closes its revision-pinned read before publication.
  * Eviction only drops a reference, so concurrent consumers keep their immutable window safely.
  */
 final class ProjectionDirectoryWindows extends AbstractList<RowGroupDirectory> implements RandomAccess {
