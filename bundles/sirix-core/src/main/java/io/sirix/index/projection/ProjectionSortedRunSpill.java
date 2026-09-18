@@ -306,11 +306,15 @@ public final class ProjectionSortedRunSpill {
     return true;
   }
 
-  /** Length-prefixed blocks, each encoded on its own by a memory-segment pipeline. */
+  /**
+   * Blocks encoded on their own by a memory-segment pipeline, each prefixed by its encoded and its
+   * plain length. A decoder may return a larger segment than it decoded, so a block's plain length is
+   * never taken from the decoded segment.
+   */
   private static final class BlockOutputStream extends OutputStream {
     private final FileChannel channel;
     private final ByteHandlerPipeline pipeline;
-    private final ByteBuffer header = ByteBuffer.allocate(Integer.BYTES);
+    private final ByteBuffer header = ByteBuffer.allocate(2 * Integer.BYTES);
     private final byte[] single = new byte[1];
 
     BlockOutputStream(final FileChannel channel, final ByteHandlerPipeline pipeline) {
@@ -330,6 +334,9 @@ public final class ProjectionSortedRunSpill {
       if (length == 0) {
         return;
       }
+      if (length > MAX_BLOCK_BYTES) {
+        throw new IOException("a sorted run block of " + length + " bytes exceeds " + MAX_BLOCK_BYTES + " bytes");
+      }
       final MemorySegment encoded;
       try {
         encoded = pipeline.compress(MemorySegment.ofArray(bytes).asSlice(offset, length));
@@ -342,6 +349,7 @@ public final class ProjectionSortedRunSpill {
       }
       header.clear();
       header.putInt((int) encodedBytes);
+      header.putInt(length);
       header.flip();
       writeFully(channel, header);
       writeFully(channel, encoded.asByteBuffer());
@@ -353,11 +361,11 @@ public final class ProjectionSortedRunSpill {
     }
   }
 
-  /** Reads the blocks of a {@link BlockOutputStream}, keeping one decoded block. */
+  /** Reads the blocks of a {@link BlockOutputStream}, keeping one decoded block of its exact plain length. */
   private static final class BlockInputStream extends InputStream {
     private final FileChannel channel;
     private final ByteHandlerPipeline pipeline;
-    private final ByteBuffer header = ByteBuffer.allocate(Integer.BYTES);
+    private final ByteBuffer header = ByteBuffer.allocate(2 * Integer.BYTES);
     private final byte[] single = new byte[1];
     private byte[] encoded = new byte[0];
     private ByteBuffer encodedBuffer = ByteBuffer.wrap(encoded);
@@ -401,8 +409,9 @@ public final class ProjectionSortedRunSpill {
       }
       header.flip();
       final int size = header.getInt();
-      if (size <= 0 || size > MAX_BLOCK_BYTES) {
-        throw new IOException("corrupt sorted projection run block length " + size);
+      final int plainBytes = header.getInt();
+      if (size <= 0 || size > MAX_BLOCK_BYTES || plainBytes <= 0 || plainBytes > MAX_BLOCK_BYTES) {
+        throw new IOException("corrupt sorted projection run block lengths " + size + " / " + plainBytes);
       }
       if (encoded.length < size) {
         encoded = new byte[size];
@@ -411,14 +420,13 @@ public final class ProjectionSortedRunSpill {
       encodedBuffer.clear();
       encodedBuffer.limit(size);
       readFully(channel, encodedBuffer, false);
-      final int plainBytes;
       try (ByteHandler.DecompressionResult result =
           pipeline.decompressScoped(MemorySegment.ofArray(encoded).asSlice(0, size))) {
         final MemorySegment plain = result.segment();
-        if (plain.byteSize() > MAX_BLOCK_BYTES) {
-          throw new IOException("corrupt sorted projection run block of " + plain.byteSize() + " plain bytes");
+        if (plain.byteSize() < plainBytes) {
+          throw new IOException("corrupt sorted projection run block: decoded " + plain.byteSize()
+              + " of its " + plainBytes + " plain bytes");
         }
-        plainBytes = (int) plain.byteSize();
         if (decoded.length < plainBytes) {
           decoded = new byte[plainBytes];
         }

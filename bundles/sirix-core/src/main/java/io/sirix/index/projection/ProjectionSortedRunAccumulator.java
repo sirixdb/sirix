@@ -4,7 +4,6 @@
 package io.sirix.index.projection;
 
 import io.sirix.exception.SirixIOException;
-import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import it.unimi.dsi.fastutil.longs.LongArrays;
 import org.jspecify.annotations.Nullable;
 
@@ -66,18 +65,6 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
    */
   ProjectionSortedRunAccumulator(final ProjectionSortKeyCodec.Layout layout, final ProjectionSortedRunSpill spill) {
     this(layout, defaultBudgetBytes(), spill);
-  }
-
-  /**
-   * A run with an explicit heap budget that spills, unencoded, below {@code spillDirectory}.
-   *
-   * @param layout the sorted view's key layout
-   * @param budgetBytes positive heap ceiling for resident keys and references
-   * @param spillDirectory the directory build directories are created in
-   */
-  ProjectionSortedRunAccumulator(final ProjectionSortKeyCodec.Layout layout, final long budgetBytes,
-      final Path spillDirectory) {
-    this(layout, budgetBytes, new ProjectionSortedRunSpill(spillDirectory, new ByteHandlerPipeline()));
   }
 
   /**

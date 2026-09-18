@@ -10,6 +10,7 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -49,7 +50,7 @@ final class ProjectionSortedRunAccumulatorTest {
       order[other] = value;
     }
     final ProjectionSortedRunAccumulator run = new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE,
-        ProjectionSortedRunAccumulator.defaultBudgetBytes(), temporaryDirectory.resolve("unused-spill"));
+        ProjectionSortedRunAccumulator.defaultBudgetBytes(), rawSpill(temporaryDirectory.resolve("unused-spill")));
     final byte[] scratch = new byte[96];
     for (final int value : order) {
       encode(value, scratch);
@@ -91,7 +92,7 @@ final class ProjectionSortedRunAccumulatorTest {
   @Test
   void groupedScanDecodesEscapedStringsAndDeclinesUnstableTies() {
     final ProjectionSortedRunAccumulator run = new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE,
-        ProjectionSortedRunAccumulator.defaultBudgetBytes(), temporaryDirectory.resolve("unused-spill"));
+        ProjectionSortedRunAccumulator.defaultBudgetBytes(), rawSpill(temporaryDirectory.resolve("unused-spill")));
     addGroupRow(run, "a\u0000b", 1_000, 1);
     addGroupRow(run, "a\u0000b", 5_000, 2);
     addGroupRow(run, "b", 2_000, 3);
@@ -131,9 +132,9 @@ final class ProjectionSortedRunAccumulatorTest {
     final long budget = 96L << 10;
     final Path spillRoot = Files.createDirectories(temporaryDirectory.resolve("spill"));
     final ProjectionSortedRunAccumulator spilled =
-        new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE, budget, spillRoot);
+        new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE, budget, rawSpill(spillRoot));
     final ProjectionSortedRunAccumulator resident =
-        new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE, Long.MAX_VALUE, spillRoot);
+        new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE, Long.MAX_VALUE, rawSpill(spillRoot));
     final Random random = new Random(0x5B111L);
     final ProjectionSortKeyCodec.Writer writer = new ProjectionSortKeyCodec.Writer();
     for (int i = 0; i < rows; i++) {
@@ -204,7 +205,7 @@ final class ProjectionSortedRunAccumulatorTest {
   void duplicateKeysAcrossSpilledRunsFailTheBuild() throws IOException {
     final Path spillRoot = Files.createDirectories(temporaryDirectory.resolve("duplicate-spill"));
     final ProjectionSortedRunAccumulator run =
-        new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE, 40L << 10, spillRoot);
+        new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE, 40L << 10, rawSpill(spillRoot));
     final byte[] scratch = new byte[96];
     for (int i = 0; i < 1_000; i++) {
       encode(i, scratch);
@@ -228,6 +229,11 @@ final class ProjectionSortedRunAccumulatorTest {
     try (Stream<Path> leftovers = Files.list(spillRoot)) {
       assertEquals(0, leftovers.count(), "releasing a failed build must delete its spill files");
     }
+  }
+
+  /** A spill target without byte handlers, as a resource with an empty pipeline has. */
+  private static ProjectionSortedRunSpill rawSpill(final Path directory) {
+    return new ProjectionSortedRunSpill(directory, new ByteHandlerPipeline());
   }
 
   private static void addGroupRow(final ProjectionSortedRunAccumulator run, final String group,
