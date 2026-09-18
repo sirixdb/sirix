@@ -22,6 +22,7 @@ import io.sirix.exception.SirixUsageException;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionSortedRunSpill;
 import io.sirix.io.SuperblockValidator;
 import io.sirix.io.bytepipe.Encryptor;
 import io.sirix.utils.SirixFiles;
@@ -156,6 +157,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     // Keep track of the resource-ID.
     biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
+
+    ProjectionSortedRunSpill.removeOrphanedRuns(resourceConfig);
 
     // Use the global BufferManager for this resource session.
     // Cache keys include (databaseId, resourceId) to prevent collisions.

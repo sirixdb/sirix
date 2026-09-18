@@ -26,6 +26,8 @@ public final class ProjectionSortedGroupScan {
       Boolean.parseBoolean(System.getProperty("sirix.projection.batchSortedSummaries", "true"));
   private static final int MAX_SUMMARY_WORKERS =
       Math.max(1, Math.min(8, Integer.getInteger("sirix.projection.sortedSummaryMaxWorkers", 4)));
+  /** Leaves of the queried key range each summary worker needs before a lane is opened. */
+  private static final int LEAVES_PER_SUMMARY_WORKER = 1024;
 
   /**
    * Candidate summary leaves the bound walk (here) and the best-first span scan
@@ -142,8 +144,9 @@ public final class ProjectionSortedGroupScan {
       final int workers = workerReaders == null || reader.hasTrxIntentLog()
           || "false".equals(System.getProperty("sirix.projection.parallelSortedSummaries"))
               ? 0
-              : Math.min(MAX_SUMMARY_WORKERS,
-                  Math.min(Runtime.getRuntime().availableProcessors(), directory.dataLeafCount() / 1024));
+              : Math.min(MAX_SUMMARY_WORKERS, Math.min(Runtime.getRuntime().availableProcessors(),
+                  directory.leafCount(prefix, upper, MAX_SUMMARY_WORKERS * LEAVES_PER_SUMMARY_WORKER)
+                      / LEAVES_PER_SUMMARY_WORKER));
       final List<Group> summarized = topKFromSummaries(reader, indexNumber, directory, prefix, upper, limit, order,
           spanDivisor, minOnly, workerReaders, workers);
       if (summarized != null) {

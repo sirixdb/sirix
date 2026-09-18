@@ -659,7 +659,7 @@ public final class ProjectionIndexBuilder {
           : new ProjectionSortedRowEncoder(indexDef, extractor);
       this.sortedRun = sortedRowEncoder == null
           ? null
-          : new ProjectionSortedRunAccumulator(sortedRowEncoder.layout());
+          : newSortedRun(sortedRowEncoder, pathSummary);
       this.sample = initialDictionarySample();
       this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
       return;
@@ -706,9 +706,18 @@ public final class ProjectionIndexBuilder {
         : new ProjectionSortedRowEncoder(indexDef, extractor);
     this.sortedRun = sortedRowEncoder == null
         ? null
-        : new ProjectionSortedRunAccumulator(sortedRowEncoder.layout());
+        : newSortedRun(sortedRowEncoder, pathSummary);
     this.sample = initialDictionarySample();
     this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
+  }
+
+  /** The sorted view's heap-bounded run, spilling into the spill directory of the summary's resource. */
+  private static ProjectionSortedRunAccumulator newSortedRun(final ProjectionSortedRowEncoder sortedRowEncoder,
+      final PathSummaryReader pathSummary) {
+    final var resourceSession = Objects.requireNonNull(pathSummary.getResourceSession(),
+        "a sorted projection view spills into its resource, but the path summary has no resource session");
+    return new ProjectionSortedRunAccumulator(sortedRowEncoder.layout(),
+        ProjectionSortedRunSpill.forResource(resourceSession.getResourceConfig()));
   }
 
   private List<ProjectionIndexRowGroupPage> initialDictionarySample() {
@@ -803,6 +812,13 @@ public final class ProjectionIndexBuilder {
       return ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
     }
     return mapTypeToColumnKind(type);
+  }
+
+  /** Whether a field of this declared type and path can be a key column of a sorted view. */
+  public static boolean isSortKeyType(final Type type, final Path<QNm> fieldPath) {
+    final byte kind = mapTypeToColumnKind(type, fieldPath);
+    return ProjectionSortKeyCodec.Layout.isStringKind(kind) || ProjectionIndexRowGroupPage.isOrderedLongKind(kind)
+        || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN;
   }
 
   /** Whether the path's LAST step selects an array layer. */

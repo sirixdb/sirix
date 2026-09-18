@@ -238,7 +238,7 @@ public final class IndexDef implements Materializable {
     this.projectionFields.addAll(fieldPaths);
     this.projectionFieldTypes.addAll(fieldTypes);
     if (sortedSpec != null) {
-      sortedSpec.validateFieldCount(fieldPaths.size());
+      sortedSpec.validate(fieldPaths, fieldTypes);
     }
     this.projectionSortedSpec = sortedSpec;
     id = indexDefNo;
@@ -467,7 +467,11 @@ public final class IndexDef implements Materializable {
       if (type != IndexType.PROJECTION) {
         throw new DocumentException("Sorted view belongs only to a projection index");
       }
-      projectionSortedSpec.validateFieldCount(projectionFields.size());
+      try {
+        projectionSortedSpec.validate(projectionFields, projectionFieldTypes);
+      } catch (final IllegalArgumentException invalid) {
+        throw new DocumentException(invalid, "Invalid sorted projection declaration: %s", invalid.getMessage());
+      }
     }
   }
 

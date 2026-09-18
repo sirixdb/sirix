@@ -126,14 +126,19 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.projection.sortedSpanBounds` | `true` | Enable bounded best-first grouped spans on committed revisions. |
 | `sirix.projection.heapSpanPriority` | `true` | Reuse the candidate permutation as a max-heap for span views with at least 1,024 leaves. |
 | `sirix.projection.denseSpanBounds` | `true` | Index validated dense physical leaf bounds directly; sparse IDs retain binary search. |
-| `sirix.projection.sortedRun.budgetBytes` | `min(heap/16, 512 MiB)` | Heap ceiling for resident sort keys while a sorted view is built; larger builds spill sorted runs. |
-| `sirix.projection.sortedRun.spillDirectory` | `java.io.tmpdir` | Directory for the temporary sorted runs of a spilling sorted-view build. |
-| `sirix.asyncFlush.groupSidePages` | `true` | Group fresh immutable side pages whose parents remain independently pinned. |
-| `sirix.asyncFlush.sideGroupTargetBytes` | `4194304` | Positive grouped-window byte limit, capped by the ordinary side-page limit. |
-| `sirix.asyncFlush.sideGroupTargetCount` | `1024` | Positive grouped-window page limit, capped by the ordinary side-page count limit. |
 
 The retained-buffer population and summary windows are bounded; decoded column fills also obey the
 existing projection memory budget. Input properties do not weaken revision or integrity checks.
+
+Build and write controls apply while a projection is built or a load flushes pages:
+
+| Property | Default | Effect |
+| --- | --- | --- |
+| `sirix.projection.sortedRun.budgetBytes` | `min(heap/16, 512 MiB)` | Heap ceiling for resident sort keys while a sorted view is built; larger builds spill sorted runs. |
+| `sirix.projection.sortedRun.spillDirectory` | `projection-sort-spill` in the resource's directory | Root for the spilled runs of a sorted-view build; each resource spills into its own subdirectory, named after the resource and a digest of its path. |
+| `sirix.asyncFlush.groupSidePages` | `true` | Group fresh immutable side pages whose parents remain independently pinned. |
+| `sirix.asyncFlush.sideGroupTargetBytes` | `4194304` | Positive grouped-window byte limit, capped by the ordinary side-page limit. |
+| `sirix.asyncFlush.sideGroupTargetCount` | `1024` | Positive grouped-window page limit, capped by the ordinary side-page count limit. |
 
 ## Validation entry points
 
@@ -208,15 +213,23 @@ compares as the interpreter compares it; any other shape falls back to the gener
 A row whose key value cannot be represented exactly (an unrepresentable or non-integral cell, or a
 string longer than 4 KiB) is still stored, under a reserved key that sorts after every ordinary
 key. The directory header counts such rows, and the sorted route declines — the generic route then
-answers — while the count is nonzero. Loads and commits never fail because of the declaration.
+answers — while the count is nonzero. An index declaration never rejects a valid document; a full or
+unwritable disk fails the load as any write does.
 
 Memory and maintenance cost:
 
 - The initial build keeps at most `sirix.projection.sortedRun.budgetBytes` of keys and references
-  on the heap. Beyond that it sorts the resident run, writes it to a temporary file under
-  `sirix.projection.sortedRun.spillDirectory` and reuses the blocks; publishing merges the runs with
-  one 128 KiB buffer per run and encodes leaves as keys stream past. Spill files are deleted after
-  the merge or when the build is released.
+  on the heap. Beyond that it sorts the resident run, writes it to a run file in its own build
+  directory under the resource's spill directory and reuses the blocks. That directory is
+  `projection-sort-spill` inside the resource's directory, never `java.io.tmpdir`;
+  `sirix.projection.sortedRun.spillDirectory` replaces its root and keeps one subdirectory per
+  resource. Runs pass through the resource's byte handlers exactly as its pages do, so a resource
+  configured with the `Encryptor` never writes a plaintext sort key to a run. Publishing merges the
+  runs with one 128 KiB buffer per run (plus a 64 KiB stream buffer for stream handlers) and encodes
+  leaves as keys stream past. Run files are deleted after the merge or when the build is released or
+  aborted; runs left by a process that died are deleted the next time the resource is opened, while
+  live builds in this or another running process are kept. An I/O error while spilling or merging
+  fails the load with an error naming the spill directory and its cause.
 - Per commit, maintenance derives each touched record's old key from the revision the writer
   represents (after `revertTo`, the reverted-to revision) or from the record's last key in the
   transaction; a view built inside the open transaction checks those keys against the view and

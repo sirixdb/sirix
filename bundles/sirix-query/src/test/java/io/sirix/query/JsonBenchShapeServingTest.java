@@ -44,7 +44,9 @@ import java.util.Map;
  * {@code fn:string} substitution has to reproduce: a stored {@code ""} ({@code u:d}), a record with
  * a {@code commit} object but no {@code collection} in it ({@code u:g}), and two records with no
  * {@code commit} at all ({@code u:e}, {@code u:f}). All four belong to one {@code ''} group, and
- * the generic pipeline is the oracle for every assertion here.
+ * the generic pipeline is the oracle for every assertion here but one: a single plain key ordered
+ * by its count alone orders equal counts by key on the projection, an order the interpreter leaves
+ * open, so those answers are pinned instead.
  */
 public final class JsonBenchShapeServingTest extends AbstractJsonTest {
 
@@ -78,12 +80,30 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
             ]')
           """;
 
-  /** Every group of both the plain and the stringified key holds exactly one record. */
+  /**
+   * Equal counts whose first appearances are out of key order. Plain key: likes 3, absent 2, posts 2,
+   * then "", a, b, U+FF21 and U+1F600 once each. With {@code fn:string} the two absent records join
+   * the stored "" for 3 beside likes 3. U+1F600 is a surrogate pair, so UTF-16 unit order would put it
+   * before U+FF21, where codepoint order puts it after.
+   */
   private static final String TIED_STORE = """
         jn:store('json-path1','jbshape.jn','[
-          {"commit":{"collection":"a"}}, {}, {"commit":{"collection":"b"}}
+          {"commit":{"collection":"likes"}}, {"commit":{"collection":"b"}}, {"commit":{"collection":"posts"}},
+          {"commit":{"collection":"\\uFF21"}}, {}, {"commit":{"collection":"likes"}}, {"commit":{"collection":""}},
+          {"commit":{"collection":"\\uD83D\\uDE00"}}, {"commit":{"collection":"a"}}, {"commit":{}},
+          {"commit":{"collection":"posts"}}, {"commit":{"collection":"likes"}}
         ]')
       """;
+
+  /** {@link #TIED_STORE} by count descending, then by key: the absent group first, then codepoints. */
+  private static final String TIED_ORDER = "{\"event\":\"likes\",\"count\":3} {\"event\":null,\"count\":2}"
+      + " {\"event\":\"posts\",\"count\":2} {\"event\":\"\",\"count\":1} {\"event\":\"a\",\"count\":1}"
+      + " {\"event\":\"b\",\"count\":1} {\"event\":\"\uFF21\",\"count\":1} {\"event\":\"\uD83D\uDE00\",\"count\":1}";
+
+  /** {@link #TIED_STORE} under {@code fn:string}: the merged "" is an ordinary string among its ties. */
+  private static final String TIED_STRINGIFIED_ORDER = "{\"event\":\"\",\"count\":3} {\"event\":\"likes\",\"count\":3}"
+      + " {\"event\":\"posts\",\"count\":2} {\"event\":\"a\",\"count\":1} {\"event\":\"b\",\"count\":1}"
+      + " {\"event\":\"\uFF21\",\"count\":1} {\"event\":\"\uD83D\uDE00\",\"count\":1}";
 
   private static final String STRINGIFIED_GROUP = """
         for $e in jn:doc('json-path1','jbshape.jn')[]
@@ -158,34 +178,45 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
   }
 
   @Test
-  public void tiedScalarSummaryCountsKeepFirstAppearanceOrder() throws IOException {
+  public void tiedScalarSummaryCountsOrderByKey() throws IOException {
     query(TIED_STORE);
     query(INDEX);
-    ProjectionIndexRegistry.clear();
-    ProjectionIndexCatalog.clearCache();
-    withFixture((chain, ctx, executor) -> {
-      final long summaryBefore = SirixVectorizedExecutor.groupAggSummaryServedCount();
-      assertServed(chain, ctx, group(""), "tied unfiltered collection count");
-      if (!recording) {
-        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggSummaryServedCount() - summaryBefore,
-            "tied counts must not be answered in summary order");
-      }
-      Assertions.assertEquals(
-          "{\"event\":\"a\",\"count\":1} {\"event\":null,\"count\":1} {\"event\":\"b\",\"count\":1}",
-          evaluateQuery(chain, ctx, group("")), "equal counts keep first appearance, the absent group included");
+    final int revision = mostRecentRevision();
+    Assertions.assertEquals(TIED_ORDER, servedAt(revision, group(""), true, "tied unfiltered collection count"),
+        "equal counts order by key, the absent group first");
+    Assertions.assertEquals(TIED_STRINGIFIED_ORDER,
+        servedAt(revision, STRINGIFIED_GROUP, true, "tied stringified unfiltered collection count"),
+        "the absent records' \"\" group orders among equal counts as the empty string");
+  }
 
-      final long stringifiedSummaryBefore = SirixVectorizedExecutor.groupAggSummaryServedCount();
-      assertServed(chain, ctx, STRINGIFIED_GROUP, "tied stringified unfiltered collection count");
-      if (!recording) {
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.groupAggSummaryServedCount() - stringifiedSummaryBefore,
-            "tied stringified counts must not be answered in summary order");
-      }
-      Assertions.assertEquals(
-          "{\"event\":\"a\",\"count\":1} {\"event\":\"\",\"count\":1} {\"event\":\"b\",\"count\":1}",
-          evaluateQuery(chain, ctx, STRINGIFIED_GROUP),
-          "the absent row's \"\" group keeps its first appearance between a and b");
-    });
+  /**
+   * The same records answered once from the persisted per-value counts and once by scanning the row
+   * groups. A value too long for the summary's bounded encoding withdraws the summary for good, so
+   * writing one and then restoring the original value leaves a later revision with the original
+   * records and no summary.
+   */
+  @Test
+  public void tiedCountsOrderAlikeFromTheSummaryAndTheRowGroups() throws IOException {
+    query(TIED_STORE);
+    query(INDEX);
+    final int summaryRevision = mostRecentRevision();
+    replaceFirstCollection("x".repeat(4096));
+    replaceFirstCollection("likes");
+    final int rowGroupRevision = mostRecentRevision();
+
+    for (final boolean stringified : new boolean[] {false, true}) {
+      final String what = stringified
+          ? "tied stringified collection count"
+          : "tied collection count";
+      Assertions.assertEquals(evaluateGeneric(countAt(summaryRevision, stringified)),
+          evaluateGeneric(countAt(rowGroupRevision, stringified)), what + ": both revisions hold the same records");
+      final String fromSummary = servedAt(summaryRevision, countAt(summaryRevision, stringified), true, what);
+      final String fromRowGroups = servedAt(rowGroupRevision, countAt(rowGroupRevision, stringified), false, what);
+      Assertions.assertEquals(fromSummary, fromRowGroups, what + ": the summary and the row groups order ties alike");
+      Assertions.assertEquals(stringified
+          ? TIED_STRINGIFIED_ORDER
+          : TIED_ORDER, fromRowGroups, what + ": count descending, then key ascending");
+    }
   }
 
   @Test
@@ -323,17 +354,16 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
         """;
 
     withFixture((chain, ctx, executor) -> {
-      assertServed(chain, ctx, all, "a stringified key over the whole corpus");
+      // The merge itself: FOUR rows carry the empty key — a stored "", a commit without the field,
+      // and two records without a commit object — and they form ONE group, exactly as the
+      // interpreter's fn:string does. A side group for the absent rows would print two '' rows.
+      assertServedAs(chain, ctx, all,
+          "{\"event\":\"\",\"count\":4} {\"event\":\"likes\",\"count\":2} {\"event\":\"posts\",\"count\":2}",
+          "absent rows and the stored empty string must share one group; equal counts order by key");
       assertServed(chain, ctx, someAbsent, "a stringified key with some rows absent");
       assertServed(chain, ctx, noneAbsent, "a stringified key with no row absent");
       assertServed(chain, ctx, allAbsent, "a stringified key with every row absent");
       assertServed(chain, ctx, withSecondKey, "a stringified key beside a second key");
-      // The merge itself: FOUR rows carry the empty key — a stored "", a commit without the field,
-      // and two records without a commit object — and they form ONE group, exactly as the
-      // interpreter's fn:string does. A side group for the absent rows would print two '' rows.
-      Assertions.assertEquals(
-          "{\"event\":\"\",\"count\":4} {\"event\":\"posts\",\"count\":2}" + " {\"event\":\"likes\",\"count\":2}",
-          evaluateQuery(chain, ctx, all), "absent rows and the stored empty string must share one group");
     });
   }
 
@@ -362,11 +392,10 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
         order by $c descending
         return {"event": $k, "count": $c}
         """;
-    withFixture((chain, ctx, executor) -> {
-      assertServed(chain, ctx, all, "the low-cardinality Q1 compiler path");
-      Assertions.assertEquals("{\"event\":\"\",\"count\":120} {\"event\":\"null\",\"count\":40}"
-          + " {\"event\":\"β\",\"count\":40} {\"event\":\"alpha\",\"count\":40}", evaluateQuery(chain, ctx, all));
-    });
+    withFixture((chain, ctx, executor) -> assertServedAs(chain, ctx, all,
+        "{\"event\":\"\",\"count\":120} {\"event\":\"alpha\",\"count\":40}"
+            + " {\"event\":\"null\",\"count\":40} {\"event\":\"β\",\"count\":40}",
+        "the low-cardinality Q1 compiler path"));
   }
 
   @Test
@@ -554,6 +583,86 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
         """.formatted(where);
   }
 
+  /** The JSONBench Q1 count over one pinned revision, the key wrapped in {@code fn:string} if asked. */
+  private static String countAt(final int revision, final boolean stringified) {
+    return """
+        for $e in jn:doc('json-path1','jbshape.jn',%d)[]
+        let $k := %s
+        group by $k
+        let $c := count($e)
+        order by $c descending
+        return {"event": $k, "count": $c}
+        """.formatted(revision, stringified
+        ? "string($e.commit.collection)"
+        : "$e.commit.collection");
+  }
+
+  private void replaceFirstCollection(final String value) {
+    query("""
+        let $doc := jn:doc('json-path1','jbshape.jn')
+        return replace json value of $doc[0].commit.collection with "%s"
+        """.formatted(value));
+  }
+
+  private static int mostRecentRevision() {
+    try (final BasicJsonDBStore store =
+        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build()) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      try (final JsonResourceSession session = collection.getDatabase().beginResourceSession("jbshape.jn")) {
+        return session.getMostRecentRevisionNumber();
+      }
+    }
+  }
+
+  /**
+   * Evaluates {@code queryStr} with an executor bound to {@code revision}, requiring the group
+   * aggregate to be served from the projection: from the persisted per-value counts when
+   * {@code fromSummary}, from the row groups otherwise.
+   */
+  private static String servedAt(final int revision, final String queryStr, final boolean fromSummary,
+      final String what) throws IOException {
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      try (final JsonResourceSession session = collection.getDatabase().beginResourceSession("jbshape.jn")) {
+        final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
+        SequentialPipelineStrategy.setVectorizedExecutor(executor);
+        try {
+          final long served = SirixVectorizedExecutor.groupAggServedCount();
+          final long summary = SirixVectorizedExecutor.groupAggSummaryServedCount();
+          final String answer = evaluateQuery(chain, ctx, queryStr);
+          Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - served,
+              what + " must be SERVED from the projection");
+          Assertions.assertEquals(fromSummary
+              ? 1L
+              : 0L, SirixVectorizedExecutor.groupAggSummaryServedCount() - summary, what + (fromSummary
+                  ? " must read the persisted per-value counts"
+                  : " must scan the row groups"));
+          return answer;
+        } finally {
+          SequentialPipelineStrategy.setVectorizedExecutor(null);
+          executor.close();
+        }
+      }
+    }
+  }
+
+  /** The interpreter's answer, with no executor bound or auto-wired. */
+  private static String evaluateGeneric(final String queryStr) throws IOException {
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      return evaluateQuery(chain, ctx, queryStr);
+    }
+  }
+
   /** What a fixture case does with an open store, context and a bound executor. */
   private interface FixtureCase {
     void run(SirixCompileChain chain, SirixQueryContext ctx, SirixVectorizedExecutor executor) throws IOException;
@@ -607,6 +716,22 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
     final long before = SirixVectorizedExecutor.groupAggServedCount();
     Assertions.assertEquals(genericAnswers.get(queryStr), evaluateQuery(chain, ctx, queryStr),
         what + " must answer exactly like the generic pipeline");
+    Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - before,
+        what + " must be SERVED from the projection");
+  }
+
+  /**
+   * Requires {@code queryStr} to be SERVED with exactly {@code expected}, for a count order whose
+   * ties the projection orders by key. The interpreter leaves the order of equal counts open, so its
+   * answer is no oracle for them.
+   */
+  private void assertServedAs(final SirixCompileChain chain, final SirixQueryContext ctx, final String queryStr,
+      final String expected, final String what) throws IOException {
+    if (recording) {
+      return;
+    }
+    final long before = SirixVectorizedExecutor.groupAggServedCount();
+    Assertions.assertEquals(expected, evaluateQuery(chain, ctx, queryStr), what);
     Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - before,
         what + " must be SERVED from the projection");
   }

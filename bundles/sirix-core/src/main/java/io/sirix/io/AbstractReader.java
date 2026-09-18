@@ -76,7 +76,9 @@ public abstract class AbstractReader implements Reader {
   /**
    * Retire every page a failed batch read decoded before the failure, so the members that did decode
    * return their allocator frames instead of stranding them. Best effort: a failing release is attached
-   * to {@code failure} and the remaining pages are still released.
+   * to {@code failure} and the remaining pages are still released. Only for pages decoded for the
+   * failed call, never for those of a reader that {@linkplain Reader#returnsSharedPages() returns
+   * shared pages}.
    *
    * @param pages the partially filled batch result; released entries are cleared
    * @param failure the failure that aborted the batch

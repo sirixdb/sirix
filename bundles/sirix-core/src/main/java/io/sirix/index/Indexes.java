@@ -12,7 +12,6 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -255,15 +254,16 @@ public final class Indexes implements Materializable {
 
   /**
    * As {@link #findProjectionIndex(Path, List, List)}, additionally requiring exactly the given
-   * sorted-view declaration ({@code null}: none), which is part of a projection's identity for
-   * {@code jn:create-projection-index}.
+   * sorted-view declaration: {@code jn:create-projection-index} refines a projection's identity by its
+   * sort columns when they are given.
    */
   public Optional<IndexDef> findProjectionIndex(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
-      final List<Type> fieldTypesOrNull, final @Nullable ProjectionSortedSpec sortedSpec) {
+      final List<Type> fieldTypesOrNull, final ProjectionSortedSpec sortedSpec) {
     requireNonNull(rootPath);
     requireNonNull(fieldPaths);
+    requireNonNull(sortedSpec);
     for (final IndexDef index : indexes) {
-      if (Objects.equals(sortedSpec, index.getProjectionSortedSpec()) && sameProjectionShape(index, rootPath,
+      if (sortedSpec.equals(index.getProjectionSortedSpec()) && sameProjectionShape(index, rootPath,
           fieldPaths, fieldTypesOrNull)) {
         return Optional.of(index);
       }
@@ -276,7 +276,8 @@ public final class Indexes implements Materializable {
    * {@code fieldTypesOrNull} is given — ordered declared types. Path comparison uses the parsed
    * paths' canonical form, matching the identity rule of {@code jn:create-projection-index} (sits
    * beside {@link #findPathIndex}/{@link #findCASIndex}/{@link #findNameIndex} as the projection
-   * family's finder).
+   * family's finder). A sorted-view declaration is not part of this key: the first catalogued
+   * projection of the shape is returned, whether or not it declares a sorted view.
    */
   public Optional<IndexDef> findProjectionIndex(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
       final List<Type> fieldTypesOrNull) {

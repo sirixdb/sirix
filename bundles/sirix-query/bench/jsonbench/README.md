@@ -142,9 +142,16 @@ does not control the lower filesystem cache on this host's eCryptfs workspace.
 
 The projection's sorted view is now declared by columns only — `kind`, `operation`, `collection`,
 `did`, `time_us`, ClickHouse's `ORDER BY` for this table — and Q4/Q5's equality filter is served
-as a key range of that view. The measurements above used an earlier view that stored only the rows
-matching Q4/Q5's literals. The column-only view holds every row, so its load time, data size and
-Q4/Q5 timings have not been re-measured.
+as a key range of that view. **The column-only sorted view has not been built or measured at 100M.**
+Every load time, data size and Q4/Q5 figure quoted in this README describes the earlier view, which
+stored only the rows matching Q4/Q5's literals. The column-only view holds every row, so all three
+change; a separate 100M rebuild and measurement is required before these figures may be quoted for
+the current code.
+
+Databases built by earlier heads of this branch (up to and including commit `7a619dd20`), among them
+the retained local 100M JSONBench databases, must be rebuilt. Their index catalogue still declares
+the removed literal-filtered view, which this code rejects when the resource is opened, and their
+sorted-view directory uses an older header format.
 
 The generated JSON evidence artifacts (build archives, raw-file inventories, validation and summary
 dumps) were removed from `evidence/`. The scripts, READMEs, evidence notes, checksums and raw
@@ -369,7 +376,9 @@ freedom SQL leaves, and no more.
 
 `JsonBenchProjection` declares five columns: `/[]/kind`, `/[]/did`, `/[]/time_us`,
 `/[]/commit/collection` and `/[]/commit/operation` — the same five fields the ClickHouse schema types
-explicitly.
+explicitly — and a sorted view ordered by `kind`, `operation`, `collection`, `did`, `time_us`. Both
+the load-time declaration and the second-pass `jn:create-projection-index` call declare that view,
+and the runner requires Q4 and Q5 to be answered from it.
 
 Projection creation is part of the benchmark load contract and fails the loader by default. On the
 explicit second-pass route, `-Djsonbench.projection.required=false` may retain a successfully shredded

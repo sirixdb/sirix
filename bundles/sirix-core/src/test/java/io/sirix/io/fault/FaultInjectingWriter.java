@@ -208,6 +208,11 @@ public final class FaultInjectingWriter implements Writer {
   }
 
   @Override
+  public boolean returnsSharedPages() {
+    return delegate.returnsSharedPages();
+  }
+
+  @Override
   public RevisionRootPage readRevisionRootPage(final int revision,
       final ResourceConfiguration resourceConfiguration) {
     return delegate.readRevisionRootPage(revision, resourceConfiguration);

@@ -14,7 +14,6 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.Allocators;
-import io.sirix.index.IndexDef;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.query.SirixCompileChain;
@@ -275,7 +274,6 @@ public final class JsonBenchRunMain {
       final Map<Integer, double[]> timings) throws IOException {
     final long groupsBefore = SirixVectorizedExecutor.groupAggServedCount();
     final long sortedGroupsBefore = SirixVectorizedExecutor.groupSortedServedCount();
-    final boolean sortedViewDeclared = declaresSortedView(session, revision);
     long expectedGroups = 0;
     long expectedSortedGroups = 0;
     System.out.printf("%-4s | %10s | %10s | %10s | %s%n", "q", "try1(s)", "hot(s)", "rows", "note");
@@ -283,7 +281,7 @@ public final class JsonBenchRunMain {
       if (options.selected() != null && !options.selected().contains(query.index())) {
         continue;
       }
-      final boolean sortedRoute = sortedViewDeclared && (query.index() == 4 || query.index() == 5);
+      final boolean sortedRoute = query.index() == 4 || query.index() == 5;
       final String text =
           JsonBenchQueries.wrap(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, query.jsoniq(options.variant()));
       final double[] tries = timings.get(query.index());
@@ -339,16 +337,6 @@ public final class JsonBenchRunMain {
             || SirixVectorizedExecutor.groupSortedServedCount() - sortedGroupsBefore != expectedSortedGroups)) {
       throw new IllegalStateException("JSONBench query did not use its required projection aggregate route");
     }
-  }
-
-  /** Whether a projection of this resource declares a sorted view at {@code revision}. */
-  static boolean declaresSortedView(final JsonResourceSession session, final int revision) {
-    for (final IndexDef definition : session.getRtxIndexController(revision).getIndexes().getIndexDefs()) {
-      if (definition.isProjectionIndex() && definition.getProjectionSortedSpec() != null) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**

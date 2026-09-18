@@ -7,7 +7,12 @@ import com.google.gson.stream.JsonReader;
 import io.brackit.query.Query;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.access.trx.node.HashType;
+import io.brackit.query.QueryException;
+import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.IndexDef;
+import io.sirix.index.IndexType;
+import io.sirix.index.Indexes;
 import io.sirix.index.ProjectionSortedSpec;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
@@ -16,6 +21,7 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.ProjectionSpec;
 import io.sirix.query.scan.SirixVectorizedExecutor;
+import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -32,6 +38,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ProjectionSortedGroupServingTest {
@@ -286,6 +293,72 @@ final class ProjectionSortedGroupServingTest {
           SequentialPipelineStrategy.setVectorizedExecutor(null);
           executor.close();
         }
+      }
+    }
+  }
+
+  @Test
+  void unsortableSortColumnIsRejectedBeforeTheOpenWriteTransactionIsTouched() throws IOException {
+    try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+        SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
+        SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = store.create("sorted", "events",
+          new JsonReader(new StringReader("[{\"kind\":\"commit\",\"score\":1.5},{\"kind\":\"identity\",\"score\":2.5}]")));
+      try (JsonResourceSession session = collection.getDatabase().beginResourceSession("events");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        assertTrue(writer.moveToDocumentRoot());
+        assertTrue(writer.moveToFirstChild());
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"kind\":\"uncommitted\",\"score\":3.5}"),
+            JsonNodeTrx.Commit.NO);
+        assertThrows(QueryException.class, () -> evaluate(chain, context, """
+            let $doc := jn:doc('sorted','events')
+            return jn:create-projection-index($doc, '/[]', ('/[]/kind', '/[]/score'), ('string', 'double'),
+                ('/[]/score'))
+            """));
+        assertEquals(0, session.getWtxIndexController(writer.getRevisionNumber()).getIndexes()
+                                .getNrOfIndexDefsWithType(IndexType.PROJECTION),
+            "a rejected declaration must not be catalogued in the caller's transaction");
+        assertTrue(writer.moveToDocumentRoot());
+        assertTrue(writer.moveToFirstChild());
+        assertEquals(3, writer.getChildCount(), "the caller's uncommitted work must survive the rejection");
+        writer.rollback();
+      }
+    }
+  }
+
+  @Test
+  void createWithoutSortColumnsReusesTheSortedProjection() throws IOException {
+    try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+        SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
+        SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = store.create("sorted", "events", new JsonReader(new StringReader(ROWS)));
+      final String fields = """
+          ('/[]/kind', '/[]/did', '/[]/time_us', '/[]/commit/collection', '/[]/commit/operation'),
+          ('string', 'string', 'long', 'string', 'string')""";
+      evaluate(chain, context, """
+          let $doc := jn:doc('sorted','events')
+          let $stats := jn:create-projection-index($doc, '/[]', %s,
+              ('/[]/kind', '/[]/commit/operation', '/[]/commit/collection', '/[]/did', '/[]/time_us'))
+          return sdb:commit($doc)
+          """.formatted(fields));
+      evaluate(chain, context, """
+          let $doc := jn:doc('sorted','events')
+          let $stats := jn:create-projection-index($doc, '/[]', %s)
+          return sdb:commit($doc)
+          """.formatted(fields));
+      final String found = evaluate(chain, context, """
+          jn:find-projection-index(jn:doc('sorted','events'), '/[]',
+              ('/[]/kind', '/[]/did', '/[]/time_us', '/[]/commit/collection', '/[]/commit/operation'))
+          """);
+      try (JsonResourceSession session = collection.getDatabase().beginResourceSession("events")) {
+        final Indexes indexes =
+            session.getRtxIndexController(session.getMostRecentRevisionNumber()).getIndexes();
+        assertEquals(1, indexes.getNrOfIndexDefsWithType(IndexType.PROJECTION),
+            "a create without sort columns must reuse the same-shape sorted projection");
+        final IndexDef sorted = indexes.getIndexDefs().stream().filter(IndexDef::isProjectionIndex).findFirst()
+                                       .orElseThrow();
+        assertEquals(EVENT_ORDER, sorted.getProjectionSortedSpec());
+        assertEquals(Integer.toString(sorted.getID()), found.trim());
       }
     }
   }

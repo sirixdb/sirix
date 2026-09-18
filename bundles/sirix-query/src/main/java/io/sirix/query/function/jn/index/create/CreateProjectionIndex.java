@@ -70,8 +70,10 @@ import java.util.function.Consumer;
  * by those columns, like a table's {@code ORDER BY} key. Each entry names one of {@code $fields},
  * spelled as a field path that parses to the same path; the columns must be string, long, boolean or
  * temporal. A query whose string equality filter covers a leading run of the sort columns, grouping
- * by the next column and taking the extremum of the last, is answered from that key range. The sort
- * columns are part of the projection's identity.
+ * by the next column and taking the extremum of the last, is answered from that key range. Sort
+ * columns refine a projection's identity only when they are given: a call with sort columns reuses
+ * only a same-shape projection with exactly those sort columns, while a call without them reuses any
+ * same-shape projection, sorted or not.
  *
  * <p>
  * Projection indexes work like the other index families ({@code jn:create-path-index} etc.): each
@@ -175,7 +177,7 @@ public final class CreateProjectionIndex extends AbstractFunction {
     }
 
     final ProjectionSortedSpec sortedSpec = args.length == 5 && args[4] != null
-        ? sortedSpec(args[4], fieldPaths)
+        ? sortedSpec(args[4], fieldPaths, fieldTypes)
         : null;
 
     final int revision = document.getTrx().getRevisionNumber();
@@ -190,8 +192,9 @@ public final class CreateProjectionIndex extends AbstractFunction {
     final JsonIndexController controller = openWtx.isPresent()
         ? session.getWtxIndexController(openWtx.get().getRevisionNumber())
         : session.getRtxIndexController(revision);
-    final IndexDef existingDef =
-        controller.getIndexes().findProjectionIndex(rootPath, fieldPaths, fieldTypes, sortedSpec).orElse(null);
+    final IndexDef existingDef = (sortedSpec == null
+        ? controller.getIndexes().findProjectionIndex(rootPath, fieldPaths, fieldTypes)
+        : controller.getIndexes().findProjectionIndex(rootPath, fieldPaths, fieldTypes, sortedSpec)).orElse(null);
     if (existingDef != null) {
       // Probe through an open transaction's own writer so an index created earlier in this
       // transaction is visible. Otherwise use the committed, revision-scoped catalogue path. Both
@@ -215,9 +218,12 @@ public final class CreateProjectionIndex extends AbstractFunction {
     return def.materialize();
   }
 
-  /** The sort-column declaration: each entry must name a distinct declared field path. */
+  /**
+   * The sort-column declaration: each entry must name a distinct declared field path of a sortable
+   * type. Validated before any write transaction is begun, reused or reverted.
+   */
   private static @Nullable ProjectionSortedSpec sortedSpec(final Sequence sortColumns,
-      final List<Path<QNm>> fieldPaths) {
+      final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes) {
     final List<Integer> keyColumns = new ArrayList<>(fieldPaths.size());
     forEachString(sortColumns, value -> {
       final String canonical = Path.parse(value, PathParser.Type.JSON).toString();
@@ -236,9 +242,16 @@ public final class CreateProjectionIndex extends AbstractFunction {
       }
       keyColumns.add(column);
     });
-    return keyColumns.isEmpty()
-        ? null
-        : new ProjectionSortedSpec(keyColumns);
+    if (keyColumns.isEmpty()) {
+      return null;
+    }
+    final ProjectionSortedSpec spec = new ProjectionSortedSpec(keyColumns);
+    try {
+      spec.validate(fieldPaths, fieldTypes);
+    } catch (final IllegalArgumentException unsupported) {
+      throw new QueryException(new QNm("Unsupported sort column: " + unsupported.getMessage()));
+    }
+    return spec;
   }
 
   /**

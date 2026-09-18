@@ -3,6 +3,11 @@
  */
 package io.sirix.index;
 
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.util.path.Path;
+import io.sirix.index.projection.ProjectionIndexBuilder;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -32,13 +37,25 @@ public record ProjectionSortedSpec(List<Integer> keyColumns) {
     }
   }
 
-  void validateFieldCount(final int fieldCount) {
-    if (fieldCount < 1) {
-      throw new IllegalArgumentException("sorted projection needs declared fields");
+  /**
+   * Reject key columns outside the projection's field list, or whose declared type a sort key cannot
+   * order exactly. String, long, boolean and temporal columns are sortable; floating, decimal and
+   * array-element (set) columns are not.
+   *
+   * @throws IllegalArgumentException naming the offending column
+   */
+  public void validate(final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes) {
+    if (fieldPaths.isEmpty() || fieldPaths.size() != fieldTypes.size()) {
+      throw new IllegalArgumentException("sorted projection needs declared, typed fields");
     }
     for (final int column : keyColumns) {
-      if (column >= fieldCount) {
+      if (column >= fieldPaths.size()) {
         throw new IllegalArgumentException("sorted projection key column " + column + " is outside the field list");
+      }
+      if (!ProjectionIndexBuilder.isSortKeyType(fieldTypes.get(column), fieldPaths.get(column))) {
+        throw new IllegalArgumentException("sorted projection key column " + column + " (" + fieldPaths.get(column)
+            + ") has type " + fieldTypes.get(column)
+            + ", which a sort key cannot order exactly; use a string, long, boolean or temporal column");
       }
     }
   }

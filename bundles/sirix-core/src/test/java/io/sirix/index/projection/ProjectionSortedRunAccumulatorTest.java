@@ -48,7 +48,8 @@ final class ProjectionSortedRunAccumulatorTest {
       order[i] = order[other];
       order[other] = value;
     }
-    final ProjectionSortedRunAccumulator run = new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE);
+    final ProjectionSortedRunAccumulator run = new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE,
+        ProjectionSortedRunAccumulator.defaultBudgetBytes(), temporaryDirectory.resolve("unused-spill"));
     final byte[] scratch = new byte[96];
     for (final int value : order) {
       encode(value, scratch);
@@ -89,7 +90,8 @@ final class ProjectionSortedRunAccumulatorTest {
 
   @Test
   void groupedScanDecodesEscapedStringsAndDeclinesUnstableTies() {
-    final ProjectionSortedRunAccumulator run = new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE);
+    final ProjectionSortedRunAccumulator run = new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE,
+        ProjectionSortedRunAccumulator.defaultBudgetBytes(), temporaryDirectory.resolve("unused-spill"));
     addGroupRow(run, "a\u0000b", 1_000, 1);
     addGroupRow(run, "a\u0000b", 5_000, 2);
     addGroupRow(run, "b", 2_000, 3);

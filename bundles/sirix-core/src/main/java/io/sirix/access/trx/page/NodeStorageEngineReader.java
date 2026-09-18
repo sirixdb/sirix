@@ -743,11 +743,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // that into an attributable error instead of a ClassCastException deep in a scan.
     final var loadedPage = pageReader.read(reference, resourceSession.getResourceConfig());
     if (!(loadedPage instanceof OverflowPage segmentPage)) {
-      throw new SirixIOException("Side-map overflow reference (offset key " + reference.getKey() + ") resolved to "
+      final SirixIOException dangling = new SirixIOException("Side-map overflow reference (offset key "
+          + reference.getKey() + ") resolved to "
           + (loadedPage == null
               ? "null"
               : loadedPage.getClass().getSimpleName())
           + " — dangling or corrupted side-map reference.");
+      retireUnadoptedPage(loadedPage, dangling);
+      throw dangling;
     }
     return segmentPage;
   }
@@ -2904,16 +2907,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         pages.add(recordPage);
       }
     } catch (final RuntimeException | Error failure) {
-      for (int i = handed; i < count; i++) {
-        final Page unhanded = loaded[i];
-        if (unhanded != null && !unhanded.isClosed()) {
-          try {
-            unhanded.close();
-          } catch (final Throwable closeFailure) {
-            addSuppressedSafely(failure, closeFailure);
-          }
-        }
-      }
+      closeUnhandedPages(loaded, handed, count, failure);
       throw failure;
     }
   }
@@ -3281,16 +3275,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         result.add(cached);
       }
     } catch (final RuntimeException | Error failure) {
-      for (int i = adopted; i < missCount; i++) {
-        final Page unadopted = loaded[i];
-        if (unadopted != null && !unadopted.isClosed()) {
-          try {
-            unadopted.close();
-          } catch (final Throwable closeFailure) {
-            addSuppressedSafely(failure, closeFailure);
-          }
-        }
-      }
+      closeUnhandedPages(loaded, adopted, missCount, failure);
       throw failure;
     }
   }
@@ -4240,22 +4225,61 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return fragment;
   }
 
-  /** Free the pages a batch read that no adoption ever reached (a failure part way), best effort. */
-  private static void retireUnadoptedPages(final Page[] loaded, final int from, final Throwable primary) {
+  /**
+   * Free the pages a batch read that no adoption ever reached (a failure part way), best effort. Pages
+   * of a backend that {@linkplain Reader#returnsSharedPages() returns shared pages} stay with it.
+   */
+  private void retireUnadoptedPages(final Page[] loaded, final int from, final Throwable primary) {
+    if (pageReader.returnsSharedPages()) {
+      return;
+    }
     for (int k = from; k < loaded.length; k++) {
-      final Page page = loaded[k];
-      if (page == null) {
-        continue;
-      }
-      try {
-        if (page instanceof HOTLeafPage leaf) {
-          leaf.retire();
-        } else {
-          page.close();
+      retireOwnedPage(loaded[k], primary);
+    }
+  }
+
+  /**
+   * Free one page the backend returned for a read that failed before any caller received it, best
+   * effort, unless the backend {@linkplain Reader#returnsSharedPages() still owns it}.
+   */
+  private void retireUnadoptedPage(final @Nullable Page page, final Throwable primary) {
+    if (!pageReader.returnsSharedPages()) {
+      retireOwnedPage(page, primary);
+    }
+  }
+
+  /**
+   * Close {@code loaded[from, to)}, the pages a batch read that no caller received (a failure part
+   * way), best effort, unless the backend {@linkplain Reader#returnsSharedPages() still owns them}.
+   */
+  private void closeUnhandedPages(final Page[] loaded, final int from, final int to, final Throwable primary) {
+    if (pageReader.returnsSharedPages()) {
+      return;
+    }
+    for (int i = from; i < to; i++) {
+      final Page unhanded = loaded[i];
+      if (unhanded != null && !unhanded.isClosed()) {
+        try {
+          unhanded.close();
+        } catch (final Throwable closeFailure) {
+          addSuppressedSafely(primary, closeFailure);
         }
-      } catch (final Throwable retirementFailure) {
-        addSuppressedSafely(primary, retirementFailure);
       }
+    }
+  }
+
+  private static void retireOwnedPage(final @Nullable Page page, final Throwable primary) {
+    if (page == null) {
+      return;
+    }
+    try {
+      if (page instanceof HOTLeafPage leaf) {
+        leaf.retire();
+      } else {
+        page.close();
+      }
+    } catch (final Throwable retirementFailure) {
+      addSuppressedSafely(primary, retirementFailure);
     }
   }
 

@@ -38,7 +38,11 @@ import java.util.List;
  * {@code jn:create-projection-index}); declared column types are not part
  * of the lookup key here — shapes differing only in types are rare and the
  * id feeds {@code jn:drop-projection-index}, where dropping either is
- * intended.
+ * intended. A sorted-view declaration is not part of the key either: the
+ * function returns the first catalogued projection of the shape, sorted or
+ * not. {@code jn:create-projection-index} without sort columns reuses that
+ * same projection, so one shape normally has one definition; a second one
+ * exists only when it was created with different sort columns.
  *
  * @author Johannes Lichtenberger
  */

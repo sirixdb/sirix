@@ -37,6 +37,7 @@ import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -45,6 +46,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -52,7 +54,8 @@ import static org.mockito.Mockito.when;
  * A batched read that fails part way must not strand the allocator frames of the members it had
  * already decoded: the failure propagates unchanged and every decoded member is released, for the
  * file-channel backend (one coalesced run and members read individually), the memory-mapped backend
- * and the interface's default batch loop.
+ * and the interface's default batch loop. A reader that hands out the instances it stores keeps them:
+ * its failed batch leaves every page it returned open, also when reached through a forwarding reader.
  */
 final class BatchReadFailureReleaseTest {
 
@@ -187,6 +190,59 @@ final class BatchReadFailureReleaseTest {
       if (!second.isClosed()) {
         second.close();
       }
+    }
+  }
+
+  @Test
+  void theDefaultBatchLoopLeavesThePagesOfASharedPageReaderOpen() {
+    final Reader reader = mock(Reader.class, CALLS_REAL_METHODS);
+    doReturn(true).when(reader).returnsSharedPages();
+
+    assertStoredPageSurvivesAFailedBatch(reader, reader);
+  }
+
+  @Test
+  void aForwardingReaderKeepsTheSharedPagesOfItsDelegate() {
+    final Reader delegate = mock(Reader.class);
+    when(delegate.returnsSharedPages()).thenReturn(true);
+    final Reader forwarding = new AbstractForwardingReader() {
+      @Override
+      protected Reader delegate() {
+        return delegate;
+      }
+
+      @Override
+      public void close() {}
+    };
+
+    assertTrue(forwarding.returnsSharedPages(), "a forwarding reader hands out its delegate's pages");
+    assertStoredPageSurvivesAFailedBatch(delegate, forwarding);
+  }
+
+  /**
+   * Stubs {@code backend} to return one stored page and then fail, and checks that a batch read
+   * through {@code batchReader} propagates the failure and leaves the stored page open and readable.
+   */
+  private static void assertStoredPageSurvivesAFailedBatch(final Reader backend, final Reader batchReader) {
+    final HOTLeafPage stored = new HOTLeafPage(1L, 1, IndexType.PROJECTION);
+    final byte[] storedValue = value(41, 3);
+    final SirixIOException injected = new SirixIOException("injected read failure of the second reference");
+    try {
+      assertTrue(stored.put(KEY, storedValue));
+      doAnswer(invocation -> {
+        if (invocation.<PageReference>getArgument(0).getKey() == 10L) {
+          return stored;
+        }
+        throw injected;
+      }).when(backend).read(any(PageReference.class), any(ResourceConfiguration.class));
+      final PageReference[] references = {new PageReference().setKey(10L), new PageReference().setKey(20L)};
+
+      assertSame(injected, assertThrows(SirixIOException.class, () -> batchReader.read(references, CONFIG)));
+
+      assertFalse(stored.isClosed(), "a page the reader still hands out must survive the failed batch");
+      assertArrayEquals(storedValue, stored.copyStoredValue(stored.findEntry(KEY)));
+    } finally {
+      stored.close();
     }
   }
 

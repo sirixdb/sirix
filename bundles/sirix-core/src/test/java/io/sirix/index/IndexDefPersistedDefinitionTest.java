@@ -104,6 +104,19 @@ final class IndexDefPersistedDefinitionTest {
         () -> IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4, IndexDef.DbType.JSON,
             new ProjectionSortedSpec(List.of(3))));
     assertThrows(IllegalArgumentException.class, () -> new ProjectionSortedSpec(List.of(1, 1)));
+    assertThrows(IllegalArgumentException.class,
+        () -> IndexDefs.createProjectionIdxDef(json("/[]"), List.of(json("/[]/kind"), json("/[]/score")),
+            List.of(Type.STR, Type.DBL), 4, IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(1))),
+        "a floating column cannot be a sort key");
+    assertThrows(IllegalArgumentException.class,
+        () -> IndexDefs.createProjectionIdxDef(json("/[]"), List.of(json("/[]/kind"), json("/[]/tags/[]")),
+            List.of(Type.STR, Type.STR), 4, IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(1))),
+        "an array-element (set) column cannot be a sort key");
+    assertTrue(IndexDefs.createProjectionIdxDef(json("/[]"), List.of(json("/[]/flag"), json("/[]/day")),
+        List.of(Type.BOOL, Type.DATE), 4, IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(1, 0)))
+                        .hasSameDefinition(roundTrip(IndexDefs.createProjectionIdxDef(json("/[]"),
+                            List.of(json("/[]/flag"), json("/[]/day")), List.of(Type.BOOL, Type.DATE), 4,
+                            IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(1, 0))))));
   }
 
   @Test

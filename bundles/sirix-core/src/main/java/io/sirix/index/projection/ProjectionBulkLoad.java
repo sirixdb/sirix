@@ -63,9 +63,11 @@ import java.util.function.LongFunction;
  * Bloom-reference window per local-string column, only those set-summary values that still fit
  * their one optional summary chunk, and, for a declared sorted view, at most
  * {@code -Dsirix.projection.sortedRun.budgetBytes} of resident sort keys (see
- * {@link ProjectionSortedRunAccumulator}); keys beyond that budget are spilled as sorted runs to
- * temporary files and merged into the view at {@link #finish}, so the view's heap does not grow with
- * the row count. Complete fence and Bloom windows stream to storage eagerly; the
+ * {@link ProjectionSortedRunAccumulator}); keys beyond that budget are spilled as sorted runs,
+ * through the resource's byte handlers, into the resource's spill directory (see
+ * {@link ProjectionSortedRunSpill}) and merged into the view at {@link #finish}, so the view's heap
+ * does not grow with the row count. A spill failure fails the load; {@link #abort} deletes the runs.
+ * Complete fence and Bloom windows stream to storage eagerly; the
  * partial tails, Bloom manifests, set summaries and live metadata publish at {@link #finish}. Slot
  * 0 holds the {@link ProjectionIndexMetadata#staleTombstone() stale tombstone} for the whole load,
  * so a load that dies half-way leaves a projection every reader SKIPS in favour of the generic

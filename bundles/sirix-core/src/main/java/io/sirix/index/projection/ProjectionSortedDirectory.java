@@ -33,6 +33,8 @@ final class ProjectionSortedDirectory {
   private static final byte VERSION = 3;
   private static final int FIXED_HEADER_BYTES = 31;
   private static final int MAX_HEIGHT = 8;
+  /** First capacity of a range's leaf-id array; it doubles up to the caller's maximum. */
+  private static final int INITIAL_RANGE_IDS = 64;
 
   private ProjectionSortedDirectory() {}
 
@@ -211,7 +213,7 @@ final class ProjectionSortedDirectory {
     /** Physical ids of {@link #leaves(byte[], byte[])} in key order, or null beyond {@code maximum}. */
     int @Nullable [] leafIds(final byte[] from, final byte @Nullable [] upperExclusive, final int maximum) {
       final LeafCursor cursor = leaves(from, upperExclusive);
-      int[] ids = new int[Math.max(1, Math.min(dataLeafCount, maximum))];
+      int[] ids = new int[Math.max(1, Math.min(INITIAL_RANGE_IDS, maximum))];
       int count = 0;
       while (cursor.id() != 0) {
         if (count == maximum) {
@@ -226,6 +228,20 @@ final class ProjectionSortedDirectory {
       return count == ids.length
           ? ids
           : Arrays.copyOf(ids, count);
+    }
+
+    /** Leaves of {@link #leaves(byte[], byte[])}, counted up to {@code cap}; the whole view needs no walk. */
+    int leafCount(final byte[] from, final byte @Nullable [] upperExclusive, final int cap) {
+      if (from.length == 0 && upperExclusive == null) {
+        return Math.min(dataLeafCount, cap);
+      }
+      final LeafCursor cursor = leaves(from, upperExclusive);
+      int count = 0;
+      while (count < cap && cursor.id() != 0) {
+        count++;
+        cursor.advance();
+      }
+      return count;
     }
 
     final class LeafCursor {

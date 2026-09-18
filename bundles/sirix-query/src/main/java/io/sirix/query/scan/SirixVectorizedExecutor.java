@@ -13547,7 +13547,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * {@link ProjectionIndexByteScan#conjunctiveAggregateByGroup} (one key) or
    * {@link ProjectionIndexByteScan#conjunctiveAggregateByGroupMulti} (2..5 keys) over the covering
    * projection's leaves. Groups emit in DOCUMENT first-appearance order (the interpreter's grouping
-   * order); matching rows missing a group field carry the empty-sequence key for that component
+   * order), except that a single plain key ordered by its count alone is returned already ordered,
+   * equal counts by key (see {@link #orderCountTiesByKey}); matching rows missing a group field carry
+   * the empty-sequence key for that component
    * (single-key: the null-key group). Returns {@code null} to fall back (callers compile the generic
    * pipeline alongside).
    */
@@ -14670,14 +14672,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return mask;
   }
 
-  private static @Nullable ServedGroups serveScalarValueCounts(final Map<String, Long> counts, final String keyName,
+  private static ServedGroups serveScalarValueCounts(final Map<String, Long> counts, final String keyName,
       final String outputName, final boolean stringifyMissing) {
     final long missing = stringifyMissing
         ? counts.getOrDefault(null, 0L)
         : 0L;
-    final int capacity = counts.size() + 1;
-    final String[] groupKeys = new String[capacity];
-    final long[] groupCounts = new long[capacity];
+    final Item[] rows = new Item[counts.size() + 1];
+    final QNm key = new QNm(keyName);
+    final QNm output = new QNm(outputName);
     int groups = 0;
     for (final Map.Entry<String, Long> entry : counts.entrySet()) {
       final String value = entry.getKey();
@@ -14689,45 +14691,146 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           ? Math.addExact(stored, missing)
           : stored;
       if (count > 0) {
-        groupKeys[groups] = value;
-        groupCounts[groups] = count;
-        groups++;
+        rows[groups++] = new ArrayObject(new QNm[] {key, output}, new Sequence[] {value == null
+            ? null
+            : new Str(value), new Int64(count)});
       }
     }
     if (stringifyMissing && missing > 0 && !counts.containsKey("")) {
-      groupKeys[groups] = "";
-      groupCounts[groups] = missing;
-      groups++;
-    }
-    if (hasEqualCounts(groupCounts, groups)) {
-      return null;
-    }
-    final Item[] rows = new Item[groups];
-    final QNm key = new QNm(keyName);
-    final QNm output = new QNm(outputName);
-    for (int g = 0; g < groups; g++) {
-      final String value = groupKeys[g];
-      rows[g] = new ArrayObject(new QNm[] {key, output}, new Sequence[] {value == null
-          ? null
-          : new Str(value), new Int64(groupCounts[g])});
+      rows[groups++] = new ArrayObject(new QNm[] {key, output}, new Sequence[] {new Str(""), new Int64(missing)});
     }
     GROUP_AGG_SERVED.increment();
     GROUP_AGG_SUMMARY_SERVED.increment();
-    return new ServedGroups(new ItemSequence(rows), false);
+    return new ServedGroups(new ItemSequence(groups == rows.length
+        ? rows
+        : Arrays.copyOf(rows, groups)), false);
   }
 
-  private static boolean hasEqualCounts(final long[] counts, final int length) {
-    if (length < 2) {
-      return false;
-    }
-    final long[] sorted = Arrays.copyOf(counts, length);
-    Arrays.sort(sorted);
-    for (int i = 1; i < length; i++) {
-      if (sorted[i] == sorted[i - 1]) {
-        return true;
+  /**
+   * Whether a group-by is one plain key counted and ordered by that count alone, descending, over
+   * every row: the shape the persisted per-value counts can answer, and the shape
+   * {@link #orderCountTiesByKey} orders.
+   */
+  private static boolean countDescendingPlainKey(final PredicateNode predicateOrNull, final int keyCount,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final int[] orderIndexes,
+      final boolean[] orderAsc, final long limit, final long[] keyOffsets, final int[] keySubstr,
+      final String[] keyCondFields, final String[] keyCondElse, final String[] keyRegexPattern,
+      final long[] keyDivMod, final boolean[] keyStringify, final long[] having) {
+    return predicateOrNull == null && keyCount == 1 && funcs.length == 1 && "count".equals(funcs[0])
+        && aggFields.length == 1 && aggFields[0] == null && outNames.length == 1 && having == null && limit < 0
+        && orderIndexes != null && orderIndexes.length == 1 && orderIndexes[0] == 1 && orderAsc != null
+        && orderAsc.length == 1 && !orderAsc[0]
+        && (keyCondFields == null || keyCondFields.length == 1 && keyCondFields[0] == null)
+        && (keyStringify == null || keyStringify.length == 1)
+        && anyKPlainKeys(1, keyOffsets, keySubstr, keyCondElse, keyRegexPattern, keyDivMod, null);
+  }
+
+  /**
+   * Orders the {@code {key, count}} groups of a {@link #countDescendingPlainKey} query by count
+   * descending, then by key ascending as {@code order by $k} compares it by default: the missing-key
+   * group (the empty sequence, {@code empty least}) first, strings in codepoint order, integers
+   * numerically. Every projection route of that shape answers through here, so equal counts come out
+   * in one order whichever route counted them. Records of any other shape are returned as served.
+   */
+  private static ServedGroups orderCountTiesByKey(final ServedGroups served) {
+    final Sequence groups = served.groups();
+    final int size = groups.size().intValue();
+    final Item[] rows = new Item[size];
+    final long[] counts = new long[size];
+    final boolean[] present = new boolean[size];
+    String[] strings = null;
+    long[] integers = null;
+    int rowCount = 0;
+    try (final Iter iter = groups.iterate()) {
+      for (Item item = iter.next(); item != null; item = iter.next()) {
+        if (rowCount == size || !(item instanceof final ArrayObject record) || record.len() != 2
+            || !(record.value(1) instanceof final Int64 count)) {
+          return served;
+        }
+        final Sequence key = record.value(0);
+        if (key instanceof final Str string) {
+          if (integers != null) {
+            return served;
+          }
+          if (strings == null) {
+            strings = new String[size];
+          }
+          strings[rowCount] = string.stringValue();
+          present[rowCount] = true;
+        } else if (key instanceof final Int64 integer) {
+          if (strings != null) {
+            return served;
+          }
+          if (integers == null) {
+            integers = new long[size];
+          }
+          integers[rowCount] = integer.longValue();
+          present[rowCount] = true;
+        } else if (key != null) {
+          return served;
+        }
+        rows[rowCount] = item;
+        counts[rowCount] = count.longValue();
+        rowCount++;
       }
     }
-    return false;
+    final String[] stringKeys = strings;
+    final long[] integerKeys = integers;
+    final int[] order = new int[rowCount];
+    for (int i = 0; i < rowCount; i++) {
+      order[i] = i;
+    }
+    IntArrays.quickSort(order, (left, right) -> {
+      final int byCount = Long.compare(counts[right], counts[left]);
+      if (byCount != 0) {
+        return byCount;
+      }
+      if (present[left] != present[right]) {
+        return present[left]
+            ? 1
+            : -1;
+      }
+      if (present[left]) {
+        final int byKey = stringKeys != null
+            ? compareCodePoints(stringKeys[left], stringKeys[right])
+            : Long.compare(integerKeys[left], integerKeys[right]);
+        if (byKey != 0) {
+          return byKey;
+        }
+      }
+      return Integer.compare(left, right);
+    });
+    final Item[] ordered = new Item[rowCount];
+    for (int i = 0; i < rowCount; i++) {
+      ordered[i] = rows[order[i]];
+    }
+    return new ServedGroups(new ItemSequence(ordered), true);
+  }
+
+  /**
+   * Unicode codepoint order of two strings, which is also the unsigned byte order of their UTF-8
+   * encodings. {@link String#compareTo} compares UTF-16 units instead and puts every supplementary
+   * character before the BMP characters from {@code U+E000} up.
+   */
+  private static int compareCodePoints(final String left, final String right) {
+    final int length = Math.min(left.length(), right.length());
+    for (int i = 0; i < length; i++) {
+      final char l = left.charAt(i);
+      final char r = right.charAt(i);
+      if (l != r) {
+        return codePointOrderUnit(l) - codePointOrderUnit(r);
+      }
+    }
+    return left.length() - right.length();
+  }
+
+  /** Remaps a UTF-16 unit so units compare in codepoint order: surrogates above every BMP unit. */
+  private static int codePointOrderUnit(final char unit) {
+    return unit < Character.MIN_SURROGATE
+        ? unit
+        : unit > Character.MAX_SURROGATE
+            ? unit - 0x800
+            : unit + 0x2000;
   }
 
   public ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
@@ -14742,9 +14845,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (!sourcePathIsPresent(sourcePath)) {
       return null;
     }
-    return groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
-        orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse,
-        keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, false, false);
+    final ServedGroups served = groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs,
+        aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields,
+        keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, false, false);
+    return served != null && countDescendingPlainKey(predicateOrNull, groupFields.length, funcs, aggFields, outNames,
+        orderIndexes, orderAsc, limit, keyOffsets, keySubstr, keyCondFields, keyCondElse, keyRegexPattern, keyDivMod,
+        keyStringify, having)
+            ? orderCountTiesByKey(served)
+            : served;
   }
 
   /**
@@ -14808,24 +14916,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           required.add(raw);
         }
       }
-      final boolean scalarSummaryShape = predicateOrNull == null && keyCount == 1 && funcs.length == 1
-          && "count".equals(funcs[0]) && aggFields.length == 1 && aggFields[0] == null && outNames.length == 1
-          && having == null && limit < 0 && orderIndexes != null && orderIndexes.length == 1 && orderIndexes[0] == 1
-          && orderAsc != null && orderAsc.length == 1 && !orderAsc[0]
-          && (keyCondFields == null || keyCondFields.length == 1 && keyCondFields[0] == null)
-          && (keyStringify == null || keyStringify.length == 1)
-          && anyKPlainKeys(1, keyOffsets, keySubstr, keyCondElse, keyRegexPattern, keyDivMod, null);
-      boolean summaryRead = false;
+      final boolean scalarSummaryShape = countDescendingPlainKey(predicateOrNull, keyCount, funcs, aggFields,
+          outNames, orderIndexes, orderAsc, limit, keyOffsets, keySubstr, keyCondFields, keyCondElse,
+          keyRegexPattern, keyDivMod, keyStringify, having);
       if (scalarSummaryShape && wtx == null) {
         final Map<String, Long> counts = ProjectionIndexCatalog.lookupScalarValueRowCounts(session,
             projectionRegistryKey, revision, sourcePath, groupFields[0]);
         if (counts != null) {
-          final ServedGroups summary =
-              serveScalarValueCounts(counts, keyNames[0], outNames[0], keyStringify != null && keyStringify[0]);
-          if (summary != null) {
-            return summary;
-          }
-          summaryRead = true;
+          return serveScalarValueCounts(counts, keyNames[0], outNames[0], keyStringify != null && keyStringify[0]);
         }
       }
       final ProjectionIndexRegistry.Handle handle =
@@ -14833,16 +14931,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (handle == null) {
         return declineGroupAgg("no projection covers the source path and required fields");
       }
-      if (scalarSummaryShape && !summaryRead) {
+      if (scalarSummaryShape) {
         final int summaryColumn = handle.columnOf(groupFields[0]);
         if (summaryColumn >= 0) {
           final Map<String, Long> counts = handle.scalarValueRowCounts(summaryColumn);
           if (counts != null) {
-            final ServedGroups summary =
-                serveScalarValueCounts(counts, keyNames[0], outNames[0], keyStringify != null && keyStringify[0]);
-            if (summary != null) {
-              return summary;
-            }
+            return serveScalarValueCounts(counts, keyNames[0], outNames[0], keyStringify != null && keyStringify[0]);
           }
         }
       }

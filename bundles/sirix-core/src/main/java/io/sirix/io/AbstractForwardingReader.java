@@ -80,5 +80,10 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
   }
 
   @Override
+  public boolean returnsSharedPages() {
+    return delegate().returnsSharedPages();
+  }
+
+  @Override
   protected abstract Reader delegate();
 }
