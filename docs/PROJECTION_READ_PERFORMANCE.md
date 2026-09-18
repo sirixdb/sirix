@@ -227,8 +227,11 @@ at least fifteen keys in every leaf and directory node. The header also records 
 layout. If the configured column kinds no longer produce that layout (for example after a
 `sirix.projection.temporalKinds` change for a timestamp key column), maintenance writes every row
 it touches under the reserved key rather than mixing two encodings, so the view declines until
-those rows are rewritten under matching kinds. An index declaration never rejects a valid document;
-a full or unwritable disk fails the load as any write does.
+those rows are rewritten under matching kinds. This has a write cost: in that state, every commit
+that touches records still stored under their old key scans the view in key order until it has
+found them, which on a large view can mean reading most of it. Results stay exact. An index
+declaration never rejects a valid document; a full or unwritable disk fails the load as any write
+does.
 
 When the aggregated field is optional, a query over a prefix range holding rows without that field
 may walk the range up to twice before it falls back to the generic route: once through the leaf
@@ -249,14 +252,17 @@ Memory and maintenance cost:
   failure; like the runs left by a process that died, it is deleted the next time the resource is
   opened, while live builds in this or another running process are kept. An I/O error while
   spilling or merging fails the load with an error naming the spill directory and its cause.
-- Per commit, maintenance takes each touched record's old key from the record's last key in the
-  transaction, which survives queries served inside the transaction and failed commits. Otherwise
-  it derives the key from the revision the writer represents (after `revertTo`, the reverted-to
-  revision) and uses it only if the view holds exactly that key. Any other record, such as one
-  whose row was built inside the open transaction, is found with one ordered scan. The commit's removals and insertions are applied as one
-  sorted batch: each touched leaf is rewritten, and its group summary re-encoded, once; each touched
-  bounds chunk is copied and published once. A leaf that overflows splits into balanced leaves, and
-  only directory nodes whose entries change are rewritten.
+- Per commit, maintenance takes each touched record's old key from the key it last wrote for the
+  record in the open transaction. That memory survives queries served inside the transaction,
+  failed commits and the drop of another index. Otherwise it derives the key from the revision the
+  writer represents (after `revertTo`, the reverted-to revision). It uses that key directly, with
+  no read, when the view already existed at that revision with the current layout and no reserved
+  rows. Otherwise the derived keys are checked against the view in one key-ordered pass that reads
+  each leaf once. Any record the view does not hold under its derived key, such as one whose row was
+  built inside the open transaction, is found with one ordered scan. The commit's removals and
+  insertions are applied as one sorted batch: each touched leaf is rewritten, and its group summary
+  re-encoded, once; each touched bounds chunk is copied and published once. A leaf that overflows
+  splits into balanced leaves, and only directory nodes whose entries change are rewritten.
 
 ## Sorted span candidate priority
 

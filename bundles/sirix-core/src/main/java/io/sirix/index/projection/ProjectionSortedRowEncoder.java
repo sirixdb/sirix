@@ -83,6 +83,11 @@ final class ProjectionSortedRowEncoder {
     return layout;
   }
 
+  /** Whether the extractor's column kinds produce {@link #layout()}; otherwise every key is reserved. */
+  boolean encodesTargetLayout() {
+    return encodesTargetLayout;
+  }
+
   /** Write the current row's ordered key, or its reserved unencodable key, to reusable scratch. */
   void writeKey(final long recordKey) {
     if (!encodesTargetLayout) {

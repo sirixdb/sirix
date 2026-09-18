@@ -45,6 +45,7 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -504,7 +505,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     // A load-time projection owns process-wide state outside the transaction's page log. Dropping its
     // definition removes the only listener that can finish or abort that state, so retire the exact
     // listener owner before touching the catalogue. Do not abort the remaining projection listeners:
-    // dropIndexes rebinds those below, and a successful intermediate commit may deliberately keep
+    // dropIndexes keeps those below, and a successful intermediate commit may deliberately keep
     // their streaming builders alive across listener epochs.
     for (final IndexDef indexDef : indexDefs) {
       if (indexDef.isProjectionIndex()) {
@@ -524,7 +525,17 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
     // 2. Re-derive listeners + capability flags from the REMAINING definitions. The dropped index's
     // listener is discarded (so it is not maintained for the rest of this transaction), and the
-    // has*Index() fast-path flags are recomputed from scratch.
+    // has*Index() fast-path flags are recomputed from scratch. A remaining projection keeps its
+    // listener: the drop does not end the transaction, so the records it has yet to apply and the
+    // rows it has already written must stay with it.
+    final ArrayList<ProjectionIndexChangeListener> remainingProjectionListeners = new ArrayList<>();
+    final PathNodeKeyChangeListener[] activeListeners = primitiveListenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      if (activeListeners[i] instanceof final ProjectionIndexChangeListener projectionListener
+          && indexes.getIndexDef(projectionListener.indexDefId(), IndexType.PROJECTION) != null) {
+        remainingProjectionListeners.add(projectionListener);
+      }
+    }
     clearChangeListeners();
     hasPathIndex = false;
     hasCASIndex = false;
@@ -536,6 +547,11 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     // createIndexListeners re-adds each remaining def (idempotent on the Set), re-sets the capability
     // flags, and rebinds the listeners for this write transaction.
     createIndexListeners(indexes.getIndexDefs(), nodeWriteTrx);
+    for (final ProjectionIndexChangeListener projectionListener : remainingProjectionListeners) {
+      removeProjectionListenerFor(projectionListener.indexDefId());
+      addListener(projectionListener);
+    }
+    refreshListenerSnapshots();
 
     return this;
   }

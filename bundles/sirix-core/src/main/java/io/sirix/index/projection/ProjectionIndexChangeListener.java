@@ -2439,14 +2439,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   /**
    * Apply exact key changes after the base rows are patched and before metadata is published. A
-   * record's prior key is what the view holds for it: the key this transaction last wrote for it,
-   * otherwise the key of its state in the revision the writer represents (which after
-   * {@code revertTo} is the reverted-to revision), provided the view holds exactly that key. Any
-   * other record — for instance one whose view row was built inside this transaction — is found by
-   * one ordered scan. Keys are encoded in the view's persisted layout; when the configured column
-   * kinds no longer produce that layout, every touched row is written under the reserved
-   * unencodable key, so the view declines instead of mixing encodings. The whole pass is one batched
-   * edit that rewrites each touched leaf once.
+   * record's prior key is what the view holds for it. For a record this listener already wrote in the
+   * open transaction that is the key it last wrote, kept across queries served inside the transaction
+   * and across failed commits. Otherwise it is the key of the record's state in the revision the
+   * writer represents (which after {@code revertTo} is the reverted-to revision). That key is taken
+   * as is when the view at that revision provably holds it: the view existed there, holds no reserved
+   * row and has the layout this encoder produces. Otherwise the derived keys are checked against the
+   * transaction's view in one key-ordered pass that reads each leaf once, and the records it does not
+   * hold are found by one ordered scan. Keys are encoded in the view's persisted layout; when the
+   * configured column kinds no longer produce that layout, every touched row is written under the
+   * reserved unencodable key, so the view declines instead of mixing encodings. The whole pass is one
+   * batched edit that rewrites each touched leaf once.
    */
   private void maintainSortedView(final ProjectionIndexHOTStorage storage, final LongOpenHashSet dirty,
       final Long2LongOpenHashMap locationByRecord) {
@@ -2474,6 +2477,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final int priorRevision = storageEngineWriter.getRevisionToRepresent();
     final var session = maintenanceTrx.getResourceSession();
     LongOpenHashSet unresolved = null;
+    int[] unverified = null;
+    int unverifiedCount = 0;
     try (NodeReadOnlyTrx priorReader = needsPrior
         ? session.beginNodeReadOnlyTrx(priorRevision)
         : null;
@@ -2486,6 +2491,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final ProjectionSortedRowEncoder priorEncoder = needsPrior
           ? new ProjectionSortedRowEncoder(indexDef, priorExtractor, editor.layout())
           : null;
+      if (needsPrior && !priorViewHoldsDerivedKeys(priorReader, priorEncoder)) {
+        unverified = new int[dirtyCount];
+      }
       final ProjectionIndexRowExtractor currentExtractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
       final ProjectionSortedRowEncoder currentEncoder =
           new ProjectionSortedRowEncoder(indexDef, currentExtractor, editor.layout());
@@ -2498,12 +2506,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         } else if (locationByRecord.get(recordKey) != ProjectionPersistedRecordLookup.ABSENT) {
           if (extractInto(priorExtractor, priorReader, recordKey)) {
             priorEncoder.writeKey(recordKey);
-            final byte[] candidate = priorEncoder.copyKey();
-            if (editor.contains(candidate)) {
-              priorKeys[at] = candidate;
+            priorKeys[at] = priorEncoder.copyKey();
+            if (unverified != null) {
+              unverified[unverifiedCount++] = at;
             }
-          }
-          if (priorKeys[at] == null) {
+          } else {
             if (unresolved == null) {
               unresolved = new LongOpenHashSet();
             }
@@ -2516,6 +2523,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           }
           currentEncoder.writeKey(recordKey);
           currentKeys[at] = currentEncoder.copyKey();
+        }
+      }
+    }
+    if (unverifiedCount > 0) {
+      editor.dropAbsent(priorKeys, unverified, unverifiedCount);
+      for (int i = 0; i < unverifiedCount; i++) {
+        if (priorKeys[unverified[i]] == null) {
+          if (unresolved == null) {
+            unresolved = new LongOpenHashSet();
+          }
+          unresolved.add(records[unverified[i]]);
         }
       }
     }
@@ -2548,6 +2566,19 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     Arrays.sort(removals, 0, removalCount, Arrays::compareUnsigned);
     Arrays.sort(insertions, 0, insertionCount, Arrays::compareUnsigned);
     editor.apply(removals, removalCount, insertions, null, insertionCount);
+  }
+
+  /**
+   * Whether the view at the revision the writer represents holds exactly the key {@code encoder}
+   * derives from each of that revision's records: it existed there, has the encoder's layout and
+   * holds no row under the reserved key, which a row derivable under the current column kinds may
+   * carry after a commit made under other kinds.
+   */
+  private boolean priorViewHoldsDerivedKeys(final NodeReadOnlyTrx priorReader,
+      final ProjectionSortedRowEncoder encoder) {
+    final ProjectionSortedDirectory.Accessor priorView =
+        ProjectionSortedDirectory.open(priorReader.getStorageEngineReader(), indexDef.getID());
+    return priorView != null && priorView.unencodableRows() == 0 && encoder.encodesTargetLayout();
   }
 
   /** One ordered scan of the transaction's view for the rows of the given records. */

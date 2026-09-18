@@ -18,10 +18,17 @@ final class ProjectionSortedLeafStore {
   /** Test observation of data-leaf rewrites; production keeps it null and pays one null check. */
   private static volatile @Nullable IntConsumer writeObserverForTesting;
 
+  /** Test observation of data-leaf reads through a write transaction's storage; null in production. */
+  private static volatile @Nullable IntConsumer storageReadObserverForTesting;
+
   private ProjectionSortedLeafStore() {}
 
   static void setWriteObserverForTesting(final @Nullable IntConsumer observer) {
     writeObserverForTesting = observer;
+  }
+
+  static void setStorageReadObserverForTesting(final @Nullable IntConsumer observer) {
+    storageReadObserverForTesting = observer;
   }
 
   /** Write one leaf, its group summary and its bound in the owning transaction. */
@@ -77,6 +84,10 @@ final class ProjectionSortedLeafStore {
   static @Nullable ProjectionSortedLeaf read(final ProjectionIndexHOTStorage storage, final int leafId) {
     if (storage == null) {
       throw new NullPointerException("sorted leaf storage is required");
+    }
+    final IntConsumer observer = storageReadObserverForTesting;
+    if (observer != null) {
+      observer.accept(leafId);
     }
     final byte[] bytes = storage.getBlob(slot(leafId));
     return bytes == null

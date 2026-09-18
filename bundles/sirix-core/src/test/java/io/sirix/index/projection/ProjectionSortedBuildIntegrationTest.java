@@ -15,6 +15,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.index.IndexType;
 import io.sirix.index.ProjectionSortedSpec;
 import io.sirix.service.json.shredder.JsonShredder;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
@@ -32,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
 import static io.brackit.query.util.path.Path.parse;
@@ -484,6 +486,112 @@ final class ProjectionSortedBuildIntegrationTest {
         assertSortedRouteMatchesTheData(session, session.getMostRecentRevisionNumber());
       }
     }
+  }
+
+  @Test
+  void aCommitTouchingManyRecordsOfOneLeafReadsThatLeafOncePerStep() {
+    final Path databasePath = temporaryDirectory.resolve("sorted-leaf-reads");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        final StringBuilder rows = new StringBuilder("[");
+        for (int i = 0; i < 12; i++) {
+          rows.append(i == 0
+              ? ""
+              : ",")
+              .append("{\"kind\":\"commit\",\"op\":\"create\",\"did\":\"d")
+              .append(i)
+              .append("\",\"time\":")
+              .append(1000 + i)
+              .append('}');
+        }
+        rows.append(']');
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final JsonIndexController controller =
+              (JsonIndexController) session.getWtxIndexController(writer.getRevisionNumber());
+          controller.createProjectionIndexAtLoadStart(definition(Type.STR), writer, 12L);
+          writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows.toString()), JsonNodeTrx.Commit.NO);
+          writer.commit();
+        }
+        final long[] recordKeys = new long[12];
+        readRecordKeys(session, recordKeys);
+
+        // The view at the represented revision holds exactly the derived keys: the only read of the
+        // leaf is the rewrite's.
+        assertEquals(1, leafReadsOfCommit(session, writer -> {
+          for (int i = 0; i < recordKeys.length; i += 2) {
+            setTime(writer, recordKeys[i], 10 + i);
+          }
+        }));
+        assertSortedRouteMatchesTheData(session, session.getMostRecentRevisionNumber());
+
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          setTime(writer, recordKeys[11], 1.5);
+          writer.commit();
+        }
+        assertEquals(1, unencodableRows(session, session.getMostRecentRevisionNumber()));
+        // A reserved row makes the derived keys unproven: they are checked in one key-ordered pass,
+        // so the leaf is read once for all of them and once more for the rewrite.
+        assertEquals(2, leafReadsOfCommit(session, writer -> {
+          for (int i = 1; i < 11; i += 2) {
+            setTime(writer, recordKeys[i], 20 + i);
+          }
+        }));
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          setTime(writer, recordKeys[11], 1011);
+          writer.commit();
+        }
+        assertSortedRouteMatchesTheData(session, session.getMostRecentRevisionNumber());
+      }
+    }
+  }
+
+  @Test
+  void droppingAnotherIndexInsideTheTransactionKeepsTheViewExact() {
+    final Path databasePath = temporaryDirectory.resolve("sorted-drop-other");
+    final IndexDef other = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
+        List.of(parse("/[]/kind", PathParser.Type.JSON), parse("/[]/time", PathParser.Type.JSON)),
+        List.of(Type.STR, Type.LON), 1, IndexDef.DbType.JSON);
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        loadThreeRecords(session);
+        final long[] recordKeys = new long[3];
+        readRecordKeys(session, recordKeys);
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(other), writer);
+          writer.commit();
+        }
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          setDid(writer, recordKeys[0], "z");
+          queryInsideTransaction(session, writer);
+          setTime(writer, recordKeys[1], 50);
+          final JsonIndexController controller =
+              (JsonIndexController) session.getWtxIndexController(writer.getRevisionNumber());
+          controller.dropIndexes(Set.of(controller.getIndexes().getIndexDef(1, IndexType.PROJECTION)), writer);
+          setDid(writer, recordKeys[0], "a");
+          writer.commit();
+        }
+        assertSortedRouteMatchesTheData(session, session.getMostRecentRevisionNumber());
+      }
+    }
+  }
+
+  /** Sorted data-leaf reads through the transaction's storage while {@code edits} commit. */
+  private static int leafReadsOfCommit(final JsonResourceSession session, final Consumer<JsonNodeTrx> edits) {
+    final int[] reads = new int[1];
+    try (JsonNodeTrx writer = session.beginNodeTrx()) {
+      edits.accept(writer);
+      ProjectionSortedLeafStore.setStorageReadObserverForTesting(leafId -> reads[0]++);
+      try {
+        writer.commit();
+      } finally {
+        ProjectionSortedLeafStore.setStorageReadObserverForTesting(null);
+      }
+    }
+    return reads[0];
   }
 
   @Test

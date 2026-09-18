@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.api.StorageEngineReader;
+import it.unimi.dsi.fastutil.ints.IntArrays;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
@@ -593,15 +594,34 @@ final class ProjectionSortedDirectory {
       return layout;
     }
 
-    /** Whether the transaction's view currently holds exactly {@code key}. */
-    boolean contains(final byte[] key) {
-      Objects.requireNonNull(key, "key");
+    /**
+     * Clear every {@code keys[positions[i]]}, {@code i < count}, that the transaction's view does not
+     * hold exactly. The keys are visited in key order, so each data leaf they fall into is located and
+     * read once however many of them it holds. Reorders {@code positions[0, count)}.
+     */
+    void dropAbsent(final byte[][] keys, final int[] positions, final int count) {
+      Objects.requireNonNull(keys, "keys");
+      Objects.checkFromIndexSize(0, count, positions.length);
       if (rootId == 0) {
-        return false;
+        for (int i = 0; i < count; i++) {
+          keys[positions[i]] = null;
+        }
+        return;
       }
-      final ProjectionSortedLeaf leaf = readLeaf(locate(key));
-      final int row = leaf.lowerBound(key);
-      return row < leaf.rowCount() && leaf.compareRowKey(row, key) == 0;
+      IntArrays.quickSort(positions, 0, count, (left, right) -> Arrays.compareUnsigned(keys[left], keys[right]));
+      ProjectionSortedLeaf leaf = null;
+      byte[] fence = null;
+      for (int i = 0; i < count; i++) {
+        final byte[] key = Objects.requireNonNull(keys[positions[i]], "key");
+        if (leaf == null || !below(key, fence)) {
+          leaf = readLeaf(locate(key));
+          fence = upperFence();
+        }
+        final int row = leaf.lowerBound(key);
+        if (row == leaf.rowCount() || leaf.compareRowKey(row, key) != 0) {
+          keys[positions[i]] = null;
+        }
+      }
     }
 
     void insert(final byte[] key, final byte[] payload) {
