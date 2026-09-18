@@ -57,10 +57,9 @@ public final class SirixLZ77NativeDecoder {
   private static final MemorySegment DECODE_SYMBOL;
 
   /**
-   * The signature has no library, arena, property or process state. Native Image initializes only
-   * this holder at build time so the exact invocation can compile through a constant adapter. A
-   * handle bound to a runtime symbol instead forces its adapter through the method-handle
-   * interpreter.
+   * The signature has no library, arena, property or process state; the symbol is passed per call.
+   * Native Image must initialize this holder at run time: GraalVM cannot compile a downcall handle
+   * created at image build time.
    */
   private static final class DecodeCall {
     private static final MethodHandle HANDLE =
