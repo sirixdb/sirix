@@ -18,8 +18,8 @@ reproduction of the published entry nor a cold-leader comparison.
 
 The five queries are collection counts; collection counts and exact distinct
 DIDs for creates; hourly post/repost/like create counts; the three earliest post
-users; and the three users with longest post activity spans. Their exact SQL and
-upstream file hashes are in `upstream-pin.json`; they match `../../queries.sql`.
+users; and the three users with longest post activity spans. Their exact SQL
+matches `../../queries.sql`.
 
 Upstream ranks the geometric mean of `(seconds + .010)/(fastest seconds + .010)`
 over all five queries. The paired Sirix/ClickHouse score ratio is therefore
@@ -146,7 +146,7 @@ decoder activation, guided by a fresh symbolized profile.
 ## Reproduction and retained evidence
 
 The candidate is a fresh `git archive` of the baseline plus exactly five hashed
-files in `scalar-v1-source.json`. Its source archive SHA-256 is
+files. Its source archive SHA-256 is
 `a621963582e48ca5c2026722966c444184ec0844c80aa965d3100b2160c2f964`.
 Builds ran offline with no build-cache reuse, tasks rerun, a private Gradle home,
 and the captain-selected GraalVM `jdk-25i4-25.0.4.1.1-ea.01`, source
@@ -159,8 +159,7 @@ Measured executable SHA-256:
 exact comparisons, tests, telemetry, source/runtime/input manifests, profiles'
 text reports and the drivers. Its SHA-256 is
 `a10ec69d2df6de2b83d89ba76071dcfd6e634460efe4bf23451c7be5d647b972`.
-`raw-files.json` lists and verifies each member. Large perf/JFR/steering-profile
-files remain at the task-local paths and checksums in `retained-large-files.json`;
+Large perf/JFR/steering-profile files remain at task-local paths;
 executables, full-tier profiles, runtime JARs and the source archive are described
 by their retained manifests. They are not embedded in this Git archive.
 

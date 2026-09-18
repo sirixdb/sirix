@@ -20,6 +20,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /** Sorted-projection fixtures shared by the lookahead equivalence tests (mirrors the span-scan test's). */
 final class SortedScanFixtures {
+  /** A view keyed by one string group field and one ordered long value field. */
+  static final ProjectionSortKeyCodec.Layout GROUP_VALUE = new ProjectionSortKeyCodec.Layout(
+      new byte[] {ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_LONG});
+
   record Row(@Nullable String group, long value, long record) {
   }
 
@@ -52,7 +56,7 @@ final class SortedScanFixtures {
     final byte[][] keys = rows.stream().map(SortedScanFixtures::key).toArray(byte[][]::new);
     Arrays.sort(keys, Arrays::compareUnsigned);
     final ProjectionSortedDirectory.Builder builder =
-        new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+        new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
     for (int from = 0, batch = 0; from < keys.length; batch++) {
       final int to = Math.min(keys.length, from + sizes[batch % sizes.length]);
       final byte[][] leafKeys = Arrays.copyOfRange(keys, from, to);

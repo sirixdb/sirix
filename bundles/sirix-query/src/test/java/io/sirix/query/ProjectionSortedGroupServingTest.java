@@ -51,6 +51,23 @@ final class ProjectionSortedGroupServingTest {
        {"kind":"identity","did":"ignored","time_us":1}]
       """;
 
+  /** Rows outside the filter prefix sort before and after it; one row's user id is not a string. */
+  private static final String ROWS_WITH_UNENCODABLE_KEY = """
+      [{"kind":"commit","did":"a","time_us":1000,"commit":{"operation":"create","collection":"post"}},
+       {"kind":"commit","did":"b","time_us":2000,"commit":{"operation":"create","collection":"post"}},
+       {"kind":"commit","did":7,"time_us":500,"commit":{"operation":"create","collection":"post"}},
+       {"kind":"commit","did":"c","time_us":3000,"commit":{"operation":"create","collection":"like"}},
+       {"kind":"identity","did":"ignored","time_us":1}]
+      """;
+
+  private static final List<String> EVENT_FIELDS =
+      List.of("/[]/kind", "/[]/did", "/[]/time_us", "/[]/commit/collection", "/[]/commit/operation");
+
+  private static final List<String> EVENT_TYPES = List.of("string", "string", "long", "string", "string");
+
+  /** kind, operation, collection, did, time_us — columns only, no filter literal. */
+  private static final ProjectionSortedSpec EVENT_ORDER = new ProjectionSortedSpec(List.of(0, 4, 3, 1, 2));
+
   private static final String NDJSON_ROWS = """
       {"kind":"commit","did":"a","time_us":1000,"commit":{"operation":"create","collection":"post"}}
       {"kind":"commit","did":"b","time_us":2000,"commit":{"operation":"create","collection":"post"}}
@@ -116,14 +133,7 @@ final class ProjectionSortedGroupServingTest {
 
   @Test
   void groupedMinAndSpanUseExactRevisionedSortedView() throws IOException {
-    final ProjectionSpec spec = new ProjectionSpec("/[]",
-        List.of("/[]/kind", "/[]/did", "/[]/time_us", "/[]/commit/collection",
-            "/[]/commit/operation"),
-        List.of("string", "string", "long", "string", "string"),
-        new ProjectionSortedSpec(List.of(1, 2),
-            List.of(new ProjectionSortedSpec.Equality(0, "commit"),
-                new ProjectionSortedSpec.Equality(4, "create"),
-                new ProjectionSortedSpec.Equality(3, "post"))));
+    final ProjectionSpec spec = new ProjectionSpec("/[]", EVENT_FIELDS, EVENT_TYPES, EVENT_ORDER);
     try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
         SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
         SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -154,14 +164,7 @@ final class ProjectionSortedGroupServingTest {
   @ValueSource(strings = {"jackson", "parallel"})
   void streamingLoadersPublishSortedViewFromNdjson(final String loader) throws IOException {
     final Path source = Files.writeString(directory.resolve("events.ndjson"), NDJSON_ROWS);
-    final ProjectionSpec spec = new ProjectionSpec("/[]",
-        List.of("/[]/kind", "/[]/did", "/[]/time_us", "/[]/commit/collection",
-            "/[]/commit/operation"),
-        List.of("string", "string", "long", "string", "string"),
-        new ProjectionSortedSpec(List.of(1, 2),
-            List.of(new ProjectionSortedSpec.Equality(0, "commit"),
-                new ProjectionSortedSpec.Equality(4, "create"),
-                new ProjectionSortedSpec.Equality(3, "post"))));
+    final ProjectionSpec spec = new ProjectionSpec("/[]", EVENT_FIELDS, EVENT_TYPES, EVENT_ORDER);
     try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).hashType(HashType.NONE)
         .storeNodeHistory(true).build();
         SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
@@ -200,9 +203,7 @@ final class ProjectionSortedGroupServingTest {
     final ProjectionSpec spec = new ProjectionSpec("/[]",
         List.of("/[]/tenant", "/[]/sku", "/[]/price", "/[]/state"),
         List.of("string", "string", "long", "string"),
-        new ProjectionSortedSpec(List.of(1, 2),
-            List.of(new ProjectionSortedSpec.Equality(3, "active"),
-                new ProjectionSortedSpec.Equality(0, "north"))));
+        new ProjectionSortedSpec(List.of(3, 0, 1, 2)));
     try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
         SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
         SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -218,6 +219,69 @@ final class ProjectionSortedGroupServingTest {
           assertEquals(expected, evaluate(chain, context, INVENTORY_MIN));
           assertEquals(1L, SirixVectorizedExecutor.groupSortedServedCount() - before);
           assertTrue(expected.contains("\"sku\":\"widget\""));
+        } finally {
+          SequentialPipelineStrategy.setVectorizedExecutor(null);
+          executor.close();
+        }
+      }
+    }
+  }
+
+  @Test
+  void unencodableSortKeyLoadsCommitsAndQueriesExactlyThroughTheFallback() throws IOException {
+    final ProjectionSpec spec = new ProjectionSpec("/[]", EVENT_FIELDS, EVENT_TYPES, EVENT_ORDER);
+    try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+        SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
+        SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection =
+          store.create("sorted", "events", new JsonReader(new StringReader(ROWS_WITH_UNENCODABLE_KEY)), spec);
+      final String expectedEarliest = evaluate(chain, context, EARLIEST);
+      final String expectedSpan = evaluate(chain, context, SPAN);
+      assertTrue(expectedEarliest.contains("\"user_id\":7"), expectedEarliest);
+      try (JsonResourceSession session = collection.getDatabase().beginResourceSession("events")) {
+        final SirixVectorizedExecutor executor =
+            new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+        SequentialPipelineStrategy.setVectorizedExecutor(executor);
+        try {
+          final long before = SirixVectorizedExecutor.groupSortedServedCount();
+          assertEquals(expectedEarliest, evaluate(chain, context, EARLIEST));
+          assertEquals(expectedSpan, evaluate(chain, context, SPAN));
+          assertEquals(0L, SirixVectorizedExecutor.groupSortedServedCount() - before);
+        } finally {
+          SequentialPipelineStrategy.setVectorizedExecutor(null);
+          executor.close();
+        }
+      }
+    }
+  }
+
+  @Test
+  void secondPassCreateProjectionIndexDeclaresTheSameSortedView() throws IOException {
+    try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+        SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
+        SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = store.create("sorted", "events", new JsonReader(new StringReader(ROWS)));
+      final String expectedEarliest = evaluate(chain, context, EARLIEST);
+      final String expectedSpan = evaluate(chain, context, SPAN);
+      evaluate(chain, context, """
+          let $doc := jn:doc('sorted','events')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/kind', '/[]/did', '/[]/time_us', '/[]/commit/collection', '/[]/commit/operation'),
+              ('string', 'string', 'long', 'string', 'string'),
+              ('/[]/kind', '/[]/commit/operation', '/[]/commit/collection', '/[]/did', '/[]/time_us'))
+          return sdb:commit($doc)
+          """);
+      try (JsonResourceSession session = collection.getDatabase().beginResourceSession("events")) {
+        final int revision = session.getMostRecentRevisionNumber();
+        assertTrue(session.getRtxIndexController(revision).getIndexes().getIndexDefs().stream()
+            .anyMatch(definition -> EVENT_ORDER.equals(definition.getProjectionSortedSpec())));
+        final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
+        SequentialPipelineStrategy.setVectorizedExecutor(executor);
+        try {
+          final long before = SirixVectorizedExecutor.groupSortedServedCount();
+          assertEquals(expectedEarliest, evaluate(chain, context, EARLIEST));
+          assertEquals(expectedSpan, evaluate(chain, context, SPAN));
+          assertEquals(2L, SirixVectorizedExecutor.groupSortedServedCount() - before);
         } finally {
           SequentialPipelineStrategy.setVectorizedExecutor(null);
           executor.close();

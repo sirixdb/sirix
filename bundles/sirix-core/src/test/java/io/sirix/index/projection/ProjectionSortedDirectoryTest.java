@@ -39,7 +39,7 @@ final class ProjectionSortedDirectoryTest {
         final int revision;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          final ProjectionSortedDirectory.Builder directory = new ProjectionSortedDirectory.Builder(storage);
+          final ProjectionSortedDirectory.Builder directory = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
           for (int i = 0; i < 300; i++) {
             final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.encode(
                 new byte[][] {key(i * 2)}, new byte[][] {key(i)}, 1);
@@ -120,7 +120,7 @@ final class ProjectionSortedDirectoryTest {
         final int before;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage);
+          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
           for (int i = 0; i < 300; i++) {
             final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.encode(
                 new byte[][] {key(3 * i), key(3 * i + 1), key(3 * i + 2)}, null, 3);

@@ -25,8 +25,8 @@ transient TLS timeout and its successful retry are retained.
 
 The five queries are collection counts; create counts and exact distinct DIDs;
 hourly post/repost/like create counts; earliest three post users; longest three
-post-activity spans. Exact SQL, result schema and upstream file hashes are in
-`upstream-pin.json`, matching the benchmark kit. Ranking uses the geometric mean
+post-activity spans. The exact SQL matches the benchmark kit's
+`../../queries.sql`. Ranking uses the geometric mean
 of `(seconds + .010)/(fastest seconds + .010)`. Thus the paired score ratio is
 `geomean((Sirix seconds + .010)/(ClickHouse seconds + .010))`; lower is better.
 
@@ -100,7 +100,7 @@ profiling limitations and the next traversal experiment.
 ## Reproduction and evidence
 
 The source is a clean archive of `647255b8df445e4e03af191ec046cc195ff931b9`
-plus exactly two hashed files in `native-lz77-v1-source.json`. Source archive
+plus exactly two hashed files. Source archive
 SHA-256 is `d970e737084f593c3fe1c39cb9782c6dcc263815e22b9e704f0bb763999aacf1`.
 Fresh offline Gradle builds reran tasks without build-cache reuse in the private
 campaign home. GraalVM is `jdk-25i4-25.0.4.1.1-ea.01`, source
@@ -116,9 +116,8 @@ The symbolized companion has its own matching build-ID/debug-file manifest.
 
 `raw-attempts.tar.gz` contains **1,615 files**, 5,274,503 bytes, SHA-256
 `74c5c51121101a8c783289a3abdd478561f87f0e4a8ca3cee5cb3d229c0dff42`.
-Every archive member was round-trip checked against `raw-files.json`. The 91
-larger binaries/profiles are retained locally with paths, lengths and checksums
-in `retained-large-files.json`; these are not embedded in Git. Archived drivers
+Every archive member was round-trip checked against its recorded checksum. The 91
+larger binaries/profiles are retained locally; these are not embedded in Git. Archived drivers
 include `lz77-lane.sh`, `lz77-native-smoke.py`, `advance-lz77-100m.py`,
 `paired-retention-100m.py`, `audit-lz77-paired-100m.py`, profiler and inspection
 helpers, and the guard. Adjust the recorded task-root paths when reproducing.

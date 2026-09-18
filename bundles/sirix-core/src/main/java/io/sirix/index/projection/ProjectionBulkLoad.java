@@ -60,8 +60,12 @@ import java.util.function.LongFunction;
  *
  * Full leaves stream into the definition's HOT sub-tree as they fill and ride the auto-commit that
  * follows. Retained derived state is explicit and bounded: one 32-leaf fence tail, one 256-leaf
- * Bloom-reference window per local-string column, and only those set-summary values that still fit
- * their one optional summary chunk. Complete fence and Bloom windows stream to storage eagerly; the
+ * Bloom-reference window per local-string column, only those set-summary values that still fit
+ * their one optional summary chunk, and, for a declared sorted view, at most
+ * {@code -Dsirix.projection.sortedRun.budgetBytes} of resident sort keys (see
+ * {@link ProjectionSortedRunAccumulator}); keys beyond that budget are spilled as sorted runs to
+ * temporary files and merged into the view at {@link #finish}, so the view's heap does not grow with
+ * the row count. Complete fence and Bloom windows stream to storage eagerly; the
  * partial tails, Bloom manifests, set summaries and live metadata publish at {@link #finish}. Slot
  * 0 holds the {@link ProjectionIndexMetadata#staleTombstone() stale tombstone} for the whole load,
  * so a load that dies half-way leaves a projection every reader SKIPS in favour of the generic

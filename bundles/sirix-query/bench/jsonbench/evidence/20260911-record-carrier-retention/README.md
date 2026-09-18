@@ -67,7 +67,6 @@ for dictionary retention, visitor ownership/publication cases, carrier progress,
 streaming dictionaries, adopted overflow staging, snapshot encoding and failure
 paths, plus the earlier HOT guard/eviction regressions. The original 500,000-key
 eviction stress test passed unchanged. Five query-shape integration tests passed.
-See `test-retention-final-summary.json` for the exact suites.
 
 The rebuilt real 1M import completed with zero discarded encodes and zero promotion
 pins for DOCUMENT and NAME pages. NAME pages instead used 5520 bounded snapshot
@@ -122,16 +121,14 @@ hashed overlays; no pooled build outputs were reused. Compilation was offline,
 without build-cache reuse and with tasks rerun. The runtime manifest freezes 42
 JARs and the JDK hashes. GraalVM is the captain-selected
 `jdk-25i4-25.0.4.1.1-ea.01`, source `cb905c0ea0e868072ee525107e468ac2b5ff964d`.
-Seven missing formatter dependencies were fetched into the private cache; their
-paths, sizes and SHA-256 checksums are in `formatter-new-downloads.json`.
+Seven missing formatter dependencies were fetched into the private cache.
 
 ClickHouse/JSONBench remained pinned at
 `e6c7c98dc766394d51f7d506a3dd2b5d51165d70` when the full import began. Its 100M tier
 is the requested target; the dashboard default is actually 1B/hot. At 100M the
 hot leader is ClickHouse 25.11, score 1.0229245566; the cold leader is StarRocks
 4.0.1. The captain authorized current ClickHouse 26.7.3.19 for the informal local
-leader-engine comparison. `upstream-pin.json` retains the five exact queries,
-result hashes and ranking calculation. They match `../../queries.sql`.
+leader-engine comparison. The five exact queries match `../../queries.sql`.
 
 The score is the geometric mean of `(seconds + .010)/(fastest seconds + .010)`
 across all five queries. The final local comparison uses paired AB/BA rounds,
@@ -153,6 +150,6 @@ image/profile must not be reused across this production change.
 telemetry, source overlays, manifests, commands, answer dumps and comparisons.
 Archive SHA-256:
 `12c514b074b4dc6ea3c6cdba90c025c5d1f49e24c6d599234238f5c88d582bf8`.
-`raw-files.json` lists every member's checksum. Reproduce the regression with
+Reproduce the regression with
 `StreamingDictionaryOverflowRetentionTest`; the retained scripts enumerate the
 broader tests and exact real-input control commands.

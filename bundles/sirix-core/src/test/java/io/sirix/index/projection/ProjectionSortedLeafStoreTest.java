@@ -38,8 +38,8 @@ final class ProjectionSortedLeafStoreTest {
         final int oldRevision;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          ProjectionSortedLeafStore.write(storage, 1, first);
-          ProjectionSortedLeafStore.write(storage, 2, second);
+          ProjectionSortedLeafStore.write(storage, 1, first, SortedScanFixtures.GROUP_VALUE);
+          ProjectionSortedLeafStore.write(storage, 2, second, SortedScanFixtures.GROUP_VALUE);
           oldRevision = writer.getRevisionNumber();
           writer.commit();
         }
@@ -48,7 +48,7 @@ final class ProjectionSortedLeafStoreTest {
         assertNotNull(inserted);
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          ProjectionSortedLeafStore.write(storage, 1, inserted);
+          ProjectionSortedLeafStore.write(storage, 1, inserted, SortedScanFixtures.GROUP_VALUE);
           newRevision = writer.getRevisionNumber();
           writer.commit();
         }

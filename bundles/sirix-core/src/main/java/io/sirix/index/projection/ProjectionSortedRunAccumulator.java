@@ -4,33 +4,101 @@
 package io.sirix.index.projection;
 
 import it.unimi.dsi.fastutil.longs.LongArrays;
+import org.jspecify.annotations.Nullable;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * Packed, in-memory sort run for one initial build of a partial sorted projection.
+ * Packed, heap-bounded external sort of one initial build of a sorted projection view.
  *
- * <p>Matching keys are copied into grow-only byte blocks; one primitive long per row names its
- * block and offset. Sorting moves only those longs. This avoids one Java array object per matching
- * record and lets a leaf encode directly from the sorted run. The build releases the entire run after
- * the owning transaction has published its sorted directory.</p>
+ * <p>Keys are copied into grow-only byte blocks; one primitive long per row names its block and
+ * offset, and sorting moves only those longs. The blocks and the reference array together never
+ * exceed {@code -Dsirix.projection.sortedRun.budgetBytes} (default {@code min(heap/16, 512 MiB)}):
+ * before an append would cross it, the current run is sorted and spilled to a temporary file under
+ * {@code -Dsirix.projection.sortedRun.spillDirectory} (default {@code java.io.tmpdir}) and its
+ * blocks are reused. Persisting merges the spilled runs with one bounded read buffer per run and
+ * encodes leaves as keys stream past, so the heap holds at most one leaf's keys beyond those buffers.
+ * A build that fits the budget never touches the file system. The owning build releases the run,
+ * including every spill file, after the transaction has published its sorted directory or aborted.</p>
  */
-final class ProjectionSortedRunAccumulator {
+final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySource {
+
+  static final String BUDGET_PROPERTY = "sirix.projection.sortedRun.budgetBytes";
+  static final String SPILL_DIRECTORY_PROPERTY = "sirix.projection.sortedRun.spillDirectory";
 
   private static final int MIN_BLOCK_BYTES = 1 << 16;
   private static final int MAX_BLOCK_BYTES = 8 << 20;
   private static final int MAX_KEY_BYTES = 0xFFFF;
+  private static final int INITIAL_REFERENCES = 4096;
+  private static final int IO_BUFFER_BYTES = 1 << 17;
 
+  private final ProjectionSortKeyCodec.Layout layout;
+  private final long budgetBytes;
+  private final Path spillRoot;
   private byte[][] blocks = new byte[8][];
   private int blockCount;
   private int blockUsed;
-  private long[] references = new long[4096];
+  private long allocatedBlockBytes;
+  private long[] references = new long[INITIAL_REFERENCES];
   private int count;
+  private long spilledRows;
   private boolean sorted;
+  private final ArrayList<Path> runs = new ArrayList<>();
+  private @Nullable Path spillDirectory;
+  private @Nullable ByteBuffer ioBuffer;
 
-  int rowCount() {
-    return count;
+  ProjectionSortedRunAccumulator(final ProjectionSortKeyCodec.Layout layout) {
+    this(layout, defaultBudgetBytes(), defaultSpillRoot());
+  }
+
+  ProjectionSortedRunAccumulator(final ProjectionSortKeyCodec.Layout layout, final long budgetBytes,
+      final Path spillRoot) {
+    this.layout = Objects.requireNonNull(layout, "layout");
+    if (budgetBytes <= 0) {
+      throw new IllegalArgumentException(BUDGET_PROPERTY + " must be positive: " + budgetBytes);
+    }
+    this.budgetBytes = budgetBytes;
+    this.spillRoot = Objects.requireNonNull(spillRoot, "spillRoot");
+  }
+
+  static long defaultBudgetBytes() {
+    final String configured = System.getProperty(BUDGET_PROPERTY);
+    if (configured != null) {
+      final long parsed = Long.parseLong(configured.trim());
+      if (parsed <= 0) {
+        throw new IllegalArgumentException(BUDGET_PROPERTY + " must be positive: " + parsed);
+      }
+      return parsed;
+    }
+    return Math.min(Runtime.getRuntime().maxMemory() / 16, 512L << 20);
+  }
+
+  private static Path defaultSpillRoot() {
+    return Path.of(System.getProperty(SPILL_DIRECTORY_PROPERTY, System.getProperty("java.io.tmpdir")));
+  }
+
+  /** Rows appended so far, spilled or resident. */
+  long rowCount() {
+    return spilledRows + count;
+  }
+
+  /** Sorted runs written to disk so far. */
+  int spilledRunCount() {
+    return runs.size();
+  }
+
+  /** Heap held by resident keys and their references; never above the budget once a run spilled. */
+  long residentBytes() {
+    return allocatedBlockBytes + (long) references.length * Long.BYTES;
   }
 
   void append(final byte[] key, final int length) {
@@ -45,20 +113,23 @@ final class ProjectionSortedRunAccumulator {
       throw new IllegalStateException("sorted projection run exhausted row references");
     }
     final int needed = length + Short.BYTES;
-    if (blockCount == 0 || blocks[blockCount - 1].length - blockUsed < needed) {
-      allocateBlock(needed);
+    if (count == references.length) {
+      final int grown = references.length <= Integer.MAX_VALUE / 2
+          ? references.length << 1
+          : Integer.MAX_VALUE;
+      if (count > 0 && allocatedBlockBytes + (long) grown * Long.BYTES > budgetBytes) {
+        spill();
+      } else {
+        references = Arrays.copyOf(references, grown);
+      }
     }
+    ensureBlock(needed);
     final byte[] block = blocks[blockCount - 1];
     final int offset = blockUsed;
     block[offset] = (byte) length;
     block[offset + 1] = (byte) (length >>> 8);
     System.arraycopy(key, 0, block, offset + Short.BYTES, length);
     blockUsed += needed;
-    if (count == references.length) {
-      references = Arrays.copyOf(references, references.length <= Integer.MAX_VALUE / 2
-          ? references.length << 1
-          : Integer.MAX_VALUE);
-    }
     references[count++] = ((long) (blockCount - 1) << Integer.SIZE) | (offset & 0xFFFF_FFFFL);
   }
 
@@ -76,28 +147,25 @@ final class ProjectionSortedRunAccumulator {
   }
 
   /** Persist sorted data leaves and publish their sparse directory last. */
-  int persist(final ProjectionIndexHOTStorage storage) {
+  long persist(final ProjectionIndexHOTStorage storage) {
     Objects.requireNonNull(storage, "storage");
-    sort();
-    final ProjectionSortedDirectory.Builder directory = new ProjectionSortedDirectory.Builder(storage);
-    int from = 0;
-    while (from < count) {
-      int rows = Math.min(ProjectionSortedLeaf.MAX_ROWS, count - from);
-      ProjectionSortedLeaf leaf;
-      do {
-        leaf = ProjectionSortedLeaf.encodeSortedRun(this, from, rows);
-        if (leaf == null) {
-          rows >>>= 1;
-        }
-      } while (leaf == null && rows > 0);
-      if (leaf == null) {
-        throw new IllegalStateException("sorted projection key exceeds a bounded data leaf");
+    final ProjectionSortedDirectory.Builder directory = new ProjectionSortedDirectory.Builder(storage, layout);
+    if (runs.isEmpty()) {
+      sort();
+      int from = 0;
+      while (from < count) {
+        from += appendLeaf(directory, this, from, Math.min(ProjectionSortedLeaf.MAX_ROWS, count - from));
       }
-      directory.append(leaf);
-      from += rows;
+      directory.finish();
+      return count;
     }
+    if (count > 0) {
+      spill();
+    }
+    final long rows = merge(directory);
     directory.finish();
-    return count;
+    deleteSpillFiles();
+    return rows;
   }
 
   void release() {
@@ -105,26 +173,48 @@ final class ProjectionSortedRunAccumulator {
     references = new long[0];
     blockCount = 0;
     blockUsed = 0;
+    allocatedBlockBytes = 0;
     count = 0;
+    spilledRows = 0;
     sorted = true;
+    ioBuffer = null;
+    deleteSpillFiles();
   }
 
-  long referenceAt(final int sortedPosition) {
+  @Override
+  public int keyCount() {
+    return sorted
+        ? count
+        : 0;
+  }
+
+  @Override
+  public byte[] keyBlock(final int position) {
+    return blockOf(referenceAt(position));
+  }
+
+  @Override
+  public int keyOffset(final int position) {
+    return ((int) referenceAt(position)) + Short.BYTES;
+  }
+
+  @Override
+  public int keyLength(final int position) {
+    return keyLength(referenceAt(position));
+  }
+
+  private long referenceAt(final int sortedPosition) {
     if (!sorted || sortedPosition < 0 || sortedPosition >= count) {
       throw new IllegalStateException("sorted projection run is not positioned on a sorted row");
     }
     return references[sortedPosition];
   }
 
-  byte[] blockOf(final long reference) {
+  private byte[] blockOf(final long reference) {
     return blocks[(int) (reference >>> Integer.SIZE)];
   }
 
-  int keyOffset(final long reference) {
-    return ((int) reference) + Short.BYTES;
-  }
-
-  int keyLength(final long reference) {
+  private int keyLength(final long reference) {
     final byte[] block = blockOf(reference);
     final int offset = (int) reference;
     return (block[offset] & 0xFF) | (block[offset + 1] & 0xFF) << 8;
@@ -133,19 +223,332 @@ final class ProjectionSortedRunAccumulator {
   private int compare(final long left, final long right) {
     final byte[] leftBlock = blockOf(left);
     final byte[] rightBlock = blockOf(right);
-    final int leftOffset = keyOffset(left);
-    final int rightOffset = keyOffset(right);
+    final int leftOffset = ((int) left) + Short.BYTES;
+    final int rightOffset = ((int) right) + Short.BYTES;
     return Arrays.compareUnsigned(leftBlock, leftOffset, leftOffset + keyLength(left),
         rightBlock, rightOffset, rightOffset + keyLength(right));
   }
 
-  private void allocateBlock(final int needed) {
+  /** Encode the largest prefix of {@code count} keys that fits one bounded leaf; return how many. */
+  private static int appendLeaf(final ProjectionSortedDirectory.Builder directory,
+      final ProjectionSortedLeaf.KeySource source, final int from, final int count) {
+    int rows = count;
+    ProjectionSortedLeaf leaf;
+    do {
+      leaf = ProjectionSortedLeaf.encodeSortedRun(source, from, rows);
+      if (leaf == null) {
+        rows >>>= 1;
+      }
+    } while (leaf == null && rows > 0);
+    if (leaf == null) {
+      throw new IllegalStateException("sorted projection key exceeds a bounded data leaf");
+    }
+    directory.append(leaf);
+    return rows;
+  }
+
+  /** Room for {@code needed} bytes, reusing blocks kept from a spilled run before allocating. */
+  private void ensureBlock(final int needed) {
+    if (blockCount > 0 && blocks[blockCount - 1].length - blockUsed >= needed) {
+      return;
+    }
+    if (blockCount < blocks.length && blocks[blockCount] != null && blocks[blockCount].length >= needed) {
+      blockCount++;
+      blockUsed = 0;
+      return;
+    }
+    final int previous = blockCount == 0
+        ? 0
+        : blocks[blockCount - 1].length;
+    final int preferred = Math.max(MIN_BLOCK_BYTES, previous >= MAX_BLOCK_BYTES
+        ? MAX_BLOCK_BYTES
+        : previous << 1);
+    final byte[] replaced = blockCount < blocks.length
+        ? blocks[blockCount]
+        : null;
+    final long headroom = budgetBytes - residentBytes() + (replaced == null
+        ? 0
+        : replaced.length);
+    if (count > 0 && needed > headroom) {
+      spill();
+      ensureBlock(needed);
+      return;
+    }
+    final int size = (int) Math.max(needed, Math.min(preferred, headroom));
     if (blockCount == blocks.length) {
       blocks = Arrays.copyOf(blocks, blocks.length << 1);
     }
-    final int previous = blockCount == 0 ? 0 : blocks[blockCount - 1].length;
-    final int doubled = previous >= MAX_BLOCK_BYTES ? MAX_BLOCK_BYTES : previous << 1;
-    blocks[blockCount++] = new byte[Math.max(needed, Math.max(MIN_BLOCK_BYTES, doubled))];
+    if (replaced != null) {
+      allocatedBlockBytes -= replaced.length;
+    }
+    blocks[blockCount++] = new byte[size];
+    allocatedBlockBytes += size;
     blockUsed = 0;
+  }
+
+  /** Sort the resident run, write it as one length-prefixed key file, and keep its blocks for reuse. */
+  private void spill() {
+    sort();
+    final Path file;
+    try {
+      if (spillDirectory == null) {
+        Files.createDirectories(spillRoot);
+        spillDirectory = Files.createTempDirectory(spillRoot, "sirix-sorted-run-");
+      }
+      file = Files.createTempFile(spillDirectory, "run-", ".keys");
+      runs.add(file);
+      try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE,
+          StandardOpenOption.TRUNCATE_EXISTING)) {
+        final ByteBuffer buffer = ioBuffer();
+        buffer.clear();
+        for (int i = 0; i < count; i++) {
+          final long reference = references[i];
+          final int length = keyLength(reference);
+          if (buffer.remaining() < length + Short.BYTES) {
+            drain(channel, buffer);
+          }
+          buffer.put((byte) length);
+          buffer.put((byte) (length >>> 8));
+          buffer.put(blockOf(reference), ((int) reference) + Short.BYTES, length);
+        }
+        drain(channel, buffer);
+      }
+    } catch (final IOException e) {
+      throw new UncheckedIOException("cannot spill a sorted projection run", e);
+    }
+    spilledRows += count;
+    count = 0;
+    blockCount = 0;
+    blockUsed = 0;
+    sorted = false;
+  }
+
+  private static void drain(final FileChannel channel, final ByteBuffer buffer) throws IOException {
+    buffer.flip();
+    while (buffer.hasRemaining()) {
+      channel.write(buffer);
+    }
+    buffer.clear();
+  }
+
+  private ByteBuffer ioBuffer() {
+    ByteBuffer buffer = ioBuffer;
+    if (buffer == null) {
+      buffer = ByteBuffer.allocate(IO_BUFFER_BYTES);
+      ioBuffer = buffer;
+    }
+    return buffer;
+  }
+
+  /** K-way merge of the spilled runs straight into bounded leaves; duplicates fail the build. */
+  private long merge(final ProjectionSortedDirectory.Builder directory) {
+    final int runCount = runs.size();
+    final RunReader[] readers = new RunReader[runCount];
+    final int[] heap = new int[runCount];
+    int size = 0;
+    long rows = 0;
+    try {
+      for (int i = 0; i < runCount; i++) {
+        readers[i] = new RunReader(runs.get(i));
+        if (readers[i].next()) {
+          heap[size++] = i;
+        }
+      }
+      for (int parent = (size >>> 1) - 1; parent >= 0; parent--) {
+        siftDown(heap, readers, parent, size);
+      }
+      final Stage stage = new Stage();
+      byte[] previous = new byte[128];
+      int previousLength = -1;
+      while (size > 0) {
+        final RunReader reader = readers[heap[0]];
+        if (previousLength >= 0 && Arrays.compareUnsigned(previous, 0, previousLength, reader.key, 0,
+            reader.length) >= 0) {
+          throw new IllegalStateException("sorted projection run contains a duplicate row key");
+        }
+        if (reader.length > previous.length) {
+          previous = new byte[Math.max(reader.length, previous.length << 1)];
+        }
+        System.arraycopy(reader.key, 0, previous, 0, reader.length);
+        previousLength = reader.length;
+        stage.add(reader.key, reader.length);
+        rows++;
+        if (stage.keyCount() == ProjectionSortedLeaf.MAX_ROWS) {
+          stage.drop(appendLeaf(directory, stage, 0, ProjectionSortedLeaf.MAX_ROWS));
+        }
+        if (!reader.next()) {
+          heap[0] = heap[--size];
+        }
+        siftDown(heap, readers, 0, size);
+      }
+      while (stage.keyCount() > 0) {
+        stage.drop(appendLeaf(directory, stage, 0,
+            Math.min(ProjectionSortedLeaf.MAX_ROWS, stage.keyCount())));
+      }
+    } catch (final IOException e) {
+      throw new UncheckedIOException("cannot merge sorted projection runs", e);
+    } finally {
+      for (final RunReader reader : readers) {
+        if (reader != null) {
+          reader.close();
+        }
+      }
+    }
+    if (rows != spilledRows) {
+      throw new IllegalStateException("sorted projection merge read " + rows + " of " + spilledRows + " rows");
+    }
+    return rows;
+  }
+
+  private static void siftDown(final int[] heap, final RunReader[] readers, final int root, final int size) {
+    final int value = heap[root];
+    int parent = root;
+    for (int child = (parent << 1) + 1; child < size; child = (parent << 1) + 1) {
+      if (child + 1 < size && readers[heap[child + 1]].compareTo(readers[heap[child]]) < 0) {
+        child++;
+      }
+      if (readers[value].compareTo(readers[heap[child]]) <= 0) {
+        break;
+      }
+      heap[parent] = heap[child];
+      parent = child;
+    }
+    heap[parent] = value;
+  }
+
+  private void deleteSpillFiles() {
+    IOException failure = null;
+    for (final Path run : runs) {
+      try {
+        Files.deleteIfExists(run);
+      } catch (final IOException e) {
+        failure = e;
+      }
+    }
+    runs.clear();
+    final Path directory = spillDirectory;
+    spillDirectory = null;
+    if (directory != null) {
+      try {
+        Files.deleteIfExists(directory);
+      } catch (final IOException e) {
+        failure = e;
+      }
+    }
+    if (failure != null) {
+      throw new UncheckedIOException("cannot delete sorted projection spill files", failure);
+    }
+  }
+
+  /** One spilled run read sequentially through a bounded buffer; its current key is reused. */
+  private static final class RunReader {
+    private final FileChannel channel;
+    private final ByteBuffer buffer = ByteBuffer.allocate(IO_BUFFER_BYTES);
+    private byte[] key = new byte[128];
+    private int length;
+    private boolean endOfFile;
+
+    RunReader(final Path file) throws IOException {
+      channel = FileChannel.open(file, StandardOpenOption.READ);
+      buffer.flip();
+    }
+
+    boolean next() throws IOException {
+      if (!ensure(Short.BYTES)) {
+        if (buffer.hasRemaining()) {
+          throw new IllegalStateException("truncated sorted projection run");
+        }
+        return false;
+      }
+      length = (buffer.get() & 0xFF) | (buffer.get() & 0xFF) << 8;
+      if (!ensure(length)) {
+        throw new IllegalStateException("truncated sorted projection run");
+      }
+      if (length > key.length) {
+        key = new byte[Math.max(length, key.length << 1)];
+      }
+      buffer.get(key, 0, length);
+      return true;
+    }
+
+    int compareTo(final RunReader other) {
+      return Arrays.compareUnsigned(key, 0, length, other.key, 0, other.length);
+    }
+
+    private boolean ensure(final int bytes) throws IOException {
+      while (buffer.remaining() < bytes && !endOfFile) {
+        buffer.compact();
+        final int read = channel.read(buffer);
+        buffer.flip();
+        if (read < 0) {
+          endOfFile = true;
+        }
+      }
+      return buffer.remaining() >= bytes;
+    }
+
+    void close() {
+      try {
+        channel.close();
+      } catch (final IOException e) {
+        throw new UncheckedIOException("cannot close a sorted projection run", e);
+      }
+    }
+  }
+
+  /** Staging window of merged keys awaiting leaf encoding; holds at most one leaf's rows. */
+  private static final class Stage implements ProjectionSortedLeaf.KeySource {
+    private byte[] arena = new byte[1 << 16];
+    private final int[] offsets = new int[ProjectionSortedLeaf.MAX_ROWS];
+    private final int[] lengths = new int[ProjectionSortedLeaf.MAX_ROWS];
+    private int count;
+    private int used;
+
+    void add(final byte[] key, final int length) {
+      if (used + length > arena.length) {
+        arena = Arrays.copyOf(arena, Math.max(used + length, arena.length << 1));
+      }
+      System.arraycopy(key, 0, arena, used, length);
+      offsets[count] = used;
+      lengths[count++] = length;
+      used += length;
+    }
+
+    /** Discard the first {@code rows} keys, compacting any survivors to the front. */
+    void drop(final int rows) {
+      if (rows == count) {
+        count = 0;
+        used = 0;
+        return;
+      }
+      final int shift = offsets[rows];
+      System.arraycopy(arena, shift, arena, 0, used - shift);
+      for (int i = rows; i < count; i++) {
+        offsets[i - rows] = offsets[i] - shift;
+        lengths[i - rows] = lengths[i];
+      }
+      count -= rows;
+      used -= shift;
+    }
+
+    @Override
+    public int keyCount() {
+      return count;
+    }
+
+    @Override
+    public byte[] keyBlock(final int position) {
+      return arena;
+    }
+
+    @Override
+    public int keyOffset(final int position) {
+      return offsets[position];
+    }
+
+    @Override
+    public int keyLength(final int position) {
+      return lengths[position];
+    }
   }
 }

@@ -494,8 +494,18 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return slotLayout.segmentSlot(rowGroupId, columnSegmentId);
   }
 
-  private static ProjectionSlotLayout readSlotLayout(final StorageEngineReader reader, final int indexNumber) {
-    return slotLayoutFromMetadata(readBlob(reader, indexNumber, 0L));
+  /**
+   * The persisted slot layout of index {@code indexNumber} as {@code reader} sees it: one slot-0
+   * descent plus a full metadata parse. Resolve it once per scan or reader and hand it to the
+   * layout-taking overloads; a per-row-group loop must never call this.
+   *
+   * @param reader the reader whose revision decides the layout
+   * @param indexNumber the projection index
+   * @return the index's slot layout, {@link ProjectionSlotLayout#ROW_GROUP_MAJOR} when no metadata is
+   *         stored
+   */
+  static ProjectionSlotLayout readSlotLayout(final StorageEngineReader reader, final int indexNumber) {
+    return slotLayoutFromMetadata(readBlob(Objects.requireNonNull(reader, "reader"), indexNumber, 0L));
   }
 
   private static ProjectionSlotLayout slotLayoutFromMetadata(final byte @Nullable [] payload) {
@@ -1128,7 +1138,19 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public static byte @Nullable [] readRowGroupFromColumnSegmentSlots(final StorageEngineReader reader,
       final int indexNumber, final long rowGroupId) {
-    final ProjectionSlotLayout layout = readSlotLayout(reader, indexNumber);
+    return readRowGroupFromColumnSegmentSlots(reader, indexNumber, readSlotLayout(reader, indexNumber), rowGroupId);
+  }
+
+  /**
+   * {@link #readRowGroupFromColumnSegmentSlots(StorageEngineReader, int, long)} under a layout the
+   * caller resolved once via {@link #readSlotLayout} for the same reader — the form for loops over
+   * many row groups.
+   *
+   * @param layout the index's slot layout as seen by {@code reader}
+   */
+  static byte @Nullable [] readRowGroupFromColumnSegmentSlots(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSlotLayout layout, final long rowGroupId) {
+    Objects.requireNonNull(layout, "layout");
     final byte[] descriptor = readBlob(reader, indexNumber, layout.descriptorSlot(rowGroupId));
     if (descriptor == null) {
       return null;
@@ -1192,7 +1214,18 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public static long readRowCountFromColumnSegmentSlots(final StorageEngineReader reader, final int indexNumber,
       final long rowGroupId) {
-    final ProjectionSlotLayout layout = readSlotLayout(reader, indexNumber);
+    return readRowCountFromColumnSegmentSlots(reader, indexNumber, readSlotLayout(reader, indexNumber), rowGroupId);
+  }
+
+  /**
+   * {@link #readRowCountFromColumnSegmentSlots(StorageEngineReader, int, long)} under a layout the
+   * caller resolved once via {@link #readSlotLayout} for the same reader.
+   *
+   * @param layout the index's slot layout as seen by {@code reader}
+   */
+  static long readRowCountFromColumnSegmentSlots(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSlotLayout layout, final long rowGroupId) {
+    Objects.requireNonNull(layout, "layout");
     final byte[] descriptor = readBlob(reader, indexNumber, layout.descriptorSlot(rowGroupId));
     if (descriptor == null) {
       return -1L;
@@ -1466,9 +1499,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    *        descriptor-tier count cheap
    */
   private static RawBlobSlot[] orderedDescriptorSlots(final StorageEngineReader reader, final int indexNumber,
-      final int rowGroupCount, final int[] physicalOrder, final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
+      final ProjectionSlotLayout layout, final int rowGroupCount, final int[] physicalOrder,
+      final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
     final Long2ObjectRBTreeMap<RawBlobSlot> descriptors = new Long2ObjectRBTreeMap<>();
-    collectSlotsRange(reader, indexNumber, rowGroupCount, 1, MAX_ROW_GROUPS, descriptors, segmentSlotsOut);
+    collectSlotsRange(reader, indexNumber, layout, rowGroupCount, 1, MAX_ROW_GROUPS, descriptors, segmentSlotsOut);
     return drainOrderedDescriptors(descriptors, rowGroupCount, indexNumber, physicalOrder);
   }
 
@@ -1481,7 +1515,20 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   static void collectSlotsRange(final StorageEngineReader reader, final int indexNumber, final int rowGroupCount,
       final long fromRowGroup, final long toRowGroup, final Long2ObjectRBTreeMap<RawBlobSlot> descriptors,
       final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
-    final ProjectionSlotLayout layout = readSlotLayout(reader, indexNumber);
+    collectSlotsRange(reader, indexNumber, readSlotLayout(reader, indexNumber), rowGroupCount, fromRowGroup,
+        toRowGroup, descriptors, segmentSlotsOut);
+  }
+
+  /**
+   * {@link #collectSlotsRange(StorageEngineReader, int, int, long, long, Long2ObjectRBTreeMap, ArrayList)}
+   * under a layout the caller already resolved for the same revision.
+   *
+   * @param layout the index's slot layout as seen by {@code reader}
+   */
+  static void collectSlotsRange(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSlotLayout layout, final int rowGroupCount, final long fromRowGroup, final long toRowGroup,
+      final Long2ObjectRBTreeMap<RawBlobSlot> descriptors, final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
+    Objects.requireNonNull(layout, "layout");
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       if (rowGroupCount != 0) {
@@ -1716,8 +1763,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final int indexNumber, final int rowGroupCount, final int[] physicalOrder) {
     final ArrayList<RawBlobSlot> segmentSlots = new ArrayList<>();
     // Phases 1-2 — one walk, then validate descriptors against the explicit live physical order.
-    final RawBlobSlot[] descArr =
-        orderedDescriptorSlots(reader, indexNumber, rowGroupCount, physicalOrder, segmentSlots);
+    final RawBlobSlot[] descArr = orderedDescriptorSlots(reader, indexNumber, readSlotLayout(reader, indexNumber),
+        rowGroupCount, physicalOrder, segmentSlots);
     return assembleRowGroupsFromSlots(reader, indexNumber, rowGroupCount, descArr, segmentSlots, physicalOrder);
   }
 
@@ -2085,8 +2132,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public static long sumRowsFromColumnSegmentSlots(final StorageEngineReader reader, final int indexNumber,
       final int rowGroupCount) {
-    final RawBlobSlot[] descArr = orderedDescriptorSlots(reader, indexNumber, rowGroupCount,
-        persistedPhysicalOrder(reader, indexNumber, rowGroupCount), null);
+    final int[] physicalOrder = persistedPhysicalOrder(reader, indexNumber, rowGroupCount);
+    final RawBlobSlot[] descArr = orderedDescriptorSlots(reader, indexNumber, readSlotLayout(reader, indexNumber),
+        rowGroupCount, physicalOrder, null);
     long total = 0;
     for (final byte[] descriptor : resolveDescriptorPayloads(reader, descArr)) {
       // isDescriptor only guarantees the 4-byte magic; rowCount reads a 4-byte field at offset 5.
@@ -2254,7 +2302,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (reader.hasTrxIntentLog() || readSlotLayout(reader, indexNumber) != ProjectionSlotLayout.COLUMN_MAJOR) {
       throw new IllegalArgumentException("logical directories require a committed column-major projection");
     }
-    final RawBlobSlot[] slots = orderedDescriptorSlots(reader, indexNumber, rowGroupCount, physicalOrder, null);
+    final RawBlobSlot[] slots = orderedDescriptorSlots(reader, indexNumber, ProjectionSlotLayout.COLUMN_MAJOR,
+        rowGroupCount, physicalOrder, null);
     final byte[][] descriptors = resolveDescriptorPayloads(reader, slots);
     final RowGroupDirectory[] out = new RowGroupDirectory[descriptors.length];
     for (int row = 0; row < out.length; row++) {
@@ -2330,7 +2379,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
               ? MAX_ROW_GROUPS
               : sorted[to] - 1L;
           final Long2ObjectRBTreeMap<RawBlobSlot> captured = new Long2ObjectRBTreeMap<>();
-          collectSlotsRange(lane, indexNumber, rowGroupCount, firstId, lastId, captured, null);
+          collectSlotsRange(lane, indexNumber, ProjectionSlotLayout.COLUMN_MAJOR, rowGroupCount, firstId, lastId,
+              captured, null);
           if (captured.size() != to - from) {
             throw new IllegalStateException(
                 "descriptor range [" + firstId + ", " + lastId + "] disagrees with the persisted row-group order");
@@ -2528,13 +2578,14 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (rootRef == null) {
       throw new IllegalStateException("committed projection directory sub-tree is missing");
     }
+    final ProjectionSlotLayout layout = readSlotLayout(reader, indexNumber);
     final DirectoryWalk walk = new DirectoryWalk(out, out.length, indexNumber, requested, true);
     for (int begin = 0; begin < sorted.length;) {
       int end = begin + 1;
       while (end < sorted.length && sorted[end] == sorted[end - 1] + 1) {
         end++;
       }
-      if (!collectRowGroupDirectorySlots(reader, indexNumber, rootRef, walk, sorted[begin], sorted[end - 1])) {
+      if (!collectRowGroupDirectorySlots(reader, indexNumber, layout, rootRef, walk, sorted[begin], sorted[end - 1])) {
         throw new IllegalStateException("committed directory window contains an unresolved page");
       }
       begin = end;
@@ -3387,12 +3438,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   private static boolean collectRowGroupDirectorySlots(final StorageEngineReader reader, final int indexNumber,
       final PageReference rootRef, final DirectoryWalk walk) {
-    return collectRowGroupDirectorySlots(reader, indexNumber, rootRef, walk, 1, MAX_ROW_GROUPS);
+    return collectRowGroupDirectorySlots(reader, indexNumber, readSlotLayout(reader, indexNumber), rootRef, walk, 1,
+        MAX_ROW_GROUPS);
   }
 
   private static boolean collectRowGroupDirectorySlots(final StorageEngineReader reader, final int indexNumber,
-      final PageReference rootRef, final DirectoryWalk walk, final int first, final int last) {
-    final ProjectionSlotLayout layout = readSlotLayout(reader, indexNumber);
+      final ProjectionSlotLayout layout, final PageReference rootRef, final DirectoryWalk walk, final int first,
+      final int last) {
     if ((first != 1 || last != MAX_ROW_GROUPS) && layout != ProjectionSlotLayout.ROW_GROUP_MAJOR) {
       throw new IllegalStateException("bounded directory windows require row-group-major slots");
     }

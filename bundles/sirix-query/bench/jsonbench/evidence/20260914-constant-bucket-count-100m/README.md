@@ -76,8 +76,7 @@ bytes exclude individual reads, so their reduction must not be presented as tota
 
 ## Evidence and reproduction
 
-[summary.json](summary.json) retains source/build hashes, all timing summaries, protocol, scope
-limits/events, and the rejected I/O screen. Complete commands, dumps, diagnostics, accepted source
+Complete commands, dumps, diagnostics, accepted source
 snapshots, and test logs are retained locally under
 `build/jsonbench-campaign/source-flag-summary-v47/constant-bucket-count-v1/`.
 The native engine comparison is under the adjacent

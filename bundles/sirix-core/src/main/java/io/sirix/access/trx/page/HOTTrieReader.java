@@ -208,8 +208,8 @@ public final class HOTTrieReader implements AutoCloseable {
 
   // Uncontended reads use stamps without guard churn. A torn read switches the rest of this walk
   // to guarded handoff; retrying the same unpinned protocol cannot guarantee progress against an
-  // evictor that repeatedly runs between snapshot and validation. close() resets this mode before
-  // a pooled reader is reused for another walk.
+  // evictor that repeatedly runs between snapshot and validation. endWalk() (also run by close() and
+  // by a range cursor's close) resets this mode before the reader is reused for another walk.
   private HOTLeafPage currentLeaf = null;
   private PageReference currentLeafRef = null;
   private long currentLeafStamp = HOTLeafPage.STAMP_INVALID;
@@ -1473,13 +1473,28 @@ public final class HOTTrieReader implements AutoCloseable {
     return storageEngineReader;
   }
 
-  @Override
-  public void close() {
+  /**
+   * Finish the current walk: release the current leaf's lifetime guard if one is held, return to
+   * optimistic unguarded reads, and clear the traversal path. Idempotent and allocation-free; the
+   * reader stays reusable for the next walk.
+   *
+   * <p>
+   * Callers must not read the previously resolved leaf, or any slice of it, after this returns: the
+   * leaf may be evicted at any point afterwards, and {@link #validateCurrentLeaf()} no longer covers
+   * it.
+   * </p>
+   */
+  public void endWalk() {
     try {
       clearCurrentLeaf();
     } finally {
       guardReads = false;
       clearPath();
     }
+  }
+
+  @Override
+  public void close() {
+    endWalk();
   }
 }

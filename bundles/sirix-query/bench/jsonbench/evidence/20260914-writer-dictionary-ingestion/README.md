@@ -36,4 +36,4 @@ The same protocol on the 10M cleaned source prefix measured baseline times of **
 
 Raw results: `build/jsonbench-campaign/source-flag-summary-v47/dictionary-radix-batch-v61/load-{1m,10m}-abba/`. The 10M runs include neither the later parallel descriptor reader nor the later sorted-leaf bounds candidate. The input file was derived from the first 10M cleaned records of the full corpus and is identified in the preceding layout experiment's source manifest.
 
-Machine-readable allocations, test counts, and raw evidence paths are in [summary.json](summary.json). Frozen candidate manifests preserve the exact class/source hashes. The completed 100M column-layout load used its earlier immutable runtime and includes neither ingestion candidate.
+Frozen candidate manifests preserve the exact class/source hashes. The completed 100M column-layout load used its earlier immutable runtime and includes neither ingestion candidate.

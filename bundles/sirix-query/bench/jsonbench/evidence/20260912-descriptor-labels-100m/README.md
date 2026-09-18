@@ -31,8 +31,5 @@ reader as a whole remains slower than the historical eager path. Mixed JVM Q1
 first-try evidence is retained. Production integration contains the formatter
 and tests; it does not include the experimental reader changes.
 
-`q1-q4-attempts.jsonl` preserves every timed attempt. `native-outcome.json` records
-the protocol, hashes, exact checks, guards and limitations. `production-proof.json`
-ties the patch to the committed-source classpath and integration gates.
-`retained-files.json` maps the larger immutable local evidence; no retained
-attempt or dataset was discarded. The JSONBench rank-one campaign remains open.
+`q1-q4-attempts.jsonl` preserves every timed attempt; no retained attempt or dataset
+was discarded. The JSONBench rank-one campaign remains open.

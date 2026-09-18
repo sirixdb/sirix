@@ -124,52 +124,6 @@ final class ProjectionFlagSummaryChunksTest {
     }
   }
 
-  @Test
-  void metadataOnlyRevisionRetagsUnchangedFlagsWithoutRewritingChunks() {
-    final Path databasePath = temporaryDirectory.resolve("flag-summary-retag");
-    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
-    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      assertTrue(database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build()));
-      try (JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
-        final int firstRevision;
-        final byte[] firstChunk;
-        try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          final ProjectionIndexHOTStorage storage =
-              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX_NUMBER);
-          final ProjectionFlagSummaryChunks.BuildWriter summaries = new ProjectionFlagSummaryChunks.BuildWriter();
-          summaries.append(storage, encoded(1001L, false).descriptor());
-          firstRevision = writer.getRevisionNumber();
-          summaries.finish(storage, 1, 1, firstRevision);
-          firstChunk = storage.getBlob(ProjectionFlagSummaryChunks.CHUNK_SLOT_BASE);
-          writer.commit();
-        }
-
-        final int secondRevision;
-        try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          final ProjectionIndexHOTStorage storage =
-              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX_NUMBER);
-          secondRevision = writer.getRevisionNumber();
-          assertTrue(ProjectionFlagSummaryChunks.retagUnchanged(storage, 1, 1, firstRevision,
-              secondRevision));
-          assertArrayEquals(firstChunk, storage.getBlob(ProjectionFlagSummaryChunks.CHUNK_SLOT_BASE));
-          writer.commit();
-        }
-
-        try (JsonNodeReadOnlyTrx oldReader = session.beginNodeReadOnlyTrx(firstRevision);
-            JsonNodeReadOnlyTrx newReader = session.beginNodeReadOnlyTrx(secondRevision)) {
-          assertArrayEquals(new byte[] {0}, ProjectionFlagSummaryChunks.readAll(oldReader.getStorageEngineReader(),
-              INDEX_NUMBER, 1, 1, firstRevision));
-          assertArrayEquals(new byte[] {0}, ProjectionFlagSummaryChunks.readAll(newReader.getStorageEngineReader(),
-              INDEX_NUMBER, 1, 1, secondRevision));
-          assertNull(ProjectionFlagSummaryChunks.readAll(newReader.getStorageEngineReader(), INDEX_NUMBER, 1, 1,
-              firstRevision));
-          assertArrayEquals(firstChunk, ProjectionIndexHOTStorage.readBlob(newReader.getStorageEngineReader(),
-              INDEX_NUMBER, ProjectionFlagSummaryChunks.CHUNK_SLOT_BASE));
-        }
-      }
-    }
-  }
-
   private static ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded(final long key,
       final boolean nonIntegral) {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(

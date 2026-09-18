@@ -22,6 +22,8 @@ final class ProjectionSortedSpanScan {
 
   private final StorageEngineReader reader;
   private final int indexNumber;
+  private final ProjectionSortKeyCodec.Layout layout;
+  private final byte[] prefix;
   private final long divisor;
   private final int readBudget;
   private int reads;
@@ -60,11 +62,13 @@ final class ProjectionSortedSpanScan {
   private final ProjectionSortedLeaf[] staged;
   private int stagedCount;
 
-  private ProjectionSortedSpanScan(final StorageEngineReader reader, final int indexNumber, final int count,
-      final int limit, final long divisor, final int lookahead,
-      final ProjectionSortedGroupScan.@Nullable LookaheadStats stats) {
+  private ProjectionSortedSpanScan(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSortKeyCodec.Layout layout, final byte[] prefix, final int count, final int limit,
+      final long divisor, final int lookahead, final ProjectionSortedGroupScan.@Nullable LookaheadStats stats) {
     this.reader = reader;
     this.indexNumber = indexNumber;
+    this.layout = layout;
+    this.prefix = prefix;
     this.divisor = divisor;
     this.lookahead = lookahead;
     this.stats = stats;
@@ -96,12 +100,26 @@ final class ProjectionSortedSpanScan {
 
   static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory, final int limit, final long divisor) {
-    return topK(reader, indexNumber, directory, limit, divisor, ProjectionSortedGroupScan.SORTED_LOOKAHEAD, null);
+    return topK(reader, indexNumber, directory, ProjectionSortedGroupScan.NO_PREFIX, null, limit, divisor,
+        ProjectionSortedGroupScan.SORTED_LOOKAHEAD, null);
   }
 
   /** {@code lookahead} candidates taken together per step ({@code 1}: the serial loop); {@code stats} optional. */
   static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory, final int limit, final long divisor, final int lookahead,
+      final ProjectionSortedGroupScan.@Nullable LookaheadStats stats) {
+    return topK(reader, indexNumber, directory, ProjectionSortedGroupScan.NO_PREFIX, null, limit, divisor, lookahead,
+        stats);
+  }
+
+  /**
+   * Spans of the groups under the encoded equality {@code prefix}; only the leaves that can hold it
+   * are candidates. Groups outside the prefix in the two boundary leaves are never offered, and their
+   * extrema only loosen those leaves' upper bounds.
+   */
+  static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSortedDirectory.Accessor directory, final byte[] prefix, final byte @Nullable [] upperExclusive,
+      final int limit, final long divisor, final int lookahead,
       final ProjectionSortedGroupScan.@Nullable LookaheadStats stats) {
     if (limit < 1 || limit > 32 || divisor < 1) {
       throw new IllegalArgumentException("unsupported sorted span top-K request");
@@ -109,18 +127,22 @@ final class ProjectionSortedSpanScan {
     if (lookahead < 1 || lookahead > 64) {
       throw new IllegalArgumentException("unsupported sorted lookahead: " + lookahead);
     }
-    final int count = directory.dataLeafCount();
-    if (count > MAX_LEAVES || reader.hasTrxIntentLog()) {
+    if (reader.hasTrxIntentLog()) {
       return null;
     }
+    final int[] rangeLeafIds = directory.leafIds(prefix, upperExclusive, MAX_LEAVES);
+    if (rangeLeafIds == null) {
+      return null;
+    }
+    final int count = rangeLeafIds.length;
     final ProjectionSortedLeafBounds.Candidates bounds =
-        ProjectionSortedLeafBounds.readUnordered(reader, indexNumber, directory);
+        ProjectionSortedLeafBounds.readUnordered(reader, indexNumber, rangeLeafIds);
     if (bounds == null) {
       return null;
     }
-    final ProjectionSortedSpanScan scan =
-        new ProjectionSortedSpanScan(reader, indexNumber, count, limit, divisor, lookahead, stats);
-    if (!scan.capture(directory, bounds)) {
+    final ProjectionSortedSpanScan scan = new ProjectionSortedSpanScan(reader, indexNumber, directory.layout(), prefix,
+        count, limit, divisor, lookahead, stats);
+    if (!scan.capture(directory, prefix, upperExclusive, bounds)) {
       return null;
     }
     scan.buildUpperBounds();
@@ -147,15 +169,15 @@ final class ProjectionSortedSpanScan {
     }
   }
 
-  private boolean capture(final ProjectionSortedDirectory.Accessor directory,
-      final ProjectionSortedLeafBounds.Candidates bounds) {
+  private boolean capture(final ProjectionSortedDirectory.Accessor directory, final byte[] from,
+      final byte @Nullable [] upperExclusive, final ProjectionSortedLeafBounds.Candidates bounds) {
     // readUnordered has validated sorted, unique positive IDs. N such IDs bounded by [1, N]
     // necessarily cover that complete range, independently of their current document order.
     final int[] boundIds = bounds.leafIds();
     final boolean denseBounds =
         boundIds.length > 0 && boundIds[0] == 1 && boundIds[boundIds.length - 1] == boundIds.length
             && !"false".equals(System.getProperty("sirix.projection.denseSpanBounds"));
-    ProjectionSortedDirectory.Accessor.LeafCursor cursor = directory.leaves();
+    ProjectionSortedDirectory.Accessor.LeafCursor cursor = directory.leaves(from, upperExclusive);
     int at = 0;
     while (cursor.id() != 0) {
       if (at == leafIds.length) {
@@ -166,9 +188,9 @@ final class ProjectionSortedSpanScan {
         key = new byte[length];
       }
       cursor.copyFirstKeyTo(key);
-      final int prefix = ProjectionSortedGroupScan.stringPrefixLength(key, length);
-      if (prefix < 0 || length != prefix + 1 + 2 * Long.BYTES || key[prefix] != 1
-          || prefix > MAX_KEY_BYTES - offsets[at]) {
+      final int group = layout.lastFieldOffset(key, length);
+      if (group < 0 || length != group + 1 + 2 * Long.BYTES || key[group] != ProjectionSortKeyCodec.PRESENT
+          || group > MAX_KEY_BYTES - offsets[at]) {
         return false;
       }
       final int leafId = cursor.id();
@@ -182,7 +204,7 @@ final class ProjectionSortedSpanScan {
       leafMinimums[at] = bounds.minimums()[physical];
       leafMaximums[at] = bounds.maximums()[physical];
       upper[at] = spanUpper(leafMinimums[at], leafMaximums[at], divisor);
-      offsets[at + 1] = offsets[at] + prefix;
+      offsets[at + 1] = offsets[at] + group;
       at++;
       cursor.advance();
     }
@@ -191,7 +213,7 @@ final class ProjectionSortedSpanScan {
     }
     // Two directory walks avoid growing/copying a large arena or allocating a key per leaf.
     firstKeys = new byte[offsets[at]];
-    cursor = directory.leaves();
+    cursor = directory.leaves(from, upperExclusive);
     for (int i = 0; i < at; i++) {
       cursor.copyFirstKeyTo(key);
       System.arraycopy(key, 0, firstKeys, offsets[i], offsets[i + 1] - offsets[i]);
@@ -446,8 +468,10 @@ final class ProjectionSortedSpanScan {
   }
 
   private void offer(final int length, final long min, final long max) {
-    retained = ProjectionSortedGroupScan.offer(key, length, min, max, Order.SPAN_DESC, divisor, winners, minimums,
-        maximums, scores, retained);
+    if (ProjectionSortKeyCodec.startsWith(key, length, prefix)) {
+      retained = ProjectionSortedGroupScan.offer(key, prefix.length, length, min, max, Order.SPAN_DESC, divisor,
+          winners, minimums, maximums, scores, retained);
+    }
   }
 
   /** Validate every loaded summary against its revisioned bounds and directory neighbours. */
@@ -480,7 +504,7 @@ final class ProjectionSortedSpanScan {
         checkKey = new byte[length];
       }
       summary.copyKeyTo(row, checkKey);
-      if (ProjectionSortedGroupScan.stringPrefixLength(checkKey, length) != length
+      if (!layout.isGroup(checkKey, length)
           || summary.payloadLength(row) != payload.length || row == 0 && !equalsFirst(ordinal, checkKey, length)
           || row > 0 && Arrays.compareUnsigned(previousKey, 0, previousLength, checkKey, 0, length) >= 0) {
         throw new IllegalStateException("sorted span summary disagrees with its directory");

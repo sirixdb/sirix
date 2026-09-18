@@ -176,7 +176,7 @@ public final class IndexDefs {
     return new IndexDef(rootPath, fieldPaths, fieldTypes, indexDefNo, dbType);
   }
 
-  /** Declare an optional equality-filtered, sorted view over the same covering fields. */
+  /** Declare an optional sorted view, ordered by the given key columns, over the same covering fields. */
   public static IndexDef createProjectionIdxDef(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
       final List<Type> fieldTypes, final int indexDefNo, final IndexDef.DbType dbType,
       final ProjectionSortedSpec sortedSpec) {

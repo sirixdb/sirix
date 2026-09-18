@@ -129,10 +129,15 @@ public interface Reader extends AutoCloseable {
    */
   default Page[] read(final PageReference[] references, final ResourceConfiguration resourceConfiguration) {
     final Page[] pages = new Page[references.length];
-    for (int i = 0; i < references.length; i++) {
-      if (references[i] != null && references[i].getKey() != Constants.NULL_ID_LONG) {
-        pages[i] = read(references[i], resourceConfiguration);
+    try {
+      for (int i = 0; i < references.length; i++) {
+        if (references[i] != null && references[i].getKey() != Constants.NULL_ID_LONG) {
+          pages[i] = read(references[i], resourceConfiguration);
+        }
       }
+    } catch (final RuntimeException | Error failure) {
+      AbstractReader.retireDecodedPages(pages, failure);
+      throw failure;
     }
     return pages;
   }

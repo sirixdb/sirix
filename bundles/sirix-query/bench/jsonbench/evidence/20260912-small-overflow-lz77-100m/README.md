@@ -44,8 +44,7 @@ The 100M hot leader is ClickHouse 25.11, while the cold leader is StarRocks 4.0.
 use captain-authorized ClickHouse 26.7.3.19. The canonical workload is
 [the five Bluesky queries](../../queries.sql), not web-hits ClickBench.
 
-The committed [Q1/Q4 attempts](q1-q4-attempts.jsonl), [Q2/Q3/Q5 attempts](q2-q3-q5-attempts.jsonl),
-[computed outcome](outcome.json), and [file map](retained-files.json) preserve the measured evidence.
-Full raw stdout/stderr, exact dumps, guard samples, source/runtime manifests and control-equivalence
-proof remain at the hashed laptop paths in the file map. The campaign is still in progress, and the
+The committed [Q1/Q4 attempts](q1-q4-attempts.jsonl) and [Q2/Q3/Q5 attempts](q2-q3-q5-attempts.jsonl)
+preserve the measured evidence. Full raw stdout/stderr, exact dumps, guard samples, source/runtime
+manifests and control-equivalence proof remain at hashed laptop paths. The campaign is still in progress, and the
 canonical paired rank-one goal has not been achieved. No PR or merge is claimed by this checkpoint.

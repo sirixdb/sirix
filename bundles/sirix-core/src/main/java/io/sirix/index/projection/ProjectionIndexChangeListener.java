@@ -2437,7 +2437,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
   }
 
-  /** Apply exact key changes after the base rows are patched and before metadata is published. */
+  /**
+   * Apply exact key changes after the base rows are patched and before metadata is published. A
+   * record's prior key is what the view holds for it: the key of its last state seen in this
+   * transaction, otherwise of the revision the writer represents (which after {@code revertTo} is
+   * the reverted-to revision). A view built inside this transaction holds build-time keys instead,
+   * so there each derived prior key is checked against the view and any other record is found by
+   * one scan. The whole pass is one batched edit that rewrites each touched leaf once.
+   */
   private void maintainSortedView(final ProjectionIndexHOTStorage storage, final LongOpenHashSet dirty,
       final Long2LongOpenHashMap locationByRecord) {
     if (indexDef.getProjectionSortedSpec() == null) {
@@ -2457,13 +2464,18 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         break;
       }
     }
-    final int priorRevision = maintenanceTrx.getRevisionNumber() - 1;
-    if (needsPrior && priorRevision < 1) {
-      throw new IllegalStateException("sorted projection has persisted rows without a prior document revision");
-    }
+    final int dirtyCount = dirty.size();
+    final long[] records = new long[dirtyCount];
+    final byte[][] priorKeys = new byte[dirtyCount][];
+    final byte[][] currentKeys = new byte[dirtyCount][];
+    final ProjectionSortedDirectory.Editor editor = new ProjectionSortedDirectory.Editor(storage);
+    final int priorRevision = storageEngineWriter.getRevisionToRepresent();
     final var session = maintenanceTrx.getResourceSession();
+    LongOpenHashSet unresolved = null;
     try (NodeReadOnlyTrx priorReader = needsPrior ? session.beginNodeReadOnlyTrx(priorRevision) : null;
         PathSummaryReader priorPaths = needsPrior ? session.openPathSummary(priorRevision) : null) {
+      final boolean viewPredatesTransaction = needsPrior
+          && ProjectionSortedDirectory.open(priorReader.getStorageEngineReader(), indexDef.getID()) != null;
       final ProjectionIndexRowExtractor priorExtractor = needsPrior
           ? new ProjectionIndexRowExtractor(indexDef, priorPaths)
           : null;
@@ -2472,40 +2484,90 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           : null;
       final ProjectionIndexRowExtractor currentExtractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
       final ProjectionSortedRowEncoder currentEncoder = new ProjectionSortedRowEncoder(indexDef, currentExtractor);
-      final ProjectionSortedDirectory.Editor editor = new ProjectionSortedDirectory.Editor(storage);
-      for (final LongIterator iterator = dirty.iterator(); iterator.hasNext();) {
+      int at = 0;
+      for (final LongIterator iterator = dirty.iterator(); iterator.hasNext(); at++) {
         final long recordKey = iterator.nextLong();
-        final byte[] priorKey;
+        records[at] = recordKey;
         if (keys.containsKey(recordKey)) {
-          priorKey = keys.get(recordKey);
+          priorKeys[at] = keys.get(recordKey);
         } else if (locationByRecord.get(recordKey) != ProjectionPersistedRecordLookup.ABSENT) {
-          if (!extractInto(priorExtractor, priorReader, recordKey)) {
+          if (extractInto(priorExtractor, priorReader, recordKey)) {
+            priorEncoder.writeKey(recordKey);
+            final byte[] candidate = priorEncoder.copyKey();
+            if (viewPredatesTransaction || editor.contains(candidate)) {
+              priorKeys[at] = candidate;
+            }
+          } else if (viewPredatesTransaction) {
             throw new IllegalStateException("prior sorted projection record " + recordKey + " is missing");
           }
-          priorKey = priorEncoder.writeKeyIfMatching(recordKey) ? priorEncoder.copyKey() : null;
-        } else {
-          priorKey = null;
+          if (priorKeys[at] == null) {
+            if (unresolved == null) {
+              unresolved = new LongOpenHashSet();
+            }
+            unresolved.add(recordKey);
+          }
         }
-        final byte[] currentKey;
         if (isCurrentRecordRoot(recordKey)) {
           if (!extractInto(currentExtractor, maintenanceTrx, recordKey)) {
             throw new IllegalStateException("current sorted projection record " + recordKey + " is missing");
           }
-          currentKey = currentEncoder.writeKeyIfMatching(recordKey) ? currentEncoder.copyKey() : null;
-        } else {
-          currentKey = null;
+          currentEncoder.writeKey(recordKey);
+          currentKeys[at] = currentEncoder.copyKey();
         }
-        if (!Arrays.equals(priorKey, currentKey)) {
-          if (priorKey != null) {
-            editor.remove(priorKey);
-          }
-          if (currentKey != null) {
-            editor.insert(currentKey, new byte[0]);
-          }
-        }
-        keys.put(recordKey, currentKey);
       }
     }
+    if (unresolved != null) {
+      final Long2ObjectOpenHashMap<byte[]> found = findViewKeys(unresolved);
+      for (int i = 0; i < dirtyCount; i++) {
+        if (priorKeys[i] == null && unresolved.contains(records[i])) {
+          priorKeys[i] = found.get(records[i]);
+          if (priorKeys[i] == null) {
+            throw new IllegalStateException("sorted projection has no row for persisted record " + records[i]);
+          }
+        }
+      }
+    }
+    final byte[][] removals = new byte[dirtyCount][];
+    final byte[][] insertions = new byte[dirtyCount][];
+    int removalCount = 0;
+    int insertionCount = 0;
+    for (int i = 0; i < dirtyCount; i++) {
+      if (!Arrays.equals(priorKeys[i], currentKeys[i])) {
+        if (priorKeys[i] != null) {
+          removals[removalCount++] = priorKeys[i];
+        }
+        if (currentKeys[i] != null) {
+          insertions[insertionCount++] = currentKeys[i];
+        }
+      }
+      keys.put(records[i], currentKeys[i]);
+    }
+    Arrays.sort(removals, 0, removalCount, Arrays::compareUnsigned);
+    Arrays.sort(insertions, 0, insertionCount, Arrays::compareUnsigned);
+    editor.apply(removals, removalCount, insertions, null, insertionCount);
+  }
+
+  /** One ordered scan of the transaction's view for the rows of the given records. */
+  private Long2ObjectOpenHashMap<byte[]> findViewKeys(final LongOpenHashSet recordKeys) {
+    final Long2ObjectOpenHashMap<byte[]> found = new Long2ObjectOpenHashMap<>(recordKeys.size());
+    final ProjectionSortedDirectory.Accessor view =
+        Objects.requireNonNull(ProjectionSortedDirectory.open(storageEngineWriter, indexDef.getID()),
+            "sorted projection directory");
+    final ProjectionSortedDirectory.Accessor.Cursor cursor = view.first();
+    byte[] key = new byte[128];
+    while (cursor.isValid() && found.size() < recordKeys.size()) {
+      final int length = cursor.keyLength();
+      if (length > key.length) {
+        key = new byte[Math.max(length, key.length << 1)];
+      }
+      cursor.copyKeyTo(key);
+      final long recordKey = ProjectionSortedGroupScan.readOrderedLong(key, length - Long.BYTES);
+      if (recordKeys.contains(recordKey) && found.put(recordKey, Arrays.copyOf(key, length)) != null) {
+        throw new IllegalStateException("sorted projection holds two rows for record " + recordKey);
+      }
+      cursor.advance();
+    }
+    return found;
   }
 
   private static @Nullable LongOpenHashSet validateStructuralProvenance(

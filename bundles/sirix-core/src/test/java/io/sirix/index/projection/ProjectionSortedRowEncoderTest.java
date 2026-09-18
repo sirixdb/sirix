@@ -24,9 +24,8 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static io.brackit.query.util.path.Path.parse;
 
@@ -36,9 +35,10 @@ final class ProjectionSortedRowEncoderTest {
   Path temporaryDirectory;
 
   @Test
-  void exactFilterUsesExtractorValuesAndKeyOrderUsesUtf8NotDictionaryIds() {
+  void everyRowHasOneKeyOrderedByUtf8AndUnrepresentableRowsGetTheReservedKey() {
     final Path databasePath = temporaryDirectory.resolve("sorted-encoder");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    final String longDid = "x".repeat(ProjectionSortKeyCodec.MAX_STRING_FIELD_BYTES + 1);
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
@@ -48,8 +48,10 @@ final class ProjectionSortedRowEncoderTest {
                {"kind":"identity","op":"create","did":"b","time":10},
                {"kind":"commit","op":"create","did":"a","time":30},
                {"kind":"commit","op":"create","time":5},
-               {"kind":"commit","op":"create","did":"q","time":5.5}]
-              """), JsonNodeTrx.Commit.NO);
+               {"kind":"commit","op":"create","did":"q","time":5.5},
+               {"kind":"commit","op":"create","did":5,"time":7},
+               {"kind":"commit","op":"create","did":"%s","time":8}]
+              """.formatted(longDid)), JsonNodeTrx.Commit.NO);
           writer.commit();
         }
         try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx();
@@ -61,12 +63,10 @@ final class ProjectionSortedRowEncoderTest {
                   parse("/[]/did", PathParser.Type.JSON),
                   parse("/[]/time", PathParser.Type.JSON)),
               List.of(Type.STR, Type.STR, Type.STR, Type.LON), 0, IndexDef.DbType.JSON,
-              new ProjectionSortedSpec(List.of(2, 3),
-                  List.of(new ProjectionSortedSpec.Equality(0, "commit"),
-                      new ProjectionSortedSpec.Equality(1, "create"))));
+              new ProjectionSortedSpec(List.of(0, 1, 2, 3)));
           final ProjectionIndexRowExtractor extractor = new ProjectionIndexRowExtractor(definition, pathSummary);
           final ProjectionSortedRowEncoder encoder = new ProjectionSortedRowEncoder(definition, extractor);
-          final long[] records = new long[5];
+          final long[] records = new long[7];
           assertTrue(reader.moveToDocumentRoot());
           assertTrue(reader.moveToFirstChild());
           assertTrue(reader.moveToFirstChild());
@@ -76,22 +76,27 @@ final class ProjectionSortedRowEncoderTest {
               assertTrue(reader.moveToRightSibling());
             }
           }
-          assertTrue(extractor.extractInto(reader, records[0]));
-          assertTrue(encoder.writeKeyIfMatching(records[0]));
-          final byte[] zKey = encoder.copyKey();
-          assertEquals(zKey.length, encoder.keyLength());
-          assertTrue(extractor.extractInto(reader, records[1]));
-          assertFalse(encoder.writeKeyIfMatching(records[1]));
-          assertTrue(extractor.extractInto(reader, records[2]));
-          assertTrue(encoder.writeKeyIfMatching(records[2]));
-          final byte[] aKey = encoder.copyKey();
-          assertTrue(Arrays.compareUnsigned(aKey, zKey) < 0);
-          assertTrue(extractor.extractInto(reader, records[3]));
-          assertTrue(encoder.writeKeyIfMatching(records[3]));
-          final byte[] missingKey = encoder.copyKey();
-          assertTrue(Arrays.compareUnsigned(missingKey, aKey) < 0);
-          assertTrue(extractor.extractInto(reader, records[4]));
-          assertThrows(IllegalStateException.class, () -> encoder.writeKeyIfMatching(records[4]));
+          final byte[][] keys = new byte[records.length][];
+          for (int i = 0; i < records.length; i++) {
+            assertTrue(extractor.extractInto(reader, records[i]));
+            encoder.writeKey(records[i]);
+            keys[i] = encoder.copyKey();
+            assertEquals(keys[i].length, encoder.keyLength());
+            assertEquals(i >= 4, encoder.unencodable(), "row " + i);
+          }
+          for (int i = 0; i < 4; i++) {
+            assertTrue(encoder.layout().lastFieldOffset(keys[i], keys[i].length) > 0, "row " + i);
+          }
+          assertTrue(Arrays.compareUnsigned(keys[2], keys[0]) < 0);
+          assertTrue(Arrays.compareUnsigned(keys[3], keys[2]) < 0);
+          assertTrue(Arrays.compareUnsigned(keys[0], keys[1]) < 0);
+          for (int i = 4; i < records.length; i++) {
+            final ProjectionSortKeyCodec.Writer reserved = new ProjectionSortKeyCodec.Writer();
+            reserved.writeUnencodable(records[i]);
+            assertArrayEquals(reserved.copyKey(), keys[i]);
+            assertTrue(ProjectionSortKeyCodec.isUnencodable(keys[i], keys[i].length));
+            assertTrue(Arrays.compareUnsigned(keys[1], keys[i]) < 0);
+          }
         }
       }
     }

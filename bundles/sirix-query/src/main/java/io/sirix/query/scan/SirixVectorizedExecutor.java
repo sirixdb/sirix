@@ -14670,34 +14670,64 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return mask;
   }
 
-  private static ServedGroups serveScalarValueCounts(final Map<String, Long> counts, final String keyName,
+  private static @Nullable ServedGroups serveScalarValueCounts(final Map<String, Long> counts, final String keyName,
       final String outputName, final boolean stringifyMissing) {
     final long missing = stringifyMissing
         ? counts.getOrDefault(null, 0L)
         : 0L;
-    final ArrayList<Item> rows = new ArrayList<>(counts.size());
-    final QNm key = new QNm(keyName);
-    final QNm output = new QNm(outputName);
+    final int capacity = counts.size() + 1;
+    final String[] groupKeys = new String[capacity];
+    final long[] groupCounts = new long[capacity];
+    int groups = 0;
     for (final Map.Entry<String, Long> entry : counts.entrySet()) {
       final String value = entry.getKey();
       if (stringifyMissing && value == null) {
         continue;
       }
+      final long stored = entry.getValue();
       final long count = stringifyMissing && "".equals(value)
-          ? Math.addExact(entry.getValue(), missing)
-          : entry.getValue();
+          ? Math.addExact(stored, missing)
+          : stored;
       if (count > 0) {
-        rows.add(new ArrayObject(new QNm[] {key, output}, new Sequence[] {value == null
-            ? null
-            : new Str(value), new Int64(count)}));
+        groupKeys[groups] = value;
+        groupCounts[groups] = count;
+        groups++;
       }
     }
     if (stringifyMissing && missing > 0 && !counts.containsKey("")) {
-      rows.add(new ArrayObject(new QNm[] {key, output}, new Sequence[] {new Str(""), new Int64(missing)}));
+      groupKeys[groups] = "";
+      groupCounts[groups] = missing;
+      groups++;
+    }
+    if (hasEqualCounts(groupCounts, groups)) {
+      return null;
+    }
+    final Item[] rows = new Item[groups];
+    final QNm key = new QNm(keyName);
+    final QNm output = new QNm(outputName);
+    for (int g = 0; g < groups; g++) {
+      final String value = groupKeys[g];
+      rows[g] = new ArrayObject(new QNm[] {key, output}, new Sequence[] {value == null
+          ? null
+          : new Str(value), new Int64(groupCounts[g])});
     }
     GROUP_AGG_SERVED.increment();
     GROUP_AGG_SUMMARY_SERVED.increment();
-    return new ServedGroups(new ItemSequence(rows.toArray(new Item[0])), false);
+    return new ServedGroups(new ItemSequence(rows), false);
+  }
+
+  private static boolean hasEqualCounts(final long[] counts, final int length) {
+    if (length < 2) {
+      return false;
+    }
+    final long[] sorted = Arrays.copyOf(counts, length);
+    Arrays.sort(sorted);
+    for (int i = 1; i < length; i++) {
+      if (sorted[i] == sorted[i - 1]) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
@@ -14785,11 +14815,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           && (keyCondFields == null || keyCondFields.length == 1 && keyCondFields[0] == null)
           && (keyStringify == null || keyStringify.length == 1)
           && anyKPlainKeys(1, keyOffsets, keySubstr, keyCondElse, keyRegexPattern, keyDivMod, null);
+      boolean summaryRead = false;
       if (scalarSummaryShape && wtx == null) {
         final Map<String, Long> counts = ProjectionIndexCatalog.lookupScalarValueRowCounts(session,
             projectionRegistryKey, revision, sourcePath, groupFields[0]);
         if (counts != null) {
-          return serveScalarValueCounts(counts, keyNames[0], outNames[0], keyStringify != null && keyStringify[0]);
+          final ServedGroups summary =
+              serveScalarValueCounts(counts, keyNames[0], outNames[0], keyStringify != null && keyStringify[0]);
+          if (summary != null) {
+            return summary;
+          }
+          summaryRead = true;
         }
       }
       final ProjectionIndexRegistry.Handle handle =
@@ -14797,12 +14833,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (handle == null) {
         return declineGroupAgg("no projection covers the source path and required fields");
       }
-      if (scalarSummaryShape) {
+      if (scalarSummaryShape && !summaryRead) {
         final int summaryColumn = handle.columnOf(groupFields[0]);
         if (summaryColumn >= 0) {
           final Map<String, Long> counts = handle.scalarValueRowCounts(summaryColumn);
           if (counts != null) {
-            return serveScalarValueCounts(counts, keyNames[0], outNames[0], keyStringify != null && keyStringify[0]);
+            final ServedGroups summary =
+                serveScalarValueCounts(counts, keyNames[0], outNames[0], keyStringify != null && keyStringify[0]);
+            if (summary != null) {
+              return summary;
+            }
           }
         }
       }

@@ -25,11 +25,10 @@ normalized scores in the audit are explicitly unpaired context, not optimization
 
 [ClickHouse/JSONBench](https://github.com/ClickHouse/JSONBench/tree/e6c7c98dc766394d51f7d506a3dd2b5d51165d70)
 remained at `e6c7c98dc766394d51f7d506a3dd2b5d51165d70` on the
-[2026-09-12 recheck](group-repeat-upstream-recheck.json). Its canonical 100M Bluesky tier exists;
+2026-09-12 recheck. Its canonical 100M Bluesky tier exists;
 the dashboard default is actually **1B**, hot, retains-structure=yes. At 100M the hot leader is
 ClickHouse 25.11, with score 1.0229245566260303; the cold leader is StarRocks 4.0.1.
-[upstream-pin.json](upstream-pin.json) retains the result-schema rankings, exact SQL, and
-upstream score formula `geomean((engine_seconds + 0.010) / (fastest_seconds + 0.010))`.
+The upstream score formula is `geomean((engine_seconds + 0.010) / (fastest_seconds + 0.010))`.
 The captain authorized local **ClickHouse 26.7.3.19** for the informal leader-engine comparison.
 
 The five [canonical queries](../../queries.sql) count collections, count creations and exact
@@ -59,28 +58,27 @@ The separate column-major v5 work and its unresolved space decision remain prese
 
 ## Validation and artifacts
 
-- [Frozen source](group-repeat-v1-source.json): base `81cdec2d544f6829c5e9c3cd9fe56fe76b9984d8`
+- Frozen source: base `81cdec2d544f6829c5e9c3cd9fe56fe76b9984d8`
   plus exactly the production class and regression test. Uncommitted column-major work was excluded.
-  Clean builds used no pooled outputs. [Toolchain continuity](group-repeat-toolchain-continuity.json)
-  proves the same JDK and 40 dependency jars as the baseline, with only the two project jars rebuilt.
-- [70 focused tests](tests.json), 11 suites, zero failures/errors/skips. Three new tests cover
+  Clean builds used no pooled outputs. A toolchain continuity check confirmed
+  the same JDK and 40 dependency jars as the baseline, with only the two project jars rebuilt.
+- 70 focused tests, 11 suites, zero failures/errors/skips. Three new tests cover
   every identity lane, offset identities, hash collisions, zero-probe substitution, stable handles
   through index and storage growth, first-seen/count/aux state, and release invalidation.
-- [Instrumented 1M gate](group-repeat-v1-instrument-1m-validation.json): all five exact in both arms,
+- Instrumented 1M gate: all five exact in both arms,
   60 timings, 70 retained profiles. Hot after/before ratios 0.98591 / 1.06537 were mixed;
   no small-data speedup was claimed.
 - Fresh 100M PGO training passed all five exact comparisons with expected aggregate routes.
   Profile SHA-256: `bc4ab1d4725fc0b894c90cca064c4ed74125177d5ac39da793aa667cdc900f12`.
   Optimized binary SHA-256: `d30dc2cf56dd0caebc7c11a11e8929be2944042f5e9675365d654431b23f9afb`.
   Before binary SHA-256: `50ccd4f1938c0d87a16d5a6a6ebca257175e4b9cbcbec34fe3d9f5f6f0cbfe6c`.
-- [Direct before/after audit](group-repeat-v1-before-after-100m-validation.json) and
-  [Sirix/ClickHouse audit](paired-group-repeat-100m-attempt1-validation.json) validate complete
+- The direct before/after audit and the Sirix/ClickHouse audit validated complete
   attempt sets, exact answers, routes, runtime hashes, cache classification, scores, and guards.
 
 `raw-attempts.tar.gz` retains raw commands, answers, attempts, telemetry, logs, scripts,
-test XML, and source/runtime manifests. `raw-files.json` hashes every member; the
-packager rereads the archive and verifies each hash. `retained-large-files.json` lists binaries,
-profiles, and source archives retained on the laptop with their sizes and checksums. Reproduction
+test XML, and source/runtime manifests. The packager hashed every member, then reread the
+archive and verified each hash. Binaries, profiles, and source archives are retained on the
+laptop. Reproduction
 uses the archived `group-repeat-lane.sh`, `advance-group-repeat-100m.py`, and shared protocol helpers,
 with fresh output names and the recorded dataset/toolchain manifests. The
 [preceding baseline](../20260912-serial-directory-100m/README.md) retains its own build and attempts.

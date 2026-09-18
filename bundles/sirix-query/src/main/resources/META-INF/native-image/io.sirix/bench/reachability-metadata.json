@@ -631,6 +631,15 @@
         "returnType": "jint",
         "parameterTypes": [
           "jint",
+          "jlong",
+          "jlong",
+          "jint"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "jint",
           "jint",
           "jint"
         ],

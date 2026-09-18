@@ -43,4 +43,4 @@ Raw artifacts live under `build/jsonbench-campaign/`:
 - Full source/summary, layout and history audits: `source-flag-summary-v47/sorted-summary-batch-v59/full-verification/`
 - Rejected batch comparison: `source-flag-summary-v47/sorted-summary-batch-v59/native-100m-abba/`
 
-[summary.json](summary.json) retains the paired numbers and evidence identities. The working changes are uncommitted.
+The working changes are uncommitted.

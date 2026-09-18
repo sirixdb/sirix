@@ -778,8 +778,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         continue;
       }
       if (!(loadedPage instanceof OverflowPage segmentPage)) {
-        throw new SirixIOException("Side-map overflow reference (offset key " + offsets[i] + ") resolved to "
-            + loadedPage.getClass().getSimpleName() + " — dangling or corrupted side-map reference.");
+        final SirixIOException dangling = new SirixIOException("Side-map overflow reference (offset key "
+            + offsets[i] + ") resolved to " + loadedPage.getClass().getSimpleName()
+            + " — dangling or corrupted side-map reference.");
+        retireUnadoptedPages(loadedPages, 0, dangling);
+        throw dangling;
       }
       pages[i] = segmentPage;
     }
@@ -3262,7 +3265,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         // its off-heap segments (production builds have no Cleaner fallback).
         final KeyValueLeafPage cached = fragmentCache.getOrLoadAndGuard(misses[adopted], _ -> fragment);
         if (cached != fragment) {
-          fragment.close();
+          try {
+            fragment.close();
+          } catch (final Throwable loserCloseFailure) {
+            if (cached != null) {
+              try {
+                cached.releaseGuard();
+              } catch (final Throwable guardReleaseFailure) {
+                addSuppressedSafely(loserCloseFailure, guardReleaseFailure);
+              }
+            }
+            throw loserCloseFailure;
+          }
         }
         result.add(cached);
       }
@@ -3293,8 +3307,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final Page[] loaded = pageReader.read(references, resourceConfig);
     if (loaded == null) {
       final Page[] scalar = new Page[references.length];
-      for (int i = 0; i < references.length; i++) {
-        scalar[i] = pageReader.read(references[i], resourceConfig);
+      try {
+        for (int i = 0; i < references.length; i++) {
+          scalar[i] = pageReader.read(references[i], resourceConfig);
+        }
+      } catch (final RuntimeException | Error failure) {
+        retireUnadoptedPages(scalar, 0, failure);
+        throw failure;
       }
       return scalar;
     }

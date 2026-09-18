@@ -107,8 +107,8 @@ On the 100M Bluesky corpus, the parallel path loaded 99,999,968 rows in 3423.214
 database space. Those full-scale runs occurred at different times; the matched 5M comparison measured
 2.12×. The 100M load retained revision 1 and node creation history (129/129 sampled keys), and its
 Q1–Q5 answers matched ClickHouse exactly. A separate 200k-row ClickBench differential passed all 43
-queries. [Compact evidence](evidence/20260914-parallel-ingest-100m/summary.json) records the numbers
-and rejected tuning screens.
+queries. Its compact JSON summary of the numbers and rejected tuning screens is in branch history
+(see the note at the end of this section).
 
 The subsequent [constant-bucket counting experiment](evidence/20260914-constant-bucket-count-100m/README.md)
 reduced warmed JVM Q3 time by 37% in an isolated comparison. The native candidate, also including
@@ -139,6 +139,17 @@ geometric score**; Sirix's total warm query time remains higher, chiefly due to 
 All 43 ClickBench queries remained exact in ABBA and BAAB screens on 200,000 rows, with no
 consistent timing regression. Disk-cold ranking is unverified because visible-file eviction
 does not control the lower filesystem cache on this host's eCryptfs workspace.
+
+The projection's sorted view is now declared by columns only — `kind`, `operation`, `collection`,
+`did`, `time_us`, ClickHouse's `ORDER BY` for this table — and Q4/Q5's equality filter is served
+as a key range of that view. The measurements above used an earlier view that stored only the rows
+matching Q4/Q5's literals. The column-only view holds every row, so its load time, data size and
+Q4/Q5 timings have not been re-measured.
+
+The generated JSON evidence artifacts (build archives, raw-file inventories, validation and summary
+dumps) were removed from `evidence/`. The scripts, READMEs, evidence notes, checksums and raw
+archives remain. The removed files are in this branch's history before commit `7a619dd20`, e.g.
+`git show 7a619dd20^:bundles/sirix-query/bench/jsonbench/evidence/20260914-parallel-ingest-100m/summary.json`.
 
 ---
 

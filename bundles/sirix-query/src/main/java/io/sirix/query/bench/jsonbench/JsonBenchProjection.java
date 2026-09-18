@@ -38,12 +38,22 @@ import java.util.Map;
  * {@code commit.record.skyfeedBuilder.blocks[].collection}. See
  * {@code CreateProjectionIndex#assertUnambiguousFieldNames} for what that means for creation, and
  * {@code bench/jsonbench/README.md} for the measurement it forces.
+ *
+ * <h2>Sort order</h2> The projection also declares a sorted view ordered by {@code kind},
+ * {@code operation}, {@code collection}, {@code did} and {@code time_us} — the same column list as
+ * ClickHouse's {@code ORDER BY} for this table. It names columns only: no filter literal is part of
+ * the declaration, and a query's equality filter on a leading run of these columns is served as a
+ * key range at query time.
  */
 public final class JsonBenchProjection {
 
   /** The projected field paths, in declaration order; the trailing step names each column. */
   public static final List<String> COLUMN_PATHS =
       List.of("/[]/kind", "/[]/did", "/[]/time_us", "/[]/commit/collection", "/[]/commit/operation");
+
+  /** The sorted view's key columns, in order; each is one of {@link #COLUMN_PATHS}. */
+  public static final List<String> SORT_COLUMN_PATHS =
+      List.of("/[]/kind", "/[]/commit/operation", "/[]/commit/collection", "/[]/did", "/[]/time_us");
 
   /** Declared column types, keyed by path. Only {@code time_us} is numeric. */
   private static final Map<String, String> COLUMN_TYPES = Map.of("/[]/kind", "string", "/[]/did", "string",
@@ -74,17 +84,18 @@ public final class JsonBenchProjection {
     for (final String path : COLUMN_PATHS) {
       types.add(projectionType(path));
     }
-    return new ProjectionSpec(JsonBenchSchema.ROOT_PATH, COLUMN_PATHS, types,
-        new ProjectionSortedSpec(List.of(1, 2),
-            List.of(new ProjectionSortedSpec.Equality(0, "commit"),
-                new ProjectionSortedSpec.Equality(4, "create"),
-                new ProjectionSortedSpec.Equality(3, JsonBenchSchema.COLLECTION_POST))));
+    final List<Integer> keyColumns = new ArrayList<>(SORT_COLUMN_PATHS.size());
+    for (final String path : SORT_COLUMN_PATHS) {
+      keyColumns.add(COLUMN_PATHS.indexOf(path));
+    }
+    return new ProjectionSpec(JsonBenchSchema.ROOT_PATH, COLUMN_PATHS, types, new ProjectionSortedSpec(keyColumns));
   }
 
-  /** The {@code jn:create-projection-index} call for the projected columns. */
+  /** The {@code jn:create-projection-index} call for the projected columns and sort order. */
   public static String createQuery() {
     final StringBuilder paths = new StringBuilder(COLUMN_PATHS.size() * 28);
     final StringBuilder types = new StringBuilder(COLUMN_PATHS.size() * 10);
+    final StringBuilder sortColumns = new StringBuilder(SORT_COLUMN_PATHS.size() * 28);
     for (int i = 0; i < COLUMN_PATHS.size(); i++) {
       if (i > 0) {
         paths.append(", ");
@@ -94,9 +105,16 @@ public final class JsonBenchProjection {
       paths.append('\'').append(path).append('\'');
       types.append('\'').append(projectionType(path)).append('\'');
     }
+    for (int i = 0; i < SORT_COLUMN_PATHS.size(); i++) {
+      if (i > 0) {
+        sortColumns.append(", ");
+      }
+      sortColumns.append('\'').append(SORT_COLUMN_PATHS.get(i)).append('\'');
+    }
     return "let $doc := jn:doc('" + JsonBenchSchema.DATABASE + "','" + JsonBenchSchema.RESOURCE + "')\n"
         + "let $stats := jn:create-projection-index($doc, '" + JsonBenchSchema.ROOT_PATH + "',\n" + "    (" + paths
-        + "),\n" + "    (" + types + "))\n" + "return {\"revision\": sdb:commit($doc)}";
+        + "),\n" + "    (" + types + "),\n" + "    (" + sortColumns + "))\n"
+        + "return {\"revision\": sdb:commit($doc)}";
   }
 
   /**

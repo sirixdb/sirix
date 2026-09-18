@@ -1,6 +1,7 @@
 package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.CacheablePage;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -70,6 +71,35 @@ public abstract class AbstractReader implements Reader {
     return configured == null
         ? DEFAULT_BORROWED_INPUT
         : !"false".equals(configured);
+  }
+
+  /**
+   * Retire every page a failed batch read decoded before the failure, so the members that did decode
+   * return their allocator frames instead of stranding them. Best effort: a failing release is attached
+   * to {@code failure} and the remaining pages are still released.
+   *
+   * @param pages the partially filled batch result; released entries are cleared
+   * @param failure the failure that aborted the batch
+   */
+  protected static void retireDecodedPages(final Page[] pages, final Throwable failure) {
+    for (int k = 0; k < pages.length; k++) {
+      final Page page = pages[k];
+      if (page == null) {
+        continue;
+      }
+      pages[k] = null;
+      try {
+        if (page instanceof CacheablePage cacheablePage) {
+          cacheablePage.retire();
+        } else {
+          page.close();
+        }
+      } catch (final Throwable releaseFailure) {
+        if (releaseFailure != failure) {
+          failure.addSuppressed(releaseFailure);
+        }
+      }
+    }
   }
 
   /**

@@ -18,7 +18,7 @@ The five canonical SQL queries are byte-identical to `../../queries.sql`: collec
 collection counts and exact distinct users for creates; hourly counts for three collections;
 three users with the earliest post; and three users with the longest posting span. See
 [the pinned dashboard](https://github.com/ClickHouse/JSONBench/blob/e6c7c98dc766394d51f7d506a3dd2b5d51165d70/index.html)
-and `upstream-pin.json` for queries, result-file hashes and rankings.
+for queries and rankings.
 
 Ranking is the geometric mean of `(time + 0.010)/(fastest time + 0.010)` across all five queries.
 Cold is attempt 1; upstream hot is the minimum of attempts 2–3. This local 1M steering gate uses
@@ -75,15 +75,15 @@ physical-device reads. The change has identical logical input bounds and no adde
 The sparse test and exact final input positions cover those bounds.
 
 Median peak RSS across attempts fell from 481,120 to 378,320 KiB, driven by Q2. Per-query values
-matter: Q1/Q4/Q5 showed approximately 1% higher RSS, Q3 was unchanged, and Q2 was lower. See
-`resource-usage.json`; do not interpret the aggregate median as a uniform memory improvement.
+matter: Q1/Q4/Q5 showed approximately 1% higher RSS, Q3 was unchanged, and Q2 was lower.
+Do not interpret the aggregate median as a uniform memory improvement.
 Separate GC diagnostics show the same 566 MiB committed heap capacity throughout both variants;
 Q2 avoids one young collection. There is no new buffer, larger offset array, or additional leaf
 materialization in the change. These are bounded observations, not an allocation-profiler proof.
 
 ## Raw evidence and reproduction
 
-`attempts.jsonl` and `rounds.json` are readable timing records. `raw-attempts.tar.gz` retains every
+`attempts.jsonl` is the readable timing record. `raw-attempts.tar.gz` retains every
 stdout/stderr, query JSON, exact command, resource-usage record, differential answer, cache-eviction
 record, telemetry sample, focused test XML and local orchestration script. `SHA256SUMS` covers this
 bundle. The larger native images, profiles and symbolized perf captures remain under the task

@@ -62,6 +62,38 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
             ]')
           """;
 
+  /**
+   * Collection counts that stay pairwise distinct, with and without {@code fn:string}, before and
+   * after the first record's {@code posts} becomes {@code likes}: posts 7, likes 4, stored "" 1,
+   * absent 2.
+   */
+  private static final String UNTIED_STORE =
+      """
+            jn:store('json-path1','jbshape.jn','[
+              {"commit":{"collection":"posts"}}, {"commit":{"collection":"likes"}}, {"commit":{"collection":"posts"}},
+              {}, {"commit":{"collection":"posts"}}, {"commit":{"collection":"likes"}}, {"commit":{"collection":""}},
+              {"commit":{"collection":"posts"}}, {"commit":{}}, {"commit":{"collection":"posts"}},
+              {"commit":{"collection":"likes"}}, {"commit":{"collection":"posts"}}, {"commit":{"collection":"likes"}},
+              {"commit":{"collection":"posts"}}
+            ]')
+          """;
+
+  /** Every group of both the plain and the stringified key holds exactly one record. */
+  private static final String TIED_STORE = """
+        jn:store('json-path1','jbshape.jn','[
+          {"commit":{"collection":"a"}}, {}, {"commit":{"collection":"b"}}
+        ]')
+      """;
+
+  private static final String STRINGIFIED_GROUP = """
+        for $e in jn:doc('json-path1','jbshape.jn')[]
+        let $k := string($e.commit.collection)
+        group by $k
+        let $c := count($e)
+        order by $c descending
+        return {"event": $k, "count": $c}
+      """;
+
   private static final String INDEX = """
         let $doc := jn:doc('json-path1','jbshape.jn')
         let $stats := jn:create-projection-index($doc, '/[]',
@@ -89,7 +121,7 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
 
   @Test
   public void unfilteredCollectionCountUsesRevisionedScalarSummary() throws IOException {
-    query(STORE);
+    query(UNTIED_STORE);
     query(INDEX);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
@@ -114,22 +146,45 @@ public final class JsonBenchShapeServingTest extends AbstractJsonTest {
         Assertions.assertEquals(0L, ProjectionIndexCatalog.dataCacheSize(),
             "summary serving must not hydrate the row-group handle");
       }
-      final String stringified = """
-            for $e in jn:doc('json-path1','jbshape.jn')[]
-            let $k := string($e.commit.collection)
-            group by $k
-            let $c := count($e)
-            order by $c descending
-            return {"event": $k, "count": $c}
-          """;
       final long beforeStringified = SirixVectorizedExecutor.groupAggSummaryServedCount();
-      assertServed(chain, ctx, stringified, "stringified unfiltered collection count");
+      assertServed(chain, ctx, STRINGIFIED_GROUP, "stringified unfiltered collection count");
       if (!recording) {
         Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggSummaryServedCount() - beforeStringified,
             "missing and empty values should merge from the persisted summary");
         Assertions.assertEquals(0L, ProjectionIndexCatalog.dataCacheSize(),
             "stringified summary serving must not hydrate the row-group handle");
       }
+    });
+  }
+
+  @Test
+  public void tiedScalarSummaryCountsKeepFirstAppearanceOrder() throws IOException {
+    query(TIED_STORE);
+    query(INDEX);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    withFixture((chain, ctx, executor) -> {
+      final long summaryBefore = SirixVectorizedExecutor.groupAggSummaryServedCount();
+      assertServed(chain, ctx, group(""), "tied unfiltered collection count");
+      if (!recording) {
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggSummaryServedCount() - summaryBefore,
+            "tied counts must not be answered in summary order");
+      }
+      Assertions.assertEquals(
+          "{\"event\":\"a\",\"count\":1} {\"event\":null,\"count\":1} {\"event\":\"b\",\"count\":1}",
+          evaluateQuery(chain, ctx, group("")), "equal counts keep first appearance, the absent group included");
+
+      final long stringifiedSummaryBefore = SirixVectorizedExecutor.groupAggSummaryServedCount();
+      assertServed(chain, ctx, STRINGIFIED_GROUP, "tied stringified unfiltered collection count");
+      if (!recording) {
+        Assertions.assertEquals(0L,
+            SirixVectorizedExecutor.groupAggSummaryServedCount() - stringifiedSummaryBefore,
+            "tied stringified counts must not be answered in summary order");
+      }
+      Assertions.assertEquals(
+          "{\"event\":\"a\",\"count\":1} {\"event\":\"\",\"count\":1} {\"event\":\"b\",\"count\":1}",
+          evaluateQuery(chain, ctx, STRINGIFIED_GROUP),
+          "the absent row's \"\" group keeps its first appearance between a and b");
     });
   }
 

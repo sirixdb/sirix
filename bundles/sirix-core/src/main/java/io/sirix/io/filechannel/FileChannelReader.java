@@ -76,8 +76,14 @@ public final class FileChannelReader extends AbstractReader {
    */
   private final FileChannel dataFileChannel;
 
+  /** Switch for decoding coalesced batch members straight from the borrowed read buffer. */
+  static final String BORROW_BATCH_INPUT = "sirix.filechannel.borrowBatchInput";
+
+  /** Overflow-input switch of {@link AbstractReader}; the default of {@link #BORROW_BATCH_INPUT}. */
+  static final String BORROW_OVERFLOW_INPUT = "sirix.io.borrowOverflowInput";
+
   /** Decode a coalesced page while its read buffer is still exclusively owned by this call. */
-  private final boolean borrowBatchInput = borrowedInputEnabled("sirix.filechannel.borrowBatchInput");
+  private final boolean borrowBatchInput = batchInputBorrowingEnabled();
 
   /**
    * Requested offsets only: bounded OS read-ahead without queued tasks or staged page objects.
@@ -611,27 +617,32 @@ public final class FileChannelReader extends AbstractReader {
     // advice call per coalesced span rather than one per page — and every span is in flight
     // before its predecessor's synchronous pread returns.
     int hintFrom = i;
-    while (i < n) {
-      final int j = runEnd(references, order, i, n);
-      if (batchReadAheadFd >= 0) {
-        final int hintLimit = Math.min(n, i + BATCH_READ_AHEAD);
-        while (hintFrom < hintLimit) {
-          final int hintTo = runEnd(references, order, hintFrom, n);
-          adviseRun(batchReadAheadFd, keyOf(references[order[hintFrom]]), keyOf(references[order[hintTo]]),
-              hintTo + 1 < n
-                  ? keyOf(references[order[hintTo + 1]])
-                  : Long.MAX_VALUE,
-              batchFileSize);
-          hintFrom = hintTo + 1;
+    try {
+      while (i < n) {
+        final int j = runEnd(references, order, i, n);
+        if (batchReadAheadFd >= 0) {
+          final int hintLimit = Math.min(n, i + BATCH_READ_AHEAD);
+          while (hintFrom < hintLimit) {
+            final int hintTo = runEnd(references, order, hintFrom, n);
+            adviseRun(batchReadAheadFd, keyOf(references[order[hintFrom]]), keyOf(references[order[hintTo]]),
+                hintTo + 1 < n
+                    ? keyOf(references[order[hintTo + 1]])
+                    : Long.MAX_VALUE,
+                batchFileSize);
+            hintFrom = hintTo + 1;
+          }
         }
+        if (j == i) {
+          pages[order[i]] = read(references[order[i]], resourceConfiguration, false, batchFileSize);
+          i++;
+          continue;
+        }
+        readRun(references, pages, order, i, j, resourceConfiguration, batchFileSize);
+        i = j + 1;
       }
-      if (j == i) {
-        pages[order[i]] = read(references[order[i]], resourceConfiguration, false, batchFileSize);
-        i++;
-        continue;
-      }
-      readRun(references, pages, order, i, j, resourceConfiguration, batchFileSize);
-      i = j + 1;
+    } catch (final RuntimeException | Error failure) {
+      retireDecodedPages(pages, failure);
+      throw failure;
     }
     return pages;
   }
@@ -772,6 +783,20 @@ public final class FileChannelReader extends AbstractReader {
       }
     }
     PosixFadvise.adviseWillNeed(fd, start, end - start);
+  }
+
+  /**
+   * Resolves whether coalesced batch reads decode from the borrowed read buffer. An explicitly set
+   * {@code sirix.filechannel.borrowBatchInput} decides on its own; while it is unset the batch path
+   * follows {@code sirix.io.borrowOverflowInput}, so setting only that switch to {@code false} restores
+   * owned input on both paths. With neither set, input is borrowed.
+   *
+   * @return {@code true} if batch members may be decoded from the borrowed read buffer
+   */
+  static boolean batchInputBorrowingEnabled() {
+    return borrowedInputEnabled(System.getProperty(BORROW_BATCH_INPUT) != null
+        ? BORROW_BATCH_INPUT
+        : BORROW_OVERFLOW_INPUT);
   }
 
   private static long keyOf(final @Nullable PageReference reference) {

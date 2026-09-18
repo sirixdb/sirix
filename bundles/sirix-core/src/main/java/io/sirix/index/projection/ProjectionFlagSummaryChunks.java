@@ -178,27 +178,6 @@ final class ProjectionFlagSummaryChunks {
         header(newPhysicalCount, fences.liveRowGroupCount(), columns, newRevision));
   }
 
-  /** Retag an unchanged set of leaf flags after a metadata-only projection revision. */
-  static boolean retagUnchanged(final ProjectionIndexHOTStorage storage, final int liveCount, final int columns,
-      final int priorRevision, final int newRevision) {
-    Objects.requireNonNull(storage, "storage");
-    if (columns < 0 || columns > MAX_COLUMNS || liveCount < 0 || priorRevision < 0
-        || newRevision < priorRevision) {
-      throw new IllegalArgumentException("invalid unchanged flag-summary revision or shape");
-    }
-    final byte[] bytes = storage.getBlob(HEADER_SLOT);
-    if (bytes == null) {
-      return false;
-    }
-    final Header prior = parseHeader(bytes);
-    if (prior == null || prior.liveCount != liveCount || prior.columns != columns
-        || prior.revision != priorRevision) {
-      throw new IllegalStateException("unchanged flag-summary header disagrees with prior metadata");
-    }
-    storage.putBlob(HEADER_SLOT, header(prior.physicalCount, liveCount, columns, newRevision));
-    return true;
-  }
-
   /** Return three-bit per-column evidence, or {@code null} so the descriptor gate runs instead. */
   static byte @Nullable [] readAll(final StorageEngineReader reader, final int indexNumber,
       final int expectedLiveCount, final int expectedColumns, final int expectedRevision) {

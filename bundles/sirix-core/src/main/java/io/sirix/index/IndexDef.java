@@ -15,10 +15,8 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -61,7 +59,6 @@ public final class IndexDef implements Materializable {
   private static final QNm PROJECTION_FIELD_TYPE_ATTRIBUTE = new QNm("contentType");
   private static final QNm PROJECTION_SORT_TAG = new QNm("projectionSort");
   private static final QNm PROJECTION_SORT_KEY_TAG = new QNm("keyColumn");
-  private static final QNm PROJECTION_SORT_EQUALITY_TAG = new QNm("equalityColumn");
   private static final QNm PROJECTION_SORT_COLUMN_ATTRIBUTE = new QNm("column");
 
   public static final QNm INDEX_TAG = new QNm("index");
@@ -107,7 +104,7 @@ public final class IndexDef implements Materializable {
    */
   private final ArrayList<Type> projectionFieldTypes = new ArrayList<>();
 
-  /** Optional partial sorted view over this projection's declared fields. */
+  /** Optional sorted view, ordered by some of this projection's declared fields. */
   private @Nullable ProjectionSortedSpec projectionSortedSpec;
 
   public enum DbType {
@@ -299,12 +296,6 @@ public final class IndexDef implements Materializable {
         tmp.attribute(PROJECTION_SORT_COLUMN_ATTRIBUTE, new Una(Integer.toString(column)));
         tmp.closeElement();
       }
-      for (final ProjectionSortedSpec.Equality equality : projectionSortedSpec.equalities()) {
-        tmp.openElement(PROJECTION_SORT_EQUALITY_TAG);
-        tmp.attribute(PROJECTION_SORT_COLUMN_ATTRIBUTE, new Una(Integer.toString(equality.column())));
-        tmp.content(Base64.getEncoder().encodeToString(equality.literal().getBytes(StandardCharsets.UTF_8)));
-        tmp.closeElement();
-      }
       tmp.closeElement();
     }
 
@@ -453,7 +444,6 @@ public final class IndexDef implements Materializable {
             throw new DocumentException("Duplicate sorted projection declaration");
           }
           final List<Integer> keyColumns = new ArrayList<>();
-          final List<ProjectionSortedSpec.Equality> equalities = new ArrayList<>();
           try (Stream<? extends Node<?>> sortNodes = child.getChildren()) {
             Node<?> sortNode;
             while ((sortNode = sortNodes.next()) != null) {
@@ -462,18 +452,13 @@ public final class IndexDef implements Materializable {
                 throw new DocumentException("Sorted projection entry has no column number");
               }
               final int column = Integer.parseInt(columnAttribute.getValue().stringValue());
-              if (sortNode.getName().equals(PROJECTION_SORT_KEY_TAG)) {
-                keyColumns.add(column);
-              } else if (sortNode.getName().equals(PROJECTION_SORT_EQUALITY_TAG)) {
-                final byte[] literalBytes = Base64.getDecoder().decode(sortNode.getValue().stringValue());
-                equalities.add(new ProjectionSortedSpec.Equality(column,
-                    new String(literalBytes, StandardCharsets.UTF_8)));
-              } else {
+              if (!sortNode.getName().equals(PROJECTION_SORT_KEY_TAG)) {
                 throw new DocumentException("Unknown sorted projection entry: %s", sortNode.getName());
               }
+              keyColumns.add(column);
             }
           }
-          projectionSortedSpec = new ProjectionSortedSpec(keyColumns, equalities);
+          projectionSortedSpec = new ProjectionSortedSpec(keyColumns);
         }
         // }
       }

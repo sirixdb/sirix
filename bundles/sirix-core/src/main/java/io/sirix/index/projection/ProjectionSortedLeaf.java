@@ -43,24 +43,41 @@ final class ProjectionSortedLeaf {
     this.offsetsStart = HEADER_BYTES + prefixLength;
   }
 
+  /** Sorted keys addressed by position: a packed build run or a merge's staging window. */
+  interface KeySource {
+    int keyCount();
+
+    byte[] keyBlock(int position);
+
+    int keyOffset(int position);
+
+    int keyLength(int position);
+  }
+
   /**
    * Encode a sorted run of unique row keys. Returns null when the bounded leaf must split.
    * {@code payloads == null} means the keys cover every column needed by this access path.
    */
   static @Nullable ProjectionSortedLeaf encode(final byte[][] keys, final byte @Nullable [][] payloads,
       final int count) {
+    return encode(keys, payloads, 0, count);
+  }
+
+  /** Encode {@code keys[from, from + count)} with their payloads; null when the bounded leaf must split. */
+  static @Nullable ProjectionSortedLeaf encode(final byte[][] keys, final byte @Nullable [][] payloads,
+      final int from, final int count) {
     Objects.requireNonNull(keys, "keys");
-    if (count < 1 || count > keys.length) {
-      throw new IllegalArgumentException("count must name a nonempty prefix of keys");
+    if (from < 0 || count < 1 || (long) from + count > keys.length) {
+      throw new IllegalArgumentException("count must name a nonempty range of keys");
     }
-    if (payloads != null && payloads.length < count) {
+    if (payloads != null && payloads.length < from + count) {
       throw new IllegalArgumentException("payloads must cover every key");
     }
     if (count > MAX_ROWS) {
       return null;
     }
-    final byte[] first = Objects.requireNonNull(keys[0], "keys[0]");
-    final byte[] last = Objects.requireNonNull(keys[count - 1], "last key");
+    final byte[] first = Objects.requireNonNull(keys[from], "first key");
+    final byte[] last = Objects.requireNonNull(keys[from + count - 1], "last key");
     int prefix = 0;
     while (prefix < first.length && prefix < last.length && first[prefix] == last[prefix]) {
       prefix++;
@@ -69,10 +86,10 @@ final class ProjectionSortedLeaf {
       return null;
     }
     long length = HEADER_BYTES + prefix + ((long) count + 1) * Integer.BYTES;
-    for (int i = 0; i < count; i++) {
+    for (int i = from; i < from + count; i++) {
       final byte[] key = Objects.requireNonNull(keys[i], "key");
-      if (i > 0 && Arrays.compareUnsigned(keys[i - 1], key) >= 0) {
-        throw new IllegalArgumentException("sorted leaf keys must be unique and increasing at row " + i);
+      if (i > from && Arrays.compareUnsigned(keys[i - 1], key) >= 0) {
+        throw new IllegalArgumentException("sorted leaf keys must be unique and increasing at row " + (i - from));
       }
       if (key.length < prefix || key.length - prefix > 0xFFFF) {
         return null;
@@ -96,8 +113,8 @@ final class ProjectionSortedLeaf {
     int at = offsetsStart + (count + 1) * Integer.BYTES;
     for (int i = 0; i < count; i++) {
       putInt(data, offsetsStart + i * Integer.BYTES, at);
-      final byte[] key = keys[i];
-      final byte[] payload = payloads == null ? EMPTY_PAYLOAD : payloads[i];
+      final byte[] key = keys[from + i];
+      final byte[] payload = payloads == null ? EMPTY_PAYLOAD : payloads[from + i];
       final int suffixLength = key.length - prefix;
       putShort(data, at, suffixLength);
       putShort(data, at + Short.BYTES, payload.length);
@@ -111,24 +128,21 @@ final class ProjectionSortedLeaf {
     return new ProjectionSortedLeaf(data, count, prefix);
   }
 
-  /** Initial-build encoding directly from a packed sorted run, with no per-row key arrays. */
-  static @Nullable ProjectionSortedLeaf encodeSortedRun(final ProjectionSortedRunAccumulator run,
-      final int from, final int count) {
+  /** Initial-build encoding directly from packed sorted keys, with no per-row key arrays. */
+  static @Nullable ProjectionSortedLeaf encodeSortedRun(final KeySource run, final int from, final int count) {
     Objects.requireNonNull(run, "run");
-    if (from < 0 || count < 1 || (long) from + count > run.rowCount()) {
+    if (from < 0 || count < 1 || (long) from + count > run.keyCount()) {
       throw new IllegalArgumentException("sorted run page range is outside its rows");
     }
     if (count > MAX_ROWS) {
       return null;
     }
-    final long firstRef = run.referenceAt(from);
-    final long lastRef = run.referenceAt(from + count - 1);
-    final byte[] firstBlock = run.blockOf(firstRef);
-    final byte[] lastBlock = run.blockOf(lastRef);
-    final int firstOffset = run.keyOffset(firstRef);
-    final int lastOffset = run.keyOffset(lastRef);
-    final int firstLength = run.keyLength(firstRef);
-    final int lastLength = run.keyLength(lastRef);
+    final byte[] firstBlock = run.keyBlock(from);
+    final byte[] lastBlock = run.keyBlock(from + count - 1);
+    final int firstOffset = run.keyOffset(from);
+    final int lastOffset = run.keyOffset(from + count - 1);
+    final int firstLength = run.keyLength(from);
+    final int lastLength = run.keyLength(from + count - 1);
     int prefix = 0;
     while (prefix < firstLength && prefix < lastLength
         && firstBlock[firstOffset + prefix] == lastBlock[lastOffset + prefix]) {
@@ -136,8 +150,7 @@ final class ProjectionSortedLeaf {
     }
     long length = HEADER_BYTES + prefix + ((long) count + 1) * Integer.BYTES;
     for (int i = 0; i < count; i++) {
-      final long reference = run.referenceAt(from + i);
-      length += 2L * Short.BYTES + run.keyLength(reference) - prefix;
+      length += 2L * Short.BYTES + run.keyLength(from + i) - prefix;
       if (length > MAX_BYTES) {
         return null;
       }
@@ -151,13 +164,12 @@ final class ProjectionSortedLeaf {
     final int offsetsStart = HEADER_BYTES + prefix;
     int at = offsetsStart + (count + 1) * Integer.BYTES;
     for (int i = 0; i < count; i++) {
-      final long reference = run.referenceAt(from + i);
-      final int suffixLength = run.keyLength(reference) - prefix;
+      final int suffixLength = run.keyLength(from + i) - prefix;
       putInt(data, offsetsStart + i * Integer.BYTES, at);
       putShort(data, at, suffixLength);
       putShort(data, at + Short.BYTES, 0);
       at += 2 * Short.BYTES;
-      System.arraycopy(run.blockOf(reference), run.keyOffset(reference) + prefix, data, at, suffixLength);
+      System.arraycopy(run.keyBlock(from + i), run.keyOffset(from + i) + prefix, data, at, suffixLength);
       at += suffixLength;
     }
     putInt(data, offsetsStart + count * Integer.BYTES, at);

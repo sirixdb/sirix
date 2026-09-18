@@ -473,20 +473,6 @@ public final class ProjectionIndexMetadata {
             flags, setValueRowCounts, valueDictionaryHeaderKeys, segmentAnchors, layout);
   }
 
-  /** Copy this revision's shape while publishing a newly backfilled value-summary capability. */
-  ProjectionIndexMetadata withValueSummaryColumn(final int column, final int revision) {
-    if (column < 0 || column >= columnKinds.length
-        || columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-      throw new IllegalArgumentException("backfill requires a scalar string column: " + column);
-    }
-    final Map<Integer, Map<String, Long>> capabilities = setValueRowCounts == null
-        ? new LinkedHashMap<>()
-        : new LinkedHashMap<>(setValueRowCounts);
-    capabilities.put(column, Map.of());
-    return new ProjectionIndexMetadata(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, revision, flags,
-        capabilities, valueDictionaryHeaderKeys, segmentAnchors, slotLayout);
-  }
-
   /**
    * Whether slot 0 carries the stale tombstone: a dropped definition, an unfinished load-time build,
    * or the corruption valve. Ordinary maintenance fails its transaction instead of setting this.

@@ -94,7 +94,7 @@ public final class ProjectionIndexBuilder {
   /** Shared per-record extraction engine (also used by incremental maintenance). */
   private final ProjectionIndexRowExtractor extractor;
 
-  /** Optional packed run and compiled row predicate for the catalogue's sorted view. */
+  /** Optional heap-bounded run and compiled key encoder for the catalogue's sorted view. */
   private final @Nullable ProjectionSortedRowEncoder sortedRowEncoder;
   private @Nullable ProjectionSortedRunAccumulator sortedRun;
 
@@ -659,7 +659,7 @@ public final class ProjectionIndexBuilder {
           : new ProjectionSortedRowEncoder(indexDef, extractor);
       this.sortedRun = sortedRowEncoder == null
           ? null
-          : new ProjectionSortedRunAccumulator();
+          : new ProjectionSortedRunAccumulator(sortedRowEncoder.layout());
       this.sample = initialDictionarySample();
       this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
       return;
@@ -706,7 +706,7 @@ public final class ProjectionIndexBuilder {
         : new ProjectionSortedRowEncoder(indexDef, extractor);
     this.sortedRun = sortedRowEncoder == null
         ? null
-        : new ProjectionSortedRunAccumulator();
+        : new ProjectionSortedRunAccumulator(sortedRowEncoder.layout());
     this.sample = initialDictionarySample();
     this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
   }
@@ -957,7 +957,8 @@ public final class ProjectionIndexBuilder {
         }
         try {
           if (indexDef.getProjectionSortedSpec() != null) {
-            new ProjectionSortedDirectory.Builder(epoch.storage).finish();
+            new ProjectionSortedDirectory.Builder(epoch.storage,
+                ProjectionSortedRowEncoder.layoutOf(indexDef, columnKinds)).finish();
           }
           finishPersist(indexDef, epoch.storage, LongArrayList.of(), LongArrayList.of(), rtx.getRevisionNumber(),
               columnKinds, setSummaries, null, null);
@@ -1918,7 +1919,8 @@ public final class ProjectionIndexBuilder {
     if (!extractor.appendTo(currentLeaf, recordKey, orderException, orderLabelBytes)) {
       throw new IllegalStateException("a preflighted projection row group rejected one " + databaseType + " record");
     }
-    if (sortedRowEncoder != null && sortedRowEncoder.writeKeyIfMatching(recordKey)) {
+    if (sortedRowEncoder != null) {
+      sortedRowEncoder.writeKey(recordKey);
       final ProjectionSortedRunAccumulator run = Objects.requireNonNull(sortedRun, "sorted projection run");
       run.append(sortedRowEncoder.keyBytesRef(), sortedRowEncoder.keyLength());
     }

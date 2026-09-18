@@ -27,7 +27,6 @@ was rechecked at revision `e6c7c98dc766394d51f7d506a3dd2b5d51165d70`; it remains
 The upstream 100M Bluesky tier exists, although its dashboard default is **1B**, hot,
 retains-structure=yes. Its 100M hot leader is ClickHouse 25.11; its cold leader is StarRocks 4.0.1.
 The captain authorized local ClickHouse **26.7.3.19** for this informal leader-engine comparison.
-[upstream-pin.json](upstream-pin.json) records the schema-derived rankings and score definition.
 
 Both engines used the same cleaned corpus: **99,999,968 accepted rows**, 32 rejected input lines,
 logical SHA-256 `f063d7db1d71009122ad4e99feb956423f52df3aa3f1d090a602cd44e121e538`.
@@ -52,8 +51,8 @@ No unrelated process or shared service was signalled.
 
 ## Validation and retained attempts
 
-- Frozen source v2: [source manifest](serial-directory-v2-source.json). No pooled build output was used.
-- **23 tests across six suites**, zero failures/errors/skips: [test results](serial-directory-v2-tests.json).
+- Frozen source v2. No pooled build output was used.
+- **23 tests across six suites**, zero failures/errors/skips.
   Coverage includes actual parallel engagement, default zero-worker traversal, writer isolation,
   side-reference versioning, corruption, frame ownership, and the five query shapes.
 - V1 failed two tests because the newly explicit test entry point incorrectly requested an order
@@ -61,17 +60,16 @@ No unrelated process or shared service was signalled.
   exact test reports, and the original helper scripts are retained; no failed attempt was overwritten.
 - Instrumented 1M: all five answers exact in each arm, native decoder confirmed in both,
   60 timings, and 70 separate profiles excluded from the final build. Hot after/before ratios
-  were **0.80125 / 0.76748**. [Audit](serial-directory-instrument-1m-validation.json).
+  were **0.80125 / 0.76748**.
 - Fresh 100M PGO: all five exact, two tries, expected aggregate counters; 248 clean guard samples.
   Profile SHA-256 `4204abf57f1a94e65c777a9499c8cb2a42c62db0c54e483a58ee498c397625c5`.
 - Optimized binary SHA-256 `50ccd4f1938c0d87a16d5a6a6ebca257175e4b9cbcbec34fe3d9f5f6f0cbfe6c`.
-  [Full paired audit](paired-serial-directory-100m-attempt1-validation.json).
 - Post-build Q1/Q4 diagnostics were exact and confirmed native decoding with no parallel directory
   engagement. Directory phases were **2048.5 / 1976.9 ms**. These diagnostics are unranked.
 
 The preceding directory-batch candidate is **rejected**: despite its component-level gain,
 its fresh optimized paired hot scores were **11.1845 / 10.7557**, worsening the prior lane.
-Its source, focused tests, full PGO path, 1M/100M attempts and [decision](directory-batch-v1-decision.json)
+Its source, focused tests, full PGO path, 1M/100M attempts and decision
 are preserved. Selected-locator probes also remain explicitly unranked component measurements:
 skipping unused captured values reduced captured bytes, but still visited every mixed HOT leaf.
 The [architecture explanation](indexdef-trie-directory-explanation.md) records the IndexDef,
@@ -79,9 +77,9 @@ trie, revision ownership and possible write-maintained directory boundaries. It 
 that a new persisted directory has been implemented.
 
 `raw-attempts.tar.gz` contains small raw outputs, guard telemetry, exact comparison files, scripts,
-source overrides, and manifests. `raw-files.json` hashes every archive member; packaging verified
-those hashes by reading the completed archive back. `retained-large-files.json` records hashes and
-local paths for binary/profile/source-archive artifacts retained on the laptop. The prior baseline
+source overrides, and manifests. Packaging hashed every archive member and verified
+those hashes by reading the completed archive back. Binary/profile/source-archive artifacts
+are retained on the laptop. The prior baseline
 and its build provenance are also documented in the [native LZ77 evidence](../20260911-native-lz77-100m/README.md).
 
 The retained implementation is a generic traversal policy improvement. The next experiment must

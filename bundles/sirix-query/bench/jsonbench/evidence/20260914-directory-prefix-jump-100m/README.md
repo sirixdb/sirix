@@ -14,8 +14,7 @@ The separate JVM timing screen used baseline/candidate/candidate/baseline order,
 query, identical database, heap, thread count, and frozen dependencies. Only the directory class
 and its nested classes differed. Average best hot times improved by roughly 4%, but Q4's
 later-run medians did not improve consistently. This is evidence of reduced storage work, not a
-firm latency improvement or a new native/ClickHouse score. Full timings and source hashes are in
-[summary.json](summary.json).
+firm latency improvement or a new native/ClickHouse score.
 
 Validation passed: 14 sorted-core tests, 12 query tests, exact Q4/Q5 results against the retained
 ClickHouse reference in all four timing runs, and all 43 ClickBench queries against the retained

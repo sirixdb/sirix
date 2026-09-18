@@ -17,7 +17,7 @@ attempt 1 as cold. Catalog discovery remains inside query time. Setup, training,
 correctness dumps and debugger observations are excluded from ranked latency.
 
 The upstream revision remains
-`e6c7c98dc766394d51f7d506a3dd2b5d51165d70`; see [recheck](group-repeat-upstream-recheck.json).
+`e6c7c98dc766394d51f7d506a3dd2b5d51165d70`.
 The 100M tier exists, although the dashboard defaults to 1B. At 100M the hot
 leader is ClickHouse 25.11; the cold leader is StarRocks 4.0.1. This local
 comparison uses the captain-authorized ClickHouse 26.7.3.19 against the same
@@ -34,14 +34,10 @@ accepted baseline. The corrected test covers the supported bare cast and the
 unchanged interpreter fallback, with exact results and a negative shortcut
 observation. V3 passed 83 focused tests and the full 1M gate before native PGO.
 
-The full before/after and leader [v3 audits](dict-count-v3-before-after-100m-validation.json)
-and [leader audit](paired-dict-count-v3-100m-attempt1-validation.json) retain
-source, binary and profile identities. [Raw files](raw-files.json) inventories
-2,668 exact members in `raw-attempts.tar.gz` (7,182,260 bytes, SHA-256
+`raw-attempts.tar.gz` holds 2,668 exact members (7,182,260 bytes, SHA-256
 `ebdbf73b2aafed7ed86871ed480ee407675d6458df0fa87ea3fce3fbb82b0e44`).
-[Large files](retained-large-files.json) records 24 retained local artifacts by
-path, size and checksum, including source archives, profiles, binaries and
-profiling data.
+24 larger artifacts, including source archives, profiles, binaries and
+profiling data, are retained locally.
 
 The ordinary guard remains 66 GiB, balanced/balance_power, no swap in a 24 GiB
 scope, continuous temperature/EPP/throttle sampling, and termination only of the
@@ -52,9 +48,7 @@ The cumulative 4 GiB allowance and permanent 20 GiB floor are unchanged.
 
 Completed source trees and inactive images were losslessly archived, preserving
 all files, original hashes, native shared libraries and raw evidence. The
-restoration maps include [source v1/v2](dict-count-build-archives.json),
-[source v3](dict-count-v3-build-archives.json), [older images](dict-count-native-preservation.json)
-and [v3 images](dict-count-v3-native-preservation.json). Use
+restoration maps cover source v1/v2, source v3, older images and v3 images. Use
 `restore-campaign-artifact.py --original <recorded-path>` under the ordinary
 guard before replaying an archived path; `--verify-only` checks decompressed
 bytes without restoration. Never overwrite a hardlinked frozen artifact in

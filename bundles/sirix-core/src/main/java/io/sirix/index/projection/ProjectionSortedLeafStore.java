@@ -6,6 +6,8 @@ package io.sirix.index.projection;
 import io.sirix.api.StorageEngineReader;
 import org.jspecify.annotations.Nullable;
 
+import java.util.function.IntConsumer;
+
 /** Revisioned, per-leaf blob placement for an independently sorted covering projection. */
 final class ProjectionSortedLeafStore {
 
@@ -13,34 +15,52 @@ final class ProjectionSortedLeafStore {
   static final long LEAF_SLOT_BASE = 1L << 46;
   private static final long LAST_LEAF_SLOT = LEAF_SLOT_BASE + (1L << 32) - 1;
 
+  /** Test observation of data-leaf rewrites; production keeps it null and pays one null check. */
+  private static volatile @Nullable IntConsumer writeObserverForTesting;
+
   private ProjectionSortedLeafStore() {}
 
-  static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf) {
-    write(storage, leafId, leaf, null);
+  static void setWriteObserverForTesting(final @Nullable IntConsumer observer) {
+    writeObserverForTesting = observer;
   }
 
+  /** Write one leaf, its group summary and its bound in the owning transaction. */
   static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
-      final ProjectionSortedLeafBounds.@Nullable Builder initialBounds) {
-    if (storage == null || leaf == null) {
-      throw new NullPointerException("sorted leaf storage and leaf are required");
+      final ProjectionSortKeyCodec.Layout layout) {
+    final ProjectionSortedLeafBounds.Updater bounds = new ProjectionSortedLeafBounds.Updater(storage);
+    write(storage, leafId, leaf, layout, bounds);
+    bounds.flush();
+  }
+
+  /** Maintenance form: the caller publishes the coalesced bound chunks once per pass. */
+  static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
+      final ProjectionSortKeyCodec.Layout layout, final ProjectionSortedLeafBounds.Updater bounds) {
+    bounds.set(leafId, writeLeafAndSummary(storage, leafId, leaf, layout));
+  }
+
+  /** Initial-build form: bounds are appended in consecutive leaf-id order and published by chunk. */
+  static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
+      final ProjectionSortKeyCodec.Layout layout, final ProjectionSortedLeafBounds.Builder initialBounds) {
+    initialBounds.append(leafId, writeLeafAndSummary(storage, leafId, leaf, layout));
+  }
+
+  private static @Nullable ProjectionSortedLeaf writeLeafAndSummary(final ProjectionIndexHOTStorage storage,
+      final int leafId, final ProjectionSortedLeaf leaf, final ProjectionSortKeyCodec.Layout layout) {
+    if (storage == null || leaf == null || layout == null) {
+      throw new NullPointerException("sorted leaf storage, leaf and layout are required");
     }
-    final ProjectionSortedLeaf summary = ProjectionSortedGroupSummary.encode(leaf);
-    // Invalidate the old acceleration before changing its source. Even a failed second write
-    // cannot leave a stale summary visible to a caller that inspects its open transaction.
-    if (initialBounds == null) {
-      ProjectionSortedLeafBounds.invalidate(storage, leafId);
-    }
-    storage.tombstoneBlob(ProjectionSortedGroupSummary.slot(leafId));
+    final ProjectionSortedLeaf summary = ProjectionSortedGroupSummary.encode(leaf, layout);
     storage.putBlob(slot(leafId), leaf.encodedBytes());
     if (summary != null) {
       storage.putBlob(ProjectionSortedGroupSummary.slot(leafId), summary.encodedBytes());
-      if (initialBounds == null) {
-        ProjectionSortedLeafBounds.write(storage, leafId, summary);
-      }
+    } else {
+      storage.tombstoneBlob(ProjectionSortedGroupSummary.slot(leafId));
     }
-    if (initialBounds != null) {
-      initialBounds.append(leafId, summary);
+    final IntConsumer observer = writeObserverForTesting;
+    if (observer != null) {
+      observer.accept(leafId);
     }
+    return summary;
   }
 
   static @Nullable ProjectionSortedLeaf read(final StorageEngineReader reader, final int indexNumber,
@@ -61,10 +81,17 @@ final class ProjectionSortedLeafStore {
   }
 
   static void remove(final ProjectionIndexHOTStorage storage, final int leafId) {
+    final ProjectionSortedLeafBounds.Updater bounds = new ProjectionSortedLeafBounds.Updater(storage);
+    remove(storage, leafId, bounds);
+    bounds.flush();
+  }
+
+  static void remove(final ProjectionIndexHOTStorage storage, final int leafId,
+      final ProjectionSortedLeafBounds.Updater bounds) {
     if (storage == null) {
       throw new NullPointerException("sorted leaf storage is required");
     }
-    ProjectionSortedLeafBounds.invalidate(storage, leafId);
+    bounds.clear(leafId);
     storage.tombstoneBlob(ProjectionSortedGroupSummary.slot(leafId));
     storage.tombstoneBlob(slot(leafId));
   }

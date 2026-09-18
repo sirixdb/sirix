@@ -57,7 +57,7 @@ final class ProjectionSortedGroupSummaryTest {
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionSortedDirectory.Builder builder =
-              new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+              new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
           for (int row = 0; row < 2062; row += 2) {
             builder.append(leaf(new byte[][] {parallelKey(row), parallelKey(row + 1)}));
           }
@@ -157,7 +157,7 @@ final class ProjectionSortedGroupSummaryTest {
             if (accumulate) {
               storage.beginBulkSlotAccumulation();
             }
-            final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage);
+            final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
             for (int id = 1; id <= 133; id++) {
               builder.append(leaf(new byte[][] {key("g" + (1000 + id), id, id)}));
             }
@@ -203,14 +203,14 @@ final class ProjectionSortedGroupSummaryTest {
   void codecKeepsExactGroupsAndSignedExtremaAndDeclinesOtherShapes() {
     final byte[][] keys = {key(null, Long.MIN_VALUE, 1), key(null, Long.MAX_VALUE, 2), key("", -10, 3), key("", -10, 4),
         key("a\0ß", -5, 5), key("a\0ß", 8, 6)};
-    final ProjectionSortedLeaf summary = ProjectionSortedGroupSummary.encode(leaf(keys));
+    final ProjectionSortedLeaf summary = ProjectionSortedGroupSummary.encode(leaf(keys), SortedScanFixtures.GROUP_VALUE);
     assertNotNull(summary);
     final ProjectionSortedLeaf reopened = ProjectionSortedLeaf.open(summary.encodedBytes());
     assertEquals(3, reopened.rowCount());
     final byte[] payload = new byte[16];
     for (int row = 0; row < 3; row++) {
       final byte[] source = keys[row * 2];
-      final int prefix = ProjectionSortedGroupScan.stringPrefixLength(source, source.length);
+      final int prefix = SortedScanFixtures.GROUP_VALUE.lastFieldOffset(source, source.length);
       assertArrayEquals(Arrays.copyOf(source, prefix), reopened.copyKey(row));
       reopened.copyPayloadTo(row, payload, 0);
       assertEquals(ProjectionSortedGroupScan.readOrderedLong(source, prefix + 1),
@@ -218,12 +218,12 @@ final class ProjectionSortedGroupSummaryTest {
       assertEquals(ProjectionSortedGroupScan.readOrderedLong(keys[row * 2 + 1], prefix + 1),
           ProjectionIndexRowGroupCodec.getLongLE(payload, 8));
     }
-    assertNull(ProjectionSortedGroupSummary.encode(leaf(new byte[][] {{1, 2, 3}})));
+    assertNull(ProjectionSortedGroupSummary.encode(leaf(new byte[][] {{1, 2, 3}}), SortedScanFixtures.GROUP_VALUE));
     final ProjectionSortKeyCodec.Writer writer = new ProjectionSortKeyCodec.Writer();
     writer.appendMissing();
     writer.appendMissing();
     writer.appendRecordKey(1);
-    assertNull(ProjectionSortedGroupSummary.encode(leaf(new byte[][] {writer.copyKey()})));
+    assertNull(ProjectionSortedGroupSummary.encode(leaf(new byte[][] {writer.copyKey()}), SortedScanFixtures.GROUP_VALUE));
   }
 
   @ParameterizedTest
@@ -244,7 +244,7 @@ final class ProjectionSortedGroupSummaryTest {
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
         try (JsonNodeTrx trx = session.beginNodeTrx()) {
           final ProjectionSortedDirectory.Builder builder =
-              new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(trx.getStorageEngineWriter(), 0));
+              new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(trx.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
           builder.append(leaf(keys));
           builder.finish();
           trx.commit();
@@ -309,7 +309,7 @@ final class ProjectionSortedGroupSummaryTest {
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionSortedDirectory.Builder builder =
-              new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+              new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
           for (int row = 0; row < 600; row += 2) {
             builder.append(leaf(new byte[][] {rowKey(row), rowKey(row + 1)}));
           }
@@ -372,7 +372,7 @@ final class ProjectionSortedGroupSummaryTest {
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage);
+          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
           builder.append(leaf(new byte[][] {key("a", 1, 1), key("a", 10, 2)}));
           builder.append(leaf(new byte[][] {key("b", 2, 3), key("b", 30, 4)}));
           builder.finish();
@@ -418,7 +418,7 @@ final class ProjectionSortedGroupSummaryTest {
       try (JsonResourceSession session = database.beginResourceSession("resource");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-        final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage);
+        final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
         builder.append(leaf(new byte[][] {key("a", 1, 1)}));
         builder.finish();
         final byte[] invalid = new byte[16];
@@ -443,7 +443,7 @@ final class ProjectionSortedGroupSummaryTest {
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionSortedDirectory.Builder builder =
-              new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+              new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
           final byte[][] keys = new byte[ProjectionSortedLeaf.MAX_ROWS][];
           for (int row = 0; row < keys.length; row++) {
             keys[row] = key("a", row, row);
@@ -501,7 +501,7 @@ final class ProjectionSortedGroupSummaryTest {
       try (JsonResourceSession session = database.beginResourceSession("resource");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         final ProjectionSortedDirectory.Builder builder =
-            new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+            new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
         builder.append(leaf(new byte[][] {key("a", -5, 1), key("a", 4, 2)}));
         builder.append(leaf(new byte[][] {key("b", 0, 3), key("b", 8, 4)}));
         builder.finish();
@@ -559,7 +559,7 @@ final class ProjectionSortedGroupSummaryTest {
         }
         Arrays.sort(keys, Arrays::compareUnsigned);
         final ProjectionSortedDirectory.Builder builder =
-            new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+            new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
         for (int from = 0; from < keys.length; from += 3) {
           builder.append(leaf(Arrays.copyOfRange(keys, from, from + 3)));
         }
@@ -587,7 +587,7 @@ final class ProjectionSortedGroupSummaryTest {
       try (JsonResourceSession session = database.beginResourceSession("resource");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-        final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage);
+        final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
         for (int row = 0; row < 3; row++) {
           builder.append(leaf(new byte[][] {key("g" + row, row * 10L, row)}));
         }
@@ -628,7 +628,7 @@ final class ProjectionSortedGroupSummaryTest {
       try (JsonResourceSession session = database.beginResourceSession("resource");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         final ProjectionSortedDirectory.Builder builder =
-            new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+            new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
         builder.append(leaf(new byte[][] {key("a", 7, 1)}));
         builder.append(leaf(new byte[][] {key("a", 8, 2), key("b", 7, 3)}));
         builder.append(leaf(new byte[][] {key("c", 9, 4)}));

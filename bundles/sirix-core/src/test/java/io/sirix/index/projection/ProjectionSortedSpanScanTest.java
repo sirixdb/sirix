@@ -378,7 +378,7 @@ final class ProjectionSortedSpanScanTest {
     final byte[][] keys = rows.stream().map(ProjectionSortedSpanScanTest::key).toArray(byte[][]::new);
     Arrays.sort(keys, Arrays::compareUnsigned);
     final ProjectionSortedDirectory.Builder builder =
-        new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+        new ProjectionSortedDirectory.Builder(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
     for (int from = 0, batch = 0; from < keys.length; batch++) {
       final int to = Math.min(keys.length, from + sizes[batch % sizes.length]);
       final byte[][] leafKeys = Arrays.copyOfRange(keys, from, to);

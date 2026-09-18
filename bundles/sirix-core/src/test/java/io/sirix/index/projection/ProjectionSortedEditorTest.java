@@ -10,11 +10,14 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Random;
+import java.util.TreeSet;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -36,7 +39,7 @@ final class ProjectionSortedEditorTest {
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(
-              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
           builder.finish();
           writer.commit();
         }
@@ -112,7 +115,7 @@ final class ProjectionSortedEditorTest {
         final int before;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage);
+          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
           final byte[][] keys = new byte[ProjectionSortedLeaf.MAX_ROWS][];
           for (int i = 0; i < keys.length; i++) {
             keys[i] = key(2 * i + 2);
@@ -189,7 +192,7 @@ final class ProjectionSortedEditorTest {
         final int before;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage);
+          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
           builder.append(single(10));
           builder.finish();
           before = writer.getRevisionNumber();
@@ -229,6 +232,83 @@ final class ProjectionSortedEditorTest {
           assertFalse(emptyDirectory.first().isValid());
           assertEquals(2, newDirectory.first().leafId());
           assertArrayEquals(key(5), newDirectory.first().copyKey());
+        }
+      }
+    }
+  }
+
+  @Test
+  void batchedEditsRewriteEachTouchedLeafOnceAndSplitOnlyWhenFull() {
+    final Path databasePath = temporaryDirectory.resolve("sorted-batch");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(
+              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
+          for (int leaf = 0; leaf < 3; leaf++) {
+            final byte[][] keys = new byte[100][];
+            for (int i = 0; i < keys.length; i++) {
+              keys[i] = key(leaf * 10_000 + 10 * i);
+            }
+            builder.append(ProjectionSortedLeaf.encode(keys, null, keys.length));
+          }
+          builder.finish();
+          writer.commit();
+        }
+        final Int2IntOpenHashMap writesByLeaf = new Int2IntOpenHashMap();
+        final int revision;
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final ProjectionSortedDirectory.Editor editor =
+              new ProjectionSortedDirectory.Editor(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
+          final byte[][] removals = {key(0), key(20), key(990), key(20_000)};
+          final byte[][] insertions = new byte[200][];
+          for (int i = 0; i < 199; i++) {
+            insertions[i] = key(10_000 + 10 * i + 5);
+          }
+          insertions[199] = key(30_000);
+          ProjectionSortedLeafStore.setWriteObserverForTesting(leafId -> writesByLeaf.addTo(leafId, 1));
+          try {
+            editor.apply(removals, removals.length, insertions, null, insertions.length);
+          } finally {
+            ProjectionSortedLeafStore.setWriteObserverForTesting(null);
+          }
+          revision = writer.getRevisionNumber();
+          writer.commit();
+        }
+        assertEquals(1, writesByLeaf.get(1));
+        assertEquals(1, writesByLeaf.get(2));
+        assertEquals(1, writesByLeaf.get(3));
+        assertEquals(writesByLeaf.size() - 3, writesByLeaf.keySet().intStream().filter(id -> id > 3).count(),
+            "only leaf 2 overflowed, into freshly allocated leaves");
+        try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
+          final ProjectionSortedDirectory.Accessor directory =
+              ProjectionSortedDirectory.open(reader.getStorageEngineReader(), 0);
+          assertNotNull(directory);
+          final TreeSet<Integer> expected = new TreeSet<>();
+          for (int leaf = 0; leaf < 3; leaf++) {
+            for (int i = 0; i < 100; i++) {
+              expected.add(leaf * 10_000 + 10 * i);
+            }
+          }
+          expected.removeAll(List.of(0, 20, 990, 20_000));
+          for (int i = 0; i < 199; i++) {
+            expected.add(10_000 + 10 * i + 5);
+          }
+          expected.add(30_000);
+          final ProjectionSortedDirectory.Accessor.Cursor cursor = directory.first();
+          for (final int value : expected) {
+            assertTrue(cursor.isValid());
+            assertArrayEquals(key(value), cursor.copyKey());
+            cursor.advance();
+          }
+          assertFalse(cursor.isValid());
+          assertTrue(directory.dataLeafCount() > 3);
+          for (final int value : expected) {
+            final ProjectionSortedDirectory.Accessor.Cursor seek = directory.seek(key(value));
+            assertArrayEquals(key(value), seek.copyKey());
+          }
         }
       }
     }

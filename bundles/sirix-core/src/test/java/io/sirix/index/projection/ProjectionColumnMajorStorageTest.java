@@ -22,6 +22,7 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.invocation.Invocation;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -38,7 +39,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
@@ -170,15 +174,21 @@ final class ProjectionColumnMajorStorageTest {
   private static void assertRevision(final StorageEngineReader reader, final int index,
       final ProjectionSlotLayout layout, final byte[][] expected) {
     final int[] order = order(expected);
+    final ProjectionSlotLayout resolved = ProjectionIndexHOTStorage.readSlotLayout(reader, index);
+    assertEquals(layout, resolved);
     for (int i = 0; i < expected.length; i++) {
       assertArrayEquals(expected[i],
           ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, index, id(i)));
-      assertEquals(expected[i] == null
+      assertArrayEquals(expected[i],
+          ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, index, resolved, id(i)));
+      final long expectedRows = expected[i] == null
           ? -1
           : i == 3
               ? 0
-              : RowGroupDescriptor.rowCount(ProjectionIndexColumnSegmentCodec.encode(expected[i]).descriptor()),
-          ProjectionIndexHOTStorage.readRowCountFromColumnSegmentSlots(reader, index, id(i)));
+              : RowGroupDescriptor.rowCount(ProjectionIndexColumnSegmentCodec.encode(expected[i]).descriptor());
+      assertEquals(expectedRows, ProjectionIndexHOTStorage.readRowCountFromColumnSegmentSlots(reader, index, id(i)));
+      assertEquals(expectedRows,
+          ProjectionIndexHOTStorage.readRowCountFromColumnSegmentSlots(reader, index, resolved, id(i)));
     }
     final List<byte[]> rows =
         ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(reader, index, order.length, order);
@@ -333,6 +343,73 @@ final class ProjectionColumnMajorStorageTest {
         }
       }
     }
+  }
+
+  @Test
+  void sparseDirectoryWindowReadsEveryRunWithoutPerRunIndexLookups() {
+    final Path path = temporaryDirectory.resolve("sparse-window");
+    final int groups = 12;
+    final int window = groups / 2;
+    final int index = ProjectionSlotLayout.ROW_GROUP_MAJOR.ordinal();
+    final int[] ids = new int[groups];
+    for (int i = 0; i < groups; i++) {
+      ids[i] = i + 1;
+    }
+    final int[] interleaved = {1, 3, 5, 7, 9, 11, 2, 4, 6, 8, 10, 12};
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(path)) {
+      assertTrue(db.createResource(ResourceConfiguration.newBuilder(RESOURCE).build()));
+      try (JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final ProjectionIndexHOTStorage storage = freshStorage(wtx, ProjectionSlotLayout.ROW_GROUP_MAJOR);
+          storage.putBlob(0, metadata(groups, 1).serialize());
+          for (int id = 1; id <= groups; id++) {
+            storage.putRowGroupAsColumnSegmentSlots(id, ProjectionIndexColumnSegmentCodec.encode(rowGroup(16, id, 0)));
+          }
+          wtx.commit();
+        }
+        try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
+          final StorageEngineReader reader = rtx.getStorageEngineReader();
+          final List<RowGroupDirectory> all =
+              ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, index, groups, ids);
+          assertNotNull(all);
+          final StorageEngineReader observed = mock(StorageEngineReader.class, delegatesTo(reader));
+
+          final RowGroupDirectory[] contiguous =
+              ProjectionIndexHOTStorage.readDirectoryWindow(observed, index, ids, 0, window);
+          final long contiguousLookups = projectionRootLookups(observed);
+          clearInvocations(observed);
+          final RowGroupDirectory[] sparse =
+              ProjectionIndexHOTStorage.readDirectoryWindow(observed, index, interleaved, 0, window);
+          final long sparseLookups = projectionRootLookups(observed);
+
+          assertEquals(contiguousLookups, sparseLookups,
+              "a window of six one-row-group runs must not resolve the index once per run");
+          for (int i = 0; i < window; i++) {
+            assertSameDirectory(all.get(ids[i] - 1), contiguous[i]);
+            assertSameDirectory(all.get(interleaved[i] - 1), sparse[i]);
+          }
+        }
+      }
+    }
+  }
+
+  private static long projectionRootLookups(final StorageEngineReader observed) {
+    long lookups = 0;
+    for (final Invocation invocation : mockingDetails(observed).getInvocations()) {
+      if ("getProjectionIndexPage".equals(invocation.getMethod().getName())) {
+        lookups++;
+      }
+    }
+    return lookups;
+  }
+
+  private static void assertSameDirectory(final RowGroupDirectory expected, final RowGroupDirectory actual) {
+    assertEquals(expected.rowGroupId(), actual.rowGroupId());
+    assertArrayEquals(expected.descriptor(), actual.descriptor());
+    assertArrayEquals(expected.columnSegmentIds(), actual.columnSegmentIds());
+    assertArrayEquals(expected.columnSegmentOffsets(), actual.columnSegmentOffsets());
+    assertArrayEquals(expected.inlineColumnSegmentBytes(), actual.inlineColumnSegmentBytes());
   }
 
   private static void assertDirectoryReadFailsAndCloses(final JsonResourceSession session, final int revision,

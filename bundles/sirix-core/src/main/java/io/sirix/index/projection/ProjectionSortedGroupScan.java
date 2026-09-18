@@ -16,7 +16,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
-/** Bounded grouped extrema over a revision's partial sorted projection. */
+/** Bounded grouped extrema over a key range of a revision's sorted projection view. */
 public final class ProjectionSortedGroupScan {
 
   /**
@@ -69,6 +69,9 @@ public final class ProjectionSortedGroupScan {
   public record Group(@Nullable String key, long min, long max) {
   }
 
+  /** No equality prefix: the whole view, for a view with exactly a group and a value field. */
+  static final byte[] NO_PREFIX = ProjectionSortedDirectory.NO_BOUND;
+
   private ProjectionSortedGroupScan() {}
 
   /**
@@ -79,38 +82,59 @@ public final class ProjectionSortedGroupScan {
    */
   public static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber, final int limit,
       final Order order, final long spanDivisor) {
-    return topK(reader, indexNumber, limit, order, spanDivisor, false);
+    return topK(reader, indexNumber, NO_PREFIX, limit, order, spanDivisor, false, null);
   }
 
   /** {@code minOnly} permits jumping over every row after each group's first ordered value. */
   public static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber, final int limit,
       final Order order, final long spanDivisor, final boolean minOnly) {
-    return topK(reader, indexNumber, limit, order, spanDivisor, minOnly, null);
+    return topK(reader, indexNumber, NO_PREFIX, limit, order, spanDivisor, minOnly, null);
   }
 
-  /** Catalog-owned workers must open independent readers at the caller's committed revision. */
-  static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber, final int limit,
-      final Order order, final long spanDivisor, final boolean minOnly,
+  /**
+   * Grouped extrema over the rows whose leading key fields equal the encoded {@code prefix}: the
+   * next key field groups and the last, ordered long field is aggregated. The prefix bounds every
+   * route to one contiguous key range. Catalog-owned workers must open independent readers at the
+   * caller's committed revision.
+   */
+  static @Nullable List<Group> topK(final StorageEngineReader reader, final int indexNumber, final byte[] prefix,
+      final int limit, final Order order, final long spanDivisor, final boolean minOnly,
       final @Nullable ParallelWalkReaders workerReaders) {
     Objects.requireNonNull(reader, "reader");
+    Objects.requireNonNull(prefix, "prefix");
     Objects.requireNonNull(order, "order");
     if (limit < 1 || limit > 32 || order == Order.SPAN_DESC && spanDivisor < 1 || minOnly && order != Order.MIN_ASC) {
       throw new IllegalArgumentException("unsupported sorted group top-K request");
     }
     final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(reader, indexNumber);
-    if (directory == null) {
+    if (directory == null || directory.unencodableRows() > 0) {
       return null;
     }
+    final ProjectionSortKeyCodec.Layout layout = directory.layout();
+    final int fields = layout.fieldCount();
+    if (fields < 2 || layout.field(fields - 2) != ProjectionSortKeyCodec.FIELD_STRING
+        || layout.field(fields - 1) != ProjectionSortKeyCodec.FIELD_LONG) {
+      return null;
+    }
+    if (layout.prefixEnd(prefix, prefix.length, fields - 2) != prefix.length) {
+      throw new IllegalArgumentException("sorted group prefix does not encode exactly the leading key fields");
+    }
+    final byte[] upper = prefix.length == 0
+        ? null
+        : ProjectionSortKeyCodec.prefixUpperExclusive(prefix);
     if (!"false".equals(System.getProperty("sirix.projection.sortedGroupSummaries"))) {
       if (order == Order.SPAN_DESC && !reader.hasTrxIntentLog()
           && !"false".equals(System.getProperty("sirix.projection.sortedSpanBounds"))) {
-        final List<Group> bounded = ProjectionSortedSpanScan.topK(reader, indexNumber, directory, limit, spanDivisor);
+        final List<Group> bounded =
+            ProjectionSortedSpanScan.topK(reader, indexNumber, directory, prefix, upper, limit, spanDivisor,
+                SORTED_LOOKAHEAD, null);
         if (bounded != null) {
           return bounded;
         }
       }
       if (minOnly && !"false".equals(System.getProperty("sirix.projection.sortedMinBounds"))) {
-        final List<Group> bounded = topKFromBounds(reader, indexNumber, directory, limit);
+        final List<Group> bounded =
+            topKFromBounds(reader, indexNumber, directory, prefix, upper, limit, SORTED_LOOKAHEAD, null);
         if (bounded != null) {
           return bounded;
         }
@@ -120,16 +144,13 @@ public final class ProjectionSortedGroupScan {
               ? 0
               : Math.min(MAX_SUMMARY_WORKERS,
                   Math.min(Runtime.getRuntime().availableProcessors(), directory.dataLeafCount() / 1024));
-      final List<Group> summarized =
-          topKFromSummaries(reader, indexNumber, directory, limit, order, spanDivisor, minOnly, workerReaders, workers);
+      final List<Group> summarized = topKFromSummaries(reader, indexNumber, directory, prefix, upper, limit, order,
+          spanDivisor, minOnly, workerReaders, workers);
       if (summarized != null) {
         return summarized;
       }
     }
-    final ProjectionSortedDirectory.Accessor.Cursor cursor = directory.first();
-    if (!cursor.isValid()) {
-      return List.of();
-    }
+    final ProjectionSortedDirectory.Accessor.Cursor cursor = directory.seek(prefix);
     final int capacity = limit + 1;
     final byte[][] winners = new byte[capacity][];
     final long[] minimums = new long[capacity];
@@ -138,50 +159,42 @@ public final class ProjectionSortedGroupScan {
     int retained = 0;
     byte[] key = new byte[128];
     byte[] currentGroup = new byte[128];
-    if (minOnly) {
-      while (cursor.isValid()) {
-        final int length = cursor.keyLength();
-        if (length > key.length) {
-          key = Arrays.copyOf(key, Math.max(length, key.length << 1));
-        }
-        cursor.copyKeyTo(key);
-        final int groupLength = stringPrefixLength(key, length);
-        if (groupLength < 0 || length != groupLength + 1 + Long.BYTES + Long.BYTES || key[groupLength] != 1) {
-          return null;
-        }
-        final long value = readOrderedLong(key, groupLength + 1);
-        retained =
-            offer(key, groupLength, value, value, order, spanDivisor, winners, minimums, maximums, scores, retained);
-        cursor.skipPrefix(key, groupLength);
+    while (cursor.isValid()) {
+      final int length = cursor.keyLength();
+      if (length > key.length) {
+        key = Arrays.copyOf(key, Math.max(length, key.length << 1));
       }
-    } else {
-      while (cursor.isValid()) {
-        final int length = cursor.keyLength();
-        if (length > key.length) {
-          key = Arrays.copyOf(key, Math.max(length, key.length << 1));
-        }
-        cursor.copyKeyTo(key);
-        final int groupLength = stringPrefixLength(key, length);
-        if (groupLength < 0 || length != groupLength + 1 + Long.BYTES + Long.BYTES || key[groupLength] != 1) {
-          return null;
-        }
-        final long groupMin = readOrderedLong(key, groupLength + 1);
-        if (groupLength > currentGroup.length) {
-          currentGroup = Arrays.copyOf(currentGroup, Math.max(groupLength, currentGroup.length << 1));
-        }
-        System.arraycopy(key, 0, currentGroup, 0, groupLength);
-        cursor.skipPrefixCapturingLast(key, groupLength);
-        if (cursor.lastSkippedKeyLength() != length) {
-          return null;
-        }
-        cursor.copyLastSkippedKeyTo(key);
-        if (key[groupLength] != 1) {
-          return null;
-        }
-        final long groupMax = readOrderedLong(key, groupLength + 1);
-        retained = offer(currentGroup, groupLength, groupMin, groupMax, order, spanDivisor, winners, minimums, maximums,
-            scores, retained);
+      cursor.copyKeyTo(key);
+      if (!ProjectionSortKeyCodec.startsWith(key, length, prefix)) {
+        break;
       }
+      final int groupEnd = layout.fieldEnd(key, prefix.length, length - Long.BYTES, fields - 2);
+      if (groupEnd < 0 || length != groupEnd + 1 + Long.BYTES + Long.BYTES
+          || key[groupEnd] != ProjectionSortKeyCodec.PRESENT) {
+        return null;
+      }
+      final long groupMin = readOrderedLong(key, groupEnd + 1);
+      if (minOnly) {
+        retained = offer(key, prefix.length, groupEnd, groupMin, groupMin, order, spanDivisor, winners, minimums,
+            maximums, scores, retained);
+        cursor.skipPrefix(key, groupEnd);
+        continue;
+      }
+      if (groupEnd > currentGroup.length) {
+        currentGroup = Arrays.copyOf(currentGroup, Math.max(groupEnd, currentGroup.length << 1));
+      }
+      System.arraycopy(key, 0, currentGroup, 0, groupEnd);
+      cursor.skipPrefixCapturingLast(key, groupEnd);
+      if (cursor.lastSkippedKeyLength() != length) {
+        return null;
+      }
+      cursor.copyLastSkippedKeyTo(key);
+      if (key[groupEnd] != ProjectionSortKeyCodec.PRESENT) {
+        return null;
+      }
+      final long groupMax = readOrderedLong(key, groupEnd + 1);
+      retained = offer(currentGroup, prefix.length, groupEnd, groupMin, groupMax, order, spanDivisor, winners,
+          minimums, maximums, scores, retained);
     }
     return finish(winners, minimums, maximums, scores, retained, limit);
   }
@@ -194,6 +207,7 @@ public final class ProjectionSortedGroupScan {
       return 0;
     }
     final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer, indexNumber);
+    final ProjectionSortedLeafBounds.Updater bounds = new ProjectionSortedLeafBounds.Updater(storage);
     final ProjectionSortedDirectory.Accessor.LeafCursor cursor = directory.leaves();
     int written = 0;
     while (cursor.id() != 0) {
@@ -202,16 +216,17 @@ public final class ProjectionSortedGroupScan {
       if (leaf == null) {
         throw new IllegalStateException("missing sorted data leaf during summary build: " + id);
       }
-      final ProjectionSortedLeaf summary = ProjectionSortedGroupSummary.encode(leaf);
-      ProjectionSortedLeafBounds.invalidate(storage, id);
-      storage.tombstoneBlob(ProjectionSortedGroupSummary.slot(id));
+      final ProjectionSortedLeaf summary = ProjectionSortedGroupSummary.encode(leaf, directory.layout());
       if (summary != null) {
         storage.putBlob(ProjectionSortedGroupSummary.slot(id), summary.encodedBytes());
-        ProjectionSortedLeafBounds.write(storage, id, summary);
         written++;
+      } else {
+        storage.tombstoneBlob(ProjectionSortedGroupSummary.slot(id));
       }
+      bounds.set(id, summary);
       cursor.advance();
     }
+    bounds.flush();
     return written;
   }
 
@@ -222,26 +237,39 @@ public final class ProjectionSortedGroupScan {
    */
   static @Nullable List<Group> topKFromBounds(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory, final int limit) {
-    return topKFromBounds(reader, indexNumber, directory, limit, SORTED_LOOKAHEAD, null);
+    return topKFromBounds(reader, indexNumber, directory, NO_PREFIX, null, limit, SORTED_LOOKAHEAD, null);
+  }
+
+  static @Nullable List<Group> topKFromBounds(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSortedDirectory.Accessor directory, final int limit, final int lookahead,
+      final @Nullable LookaheadStats stats) {
+    return topKFromBounds(reader, indexNumber, directory, NO_PREFIX, null, limit, lookahead, stats);
   }
 
   /**
    * {@code lookahead} candidates' summaries are fetched together ahead of consumption; the break test,
    * the missing-summary return and every validation run when a candidate is CONSUMED, exactly where
    * the one-read-per-step loop ran them, so the decision sequence and the result are its own.
-   * {@code stats}, when given, receives the lookahead accounting.
+   * {@code stats}, when given, receives the lookahead accounting. Only the leaves that can hold
+   * {@code prefix} are candidates; a boundary leaf's bound also covers its other groups, which only
+   * makes it a weaker, still valid lower bound.
    */
   static @Nullable List<Group> topKFromBounds(final StorageEngineReader reader, final int indexNumber,
-      final ProjectionSortedDirectory.Accessor directory, final int limit, final int lookahead,
-      final @Nullable LookaheadStats stats) {
+      final ProjectionSortedDirectory.Accessor directory, final byte[] prefix, final byte @Nullable [] upper,
+      final int limit, final int lookahead, final @Nullable LookaheadStats stats) {
     if (lookahead < 1 || lookahead > 64) {
       throw new IllegalArgumentException("unsupported sorted lookahead: " + lookahead);
     }
+    final int[] leafIds = directory.leafIds(prefix, upper, ProjectionSortedLeafBounds.MAX_CANDIDATE_LEAVES);
+    if (leafIds == null) {
+      return null;
+    }
     final ProjectionSortedLeafBounds.Candidates candidates =
-        ProjectionSortedLeafBounds.read(reader, indexNumber, directory);
+        ProjectionSortedLeafBounds.read(reader, indexNumber, leafIds);
     if (candidates == null) {
       return null;
     }
+    final ProjectionSortKeyCodec.Layout layout = directory.layout();
     final int capacity = limit + 1;
     final byte[][] winners = new byte[capacity][];
     final long[] minimums = new long[capacity];
@@ -321,7 +349,7 @@ public final class ProjectionSortedGroupScan {
             key = new byte[length];
           }
           summary.copyKeyTo(row, key);
-          if (stringPrefixLength(key, length) != length || summary.payloadLength(row) != payload.length) {
+          if (!layout.isGroup(key, length) || summary.payloadLength(row) != payload.length) {
             throw new IllegalStateException("invalid sorted group summary entry");
           }
           summary.copyPayloadTo(row, payload, 0);
@@ -332,7 +360,10 @@ public final class ProjectionSortedGroupScan {
           }
           actualMin = Math.min(actualMin, min);
           actualMax = Math.max(actualMax, max);
-          retained = offerDistinctMinimum(key, length, min, winners, minimums, maximums, scores, retained);
+          if (ProjectionSortKeyCodec.startsWith(key, length, prefix)) {
+            retained = offerDistinctMinimum(key, prefix.length, length, min, winners, minimums, maximums, scores,
+                retained);
+          }
         }
         if (summary.rowCount() == 0 || actualMin != boundMin || actualMax != candidates.maximums()[candidate]) {
           throw new IllegalStateException("sorted leaf bounds disagree with their group summary");
@@ -346,10 +377,10 @@ public final class ProjectionSortedGroupScan {
     return finish(winners, minimums, maximums, scores, retained, limit);
   }
 
-  private static int offerDistinctMinimum(final byte[] group, final int length, final long minimum,
+  private static int offerDistinctMinimum(final byte[] group, final int from, final int to, final long minimum,
       final byte[][] winners, final long[] minimums, final long[] maximums, final long[] scores, int retained) {
     for (int i = 0; i < retained; i++) {
-      if (winners[i].length == length && Arrays.equals(winners[i], 0, length, group, 0, length)) {
+      if (Arrays.equals(winners[i], 0, winners[i].length, group, from, to)) {
         if (minimum >= minimums[i]) {
           return retained;
         }
@@ -365,19 +396,34 @@ public final class ProjectionSortedGroupScan {
         break;
       }
     }
-    return offer(group, length, minimum, minimum, Order.MIN_ASC, 1, winners, minimums, maximums, scores, retained);
+    return offer(group, from, to, minimum, minimum, Order.MIN_ASC, 1, winners, minimums, maximums, scores,
+        retained);
   }
 
   static @Nullable List<Group> topKFromSummaries(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory, final int limit, final Order order, final long spanDivisor,
       final boolean minOnly) {
-    return topKFromSummaries(reader, indexNumber, directory, limit, order, spanDivisor, minOnly, null, 0);
+    return topKFromSummaries(reader, indexNumber, directory, NO_PREFIX, null, limit, order, spanDivisor, minOnly, null,
+        0);
   }
 
   /** Explicit worker count keeps parallel/serial equivalence tests independent of machine size. */
   static @Nullable List<Group> topKFromSummaries(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory, final int limit, final Order order, final long spanDivisor,
       final boolean minOnly, final @Nullable ParallelWalkReaders workerReaders, final int workers) {
+    return topKFromSummaries(reader, indexNumber, directory, NO_PREFIX, null, limit, order, spanDivisor, minOnly,
+        workerReaders, workers);
+  }
+
+  /**
+   * Fold the per-leaf group summaries of the leaves that can hold {@code prefix}, in key order.
+   * Entries outside the prefix occur only in the two boundary leaves and are skipped.
+   */
+  static @Nullable List<Group> topKFromSummaries(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSortedDirectory.Accessor directory, final byte[] prefix, final byte @Nullable [] upper,
+      final int limit, final Order order, final long spanDivisor, final boolean minOnly,
+      final @Nullable ParallelWalkReaders workerReaders, final int workers) {
+    final ProjectionSortKeyCodec.Layout layout = directory.layout();
     final int capacity = limit + 1;
     final byte[][] winners = new byte[capacity][];
     final long[] minimums = new long[capacity];
@@ -386,11 +432,12 @@ public final class ProjectionSortedGroupScan {
     final byte[] payload = new byte[ProjectionSortedGroupSummary.PAYLOAD_BYTES];
     byte[] key = new byte[128];
     byte[] currentGroup = new byte[128];
-    int groupLength = 0;
+    int groupLength = -1;
     long groupMin = 0;
     long groupMax = 0;
     int retained = 0;
-    final SummaryWindow summaries = new SummaryWindow(reader, indexNumber, directory, workerReaders, workers);
+    final SummaryWindow summaries =
+        new SummaryWindow(reader, indexNumber, directory.leaves(prefix, upper), workerReaders, workers);
     while (summaries.hasNext()) {
       final ProjectionSortedLeaf summary = summaries.next();
       if (summary == null) {
@@ -402,7 +449,7 @@ public final class ProjectionSortedGroupScan {
           key = new byte[length];
         }
         summary.copyKeyTo(row, key);
-        if (stringPrefixLength(key, length) != length || summary.payloadLength(row) != payload.length) {
+        if (!layout.isGroup(key, length) || summary.payloadLength(row) != payload.length) {
           throw new IllegalStateException("invalid sorted group summary entry");
         }
         summary.copyPayloadTo(row, payload, 0);
@@ -411,7 +458,10 @@ public final class ProjectionSortedGroupScan {
         if (min > max) {
           throw new IllegalStateException("invalid sorted group summary extrema");
         }
-        final int comparison = groupLength == 0
+        if (!ProjectionSortKeyCodec.startsWith(key, length, prefix)) {
+          continue;
+        }
+        final int comparison = groupLength < 0
             ? -1
             : Arrays.compareUnsigned(currentGroup, 0, groupLength, key, 0, length);
         if (comparison > 0) {
@@ -421,8 +471,8 @@ public final class ProjectionSortedGroupScan {
           groupMin = Math.min(groupMin, min);
           groupMax = Math.max(groupMax, max);
         } else {
-          if (groupLength != 0) {
-            retained = offer(currentGroup, groupLength, groupMin, minOnly
+          if (groupLength >= 0) {
+            retained = offer(currentGroup, prefix.length, groupLength, groupMin, minOnly
                 ? groupMin
                 : groupMax, order, spanDivisor, winners, minimums, maximums, scores, retained);
           }
@@ -436,8 +486,8 @@ public final class ProjectionSortedGroupScan {
         }
       }
     }
-    if (groupLength != 0) {
-      retained = offer(currentGroup, groupLength, groupMin, minOnly
+    if (groupLength >= 0) {
+      retained = offer(currentGroup, prefix.length, groupLength, groupMin, minOnly
           ? groupMin
           : groupMax, order, spanDivisor, winners, minimums, maximums, scores, retained);
     }
@@ -457,14 +507,14 @@ public final class ProjectionSortedGroupScan {
     private int size;
 
     SummaryWindow(final StorageEngineReader reader, final int indexNumber,
-        final ProjectionSortedDirectory.Accessor directory, final @Nullable ParallelWalkReaders workerReaders,
+        final ProjectionSortedDirectory.Accessor.LeafCursor cursor, final @Nullable ParallelWalkReaders workerReaders,
         final int requestedWorkers) {
       if (requestedWorkers < 0 || requestedWorkers > 8) {
         throw new IllegalArgumentException("invalid sorted-summary worker count: " + requestedWorkers);
       }
       this.reader = reader;
       this.indexNumber = indexNumber;
-      this.cursor = directory.leaves();
+      this.cursor = cursor;
       this.workerReaders = workerReaders;
       this.workers = workerReaders == null || reader.hasTrxIntentLog()
           ? 0
@@ -558,9 +608,10 @@ public final class ProjectionSortedGroupScan {
     return result;
   }
 
-  static int offer(final byte[] group, final int groupLength, final long min, final long max, final Order order,
-      final long divisor, final byte[][] winners, final long[] minimums, final long[] maximums, final long[] scores,
-      final int retained) {
+  /** Offer the group {@code group[from, to)}, which excludes the query's equality prefix. */
+  static int offer(final byte[] group, final int from, final int to, final long min, final long max,
+      final Order order, final long divisor, final byte[][] winners, final long[] minimums, final long[] maximums,
+      final long[] scores, final int retained) {
     final long score;
     try {
       score = switch (order) {
@@ -587,35 +638,11 @@ public final class ProjectionSortedGroupScan {
       maximums[i] = maximums[i - 1];
       scores[i] = scores[i - 1];
     }
-    winners[at] = Arrays.copyOf(group, groupLength);
+    winners[at] = Arrays.copyOfRange(group, from, to);
     minimums[at] = min;
     maximums[at] = max;
     scores[at] = score;
     return next;
-  }
-
-  static int stringPrefixLength(final byte[] key, final int length) {
-    if (length < 1) {
-      return -1;
-    }
-    if (key[0] == 0) {
-      return 1;
-    }
-    if (key[0] != 1) {
-      return -1;
-    }
-    for (int i = 1; i + 1 < length; i++) {
-      if (key[i] == 0) {
-        if (key[i + 1] == 0) {
-          return i + 2;
-        }
-        if ((key[i + 1] & 0xFF) != 0xFF) {
-          return -1;
-        }
-        i++;
-      }
-    }
-    return -1;
   }
 
   static long readOrderedLong(final byte[] key, final int offset) {

@@ -27,6 +27,7 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
 import java.util.ArrayList;
@@ -405,9 +406,11 @@ public final class ProjectionIndexCatalog {
   }
 
   /**
-   * Serve a filtered grouped extremum from an exactly matching, revisioned sorted access path. The
-   * declaration must cover precisely the query's equality predicates and sort by the requested group
-   * and aggregate fields. No decoded row groups are loaded for this path.
+   * Serve a filtered grouped extremum from a revisioned sorted access path. The query's string
+   * equality predicates must name exactly the view's leading key columns, the group field the next
+   * key column and the aggregate field the last one; the equality literals then bound one contiguous
+   * key range. Equality columns must be string columns, so a literal compares exactly as the
+   * interpreter compares it. No decoded row groups are loaded for this path.
    */
   public static @Nullable List<ProjectionSortedGroupScan.Group> sortedGroupTopK(final ResourceSession<?, ?> session,
       final String resourceKey, final int revision, final String[] sourcePath, final Map<String, String> equalities,
@@ -431,30 +434,23 @@ public final class ProjectionIndexCatalog {
     }
     for (final DefEntry candidate : selectCandidates(defEntries(session, resourceKey, revision), root, required)) {
       final ProjectionSortedSpec sorted = candidate.def.getProjectionSortedSpec();
-      if (sorted == null || sorted.keyColumns().size() != 2
-          || sorted.keyColumns().get(0) != columnOf(candidate, groupField)
-          || sorted.keyColumns().get(1) != columnOf(candidate, aggregateField)
-          || sorted.equalities().size() != equalities.size()) {
+      if (sorted == null) {
         continue;
       }
-      boolean sameFilter = true;
-      for (final ProjectionSortedSpec.Equality equality : sorted.equalities()) {
-        final String field = candidate.fieldChains[equality.column()] == null
-            ? candidate.fieldNames[equality.column()]
-            : candidate.fieldChains[equality.column()];
-        sameFilter &= equality.literal().equals(equalities.get(field));
-      }
-      if (!sameFilter) {
+      final List<Integer> keyColumns = sorted.keyColumns();
+      final int prefixColumns = equalities.size();
+      if (keyColumns.size() != prefixColumns + 2
+          || keyColumns.get(prefixColumns) != columnOf(candidate, groupField)
+          || keyColumns.get(prefixColumns + 1) != columnOf(candidate, aggregateField)) {
         continue;
       }
       final byte[] kinds = defColumnKinds(candidate.def);
-      final int groupColumn = sorted.keyColumns().get(0);
-      final int valueColumn = sorted.keyColumns().get(1);
-      final byte groupKind = kinds[groupColumn];
-      if ((groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-          && groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
-          && groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT)
-          || kinds[valueColumn] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      if (!ProjectionSortKeyCodec.Layout.isStringKind(kinds[keyColumns.get(prefixColumns)])
+          || kinds[keyColumns.get(prefixColumns + 1)] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        continue;
+      }
+      final byte[] prefix = equalityPrefix(candidate, keyColumns, prefixColumns, kinds, equalities);
+      if (prefix == null) {
         continue;
       }
       try (NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
@@ -464,7 +460,7 @@ public final class ProjectionIndexCatalog {
           continue;
         }
         final List<ProjectionSortedGroupScan.Group> groups = ProjectionSortedGroupScan.topK(reader,
-            candidate.def.getID(), limit, order, spanDivisor, minOnly, worker -> {
+            candidate.def.getID(), prefix, limit, order, spanDivisor, minOnly, worker -> {
               try (NodeReadOnlyTrx lane = session.beginNodeReadOnlyTrx(revision)) {
                 worker.accept(lane.getStorageEngineReader());
               }
@@ -478,6 +474,31 @@ public final class ProjectionIndexCatalog {
       }
     }
     return null;
+  }
+
+  /**
+   * Encoded key prefix for the equality literals in key-column order, or null when some leading key
+   * column has no literal or is not a string column.
+   */
+  private static byte @Nullable [] equalityPrefix(final DefEntry candidate, final List<Integer> keyColumns,
+      final int prefixColumns, final byte[] kinds, final Map<String, String> equalities) {
+    final ProjectionSortKeyCodec.Writer prefix = new ProjectionSortKeyCodec.Writer();
+    for (int i = 0; i < prefixColumns; i++) {
+      final int column = keyColumns.get(i);
+      if (!ProjectionSortKeyCodec.Layout.isStringKind(kinds[column])) {
+        return null;
+      }
+      final String field = candidate.fieldChains == null || candidate.fieldChains[column] == null
+          ? candidate.fieldNames[column]
+          : candidate.fieldChains[column];
+      final String literal = equalities.get(field);
+      if (literal == null) {
+        return null;
+      }
+      final byte[] utf8 = literal.getBytes(StandardCharsets.UTF_8);
+      prefix.appendUtf8(utf8, 0, utf8.length);
+    }
+    return prefix.copyKey();
   }
 
   // ==================== wtx-visible (uncommitted) serving ====================
@@ -1236,9 +1257,10 @@ public final class ProjectionIndexCatalog {
           // thread-safe, and parallel kernels touch disjoint windows concurrently.
           try (NodeReadOnlyTrx windowRtx = source.openReader()) {
             final StorageEngineReader reader = windowRtx.getStorageEngineReader();
+            final ProjectionSlotLayout layout = ProjectionIndexHOTStorage.readSlotLayout(reader, defId);
             for (int logical = from; logical < toExclusive; logical++) {
-              final byte[] payload =
-                  ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, defId, physicalOrder[logical]);
+              final byte[] payload = ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, defId, layout,
+                  physicalOrder[logical]);
               if (payload == null) {
                 throw new IllegalStateException("Projection definition #" + defId + " truncated during windowed "
                     + "materialization: logical row group " + logical + " (physical slot " + physicalOrder[logical]

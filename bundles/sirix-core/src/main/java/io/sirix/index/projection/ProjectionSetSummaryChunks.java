@@ -32,24 +32,6 @@ final class ProjectionSetSummaryChunks {
     return MAX_VALUES;
   }
 
-  static int maxValues() {
-    return MAX_VALUES;
-  }
-
-  /** Publish one proven-complete scalar summary without touching other columns' chunks. */
-  static boolean publishColumn(final ProjectionIndexHOTStorage storage, final int column,
-      final Map<String, Long> values) {
-    if (storage == null || values == null) {
-      throw new NullPointerException("storage and scalar counts are required");
-    }
-    final byte[] encoded = encode(values);
-    if (encoded == null) {
-      return false;
-    }
-    storage.putBlob(slotKey(column), encoded);
-    return true;
-  }
-
   static Accessor open(final ProjectionIndexHOTStorage storage,
       final @Nullable Map<Integer, Map<String, Long>> capabilities) {
     return new Accessor(storage, capabilities);

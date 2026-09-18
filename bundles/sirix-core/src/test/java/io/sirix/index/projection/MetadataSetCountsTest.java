@@ -286,53 +286,6 @@ final class MetadataSetCountsTest {
     }
   }
 
-  @Test
-  void scalarBackfillPublishesOnlyInItsNewRevision() {
-    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(SCALAR_KINDS);
-        final long[] longs = new long[1];
-        final boolean[] booleans = new boolean[1];
-        final String[] strings = {"posts"};
-        assertTrue(page.appendRow(1, longs, booleans, strings));
-        strings[0] = null;
-        assertTrue(page.appendRow(2, longs, booleans, strings, new boolean[] {false}, null));
-        strings[0] = "";
-        assertTrue(page.appendRow(3, longs, booleans, strings));
-        final ProjectionIndexHOTStorage storage =
-            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        storage.putRowGroupAsColumnSegmentSlots(1,
-            ProjectionIndexColumnSegmentCodec.encode(page, new ProjectionIndexColumnSegmentCodec.EncodeWorkspace()));
-        ProjectionIndexFences.write(storage, 1, new long[] {1L}, new long[] {3L});
-        storage.putBlob(0L, new ProjectionIndexMetadata("/[]", new String[] {"/[]/collection"},
-            new String[] {"collection"}, SCALAR_KINDS, 1, 1).serialize());
-        wtx.commit();
-      }
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        final ProjectionScalarCountBackfill.Result result =
-            ProjectionScalarCountBackfill.run(wtx, INDEX_NUMBER, 0);
-        assertTrue(result.published());
-        assertEquals(1, result.leaves());
-        assertEquals(3L, result.rows());
-        assertEquals(3, result.groups());
-        wtx.commit();
-      }
-    }
-
-    Databases.clearGlobalCaches();
-    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-        JsonNodeReadOnlyTrx r1 = session.beginNodeReadOnlyTrx(1);
-        JsonNodeReadOnlyTrx r2 = session.beginNodeReadOnlyTrx(2)) {
-      assertNull(readSummaries(r1));
-      final Map<String, Long> counts = readSummaries(r2).get(0);
-      assertEquals(1L, counts.get("posts"));
-      assertEquals(1L, counts.get(""));
-      assertEquals(1L, counts.get(null));
-    }
-  }
-
   private static Map<Integer, Map<String, Long>> initializeSummaries(final ProjectionIndexHOTStorage storage,
       final byte[] columnKinds, final Map<Integer, Map<String, Long>> summaries) {
     final ProjectionSetSummaryChunks.BuildAccumulator initializer = new ProjectionSetSummaryChunks.BuildAccumulator();

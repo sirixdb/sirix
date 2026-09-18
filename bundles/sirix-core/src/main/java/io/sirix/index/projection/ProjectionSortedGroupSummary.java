@@ -9,7 +9,10 @@ import org.jspecify.annotations.Nullable;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Per-data-leaf extrema for sorted (string group, ordered long, record key) tuples. */
+/**
+ * Per-data-leaf extrema of the last (ordered long) key field, grouped by every preceding field. An
+ * entry's key is the encoded group and its payload the group's minimum and maximum in that leaf.
+ */
 final class ProjectionSortedGroupSummary {
   // Each namespace reserves 2^32 slots; all blob owners remain below the side-map's 2^47 ceiling.
   static final long SLOT_BASE = ProjectionSortedLeafStore.LEAF_SLOT_BASE + (2L << 32);
@@ -17,8 +20,15 @@ final class ProjectionSortedGroupSummary {
 
   private ProjectionSortedGroupSummary() {}
 
-  /** Unsupported tuple shapes have no summary; callers retain the full-key route. */
-  static @Nullable ProjectionSortedLeaf encode(final ProjectionSortedLeaf source) {
+  /**
+   * Unsupported layouts, unencodable rows and missing values have no summary; callers retain the
+   * full-key route, which declines the same rows.
+   */
+  static @Nullable ProjectionSortedLeaf encode(final ProjectionSortedLeaf source,
+      final ProjectionSortKeyCodec.Layout layout) {
+    if (!layout.groupsByLastLong()) {
+      return null;
+    }
     final int rows = source.rowCount();
     final byte[][] groups = new byte[rows][];
     final byte[][] payloads = new byte[rows][];
@@ -30,8 +40,8 @@ final class ProjectionSortedGroupSummary {
         key = new byte[length];
       }
       source.copyKeyTo(row, key);
-      final int prefix = ProjectionSortedGroupScan.stringPrefixLength(key, length);
-      if (prefix < 0 || length != prefix + 1 + 2 * Long.BYTES || key[prefix] != 1) {
+      final int prefix = layout.lastFieldOffset(key, length);
+      if (prefix < 0 || length != prefix + 1 + 2 * Long.BYTES || key[prefix] != ProjectionSortKeyCodec.PRESENT) {
         return null;
       }
       final long value = ProjectionSortedGroupScan.readOrderedLong(key, prefix + 1);

@@ -4,67 +4,115 @@
 package io.sirix.index.projection;
 
 import io.sirix.api.StorageEngineReader;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrays;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Revisioned extrema of bounded sorted leaves; one 1 KiB chunk covers 64 physical leaf ids. */
+/**
+ * Revisioned extrema of bounded sorted leaves. One 272-byte chunk covers 16 physical leaf ids, small
+ * enough to live inline in its trie entry: a chunk written by a build therefore never becomes a
+ * staged side page, and maintenance later in the same transaction can still replace it.
+ */
 final class ProjectionSortedLeafBounds {
   static final long SLOT_BASE = ProjectionSortedGroupSummary.SLOT_BASE + (1L << 32);
   private static final int MAGIC = 0x31425350; // PSB1
   private static final int HEADER_BYTES = 16;
-  private static final int CHUNK_BYTES = HEADER_BYTES + 64 * 2 * Long.BYTES;
+  private static final int LEAF_SHIFT = 4;
+  private static final int POSITION_MASK = (1 << LEAF_SHIFT) - 1;
+  private static final int CHUNK_BYTES = HEADER_BYTES + (1 << LEAF_SHIFT) * 2 * Long.BYTES;
   /** Bound the four primitive candidate arrays to 24 MiB; larger views retain the streaming scan. */
-  private static final int MAX_CANDIDATE_LEAVES = 1 << 20;
+  static final int MAX_CANDIDATE_LEAVES = 1 << 20;
 
   private ProjectionSortedLeafBounds() {}
 
   record Candidates(int[] leafIds, long[] minimums, long[] maximums, int[] order) {
   }
 
-  /** Invalidate before changing the source; an interrupted update then takes the exact fallback. */
+  /** Clear one leaf's bound; readers then take the exact fallback for that leaf. */
   static void invalidate(final ProjectionIndexHOTStorage storage, final int leafId) {
-    final long slot = slot(leafId);
-    final byte[] bytes = storage.getBlob(slot);
-    if (bytes == null) {
-      return;
-    }
-    validate(bytes);
-    final long mask = 1L << ((leafId - 1) & 63);
-    final long valid = ProjectionIndexRowGroupCodec.getLongLE(bytes, 8);
-    if ((valid & mask) != 0) {
-      // Referenced getBlob payloads alias an immutable page, including frozen async generations.
-      final byte[] changed = bytes.clone();
-      ProjectionIndexRowGroupCodec.putLongLEAt(changed, 8, valid & ~mask);
-      storage.putBlob(slot, changed);
-    }
+    final Updater updater = new Updater(storage);
+    updater.clear(leafId);
+    updater.flush();
   }
 
   /** Publish only after the source leaf and its group summary have both been written. */
   static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf summary) {
-    if (summary.rowCount() == 0) {
-      invalidate(storage, leafId);
-      return;
+    final Updater updater = new Updater(storage);
+    updater.set(leafId, summary);
+    updater.flush();
+  }
+
+  /**
+   * Coalesces one maintenance pass's bound changes: each touched chunk is copied once, edited in place
+   * for every touched leaf it covers, and published once. A published array is never edited again,
+   * because storage may retain it in an immutable page.
+   */
+  static final class Updater {
+    private final ProjectionIndexHOTStorage storage;
+    private final Long2ObjectOpenHashMap<byte[]> chunks = new Long2ObjectOpenHashMap<>();
+    private final byte[] payload = new byte[ProjectionSortedGroupSummary.PAYLOAD_BYTES];
+
+    Updater(final ProjectionIndexHOTStorage storage) {
+      this.storage = Objects.requireNonNull(storage, "storage");
     }
-    final long slot = slot(leafId);
-    byte[] bytes = storage.getBlob(slot);
-    if (bytes == null) {
-      bytes = newChunk();
-    } else {
-      validate(bytes);
-      bytes = bytes.clone();
+
+    /** Record a leaf's extrema, or clear its bound when it has no summary. */
+    void set(final int leafId, final @Nullable ProjectionSortedLeaf summary) {
+      if (summary == null || summary.rowCount() == 0) {
+        clear(leafId);
+        return;
+      }
+      final long slot = slot(leafId);
+      byte[] chunk = chunks.get(slot);
+      if (chunk == null) {
+        final byte[] stored = storage.getBlob(slot);
+        if (stored == null) {
+          chunk = newChunk();
+        } else {
+          validate(stored);
+          chunk = stored.clone();
+        }
+        chunks.put(slot, chunk);
+      }
+      writeEntry(chunk, leafId, summary, payload);
     }
-    writeEntry(bytes, leafId, summary, new byte[ProjectionSortedGroupSummary.PAYLOAD_BYTES]);
-    storage.putBlob(slot, bytes);
+
+    void clear(final int leafId) {
+      final long slot = slot(leafId);
+      final long mask = 1L << ((leafId - 1) & POSITION_MASK);
+      byte[] chunk = chunks.get(slot);
+      if (chunk == null) {
+        final byte[] stored = storage.getBlob(slot);
+        if (stored == null) {
+          return;
+        }
+        validate(stored);
+        if ((ProjectionIndexRowGroupCodec.getLongLE(stored, 8) & mask) == 0) {
+          return;
+        }
+        chunk = stored.clone();
+        chunks.put(slot, chunk);
+      }
+      ProjectionIndexRowGroupCodec.putLongLEAt(chunk, 8, ProjectionIndexRowGroupCodec.getLongLE(chunk, 8) & ~mask);
+    }
+
+    void flush() {
+      for (final Long2ObjectMap.Entry<byte[]> entry : chunks.long2ObjectEntrySet()) {
+        storage.putBlob(entry.getLongKey(), entry.getValue());
+      }
+      chunks.clear();
+    }
   }
 
   private static byte[] newChunk() {
     final byte[] bytes = new byte[CHUNK_BYTES];
     ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 0, MAGIC);
     bytes[4] = 1;
-    bytes[5] = 6; // log2 leaves per chunk
+    bytes[5] = LEAF_SHIFT;
     return bytes;
   }
 
@@ -85,7 +133,7 @@ final class ProjectionSortedLeafBounds {
       minimum = Math.min(minimum, min);
       maximum = Math.max(maximum, max);
     }
-    final int position = (leafId - 1) & 63;
+    final int position = (leafId - 1) & POSITION_MASK;
     final int offset = HEADER_BYTES + position * 2 * Long.BYTES;
     ProjectionIndexRowGroupCodec.putLongLEAt(bytes, offset, minimum);
     ProjectionIndexRowGroupCodec.putLongLEAt(bytes, offset + Long.BYTES, maximum);
@@ -151,33 +199,36 @@ final class ProjectionSortedLeafBounds {
    */
   static @Nullable Candidates read(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory) {
-    return read(reader, indexNumber, directory, true);
+    final int[] leafIds = directory.leafIds(ProjectionSortedDirectory.NO_BOUND, null, MAX_CANDIDATE_LEAVES);
+    return leafIds == null
+        ? null
+        : read(reader, indexNumber, leafIds, true);
+  }
+
+  /** Bounds of the given live leaves, ordered by ascending minimum; the array is sorted in place. */
+  static @Nullable Candidates read(final StorageEngineReader reader, final int indexNumber, final int[] leafIds) {
+    return read(reader, indexNumber, leafIds, true);
   }
 
   /** Span scans supply their own priority order after resolving groups crossing leaf boundaries. */
   static @Nullable Candidates readUnordered(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory) {
-    return read(reader, indexNumber, directory, false);
+    final int[] leafIds = directory.leafIds(ProjectionSortedDirectory.NO_BOUND, null, MAX_CANDIDATE_LEAVES);
+    return leafIds == null
+        ? null
+        : read(reader, indexNumber, leafIds, false);
+  }
+
+  static @Nullable Candidates readUnordered(final StorageEngineReader reader, final int indexNumber,
+      final int[] leafIds) {
+    return read(reader, indexNumber, leafIds, false);
   }
 
   private static @Nullable Candidates read(final StorageEngineReader reader, final int indexNumber,
-      final ProjectionSortedDirectory.Accessor directory, final boolean orderByMinimum) {
-    final int count = directory.dataLeafCount();
+      final int[] leafIds, final boolean orderByMinimum) {
+    final int count = leafIds.length;
     if (count > MAX_CANDIDATE_LEAVES) {
       return null;
-    }
-    final int[] leafIds = new int[count];
-    final ProjectionSortedDirectory.Accessor.LeafCursor cursor = directory.leaves();
-    int captured = 0;
-    while (cursor.id() != 0) {
-      if (captured == count) {
-        throw new IllegalStateException("sorted directory exceeds its declared leaf count");
-      }
-      leafIds[captured++] = cursor.id();
-      cursor.advance();
-    }
-    if (captured != count) {
-      throw new IllegalStateException("sorted directory is missing declared leaves");
     }
     Arrays.sort(leafIds);
     final long[] minimums = new long[count];
@@ -202,7 +253,7 @@ final class ProjectionSortedLeafBounds {
         if (to > 0 && leafIds[to] == leafIds[to - 1]) {
           throw new IllegalStateException("sorted directory repeats a physical leaf");
         }
-        final int position = (leafIds[to] - 1) & 63;
+        final int position = (leafIds[to] - 1) & POSITION_MASK;
         if ((valid & 1L << position) == 0) {
           return null;
         }
@@ -276,12 +327,12 @@ final class ProjectionSortedLeafBounds {
     if (leafId < 1) {
       throw new IllegalArgumentException("sorted bound leaf id must be positive");
     }
-    return SLOT_BASE + ((leafId - 1) >>> 6);
+    return SLOT_BASE + ((leafId - 1) >>> LEAF_SHIFT);
   }
 
   private static void validate(final byte[] bytes) {
     if (bytes.length != CHUNK_BYTES || ProjectionIndexRowGroupCodec.getIntLE(bytes, 0) != MAGIC || bytes[4] != 1
-        || bytes[5] != 6 || bytes[6] != 0 || bytes[7] != 0) {
+        || bytes[5] != LEAF_SHIFT || bytes[6] != 0 || bytes[7] != 0) {
       throw new IllegalStateException("invalid sorted leaf bounds chunk");
     }
   }

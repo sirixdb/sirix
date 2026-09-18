@@ -109,8 +109,8 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.projection.reuseWorkerProofCache` | `true` | Retain worker proof caches across subchunks; false restores invocation-local caches. |
 | `sirix.filechannel.batchFileSize` | `true` | Reuse one allocation bound within each batch. |
 | `sirix.filechannel.lockFreeBuffers` | `true` | Use atomic buffer slots; false restores the bounded queue. |
-| `sirix.io.borrowOverflowInput` | `true` | Borrow overflow input only for an empty byte pipeline; false restores the owned temporary frame. |
-| `sirix.filechannel.borrowBatchInput` | `true` | Decode coalesced page views while the read buffer remains exclusively owned. |
+| `sirix.io.borrowOverflowInput` | `true` | Borrow overflow input only for an empty byte pipeline; false restores the owned temporary frame and, unless the batch switch is set, owned batch input. |
+| `sirix.filechannel.borrowBatchInput` | value of `sirix.io.borrowOverflowInput` | Decode coalesced page views while the read buffer remains exclusively owned; an explicit value overrides the overflow switch. |
 | `sirix.projection.batchPhysicalOrder` | `true` | Batch fence reads for bounded, dense committed physical orders. |
 | `sirix.projection.overlapDirectoryLoad` | `true` | Overlap dense committed document-order and column-descriptor reads using independent revision-bound readers. |
 | `sirix.projection.coalesceBlobBatches` | `true` | Coalesce bare durable blob offsets after capturing verified leaf state. |
@@ -126,6 +126,8 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.projection.sortedSpanBounds` | `true` | Enable bounded best-first grouped spans on committed revisions. |
 | `sirix.projection.heapSpanPriority` | `true` | Reuse the candidate permutation as a max-heap for span views with at least 1,024 leaves. |
 | `sirix.projection.denseSpanBounds` | `true` | Index validated dense physical leaf bounds directly; sparse IDs retain binary search. |
+| `sirix.projection.sortedRun.budgetBytes` | `min(heap/16, 512 MiB)` | Heap ceiling for resident sort keys while a sorted view is built; larger builds spill sorted runs. |
+| `sirix.projection.sortedRun.spillDirectory` | `java.io.tmpdir` | Directory for the temporary sorted runs of a spilling sorted-view build. |
 | `sirix.asyncFlush.groupSidePages` | `true` | Group fresh immutable side pages whose parents remain independently pinned. |
 | `sirix.asyncFlush.sideGroupTargetBytes` | `4194304` | Positive grouped-window byte limit, capped by the ordinary side-page limit. |
 | `sirix.asyncFlush.sideGroupTargetCount` | `1024` | Positive grouped-window page limit, capped by the ordinary side-page count limit. |
@@ -190,6 +192,39 @@ physical chunk is missing. `ProjectionIndexFencesTest` retains the unchanged-chu
 for local updates. `ProjectionBlobBatchReadTest` exercises scalar/coalesced integrity checks, mixed
 inline/overflow windows, duplicate and missing slots, writer state, and reopened history.
 
+## Sorted views
+
+A projection may declare a sorted view: every projected record, ordered by a list of key columns
+and then by record key, like a table's `ORDER BY` key. The declaration names columns only
+(`ProjectionSortedSpec`, the load-time `ProjectionSpec`, or the optional fifth argument of
+`jn:create-projection-index`); it carries no filter literal. A grouped extremum whose string equality
+filter names exactly a leading run of the key columns, grouping by the next key column and
+aggregating the last one, is served from the one contiguous key range those literals encode. Every
+route — per-leaf group summaries, leaf bounds, the span scan and the full-key scan — is restricted
+to the leaves that can hold that range; boundary leaves contribute only their in-range groups, and
+their wider bounds only weaken pruning. Equality columns must be string columns, so a literal
+compares as the interpreter compares it; any other shape falls back to the generic route.
+
+A row whose key value cannot be represented exactly (an unrepresentable or non-integral cell, or a
+string longer than 4 KiB) is still stored, under a reserved key that sorts after every ordinary
+key. The directory header counts such rows, and the sorted route declines — the generic route then
+answers — while the count is nonzero. Loads and commits never fail because of the declaration.
+
+Memory and maintenance cost:
+
+- The initial build keeps at most `sirix.projection.sortedRun.budgetBytes` of keys and references
+  on the heap. Beyond that it sorts the resident run, writes it to a temporary file under
+  `sirix.projection.sortedRun.spillDirectory` and reuses the blocks; publishing merges the runs with
+  one 128 KiB buffer per run and encodes leaves as keys stream past. Spill files are deleted after
+  the merge or when the build is released.
+- Per commit, maintenance derives each touched record's old key from the revision the writer
+  represents (after `revertTo`, the reverted-to revision) or from the record's last key in the
+  transaction; a view built inside the open transaction checks those keys against the view and
+  finds any others with one ordered scan. The commit's removals and insertions are applied as one
+  sorted batch: each touched leaf is rewritten, and its group summary re-encoded, once; each touched
+  bounds chunk is copied and published once. A leaf that overflows splits into balanced leaves, and
+  only directory nodes whose entries change are rewritten.
+
 ## Sorted span candidate priority
 
 For span views with at least 1,024 leaves, `ProjectionSortedSpanScan` builds a primitive max-heap
@@ -248,8 +283,17 @@ The composite COUNT kernel also defers dense dictionary-ID materialization when 
 
 Borrowed overflow input and coalesced-buffer views default on for every runtime, including
 ahead-of-time native-image executables and JVMs using the native LZ77 codec. Both modes are
-supported and preserve the same ownership and checksum contracts. Either property can explicitly
-disable (`false`) its path. The options are resolved once per reader.
+supported and preserve the same ownership and checksum contracts. Two switches control them; only
+the literal value `false` disables a path, and both are resolved once per reader:
+
+- `sirix.io.borrowOverflowInput` (default `true`) decodes overflow pages straight from the read
+  buffer when the byte pipeline is empty. `false` restores the owned temporary frame. It is also
+  the default for the batch switch below, so one `false` restores owned input on both paths.
+- `sirix.filechannel.borrowBatchInput` (default: the value of `sirix.io.borrowOverflowInput`)
+  decodes coalesced batch members from views of the batch read buffer. When set, it wins:
+  `-Dsirix.io.borrowOverflowInput=false -Dsirix.filechannel.borrowBatchInput=true` keeps batch
+  borrowing with owned overflow input, and `-Dsirix.filechannel.borrowBatchInput=false` alone
+  disables only batch borrowing.
 
 The selection is independent of schema, query text, row count, and persisted format. Controlled
 measurements found lower JVM allocation and better JVM aggregate query time with borrowing. An

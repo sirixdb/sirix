@@ -1,8 +1,8 @@
 # HOT read progress under continuous eviction
 
 This is intermediate correctness and 1M steering evidence for the JSONBench campaign.
-It does **not** establish a 100M win. The upstream workload and ranking pin are in
-[`../20260911-hot-leaf-offsets/upstream-pin.json`](../20260911-hot-leaf-offsets/upstream-pin.json).
+It does **not** establish a 100M win. The upstream workload and ranking pin are described in
+[`../20260911-hot-leaf-offsets/README.md`](../20260911-hot-leaf-offsets/README.md).
 
 ## Failure and repair
 
@@ -76,7 +76,6 @@ resource usage is retained, without attributing this small difference to the rep
 Both arms use GraalVM JDK 25.0.3, identical JVM flags (`-Xms4g -Xmx12g`, Vector API,
 native access and preview enabled), and frozen classpaths. All dependency artifacts
 match. The query JAR differs only in generated build provenance; its class files match.
-The core JAR differences are recorded in `eviction-jvm-jar-differences.json`.
 
 All builds, tests and query phases ran under continuous fail-closed telemetry guards.
 Accepted verdicts contain no guard failures. The machine remained on balanced profile
