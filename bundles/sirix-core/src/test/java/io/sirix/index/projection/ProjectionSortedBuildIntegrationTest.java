@@ -697,11 +697,8 @@ final class ProjectionSortedBuildIntegrationTest {
           final JsonIndexController controller =
               (JsonIndexController) session.getWtxIndexController(writer.getRevisionNumber());
           controller.createProjectionIndexAtLoadStart(wide, writer, 3L);
-          writer.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader(
-                  "[" + wideRecord(columns, "s") + "," + wideRecord(columns, longValue) + ","
-                      + wideRecord(columns, "t") + "]"),
-              JsonNodeTrx.Commit.NO);
+          writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + wideRecord(columns, "s") + ","
+              + wideRecord(columns, longValue) + "," + wideRecord(columns, "t") + "]"), JsonNodeTrx.Commit.NO);
           writer.commit();
         }
         final long[] recordKeys = new long[3];
@@ -795,11 +792,10 @@ final class ProjectionSortedBuildIntegrationTest {
   private static long insertFirstRecord(final JsonNodeTrx writer, final String did, final long time) {
     writer.moveToDocumentRoot();
     assertTrue(writer.moveToFirstChild());
-    return writer
-                 .insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-                     "{\"kind\":\"commit\",\"op\":\"create\",\"did\":\"" + did + "\",\"time\":" + time + "}"),
-                     JsonNodeTrx.Commit.NO)
-                 .getNodeKey();
+    return writer.insertSubtreeAsFirstChild(
+        JsonShredder.createStringReader(
+            "{\"kind\":\"commit\",\"op\":\"create\",\"did\":\"" + did + "\",\"time\":" + time + "}"),
+        JsonNodeTrx.Commit.NO).getNodeKey();
   }
 
   /** What a projection query served inside the write transaction does first. */

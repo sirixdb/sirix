@@ -83,7 +83,9 @@ final class ProjectionSortedRowEncoder {
     return layout;
   }
 
-  /** Whether the extractor's column kinds produce {@link #layout()}; otherwise every key is reserved. */
+  /**
+   * Whether the extractor's column kinds produce {@link #layout()}; otherwise every key is reserved.
+   */
   boolean encodesTargetLayout() {
     return encodesTargetLayout;
   }

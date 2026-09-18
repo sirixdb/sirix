@@ -25,9 +25,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Several projections of one shape may coexist, sorted or not, and the shape-only finder returns the
- * first catalogued one. That choice must survive a reopen: the catalogue is restored in the order
- * it was persisted, never in an order derived from per-process hash codes.
+ * Several projections of one shape may coexist, sorted or not, and the shape-only finder returns
+ * the first catalogued one. That choice must survive a reopen: the catalogue is restored in the
+ * order it was persisted, never in an order derived from per-process hash codes.
  */
 final class IndexesCatalogueOrderTest {
 

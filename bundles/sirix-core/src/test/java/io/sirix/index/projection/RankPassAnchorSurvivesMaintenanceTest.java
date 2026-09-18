@@ -245,7 +245,8 @@ final class RankPassAnchorSurvivesMaintenanceTest {
     final long anchor = metadata.valueDictionaryHeaderKey(0);
     assertTrue(anchor > 0);
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-      final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+      final ProjectionIndexHOTStorage storage =
+          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
       int row = 0;
       for (int rowGroupId = 1; rowGroupId <= metadata.rowGroupCount(); rowGroupId++) {
         final byte[] raw = storage.getRowGroupFromColumnSegmentSlots(rowGroupId);
@@ -256,8 +257,7 @@ final class RankPassAnchorSurvivesMaintenanceTest {
         final long[] ids = page.numericColumn(0);
         for (int i = 0; i < page.getRowCount(); i++) {
           assertEquals(expected[row],
-              GlobalValueDictionary.value(anchor, Math.toIntExact(ids[i]), wtx.getStorageEngineWriter()),
-              "row " + row);
+              GlobalValueDictionary.value(anchor, Math.toIntExact(ids[i]), wtx.getStorageEngineWriter()), "row " + row);
           row++;
         }
       }

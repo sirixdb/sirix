@@ -18,8 +18,8 @@ import java.util.Objects;
  * </p>
  *
  * <p>
- * A row whose sort field cannot be represented exactly (an unrepresentable or non-integral cell), or
- * whose whole key would exceed {@link #MAX_KEY_BYTES}, is kept under the reserved
+ * A row whose sort field cannot be represented exactly (an unrepresentable or non-integral cell),
+ * or whose whole key would exceed {@link #MAX_KEY_BYTES}, is kept under the reserved
  * {@link #UNENCODABLE} lead byte followed by its record key. Such keys sort after every ordinary
  * key, and the view counts them so readers can decline it while any exist.
  * </p>
@@ -38,9 +38,9 @@ final class ProjectionSortKeyCodec {
   static final byte UNENCODABLE = (byte) 0xFF;
 
   /**
-   * Longest row key, record key included, kept in a view. Every leaf and directory node therefore
-   * has room for at least fifteen keys, so eight directory levels address far more rows than a
-   * resource can hold, and every key stays within a run's two-byte length prefix.
+   * Longest row key, record key included, kept in a view. Every leaf and directory node therefore has
+   * room for at least fifteen keys, so eight directory levels address far more rows than a resource
+   * can hold, and every key stays within a run's two-byte length prefix.
    */
   static final int MAX_KEY_BYTES = 4096;
 

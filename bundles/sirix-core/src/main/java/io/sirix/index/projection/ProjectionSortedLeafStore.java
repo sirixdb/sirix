@@ -18,7 +18,9 @@ final class ProjectionSortedLeafStore {
   /** Test observation of data-leaf rewrites; production keeps it null and pays one null check. */
   private static volatile @Nullable IntConsumer writeObserverForTesting;
 
-  /** Test observation of data-leaf reads through a write transaction's storage; null in production. */
+  /**
+   * Test observation of data-leaf reads through a write transaction's storage; null in production.
+   */
   private static volatile @Nullable IntConsumer storageReadObserverForTesting;
 
   private ProjectionSortedLeafStore() {}
