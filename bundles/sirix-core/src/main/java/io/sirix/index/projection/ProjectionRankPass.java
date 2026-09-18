@@ -15,7 +15,9 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.PriorityQueue;
 
 /**
@@ -426,9 +428,16 @@ public final class ProjectionRankPass {
     // predicate pushdown that would show up only as latency, which is exactly the failure this
     // pass is measured against.
     anchors[column] = headerKey;
-    final ProjectionIndexMetadata next =
-        new ProjectionIndexMetadata(metadata.rootPath(), metadata.fieldPaths(), metadata.fieldNames(), kinds,
-            metadata.rowGroupCount(), wtx.getRevisionNumber(), metadata.setValueRowCounts(), anchors);
+    // A value-count summary is a per-leaf string dictionary's capability; the global column drops its
+    // summary and takes the scan route, exactly as a column that outgrows its summary does.
+    Map<Integer, Map<String, Long>> summaries = metadata.setValueRowCounts();
+    if (summaries != null && summaries.containsKey(column)) {
+      summaries = new LinkedHashMap<>(summaries);
+      summaries.remove(column);
+      storage.tombstoneBlob(ProjectionSetSummaryChunks.slotKey(column));
+    }
+    final ProjectionIndexMetadata next = new ProjectionIndexMetadata(metadata.rootPath(), metadata.fieldPaths(),
+        metadata.fieldNames(), kinds, metadata.rowGroupCount(), wtx.getRevisionNumber(), summaries, anchors);
     // Slot 0 LAST and in the SAME commit as every descriptor: the kind lives in both, and a store
     // whose leaves and metadata disagree refuses to build at all.
     storage.putBlob(0L, next.serialize());

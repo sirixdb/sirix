@@ -232,6 +232,79 @@ final class ProjectionSortedRunAccumulatorTest {
     }
   }
 
+  @Test
+  void spillFilesThatCannotBeDeletedNeverFailACompletedBuildOrMaskAFailure() throws IOException {
+    final Path databasePath = temporaryDirectory.resolve("undeletable-spill");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        final ProjectionSortedRunSpill spill = ProjectionSortedRunSpill.forResource(session.getResourceConfig());
+        final ProjectionSortedRunAccumulator completed =
+            new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE, 40L << 10, spill);
+        final byte[] scratch = new byte[96];
+        for (int i = 0; i < 1_000; i++) {
+          encode(i, scratch);
+          completed.append(scratch, scratch.length);
+        }
+        final Path completedDirectory = obstruct(completed);
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          assertEquals(1_000, completed.persist(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0)));
+          completed.release();
+          writer.commit();
+        }
+        assertTrue(Files.isDirectory(completedDirectory), "the obstructed build directory is left behind");
+        try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+          final ProjectionSortedDirectory.Accessor view =
+              ProjectionSortedDirectory.open(reader.getStorageEngineReader(), 0);
+          assertNotNull(view);
+          final ProjectionSortedDirectory.Accessor.Cursor cursor = view.first();
+          int rows = 0;
+          while (cursor.isValid()) {
+            rows++;
+            cursor.advance();
+          }
+          assertEquals(1_000, rows);
+        }
+
+        final ProjectionSortedRunAccumulator failing =
+            new ProjectionSortedRunAccumulator(SortedScanFixtures.GROUP_VALUE, 40L << 10, spill);
+        for (int i = 0; i < 1_000; i++) {
+          encode(i, scratch);
+          failing.append(scratch, scratch.length);
+        }
+        encode(3, scratch);
+        failing.append(scratch, scratch.length);
+        final Path failingDirectory = obstruct(failing);
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final IllegalStateException failure = assertThrows(IllegalStateException.class, () -> {
+            try {
+              failing.persist(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 1));
+            } finally {
+              failing.release();
+            }
+          });
+          assertTrue(failure.getMessage().contains("duplicate row key"), failure.getMessage());
+          writer.rollback();
+        }
+        assertTrue(Files.isDirectory(failingDirectory), "the obstructed build directory is left behind");
+
+        ProjectionSortedRunSpill.removeOrphanedRuns(session.getResourceConfig());
+        assertFalse(Files.exists(completedDirectory), "the next open removes what a released build left");
+        assertFalse(Files.exists(failingDirectory), "the next open removes what a released build left");
+      }
+    }
+  }
+
+  /** A foreign file keeps the build's run directory from being deleted. */
+  private static Path obstruct(final ProjectionSortedRunAccumulator run) throws IOException {
+    assertTrue(run.spilledRunCount() > 0, "the fixture must spill");
+    final Path directory = run.runDirectory();
+    assertNotNull(directory);
+    Files.writeString(directory.resolve("foreign"), "keeps the directory from being deleted");
+    return directory;
+  }
+
   /** A spill target without byte handlers, as a resource with an empty pipeline has. */
   private static ProjectionSortedRunSpill rawSpill(final Path directory) {
     return new ProjectionSortedRunSpill(directory, new ByteHandlerPipeline());

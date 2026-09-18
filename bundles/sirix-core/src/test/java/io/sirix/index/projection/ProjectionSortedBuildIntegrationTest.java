@@ -24,10 +24,15 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.IntStream;
 
 import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -35,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ProjectionSortedBuildIntegrationTest {
@@ -413,6 +419,367 @@ final class ProjectionSortedBuildIntegrationTest {
     }
   }
 
+  @Test
+  void aQueryInsideTheWriteTransactionKeepsTheViewExactThroughLaterEditsOfTheSameRecords() {
+    final Path databasePath = temporaryDirectory.resolve("sorted-wtx-query");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        loadThreeRecords(session);
+        final long[] recordKeys = new long[3];
+        readRecordKeys(session, recordKeys);
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          setDid(writer, recordKeys[0], "z");
+          setTime(writer, recordKeys[1], 50);
+          final long inserted = insertFirstRecord(writer, "d", 400);
+          queryInsideTransaction(session, writer);
+          setDid(writer, recordKeys[0], "a");
+          setTime(writer, recordKeys[1], 200);
+          setTime(writer, inserted, 10);
+          queryInsideTransaction(session, writer);
+          setTime(writer, recordKeys[2], 5);
+          writer.commit();
+        }
+        assertSortedRouteMatchesTheData(session, session.getMostRecentRevisionNumber());
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          setDid(writer, recordKeys[0], "y");
+          setTime(writer, recordKeys[1], 1);
+          writer.commit();
+        }
+        assertSortedRouteMatchesTheData(session, session.getMostRecentRevisionNumber());
+      }
+    }
+  }
+
+  @Test
+  void aCommitThatFailsAfterMaintenanceKeepsTheViewExactWhenRetriedAfterMoreEdits() {
+    final Path databasePath = temporaryDirectory.resolve("sorted-failed-commit");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        loadThreeRecords(session);
+        final long[] recordKeys = new long[3];
+        readRecordKeys(session, recordKeys);
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final AtomicBoolean failNextCommit = new AtomicBoolean(true);
+          // Pre-commit hooks run ahead of the commit's own maintenance, so this hook applies the
+          // maintenance itself and then fails: the commit fails after maintenance has run.
+          writer.addPreCommitHook(trx -> {
+            if (failNextCommit.getAndSet(false)) {
+              session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance(true);
+              throw new IllegalStateException("injected failure after index maintenance");
+            }
+          });
+          setDid(writer, recordKeys[0], "z");
+          setTime(writer, recordKeys[1], 50);
+          final IllegalStateException failure = assertThrows(IllegalStateException.class, writer::commit);
+          assertEquals("injected failure after index maintenance", failure.getMessage());
+          setDid(writer, recordKeys[0], "a");
+          setTime(writer, recordKeys[1], 200);
+          setTime(writer, recordKeys[2], 5);
+          writer.commit();
+        }
+        assertSortedRouteMatchesTheData(session, session.getMostRecentRevisionNumber());
+      }
+    }
+  }
+
+  @Test
+  void maintenanceUnderChangedColumnKindsDeclinesTheViewInsteadOfMixingEncodings() {
+    final Path databasePath = temporaryDirectory.resolve("sorted-changed-kinds");
+    // kind, op, at, did, time — ordered by all five; "at" is a declared timestamp.
+    final IndexDef timed = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
+        List.of(parse("/[]/kind", PathParser.Type.JSON), parse("/[]/op", PathParser.Type.JSON),
+            parse("/[]/at", PathParser.Type.JSON), parse("/[]/did", PathParser.Type.JSON),
+            parse("/[]/time", PathParser.Type.JSON)),
+        List.of(Type.STR, Type.STR, Type.DATI, Type.STR, Type.LON), 0, IndexDef.DbType.JSON,
+        new ProjectionSortedSpec(List.of(0, 1, 2, 3, 4)));
+    final byte[] stringLayout = {ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_STRING,
+        ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_LONG};
+    final byte[] prefix = prefix("commit", "create", "2024-01-01T00:00:00");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    final boolean previous = ProjectionTemporalCodec.setTemporalKindsEnabledForTesting(false);
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final JsonIndexController controller =
+              (JsonIndexController) session.getWtxIndexController(writer.getRevisionNumber());
+          controller.createProjectionIndexAtLoadStart(timed, writer, 3L);
+          writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+              [{"kind":"commit","op":"create","at":"2024-01-01T00:00:00","did":"a","time":100},
+               {"kind":"commit","op":"create","at":"2024-01-01T00:00:00","did":"b","time":200},
+               {"kind":"commit","op":"create","at":"2024-01-01T00:00:00","did":"c","time":300}]
+              """), JsonNodeTrx.Commit.NO);
+          writer.commit();
+        }
+        final long[] recordKeys = new long[3];
+        readRecordKeys(session, recordKeys);
+        assertEquals(List.of(new ProjectionSortedGroupScan.Group("a", 100, 100)),
+            topKAt(session, session.getMostRecentRevisionNumber(), prefix));
+
+        ProjectionTemporalCodec.setTemporalKindsEnabledForTesting(true);
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          setTime(writer, recordKeys[0], 50);
+          setDid(writer, recordKeys[1], "e");
+          writer.commit();
+        }
+        final int changed = session.getMostRecentRevisionNumber();
+        try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(changed)) {
+          final ProjectionSortedDirectory.Accessor directory =
+              ProjectionSortedDirectory.open(reader.getStorageEngineReader(), 0);
+          assertNotNull(directory);
+          assertArrayEquals(stringLayout, directory.layout().toBytes());
+          assertEquals(2, directory.unencodableRows());
+          final ProjectionSortedDirectory.Accessor.Cursor cursor = directory.first();
+          int rows = 0;
+          while (cursor.isValid()) {
+            final byte[] key = cursor.copyKey();
+            assertTrue(ProjectionSortKeyCodec.isUnencodable(key, key.length)
+                || directory.layout().lastFieldOffset(key, key.length) > 0, "row " + rows);
+            rows++;
+            cursor.advance();
+          }
+          assertEquals(3, rows);
+        }
+        assertNull(topKAt(session, changed, prefix));
+
+        ProjectionTemporalCodec.setTemporalKindsEnabledForTesting(false);
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          setTime(writer, recordKeys[0], 60);
+          setTime(writer, recordKeys[1], 70);
+          writer.commit();
+        }
+        final int repaired = session.getMostRecentRevisionNumber();
+        assertEquals(0, unencodableRows(session, repaired));
+        assertEquals(List.of(new ProjectionSortedGroupScan.Group("a", 60, 60)), topKAt(session, repaired, prefix));
+        try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(repaired)) {
+          final ProjectionSortedDirectory.Accessor.Cursor cursor =
+              ProjectionSortedDirectory.open(reader.getStorageEngineReader(), 0).first();
+          assertArrayEquals(timedKey("a", 60, recordKeys[0]), cursor.copyKey());
+          assertTrue(cursor.advance());
+          assertArrayEquals(timedKey("c", 300, recordKeys[2]), cursor.copyKey());
+          assertTrue(cursor.advance());
+          assertArrayEquals(timedKey("e", 70, recordKeys[1]), cursor.copyKey());
+          assertFalse(cursor.advance());
+        }
+      }
+    } finally {
+      ProjectionTemporalCodec.setTemporalKindsEnabledForTesting(previous);
+    }
+  }
+
+  @Test
+  void anOverlongCompositeSortKeyNeverFailsTheLoadOrACommit() {
+    final Path databasePath = temporaryDirectory.resolve("sorted-overlong-key");
+    final int columns = 17;
+    final IndexDef wide = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
+        IntStream.range(0, columns).mapToObj(column -> parse("/[]/c" + column, PathParser.Type.JSON)).toList(),
+        Collections.nCopies(columns, Type.STR), 0, IndexDef.DbType.JSON,
+        new ProjectionSortedSpec(IntStream.range(0, columns).boxed().toList()));
+    // Every field fits a key on its own; together they exceed even a run's two-byte key length.
+    final String longValue = "v".repeat(4000);
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final JsonIndexController controller =
+              (JsonIndexController) session.getWtxIndexController(writer.getRevisionNumber());
+          controller.createProjectionIndexAtLoadStart(wide, writer, 3L);
+          writer.insertSubtreeAsFirstChild(
+              JsonShredder.createStringReader(
+                  "[" + wideRecord(columns, "s") + "," + wideRecord(columns, longValue) + ","
+                      + wideRecord(columns, "t") + "]"),
+              JsonNodeTrx.Commit.NO);
+          writer.commit();
+        }
+        final long[] recordKeys = new long[3];
+        readRecordKeys(session, recordKeys);
+        assertEquals(1, unencodableRows(session, session.getMostRecentRevisionNumber()));
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          for (int column = 0; column < columns; column++) {
+            assertTrue(writer.moveTo(fieldKey(writer, recordKeys[2], "c" + column)));
+            writer.setStringValue(longValue);
+          }
+          writer.commit();
+        }
+        assertEquals(2, unencodableRows(session, session.getMostRecentRevisionNumber()));
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          for (int column = 0; column < columns; column++) {
+            assertTrue(writer.moveTo(fieldKey(writer, recordKeys[1], "c" + column)));
+            writer.setStringValue("u");
+            assertTrue(writer.moveTo(fieldKey(writer, recordKeys[2], "c" + column)));
+            writer.setStringValue("r");
+          }
+          writer.commit();
+        }
+        final int repaired = session.getMostRecentRevisionNumber();
+        assertEquals(0, unencodableRows(session, repaired));
+        try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(repaired)) {
+          final ProjectionSortedDirectory.Accessor.Cursor cursor =
+              ProjectionSortedDirectory.open(reader.getStorageEngineReader(), 0).first();
+          assertArrayEquals(wideKey(columns, "r", recordKeys[2]), cursor.copyKey());
+          assertTrue(cursor.advance());
+          assertArrayEquals(wideKey(columns, "s", recordKeys[0]), cursor.copyKey());
+          assertTrue(cursor.advance());
+          assertArrayEquals(wideKey(columns, "u", recordKeys[1]), cursor.copyKey());
+          assertFalse(cursor.advance());
+        }
+      }
+    }
+  }
+
+  private static String wideRecord(final int columns, final String value) {
+    final StringBuilder record = new StringBuilder(columns * (value.length() + 8)).append('{');
+    for (int column = 0; column < columns; column++) {
+      if (column > 0) {
+        record.append(',');
+      }
+      record.append("\"c").append(column).append("\":\"").append(value).append('"');
+    }
+    return record.append('}').toString();
+  }
+
+  private static byte[] wideKey(final int columns, final String value, final long recordKey) {
+    final ProjectionSortKeyCodec.Writer writer = new ProjectionSortKeyCodec.Writer();
+    for (int column = 0; column < columns; column++) {
+      appendString(writer, value);
+    }
+    writer.appendRecordKey(recordKey);
+    return writer.copyKey();
+  }
+
+  private static byte[] timedKey(final String did, final long time, final long recordKey) {
+    final ProjectionSortKeyCodec.Writer writer = new ProjectionSortKeyCodec.Writer();
+    appendString(writer, "commit");
+    appendString(writer, "create");
+    appendString(writer, "2024-01-01T00:00:00");
+    appendString(writer, did);
+    writer.appendLong(time);
+    writer.appendRecordKey(recordKey);
+    return writer.copyKey();
+  }
+
+  private static @Nullable List<ProjectionSortedGroupScan.Group> topKAt(final JsonResourceSession session,
+      final int revision, final byte[] prefix) {
+    try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
+      return topK(reader, prefix, 1, ProjectionSortedGroupScan.Order.MIN_ASC, true);
+    }
+  }
+
+  private static void loadThreeRecords(final JsonResourceSession session) {
+    try (JsonNodeTrx writer = session.beginNodeTrx()) {
+      final JsonIndexController controller =
+          (JsonIndexController) session.getWtxIndexController(writer.getRevisionNumber());
+      controller.createProjectionIndexAtLoadStart(definition(Type.STR), writer, 3L);
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+          [{"kind":"commit","op":"create","did":"a","time":100},
+           {"kind":"commit","op":"create","did":"b","time":200},
+           {"kind":"commit","op":"create","did":"c","time":300}]
+          """), JsonNodeTrx.Commit.NO);
+      writer.commit();
+    }
+  }
+
+  private static long insertFirstRecord(final JsonNodeTrx writer, final String did, final long time) {
+    writer.moveToDocumentRoot();
+    assertTrue(writer.moveToFirstChild());
+    return writer
+                 .insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+                     "{\"kind\":\"commit\",\"op\":\"create\",\"did\":\"" + did + "\",\"time\":" + time + "}"),
+                     JsonNodeTrx.Commit.NO)
+                 .getNodeKey();
+  }
+
+  /** What a projection query served inside the write transaction does first. */
+  private static void queryInsideTransaction(final JsonResourceSession session, final JsonNodeTrx writer) {
+    final JsonIndexController controller =
+        (JsonIndexController) session.getWtxIndexController(writer.getRevisionNumber());
+    assertNotNull(controller.openProjectionIndex(writer.getStorageEngineWriter(), RECORDS,
+        new String[] {"kind", "op", "did", "time"}));
+  }
+
+  /**
+   * The view holds exactly the keys of the revision's records, and the sorted route answers what a
+   * generic evaluation over those records answers.
+   */
+  private static void assertSortedRouteMatchesTheData(final JsonResourceSession session, final int revision) {
+    final List<Row> rows = rows(session, revision);
+    final ArrayList<byte[]> expectedKeys = new ArrayList<>(rows.size());
+    final HashMap<String, Long> firstTimeByDid = new HashMap<>();
+    for (final Row row : rows) {
+      expectedKeys.add(expected(row.kind(), row.op(), row.did(), row.time(), row.recordKey()));
+      if ("commit".equals(row.kind()) && "create".equals(row.op())) {
+        firstTimeByDid.merge(row.did(), row.time(), Math::min);
+      }
+    }
+    expectedKeys.sort(Arrays::compareUnsigned);
+    try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
+      final ProjectionSortedDirectory.Accessor directory =
+          ProjectionSortedDirectory.open(reader.getStorageEngineReader(), 0);
+      assertNotNull(directory);
+      assertEquals(0, directory.unencodableRows());
+      final ProjectionSortedDirectory.Accessor.Cursor cursor = directory.first();
+      for (final byte[] key : expectedKeys) {
+        assertTrue(cursor.isValid());
+        assertArrayEquals(key, cursor.copyKey());
+        cursor.advance();
+      }
+      assertFalse(cursor.isValid());
+    }
+    final ArrayList<Map.Entry<String, Long>> groups = new ArrayList<>(firstTimeByDid.entrySet());
+    groups.sort(Map.Entry.<String, Long>comparingByValue().thenComparing(Map.Entry.comparingByKey()));
+    final ArrayList<ProjectionSortedGroupScan.Group> generic = new ArrayList<>(2);
+    for (int i = 0; i < Math.min(2, groups.size()); i++) {
+      final Map.Entry<String, Long> group = groups.get(i);
+      generic.add(new ProjectionSortedGroupScan.Group(group.getKey(), group.getValue(), group.getValue()));
+    }
+    assertEquals(generic, sortedTopK(session, revision, Map.of("kind", "commit", "op", "create"), 2));
+  }
+
+  private record Row(long recordKey, String kind, String op, String did, long time) {
+  }
+
+  /** Every record of the revision, read field by field through the document itself. */
+  private static List<Row> rows(final JsonResourceSession session, final int revision) {
+    final ArrayList<Row> rows = new ArrayList<>();
+    try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
+      assertTrue(reader.moveToDocumentRoot());
+      assertTrue(reader.moveToFirstChild());
+      if (!reader.moveToFirstChild()) {
+        return rows;
+      }
+      do {
+        final long recordKey = reader.getNodeKey();
+        String kind = null;
+        String op = null;
+        String did = null;
+        long time = Long.MIN_VALUE;
+        assertTrue(reader.moveToFirstChild());
+        do {
+          switch (reader.getName().getLocalName()) {
+            case "kind" -> kind = reader.getValue();
+            case "op" -> op = reader.getValue();
+            case "did" -> did = reader.getValue();
+            case "time" -> time = reader.getNumberValue().longValue();
+            default -> throw new AssertionError("unexpected field " + reader.getName());
+          }
+        } while (reader.moveToRightSibling());
+        assertTrue(reader.moveTo(recordKey));
+        rows.add(new Row(recordKey, kind, op, did, time));
+      } while (reader.moveToRightSibling());
+    }
+    return rows;
+  }
+
+  private static void setDid(final JsonNodeTrx writer, final long recordKey, final String did) {
+    assertTrue(writer.moveTo(fieldKey(writer, recordKey, "did")));
+    writer.setStringValue(did);
+  }
+
   /** Fields kind, op, did, time; the view is ordered by all four, kind typed as given. */
   private static IndexDef definition(final Type kindType) {
     return IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
@@ -472,10 +839,11 @@ final class ProjectionSortedBuildIntegrationTest {
     throw new AssertionError("record " + recordKey + " has no field " + field);
   }
 
-  private static byte[] prefix(final String kind, final String op) {
+  private static byte[] prefix(final String... values) {
     final ProjectionSortKeyCodec.Writer writer = new ProjectionSortKeyCodec.Writer();
-    appendString(writer, kind);
-    appendString(writer, op);
+    for (final String value : values) {
+      appendString(writer, value);
+    }
     return writer.copyKey();
   }
 

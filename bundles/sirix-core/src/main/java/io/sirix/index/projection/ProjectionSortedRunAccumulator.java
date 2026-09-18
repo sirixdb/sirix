@@ -6,6 +6,8 @@ package io.sirix.index.projection;
 import io.sirix.exception.SirixIOException;
 import it.unimi.dsi.fastutil.longs.LongArrays;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -43,6 +45,7 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
   private static final int MAX_KEY_BYTES = 0xFFFF;
   private static final int INITIAL_REFERENCES = 4096;
   private static final int IO_BUFFER_BYTES = 1 << 17;
+  private static final Logger LOGGER = LoggerFactory.getLogger(ProjectionSortedRunAccumulator.class);
 
   private final ProjectionSortKeyCodec.Layout layout;
   private final long budgetBytes;
@@ -475,7 +478,12 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
     heap[parent] = value;
   }
 
-  /** Delete every run file and this build's directory, then stop protecting the directory. */
+  /**
+   * Delete every run file and this build's directory, then stop protecting the directory. Best
+   * effort: this runs after a build completed or while it is released on a failure, so a file that
+   * cannot be deleted is logged and left to the orphan cleanup of the resource's next open rather
+   * than failing a published view or replacing the failure being handled.
+   */
   private void deleteSpillFiles() {
     final Path directory = runDirectory;
     IOException failure = null;
@@ -506,8 +514,8 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
       }
     }
     if (failure != null) {
-      throw new SirixIOException("Sorted projection view cannot delete its sorted runs in " + directory + ": " + failure
-          + ". They are removed the next time the resource is opened.", failure);
+      LOGGER.warn("Sorted projection view cannot delete its sorted runs in {}; they are removed the next time the "
+          + "resource is opened", directory, failure);
     }
   }
 

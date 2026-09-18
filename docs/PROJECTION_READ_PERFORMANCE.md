@@ -219,11 +219,20 @@ to the leaves that can hold that range; boundary leaves contribute only their in
 their wider bounds only weaken pruning. Equality columns must be string columns, so a literal
 compares as the interpreter compares it; any other shape falls back to the generic route.
 
-A row whose key value cannot be represented exactly (an unrepresentable or non-integral cell, or a
-string longer than 4 KiB) is still stored, under a reserved key that sorts after every ordinary
-key. The directory header counts such rows, and the sorted route declines — the generic route then
-answers — while the count is nonzero. An index declaration never rejects a valid document; a full or
-unwritable disk fails the load as any write does.
+A row whose key cannot be represented exactly (an unrepresentable or non-integral cell, or a whole
+encoded key longer than 4 KiB, record key included) is still stored, under a reserved key that
+sorts after every ordinary key. The directory header counts such rows, and the sorted route
+declines — the generic route then answers — while the count is nonzero. The key bound keeps room for
+at least fifteen keys in every leaf and directory node. The header also records the view's key
+layout. If the configured column kinds no longer produce that layout (for example after a
+`sirix.projection.temporalKinds` change for a timestamp key column), maintenance writes every row
+it touches under the reserved key rather than mixing two encodings, so the view declines until
+those rows are rewritten under matching kinds. An index declaration never rejects a valid document;
+a full or unwritable disk fails the load as any write does.
+
+When the aggregated field is optional, a query over a prefix range holding rows without that field
+may walk the range up to twice before it falls back to the generic route: once through the leaf
+summaries and once key by key. Results stay exact; only such queries pay the extra walk.
 
 Memory and maintenance cost:
 
@@ -236,13 +245,15 @@ Memory and maintenance cost:
   configured with the `Encryptor` never writes a plaintext sort key to a run. Publishing merges the
   runs with one 128 KiB buffer per run (plus a 64 KiB stream buffer for stream handlers) and encodes
   leaves as keys stream past. Run files are deleted after the merge or when the build is released or
-  aborted; runs left by a process that died are deleted the next time the resource is opened, while
-  live builds in this or another running process are kept. An I/O error while spilling or merging
-  fails the load with an error naming the spill directory and its cause.
-- Per commit, maintenance derives each touched record's old key from the revision the writer
-  represents (after `revertTo`, the reverted-to revision) or from the record's last key in the
-  transaction; a view built inside the open transaction checks those keys against the view and
-  finds any others with one ordered scan. The commit's removals and insertions are applied as one
+  aborted. A run file that cannot be deleted is logged and never fails the build or masks another
+  failure; like the runs left by a process that died, it is deleted the next time the resource is
+  opened, while live builds in this or another running process are kept. An I/O error while
+  spilling or merging fails the load with an error naming the spill directory and its cause.
+- Per commit, maintenance takes each touched record's old key from the record's last key in the
+  transaction, which survives queries served inside the transaction and failed commits. Otherwise
+  it derives the key from the revision the writer represents (after `revertTo`, the reverted-to
+  revision) and uses it only if the view holds exactly that key. Any other record, such as one
+  whose row was built inside the open transaction, is found with one ordered scan. The commit's removals and insertions are applied as one
   sorted batch: each touched leaf is rewritten, and its group summary re-encoded, once; each touched
   bounds chunk is copied and published once. A leaf that overflows splits into balanced leaves, and
   only directory nodes whose entries change are rewritten.

@@ -219,12 +219,14 @@ public final class ClickBenchRunMain {
       // Open-time catalog warm, untimed by design: every ClickBench system loads its catalog
       // metadata when the database file opens (DuckDB reads its catalog and stats then); this
       // store's equivalent is the projection handle build (directory walk + bloom blocks). The
-      // segment readahead kicks here too, so it leads the first data query instead of racing it.
+      // whole-projection segment sweep is a store-wide prepass, so a cold round does not run it: like
+      // the executor's background sweep it runs only with -Dsirix.projection.prefetchAll=true.
       if (!Boolean.getBoolean("clickbench.catalogWarm.disabled")) {
         final ProjectionIndexRegistry.Handle warmHandle =
             ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(),
                 revision, new String[] {"[]"}, new String[] {"AdvEngineID"});
-        if (warmHandle != null && warmHandle.columnStoreOrNull() != null) {
+        if (warmHandle != null && warmHandle.columnStoreOrNull() != null
+            && Boolean.parseBoolean(System.getProperty("sirix.projection.prefetchAll", "false"))) {
           warmHandle.kickSegmentPrefetch(Runnable::run, () -> session.beginNodeReadOnlyTrx(revision),
               trx -> ((JsonNodeReadOnlyTrx) trx).getStorageEngineReader());
         }

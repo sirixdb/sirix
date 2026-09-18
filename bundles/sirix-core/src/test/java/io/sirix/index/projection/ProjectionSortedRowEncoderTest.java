@@ -26,6 +26,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static io.brackit.query.util.path.Path.parse;
 
@@ -38,7 +39,7 @@ final class ProjectionSortedRowEncoderTest {
   void everyRowHasOneKeyOrderedByUtf8AndUnrepresentableRowsGetTheReservedKey() {
     final Path databasePath = temporaryDirectory.resolve("sorted-encoder");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
-    final String longDid = "x".repeat(ProjectionSortKeyCodec.MAX_STRING_FIELD_BYTES + 1);
+    final String longDid = "x".repeat(ProjectionSortKeyCodec.MAX_KEY_BYTES + 1);
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
@@ -93,6 +94,62 @@ final class ProjectionSortedRowEncoderTest {
             assertArrayEquals(reserved.copyKey(), keys[i]);
             assertTrue(ProjectionSortKeyCodec.isUnencodable(keys[i], keys[i].length));
             assertTrue(Arrays.compareUnsigned(keys[1], keys[i]) < 0);
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  void aWholeKeyLongerThanTheKeyBoundIsUnencodableEvenWhenEveryFieldFits() {
+    final Path databasePath = temporaryDirectory.resolve("sorted-encoder-key-bound");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    // Three string fields (three framing bytes each), one long (nine) and the record key (eight)
+    // around "commit" and "create": a did of this length fills the bound exactly.
+    final int fittingDidLength = ProjectionSortKeyCodec.MAX_KEY_BYTES - 26 - 12;
+    final String third = "y".repeat(ProjectionSortKeyCodec.MAX_KEY_BYTES / 3);
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+              [{"kind":"commit","op":"create","did":"%s","time":1},
+               {"kind":"commit","op":"create","did":"%s","time":1},
+               {"kind":"%s","op":"%s","did":"%s","time":1}]
+              """.formatted("x".repeat(fittingDidLength), "x".repeat(fittingDidLength + 1), third, third, third)),
+              JsonNodeTrx.Commit.NO);
+          writer.commit();
+        }
+        try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx();
+            PathSummaryReader pathSummary = session.openPathSummary()) {
+          final IndexDef definition = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
+              List.of(parse("/[]/kind", PathParser.Type.JSON), parse("/[]/op", PathParser.Type.JSON),
+                  parse("/[]/did", PathParser.Type.JSON), parse("/[]/time", PathParser.Type.JSON)),
+              List.of(Type.STR, Type.STR, Type.STR, Type.LON), 0, IndexDef.DbType.JSON,
+              new ProjectionSortedSpec(List.of(0, 1, 2, 3)));
+          final ProjectionIndexRowExtractor extractor = new ProjectionIndexRowExtractor(definition, pathSummary);
+          final ProjectionSortedRowEncoder encoder = new ProjectionSortedRowEncoder(definition, extractor);
+          final long[] records = new long[3];
+          assertTrue(reader.moveToDocumentRoot());
+          assertTrue(reader.moveToFirstChild());
+          assertTrue(reader.moveToFirstChild());
+          for (int i = 0; i < records.length; i++) {
+            records[i] = reader.getNodeKey();
+            if (i + 1 < records.length) {
+              assertTrue(reader.moveToRightSibling());
+            }
+          }
+          assertTrue(extractor.extractInto(reader, records[0]));
+          encoder.writeKey(records[0]);
+          assertFalse(encoder.unencodable());
+          assertEquals(ProjectionSortKeyCodec.MAX_KEY_BYTES, encoder.keyLength());
+          for (int i = 1; i < records.length; i++) {
+            assertTrue(extractor.extractInto(reader, records[i]));
+            encoder.writeKey(records[i]);
+            assertTrue(encoder.unencodable(), "row " + i);
+            final ProjectionSortKeyCodec.Writer reserved = new ProjectionSortKeyCodec.Writer();
+            reserved.writeUnencodable(records[i]);
+            assertArrayEquals(reserved.copyKey(), encoder.copyKey());
           }
         }
       }

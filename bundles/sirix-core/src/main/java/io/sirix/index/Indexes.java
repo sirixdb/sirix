@@ -11,6 +11,7 @@ import io.brackit.query.util.path.PathException;
 import org.jspecify.annotations.Nullable;
 
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -86,8 +87,9 @@ public final class Indexes implements Materializable {
     // A controller is cached by prospective write revision and can therefore be reused after a
     // rollback. Parse into a detached set first, then replace the cache entry's catalogue in one
     // cold-path publication. Additive initialization would retain definitions created only in the
-    // aborted transaction and rebind listeners for index trees that were rolled back.
-    final Set<IndexDef> restoredIndexes = new HashSet<>();
+    // aborted transaction and rebind listeners for index trees that were rolled back. The persisted
+    // order is kept: "the first catalogued definition" of a shape must not change across a reopen.
+    final Set<IndexDef> restoredIndexes = new LinkedHashSet<>();
     try (Stream<? extends Node<?>> children = root.getChildren()) {
       Node<?> child;
       while ((child = children.next()) != null) {

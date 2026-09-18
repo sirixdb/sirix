@@ -141,10 +141,10 @@ Linux-only; elsewhere a run against the campaign database prints that it is not 
 continues, which makes its timings unusable as rig evidence. The rig's [`README.md`](rig/README.md)
 owns that contract and the measurement protocol.
 
-The default parallel path requires `hashType=NONE` and `storeNodeHistory=false`; both are already the
-ClickBench defaults. A non-standard hashed or temporal-history load must set
-`-Dclickbench.parallelImport=false`. The loader checks this before allocating off-heap memory or
-opening the target.
+The default parallel path requires `hashType=NONE`, which is already the ClickBench default. A
+hashed load must set `-Dclickbench.parallelImport=false`; the loader checks this before allocating
+off-heap memory or opening the target. Node history (`-DstoreNodeHistory=true`, default `false`)
+works on the parallel path too: the importer records the history of every node it adopts.
 
 `run-differential.sh` always loads with `clickbench.projection=true`,
 `clickbench.projection.incremental=true`, and the exact `buildPathSummary=true` property. For a file
@@ -760,6 +760,13 @@ It evicts the page cache before every round (`../common/evict.py`, `posix_fadvis
 for the CPU package to fall below 55 °C, runs each arm in a **fresh process**, and reports the best
 and median suite time per arm against the DuckDB reference (0.520 s cold / 0.351 s hot on the
 campaign box; override with `--duckdb-cold` / `--duckdb-hot`).
+
+A cold round does not pre-read the store. Before the first query, the runner's untimed open step
+only builds the projection's catalog handle (directory walk and Bloom blocks), just as every engine
+loads its catalog when it opens a database; `-Dclickbench.catalogWarm.disabled=true` skips that as
+well. The whole-projection segment sweep runs only with `-Dsirix.projection.prefetchAll=true`, the
+switch that also governs the executor's background sweep; set it to restore the sweep, for example
+for a long-lived process whose later queries touch most columns anyway.
 
 The JVM arm is a runtime frozen by `rig/measure.py prepare` for the database under test, and every
 round re-verifies against it. Which envelope it is frozen at is decided from the database, not from

@@ -12,8 +12,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Borrowed page input is the default on every runtime: an unset option resolves to borrowing, an
- * explicit {@code false} restores the owned-buffer path, and any other explicit value keeps
- * borrowing. The resolution is the same code whether the reader runs on a JVM or in a native image.
+ * explicit {@code false} (in any case, surrounding blanks ignored) restores the owned-buffer path,
+ * and any other explicit value keeps borrowing. The resolution is the same code whether the reader
+ * runs on a JVM or in a native image.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 final class BorrowedInputDefaultTest {
@@ -27,9 +28,13 @@ final class BorrowedInputDefaultTest {
   }
 
   @Test
-  void anExplicitFalseRestoresOwnedInputAndAnythingElseKeepsBorrowing() {
+  void anExplicitFalseInAnyCaseRestoresOwnedInputAndAnythingElseKeepsBorrowing() {
     try {
       System.setProperty(OPTION, "false");
+      assertFalse(AbstractReader.borrowedInputEnabled(OPTION));
+      System.setProperty(OPTION, "FALSE");
+      assertFalse(AbstractReader.borrowedInputEnabled(OPTION));
+      System.setProperty(OPTION, " False ");
       assertFalse(AbstractReader.borrowedInputEnabled(OPTION));
       System.setProperty(OPTION, "true");
       assertTrue(AbstractReader.borrowedInputEnabled(OPTION));

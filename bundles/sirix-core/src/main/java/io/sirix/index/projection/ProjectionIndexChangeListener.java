@@ -370,6 +370,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // A cached controller can outlive the write transaction. Drop every potentially large,
       // transaction-owned memo/batch now rather than waiting for the controller itself to be evicted.
       dirtyRecordKeys = null;
+      sortedKeyByRecord = null;
       dirtyColumnWordsByRecord = null;
       rootProvenanceByRecord = null;
       pendingStructuralRecords = null;
@@ -1715,7 +1716,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return;
     }
     applyPendingMaintenance();
-    sortedKeyByRecord = null;
   }
 
   /**
@@ -2439,11 +2439,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   /**
    * Apply exact key changes after the base rows are patched and before metadata is published. A
-   * record's prior key is what the view holds for it: the key of its last state seen in this
-   * transaction, otherwise of the revision the writer represents (which after {@code revertTo} is the
-   * reverted-to revision). A view built inside this transaction holds build-time keys instead, so
-   * there each derived prior key is checked against the view and any other record is found by one
-   * scan. The whole pass is one batched edit that rewrites each touched leaf once.
+   * record's prior key is what the view holds for it: the key this transaction last wrote for it,
+   * otherwise the key of its state in the revision the writer represents (which after
+   * {@code revertTo} is the reverted-to revision), provided the view holds exactly that key. Any
+   * other record — for instance one whose view row was built inside this transaction — is found by
+   * one ordered scan. Keys are encoded in the view's persisted layout; when the configured column
+   * kinds no longer produce that layout, every touched row is written under the reserved
+   * unencodable key, so the view declines instead of mixing encodings. The whole pass is one batched
+   * edit that rewrites each touched leaf once.
    */
   private void maintainSortedView(final ProjectionIndexHOTStorage storage, final LongOpenHashSet dirty,
       final Long2LongOpenHashMap locationByRecord) {
@@ -2477,16 +2480,15 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         PathSummaryReader priorPaths = needsPrior
             ? session.openPathSummary(priorRevision)
             : null) {
-      final boolean viewPredatesTransaction =
-          needsPrior && ProjectionSortedDirectory.open(priorReader.getStorageEngineReader(), indexDef.getID()) != null;
       final ProjectionIndexRowExtractor priorExtractor = needsPrior
           ? new ProjectionIndexRowExtractor(indexDef, priorPaths)
           : null;
       final ProjectionSortedRowEncoder priorEncoder = needsPrior
-          ? new ProjectionSortedRowEncoder(indexDef, priorExtractor)
+          ? new ProjectionSortedRowEncoder(indexDef, priorExtractor, editor.layout())
           : null;
       final ProjectionIndexRowExtractor currentExtractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
-      final ProjectionSortedRowEncoder currentEncoder = new ProjectionSortedRowEncoder(indexDef, currentExtractor);
+      final ProjectionSortedRowEncoder currentEncoder =
+          new ProjectionSortedRowEncoder(indexDef, currentExtractor, editor.layout());
       int at = 0;
       for (final LongIterator iterator = dirty.iterator(); iterator.hasNext(); at++) {
         final long recordKey = iterator.nextLong();
@@ -2497,11 +2499,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           if (extractInto(priorExtractor, priorReader, recordKey)) {
             priorEncoder.writeKey(recordKey);
             final byte[] candidate = priorEncoder.copyKey();
-            if (viewPredatesTransaction || editor.contains(candidate)) {
+            if (editor.contains(candidate)) {
               priorKeys[at] = candidate;
             }
-          } else if (viewPredatesTransaction) {
-            throw new IllegalStateException("prior sorted projection record " + recordKey + " is missing");
           }
           if (priorKeys[at] == null) {
             if (unresolved == null) {

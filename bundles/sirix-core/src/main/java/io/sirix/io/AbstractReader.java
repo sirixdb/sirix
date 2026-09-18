@@ -70,7 +70,7 @@ public abstract class AbstractReader implements Reader {
     final String configured = System.getProperty(option);
     return configured == null
         ? DEFAULT_BORROWED_INPUT
-        : !"false".equals(configured);
+        : !"false".equalsIgnoreCase(configured.trim());
   }
 
   /**

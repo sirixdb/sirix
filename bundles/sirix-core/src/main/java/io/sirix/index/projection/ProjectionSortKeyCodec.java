@@ -18,8 +18,8 @@ import java.util.Objects;
  * </p>
  *
  * <p>
- * A row whose sort field cannot be represented exactly (an unrepresentable or non-integral cell, or
- * a string longer than {@link #MAX_STRING_FIELD_BYTES}) is kept under the reserved
+ * A row whose sort field cannot be represented exactly (an unrepresentable or non-integral cell), or
+ * whose whole key would exceed {@link #MAX_KEY_BYTES}, is kept under the reserved
  * {@link #UNENCODABLE} lead byte followed by its record key. Such keys sort after every ordinary
  * key, and the view counts them so readers can decline it while any exist.
  * </p>
@@ -37,15 +37,19 @@ final class ProjectionSortKeyCodec {
   static final byte PRESENT = 1;
   static final byte UNENCODABLE = (byte) 0xFF;
 
-  /** Longest UTF-8 string field kept in a key, which keeps every key far below a leaf's capacity. */
-  static final int MAX_STRING_FIELD_BYTES = 4096;
+  /**
+   * Longest row key, record key included, kept in a view. Every leaf and directory node therefore
+   * has room for at least fifteen keys, so eight directory levels address far more rows than a
+   * resource can hold, and every key stays within a run's two-byte length prefix.
+   */
+  static final int MAX_KEY_BYTES = 4096;
 
   static final byte FIELD_STRING = 1;
   static final byte FIELD_LONG = 2;
   static final byte FIELD_BOOLEAN = 3;
 
   private static final int DEFAULT_CAPACITY = 128;
-  private static final int MAX_KEY_BYTES = Integer.MAX_VALUE - 8;
+  private static final int MAX_BUFFER_BYTES = Integer.MAX_VALUE - 8;
 
   private ProjectionSortKeyCodec() {}
 
@@ -270,7 +274,7 @@ final class ProjectionSortKeyCodec {
           zeroCount++;
         }
       }
-      if ((long) valueLength + zeroCount + 3L > MAX_KEY_BYTES - length) {
+      if ((long) valueLength + zeroCount + 3L > MAX_BUFFER_BYTES - length) {
         throw new IllegalArgumentException("projection sort key is too large");
       }
       ensureCapacity(valueLength + zeroCount + 3);
@@ -329,16 +333,16 @@ final class ProjectionSortKeyCodec {
     }
 
     private void ensureCapacity(final int additional) {
-      if (additional < 0 || additional > MAX_KEY_BYTES - length) {
+      if (additional < 0 || additional > MAX_BUFFER_BYTES - length) {
         throw new IllegalArgumentException("projection sort key is too large");
       }
       final int required = length + additional;
       if (required <= bytes.length) {
         return;
       }
-      final int doubled = bytes.length <= MAX_KEY_BYTES / 2
+      final int doubled = bytes.length <= MAX_BUFFER_BYTES / 2
           ? bytes.length << 1
-          : MAX_KEY_BYTES;
+          : MAX_BUFFER_BYTES;
       bytes = Arrays.copyOf(bytes, Math.max(required, doubled));
     }
   }
