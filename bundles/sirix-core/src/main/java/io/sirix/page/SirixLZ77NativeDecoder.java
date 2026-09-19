@@ -58,11 +58,10 @@ public final class SirixLZ77NativeDecoder {
 
   /**
    * The signature has no library, arena, property or process state; the symbol is passed per call.
-   * Native Image initializes this holder at run time by default, because the 25.0.x LTS line
-   * rejects a build-time downcall handle with a {@code linkToNative} compilation error. An
-   * optimized build on a GraalVM 25 innovation release 25.1.3 or later may preinitialize this
-   * pure adapter; the library and its symbol remain process-local runtime state. See
-   * {@code docs/NATIVE_IMAGE.md}.
+   * Native Image initializes this holder at run time by default, because the 25.0.x LTS line rejects
+   * a build-time downcall handle with a {@code linkToNative} compilation error. An optimized build on
+   * a GraalVM 25 innovation release 25.1.3 or later may preinitialize this pure adapter; the library
+   * and its symbol remain process-local runtime state. See {@code docs/NATIVE_IMAGE.md}.
    */
   private static final class DecodeCall {
     private static final MethodHandle HANDLE =

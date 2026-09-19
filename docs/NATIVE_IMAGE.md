@@ -179,7 +179,6 @@ plain `-O3` is the better build here.
 Caveat: 25.1-dev is a **pre-release EA build** — treat these as a preview until
 the intrinsification ships in a stable GraalVM.
 
-
 ## Optional constant FFM adapters for optimized builds
 
 The portable configuration initializes FFM downcall adapters at run time, because the GraalVM
