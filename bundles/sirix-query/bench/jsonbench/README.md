@@ -142,11 +142,13 @@ does not control the lower filesystem cache on this host's eCryptfs workspace.
 
 The projection's sorted view is now declared by columns only — `kind`, `operation`, `collection`,
 `did`, `time_us`, ClickHouse's `ORDER BY` for this table — and Q4/Q5's equality filter is served
-as a key range of that view. **The column-only sorted view has not been built or measured at 100M.**
-Every load time, data size and Q4/Q5 figure quoted in this README describes the earlier view, which
-stored only the rows matching Q4/Q5's literals. The column-only view holds every row, so all three
-change; a separate 100M rebuild and measurement is required before these figures may be quoted for
-the current code.
+as a key range of that view. The column-only view has been built at 100M: it loads in 35m13s to a
+37,170,382,376-byte database, 6.54% larger than the earlier view's, and all five answers are exact
+with Q4/Q5 served by the sorted prefix range. Because the earlier view stored only the rows matching
+Q4/Q5's literals while this one holds every row, the load time, data size and Q4/Q5 figures quoted
+elsewhere in this README still describe that earlier structure. On the measured column-only view,
+Q4/Q5 cold/hot medians are 0.047/0.032 s and 0.108/0.074 s, against 0.046/0.027 s and 0.084/0.055 s
+for the earlier one: still well ahead of ClickHouse, but slower than the filtered structure.
 
 Databases built by earlier heads of this branch (up to and including commit `7a619dd20`), among them
 the retained local 100M JSONBench databases, must be rebuilt. Their index catalogue still declares

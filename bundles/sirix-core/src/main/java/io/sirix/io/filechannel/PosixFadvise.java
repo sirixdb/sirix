@@ -57,7 +57,13 @@ final class PosixFadvise {
   private static final MemorySegment POSIX_FADVISE;
   private static final boolean SUPPORTED;
 
-  /** Constant call adapter; the platform symbol and file descriptors remain runtime state. */
+  /**
+   * Constant call adapter; the platform symbol and file descriptors remain runtime state.
+   * Native Image initializes this holder at run time by default, because the 25.0.x LTS line
+   * rejects a build-time downcall handle with a {@code linkToNative} compilation error. An
+   * optimized build on a GraalVM 25 innovation release 25.1.3 or later may preinitialize this
+   * pure adapter; see {@code docs/NATIVE_IMAGE.md}.
+   */
   private static final class AdviceCall {
     private static final MethodHandle HANDLE =
         Linker.nativeLinker().downcallHandle(FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_INT));

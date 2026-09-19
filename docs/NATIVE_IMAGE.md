@@ -178,3 +178,41 @@ plain `-O3` is the better build here.
 
 Caveat: 25.1-dev is a **pre-release EA build** — treat these as a preview until
 the intrinsification ships in a stable GraalVM.
+
+
+## Optional constant FFM adapters for optimized builds
+
+The portable configuration initializes FFM downcall adapters at run time, because the GraalVM
+25.0.x LTS line rejects build-time adapters with a `linkToNative` compilation error. Build-time
+downcall handles need a GraalVM 25 **innovation** release 25.1.3 or later, which carries upstream
+[oracle/graal PR 13309](https://github.com/oracle/graal/pull/13309), "Support build-time
+initialization of downcall handles". Keep the run-time default for every other toolchain, and do
+not add the adapters to the shared `native-image.properties` build-time list: CI resolves
+`java-version: '25'` to the LTS line, which would fail the build.
+
+An optimized main image can opt in with `-Pnative.preinitializeDowncalls=true`. This adds:
+
+```text
+--initialize-at-build-time=io.sirix.page.SirixLZ77NativeDecoder$DecodeCall,io.sirix.io.filechannel.PosixFadvise$AdviceCall
+```
+
+The option is independent of the chosen main class, schema, query, storage contents, and PGO profile.
+Only pure call-signature adapters are initialized early. Library loading, symbol addresses, file
+descriptors, and allocator state remain runtime state. The smoke-test image retains its portable
+configuration. Shell commands must single-quote the raw Native Image argument to preserve `$`.
+
+This optimization was verified on GraalVM CE `25.3.4.1` and on the Oracle GraalVM 25.4 development
+build (`25.4.4.1.1-dev`, Java `25.0.4.1.1`, compiler revision
+`cb905c0ea0e868072ee525107e468ac2b5ff964d`), using `-O3`, G1 and the retained PGO profiles. Oracle
+GraalVM `25.0.4` rejects it with `linkToNative`, the same error CI hits. Builds with the two
+adapters preinitialized reproduced all five 100M JSONBench answers exactly and recovered the Q2/Q3
+regression that the run-time adapters introduced: roughly 160 ms per Q3 query and 90-120 ms per Q2
+query. Treat the option as explicitly toolchain-dependent: validate that the image builds and run
+the application's exactness checks before enabling it with another GraalVM build. It is not enabled
+automatically by version string or by benchmark detection.
+
+Pin the builder JDK when you enable it, and check the `Java version` / `vendor version` banner the
+builder prints. Exporting `JAVA_HOME` is not enough: a Gradle daemon that is already running
+supplies its own JDK, so the build can silently use a different GraalVM than you intended and fail
+with `linkToNative` even though the right toolchain is installed. Pass
+`-Dorg.gradle.java.home=<graalvm>` (which starts a daemon with that JDK) and confirm the banner.

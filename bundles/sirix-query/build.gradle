@@ -747,6 +747,11 @@ graalvmNative {
             imageName = (project.findProperty('native.imageName') ?: 'sirix-bench').toString()
             mainClass = (project.findProperty('native.mainClass') ?: 'io.sirix.query.bench.ScaleBenchMain').toString()
             sharedLibrary = false
+            // Optional optimization for toolchains that can compile constant FFM adapters.
+            // Keep the portable resource defaults and smoke-test binary unchanged.
+            if (project.providers.gradleProperty('native.preinitializeDowncalls').getOrElse('false').toBoolean()) {
+                buildArgs.add('--initialize-at-build-time=io.sirix.page.SirixLZ77NativeDecoder$DecodeCall,io.sirix.io.filechannel.PosixFadvise$AdviceCall')
+            }
             // Preview features and vector API
             buildArgs.add('--enable-preview')
             buildArgs.add('--enable-native-access=ALL-UNNAMED')
