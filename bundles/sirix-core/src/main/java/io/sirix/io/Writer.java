@@ -135,11 +135,12 @@ public interface Writer extends Reader {
    * rollback.
    *
    * <p>
-   * The immutable side-page staging path writes payloads ahead of the final root. It is only enabled
-   * when the backend derives each new writer's logical append frontier from the last durable
-   * revision, so an aborted transaction's tail is overwritten rather than becoming an unbounded
-   * physical leak. Backends with append-at-physical-size semantics and in-memory maps must retain the
-   * default {@code false} and write such pages during the final commit instead.
+   * A backend that returns {@code true} derives each new writer's logical append frontier from the
+   * last durable revision, so the next writer overwrites an aborted transaction's tail; the storage
+   * engine drops the resource's cached pages before that reuse. Append-at-physical-size backends
+   * leave the tail unreachable in the file and in-memory backends take no such pages; both keep the
+   * default {@code false}. Whether a backend takes such pages at all is
+   * {@link #supportsUncommittedWrites()}.
    * </p>
    */
   default boolean supportsReclaimableUncommittedWrites() {

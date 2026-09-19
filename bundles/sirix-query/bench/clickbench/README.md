@@ -295,9 +295,9 @@ python3 bundles/sirix-query/bench/clickbench/hft_gc_gate.py \
 The extra `-Xms4g -Xmx4g` arguments occur after the ClickBench Gradle task's defaults, so the
 measurement JVM really has a fixed 4 GiB heap. `-XX:+DisableExplicitGC` ensures a forbidden old/full
 event reflects organic pressure rather than a diagnostic `System.gc()` call. Keep
-`-DstorageType=FILE_CHANNEL`: 64-bit Linux otherwise defaults to `MEMORY_MAPPED`, while safe
-side-page prewrite is capability-gated to the preallocated file-channel writer. Omitting the flag
-would measure the fallback and can retain payload that the intended path releases.
+`-DstorageType=FILE_CHANNEL`, also the loader's default and the gate's required `storage` value: the
+store itself defaults to `MEMORY_MAPPED` on 64-bit Linux, which writes side pages ahead of the commit
+too but pins the legacy grow-the-file commit profile, so it would measure a different commit path.
 `-XX:MetaspaceSize=256m -XX:MaxMetaspaceSize=512m` likewise belongs to the measurement contract:
 without the initial metaspace headroom, deterministic class loading can trigger a G1
 `Metadata GC Threshold` concurrent cycle just after the start marker and make every otherwise
