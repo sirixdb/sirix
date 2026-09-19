@@ -8,6 +8,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.function.IntConsumer;
 
 /**
  * Per-data-leaf extrema of the last (ordered long) key field, grouped by every preceding field. An
@@ -18,7 +19,24 @@ final class ProjectionSortedGroupSummary {
   static final long SLOT_BASE = ProjectionSortedLeafStore.LEAF_SLOT_BASE + (2L << 32);
   static final int PAYLOAD_BYTES = 2 * Long.BYTES;
 
+  /**
+   * Test observation of the group summaries a query's reader fetches, which is how the summaries
+   * walk is told apart from the full-key walk; null in production.
+   */
+  private static volatile @Nullable IntConsumer readObserverForTesting;
+
   private ProjectionSortedGroupSummary() {}
+
+  static void setReadObserverForTesting(final @Nullable IntConsumer observer) {
+    readObserverForTesting = observer;
+  }
+
+  private static void observeRead(final int leafId) {
+    final IntConsumer observer = readObserverForTesting;
+    if (observer != null) {
+      observer.accept(leafId);
+    }
+  }
 
   /**
    * Unsupported layouts, unencodable rows and missing values have no summary; callers retain the
@@ -92,7 +110,7 @@ final class ProjectionSortedGroupSummary {
 
   static @Nullable ProjectionSortedLeaf read(final StorageEngineReader reader, final int indexNumber,
       final int leafId) {
-    ProjectionSortedLeafStore.observeQueryRead(leafId);
+    observeRead(leafId);
     final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot(leafId));
     return bytes == null
         ? null
@@ -108,7 +126,7 @@ final class ProjectionSortedGroupSummary {
     Objects.checkFromToIndex(from, to, out.length);
     final long[] slots = new long[to - from];
     for (int i = from; i < to; i++) {
-      ProjectionSortedLeafStore.observeQueryRead(leafIds[i]);
+      observeRead(leafIds[i]);
       slots[i - from] = slot(leafIds[i]);
     }
     final byte[][] payloads = ProjectionIndexHOTStorage.readBlobBatch(reader, indexNumber, slots);

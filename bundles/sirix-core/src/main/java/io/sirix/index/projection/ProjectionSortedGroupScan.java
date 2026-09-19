@@ -67,6 +67,29 @@ public final class ProjectionSortedGroupScan {
     }
   }
 
+  /**
+   * Whether a summaries-route decline also proves that the full-key walk cannot serve the range.
+   *
+   * <p>
+   * It does when a leaf lying entirely inside the queried range has no group summary and the view's
+   * header counts rows with no aggregate value: such a leaf then holds one of those rows, inside the
+   * range, and the full-key walk would reach it and decline too. A leaf that only meets the range at
+   * one of its two boundaries proves nothing, because the offending row may be one of the leaf's rows
+   * outside the range — that walk still runs, exactly as it did before the count existed.
+   * </p>
+   */
+  static final class SummaryDecline {
+    private boolean proven;
+
+    boolean proven() {
+      return proven;
+    }
+
+    private void prove() {
+      proven = true;
+    }
+  }
+
   public enum Order {
     MIN_ASC, MAX_DESC, SPAN_DESC
   }
@@ -76,6 +99,9 @@ public final class ProjectionSortedGroupScan {
 
   /** No equality prefix: the whole view, for a view with exactly a group and a value field. */
   static final byte[] NO_PREFIX = ProjectionSortedDirectory.NO_BOUND;
+
+  /** Scratch that has not held a key yet; every real key is longer, so the first use replaces it. */
+  private static final byte[] NO_KEY = new byte[0];
 
   private ProjectionSortedGroupScan() {}
 
@@ -112,10 +138,7 @@ public final class ProjectionSortedGroupScan {
       throw new IllegalArgumentException("unsupported sorted group top-K request");
     }
     final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(reader, indexNumber);
-    // Both constant-time declines, before either walk: a view holding rows it cannot order exactly,
-    // and one holding rows with no aggregate value, can prove no group's extrema and would otherwise
-    // give up only after the summaries route and then the full-key route had each walked the range.
-    if (directory == null || directory.unencodableRows() > 0 || directory.declinesWithoutAggregateValues()) {
+    if (directory == null || directory.unencodableRows() > 0) {
       return null;
     }
     final ProjectionSortKeyCodec.Layout layout = directory.layout();
@@ -153,10 +176,21 @@ public final class ProjectionSortedGroupScan {
                   Math.min(Runtime.getRuntime().availableProcessors(),
                       directory.leafCount(prefix, upper, MAX_SUMMARY_WORKERS * LEAVES_PER_SUMMARY_WORKER)
                           / LEAVES_PER_SUMMARY_WORKER));
+      // The header count is the cheap whole-view fact that enables the per-leaf proof below; while
+      // it is zero or unknown the summaries route keeps every decision it had, at no added cost.
+      final SummaryDecline decline = directory.holdsRowsWithoutAggregateValues()
+          ? new SummaryDecline()
+          : null;
       final List<Group> summarized = topKFromSummaries(reader, indexNumber, directory, prefix, upper, limit, order,
-          spanDivisor, minOnly, workerReaders, workers);
+          spanDivisor, minOnly, workerReaders, workers, decline);
       if (summarized != null) {
         return summarized;
+      }
+      if (decline != null && decline.proven()) {
+        // A leaf lying entirely inside the range has no summary, and the view holds rows with no
+        // aggregate value, so that leaf holds one of them and it is inside the range. The full-key
+        // walk would seek the prefix only to reach it and decline; the second walk buys nothing.
+        return null;
       }
     }
     final ProjectionSortedDirectory.Accessor.Cursor cursor = directory.seek(prefix);
@@ -426,7 +460,7 @@ public final class ProjectionSortedGroupScan {
       final ProjectionSortedDirectory.Accessor directory, final int limit, final Order order, final long spanDivisor,
       final boolean minOnly) {
     return topKFromSummaries(reader, indexNumber, directory, NO_PREFIX, null, limit, order, spanDivisor, minOnly, null,
-        0);
+        0, null);
   }
 
   /** Explicit worker count keeps parallel/serial equivalence tests independent of machine size. */
@@ -434,17 +468,32 @@ public final class ProjectionSortedGroupScan {
       final ProjectionSortedDirectory.Accessor directory, final int limit, final Order order, final long spanDivisor,
       final boolean minOnly, final @Nullable ParallelWalkReaders workerReaders, final int workers) {
     return topKFromSummaries(reader, indexNumber, directory, NO_PREFIX, null, limit, order, spanDivisor, minOnly,
-        workerReaders, workers);
+        workerReaders, workers, null);
+  }
+
+  static @Nullable List<Group> topKFromSummaries(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSortedDirectory.Accessor directory, final byte[] prefix, final byte @Nullable [] upper,
+      final int limit, final Order order, final long spanDivisor, final boolean minOnly,
+      final @Nullable ParallelWalkReaders workerReaders, final int workers) {
+    return topKFromSummaries(reader, indexNumber, directory, prefix, upper, limit, order, spanDivisor, minOnly,
+        workerReaders, workers, null);
   }
 
   /**
    * Fold the per-leaf group summaries of the leaves that can hold {@code prefix}, in key order.
    * Entries outside the prefix occur only in the two boundary leaves and are skipped.
+   *
+   * <p>
+   * {@code decline}, when given, receives whether a decline through a missing summary also proves
+   * that the full-key walk cannot serve this range; see {@link SummaryDecline}. Passing it is what
+   * asks the window for the per-leaf range test, so a caller that cannot use the proof pays nothing.
+   * </p>
    */
   static @Nullable List<Group> topKFromSummaries(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory, final byte[] prefix, final byte @Nullable [] upper,
       final int limit, final Order order, final long spanDivisor, final boolean minOnly,
-      final @Nullable ParallelWalkReaders workerReaders, final int workers) {
+      final @Nullable ParallelWalkReaders workerReaders, final int workers,
+      final @Nullable SummaryDecline decline) {
     final ProjectionSortKeyCodec.Layout layout = directory.layout();
     final int capacity = limit + 1;
     final byte[][] winners = new byte[capacity][];
@@ -458,12 +507,18 @@ public final class ProjectionSortedGroupScan {
     long groupMin = 0;
     long groupMax = 0;
     int retained = 0;
-    final SummaryWindow summaries =
-        new SummaryWindow(reader, indexNumber, directory.leaves(prefix, upper), workerReaders, workers);
+    final SummaryWindow summaries = new SummaryWindow(reader, indexNumber, directory.leaves(prefix, upper),
+        workerReaders, workers, decline == null
+            ? null
+            : prefix, upper);
     while (summaries.hasNext()) {
       final ProjectionSortedLeaf summary = summaries.next();
       if (summary == null) {
-        return null; // an old or partially backfilled revision still uses the full-key route
+        // Otherwise an old or partially backfilled revision, which still uses the full-key route.
+        if (decline != null && summaries.lastLeafWasEntirelyInsideRange()) {
+          decline.prove();
+        }
+        return null;
       }
       for (int row = 0; row < summary.rowCount(); row++) {
         final int length = summary.keyLength(row);
@@ -525,12 +580,18 @@ public final class ProjectionSortedGroupScan {
     private final int workers;
     private final int[] leafIds;
     private final ProjectionSortedLeaf[] summaries;
+    /** Non-null only when the caller wants the per-leaf range test; then the queried lower bound. */
+    private final byte @Nullable [] prefix;
+    private final byte @Nullable [] upperExclusive;
+    private final boolean @Nullable [] entirelyInside;
+    private byte[] firstKey = NO_KEY;
+    private boolean lastEntirelyInside;
     private int position;
     private int size;
 
     SummaryWindow(final StorageEngineReader reader, final int indexNumber,
         final ProjectionSortedDirectory.Accessor.LeafCursor cursor, final @Nullable ParallelWalkReaders workerReaders,
-        final int requestedWorkers) {
+        final int requestedWorkers, final byte @Nullable [] prefix, final byte @Nullable [] upperExclusive) {
       if (requestedWorkers < 0 || requestedWorkers > 8) {
         throw new IllegalArgumentException("invalid sorted-summary worker count: " + requestedWorkers);
       }
@@ -546,6 +607,11 @@ public final class ProjectionSortedGroupScan {
           : 1024;
       this.leafIds = new int[capacity];
       this.summaries = new ProjectionSortedLeaf[capacity];
+      this.prefix = prefix;
+      this.upperExclusive = upperExclusive;
+      this.entirelyInside = prefix == null
+          ? null
+          : new boolean[capacity];
     }
 
     boolean hasNext() {
@@ -558,16 +624,35 @@ public final class ProjectionSortedGroupScan {
         fill();
       }
       final ProjectionSortedLeaf summary = summaries[position];
-      summaries[position++] = null;
+      summaries[position] = null;
+      lastEntirelyInside = entirelyInside != null && entirelyInside[position];
+      position++;
       return summary;
+    }
+
+    /**
+     * Whether every row of the leaf {@link #next()} last returned lies inside the queried range.
+     * Answered from the fence keys the directory already holds, so it reads nothing, and it errs
+     * towards {@code false}: a range's first and last leaf are treated as boundaries even when they
+     * happen to hold no row outside it.
+     */
+    boolean lastLeafWasEntirelyInsideRange() {
+      return lastEntirelyInside;
     }
 
     private void fill() {
       size = 0;
       position = 0;
       while (size < leafIds.length && cursor.id() != 0) {
+        final int at = size;
         leafIds[size++] = cursor.id();
-        cursor.advance();
+        // The leaf's own first key decides the lower end; that another leaf of the range follows it
+        // decides the upper end, because that leaf's first key is below the range's upper bound.
+        final boolean insideLower = entirelyInside == null || startsWithPrefix();
+        final boolean more = cursor.advance();
+        if (entirelyInside != null) {
+          entirelyInside[at] = insideLower && (upperExclusive == null || more);
+        }
       }
       if (size == 0) {
         throw new IllegalStateException("sorted summary window is exhausted");
@@ -610,6 +695,19 @@ public final class ProjectionSortedGroupScan {
       if (failure instanceof Error error) {
         throw error;
       }
+    }
+
+    /** Whether the cursor's current leaf begins at or after the queried prefix. */
+    private boolean startsWithPrefix() {
+      if (prefix.length == 0) {
+        return true;
+      }
+      final int length = cursor.firstKeyLength();
+      if (length > firstKey.length) {
+        firstKey = new byte[length];
+      }
+      cursor.copyFirstKeyTo(firstKey);
+      return ProjectionSortKeyCodec.startsWith(firstKey, length, prefix);
     }
   }
 

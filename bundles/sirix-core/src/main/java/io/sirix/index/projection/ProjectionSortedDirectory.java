@@ -197,12 +197,13 @@ final class ProjectionSortedDirectory {
     }
 
     /**
-     * Whether a grouped extremum must decline this view because some row has no aggregate value.
-     * Such a row has no group summary and no provable extremum, so both accelerated routes and the
-     * full-key route would give up anyway — after walking the range. An uncounted view answers
-     * {@code false} and keeps taking those walks until the count is established.
+     * Whether the header states that some row has no aggregate value. Only then can a leaf without a
+     * group summary be explained by such a row, which is what lets the summaries route prove that the
+     * full-key walk cannot serve a range either. A zero count and an unknown one both answer
+     * {@code false} and leave every route exactly as it was: with a zero count a missing summary can
+     * only be an unsummarized revision, and with an unknown count it may be either.
      */
-    boolean declinesWithoutAggregateValues() {
+    boolean holdsRowsWithoutAggregateValues() {
       return missingAggregateRows > 0;
     }
 

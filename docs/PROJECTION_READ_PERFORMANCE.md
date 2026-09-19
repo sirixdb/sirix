@@ -222,10 +222,8 @@ compares as the interpreter compares it; any other shape falls back to the gener
 A row whose key cannot be represented exactly (an unrepresentable or non-integral cell, or a whole
 encoded key longer than 4 KiB, record key included) is still stored, under a reserved key that
 sorts after every ordinary key. The directory header counts such rows, and the sorted route
-declines — the generic route then answers — while the count is nonzero. A reserved key is not a
-well-formed row key, so it is never also counted as a row without an aggregate value; the two
-header counts never overlap. The key bound keeps room for at least fifteen keys in every leaf and
-directory node. The header also records the view's key
+declines — the generic route then answers — while the count is nonzero. The key bound keeps room for
+at least fifteen keys in every leaf and directory node. The header also records the view's key
 layout. If the configured column kinds no longer produce that layout (for example after a
 `sirix.projection.temporalKinds` change for a timestamp key column), maintenance writes every row
 it touches under the reserved key rather than mixing two encodings, so the view declines until
@@ -236,18 +234,32 @@ declaration never rejects a valid document; a full or unwritable disk fails the 
 does.
 
 A row whose aggregated last key field has no value can be ordered, but no route can prove its
-group's extrema: it has no leaf group summary, and the full-key scan declines the group it falls in.
-The directory header counts such rows beside the unencodable ones, and the sorted route checks that
-count before either walk, so a view holding any of them declines in constant time. Without the
-count, such a query walked the range up to twice before falling back — once through the leaf
-summaries, to the first leaf whose summary is missing, and once key by key, to the first row without
-a value — which could make the view slower than no view at all.
+group's extrema: its leaf gets no group summary, and the full-key scan declines the group it falls
+in. Such a query used to walk the queried range up to twice before falling back to the generic
+route — once through the leaf summaries, to the first leaf whose summary is missing, and once key
+by key, to the first row without a value — which could make the view slower than no view at all.
 
-The count is view-wide, exactly like the unencodable rows beside it. One row without a value
-anywhere therefore declines every range, including a prefix range whose own rows all carry one and
-which the leaf summaries alone could have answered; the generic route answers it instead. That is
-the deliberate trade for never paying the two walks, and it is the same shape as the unencodable
-count's: a view declines until no such row remains. Results stay exact either way.
+The second walk is now skipped whenever the first one has already proved it futile. The summaries
+route still runs for every range. When it stops at a leaf that lies entirely inside the queried
+range, that leaf holds a row of the range with no value, so the full-key walk would seek the
+prefix only to reach the same row and decline: the route declines there and then, without reading
+a single data leaf. When the leaf without a summary instead meets the range at one of its two
+ends, the offending row may be one of that leaf's rows outside the range, and the full-key walk
+runs exactly as it did before — it may well serve the range, and nothing that used to be served
+stops being served. A leaf's position is read from the fence keys the directory already holds, so
+the test costs no read of its own.
+
+The directory header counts the view's rows without a value, beside the rows under the reserved
+unencodable key. The count is what makes the per-leaf proof sound, and it is consulted only where
+it is exactly right: while it is zero, a leaf without a summary can only mean a revision whose
+summaries were never built, so no per-leaf test runs at all and every route keeps the decisions it
+had; while it is unknown, a leaf without a summary may mean either, so the full-key walk still
+runs. Only a nonzero count — a view that demonstrably holds such rows — turns a missing summary
+inside the range into a proof. A wrong count could therefore cost a walk or spare one; it can
+never change an answer.
+
+A reserved unencodable key is not a well-formed row key, so it is never also counted as a row
+without an aggregate value; the two header counts never overlap.
 
 A view written before the count existed carries a version-3 header, which has no count. It parses
 unchanged, reports the count as unknown and keeps exactly the behaviour it had — both walks

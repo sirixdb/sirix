@@ -60,6 +60,17 @@ final class ProjectionSortedMissingAggregateTest {
   private static final String CLEAN_PREFIX = "k0";
   /** The prefix holding the rows without a value, when the fixture has any. */
   private static final String DIRTY_PREFIX = "k1";
+  /**
+   * The four ranges of {@link #shapesFixture()}. The leaf carrying {@code k0}'s last row also carries
+   * {@code k1}'s first, and that {@code k1} row is the one without a value, so the leaf has no
+   * summary and meets {@code k0} at its upper end and {@code k1} at its lower end. The offending row
+   * is outside {@code k0}, so {@code k0}'s walk serves it; it is inside {@code k1}, so {@code k1}'s
+   * walk declines. {@code k2} holds a row without a value well inside it, and {@code k3} holds none.
+   */
+  private static final String BOUNDARY_SERVED_PREFIX = "k0";
+  private static final String BOUNDARY_DECLINED_PREFIX = "k1";
+  private static final String INSIDE_PREFIX = "k2";
+  private static final String SHAPES_CLEAN_PREFIX = "k3";
 
   /** Header field offsets, mirroring {@code ProjectionSortedDirectory.Header}'s wire form. */
   private static final int VERSION_OFFSET = 4;
@@ -74,85 +85,107 @@ final class ProjectionSortedMissingAggregateTest {
   private record Row(String kind, String group, @Nullable Long value, long record) {
   }
 
+  /**
+   * The three shapes a range can take in one view that holds rows without an aggregate value, each
+   * checked against the answer the same query gives with the count absent — the behaviour before it
+   * existed — and against an independent fold.
+   *
+   * <ul>
+   * <li>{@code INSIDE}: the first leaf of the range without a summary lies entirely inside it, so
+   * that leaf holds a row of the range with no value. The summaries walk proves the full-key walk
+   * would only reach the same row, and declines without it: no data leaf is read at all.</li>
+   * <li>{@code BOUNDARY}: the only leaf of the range without a summary meets it at one end, so the
+   * offending row may be outside the range. The full-key walk still runs, exactly as before, and
+   * here it serves the range — the very answer a view-wide decline would have thrown away.</li>
+   * <li>{@code CLEAN}: every leaf of the range has a summary, so the summaries route serves it
+   * untouched, again without reading a data leaf.</li>
+   * </ul>
+   */
   @Test
-  void aViewHoldingRowsWithoutAnAggregateValueDeclinesWithoutReadingALeaf() {
-    final List<Row> rows = fixture(true);
-    withView(rows, "declines-without-reading", (session, reader) -> {
-      final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(reader, 0);
-      assertNotNull(directory);
-      assertEquals(rowsWithoutAValue(rows), directory.missingAggregateRows());
-      assertEquals(0, directory.unencodableRows());
-      assertTrue(directory.declinesWithoutAggregateValues());
-      assertTrue(directory.dataLeafCount() > 16, "a walk of the fixture must read many leaves");
+  void eachRangeShapeDeclinesOrServesExactlyAsItDidBeforeTheCount() {
+    final List<Row> rows = shapesFixture();
+    withView(rows, "range-shapes", (session, reader) -> {
+      assertRangeShapes(reader, rows);
 
-      final AtomicInteger reads = new AtomicInteger();
-      ProjectionSortedLeafStore.setQueryReadObserverForTesting(ignored -> reads.incrementAndGet());
-      try {
-        assertNull(topK(reader, DIRTY_PREFIX, Order.MIN_ASC, false));
-        // The count is view-wide, so a prefix whose own rows all carry a value declines too.
-        assertNull(topK(reader, CLEAN_PREFIX, Order.MIN_ASC, false));
-      } finally {
-        ProjectionSortedLeafStore.setQueryReadObserverForTesting(null);
+      for (final Order order : Order.values()) {
+        // INSIDE: proven decline, and the full-key walk never runs.
+        final Reads inside = measure(reader, () -> assertNull(topK(reader, INSIDE_PREFIX, order, false)));
+        assertEquals(0, inside.leaves(), "a proven decline must not start the full-key walk");
+        assertTrue(inside.summaries() > 0, "the proof comes from the summaries walk");
+
+        // BOUNDARY, offending row outside the range: the walk still runs and serves it.
+        final Reads served = measure(reader,
+            () -> assertEquals(expected(rows, BOUNDARY_SERVED_PREFIX, 4, order, false),
+                topK(reader, BOUNDARY_SERVED_PREFIX, order, false)));
+        assertTrue(served.leaves() > 0, "a boundary leaf proves nothing, so the walk must still run");
+
+        // BOUNDARY, offending row inside the range: the walk still runs and declines, as before.
+        final Reads declined =
+            measure(reader, () -> assertNull(topK(reader, BOUNDARY_DECLINED_PREFIX, order, false)));
+        assertTrue(declined.leaves() > 0, "a boundary leaf proves nothing here either");
+
+        // CLEAN: served from the summaries alone.
+        final Reads clean = measure(reader,
+            () -> assertEquals(expected(rows, SHAPES_CLEAN_PREFIX, 4, order, false),
+                topK(reader, SHAPES_CLEAN_PREFIX, order, false)));
+        assertEquals(0, clean.leaves(), "a range whose leaves all have summaries needs no data leaf");
       }
-      assertEquals(0, reads.get(), "the header alone must decide the decline");
-    });
-  }
 
-  @Test
-  void theRangeHoldingThoseRowsDeclinesTheSameAnswerWithoutTheWalks() {
-    final List<Row> rows = fixture(true);
-    withView(rows, "dirty-range-matches-the-walk", (session, reader) -> {
-      final List<@Nullable List<Group>> counted = everyRoute(reader, DIRTY_PREFIX);
-
-      // Rewrite the published header in the form used before the count existed. The view then takes
-      // exactly the route sequence it took then: the summaries route walks until it meets a leaf
-      // with no summary, the full-key route then seeks the prefix and walks until it meets the row
-      // with no value, and both give up.
+      // Every shape answers what it answered before the count existed, min-only route included.
+      final List<@Nullable List<Group>> counted = everyRoute(reader);
       downgradeHeader(session);
       try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
         final StorageEngineReader uncounted = trx.getStorageEngineReader();
-        final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(uncounted, 0);
-        assertNotNull(directory);
-        assertEquals(ProjectionSortedDirectory.MISSING_AGGREGATE_ROWS_UNKNOWN, directory.missingAggregateRows());
-        assertFalse(directory.declinesWithoutAggregateValues());
-
-        final AtomicInteger reads = new AtomicInteger();
-        ProjectionSortedLeafStore.setQueryReadObserverForTesting(ignored -> reads.incrementAndGet());
-        final List<@Nullable List<Group>> walked;
-        try {
-          walked = everyRoute(uncounted, DIRTY_PREFIX);
-        } finally {
-          ProjectionSortedLeafStore.setQueryReadObserverForTesting(null);
-        }
-        assertEquals(counted, walked, "the count may only save reads, never change this range's answer");
-        assertEquals(List.of(), counted.stream().filter(Objects::nonNull).toList(),
-            "no route can prove a group's extrema over a range holding a row with no value");
-        assertTrue(reads.get() > 0, "an uncounted view still pays the walks the count removes");
+        assertEquals(ProjectionSortedDirectory.MISSING_AGGREGATE_ROWS_UNKNOWN,
+            missingAggregateRowsOf(uncounted));
+        assertEquals(counted, everyRoute(uncounted), "the count may only save reads, never change an answer");
       }
     });
+  }
+
+  /** The fixture really does present the three shapes; otherwise the test above proves nothing. */
+  private static void assertRangeShapes(final StorageEngineReader reader, final List<Row> rows) {
+    final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(reader, 0);
+    assertNotNull(directory);
+    assertEquals(rowsWithoutAValue(rows), directory.missingAggregateRows());
+    assertTrue(directory.holdsRowsWithoutAggregateValues());
+
+    final List<Boolean> inside = summarylessLeavesOf(reader, INSIDE_PREFIX);
+    assertFalse(inside.isEmpty(), "the INSIDE range must hold a leaf without a summary");
+    assertTrue(inside.get(0), "the first such leaf of the INSIDE range must lie entirely inside it");
+
+    for (final String kind : new String[] {BOUNDARY_SERVED_PREFIX, BOUNDARY_DECLINED_PREFIX}) {
+      final List<Boolean> boundary = summarylessLeavesOf(reader, kind);
+      assertEquals(1, boundary.size(), kind + " must hold exactly one leaf without a summary");
+      assertFalse(boundary.get(0), kind + "'s leaf without a summary must meet it at one end");
+    }
+
+    assertEquals(List.of(), summarylessLeavesOf(reader, SHAPES_CLEAN_PREFIX),
+        "the CLEAN range must have every summary");
   }
 
   /**
-   * The count is view-wide, exactly like the reserved unencodable rows beside it, so one row without
-   * a value anywhere declines every range — including a range whose own rows all carry one, which an
-   * uncounted view still serves from its leaf summaries. That range trades its accelerated route for
-   * never paying the walks; the generic route answers it, and every answer stays exact.
+   * For each leaf of {@code kind}'s range that has no group summary, in key order, whether it lies
+   * entirely inside that range — the same fence test the summaries route makes, done independently.
    */
-  @Test
-  void theViewWideCountAlsoDeclinesARangeWhoseRowsAllCarryAValue() {
-    final List<Row> rows = fixture(true);
-    withView(rows, "clean-range-in-a-dirty-view", (session, reader) -> {
-      for (final String clean : new String[] {CLEAN_PREFIX, "k2"}) {
-        assertNull(topK(reader, clean, Order.MIN_ASC, false));
+  private static List<Boolean> summarylessLeavesOf(final StorageEngineReader reader, final String kind) {
+    final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(reader, 0);
+    assertNotNull(directory);
+    final byte[] prefix = prefix(kind);
+    final ProjectionSortedDirectory.Accessor.LeafCursor cursor =
+        directory.leaves(prefix, ProjectionSortKeyCodec.prefixUpperExclusive(prefix));
+    final List<Boolean> summaryless = new ArrayList<>();
+    while (cursor.id() != 0) {
+      final int id = cursor.id();
+      final byte[] firstKey = new byte[cursor.firstKeyLength()];
+      cursor.copyFirstKeyTo(firstKey);
+      final boolean startsInside = ProjectionSortKeyCodec.startsWith(firstKey, firstKey.length, prefix);
+      final boolean more = cursor.advance();
+      if (ProjectionSortedGroupSummary.read(reader, 0, id) == null) {
+        summaryless.add(startsInside && more);
       }
-      downgradeHeader(session);
-      try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
-        final StorageEngineReader uncounted = trx.getStorageEngineReader();
-        for (final String clean : new String[] {CLEAN_PREFIX, "k2"}) {
-          assertEquals(expected(rows, clean, 4, Order.MIN_ASC, false), topK(uncounted, clean, Order.MIN_ASC, false));
-        }
-      }
-    });
+    }
+    return summaryless;
   }
 
   @Test
@@ -187,20 +220,17 @@ final class ProjectionSortedMissingAggregateTest {
       final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(reader, 0);
       assertNotNull(directory);
       assertEquals(0, directory.missingAggregateRows());
-      assertFalse(directory.declinesWithoutAggregateValues());
+      assertFalse(directory.holdsRowsWithoutAggregateValues());
 
-      final AtomicInteger reads = new AtomicInteger();
-      ProjectionSortedLeafStore.setQueryReadObserverForTesting(ignored -> reads.incrementAndGet());
-      try {
-        for (final String prefix : new String[] {CLEAN_PREFIX, DIRTY_PREFIX, "k2"}) {
+      for (final String prefix : new String[] {CLEAN_PREFIX, DIRTY_PREFIX, "k2"}) {
+        final Reads reads = measure(reader, () -> {
           assertEquals(expected(rows, prefix, 4, Order.MIN_ASC, false), topK(reader, prefix, Order.MIN_ASC, false));
           assertEquals(expected(rows, prefix, 4, Order.MAX_DESC, false), topK(reader, prefix, Order.MAX_DESC, false));
           assertEquals(expected(rows, prefix, 4, Order.MIN_ASC, true), topK(reader, prefix, Order.MIN_ASC, true));
-        }
-      } finally {
-        ProjectionSortedLeafStore.setQueryReadObserverForTesting(null);
+        });
+        assertEquals(0, reads.leaves(), "every leaf has a summary, so no data leaf is read");
+        assertTrue(reads.summaries() > 0, "the summaries route serves the range");
       }
-      assertTrue(reads.get() > 0, "a servable view reads its leaves");
     });
   }
 
@@ -219,19 +249,19 @@ final class ProjectionSortedMissingAggregateTest {
           writer.commit();
         }
         assertEquals(0, missingAggregateRowsOf(session));
-        assertNotNull(topKOfLatest(session));
+        assertNotNull(topKOfDirtyRange(session));
 
-        // Insert: one row with no value in the aggregated field makes the whole view decline.
+        // Insert: one row with no value in the aggregated field, into the dirty prefix's range.
         final byte[] absent = key(new Row(DIRTY_PREFIX, "g3", null, 9_001));
         final int inserted = edit(session, editor -> editor.insert(absent, new byte[0]));
         assertEquals(1, missingAggregateRowsOf(session));
-        assertNull(topKOfLatest(session));
+        assertNull(topKOfDirtyRange(session), "no route can prove that range's extrema now");
 
         // Update: the same record gains a value, as one removal plus one insertion in a single pass.
         final byte[] present = key(new Row(DIRTY_PREFIX, "g3", 4_242L, 9_001));
         edit(session, editor -> editor.apply(new byte[][] {absent}, 1, new byte[][] {present}, null, 1));
         assertEquals(0, missingAggregateRowsOf(session));
-        assertNotNull(topKOfLatest(session));
+        assertNotNull(topKOfDirtyRange(session), "the range is servable again");
 
         // Update the other way: the value goes away again, and two more rows arrive without one.
         final byte[] first = key(new Row(CLEAN_PREFIX, "g1", null, 9_002));
@@ -242,7 +272,7 @@ final class ProjectionSortedMissingAggregateTest {
           editor.insert(second, new byte[0]);
         });
         assertEquals(3, missingAggregateRowsOf(session));
-        assertNull(topKOfLatest(session));
+        assertNull(topKOfDirtyRange(session));
 
         // Delete: each removal takes the count back down, and the last one restores service.
         edit(session, editor -> editor.remove(first));
@@ -250,6 +280,7 @@ final class ProjectionSortedMissingAggregateTest {
         edit(session, editor -> editor.apply(new byte[][] {absent, second}, 2, new byte[0][], null, 0));
         assertEquals(0, missingAggregateRowsOf(session));
         assertEquals(expected(rows, CLEAN_PREFIX, 4, Order.MIN_ASC, false), topKOfLatest(session));
+        assertEquals(expected(rows, DIRTY_PREFIX, 4, Order.MIN_ASC, false), topKOfDirtyRange(session));
 
         // Every committed revision keeps the count it was published with.
         assertEquals(0, missingAggregateRowsOf(session, built));
@@ -362,10 +393,11 @@ final class ProjectionSortedMissingAggregateTest {
             writer.commit();
           }
           assertEquals(rowsWithoutAValue(rows), missingAggregateRowsOf(session));
+          assertEquals(expected(rows, CLEAN_PREFIX, 4, Order.MIN_ASC, false), topKOfLatest(session));
           if (withAbsentValues) {
-            assertNull(topKOfLatest(session));
+            assertNull(topKOfDirtyRange(session));
           } else {
-            assertEquals(expected(rows, CLEAN_PREFIX, 4, Order.MIN_ASC, false), topKOfLatest(session));
+            assertEquals(expected(rows, DIRTY_PREFIX, 4, Order.MIN_ASC, false), topKOfDirtyRange(session));
           }
         }
       }
@@ -463,6 +495,61 @@ final class ProjectionSortedMissingAggregateTest {
     return List.copyOf(rows);
   }
 
+  /**
+   * Four prefixes over one view, laid out so that the three range shapes all occur.
+   *
+   * <p>
+   * {@code k0} holds an odd number of rows, so the leaf that carries its last row also carries the
+   * first row of {@code k1} — and that {@code k1} row is the one without a value. The leaf therefore
+   * has no summary, while meeting {@code k0}'s range at its upper end and {@code k1}'s at its lower
+   * end. {@code k1} holds no other such row, so its walk still runs and, since the offending row is
+   * a {@code k1} row, declines; {@code k0}'s walk runs and serves, because the offending row is not
+   * in its range. {@code k2} has one row without a value well inside it, and {@code k3} has none.
+   * </p>
+   */
+  private static List<Row> shapesFixture() {
+    final List<Row> rows = new ArrayList<>();
+    appendKind(rows, BOUNDARY_SERVED_PREFIX, 5, 7, -1);
+    appendKind(rows, BOUNDARY_DECLINED_PREFIX, 5, 7, 0);
+    appendKind(rows, INSIDE_PREFIX, 4, 9, 1);
+    appendKind(rows, SHAPES_CLEAN_PREFIX, 4, 9, -1);
+    return List.copyOf(rows);
+  }
+
+  /**
+   * {@code groups} groups of {@code rowsPerGroup} rows. The first row of {@code absentGroup}, if any,
+   * carries no value; an absent value sorts before every present one, so it is that group's first
+   * row in key order. Minima, maxima and spans stay distinct across groups, so no fold ties.
+   */
+  private static void appendKind(final List<Row> rows, final String kind, final int groups,
+      final int rowsPerGroup, final int absentGroup) {
+    for (int group = 0; group < groups; group++) {
+      for (int row = 0; row < rowsPerGroup; row++) {
+        rows.add(new Row(kind, "g" + group, group == absentGroup && row == 0
+            ? null
+            : (long) (group * 1_000L + (long) row * (group + 1)), rows.size() + 1));
+      }
+    }
+  }
+
+  /** Sorted data leaves and group summaries one query's reader fetched. */
+  private record Reads(int leaves, int summaries) {
+  }
+
+  private static Reads measure(final StorageEngineReader reader, final Runnable query) {
+    final AtomicInteger leaves = new AtomicInteger();
+    final AtomicInteger summaries = new AtomicInteger();
+    ProjectionSortedLeafStore.setQueryLeafReadObserverForTesting(ignored -> leaves.incrementAndGet());
+    ProjectionSortedGroupSummary.setReadObserverForTesting(ignored -> summaries.incrementAndGet());
+    try {
+      query.run();
+    } finally {
+      ProjectionSortedLeafStore.setQueryLeafReadObserverForTesting(null);
+      ProjectionSortedGroupSummary.setReadObserverForTesting(null);
+    }
+    return new Reads(leaves.get(), summaries.get());
+  }
+
   private static long rowsWithoutAValue(final List<Row> rows) {
     return rows.stream().filter(row -> row.value() == null).count();
   }
@@ -544,9 +631,32 @@ final class ProjectionSortedMissingAggregateTest {
     return answers;
   }
 
+  /** Every route over every range of {@link #shapesFixture()}. */
+  private static List<@Nullable List<Group>> everyRoute(final StorageEngineReader reader) {
+    final List<@Nullable List<Group>> answers = new ArrayList<>();
+    for (final String kind : new String[] {BOUNDARY_SERVED_PREFIX, BOUNDARY_DECLINED_PREFIX, INSIDE_PREFIX,
+        SHAPES_CLEAN_PREFIX}) {
+      answers.addAll(everyRoute(reader, kind));
+    }
+    return answers;
+  }
+
+  private static long missingAggregateRowsOf(final StorageEngineReader reader) {
+    final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(reader, 0);
+    assertNotNull(directory);
+    return directory.missingAggregateRows();
+  }
+
   private static @Nullable List<Group> topKOfLatest(final JsonResourceSession session) {
     try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
       return topK(trx.getStorageEngineReader(), CLEAN_PREFIX, Order.MIN_ASC, false);
+    }
+  }
+
+  /** The range {@link #fixture(boolean)} puts its rows without a value in, and the edits above too. */
+  private static @Nullable List<Group> topKOfDirtyRange(final JsonResourceSession session) {
+    try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
+      return topK(trx.getStorageEngineReader(), DIRTY_PREFIX, Order.MIN_ASC, false);
     }
   }
 

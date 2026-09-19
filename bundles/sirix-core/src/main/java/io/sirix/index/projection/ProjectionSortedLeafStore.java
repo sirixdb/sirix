@@ -24,10 +24,10 @@ final class ProjectionSortedLeafStore {
   private static volatile @Nullable IntConsumer storageReadObserverForTesting;
 
   /**
-   * Test observation of the sorted data leaves and group summaries a query's reader fetches, which
-   * is how a route's decline is proved to have read nothing; null in production.
+   * Test observation of the sorted data leaves a query's reader fetches, which is how the full-key
+   * walk is told apart from the summaries walk; null in production.
    */
-  private static volatile @Nullable IntConsumer queryReadObserverForTesting;
+  private static volatile @Nullable IntConsumer queryLeafReadObserverForTesting;
 
   private ProjectionSortedLeafStore() {}
 
@@ -39,16 +39,8 @@ final class ProjectionSortedLeafStore {
     storageReadObserverForTesting = observer;
   }
 
-  static void setQueryReadObserverForTesting(final @Nullable IntConsumer observer) {
-    queryReadObserverForTesting = observer;
-  }
-
-  /** Report one leaf id a query's reader fetched, as a data leaf or as that leaf's group summary. */
-  static void observeQueryRead(final int leafId) {
-    final IntConsumer observer = queryReadObserverForTesting;
-    if (observer != null) {
-      observer.accept(leafId);
-    }
+  static void setQueryLeafReadObserverForTesting(final @Nullable IntConsumer observer) {
+    queryLeafReadObserverForTesting = observer;
   }
 
   /**
@@ -124,7 +116,10 @@ final class ProjectionSortedLeafStore {
     if (reader == null) {
       throw new NullPointerException("storage reader is required");
     }
-    observeQueryRead(leafId);
+    final IntConsumer observer = queryLeafReadObserverForTesting;
+    if (observer != null) {
+      observer.accept(leafId);
+    }
     final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot(leafId));
     return bytes == null
         ? null
