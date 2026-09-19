@@ -18,7 +18,16 @@ import java.util.Objects;
  * uses the same bounded, prefix-compressed leaf format as the data. Only the selected path is read
  * for a seek; the data leaves remain separate copy-on-write blobs. A newly built hierarchy becomes
  * visible only when its small root header is published at the end of the owning transaction. The
- * header also records the key layout and how many rows are held under the reserved unencodable key.
+ * header also records the key layout, how many rows are held under the reserved unencodable key,
+ * and how many rows have no value in the aggregated last key field.
+ * </p>
+ *
+ * <p>
+ * Header versions follow the projection formats' rule: backward-readable, not forward-readable. A
+ * version-3 header, written before the missing-aggregate count existed, still parses and reports
+ * that count as {@link #MISSING_AGGREGATE_ROWS_UNKNOWN}; such a view keeps the behaviour it had
+ * before the count was added and gains an exact one when it is rebuilt or its leaf summaries are
+ * backfilled. A header carrying the count is written at version 4, which an earlier release rejects.
  * </p>
  */
 final class ProjectionSortedDirectory {
@@ -31,8 +40,13 @@ final class ProjectionSortedDirectory {
   private static final byte[] EMPTY_PAYLOAD = new byte[0];
   private static final byte[][] NO_KEYS = new byte[0][];
   private static final int MAGIC = 0x31445350; // PSD1
-  private static final byte VERSION = 3;
-  private static final int FIXED_HEADER_BYTES = 31;
+  /** Header carrying the missing-aggregate count; {@link #VERSION_WITHOUT_MISSING_AGGREGATE} lacks it. */
+  private static final byte VERSION = 4;
+  private static final byte VERSION_WITHOUT_MISSING_AGGREGATE = 3;
+  private static final int FIXED_HEADER_BYTES = 39;
+  private static final int FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE = 31;
+  /** Rows without a value in the aggregated last key field, for a view written before they were counted. */
+  static final long MISSING_AGGREGATE_ROWS_UNKNOWN = -1;
   private static final int MAX_HEIGHT = 8;
   /** First capacity of a range's leaf-id array; it doubles up to the caller's maximum. */
   private static final int INITIAL_RANGE_IDS = 64;
@@ -47,13 +61,31 @@ final class ProjectionSortedDirectory {
         : new Accessor(reader, indexNumber, header);
   }
 
-  /** Parsed, validated root header shared by readers and the transaction's editor. */
+  /**
+   * Parsed, validated root header shared by readers and the transaction's editor.
+   *
+   * <p>
+   * {@code missingAggregateRows} is {@link #MISSING_AGGREGATE_ROWS_UNKNOWN} for a header written
+   * before the count existed, and a nonnegative exact count otherwise. A header serializes at the
+   * version that matches that knowledge, so the field's presence on disk <em>is</em> the knowledge
+   * and an unknown count is never written as a number a reader could trust.
+   * </p>
+   */
   private record Header(int height, int rootId, int nodeCount, int dataLeafCount, int maxLeafId, long unencodableRows,
-      ProjectionSortKeyCodec.Layout layout) {
+      long missingAggregateRows, ProjectionSortKeyCodec.Layout layout) {
 
     static Header parse(final byte[] header) {
-      if (header.length < FIXED_HEADER_BYTES + 1 || getInt(header, 0) != MAGIC || header[4] != VERSION
-          || header.length != FIXED_HEADER_BYTES + (header[30] & 0xFF)) {
+      if (header.length < Integer.BYTES + 1 || getInt(header, 0) != MAGIC) {
+        throw new IllegalStateException("invalid sorted projection directory header");
+      }
+      final byte version = header[4];
+      final int fixedBytes = version == VERSION
+          ? FIXED_HEADER_BYTES
+          : version == VERSION_WITHOUT_MISSING_AGGREGATE
+              ? FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE
+              : -1;
+      if (fixedBytes < 0 || header.length < fixedBytes + 1
+          || header.length != fixedBytes + (header[fixedBytes - 1] & 0xFF)) {
         throw new IllegalStateException("invalid sorted projection directory header");
       }
       final int height = header[5] & 0xFF;
@@ -62,33 +94,46 @@ final class ProjectionSortedDirectory {
       final int dataLeafCount = getInt(header, 14);
       final int maxLeafId = getInt(header, 18);
       final long unencodableRows = getLong(header, 22);
+      final long missingAggregateRows = version == VERSION
+          ? getLong(header, 30)
+          : MISSING_AGGREGATE_ROWS_UNKNOWN;
       if (height > MAX_HEIGHT || nodeCount < 0 || dataLeafCount < 0 || (rootId == 0) != (dataLeafCount == 0)
           || (dataLeafCount == 0) != (height == 0) || rootId > nodeCount || rootId < 0 || maxLeafId < dataLeafCount
-          || unencodableRows < 0) {
+          || unencodableRows < 0 || version == VERSION && missingAggregateRows < 0) {
         throw new IllegalStateException("invalid sorted projection directory dimensions");
       }
       final ProjectionSortKeyCodec.Layout layout;
       try {
-        layout = new ProjectionSortKeyCodec.Layout(Arrays.copyOfRange(header, FIXED_HEADER_BYTES, header.length));
+        layout = new ProjectionSortKeyCodec.Layout(Arrays.copyOfRange(header, fixedBytes, header.length));
       } catch (final IllegalArgumentException invalid) {
         throw new IllegalStateException("invalid sorted projection key layout", invalid);
       }
-      return new Header(height, rootId, nodeCount, dataLeafCount, maxLeafId, unencodableRows, layout);
+      return new Header(height, rootId, nodeCount, dataLeafCount, maxLeafId, unencodableRows, missingAggregateRows,
+          layout);
     }
 
     byte[] serialize() {
+      final boolean counted = missingAggregateRows != MISSING_AGGREGATE_ROWS_UNKNOWN;
+      final int fixedBytes = counted
+          ? FIXED_HEADER_BYTES
+          : FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE;
       final byte[] fields = layout.toBytes();
-      final byte[] header = new byte[FIXED_HEADER_BYTES + fields.length];
+      final byte[] header = new byte[fixedBytes + fields.length];
       putInt(header, 0, MAGIC);
-      header[4] = VERSION;
+      header[4] = counted
+          ? VERSION
+          : VERSION_WITHOUT_MISSING_AGGREGATE;
       header[5] = (byte) height;
       putInt(header, 6, rootId);
       putInt(header, 10, nodeCount);
       putInt(header, 14, dataLeafCount);
       putInt(header, 18, maxLeafId);
       putLong(header, 22, unencodableRows);
-      header[30] = (byte) fields.length;
-      System.arraycopy(fields, 0, header, FIXED_HEADER_BYTES, fields.length);
+      if (counted) {
+        putLong(header, 30, missingAggregateRows);
+      }
+      header[fixedBytes - 1] = (byte) fields.length;
+      System.arraycopy(fields, 0, header, fixedBytes, fields.length);
       return header;
     }
   }
@@ -114,6 +159,7 @@ final class ProjectionSortedDirectory {
     private final int dataLeafCount;
     private final int maxLeafId;
     private final long unencodableRows;
+    private final long missingAggregateRows;
     private final ProjectionSortKeyCodec.Layout layout;
     private final @Nullable ProjectionSortedLeaf root;
 
@@ -126,6 +172,7 @@ final class ProjectionSortedDirectory {
       this.dataLeafCount = parsed.dataLeafCount();
       this.maxLeafId = parsed.maxLeafId();
       this.unencodableRows = parsed.unencodableRows();
+      this.missingAggregateRows = parsed.missingAggregateRows();
       this.layout = parsed.layout();
       this.root = parsed.rootId() == 0
           ? null
@@ -139,6 +186,24 @@ final class ProjectionSortedDirectory {
     /** Rows kept under the reserved unencodable key; while any exist the view is not servable. */
     long unencodableRows() {
       return unencodableRows;
+    }
+
+    /**
+     * Rows whose aggregated last key field has no value, or {@link #MISSING_AGGREGATE_ROWS_UNKNOWN}
+     * for a view written before they were counted.
+     */
+    long missingAggregateRows() {
+      return missingAggregateRows;
+    }
+
+    /**
+     * Whether a grouped extremum must decline this view because some row has no aggregate value.
+     * Such a row has no group summary and no provable extremum, so both accelerated routes and the
+     * full-key route would give up anyway — after walking the range. An uncounted view answers
+     * {@code false} and keeps taking those walks until the count is established.
+     */
+    boolean declinesWithoutAggregateValues() {
+      return missingAggregateRows > 0;
     }
 
     ProjectionSortKeyCodec.Layout layout() {
@@ -573,6 +638,8 @@ final class ProjectionSortedDirectory {
     private int activeLeafCount;
     private int leafHighWater;
     private long unencodableRows;
+    /** {@link #MISSING_AGGREGATE_ROWS_UNKNOWN} for an uncounted view and for one aggregating nothing. */
+    private long missingAggregateRows;
 
     Editor(final ProjectionIndexHOTStorage storage) {
       this.storage = Objects.requireNonNull(storage, "storage");
@@ -587,11 +654,36 @@ final class ProjectionSortedDirectory {
       activeLeafCount = header.dataLeafCount();
       leafHighWater = header.maxLeafId();
       unencodableRows = header.unencodableRows();
+      missingAggregateRows = header.missingAggregateRows();
       layout = header.layout();
     }
 
     ProjectionSortKeyCodec.Layout layout() {
       return layout;
+    }
+
+    /**
+     * Rows whose aggregated last key field has no value, or {@link #MISSING_AGGREGATE_ROWS_UNKNOWN}
+     * while this view has never been counted.
+     */
+    long missingAggregateRows() {
+      return missingAggregateRows;
+    }
+
+    /**
+     * Publish an exact count recomputed from every live leaf, upgrading a view written before the
+     * count existed. The caller must have visited every leaf of the current directory; a count that
+     * disagrees with the data only costs or spares an accelerated route, never changes a result.
+     */
+    void publishMissingAggregateRows(final long rows) {
+      if (rows < 0) {
+        throw new IllegalArgumentException("missing-aggregate row count must be nonnegative: " + rows);
+      }
+      if (rows == missingAggregateRows) {
+        return;
+      }
+      missingAggregateRows = rows;
+      storage.putBlob(HEADER_SLOT, currentHeader().serialize());
     }
 
     /**
@@ -651,18 +743,33 @@ final class ProjectionSortedDirectory {
       }
       final Header before = currentHeader();
       final ProjectionSortedLeafBounds.Updater bounds = new ProjectionSortedLeafBounds.Updater(storage);
+      // An uncounted view stays uncounted: one pass sees only its own edits, never the whole view.
+      final boolean counted = missingAggregateRows != MISSING_AGGREGATE_ROWS_UNKNOWN;
+      long missingAggregateDelta = 0;
       for (int i = 0; i < removalCount; i++) {
         if (ProjectionSortKeyCodec.isUnencodable(removals[i], removals[i].length)) {
           unencodableRows--;
+        } else if (counted && layout.lastFieldMissing(removals[i], removals[i].length)) {
+          missingAggregateDelta--;
         }
       }
       for (int i = 0; i < insertionCount; i++) {
         if (ProjectionSortKeyCodec.isUnencodable(insertions[i], insertions[i].length)) {
           unencodableRows++;
+        } else if (counted && layout.lastFieldMissing(insertions[i], insertions[i].length)) {
+          missingAggregateDelta++;
         }
       }
       if (unencodableRows < 0) {
         throw new IllegalStateException("sorted projection removes more unencodable rows than it holds");
+      }
+      if (counted) {
+        final long updated = missingAggregateRows + missingAggregateDelta;
+        if (updated < 0) {
+          throw new IllegalStateException(
+              "sorted projection removes more rows without an aggregate value than it holds");
+        }
+        missingAggregateRows = updated;
       }
       int removal = 0;
       int insertion = 0;
@@ -924,7 +1031,8 @@ final class ProjectionSortedDirectory {
     }
 
     private Header currentHeader() {
-      return new Header(height, rootId, nodeHighWater, activeLeafCount, leafHighWater, unencodableRows, layout);
+      return new Header(height, rootId, nodeHighWater, activeLeafCount, leafHighWater, unencodableRows,
+          missingAggregateRows, layout);
     }
 
     private void growHeight() {
@@ -1037,17 +1145,21 @@ final class ProjectionSortedDirectory {
   static final class Builder {
     private final ProjectionIndexHOTStorage storage;
     private final ProjectionSortKeyCodec.Layout layout;
+    /** Only a view that aggregates its last key field ever consults the missing-aggregate count. */
+    private final boolean countsMissingAggregates;
     private final ProjectionSortedLeafBounds.Builder bounds;
     private byte[][] keys = new byte[256][];
     private int[] ids = new int[256];
     private int count;
     private long unencodableRows;
+    private long missingAggregateRows;
     private byte @Nullable [] lastKey;
     private boolean finished;
 
     Builder(final ProjectionIndexHOTStorage storage, final ProjectionSortKeyCodec.Layout layout) {
       this.storage = Objects.requireNonNull(storage, "storage");
       this.layout = Objects.requireNonNull(layout, "layout");
+      this.countsMissingAggregates = layout.groupsByLastLong();
       if (storage.getBlob(HEADER_SLOT) != null) {
         throw new IllegalStateException("sorted projection directory already exists");
       }
@@ -1074,7 +1186,7 @@ final class ProjectionSortedDirectory {
         ids = Arrays.copyOf(ids, capacity);
       }
       final int leafId = count + 1;
-      ProjectionSortedLeafStore.write(storage, leafId, leaf, layout, bounds);
+      missingAggregateRows += ProjectionSortedLeafStore.write(storage, leafId, leaf, layout, bounds);
       keys[count] = first;
       ids[count] = leafId;
       count++;
@@ -1133,7 +1245,9 @@ final class ProjectionSortedDirectory {
       }
       final Header header = new Header(height, count == 0
           ? 0
-          : levelIds[0], nextNodeId - 1, count, count, unencodableRows, layout);
+          : levelIds[0], nextNodeId - 1, count, count, unencodableRows, countsMissingAggregates
+              ? missingAggregateRows
+              : MISSING_AGGREGATE_ROWS_UNKNOWN, layout);
       bounds.finish();
       storage.putBlob(HEADER_SLOT, header.serialize());
       finished = true;

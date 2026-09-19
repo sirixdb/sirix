@@ -23,6 +23,12 @@ final class ProjectionSortedLeafStore {
    */
   private static volatile @Nullable IntConsumer storageReadObserverForTesting;
 
+  /**
+   * Test observation of the sorted data leaves and group summaries a query's reader fetches, which
+   * is how a route's decline is proved to have read nothing; null in production.
+   */
+  private static volatile @Nullable IntConsumer queryReadObserverForTesting;
+
   private ProjectionSortedLeafStore() {}
 
   static void setWriteObserverForTesting(final @Nullable IntConsumer observer) {
@@ -33,24 +39,65 @@ final class ProjectionSortedLeafStore {
     storageReadObserverForTesting = observer;
   }
 
-  /** Write one leaf, its group summary and its bound in the owning transaction. */
-  static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
+  static void setQueryReadObserverForTesting(final @Nullable IntConsumer observer) {
+    queryReadObserverForTesting = observer;
+  }
+
+  /** Report one leaf id a query's reader fetched, as a data leaf or as that leaf's group summary. */
+  static void observeQueryRead(final int leafId) {
+    final IntConsumer observer = queryReadObserverForTesting;
+    if (observer != null) {
+      observer.accept(leafId);
+    }
+  }
+
+  /**
+   * Write one leaf, its group summary and its bound in the owning transaction.
+   *
+   * @return the leaf's rows whose aggregated last key field has no value
+   */
+  static int write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
       final ProjectionSortKeyCodec.Layout layout) {
     final ProjectionSortedLeafBounds.Updater bounds = new ProjectionSortedLeafBounds.Updater(storage);
-    write(storage, leafId, leaf, layout, bounds);
+    final int missingAggregateRows = write(storage, leafId, leaf, layout, bounds);
     bounds.flush();
+    return missingAggregateRows;
   }
 
-  /** Maintenance form: the caller publishes the coalesced bound chunks once per pass. */
-  static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
+  /**
+   * Maintenance form: the caller publishes the coalesced bound chunks once per pass.
+   *
+   * @return the leaf's rows whose aggregated last key field has no value
+   */
+  static int write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
       final ProjectionSortKeyCodec.Layout layout, final ProjectionSortedLeafBounds.Updater bounds) {
-    bounds.set(leafId, writeLeafAndSummary(storage, leafId, leaf, layout));
+    final ProjectionSortedLeaf summary = writeLeafAndSummary(storage, leafId, leaf, layout);
+    bounds.set(leafId, summary);
+    return missingAggregateRows(leaf, layout, summary);
   }
 
-  /** Initial-build form: bounds are appended in consecutive leaf-id order and published by chunk. */
-  static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
+  /**
+   * Initial-build form: bounds are appended in consecutive leaf-id order and published by chunk.
+   *
+   * @return the leaf's rows whose aggregated last key field has no value
+   */
+  static int write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
       final ProjectionSortKeyCodec.Layout layout, final ProjectionSortedLeafBounds.Builder initialBounds) {
-    initialBounds.append(leafId, writeLeafAndSummary(storage, leafId, leaf, layout));
+    final ProjectionSortedLeaf summary = writeLeafAndSummary(storage, leafId, leaf, layout);
+    initialBounds.append(leafId, summary);
+    return missingAggregateRows(leaf, layout, summary);
+  }
+
+  /**
+   * A summarized leaf provably holds no row without the aggregated value, so only a leaf that has no
+   * summary is walked a second time — and only for a layout that aggregates its last key field at
+   * all, since no other view ever consults the count.
+   */
+  private static int missingAggregateRows(final ProjectionSortedLeaf leaf,
+      final ProjectionSortKeyCodec.Layout layout, final @Nullable ProjectionSortedLeaf summary) {
+    return summary != null || !layout.groupsByLastLong()
+        ? 0
+        : ProjectionSortedGroupSummary.countMissingLastField(leaf, layout);
   }
 
   private static @Nullable ProjectionSortedLeaf writeLeafAndSummary(final ProjectionIndexHOTStorage storage,
@@ -77,6 +124,7 @@ final class ProjectionSortedLeafStore {
     if (reader == null) {
       throw new NullPointerException("storage reader is required");
     }
+    observeQueryRead(leafId);
     final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot(leafId));
     return bytes == null
         ? null

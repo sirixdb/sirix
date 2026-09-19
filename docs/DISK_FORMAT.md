@@ -545,20 +545,27 @@ These persisted projection structures were added after the previous release:
 - **Sorted-view slots**, only when `projectionSort` is declared: leaves at `2^46 + leafId`, the
   directory header at `2^46 + 2^32` followed by its nodes, group summaries at `2^46 + 2^33 + leafId`,
   and leaf-bounds chunks (16 leaves each, stored inline) from `2^46 + 3·2^32`. The directory header
-  records the key-field layout and the number of rows held under the reserved unencodable key.
+  records the key-field layout, the number of rows held under the reserved unencodable key and, at
+  header version 4, the number of rows whose aggregated last key field has no value. That count is
+  written only for a view whose last key field is an ordered long, the only shape that consults it.
+  A version-3 header carries no such count and still parses; the view then reports the count as
+  unknown and keeps its previous behaviour until a rebuild or a leaf-summary backfill publishes a
+  version-4 header.
 - **Column-major slot layout** (PIXM version 1), created only by a fresh bulk build with
   `-Dsirix.projection.columnMajorSlots=true`: descriptor and segment slots move to
   `2^41 | slotKind << 25 | rowGroupId`.
 
 The additions are backward-readable but not forward-readable. This code reads projection indexes
 written by the previous release: version-0 metadata and set-summary chunks still parse, missing
-flag-summary and numeric-proof slots fall back to the descriptor and BODY paths, and a definition
+flag-summary and numeric-proof slots fall back to the descriptor and BODY paths, a version-3 sorted
+directory header still parses with its missing-aggregate count reported as unknown, and a definition
 without `projectionSort` has no sorted view.
 
 Projection indexes built by this code cannot be opened by the previous release. It rejects metadata
-that names a value-summary capability on a dictionary string column, and version-1 set-summary
-chunks, as corrupt: queries decline the index and maintenance fails the owning transaction. It also
-declines PIXM version 1 as unsupported. It ignores the remaining slots and the `projectionSort`
-element, so its maintenance would leave them stale even in an index it does not reject. When
+that names a value-summary capability on a dictionary string column, version-1 set-summary chunks,
+and version-4 sorted directory headers, as corrupt: queries decline the index and maintenance
+fails the owning transaction. It also declines PIXM version 1 as unsupported. It ignores the
+remaining slots and the `projectionSort` element, so its maintenance would leave them stale even
+in an index it does not reject. When
 downgrading, drop the projection index and rebuild it with the previous release; there is no
 in-place conversion.

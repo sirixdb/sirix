@@ -112,7 +112,10 @@ public final class ProjectionSortedGroupScan {
       throw new IllegalArgumentException("unsupported sorted group top-K request");
     }
     final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(reader, indexNumber);
-    if (directory == null || directory.unencodableRows() > 0) {
+    // Both constant-time declines, before either walk: a view holding rows it cannot order exactly,
+    // and one holding rows with no aggregate value, can prove no group's extrema and would otherwise
+    // give up only after the summaries route and then the full-key route had each walked the range.
+    if (directory == null || directory.unencodableRows() > 0 || directory.declinesWithoutAggregateValues()) {
       return null;
     }
     final ProjectionSortKeyCodec.Layout layout = directory.layout();
@@ -205,7 +208,15 @@ public final class ProjectionSortedGroupScan {
     return finish(winners, minimums, maximums, scores, retained, limit);
   }
 
-  /** Backfill this optional acceleration in the caller's transaction; commit remains caller-owned. */
+  /**
+   * Backfill this optional acceleration in the caller's transaction; commit remains caller-owned.
+   *
+   * <p>
+   * Every live leaf is visited, so the pass also publishes an exact count of the rows with no
+   * aggregate value — upgrading a view written before that count existed, which until then keeps
+   * attempting the routes those rows defeat.
+   * </p>
+   */
   public static int buildLeafSummaries(final StorageEngineWriter writer, final int indexNumber) {
     Objects.requireNonNull(writer, "writer");
     final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(writer, indexNumber);
@@ -215,24 +226,30 @@ public final class ProjectionSortedGroupScan {
     final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer, indexNumber);
     final ProjectionSortedLeafBounds.Updater bounds = new ProjectionSortedLeafBounds.Updater(storage);
     final ProjectionSortedDirectory.Accessor.LeafCursor cursor = directory.leaves();
+    final ProjectionSortKeyCodec.Layout layout = directory.layout();
     int written = 0;
+    long missingAggregateRows = 0;
     while (cursor.id() != 0) {
       final int id = cursor.id();
       final ProjectionSortedLeaf leaf = ProjectionSortedLeafStore.read(storage, id);
       if (leaf == null) {
         throw new IllegalStateException("missing sorted data leaf during summary build: " + id);
       }
-      final ProjectionSortedLeaf summary = ProjectionSortedGroupSummary.encode(leaf, directory.layout());
+      final ProjectionSortedLeaf summary = ProjectionSortedGroupSummary.encode(leaf, layout);
       if (summary != null) {
         storage.putBlob(ProjectionSortedGroupSummary.slot(id), summary.encodedBytes());
         written++;
       } else {
         storage.tombstoneBlob(ProjectionSortedGroupSummary.slot(id));
+        missingAggregateRows += ProjectionSortedGroupSummary.countMissingLastField(leaf, layout);
       }
       bounds.set(id, summary);
       cursor.advance();
     }
     bounds.flush();
+    if (layout.groupsByLastLong()) {
+      new ProjectionSortedDirectory.Editor(storage).publishMissingAggregateRows(missingAggregateRows);
+    }
     return written;
   }
 

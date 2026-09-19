@@ -202,6 +202,16 @@ final class ProjectionSortKeyCodec {
       return prefixEnd(key, length, fields.length - 1) == length;
     }
 
+    /**
+     * Whether {@code key[0, length)} is a well-formed row key whose last field — the one a grouped
+     * extremum aggregates — is absent. A reserved unencodable key is never well formed, so it answers
+     * {@code false} and stays counted by the header's unencodable rows alone.
+     */
+    boolean lastFieldMissing(final byte[] key, final int length) {
+      final int at = lastFieldOffset(key, length);
+      return at >= 0 && key[at] == MISSING;
+    }
+
     @Override
     public boolean equals(final Object other) {
       return other instanceof Layout layout && Arrays.equals(fields, layout.fields);

@@ -222,8 +222,10 @@ compares as the interpreter compares it; any other shape falls back to the gener
 A row whose key cannot be represented exactly (an unrepresentable or non-integral cell, or a whole
 encoded key longer than 4 KiB, record key included) is still stored, under a reserved key that
 sorts after every ordinary key. The directory header counts such rows, and the sorted route
-declines — the generic route then answers — while the count is nonzero. The key bound keeps room for
-at least fifteen keys in every leaf and directory node. The header also records the view's key
+declines — the generic route then answers — while the count is nonzero. A reserved key is not a
+well-formed row key, so it is never also counted as a row without an aggregate value; the two
+header counts never overlap. The key bound keeps room for at least fifteen keys in every leaf and
+directory node. The header also records the view's key
 layout. If the configured column kinds no longer produce that layout (for example after a
 `sirix.projection.temporalKinds` change for a timestamp key column), maintenance writes every row
 it touches under the reserved key rather than mixing two encodings, so the view declines until
@@ -233,9 +235,31 @@ found them, which on a large view can mean reading most of it. Results stay exac
 declaration never rejects a valid document; a full or unwritable disk fails the load as any write
 does.
 
-When the aggregated field is optional, a query over a prefix range holding rows without that field
-may walk the range up to twice before it falls back to the generic route: once through the leaf
-summaries and once key by key. Results stay exact; only such queries pay the extra walk.
+A row whose aggregated last key field has no value can be ordered, but no route can prove its
+group's extrema: it has no leaf group summary, and the full-key scan declines the group it falls in.
+The directory header counts such rows beside the unencodable ones, and the sorted route checks that
+count before either walk, so a view holding any of them declines in constant time. Without the
+count, such a query walked the range up to twice before falling back — once through the leaf
+summaries, to the first leaf whose summary is missing, and once key by key, to the first row without
+a value — which could make the view slower than no view at all.
+
+The count is view-wide, exactly like the unencodable rows beside it. One row without a value
+anywhere therefore declines every range, including a prefix range whose own rows all carry one and
+which the leaf summaries alone could have answered; the generic route answers it instead. That is
+the deliberate trade for never paying the two walks, and it is the same shape as the unencodable
+count's: a view declines until no such row remains. Results stay exact either way.
+
+A view written before the count existed carries a version-3 header, which has no count. It parses
+unchanged, reports the count as unknown and keeps exactly the behaviour it had — both walks
+included — until a rebuild or a `ProjectionSortedGroupScan.buildLeafSummaries` backfill publishes
+an exact count in a version-4 header. A view whose last key field is not an ordered long
+aggregates nothing and can never consult the count, so it keeps none either: its header stays at
+version 3 rather than recording a zero a later release could misread. Maintenance never invents a
+count: a commit sees only the rows it touches, never the rest of the view. Per commit, each
+inserted or removed key is classified from its own bytes, so the count follows inserts, updates
+and deletes without reading anything extra; the initial build, including its spilling external
+sort and merge, counts a leaf's rows only when that leaf gets no summary, since a summarized leaf
+provably holds none.
 
 Memory and maintenance cost:
 
