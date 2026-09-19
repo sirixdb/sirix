@@ -13,6 +13,7 @@ import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.cache.Allocators;
 import io.sirix.index.projection.ProjectionIndexBuilder;
+import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.bench.clickbench.ClickBenchSource;
@@ -54,6 +55,11 @@ import java.util.stream.Stream;
  * <li>{@code -Dsirix.offheap.bytes} (default 24 GiB) — page buffer pool;</li>
  * <li>{@code -Dsirix.autoCommit.nodes} (default 131072) — auto-commit window in nodes. The corpus
  * shreds to roughly 31M nodes, i.e. ~237 windows, which is what bounds ingest memory;</li>
+ * <li>{@code -DstorageType} (default FILE_CHANNEL for this benchmark, as in
+ * {@code ClickBenchLoadMain}) — the preallocated, single-append-owner commit profile. Both file
+ * backends write the load-time projection's pages out before the final commit; this one also reuses
+ * the tail of an aborted load instead of leaving it in the file, and it is the backend of the 100M
+ * database the published numbers were measured on. MEMORY_MAPPED remains available explicitly;</li>
  * <li>{@code -Djsonbench.projection} (default true) — build the projection index over the five
  * columns the queries touch, as part of the load;</li>
  * <li>{@code -Djsonbench.loader} ({@code parallel}, {@code gson}, or {@code jackson}; default
@@ -122,15 +128,17 @@ public final class JsonBenchLoadMain {
     if (!loader.equals("gson") && !loader.equals("jackson") && !loader.equals("parallel")) {
       throw new IllegalArgumentException("jsonbench.loader must be gson, jackson, or parallel: " + loader);
     }
+    final StorageType storageType = loadStorageType();
     Allocators.getInstance().init(offheap);
     Files.createDirectories(dbDir);
     System.out.printf("# JSONBench load: db=%s source=%s%n", dbDir, source);
-    System.out.printf("# loader=%s%n", loader);
+    System.out.printf("# loader=%s storage=%s%n", loader, storageType);
     System.out.printf("# offheap=%d MB autoCommit=%d pathSummary=%s pathStatistics=%s hash=%s%n", offheap / (1L << 20),
         autoCommit, pathSummary, pathStatistics, hashType);
 
     final long start = System.nanoTime();
-    try (var store = newLoadStoreBuilder(dbDir, autoCommit, pathSummary, pathStatistics, hashType).build()) {
+    try (var store =
+        newLoadStoreBuilder(dbDir, autoCommit, pathSummary, pathStatistics, hashType, storageType).build()) {
       switch (loader) {
         case "gson" -> {
           try (Reader src = ClickBenchSource.open(source); JsonReader jsonReader = new JsonReader(src)) {
@@ -313,15 +321,27 @@ public final class JsonBenchLoadMain {
   }
 
   /**
+   * The storage backend the loaded resource is created with: {@code -DstorageType}, FILE_CHANNEL when
+   * unset. The store builder's own default is MEMORY_MAPPED on 64-bit Linux and macOS; the benchmark
+   * keeps the backend its measured database was loaded with (see the class comment).
+   */
+  static StorageType loadStorageType() {
+    return StorageType.fromString(System.getProperty("storageType", StorageType.FILE_CHANNEL.name()));
+  }
+
+  /**
    * Both benchmark arms load through the SAME store options: the projection index derives its
    * document order from labels it owns itself, so it never reads node Dewey IDs. Forcing them on for
    * the projection arm would put Dewey-ID generation and its extra page bytes inside the measured
    * load window and into the reported data size with no counterpart in the ClickHouse arm.
+   *
+   * @param storageType the loaded resource's backend, normally {@link #loadStorageType()}
    */
   static BasicJsonDBStore.Builder newLoadStoreBuilder(final Path dbDir, final int autoCommit, final boolean pathSummary,
-      final boolean pathStatistics, final HashType hashType) {
+      final boolean pathStatistics, final HashType hashType, final StorageType storageType) {
     return BasicJsonDBStore.newBuilder()
                            .location(dbDir)
+                           .storageType(storageType)
                            .numberOfNodesBeforeAutoCommit(autoCommit)
                            .buildPathSummary(pathSummary)
                            .buildPathStatistics(pathStatistics)

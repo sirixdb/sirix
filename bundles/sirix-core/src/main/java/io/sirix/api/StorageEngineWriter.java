@@ -432,9 +432,11 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * <p>
    * This is intentionally narrower than {@link #commit(PageReference)}: the page must not be
    * reachable from any committed root, must never be mutated, and its owner must tolerate the append
-   * becoming an unreachable orphan until transaction rollback reclaims the uncommitted tail.
-   * Implementations return {@code false} when their backend cannot reclaim such a tail; the page then
-   * stays resident and ordinary recursive commit writes it safely.
+   * becoming an unreachable orphan when the transaction rolls back: a backend that reclaims an
+   * aborted tail reuses it, any other leaves it unused in the file. Implementations return
+   * {@code false} when their backend cannot take a page ahead of the commit at all
+   * ({@code Writer#supportsUncommittedWrites()}); the page then stays resident and ordinary recursive
+   * commit writes it.
    * </p>
    *
    * @param reference fresh unresolved reference whose page is an immutable OverflowPage

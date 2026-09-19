@@ -245,6 +245,13 @@ find *where* the time is, and a CPU profile only to name *what* that phase is do
   database without that early init inherits the size persisted in `dbsetting.obj` (16 GiB by default)
   and silently ignores the flag — the knob looks dead there, and a whole ledger of "offheap 8g"
   numbers was once recorded from runs that actually used a 16 GiB arena.
+* **The loader creates a FILE_CHANNEL resource.** `JsonBenchLoadMain` selects
+  `-DstorageType=FILE_CHANNEL` unless the flag names another backend, the same default
+  `ClickBenchLoadMain` uses and the backend of the 100 M database the campaign measured. The store's own
+  default on 64-bit Linux and macOS is MEMORY_MAPPED. Both backends write the load-time projection's
+  pages out before the final commit; FILE_CHANNEL's preallocated profile also reuses an aborted load's
+  tail instead of leaving it in the file. A database records its backend as `storageKind` in
+  `<db>/<name>/resources/<res>/ressetting.obj`, and the runner opens it with that backend.
 * **`-Dsirix.projection.promoteMaxBytes=0` is a workaround, not a tuning.** It disables the
   byte-kernel promotion at 100 M, where the promotion tries to materialise ~30 GB of row-group
   payloads and OOMs a 14 GB heap (open defect, task #36). **Remove it once #36 is fixed.** With

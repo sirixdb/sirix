@@ -1409,6 +1409,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
   }
 
+  /**
+   * Both commit profiles append a page written ahead of the uber-page beacon at their write frontier
+   * and read it back through this writer; the beacon makes it part of the committed revision. The
+   * asynchronous record-page flush has always relied on that in both profiles. Only the preallocated
+   * profile also reuses an aborted transaction's tail; the legacy profile leaves it unreachable in
+   * the file, exactly like the record pages that flush wrote.
+   */
+  @Override
+  public boolean supportsUncommittedWrites() {
+    return true;
+  }
+
   @Override
   public boolean supportsReclaimableUncommittedWrites() {
     // A new preallocated writer resumes from the last durable logical frontier, not i_size. An

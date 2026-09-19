@@ -2,6 +2,7 @@ package io.sirix.query.bench.jsonbench;
 
 import io.sirix.access.trx.node.HashType;
 import io.sirix.access.Databases;
+import io.sirix.io.StorageType;
 import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -14,9 +15,11 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 final class JsonBenchLoadMainTest {
 
@@ -57,14 +60,31 @@ final class JsonBenchLoadMainTest {
 
   @Test
   void bothBenchmarkArmsLoadWithoutDeweyIds() {
-    try (
-        final var projectionStore =
-            JsonBenchLoadMain.newLoadStoreBuilder(Path.of("."), 1024, true, false, HashType.NONE).build();
-        final var genericStore =
-            JsonBenchLoadMain.newLoadStoreBuilder(Path.of("."), 1024, false, false, HashType.NONE).build()) {
+    try (final var projectionStore = loadStore(Path.of("."), 1024, true);
+        final var genericStore = loadStore(Path.of("."), 1024, false)) {
       assertFalse(projectionStore.options().useDeweyIDs());
       assertFalse(genericStore.options().useDeweyIDs());
     }
+  }
+
+  /**
+   * The store builder's own default is MEMORY_MAPPED on 64-bit Linux; the loader keeps the backend
+   * the benchmark's measured database was loaded with, as {@code ClickBenchLoadMain} does.
+   */
+  @Test
+  void loadStoreDefaultsToFileChannelStorage() {
+    assumeTrue(System.getProperty("storageType") == null, "an explicit -DstorageType overrides the default");
+    assertEquals(StorageType.FILE_CHANNEL, JsonBenchLoadMain.loadStorageType());
+    try (final var store = loadStore(Path.of("."), 1024, true)) {
+      assertEquals(StorageType.FILE_CHANNEL, store.options().storageType());
+    }
+  }
+
+  /** The store {@code JsonBenchLoadMain} loads through, with the loader's default storage backend. */
+  private static BasicJsonDBStore loadStore(final Path location, final int autoCommit, final boolean pathSummary) {
+    final BasicJsonDBStore.Builder builder = JsonBenchLoadMain.newLoadStoreBuilder(location, autoCommit, pathSummary,
+        false, HashType.NONE, JsonBenchLoadMain.loadStorageType());
+    return builder.build();
   }
 
   private static class CompletedProcess extends Process {

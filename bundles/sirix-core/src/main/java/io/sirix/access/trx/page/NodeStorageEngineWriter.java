@@ -1821,9 +1821,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       throw new IllegalArgumentException("The staged OverflowPage reference must be fresh and unresolved");
     }
 
-    // RAM and legacy append-at-physical-size backends cannot reclaim bytes written before the root
-    // is published. Leave the page resident there; recursive final commit is slower but space-safe.
-    if (!storagePageReaderWriter.supportsReclaimableUncommittedWrites()) {
+    // A backend that cannot take a page ahead of the root (RAM) keeps it resident until the final
+    // commit. The legacy append-at-physical-size profile can take it; it only cannot reuse the bytes
+    // of an aborted transaction, which then stay unreachable in the file like the record pages the
+    // async flush already wrote there. Keeping the page resident instead would grow the transaction's
+    // memory with every such page for the whole load.
+    if (!storagePageReaderWriter.supportsUncommittedWrites()) {
       return false;
     }
 
@@ -2408,7 +2411,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * </p>
    */
   private void spillEligiblePinnedTriePages() {
-    if (!storagePageReaderWriter.supportsReclaimableUncommittedWrites() || log.pinnedSize() == 0) {
+    // Only a backend that cannot take pages ahead of the root keeps every pinned trie page until the
+    // final commit. Reclaiming an aborted tail is not required: see stageUncommittedOverflowPage.
+    if (!storagePageReaderWriter.supportsUncommittedWrites() || log.pinnedSize() == 0) {
       return;
     }
 
@@ -5722,16 +5727,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private boolean carrierStagingSupported() {
     if (carrierStagingSupport == 0) {
-      final boolean reclaimable = storagePageReaderWriter.supportsReclaimableUncommittedWrites();
+      final boolean prewritable = storagePageReaderWriter.supportsUncommittedWrites();
       final boolean deterministicClose = SharedArenas.supportsDeterministicClose();
-      carrierStagingSupport = reclaimable && deterministicClose
+      carrierStagingSupport = prewritable && deterministicClose
           ? (byte) 1
           : (byte) 2;
       if (carrierStagingSupport == 2 && CARRIER_STAGING_WARNED.compareAndSet(false, true)) {
         LOGGER.warn("Record-page overflow carriers stay resident until final commit on this configuration: "
-            + (reclaimable
+            + (prewritable
                 ? ""
-                : "the storage backend cannot reclaim uncommitted writes (storage type / sirix.commit.preallocated); ")
+                : "the storage backend cannot write pages ahead of the commit (storage type); ")
             + (deterministicClose
                 ? ""
                 : "the arena strategy has no deterministic close (sirix.arena.strategy); ")
