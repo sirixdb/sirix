@@ -115,15 +115,32 @@ public interface Writer extends Reader {
   default void flushBufferedWrites(final BytesOut<?> bufferedBytes) {}
 
   /**
+   * Whether pages may be written before the owning revision is published. Such a page can be read
+   * back by the writing transaction, becomes part of the revision its commit publishes, and is
+   * unreachable after a rollback. This is what lets a long transaction write the pages it can no
+   * longer change out of memory before its final commit instead of holding them until then.
+   *
+   * <p>
+   * It says nothing about the bytes of an aborted transaction; see
+   * {@link #supportsReclaimableUncommittedWrites()}. A backend that can reclaim them can always take
+   * them, which is the default. RAM and in-memory backends keep the default {@code false}.
+   * </p>
+   */
+  default boolean supportsUncommittedWrites() {
+    return supportsReclaimableUncommittedWrites();
+  }
+
+  /**
    * Whether bytes written before the owning revision is published can be safely reused after a
    * rollback.
    *
    * <p>
-   * The immutable side-page staging path writes payloads ahead of the final root. It is only enabled
-   * when the backend derives each new writer's logical append frontier from the last durable
-   * revision, so an aborted transaction's tail is overwritten rather than becoming an unbounded
-   * physical leak. Backends with append-at-physical-size semantics and in-memory maps must retain the
-   * default {@code false} and write such pages during the final commit instead.
+   * A backend that returns {@code true} derives each new writer's logical append frontier from the
+   * last durable revision, so the next writer overwrites an aborted transaction's tail; the storage
+   * engine drops the resource's cached pages before that reuse. Append-at-physical-size backends
+   * leave the tail unreachable in the file and in-memory backends take no such pages; both keep the
+   * default {@code false}. Whether a backend takes such pages at all is
+   * {@link #supportsUncommittedWrites()}.
    * </p>
    */
   default boolean supportsReclaimableUncommittedWrites() {

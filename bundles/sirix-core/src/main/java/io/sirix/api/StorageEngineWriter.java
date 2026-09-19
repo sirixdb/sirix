@@ -432,9 +432,11 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * <p>
    * This is intentionally narrower than {@link #commit(PageReference)}: the page must not be
    * reachable from any committed root, must never be mutated, and its owner must tolerate the append
-   * becoming an unreachable orphan until transaction rollback reclaims the uncommitted tail.
-   * Implementations return {@code false} when their backend cannot reclaim such a tail; the page then
-   * stays resident and ordinary recursive commit writes it safely.
+   * becoming an unreachable orphan when the transaction rolls back: a backend that reclaims an
+   * aborted tail reuses it, any other leaves it unused in the file. Implementations return
+   * {@code false} when their backend cannot take a page ahead of the commit at all
+   * ({@code Writer#supportsUncommittedWrites()}); the page then stays resident and ordinary recursive
+   * commit writes it.
    * </p>
    *
    * @param reference fresh unresolved reference whose page is an immutable OverflowPage
@@ -442,6 +444,22 @@ public interface StorageEngineWriter extends StorageEngineReader {
    */
   default boolean stageUncommittedOverflowPage(final PageReference reference) {
     return false;
+  }
+
+  /**
+   * Stage an immutable page with an opaque locality group. Implementations may place equal groups
+   * next to each other within a bounded append batch retained across storage-only flushes. The owner
+   * must keep the parent independently pinned while this page is pending; parents that must serialize
+   * in the next record-page snapshot must use the ungrouped overload instead. Explicit drains and
+   * final commits still drain all pending pages before root publication. Implementations without
+   * grouping retain ordinary staging.
+   *
+   * @param reference fresh unresolved immutable page reference
+   * @param localityGroup opaque grouping key; every long value is supported
+   * @return whether ownership moved into the pending-write batch
+   */
+  default boolean stageUncommittedOverflowPage(final PageReference reference, final long localityGroup) {
+    return stageUncommittedOverflowPage(reference);
   }
 
   PageContainer dereferenceRecordPageForModification(PageReference reference);

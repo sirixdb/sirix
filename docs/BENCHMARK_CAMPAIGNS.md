@@ -167,10 +167,12 @@ sliced serving continues). Nothing ever waits.
 **Change.** At the first store-bearing projection lookup, a one-shot background thread
 walks the catalog's segment descriptors and issues batched read-ahead spans
 (128 page references per batch) for *every* sliceable column's body — plus dictionary
-chains for string columns. It is purely advisory: failures are swallowed, and a
-property (`sirix.projection.prefetchAll`) can disable it.
+chains for string columns. It is purely advisory: failures are swallowed.
 **Result.** Suite cold 1.309 → 1.237 s interleaved; fresh-process single-query latency
 unchanged (measured — the sweep does not tax the single-query regime).
+**Current default.** Off since the file-channel reader began honouring span hints, which made the
+store-wide sweep compete with each query's own reads; `-Dsirix.projection.prefetchAll=true` opts
+in (see the controls in [`PROJECTION_READ_PERFORMANCE.md`](PROJECTION_READ_PERFORMANCE.md#controls)).
 
 ### 4.5 The parallel directory walk
 
@@ -184,8 +186,11 @@ page references (cheap — branches are few); (2) issues one batched readahead o
 (3) decodes the leaves on up to 8 worker threads, each with its own read transaction,
 into per-worker buffers; (4) replays the buffers into the existing order-agnostic
 directory builder. Strict gates: committed-read-only contexts, verified-corruption
-exceptions still propagate (the catalog must mark the index unusable), any
-infrastructure failure falls back to the serial walk, and a property kill-switch exists.
+exceptions still propagate (the catalog must mark the index unusable), and any
+infrastructure failure falls back to the serial walk. The serial cursor has since become
+the default again, because worker transactions, capture buffers and replay can cost more
+than the parallel decoding saves; `-Dsirix.projection.parallelWalk=true` opts in (see the
+controls in [`PROJECTION_READ_PERFORMANCE.md`](PROJECTION_READ_PERFORMANCE.md#controls)).
 
 **A finding worth recording:** the real corpus's trie is a root with **five very fat
 leaves**. The initial implementation declined to parallelize below 8 partitions and thus

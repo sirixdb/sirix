@@ -120,7 +120,9 @@ public interface Reader extends AutoCloseable {
    * <p>
    * Contract: {@code result[i]} is the page for {@code references[i]} (input order); a reference with
    * no disk key yields {@code null}. Offsets need not be sorted — the override coalesces only what is
-   * profitably adjacent.
+   * profitably adjacent. If the batch fails part way, the pages it already read for this call are
+   * released before the failure propagates, unless this reader {@linkplain #returnsSharedPages()
+   * returns shared pages}.
    *
    * @param references the offset-keyed references to read
    * @param resourceConfiguration the resource configuration
@@ -129,12 +131,37 @@ public interface Reader extends AutoCloseable {
    */
   default Page[] read(final PageReference[] references, final ResourceConfiguration resourceConfiguration) {
     final Page[] pages = new Page[references.length];
-    for (int i = 0; i < references.length; i++) {
-      if (references[i] != null && references[i].getKey() != Constants.NULL_ID_LONG) {
-        pages[i] = read(references[i], resourceConfiguration);
+    try {
+      for (int i = 0; i < references.length; i++) {
+        if (references[i] != null && references[i].getKey() != Constants.NULL_ID_LONG) {
+          pages[i] = read(references[i], resourceConfiguration);
+        }
       }
+    } catch (final RuntimeException | Error failure) {
+      if (!returnsSharedPages()) {
+        AbstractReader.retireDecodedPages(pages, failure);
+      }
+      throw failure;
     }
     return pages;
+  }
+
+  /**
+   * Whether the pages this reader returns are instances it keeps and hands out again, rather than
+   * pages produced for the call that returned them.
+   *
+   * <p>
+   * A file-backed reader decodes a fresh page on every read: the caller owns it and must release it
+   * once nobody else will, in particular when the call it was read for fails before handing it on. A
+   * reader answering from the instances it stores (in-memory storage) returns the only copy of a
+   * page; releasing it would leave every later read of that key with a closed page. A caller may
+   * therefore release a page obtained from this reader only while this method returns {@code false}.
+   *
+   * @return {@code true} if returned pages stay owned by this reader and must never be released by a
+   *         caller, {@code false} (the default) if every returned page is owned by its caller
+   */
+  default boolean returnsSharedPages() {
+    return false;
   }
 
   /**

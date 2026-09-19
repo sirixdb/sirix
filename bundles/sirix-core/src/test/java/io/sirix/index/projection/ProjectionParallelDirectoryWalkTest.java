@@ -106,12 +106,12 @@ final class ProjectionParallelDirectoryWalkTest {
         assertTrue(partitions >= 8, "frontier of " + partitions + " references is too narrow to fan out — this store "
             + "would silently take the serial route and the test would prove nothing");
         parallel = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
-            rtx.getStorageEngineReader(), INDEX_NUMBER, ROW_GROUPS, worker -> {
+            rtx.getStorageEngineReader(), INDEX_NUMBER, ROW_GROUPS, identityPhysicalOrder(), worker -> {
               leases.incrementAndGet();
               try (JsonNodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
                 worker.accept(laneRtx.getStorageEngineReader());
               }
-            });
+            }, true);
       }
       assertTrue(leases.get() >= 2, "the parallel walk declined — only " + leases.get() + " worker leases were opened");
       assertDirectoriesEqual(serial, parallel);
@@ -135,17 +135,47 @@ final class ProjectionParallelDirectoryWalkTest {
         final AtomicInteger leases = new AtomicInteger();
         final List<ProjectionIndexHOTStorage.RowGroupDirectory> served =
             ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(writerReader, INDEX_NUMBER,
-                ROW_GROUPS, worker -> {
+                ROW_GROUPS, identityPhysicalOrder(), worker -> {
                   leases.incrementAndGet();
                   try (JsonNodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
                     worker.accept(laneRtx.getStorageEngineReader());
                   }
-                });
+                }, true);
         assertEquals(0, leases.get(), "no worker lease may be opened against a writer context");
         assertNotNull(served, "the writer context must still be served by the serial walk");
         assertEquals(ROW_GROUPS, served.size());
       }
     }
+  }
+
+  @Test
+  void defaultWalkDoesNotOpenWorkersAndMatchesTheSerialDirectory() {
+    writeRowGroups();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+        JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      final StorageEngineReader reader = rtx.getStorageEngineReader();
+      final AtomicInteger leases = new AtomicInteger();
+      final List<ProjectionIndexHOTStorage.RowGroupDirectory> actual =
+          ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER, ROW_GROUPS,
+              worker -> {
+                leases.incrementAndGet();
+                throw new AssertionError("the default directory policy must not open workers");
+              });
+      final List<ProjectionIndexHOTStorage.RowGroupDirectory> expected =
+          ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER, ROW_GROUPS);
+      assertEquals(0, leases.get());
+      assertDirectoriesEqual(expected, actual);
+    }
+  }
+
+  /** The fixture writes consecutive segment slots without a persisted order header. */
+  private static int[] identityPhysicalOrder() {
+    final int[] order = new int[ROW_GROUPS];
+    for (int index = 0; index < order.length; index++) {
+      order[index] = index + 1;
+    }
+    return order;
   }
 
   private static void assertDirectoriesEqual(final List<ProjectionIndexHOTStorage.RowGroupDirectory> expected,

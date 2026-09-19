@@ -13,12 +13,12 @@ import java.util.SplittableRandom;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Round-trip + compression-ratio tests for {@link ZeroRunByteCodec} —
- * the zero-run RLE used as a cheap replacement for LZ4 on Sirix page
- * heaps when {@code -Dsirix.compression=none} is in effect.
+ * Round-trip + compression-ratio tests for {@link ZeroRunByteCodec} — the zero-run RLE used as a
+ * cheap replacement for LZ4 on Sirix page heaps when {@code -Dsirix.compression=none} is in effect.
  */
 @DisplayName("ZeroRunByteCodec")
 final class ZeroRunByteCodecTest {
@@ -45,8 +45,7 @@ final class ZeroRunByteCodecTest {
       final MemorySegment in = arena.allocate(n);
       final byte[] buf = new byte[ZeroRunByteCodec.maxEncodedSize(n)];
       final int encoded = ZeroRunByteCodec.encode(in, 0, n, buf, 0);
-      assertTrue(encoded < 10,
-          "all-zero " + n + " should encode to < 10 bytes, got " + encoded);
+      assertTrue(encoded < 10, "all-zero " + n + " should encode to < 10 bytes, got " + encoded);
       final MemorySegment out = arena.allocate(n);
       final int decoded = ZeroRunByteCodec.decode(buf, 0, encoded, out, 0);
       assertEquals(n, decoded);
@@ -97,7 +96,11 @@ final class ZeroRunByteCodecTest {
       for (int i = 0; i < n; i++) {
         final int r = rng.nextInt(5);
         // 50% zero, 50% small non-zero — matches varint-heavy distribution.
-        final byte b = r == 0 ? 0 : (byte) (r == 1 ? 0 : rng.nextInt(128) + 1);
+        final byte b = r == 0
+            ? 0
+            : (byte) (r == 1
+                ? 0
+                : rng.nextInt(128) + 1);
         expected[i] = b;
         in.set(ValueLayout.JAVA_BYTE, i, b);
       }
@@ -134,6 +137,46 @@ final class ZeroRunByteCodecTest {
   }
 
   @Test
+  @DisplayName("long zero run clears only its offset output range across copy chunks")
+  void longZeroRunPreservesAdjacentBytes() {
+    final int length = 8193;
+    final int offset = 7;
+    try (Arena arena = Arena.ofConfined()) {
+      final MemorySegment input = arena.allocate(length);
+      final byte[] encoded = new byte[ZeroRunByteCodec.maxEncodedSize(length)];
+      final int encodedLength = ZeroRunByteCodec.encode(input, 0, length, encoded, 0);
+      final MemorySegment output = arena.allocate(length + offset + 9);
+      output.fill((byte) 0x5A);
+
+      assertEquals(length, ZeroRunByteCodec.decode(encoded, 0, encodedLength, output, offset));
+      for (int i = 0; i < offset; i++) {
+        assertEquals((byte) 0x5A, output.get(ValueLayout.JAVA_BYTE, i));
+      }
+      for (int i = offset; i < offset + length; i++) {
+        assertEquals((byte) 0, output.get(ValueLayout.JAVA_BYTE, i));
+      }
+      for (int i = offset + length; i < output.byteSize(); i++) {
+        assertEquals((byte) 0x5A, output.get(ValueLayout.JAVA_BYTE, i));
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("invalid long zero lengths are rejected")
+  void invalidLongZeroRunLengths() {
+    try (Arena arena = Arena.ofConfined()) {
+      final MemorySegment output = arena.allocate(2);
+      final byte[] zeroLength = {(byte) 0xFF, 2, (byte) 0xFF, 0};
+      final byte[] negativeLength =
+          {(byte) 0xFF, 2, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0x0F};
+      assertThrows(IllegalStateException.class,
+          () -> ZeroRunByteCodec.decode(zeroLength, 0, zeroLength.length, output, 0));
+      assertThrows(IllegalStateException.class,
+          () -> ZeroRunByteCodec.decode(negativeLength, 0, negativeLength.length, output, 0));
+    }
+  }
+
+  @Test
   @DisplayName("interleaved zero runs and literals round-trip")
   void interleavedRuns() {
     try (Arena arena = Arena.ofConfined()) {
@@ -142,7 +185,9 @@ final class ZeroRunByteCodecTest {
       final byte[] expected = new byte[n];
       // Pattern: 10 zeros, 10 non-zero, repeat.
       for (int i = 0; i < n; i++) {
-        final byte b = ((i / 10) & 1) == 0 ? 0 : (byte) (0x40 + (i % 20));
+        final byte b = ((i / 10) & 1) == 0
+            ? 0
+            : (byte) (0x40 + (i % 20));
         expected[i] = b;
         in.set(ValueLayout.JAVA_BYTE, i, b);
       }

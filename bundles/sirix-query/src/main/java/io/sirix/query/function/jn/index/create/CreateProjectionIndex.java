@@ -20,6 +20,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
+import io.sirix.index.ProjectionSortedSpec;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathStats;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -28,6 +29,7 @@ import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.query.json.JsonDBItem;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -40,6 +42,8 @@ import java.util.function.Consumer;
  * Function for creating a columnar <em>projection index</em> over a set of record fields — the
  * analytical fast path behind aggregate / filter / group-by queries. Supported signatures:
  * <ul>
+ * <li><code>jn:create-projection-index($doc as json-item(), $rootPath as xs:string,
+ * $fields as xs:string*, $types as xs:string*, $sortColumns as xs:string*) as json-item()</code></li>
  * <li><code>jn:create-projection-index($doc as json-item(), $rootPath as xs:string,
  * $fields as xs:string*, $types as xs:string*) as json-item()</code></li>
  * <li><code>jn:create-projection-index($doc as json-item(), $rootPath as xs:string,
@@ -60,6 +64,16 @@ import java.util.function.Consumer;
  * {@code YYYY-MM-DDTHH:MM:SS} (timestamp) or {@code YYYY-MM-DD} (date);
  * {@code -Dsirix.projection.temporalKinds=false} makes such a column build and serve as an ordinary
  * string-dictionary column instead (see {@code ProjectionTemporalCodec}).
+ *
+ * <p>
+ * {@code $sortColumns}, when non-empty, additionally declares a sorted view of every record ordered
+ * by those columns, like a table's {@code ORDER BY} key. Each entry names one of {@code $fields},
+ * spelled as a field path that parses to the same path; the columns must be string, long, boolean
+ * or temporal. A query whose string equality filter covers a leading run of the sort columns,
+ * grouping by the next column and taking the extremum of the last, is answered from that key range.
+ * Sort columns refine a projection's identity only when they are given: a call with sort columns
+ * reuses only a same-shape projection with exactly those sort columns, while a call without them
+ * reuses any same-shape projection, sorted or not.
  *
  * <p>
  * Projection indexes work like the other index families ({@code jn:create-path-index} etc.): each
@@ -105,7 +119,7 @@ public final class CreateProjectionIndex extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    if (args.length != 3 && args.length != 4) {
+    if (args.length < 3 || args.length > 5) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
     final JsonDBItem document = (JsonDBItem) args[0];
@@ -142,7 +156,7 @@ public final class CreateProjectionIndex extends AbstractFunction {
       throw new QueryException(new QNm("At least one projected field path is required."));
     }
     final List<Type> fieldTypes = new ArrayList<>(fieldPaths.size());
-    if (args.length == 4 && args[3] != null) {
+    if (args.length >= 4 && args[3] != null) {
       forEachString(args[3], value -> fieldTypes.add(mapType(value)));
       if (fieldTypes.size() != fieldPaths.size()) {
         throw new QueryException(
@@ -162,6 +176,10 @@ public final class CreateProjectionIndex extends AbstractFunction {
       }
     }
 
+    final ProjectionSortedSpec sortedSpec = args.length == 5 && args[4] != null
+        ? sortedSpec(args[4], fieldPaths, fieldTypes)
+        : null;
+
     final int revision = document.getTrx().getRevisionNumber();
 
     // The resource's index catalogue is the durable source of truth for
@@ -174,8 +192,9 @@ public final class CreateProjectionIndex extends AbstractFunction {
     final JsonIndexController controller = openWtx.isPresent()
         ? session.getWtxIndexController(openWtx.get().getRevisionNumber())
         : session.getRtxIndexController(revision);
-    final IndexDef existingDef =
-        controller.getIndexes().findProjectionIndex(rootPath, fieldPaths, fieldTypes).orElse(null);
+    final IndexDef existingDef = (sortedSpec == null
+        ? controller.getIndexes().findProjectionIndex(rootPath, fieldPaths, fieldTypes)
+        : controller.getIndexes().findProjectionIndex(rootPath, fieldPaths, fieldTypes, sortedSpec)).orElse(null);
     if (existingDef != null) {
       // Probe through an open transaction's own writer so an index created earlier in this
       // transaction is visible. Otherwise use the committed, revision-scoped catalogue path. Both
@@ -194,8 +213,45 @@ public final class CreateProjectionIndex extends AbstractFunction {
 
     // New projection — catalogued, built and persisted through the index
     // controller, like the other index families.
-    final IndexDef def = buildViaController(session, document, rootPath, fieldPaths, fieldTypes, fieldNames);
+    final IndexDef def =
+        buildViaController(session, document, rootPath, fieldPaths, fieldTypes, fieldNames, sortedSpec);
     return def.materialize();
+  }
+
+  /**
+   * The sort-column declaration: each entry must name a distinct declared field path of a sortable
+   * type. Validated before any write transaction is begun, reused or reverted.
+   */
+  private static @Nullable ProjectionSortedSpec sortedSpec(final Sequence sortColumns, final List<Path<QNm>> fieldPaths,
+      final List<Type> fieldTypes) {
+    final List<Integer> keyColumns = new ArrayList<>(fieldPaths.size());
+    forEachString(sortColumns, value -> {
+      final String canonical = Path.parse(value, PathParser.Type.JSON).toString();
+      int column = -1;
+      for (int i = 0; i < fieldPaths.size(); i++) {
+        if (fieldPaths.get(i).toString().equals(canonical)) {
+          column = i;
+          break;
+        }
+      }
+      if (column < 0) {
+        throw new QueryException(new QNm("Sort column '" + value + "' is not one of the projected field paths."));
+      }
+      if (keyColumns.contains(column)) {
+        throw new QueryException(new QNm("Sort column '" + value + "' is declared twice."));
+      }
+      keyColumns.add(column);
+    });
+    if (keyColumns.isEmpty()) {
+      return null;
+    }
+    final ProjectionSortedSpec spec = new ProjectionSortedSpec(keyColumns);
+    try {
+      spec.validate(fieldPaths, fieldTypes);
+    } catch (final IllegalArgumentException unsupported) {
+      throw new QueryException(new QNm("Unsupported sort column: " + unsupported.getMessage()));
+    }
+    return spec;
   }
 
   /**
@@ -212,7 +268,7 @@ public final class CreateProjectionIndex extends AbstractFunction {
    */
   private static IndexDef buildViaController(final JsonResourceSession session, final JsonDBItem document,
       final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes,
-      final List<String> fieldNames) {
+      final List<String> fieldNames, final @Nullable ProjectionSortedSpec sortedSpec) {
     // Validate BEFORE touching any write transaction: a rejected creation
     // must neither leak a freshly-begun wtx (single-writer permit!) nor
     // have already discarded a reused transaction's uncommitted changes via
@@ -244,8 +300,10 @@ public final class CreateProjectionIndex extends AbstractFunction {
         throw new IllegalStateException("Projection catalogue contains definition " + indexNumber
             + " without an initialized physical tree; refusing to reuse its id");
       }
-      final IndexDef def =
-          IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes, indexNumber, IndexDef.DbType.JSON);
+      final IndexDef def = sortedSpec == null
+          ? IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes, indexNumber, IndexDef.DbType.JSON)
+          : IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes, indexNumber, IndexDef.DbType.JSON,
+              sortedSpec);
       wtxController.createIndexes(Set.of(def), wtx);
       // The built columns are uncommitted and the caller commits them, so from here a wtx we opened
       // is deliberately left open — closing it would throw the build away.

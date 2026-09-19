@@ -7,8 +7,11 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.node.PooledBytesOut;
 import io.sirix.node.PooledGrowingSegment;
@@ -18,6 +21,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
@@ -26,6 +30,7 @@ import java.util.SplittableRandom;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Wire and ownership coverage for the native HOT-leaf full-payload write path. */
@@ -224,6 +229,102 @@ final class HOTLeafPageNativeWireTest {
         coldPage.close();
       }
       page.close();
+    }
+  }
+
+  @Test
+  void bulkSlotOffsetsReadLegacyWireAtEveryAlignment() throws IOException {
+    final ResourceConfiguration config = fullConfig("hot-leaf-bulk-offsets");
+    for (final int count : new int[] {0, 1, HOTLeafPage.MAX_ENTRIES - 1, HOTLeafPage.MAX_ENTRIES}) {
+      final HOTLeafPage original = new HOTLeafPage(17L, 23, IndexType.PROJECTION);
+      try {
+        for (int i = 0; i < count; i++) {
+          assertTrue(original.put(keyOf(i), Arrays.copyOf(valueOf(i), 1 + i % 23)));
+        }
+        original.setCompleteDump(true);
+        final byte[] wire = serializeWithLegacyHeapPayload(config, original);
+        assertDecodedLeaf(config, original, new ByteArrayBytesIn(wire), wire.length);
+
+        try (Arena arena = Arena.ofConfined()) {
+          final MemorySegment nativeWire = arena.allocate(wire.length + 8L);
+          for (int shift = 0; shift < 8; shift++) {
+            MemorySegment.copy(wire, 0, nativeWire, ValueLayout.JAVA_BYTE, shift, wire.length);
+            final MemorySegmentBytesIn source = new MemorySegmentBytesIn(nativeWire);
+            source.position(shift);
+            assertDecodedLeaf(config, original, source, shift + wire.length);
+          }
+        }
+      } finally {
+        original.close();
+      }
+    }
+  }
+
+  @Test
+  void sparseOffsetReadLeavesFollowingLeafUnread() throws IOException {
+    final ResourceConfiguration config = slidingConfig("hot-leaf-sparse-offsets");
+    final HOTLeafPage base = populatedLeaf(64);
+    final HOTLeafPage changed = base.copy();
+    try {
+      assertTrue(changed.put(keyOf(64), valueOf(64)));
+      assertEquals(1, changed.getDirtyEntryCount());
+      final byte[] sparseWire = serializeWithLegacyHeapPayload(config, changed);
+      final byte[] nextWire = serializeWithLegacyHeapPayload(config, base);
+      final byte[] stream = Arrays.copyOf(sparseWire, sparseWire.length + nextWire.length);
+      System.arraycopy(nextWire, 0, stream, sparseWire.length, nextWire.length);
+      final BytesIn<?>[] sources =
+          {new ByteArrayBytesIn(stream), new MemorySegmentBytesIn(MemorySegment.ofArray(stream))};
+      for (final BytesIn<?> source : sources) {
+        final HOTLeafPage sparse =
+            (HOTLeafPage) new PagePersister().deserializePage(config, source, SerializationType.DATA);
+        try {
+          assertEquals(1, sparse.getEntryCount(), "only the changed slot belongs to this fragment");
+          assertArrayEquals(keyOf(64), sparse.getKey(0));
+          assertArrayEquals(valueOf(64), sparse.getValue(0));
+          assertEquals(sparseWire.length, source.position(), "the following leaf must remain unread");
+          assertDecodedLeaf(config, base, source, stream.length);
+        } finally {
+          sparse.close();
+        }
+      }
+    } finally {
+      changed.close();
+      base.close();
+    }
+  }
+
+  @Test
+  void truncatedSlotOffsetsAreRejectedByBulkAndScalarReaders() {
+    final ResourceConfiguration config = fullConfig("hot-leaf-truncated-offsets");
+    final HOTLeafPage original = populatedLeaf(17);
+    try {
+      final byte[] wire = serializeWithLegacyHeapPayload(config, original);
+      final byte[] truncated = Arrays.copyOf(wire, wire.length - original.getUsedSlotsSize() - 1);
+      final BytesIn<?>[] sources =
+          {new ByteArrayBytesIn(truncated), new MemorySegmentBytesIn(MemorySegment.ofArray(truncated))};
+      for (final BytesIn<?> source : sources) {
+        assertThrows(IndexOutOfBoundsException.class,
+            () -> new PagePersister().deserializePage(config, source, SerializationType.DATA));
+      }
+    } finally {
+      original.close();
+    }
+  }
+
+  private static void assertDecodedLeaf(final ResourceConfiguration config, final HOTLeafPage original,
+      final BytesIn<?> source, final long expectedPosition) throws IOException {
+    final HOTLeafPage decoded =
+        (HOTLeafPage) new PagePersister().deserializePage(config, source, SerializationType.DATA);
+    try {
+      assertEquals(expectedPosition, source.position(), "read exactly the offsets and the following payload");
+      assertEquals(original.getEntryCount(), decoded.getEntryCount());
+      assertEquals(original.isCompleteDump(), decoded.isCompleteDump());
+      for (int i = 0; i < original.getEntryCount(); i++) {
+        assertArrayEquals(original.getKey(i), decoded.getKey(i));
+        assertArrayEquals(original.getValue(i), decoded.getValue(i));
+      }
+    } finally {
+      decoded.close();
     }
   }
 

@@ -7,24 +7,20 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 /**
- * Ultra-light byte-level compressor/decompressor optimised for runs of
- * zero bytes — the dominant redundancy pattern in Sirix record heaps once
- * structural codecs (offset-table dedup, PAX regions) have done their
- * work. The remaining bytes are varint-encoded field values where high
- * bytes are zero (top bits of small integers), prevRevision/lastModRev
- * bytes that are often 0-2, and short-varint sibling/child keys that are
- * all zero for leaves.
+ * Ultra-light byte-level compressor/decompressor optimised for runs of zero bytes — the dominant
+ * redundancy pattern in Sirix record heaps once structural codecs (offset-table dedup, PAX regions)
+ * have done their work. The remaining bytes are varint-encoded field values where high bytes are
+ * zero (top bits of small integers), prevRevision/lastModRev bytes that are often 0-2, and
+ * short-varint sibling/child keys that are all zero for leaves.
  *
- * <h2>Why not LZ4?</h2>
- * LZ4 is a sliding-window codec that finds byte-pattern repetition across
- * a window (~64 KiB). On a 32 KiB record heap it spends ~9 seconds of
- * decompress CPU at 100M-record cold scan scale (16% of total CPU — see
- * umbra-iter6 memory). A zero-run RLE costs ~1 ns per byte decoded with
- * a single branch on zero detection, and catches exactly the patterns
- * LZ4 was exploiting on already-structural bytes: zero-padding and
- * small-varint zero high-bytes.
+ * <h2>Why not LZ4?</h2> LZ4 is a sliding-window codec that finds byte-pattern repetition across a
+ * window (~64 KiB). On a 32 KiB record heap it spends ~9 seconds of decompress CPU at 100M-record
+ * cold scan scale (16% of total CPU — see umbra-iter6 memory). A zero-run RLE costs ~1 ns per byte
+ * decoded with a single branch on zero detection, and catches exactly the patterns LZ4 was
+ * exploiting on already-structural bytes: zero-padding and small-varint zero high-bytes.
  *
  * <h2>Wire format</h2>
+ * 
  * <pre>
  *   byte    marker = 0xFF   // start of compressed frame
  *   varint  uncompressedSize
@@ -39,27 +35,24 @@ import java.lang.foreign.ValueLayout;
  *         varint  zeroCount     // ≥ 2
  * </pre>
  *
- * <p>Marker {@code 0xFF} at the start of the frame is unambiguous with
- * the body encoding because a literal run's {@code lengthMinus1}
- * byte (0x00..0x7F) and a zero run's length byte (0x80..0xFE) never
- * collide with 0xFF in the literal's first position. We reserve 0xFF
- * as the long-zero marker inside the body as well; the parser
- * distinguishes body 0xFF (long-zero) from literal content by stream
- * position.
+ * <p>
+ * Marker {@code 0xFF} at the start of the frame is unambiguous with the body encoding because a
+ * literal run's {@code lengthMinus1} byte (0x00..0x7F) and a zero run's length byte (0x80..0xFE)
+ * never collide with 0xFF in the literal's first position. We reserve 0xFF as the long-zero marker
+ * inside the body as well; the parser distinguishes body 0xFF (long-zero) from literal content by
+ * stream position.
  *
- * <p>Expected encoded size on Sirix record heaps: ~0.65× the
- * uncompressed size, based on empirical measurement of the no-LZ4 100K
- * scale-bench DB (~20% of bytes are zero in runs of ≥ 2).
+ * <p>
+ * Expected encoded size on Sirix record heaps: ~0.65× the uncompressed size, based on empirical
+ * measurement of the no-LZ4 100K scale-bench DB (~20% of bytes are zero in runs of ≥ 2).
  *
  * <h2>HFT-grade constraints</h2>
  * <ul>
- *   <li>Zero allocation on encode/decode hot paths — caller provides both
- *       input and output buffers.</li>
- *   <li>Single-pass encode. Single-pass decode. No seek-back, no
- *       hash-table, no window buffer.</li>
- *   <li>Worst-case expansion: {@code ceil(N/128) + 1 + varint(N)} bytes
- *       of literal headers. Caller must size output ≥
- *       {@link #maxEncodedSize(int)}.</li>
+ * <li>Zero allocation on encode/decode hot paths — caller provides both input and output
+ * buffers.</li>
+ * <li>Single-pass encode. Single-pass decode. No seek-back, no hash-table, no window buffer.</li>
+ * <li>Worst-case expansion: {@code ceil(N/128) + 1 + varint(N)} bytes of literal headers. Caller
+ * must size output ≥ {@link #maxEncodedSize(int)}.</li>
  * </ul>
  */
 public final class ZeroRunByteCodec {
@@ -67,9 +60,12 @@ public final class ZeroRunByteCodec {
   /** Start-of-frame marker. */
   public static final byte FRAME_MARKER = (byte) 0xFF;
 
+  private static final int ZERO_FILL_BYTES = 4096;
+  private static final MemorySegment ZERO_FILL = MemorySegment.ofArray(new byte[ZERO_FILL_BYTES]);
+
   /**
-   * Bytes of framing overhead: 1 byte marker + 1..5 byte varint(uncompressedSize).
-   * Use this + literal-header overhead as the caller's output buffer size.
+   * Bytes of framing overhead: 1 byte marker + 1..5 byte varint(uncompressedSize). Use this +
+   * literal-header overhead as the caller's output buffer size.
    */
   public static int maxEncodedSize(final int uncompressedSize) {
     if (uncompressedSize < 0) {
@@ -83,13 +79,13 @@ public final class ZeroRunByteCodec {
   private ZeroRunByteCodec() {}
 
   /**
-   * Encode {@code inputLength} bytes from {@code input} starting at
-   * {@code inputOff} to {@code output} starting at {@code outputOff}.
+   * Encode {@code inputLength} bytes from {@code input} starting at {@code inputOff} to
+   * {@code output} starting at {@code outputOff}.
    *
    * @return bytes written to {@code output}
    */
-  public static int encode(final MemorySegment input, final long inputOff, final int inputLength,
-      final byte[] output, final int outputOff) {
+  public static int encode(final MemorySegment input, final long inputOff, final int inputLength, final byte[] output,
+      final int outputOff) {
     if (input == null || output == null) {
       throw new IllegalArgumentException("input/output");
     }
@@ -107,8 +103,8 @@ public final class ZeroRunByteCodec {
    *
    * @return bytes written to {@code output}
    */
-  public static int encode(final byte[] input, final int inputOff, final int inputLength,
-      final byte[] output, final int outputOff) {
+  public static int encode(final byte[] input, final int inputOff, final int inputLength, final byte[] output,
+      final int outputOff) {
     if (input == null || output == null) {
       throw new IllegalArgumentException("input/output");
     }
@@ -146,8 +142,7 @@ public final class ZeroRunByteCodec {
       int litEnd = i;
       while (litEnd < inputLength && (litEnd - litStart) < 128) {
         // Stop if we see ≥ 2 consecutive zeros (so next iteration can emit a zero run).
-        if (input[inputOff + litEnd] == 0 && litEnd + 1 < inputLength
-            && input[inputOff + litEnd + 1] == 0) {
+        if (input[inputOff + litEnd] == 0 && litEnd + 1 < inputLength && input[inputOff + litEnd + 1] == 0) {
           break;
         }
         litEnd++;
@@ -162,14 +157,13 @@ public final class ZeroRunByteCodec {
   }
 
   /**
-   * Decode a frame from {@code input} (starting at {@code inputOff}) into
-   * {@code output} starting at {@code outputOff}. Writes exactly
-   * {@code uncompressedSize} bytes as recorded in the frame header.
+   * Decode a frame from {@code input} (starting at {@code inputOff}) into {@code output} starting at
+   * {@code outputOff}. Writes exactly {@code uncompressedSize} bytes as recorded in the frame header.
    *
    * @return bytes written to {@code output} (== uncompressedSize)
    */
-  public static int decode(final byte[] input, final int inputOff, final int inputLen,
-      final MemorySegment output, final long outputOff) {
+  public static int decode(final byte[] input, final int inputOff, final int inputLen, final MemorySegment output,
+      final long outputOff) {
     if (input == null || output == null) {
       throw new IllegalArgumentException("input/output");
     }
@@ -178,9 +172,9 @@ public final class ZeroRunByteCodec {
     if (inPos >= inEnd || input[inPos++] != FRAME_MARKER) {
       throw new IllegalStateException("ZeroRunByteCodec: missing frame marker");
     }
-    final long[] vr = readVarintPacked(input, inPos);
-    inPos = (int) vr[1];
-    final int uncompressed = (int) vr[0];
+    final long vr = readVarintPacked(input, inPos);
+    inPos = (int) (vr >>> Integer.SIZE);
+    final int uncompressed = (int) vr;
 
     long outPos = outputOff;
     final long outEnd = outputOff + uncompressed;
@@ -208,10 +202,10 @@ public final class ZeroRunByteCodec {
         outPos += zeroLen;
       } else {
         // Long zero run: varint(zeros).
-        final long[] vr2 = readVarintPacked(input, inPos);
-        inPos = (int) vr2[1];
-        final int zeroLen = (int) vr2[0];
-        if (outPos + zeroLen > outEnd) {
+        final long vr2 = readVarintPacked(input, inPos);
+        inPos = (int) (vr2 >>> Integer.SIZE);
+        final int zeroLen = (int) vr2;
+        if (zeroLen < 2 || outPos + zeroLen > outEnd) {
           throw new IllegalStateException("ZeroRunByteCodec: long zero-run overflow");
         }
         fillZeros(output, outPos, zeroLen);
@@ -221,9 +215,16 @@ public final class ZeroRunByteCodec {
     return uncompressed;
   }
 
-  /** Bulk zero-fill on an output segment; LLVM will fold to a vectorized memset. */
+  /** Reuse one zero source instead of allocating a segment slice for every decoded run. */
   private static void fillZeros(final MemorySegment output, final long offset, final int len) {
-    output.asSlice(offset, len).fill((byte) 0);
+    int remaining = len;
+    long position = offset;
+    while (remaining > 0) {
+      final int count = Math.min(remaining, ZERO_FILL_BYTES);
+      MemorySegment.copy(ZERO_FILL, 0, output, position, count);
+      remaining -= count;
+      position += count;
+    }
   }
 
   // ───────────────────────────────────────────────────────────────── varint
@@ -239,21 +240,22 @@ public final class ZeroRunByteCodec {
   }
 
   /**
-   * Reads a varint from {@code input} starting at {@code offset}. Returns
-   * an array {@code {value, nextPos}} (primitive packing keeps the HFT
-   * contract — no allocation because the hot path uses {@link #vrDec}).
+   * Reads a varint from {@code input} starting at {@code offset}. The low 32 bits contain the decoded
+   * value, and the high 32 bits contain the next input offset.
    */
-  private static long[] readVarintPacked(final byte[] input, final int offset) {
+  private static long readVarintPacked(final byte[] input, final int offset) {
     int pos = offset;
     int result = 0;
     int shift = 0;
     while (true) {
       final byte b = input[pos++];
       result |= (b & 0x7F) << shift;
-      if ((b & 0x80) == 0) break;
+      if ((b & 0x80) == 0)
+        break;
       shift += 7;
-      if (shift > 28) throw new IllegalStateException("varint too long");
+      if (shift > 28)
+        throw new IllegalStateException("varint too long");
     }
-    return new long[] { result, pos };
+    return ((long) pos << Integer.SIZE) | (result & 0xFFFFFFFFL);
   }
 }

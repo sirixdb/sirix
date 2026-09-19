@@ -53,8 +53,14 @@ public final class ProjectionBloomChunks {
   private static final byte MANIFEST_VERSION = 0;
   private static final int MANIFEST_BYTES = Integer.BYTES + 1 + 4 * Integer.BYTES;
 
-  /** Referenced chunk payloads held at once by one pruning call. */
-  static final int FETCH_WINDOW_CHUNKS = 4;
+  /**
+   * Referenced chunk payloads held at once by one pruning call ({@code
+   * -Dsirix.projection.bloomFetchWindowChunks}, clamped to 1–64, default 16). Every window is one
+   * ranged fetch on a fresh read transaction, so a wider window trades a few hundred KiB of
+   * owner-thread scratch for proportionally fewer transaction opens per column.
+   */
+  static final int FETCH_WINDOW_CHUNKS =
+      Math.max(1, Math.min(64, Integer.getInteger("sirix.projection.bloomFetchWindowChunks", 16)));
 
   /** Fixed owner-thread scratch; payload references are cleared before every window is released. */
   private static final ThreadLocal<FetchScratch> FETCH_SCRATCH = ThreadLocal.withInitial(FetchScratch::new);
@@ -278,6 +284,11 @@ public final class ProjectionBloomChunks {
     /** How many 256-leaf chunks this evidence spans (the unit {@link #pruneMany} splits over). */
     int chunkCount() {
       return chunks.size();
+    }
+
+    /** Physical chunk boundaries must also be disjoint logical mask-word boundaries. */
+    boolean parallelPruningIsSafe() {
+      return logicalByPhysical == null;
     }
 
     private int pruneChunks(final long[] hashes, final long[][] keeps,

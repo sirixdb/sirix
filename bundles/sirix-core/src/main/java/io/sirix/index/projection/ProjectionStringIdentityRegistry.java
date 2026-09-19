@@ -565,6 +565,8 @@ public final class ProjectionStringIdentityRegistry {
     private final int[] lengths;
     /** One flat arena, {@link #INLINE_CAPACITY} bytes per slot — never reallocated. */
     private final byte[] arena;
+    /** Worker-confined; proofs belong to exactly one query registry at a time. */
+    private ProjectionStringIdentityRegistry owner;
 
     /** @param components number of key components this worker may register */
     public LocalProofCache(final int components) {
@@ -587,6 +589,19 @@ public final class ProjectionStringIdentityRegistry {
       Arrays.fill(lengths, -1);
     }
 
+    /** Validate a reused worker cache before scanning another batch. */
+    void bind(final ProjectionStringIdentityRegistry registry, final int components) {
+      if (registry == null || components != lengths.length / SLOTS || components != registry.components) {
+        throw new IllegalArgumentException("proof cache and registry must match the scan's component count");
+      }
+      if (owner != registry) {
+        if (owner != null) {
+          Arrays.fill(lengths, -1);
+        }
+        owner = registry;
+      }
+    }
+
     /**
      * Prove the value through the cache, falling through to {@code registry} on a miss.
      *
@@ -605,6 +620,9 @@ public final class ProjectionStringIdentityRegistry {
      */
     public boolean prove(final ProjectionStringIdentityRegistry registry, final int component, final long laneA,
         final long laneB, final byte[] utf8, final int off, final int len) {
+      if (owner != registry) {
+        bind(registry, registry.components);
+      }
       if (len > INLINE_CAPACITY) {
         return registry.prove(component, laneA, laneB, utf8, off, len);
       }

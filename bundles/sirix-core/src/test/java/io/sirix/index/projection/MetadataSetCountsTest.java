@@ -36,6 +36,7 @@ final class MetadataSetCountsTest {
       {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET};
   private static final byte[] MULTI_SET_KINDS = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
       ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET};
+  private static final byte[] SCALAR_KINDS = {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
 
   @BeforeEach
   void setUp() throws IOException {
@@ -221,6 +222,67 @@ final class MetadataSetCountsTest {
       assertEquals(2L, revision1.get(1).get("Drama"));
       assertEquals(3L, revision2.get(1).get("Drama"));
       assertEquals(4L, revision2.get(2).get("Comedy"));
+    }
+  }
+
+  @Test
+  void scalarSummaryKeepsMissingDistinctFromEmptyAcrossRevisions() {
+    final ProjectionSetSummaryChunks.BuildAccumulator builder = new ProjectionSetSummaryChunks.BuildAccumulator();
+    final Map<Integer, Map<String, Long>> capabilities;
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(SCALAR_KINDS);
+        final long[] longs = new long[1];
+        final boolean[] booleans = new boolean[1];
+        final String[] strings = new String[1];
+        strings[0] = "posts";
+        assertTrue(page.appendRow(1, longs, booleans, strings));
+        strings[0] = null;
+        assertTrue(page.appendRow(2, longs, booleans, strings, new boolean[] {false}, null));
+        strings[0] = "";
+        assertTrue(page.appendRow(3, longs, booleans, strings));
+        strings[0] = "posts";
+        assertTrue(page.appendRow(4, longs, booleans, strings));
+        builder.append(page);
+        assertFalse(builder.disabled(0));
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        capabilities = builder.writeAll(storage, SCALAR_KINDS);
+        assertEquals(1, storage.getBlob(ProjectionSetSummaryChunks.slotKey(0))[4]);
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        final ProjectionSetSummaryChunks.Accessor accessor = ProjectionSetSummaryChunks.open(storage, capabilities);
+        accessor.adjust(0, Map.of("posts", 1L), -1L);
+        accessor.adjust(0, Map.of("likes", 1L), 1L);
+        assertEquals(1, accessor.chunksRead());
+        assertEquals(capabilities.keySet(), accessor.flush(SCALAR_KINDS).keySet());
+        assertEquals(1, accessor.chunksWritten());
+        wtx.commit();
+      }
+    } finally {
+      builder.release();
+    }
+
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+        JsonNodeReadOnlyTrx r1 = session.beginNodeReadOnlyTrx(1);
+        JsonNodeReadOnlyTrx r2 = session.beginNodeReadOnlyTrx(2)) {
+      final Map<String, Long> oldCounts =
+          ProjectionSetSummaryChunks.readAll(r1.getStorageEngineReader(), INDEX_NUMBER, capabilities).get(0);
+      final Map<String, Long> newCounts =
+          ProjectionSetSummaryChunks.readAll(r2.getStorageEngineReader(), INDEX_NUMBER, capabilities).get(0);
+      assertEquals(2L, oldCounts.get("posts"));
+      assertEquals(1L, oldCounts.get(""));
+      assertEquals(1L, oldCounts.get(null));
+      assertEquals(1L, newCounts.get("posts"));
+      assertEquals(1L, newCounts.get("likes"));
+      assertEquals(1L, newCounts.get(""));
+      assertEquals(1L, newCounts.get(null));
     }
   }
 

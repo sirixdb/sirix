@@ -22,6 +22,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -106,6 +107,18 @@ final class ParallelBulkProjectionEquivalenceTest {
   }
 
   @Test
+  void aSequentialOnePassLoadProducesTheSameProjectionAsThePostPassBuild() throws Exception {
+    final byte[] corpus = corpus(RECORDS);
+
+    final ProjectionStorageSnapshot onePass = loadOnePassSequential(DATABASE_PATH, corpus);
+    final ProjectionStorageSnapshot postPass = loadSequentialThenPostPass(POST_PASS_DATABASE_PATH, corpus);
+
+    assertFalse(onePass.stale());
+    assertFalse(postPass.stale());
+    assertEquivalent(onePass, postPass);
+  }
+
+  @Test
   void theDifferentialCanFail() throws Exception {
     // A guard that cannot say "no" is not evidence. Two corpora differing in ONE cell of ONE record
     // must produce snapshots the comparator rejects.
@@ -176,6 +189,44 @@ final class ParallelBulkProjectionEquivalenceTest {
           final JsonIndexController controller = session.getWtxIndexController(wtx.getRevisionNumber());
           controller.createProjectionIndexAtLoadStart(projectionDef(), wtx, RECORDS);
           ParallelBulkJsonImporter.assembleBytes(wtx, new ByteArrayInputStream(corpus), CHUNK_BUDGET_BYTES, BUILDERS);
+          wtx.commit();
+        }
+        return snapshot(session);
+      }
+    }
+  }
+
+  private static ProjectionStorageSnapshot loadOnePassSequential(final java.nio.file.Path databasePath,
+      final byte[] corpus) throws Exception {
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(databasePath)) {
+      db.createResource(resourceConfig());
+      try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx(1024, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonIndexController controller = session.getWtxIndexController(wtx.getRevisionNumber());
+          controller.createProjectionIndexAtLoadStart(projectionDef(), wtx, RECORDS);
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(new String(corpus, StandardCharsets.UTF_8)),
+              JsonNodeTrx.Commit.NO);
+          wtx.commit();
+        }
+        return snapshot(session);
+      }
+    }
+  }
+
+  private static ProjectionStorageSnapshot loadSequentialThenPostPass(final java.nio.file.Path databasePath,
+      final byte[] corpus) throws Exception {
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(databasePath)) {
+      db.createResource(resourceConfig());
+      try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx(1024, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(new String(corpus, StandardCharsets.UTF_8)),
+              JsonNodeTrx.Commit.NO);
+          wtx.commit();
+        }
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
           wtx.commit();
         }
         return snapshot(session);
@@ -310,7 +361,7 @@ final class ParallelBulkProjectionEquivalenceTest {
         put(slots, "leaf[" + rowGroup + "]",
             ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(writer, INDEX_NUMBER, rowGroup));
         put(slots, "rowGroupDescriptor[" + rowGroup + "]",
-            blob(storage, ProjectionIndexHOTStorage.rowGroupDescriptorSlotKey(rowGroup)));
+            blob(storage, storage.slotLayout().descriptorSlot(rowGroup)));
       }
 
       // Fences, including the physical-order header the order-exception lane reads.

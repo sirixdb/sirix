@@ -429,12 +429,13 @@ public abstract class AbstractHOTIndexReader<K> {
       // exactly-sized caller buffer uses the pooled fallback scratch, allocating at most when it grows.
       final byte[] fromBytes = state.compositeSeekBuffer(prefixBuf, prefixLen, compositeLen);
       HOTKeySerializer.writeChunkIdxBE(fromBytes, prefixLen, 0);
-      // The whole walk runs against UNPINNED leaves under optimistic stamps: each leaf's read
+      // The walk starts with unpinned leaves under optimistic stamps: each leaf's read
       // batch — the per-slot prefix compares, the chunkIdx reads, the payload merges — is
       // validated once before its outcome (stop, or advance to the next leaf) takes effect. A
       // torn batch poisons the accumulator, so recovery is wholesale: reset and re-walk from a
-      // fresh lower-bound descent. Content per PageReference is immutable, so every retry
-      // re-derives the identical result.
+      // fresh lower-bound descent. A failed stamp also switches the trie to guarded handoff for
+      // the rest of this walk, so eviction cannot invalidate every retry. Content per
+      // PageReference is immutable, so every retry re-derives the identical result.
       for (int walkAttempt = 0; walkAttempt < HOTTrieReader.MAX_STAMP_RETRIES; walkAttempt++) {
         accumulator.reset();
         // One decision route: every logical lookup starts at canonical PEXT lowerBound. Do not

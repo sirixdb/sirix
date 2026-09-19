@@ -22,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
 
 @DisplayName("HOT leaf cache canonicalization")
 class HOTLeafCacheCanonicalizationTest {
@@ -33,6 +35,96 @@ class HOTLeafCacheCanonicalizationTest {
 
   private static PageReference cacheKey(final long offset) {
     return new PageReference().setKey(offset).setDatabaseId(1).setResourceId(2);
+  }
+
+  @Test
+  void evictionInsideSwizzleHandoffCannotCloseTheGuardedResult() {
+    try (final Arena arena = Arena.ofShared()) {
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+      final HOTLeafPage incoming = newLeaf(arena, 304);
+      final PageReference handoff = spy(new PageReference());
+      doAnswer(invocation -> {
+        invocation.callRealMethod();
+        incoming.close();
+        return null;
+      }).when(handoff).setPage(incoming);
+
+      final HOTLeafPage guarded =
+          NodeStorageEngineReader.adoptCanonicalHOTLeaf(cache, cacheKey(304), handoff, incoming, true);
+      try {
+        assertSame(incoming, guarded);
+        assertTrue(guarded.isOrphaned(), "retirement must occur before the loader returns");
+        assertFalse(guarded.isClosed());
+        assertEquals(1, guarded.getGuardCount());
+      } finally {
+        guarded.releaseGuard();
+        cache.clear();
+      }
+      assertTrue(guarded.isClosed());
+    }
+  }
+
+  @Test
+  void guardedHandoffKeepsFreshLeafAliveThroughImmediateEviction() {
+    try (final Arena arena = Arena.ofShared()) {
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1L);
+      final HOTLeafPage incoming = newLeaf(arena, 301);
+      final PageReference handoff = new PageReference();
+      final HOTLeafPage guarded =
+          NodeStorageEngineReader.adoptCanonicalHOTLeaf(cache, cacheKey(301), handoff, incoming, true);
+      try {
+        assertSame(incoming, guarded);
+        assertEquals(1, guarded.getGuardCount());
+        cache.clear();
+        assertFalse(guarded.isClosed(), "cache retirement must wait for the returned reader guard");
+        assertEquals(0, guarded.getEntryCount());
+      } finally {
+        guarded.releaseGuard();
+      }
+      assertTrue(guarded.isClosed());
+      assertEquals(0, guarded.getGuardCount());
+    }
+  }
+
+  @Test
+  void guardedHandoffTransfersCanonicalWinnerGuardAndRetiresLoser() {
+    try (final Arena arena = Arena.ofShared()) {
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+      final PageReference key = cacheKey(302);
+      final HOTLeafPage existing = newLeaf(arena, 302);
+      final HOTLeafPage incoming = newLeaf(arena, 302);
+      cache.put(key, existing);
+      final HOTLeafPage guarded =
+          NodeStorageEngineReader.adoptCanonicalHOTLeaf(cache, key, new PageReference(), incoming, true);
+      try {
+        assertSame(existing, guarded);
+        assertTrue(incoming.isClosed());
+        assertEquals(1, existing.getGuardCount());
+        cache.clear();
+        assertFalse(existing.isClosed());
+      } finally {
+        guarded.releaseGuard();
+      }
+      assertTrue(existing.isClosed());
+    }
+  }
+
+  @Test
+  void emptyCacheGuardedHandoffStillTransfersOneGuard() {
+    try (final Arena arena = Arena.ofShared()) {
+      final HOTLeafPage incoming = newLeaf(arena, 303);
+      final HOTLeafPage guarded = NodeStorageEngineReader.adoptCanonicalHOTLeaf(new EmptyCache<>(), cacheKey(303),
+          new PageReference(), incoming, true);
+      try {
+        assertSame(incoming, guarded);
+        assertEquals(1, guarded.getGuardCount());
+        guarded.close();
+        assertFalse(guarded.isClosed());
+      } finally {
+        guarded.releaseGuard();
+      }
+      assertTrue(guarded.isClosed());
+    }
   }
 
   @Test

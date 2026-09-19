@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Arrays;
 import java.util.SplittableRandom;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -16,17 +17,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Focused performance + correctness harness for the native LZ77 decoder
- * path. Validates that the C decoder round-trips identically to the Java
- * encoder and measures ns/byte on a realistic 32 KiB page at higher
- * iteration count than the generic {@link SirixLZ77CodecTest}.
+ * Focused performance + correctness harness for the native LZ77 decoder path. Validates that the C
+ * decoder round-trips identically to the Java encoder and measures ns/byte on a realistic 32 KiB
+ * page at higher iteration count than the generic {@link SirixLZ77CodecTest}.
  */
 @DisplayName("SirixLZ77NativeDecoder — bench")
 final class SirixLZ77NativeDecoderBenchTest {
 
   private static final int PAGE = 32_768;
 
-  private static byte[] buildCompressed() {
+  private record CompressedFrame(byte[] bytes, int length) {
+  }
+
+  private static CompressedFrame buildCompressed() {
     try (Arena arena = Arena.ofConfined()) {
       final MemorySegment in = arena.allocate(PAGE);
       final SplittableRandom rng = new SplittableRandom(0x5EED);
@@ -37,7 +40,7 @@ final class SirixLZ77NativeDecoderBenchTest {
         } else if (r < 70) {
           in.set(ValueLayout.JAVA_BYTE, i, (byte) (rng.nextInt(127) + 1));
         } else if (i + 4 <= PAGE) {
-          in.set(ValueLayout.JAVA_BYTE, i,     (byte) 0x01);
+          in.set(ValueLayout.JAVA_BYTE, i, (byte) 0x01);
           in.set(ValueLayout.JAVA_BYTE, i + 1, (byte) 0x42);
           in.set(ValueLayout.JAVA_BYTE, i + 2, (byte) 0x00);
           in.set(ValueLayout.JAVA_BYTE, i + 3, (byte) 0x00);
@@ -46,9 +49,7 @@ final class SirixLZ77NativeDecoderBenchTest {
       }
       final byte[] buf = new byte[SirixLZ77Codec.maxEncodedSize(PAGE)];
       final int encoded = SirixLZ77Codec.encode(in, 0, PAGE, buf, 0);
-      final byte[] out = new byte[encoded];
-      System.arraycopy(buf, 0, out, 0, encoded);
-      return out;
+      return new CompressedFrame(Arrays.copyOf(buf, encoded + SirixLZ77Codec.NATIVE_INPUT_TAIL_SLACK), encoded);
     }
   }
 
@@ -80,7 +81,7 @@ final class SirixLZ77NativeDecoderBenchTest {
       final byte[] enc = new byte[SirixLZ77Codec.maxEncodedSize(PAGE)];
       final int encoded = SirixLZ77Codec.encode(in, 0, PAGE, enc, 0);
 
-      // Decode via Java (by disabling native flag).
+      // An exact-sized output forces the checked Java decoder.
       final byte[] javaOutBytes = new byte[PAGE];
       final MemorySegment javaOut = MemorySegment.ofArray(javaOutBytes);
       SirixLZ77Codec.decode(enc, 0, encoded, javaOut, 0);
@@ -107,26 +108,26 @@ final class SirixLZ77NativeDecoderBenchTest {
       System.out.println("[native bench] skipping: native library not available");
       return;
     }
-    final byte[] encoded = buildCompressed();
+    final CompressedFrame encoded = buildCompressed();
     try (Arena arena = Arena.ofConfined()) {
       final MemorySegment out = arena.allocate(PAGE + 64);
 
       // Warm up — hit both the JIT and native dlopen cache.
       for (int i = 0; i < 5_000; i++) {
-        SirixLZ77NativeDecoder.decode(encoded, 0, encoded.length, out, 0);
+        SirixLZ77NativeDecoder.decode(encoded.bytes(), 0, encoded.length(), out, 0);
       }
 
       // Measure.
       final int iters = 100_000;
       final long t0 = System.nanoTime();
       for (int i = 0; i < iters; i++) {
-        SirixLZ77NativeDecoder.decode(encoded, 0, encoded.length, out, 0);
+        SirixLZ77NativeDecoder.decode(encoded.bytes(), 0, encoded.length(), out, 0);
       }
       final long t1 = System.nanoTime();
       final double nsPerByte = (t1 - t0) / ((double) iters * PAGE);
       final double gbPerSec = 1.0 / nsPerByte;
-      System.out.printf("[native] decode: %.2f ns/byte (%.2f GB/s) (encoded=%d → %d bytes)%n",
-          nsPerByte, gbPerSec, encoded.length, PAGE);
+      System.out.printf("[native] decode: %.2f ns/byte (%.2f GB/s) (encoded=%d → %d bytes)%n", nsPerByte, gbPerSec,
+          encoded.length(), PAGE);
       assertTrue(nsPerByte < 10.0, "too slow: " + nsPerByte + " ns/byte");
     }
   }
@@ -141,10 +142,11 @@ final class SirixLZ77NativeDecoderBenchTest {
     // Verify diagnostic counters are enabled for this test run.
     final String prop = System.getProperty("sirix.lz77Codec.diag.counters");
     if (!"true".equals(prop)) {
-      System.out.println("[native bench] skipping dispatch count assertion: -Dsirix.lz77Codec.diag.counters=true not set");
+      System.out.println(
+          "[native bench] skipping dispatch count assertion: -Dsirix.lz77Codec.diag.counters=true not set");
       return;
     }
-    final byte[] encoded = buildCompressed();
+    final CompressedFrame encoded = buildCompressed();
     try (Arena arena = Arena.ofConfined()) {
       final MemorySegment out = arena.allocate(PAGE + 64);
 
@@ -153,7 +155,7 @@ final class SirixLZ77NativeDecoderBenchTest {
 
       // 100 calls via SirixLZ77Codec.decode — must route to native.
       for (int i = 0; i < 100; i++) {
-        SirixLZ77Codec.decode(encoded, 0, encoded.length, out, 0);
+        SirixLZ77Codec.decode(encoded.bytes(), 0, encoded.length(), out, 0);
       }
 
       final long nativeDelta = SirixLZ77Codec.getNativeCallCount() - beforeNative;
@@ -167,18 +169,18 @@ final class SirixLZ77NativeDecoderBenchTest {
   @Test
   @DisplayName("full-codec ns/byte bench via SirixLZ77Codec.decode with native ON")
   void codecDispatchSpeedBench() {
-    final byte[] encoded = buildCompressed();
+    final CompressedFrame encoded = buildCompressed();
     try (Arena arena = Arena.ofConfined()) {
       final MemorySegment out = arena.allocate(PAGE + 64);
 
       for (int i = 0; i < 5_000; i++) {
-        SirixLZ77Codec.decode(encoded, 0, encoded.length, out, 0);
+        SirixLZ77Codec.decode(encoded.bytes(), 0, encoded.length(), out, 0);
       }
 
       final int iters = 100_000;
       final long t0 = System.nanoTime();
       for (int i = 0; i < iters; i++) {
-        SirixLZ77Codec.decode(encoded, 0, encoded.length, out, 0);
+        SirixLZ77Codec.decode(encoded.bytes(), 0, encoded.length(), out, 0);
       }
       final long t1 = System.nanoTime();
       final double nsPerByte = (t1 - t0) / ((double) iters * PAGE);
@@ -190,35 +192,54 @@ final class SirixLZ77NativeDecoderBenchTest {
   @Test
   @DisplayName("compare native vs java decode on same input")
   void compareNativeVsJava() {
-    final byte[] encoded = buildCompressed();
+    final CompressedFrame encoded = buildCompressed();
     try (Arena arena = Arena.ofConfined()) {
       final MemorySegment out = arena.allocate(PAGE + 64);
 
-      // Force java path by disabling native temporarily? Can't — the
-      // NATIVE_DECODER_ENABLED is a static final. Do a "direct Java"
-      // measurement by building a heap-backed output to force fallback.
-      // Actually the current dispatcher only bypasses native when output
-      // is heap — so let's measure with heap output explicitly.
-      final byte[] javaOutBytes = new byte[PAGE + 64];
+      // Heap output can also be pinned for native decoding. An exact-sized output,
+      // without the native tail slack, forces the checked Java fallback.
+      final byte[] javaOutBytes = new byte[PAGE];
       final MemorySegment javaOut = MemorySegment.ofArray(javaOutBytes);
 
-      for (int i = 0; i < 5_000; i++) SirixLZ77Codec.decode(encoded, 0, encoded.length, javaOut, 0);
+      for (int i = 0; i < 5_000; i++)
+        SirixLZ77Codec.decode(encoded.bytes(), 0, encoded.length(), javaOut, 0);
       final int iters = 100_000;
 
       long t0 = System.nanoTime();
-      for (int i = 0; i < iters; i++) SirixLZ77Codec.decode(encoded, 0, encoded.length, javaOut, 0);
+      for (int i = 0; i < iters; i++)
+        SirixLZ77Codec.decode(encoded.bytes(), 0, encoded.length(), javaOut, 0);
       long t1 = System.nanoTime();
       final double javaNs = (t1 - t0) / ((double) iters * PAGE);
-      System.out.printf("[java-path (heap out)] %.3f ns/byte (%.2f GB/s)%n",
-          javaNs, 1.0 / javaNs);
+      System.out.printf("[java-path (heap out)] %.3f ns/byte (%.2f GB/s)%n", javaNs, 1.0 / javaNs);
 
-      for (int i = 0; i < 5_000; i++) SirixLZ77Codec.decode(encoded, 0, encoded.length, out, 0);
+      for (int i = 0; i < 5_000; i++)
+        SirixLZ77Codec.decode(encoded.bytes(), 0, encoded.length(), out, 0);
       t0 = System.nanoTime();
-      for (int i = 0; i < iters; i++) SirixLZ77Codec.decode(encoded, 0, encoded.length, out, 0);
+      for (int i = 0; i < iters; i++)
+        SirixLZ77Codec.decode(encoded.bytes(), 0, encoded.length(), out, 0);
       t1 = System.nanoTime();
       final double nativeNs = (t1 - t0) / ((double) iters * PAGE);
-      System.out.printf("[native-path (native out)] %.3f ns/byte (%.2f GB/s)%n",
-          nativeNs, 1.0 / nativeNs);
+      System.out.printf("[native-path (native out)] %.3f ns/byte (%.2f GB/s)%n", nativeNs, 1.0 / nativeNs);
     }
   }
+
+  @Test
+  void anUnpaddedInputUsesTheCheckedJavaFallback() {
+    final CompressedFrame encoded = buildCompressed();
+    final byte[] tightInput = Arrays.copyOf(encoded.bytes(), encoded.length());
+    final byte[] expected = new byte[PAGE];
+    assertEquals(PAGE, SirixLZ77Codec.decode(tightInput, 0, tightInput.length, MemorySegment.ofArray(expected), 0));
+    try (Arena arena = Arena.ofConfined()) {
+      final MemorySegment out = arena.allocate(PAGE + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK);
+      final long beforeNative = SirixLZ77Codec.getNativeCallCount();
+      final long beforeJava = SirixLZ77Codec.getJavaCallCount();
+      assertEquals(PAGE, SirixLZ77Codec.decode(tightInput, 0, tightInput.length, out, 0));
+      assertArrayEquals(expected, out.asSlice(0, PAGE).toArray(ValueLayout.JAVA_BYTE));
+      if (Boolean.getBoolean("sirix.lz77Codec.diag.counters")) {
+        assertEquals(beforeNative, SirixLZ77Codec.getNativeCallCount());
+        assertEquals(beforeJava + 1, SirixLZ77Codec.getJavaCallCount());
+      }
+    }
+  }
+
 }

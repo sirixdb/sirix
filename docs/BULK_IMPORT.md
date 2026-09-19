@@ -47,7 +47,10 @@ new NdjsonAsArrayInputStream(inputStream, recordLimit)
 ### Scope
 
 Both loaders refuse, up front, configurations they do not faithfully reproduce: `hashType` other
-than `NONE`, stored DeweyIDs, node history, a non-empty target document.
+than `NONE`, stored DeweyIDs, a non-empty target document. The sequential assembler also refuses
+node history. The parallel importer supports it and records every node it adopts in the
+record-to-revisions index. Input that is not one large array falls back to the sequential
+assembler, so such input still cannot be loaded with node history.
 
 **Path statistics are built during the load** by both loaders. Observations are accumulated through
 the very class the cursor path defers through (`PathStatsAccumulator`), so the classifier, the

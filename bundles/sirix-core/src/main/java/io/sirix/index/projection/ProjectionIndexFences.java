@@ -54,6 +54,10 @@ public final class ProjectionIndexFences {
   private static final int DOCUMENT_BACK_SKIP_OFFSET = 144;
   private static final int ENTRY_BYTES = DOCUMENT_BACK_SKIP_OFFSET + SKIP_LEVELS * Integer.BYTES;
 
+  /** At most 8 MiB of compact links plus one 488 KiB window of fence payloads. */
+  private static final int MAX_BATCH_ORDER_LEAVES = 1 << 20;
+  private static final int ORDER_BATCH_CHUNKS = 64;
+
   private ProjectionIndexFences() {}
 
   public static int chunkCount(final int physicalRowGroupCount) {
@@ -112,10 +116,41 @@ public final class ProjectionIndexFences {
 
   public static int[] readPhysicalOrder(final StorageEngineReader reader, final int indexNumber,
       final int rowGroupCount) {
+    return readPhysicalOrder(reader, indexNumber, rowGroupCount,
+        !"false".equals(System.getProperty("sirix.projection.batchPhysicalOrder")));
+  }
+
+  static int[] readPhysicalOrder(final StorageEngineReader reader, final int indexNumber, final int rowGroupCount,
+      final boolean batch) {
     if (reader == null) {
       throw new NullPointerException("reader is required");
     }
-    return readPhysicalOrder(slot -> ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot), rowGroupCount);
+    checkRowGroupCount(rowGroupCount);
+    final BlobReader blobs = slot -> ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot);
+    final OrderHeader header = readOrderHeader(blobs.read(ORDER_HEADER_SLOT), rowGroupCount);
+    // Equal live/physical counts imply every chunk is needed for any valid permutation.
+    // Sparse histories retain demand-driven reads, and writer readers retain their local view.
+    if (batch && !reader.hasTrxIntentLog() && rowGroupCount >= 1024 && rowGroupCount <= MAX_BATCH_ORDER_LEAVES
+        && header.physicalRowGroupCount() == rowGroupCount) {
+      return readDensePhysicalOrder(reader, indexNumber, rowGroupCount, header);
+    }
+    return readPhysicalOrder(blobs, rowGroupCount, header);
+  }
+
+  /**
+   * Eligibility only: callers must still validate the complete document chain with
+   * {@link #readPhysicalOrder(StorageEngineReader, int, int)} before publishing any data.
+   */
+  static boolean hasBoundedDenseOrder(final StorageEngineReader reader, final int indexNumber,
+      final int rowGroupCount) {
+    Objects.requireNonNull(reader, "reader is required");
+    checkRowGroupCount(rowGroupCount);
+    if (reader.hasTrxIntentLog() || rowGroupCount < 1024 || rowGroupCount > MAX_BATCH_ORDER_LEAVES) {
+      return false;
+    }
+    final OrderHeader header =
+        readOrderHeader(ProjectionIndexHOTStorage.readBlob(reader, indexNumber, ORDER_HEADER_SLOT), rowGroupCount);
+    return header.physicalRowGroupCount() == rowGroupCount;
   }
 
   static int[] readPhysicalOrder(final ProjectionIndexHOTStorage storage, final int rowGroupCount) {
@@ -128,6 +163,10 @@ public final class ProjectionIndexFences {
   private static int[] readPhysicalOrder(final BlobReader reader, final int rowGroupCount) {
     checkRowGroupCount(rowGroupCount);
     final OrderHeader header = readOrderHeader(reader.read(ORDER_HEADER_SLOT), rowGroupCount);
+    return readPhysicalOrder(reader, rowGroupCount, header);
+  }
+
+  private static int[] readPhysicalOrder(final BlobReader reader, final int rowGroupCount, final OrderHeader header) {
     final int physicalCount = header.physicalRowGroupCount();
     final OrderEntryReader entries = new OrderEntryReader(reader, physicalCount);
     final int[] order = new int[rowGroupCount];
@@ -143,6 +182,58 @@ public final class ProjectionIndexFences {
       order[count++] = slot;
       previous = slot;
       slot = entries.intValue(slot, DOC_NEXT_OFFSET);
+    }
+    if (previous != header.documentTail() || count != rowGroupCount) {
+      throw new IllegalStateException(
+          "projection document order reaches " + count + " of " + rowGroupCount + " live physical leaves");
+    }
+    return order;
+  }
+
+  private static int[] readDensePhysicalOrder(final StorageEngineReader reader, final int indexNumber,
+      final int rowGroupCount, final OrderHeader header) {
+    final long[] links = new long[rowGroupCount];
+    final int chunks = chunkCount(rowGroupCount);
+    for (int from = 0; from < chunks; from += ORDER_BATCH_CHUNKS) {
+      final int count = Math.min(ORDER_BATCH_CHUNKS, chunks - from);
+      final long[] slots = new long[count];
+      for (int i = 0; i < count; i++) {
+        slots[i] = CHUNK_SLOT_BASE + from + i;
+      }
+      final byte[][] payloads = ProjectionIndexHOTStorage.readBlobBatch(reader, indexNumber, slots);
+      for (int i = 0; i < count; i++) {
+        final int chunkId = from + i;
+        final int start = chunkId * CHUNK_LEAVES;
+        final int entries = Math.min(CHUNK_LEAVES, rowGroupCount - start);
+        final byte[] payload = payloads[i];
+        if (payload == null || payload.length != entries * ENTRY_BYTES) {
+          throw new IllegalStateException("missing or malformed projection fence chunk " + chunkId);
+        }
+        for (int local = 0; local < entries; local++) {
+          final int offset = local * ENTRY_BYTES;
+          final int owner = ProjectionIndexRowGroupCodec.getIntLE(payload, offset + OWNER_BASE_OFFSET);
+          if (owner < 1 || owner > header.baseRowGroupCount()) {
+            throw new IllegalStateException(
+                "malformed projection document order at physical leaf " + (start + local + 1));
+          }
+          final int previous = ProjectionIndexRowGroupCodec.getIntLE(payload, offset + DOC_PREV_OFFSET);
+          final int next = ProjectionIndexRowGroupCodec.getIntLE(payload, offset + DOC_NEXT_OFFSET);
+          links[start + local] = ((long) previous << Integer.SIZE) | Integer.toUnsignedLong(next);
+        }
+      }
+    }
+    final int[] order = new int[rowGroupCount];
+    int count = 0;
+    int previous = 0;
+    int slot = header.documentHead();
+    while (slot != 0) {
+      if (slot < 1 || slot > rowGroupCount || count == rowGroupCount
+          || (int) (links[slot - 1] >>> Integer.SIZE) != previous) {
+        throw new IllegalStateException("malformed projection document order at physical leaf " + slot);
+      }
+      order[count++] = slot;
+      previous = slot;
+      slot = (int) links[slot - 1];
     }
     if (previous != header.documentTail() || count != rowGroupCount) {
       throw new IllegalStateException(

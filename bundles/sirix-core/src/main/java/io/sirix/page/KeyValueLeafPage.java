@@ -978,6 +978,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
+   * Start a new deferral window only after every earlier carrier has a durable reference. A mutable
+   * page may acquire new carriers in many successive epochs; completed writes are progress, whereas
+   * retrying the same pending carriers must still reach the flush lane's deferral cap.
+   */
+  public void resetFlushDeferralsIfCarriersResolved() {
+    if (flushDeferrals != 0 && overflowReferenceState() == OverflowReferenceState.RESOLVED) {
+      flushDeferrals = 0;
+    }
+  }
+
+  /**
    * Serialize every record still held in {@code records[]} into this page now — inline where the
    * fused image fits, otherwise as a canonical overflow carrier — exactly as the first serialization
    * would, but on the thread that owns the page rather than inside the background flush.

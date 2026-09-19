@@ -6,6 +6,8 @@ import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.index.ProjectionSortedSpec;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,11 +41,22 @@ import static java.util.Objects.requireNonNull;
  *        low risks the runtime cap firing later, too high only declines a column that would have
  *        fit.
  */
-public record ProjectionSpec(String rootPath, List<String> fieldPaths, List<String> fieldTypes, long expectedRows) {
+public record ProjectionSpec(String rootPath, List<String> fieldPaths, List<String> fieldTypes, long expectedRows,
+    @Nullable ProjectionSortedSpec sortedSpec) {
 
   /** As above, with no row-count hint. */
   public ProjectionSpec(final String rootPath, final List<String> fieldPaths, final List<String> fieldTypes) {
-    this(rootPath, fieldPaths, fieldTypes, -1L);
+    this(rootPath, fieldPaths, fieldTypes, -1L, null);
+  }
+
+  public ProjectionSpec(final String rootPath, final List<String> fieldPaths, final List<String> fieldTypes,
+      final long expectedRows) {
+    this(rootPath, fieldPaths, fieldTypes, expectedRows, null);
+  }
+
+  public ProjectionSpec(final String rootPath, final List<String> fieldPaths, final List<String> fieldTypes,
+      final ProjectionSortedSpec sortedSpec) {
+    this(rootPath, fieldPaths, fieldTypes, -1L, requireNonNull(sortedSpec));
   }
 
   public ProjectionSpec {
@@ -70,8 +83,11 @@ public record ProjectionSpec(String rootPath, List<String> fieldPaths, List<Stri
       paths.add(Path.parse(fieldPaths.get(i), PathParser.Type.JSON));
       types.add(projectionType(fieldTypes.get(i)));
     }
-    return IndexDefs.createProjectionIdxDef(Path.parse(rootPath, PathParser.Type.JSON), paths, types, 0,
-        IndexDef.DbType.JSON);
+    return sortedSpec == null
+        ? IndexDefs.createProjectionIdxDef(Path.parse(rootPath, PathParser.Type.JSON), paths, types, 0,
+            IndexDef.DbType.JSON)
+        : IndexDefs.createProjectionIdxDef(Path.parse(rootPath, PathParser.Type.JSON), paths, types, 0,
+            IndexDef.DbType.JSON, sortedSpec);
   }
 
   private static Type projectionType(final String type) {

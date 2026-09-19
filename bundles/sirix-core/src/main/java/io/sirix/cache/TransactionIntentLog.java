@@ -25,8 +25,10 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Consumer;
 
 /**
  * Transaction intent log (TIL) for caching all changes made by a read/write transaction.
@@ -1805,6 +1807,33 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public int liveEntryCount() {
     return size;
+  }
+
+  /**
+   * Visit the authoritative modified record pages of the current storage epoch on its owning thread.
+   * Frozen and pinned pages are excluded: they are not mutable foreground state. The visitor may
+   * publish an earlier side-page batch, but must not rotate this log's storage epoch. Entries added
+   * during that publication are left for the next visit.
+   */
+  public void forEachActiveRecordPage(final Consumer<KeyValueLeafPage> visitor) {
+    Objects.requireNonNull(visitor, "visitor");
+    final int limit = size;
+    final int generation = currentGeneration;
+    for (int index = 0; index < limit; index++) {
+      final PageContainer container = entries[index];
+      final PageReference reference = entryRefs[index];
+      if (container == null || reference == null || reference.getLogKey() != index
+          || reference.getActiveTilGeneration() != generation
+          || PageReference.isSupersededTransactionLogReference(reference.transactionLogReference())) {
+        continue;
+      }
+      if (container.getModified() instanceof KeyValueLeafPage page && !page.isClosed() && !page.isOrphaned()) {
+        visitor.accept(page);
+        if (currentGeneration != generation) {
+          throw new IllegalStateException("An active-record-page visitor must not rotate the storage epoch");
+        }
+      }
+    }
   }
 
   /** Number of forwarding links currently held, for diagnostics and tests. */

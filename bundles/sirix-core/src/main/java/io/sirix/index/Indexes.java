@@ -8,8 +8,10 @@ import io.brackit.query.jdm.node.Node;
 import io.brackit.query.node.parser.FragmentHelper;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
+import org.jspecify.annotations.Nullable;
 
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -85,8 +87,9 @@ public final class Indexes implements Materializable {
     // A controller is cached by prospective write revision and can therefore be reused after a
     // rollback. Parse into a detached set first, then replace the cache entry's catalogue in one
     // cold-path publication. Additive initialization would retain definitions created only in the
-    // aborted transaction and rebind listeners for index trees that were rolled back.
-    final Set<IndexDef> restoredIndexes = new HashSet<>();
+    // aborted transaction and rebind listeners for index trees that were rolled back. The persisted
+    // order is kept: "the first catalogued definition" of a shape must not change across a reopen.
+    final Set<IndexDef> restoredIndexes = new LinkedHashSet<>();
     try (Stream<? extends Node<?>> children = root.getChildren()) {
       Node<?> child;
       while ((child = children.next()) != null) {
@@ -252,39 +255,60 @@ public final class Indexes implements Materializable {
   }
 
   /**
+   * As {@link #findProjectionIndex(Path, List, List)}, additionally requiring exactly the given
+   * sorted-view declaration: {@code jn:create-projection-index} refines a projection's identity by
+   * its sort columns when they are given.
+   */
+  public Optional<IndexDef> findProjectionIndex(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
+      final List<Type> fieldTypesOrNull, final ProjectionSortedSpec sortedSpec) {
+    requireNonNull(rootPath);
+    requireNonNull(fieldPaths);
+    requireNonNull(sortedSpec);
+    for (final IndexDef index : indexes) {
+      if (sortedSpec.equals(index.getProjectionSortedSpec())
+          && sameProjectionShape(index, rootPath, fieldPaths, fieldTypesOrNull)) {
+        return Optional.of(index);
+      }
+    }
+    return Optional.empty();
+  }
+
+  /**
    * Find a PROJECTION index by its shape: record-set root path, ordered field paths, and — when
    * {@code fieldTypesOrNull} is given — ordered declared types. Path comparison uses the parsed
    * paths' canonical form, matching the identity rule of {@code jn:create-projection-index} (sits
    * beside {@link #findPathIndex}/{@link #findCASIndex}/{@link #findNameIndex} as the projection
-   * family's finder).
+   * family's finder). A sorted-view declaration is not part of this key: the first catalogued
+   * projection of the shape is returned, whether or not it declares a sorted view.
    */
   public Optional<IndexDef> findProjectionIndex(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
       final List<Type> fieldTypesOrNull) {
     requireNonNull(rootPath);
     requireNonNull(fieldPaths);
-    final String rootCanonical = rootPath.toString();
-    outer: for (final IndexDef index : indexes) {
-      if (!index.isProjectionIndex()) {
-        continue;
+    for (final IndexDef index : indexes) {
+      if (sameProjectionShape(index, rootPath, fieldPaths, fieldTypesOrNull)) {
+        return Optional.of(index);
       }
-      if (!rootCanonical.equals(index.getProjectionRootPath().toString())) {
-        continue;
-      }
-      final List<Path<QNm>> indexedFields = index.getProjectionFields();
-      if (indexedFields.size() != fieldPaths.size()) {
-        continue;
-      }
-      if (fieldTypesOrNull != null && !index.getProjectionFieldTypes().equals(fieldTypesOrNull)) {
-        continue;
-      }
-      for (int i = 0; i < indexedFields.size(); i++) {
-        if (!indexedFields.get(i).toString().equals(fieldPaths.get(i).toString())) {
-          continue outer;
-        }
-      }
-      return Optional.of(index);
     }
     return Optional.empty();
+  }
+
+  private static boolean sameProjectionShape(final IndexDef index, final Path<QNm> rootPath,
+      final List<Path<QNm>> fieldPaths, final @Nullable List<Type> fieldTypesOrNull) {
+    if (!index.isProjectionIndex() || !rootPath.toString().equals(index.getProjectionRootPath().toString())) {
+      return false;
+    }
+    final List<Path<QNm>> indexedFields = index.getProjectionFields();
+    if (indexedFields.size() != fieldPaths.size()
+        || fieldTypesOrNull != null && !index.getProjectionFieldTypes().equals(fieldTypesOrNull)) {
+      return false;
+    }
+    for (int i = 0; i < indexedFields.size(); i++) {
+      if (!indexedFields.get(i).toString().equals(fieldPaths.get(i).toString())) {
+        return false;
+      }
+    }
+    return true;
   }
 
   public int getNrOfIndexDefsWithType(final IndexType type) {

@@ -1665,8 +1665,28 @@ final class ProjectionIndexRowGroupCodec {
     final int end = pos + ((count * width + 7) >>> 3);
     final long mask = (1L << width) - 1L;
     int i = 0;
+    if (width <= Byte.SIZE) {
+      // Eight narrow IDs occupy exactly 'width' bytes, so every group starts on a byte boundary.
+      // One word load replaces eight overlapping loads. The ordinary decoder below handles the
+      // final short word without reading beyond the source array.
+      int bytePos = pos;
+      final int safeBytes = src.length - Long.BYTES;
+      while (i <= count - 8 && bytePos <= safeBytes) {
+        final long word = getLongLE(src, bytePos);
+        out[i] = (int) (word & mask);
+        out[i + 1] = (int) ((word >>> width) & mask);
+        out[i + 2] = (int) ((word >>> (width * 2)) & mask);
+        out[i + 3] = (int) ((word >>> (width * 3)) & mask);
+        out[i + 4] = (int) ((word >>> (width * 4)) & mask);
+        out[i + 5] = (int) ((word >>> (width * 5)) & mask);
+        out[i + 6] = (int) ((word >>> (width * 6)) & mask);
+        out[i + 7] = (int) ((word >>> (width * 7)) & mask);
+        bytePos += width;
+        i += 8;
+      }
+    }
     if (width <= 57) {
-      long bitPos = 0;
+      long bitPos = (long) i * width;
       final int safeBytes = src.length - 8;
       while (i < count) {
         final int bytePos = pos + (int) (bitPos >>> 3);

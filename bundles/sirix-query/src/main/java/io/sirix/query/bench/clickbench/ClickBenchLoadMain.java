@@ -59,9 +59,9 @@ import java.util.stream.Stream;
  * The async-flush import mode retains that logical threshold while bounding each storage-only flush
  * epoch to {@link AfterCommitState#MAX_ASYNC_FLUSH_NODE_COUNT} modifications;</li>
  * <li>{@code -DstorageType} (default FILE_CHANNEL for this benchmark) — selects the preallocated,
- * single-append-owner path that can release immutable projection payloads before the root commit.
- * MEMORY_MAPPED remains available explicitly, but its legacy physical-tail semantics cannot safely
- * prewrite rollbackable pages and therefore retain those payloads until final commit;</li>
+ * single-append-owner commit profile. Both file backends release immutable projection payloads
+ * before the root commit; this one also reuses the tail of an aborted load instead of leaving it in
+ * the file. MEMORY_MAPPED remains available explicitly;</li>
  * <li>{@code -Dclickbench.projection} (default true) — build the projection index over the columns
  * the 43 queries touch, as part of the load. Without it the benchmark measures the row path alone
  * and no column or group-by kernel is reachable, which is what every earlier run did;</li>
@@ -329,12 +329,6 @@ public final class ClickBenchLoadMain {
       throw new IllegalArgumentException("clickbench.parallelImport=true requires -DhashType=NONE, got " + hashType
           + "; set -Dclickbench.parallelImport=false for a hashed import");
     }
-    if (parallelImport && storeNodeHistory) {
-      throw new IllegalArgumentException(
-          "clickbench.parallelImport=true does not support node history; set -DstoreNodeHistory=false or "
-              + "-Dclickbench.parallelImport=false");
-    }
-
     // Configuration refusals above deliberately run first: a bad benchmark invocation must fail
     // before reserving a multi-gigabyte native pool or opening/replacing its target database.
     ClickBenchRigLease.holdForLoadProcess(dbDir);

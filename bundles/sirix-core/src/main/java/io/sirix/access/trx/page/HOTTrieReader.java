@@ -37,6 +37,7 @@ import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.Semaphore;
 
@@ -44,17 +45,17 @@ import java.util.concurrent.Semaphore;
  * HOT trie reader for HOT (Height Optimized Trie) navigation.
  * 
  * <p>
- * This class provides read-only access to HOT indexes with OPTIMISTIC stamp validation instead of
- * page pinning: leaves stay evictable at all times, every batch of leaf-content reads is confirmed
- * against the FrameSlotAllocator's per-slot seqlock version before its result escapes, and a failed
- * validation retries on a freshly reloaded copy of the same immutable content.
+ * This class provides read-only access to HOT indexes with optimistic stamp validation. Every batch
+ * of leaf-content reads is confirmed against the allocator's per-slot version before its result
+ * escapes. After a failed validation, the reader retains a lifetime guard on each replacement leaf
+ * until it advances or closes, ensuring progress under continuous eviction.
  * </p>
  *
  * <p>
  * <b>Key Features:</b>
  * </p>
  * <ul>
- * <li>Optimistic stamp validation for page lifetime safety — no pins, no guard churn</li>
+ * <li>Optimistic lifetime checks, with guarded recovery only after eviction races a read</li>
  * <li>Zero-copy value access via MemorySegment slices</li>
  * <li>SIMD-optimized child lookup via HOTIndirectPage</li>
  * <li>Pre-allocated traversal arrays for zero allocations</li>
@@ -195,18 +196,25 @@ public final class HOTTrieReader implements AutoCloseable {
    * branching depth where the searchKey actually diverges from the candidate leaf's key.
    */
   private final short[] pathMsbAtDepth = new short[MAX_TREE_HEIGHT];
+  /**
+   * Per-level watermark of the sibling window already hinted for the node at that depth (exclusive
+   * child index). Without it every leaf advance re-hinted the same {@value #PREFETCH_WINDOW}
+   * successors — a sibling was hinted up to sixteen times before the cursor reached it, one advice
+   * call each. A backend without a prefetch primitive never saw those calls; one that has it must not
+   * pay for them on the hot path of every range step.
+   */
+  private final int[] pathPrefetchedUntil = new int[MAX_TREE_HEIGHT];
   private int pathDepth = 0;
 
-  // ===== Current leaf, protected by OPTIMISTIC STAMPS — never pinned =====
-  // The reader holds no guard: leaves stay evictable at all times, and safety comes from the
-  // FrameSlotAllocator's per-slot seqlock versions instead. loadPage snapshots the resolved
-  // leaf's stamp; every read of leaf content is trusted only after validateCurrentLeaf()
-  // confirms the stamp, and one validation covers every read since the snapshot. On a failed
-  // validation the leaf is re-resolved through its PageReference — content per reference is
-  // immutable, so every slot index computed before the failure stays valid after the reload.
+  // Uncontended reads use stamps without guard churn. A torn read switches the rest of this walk
+  // to guarded handoff; retrying the same unpinned protocol cannot guarantee progress against an
+  // evictor that repeatedly runs between snapshot and validation. endWalk() (also run by close() and
+  // by a range cursor's close) resets this mode before the reader is reused for another walk.
   private HOTLeafPage currentLeaf = null;
   private PageReference currentLeafRef = null;
   private long currentLeafStamp = HOTLeafPage.STAMP_INVALID;
+  private boolean guardReads;
+  private boolean currentLeafGuarded;
 
   /**
    * The leaf binding {@link #currentLeafStamp} was issued under, snapshotted immediately before it.
@@ -222,17 +230,10 @@ public final class HOTTrieReader implements AutoCloseable {
   private long currentLeafBinding = HOTLeafPage.STAMP_INVALID;
 
   /**
-   * Bound on how many times {@link #loadPage} reloads a leaf that keeps getting evicted between
-   * resolve and stamp snapshot. Each retry reads a fresh copy from storage, so the race is
-   * independent per attempt; exhausting this many implies pathological thrashing.
-   */
-  private static final int MAX_LOAD_RETRIES = 256;
-
-  /**
    * Bound on validate-and-retry rounds for a single positioning decision, shared by every consumer of
    * the optimistic-stamp protocol. A retry re-reads a freshly reloaded copy of the same immutable
-   * content, so each round races eviction independently; exhausting this many implies pathological
-   * allocator thrashing, not a logic error.
+   * content. A failed read enables guarded handoff for the rest of the walk, so eviction cannot
+   * repeatedly invalidate the replacement leaf during a read batch.
    *
    * <p>
    * ONE declaration on purpose: this budget was previously restated under five different names across
@@ -880,12 +881,18 @@ public final class HOTTrieReader implements AutoCloseable {
       }
 
       // Async SSD prefetch: fire-and-forget load of the next sibling's page on a virtual thread.
-      // Overlaps SSD I/O with the CPU work of descending into the current subtree.
-      final int nextSibling = childIndex + 1;
-      if (nextSibling < hotNode.getNumChildren()) {
-        final PageReference siblingRef = hotNode.getChildReference(nextSibling);
-        if (siblingRef != null && siblingRef.getPage() == null && siblingRef.getKey() >= 0) {
-          prefetchPage(siblingRef);
+      // Overlaps SSD I/O with the CPU work of descending into the current subtree. Only on the
+      // opt-in thread route: a point descent has no evidence that the sibling is needed next (the
+      // range cursor's window carries the sequential case, and a multi-key batch carries its own),
+      // so on an advisory backend this would be one speculative advice syscall per level of every
+      // lookup — on the hot path, for a page that is usually never read.
+      if (!spanPrefetchCapable) {
+        final int nextSibling = childIndex + 1;
+        if (nextSibling < hotNode.getNumChildren()) {
+          final PageReference siblingRef = hotNode.getChildReference(nextSibling);
+          if (siblingRef != null && siblingRef.getPage() == null && siblingRef.getKey() >= 0) {
+            prefetchPage(siblingRef);
+          }
         }
       }
 
@@ -970,9 +977,11 @@ public final class HOTTrieReader implements AutoCloseable {
         }
         // Prefetch-batch: issue PREFETCH_WINDOW in-flight reads for the upcoming
         // siblings. Deepens NVMe/io_uring queue depth — on FFM-io_uring storage
-        // these coalesce into a single submit; on FILE_CHANNEL each fires on
-        // a separate virtual thread and kernel I/O scheduler interleaves them.
-        prefetchSiblingWindow(parent, nextChildIdx + 1, numChildren);
+        // these coalesce into a single submit; on FILE_CHANNEL the advisory route
+        // hands the window to the kernel as one readahead batch (or, opted in, each
+        // fires on a separate virtual thread). The per-level watermark makes this
+        // one batch per window of leaves, not one per leaf.
+        prefetchSiblingWindow(parent, nextChildIdx + 1, numChildren, parentIdx);
 
         return descendToLeftmostLeaf(nextChildRef);
       }
@@ -1010,13 +1019,13 @@ public final class HOTTrieReader implements AutoCloseable {
     if (numChildren == 0) {
       throw structuralCorruption("leftmost descent reached an empty indirect page");
     }
-    prefetchSiblingWindow(hotNode, 1, numChildren);
-
     final PageReference childRef = hotNode.getChildReference(0);
     if (childRef == null) {
       throw structuralCorruption("leftmost descendant has no child reference");
     }
+    // Push first: the hint watermark lives on the path slot this node now occupies.
     pushPath(ref, hotNode, 0);
+    prefetchSiblingWindow(hotNode, 1, numChildren, pathDepth - 1);
     return descendToLeftmostLeaf(childRef);
   }
 
@@ -1032,13 +1041,20 @@ public final class HOTTrieReader implements AutoCloseable {
    * spots and, on FFM-io_uring storage, the individual reads can be batched into a single
    * {@code io_uring_enter} submit on the underlying reader.
    */
-  private void prefetchSiblingWindow(final HOTIndirectPage parent, final int startIdx, final int numChildren) {
+  private void prefetchSiblingWindow(final HOTIndirectPage parent, final int startIdx, final int numChildren,
+      final int depth) {
+    // Hint each sibling once per visit of its parent: start past the watermark, and advance it.
+    final int from = Math.max(startIdx, pathPrefetchedUntil[depth]);
     final int end = Math.min(startIdx + PREFETCH_WINDOW, numChildren);
+    if (from >= end) {
+      return;
+    }
+    pathPrefetchedUntil[depth] = end;
     if (spanPrefetchCapable) {
       // One batched span hint for the whole window: zero threads, zero locks, and the
       // backend coalesces (WILLNEED readahead on mmap; one ring submit on io_uring).
       int n = 0;
-      for (int i = startIdx; i < end; i++) {
+      for (int i = from; i < end; i++) {
         final PageReference ref = parent.getChildReference(i);
         if (ref != null && ref.getPage() == null && ref.getKey() >= 0) {
           spanScratch[n++] = ref;
@@ -1049,11 +1065,100 @@ public final class HOTTrieReader implements AutoCloseable {
       }
       return;
     }
-    for (int i = startIdx; i < end; i++) {
+    for (int i = from; i < end; i++) {
       final PageReference ref = parent.getChildReference(i);
       if (ref != null && ref.getPage() == null && ref.getKey() >= 0) {
         prefetchPage(ref);
       }
+    }
+  }
+
+  /**
+   * References per advisory hint batch of {@link #prefetchLeafPaths}; the projection walk's frontier
+   * size.
+   */
+  private static final int LEAF_PATH_HINT_BATCH = 128;
+
+  /**
+   * Level-synchronous warm-up for a batch of point lookups: all keys descend together, and at each
+   * level every not-yet-resident child page of the whole batch is hinted in one advisory batch BEFORE
+   * any of them is loaded, so a level's device round trips overlap instead of following each other
+   * key by key (a lookup at a time turns depth × k dependent reads into depth batches).
+   *
+   * <p>
+   * Pages are loaded through the ordinary {@link #loadPage} route — swizzled onto their references,
+   * stamp-checked like any descent — so the per-key navigation that follows finds every page of its
+   * path resident and re-derives the identical answer; the total decode work is the same, only its
+   * I/O is overlapped. A no-op on a backend without the advisory primitive (nothing is even walked),
+   * and it never reports a malformed route: the key's own descent does that, exactly as today.
+   *
+   * @param rootRef the trie root
+   * @param keys {@code count} serialized keys, key {@code i} at
+   *        {@code [i * keyLen, (i + 1) * keyLen)}
+   * @param keyLen the serialized key length
+   * @param count the number of keys
+   */
+  public void prefetchLeafPaths(final PageReference rootRef, final byte[] keys, final int keyLen, final int count) {
+    Objects.requireNonNull(rootRef, "rootRef");
+    Objects.requireNonNull(keys, "keys");
+    if (keyLen <= 0 || count < 0 || (long) count * keyLen > keys.length) {
+      throw new IllegalArgumentException("invalid key batch: " + count + " keys of " + keyLen + " bytes");
+    }
+    if (!spanPrefetchCapable || count < 2) {
+      return;
+    }
+    final PageReference[] frontier = new PageReference[count];
+    Arrays.fill(frontier, rootRef);
+    final PageReference[] hints = new PageReference[Math.min(count, LEAF_PATH_HINT_BATCH)];
+    final byte[] key = new byte[keyLen];
+    int active = count;
+    try {
+      for (int depth = 0; depth < MAX_TREE_HEIGHT && active > 0; depth++) {
+        // Hint this level's frontier — every reference not yet swizzled, once (consecutive keys
+        // share nodes, so adjacent duplicates are the common case).
+        int hinted = 0;
+        PageReference last = null;
+        for (int i = 0; i < count; i++) {
+          final PageReference ref = frontier[i];
+          if (ref == null || ref == last || ref.getPage() != null || ref.getKey() < 0) {
+            continue;
+          }
+          last = ref;
+          hints[hinted++] = ref;
+          if (hinted == hints.length) {
+            storageEngineReader.prefetchPageSpans(hints, hinted);
+            hinted = 0;
+          }
+        }
+        if (hinted > 0) {
+          storageEngineReader.prefetchPageSpans(hints, hinted);
+        }
+        // Load the level (page-cache hits after the hints) and step every key one level down.
+        active = 0;
+        for (int i = 0; i < count; i++) {
+          final PageReference ref = frontier[i];
+          if (ref == null) {
+            continue;
+          }
+          final Page page = loadPage(ref);
+          if (!(page instanceof HOTIndirectPage hotNode)) {
+            frontier[i] = null; // a leaf (resident now), or a route the key's own descent will report
+            continue;
+          }
+          System.arraycopy(keys, i * keyLen, key, 0, keyLen);
+          final int childIndex = hotNode.findChildIndex(key, keyLen);
+          final PageReference childRef = childIndex < 0
+              ? null
+              : hotNode.getChildReference(childIndex);
+          frontier[i] = childRef;
+          if (childRef != null) {
+            active++;
+          }
+        }
+      }
+    } catch (final RuntimeException advisoryFailure) {
+      // Advisory only: whatever failed here fails identically, with its own diagnostics, on the
+      // key's own descent — which is where a corrupt route has always been reported.
     }
   }
 
@@ -1067,6 +1172,7 @@ public final class HOTTrieReader implements AutoCloseable {
     pathRefs[pathDepth] = ref;
     pathNodes[pathDepth] = node;
     pathChildIndices[pathDepth] = childIdx;
+    pathPrefetchedUntil[pathDepth] = 0;
     pathDepth++;
   }
 
@@ -1116,63 +1222,91 @@ public final class HOTTrieReader implements AutoCloseable {
    * </p>
    */
   private @Nullable Page loadPage(PageReference ref) {
+    if (guardReads) {
+      return loadGuardedPage(ref);
+    }
     // Resolving a HOT leaf and snapshotting its optimistic stamp are fused here so no caller can
     // observe a leaf without a stamp to validate against: a concurrent eviction would otherwise
     // let a reader mistake an evicted page for a missing key. On a lost race the leaf is simply
     // reloaded — eviction is transient, not absence.
-    for (int attempt = 0; attempt < MAX_LOAD_RETRIES; attempt++) {
-      // A swizzled page that is already closed means a concurrent eviction reclaimed its
-      // off-heap slot; drop it and reload a fresh copy rather than hand back dead memory.
-      Page page = ref.getPage();
-      if (page == null || page.isClosed()) {
-        // CRITICAL: check BOTH storage key AND log key before giving up. A page in the
-        // transaction log has key == NULL_ID_LONG but a valid logKey.
-        if (ref.getKey() < 0 && ref.getLogKey() < 0) {
-          return null; // not in storage and not in the transaction log
-        }
-        // The storage engine handles versioning/fragment combining and the log lookup.
-        page = storageEngineReader.loadHOTPage(ref);
-        if (page == null) {
-          return null;
-        }
-        // Swizzle: pin the loaded page so future descents skip I/O. HOT pages are immutable
-        // once loaded (COW creates new pages for modifications), so setPage is idempotent.
-        ref.setPage(page);
+    // A swizzled page that is already closed means a concurrent eviction reclaimed its
+    // off-heap slot; drop it and reload a fresh copy rather than hand back dead memory.
+    Page page = ref.getPage();
+    if (page == null || page.isClosed()) {
+      // CRITICAL: check BOTH storage key AND log key before giving up. A page in the
+      // transaction log has key == NULL_ID_LONG but a valid logKey.
+      if (ref.getKey() < 0 && ref.getLogKey() < 0) {
+        return null; // not in storage and not in the transaction log
       }
+      // The storage engine handles versioning/fragment combining and the log lookup.
+      page = storageEngineReader.loadHOTPage(ref);
+      if (page == null) {
+        return null;
+      }
+      // Swizzle the loaded page so future descents skip I/O. This publishes an object reference,
+      // not a lifetime guard; stamp validation below still protects against eviction.
+      ref.setPage(page);
+    }
 
-      if (!(page instanceof HOTLeafPage leaf)) {
-        return page; // an indirect page — eviction only de-swizzles it, never closes it
-      }
-      // NO PIN. Snapshot the leaf's optimistic stamp instead: an odd stamp means the leaf is
-      // closed or its slot is mid-teardown — drop the swizzle and reload a fresh copy. Every
-      // read of this leaf's content must later pass validateCurrentLeaf() before its result is
-      // trusted; the leaf stays evictable the entire time.
-      //
-      // The binding comes FIRST and travels with the stamp: a stamp is a per-slot sequence, so a
-      // rebind between the two reads must be detectable, and an ODD binding means a rebind is in
-      // flight right now — nothing read under it could be proved, so reload instead of reading.
+    if (!(page instanceof HOTLeafPage leaf)) {
+      return page; // an indirect page — eviction only de-swizzles it, never closes it
+    }
+    // NO PIN. Snapshot the leaf's optimistic stamp instead: an odd stamp means the leaf is
+    // closed or its slot is mid-teardown — drop the swizzle and reload a fresh copy. Every
+    // read of this leaf's content must later pass validateCurrentLeaf() before its result is
+    // trusted; the leaf stays evictable the entire time.
+    //
+    // The binding comes FIRST and travels with the stamp: a stamp is a per-slot sequence, so a
+    // rebind between the two reads must be detectable, and an ODD binding means a rebind is in
+    // flight right now — nothing read under it could be proved, so reload instead of reading.
+    final long binding = leaf.readStampBinding();
+    final long stamp = leaf.readStamp();
+    if ((binding & 1L) != 0L || (stamp & 1L) != 0L) {
+      ref.clearPageIfSame(leaf);
+      guardReads = true;
+      return loadGuardedPage(ref);
+    }
+    // Second-chance signal for the ClockSweeper: a leaf under active read survives one
+    // eviction cycle. Purely advisory — correctness never depends on it. Guarded because
+    // markAccessed is a volatile store and a seek re-resolves the same leaf many times (every
+    // first-key probe descends to one), so the unguarded form paid a store fence per probe on a
+    // flag that is already set after the first.
+    if (!leaf.isHot()) {
+      leaf.markAccessed();
+    }
+    currentLeaf = leaf;
+    currentLeafRef = ref;
+    currentLeafBinding = binding;
+    currentLeafStamp = stamp;
+    return leaf;
+  }
+
+  /** Keep the loader's guard through the caller's complete read batch, including cache handoff. */
+  private @Nullable Page loadGuardedPage(final PageReference ref) {
+    clearCurrentLeaf();
+    final Page page = storageEngineReader.loadHOTPageAndGuard(ref);
+    if (!(page instanceof HOTLeafPage leaf)) {
+      return page;
+    }
+    boolean adopted = false;
+    try {
       final long binding = leaf.readStampBinding();
       final long stamp = leaf.readStamp();
       if ((binding & 1L) != 0L || (stamp & 1L) != 0L) {
-        ref.setPage(null);
-        continue;
-      }
-      // Second-chance signal for the ClockSweeper: a leaf under active read survives one
-      // eviction cycle. Purely advisory — correctness never depends on it. Guarded because
-      // markAccessed is a volatile store and a seek re-resolves the same leaf many times (every
-      // first-key probe descends to one), so the unguarded form paid a store fence per probe on a
-      // flag that is already set after the first.
-      if (!leaf.isHot()) {
-        leaf.markAccessed();
+        throw new IllegalStateException("Guarded HOT leaf has an invalid lifetime stamp");
       }
       currentLeaf = leaf;
       currentLeafRef = ref;
       currentLeafBinding = binding;
       currentLeafStamp = stamp;
+      currentLeafGuarded = true;
+      adopted = true;
       return leaf;
+    } finally {
+      if (!adopted) {
+        leaf.releaseGuard();
+      }
     }
-    throw new IllegalStateException("HOT: leaf at " + ref + " evicted on every one of " + MAX_LOAD_RETRIES
-        + " load attempts — sustained allocator thrashing");
   }
 
   /**
@@ -1199,7 +1333,11 @@ public final class HOTTrieReader implements AutoCloseable {
    */
   public boolean validateCurrentLeaf() {
     final HOTLeafPage leaf = currentLeaf;
-    return leaf == null || leaf.validateStamp(currentLeafBinding, currentLeafStamp);
+    if (leaf == null || leaf.validateStamp(currentLeafBinding, currentLeafStamp)) {
+      return true;
+    }
+    guardReads = true;
+    return false;
   }
 
   /** The most-recently-resolved leaf, or {@code null}. Reads of it require stamp validation. */
@@ -1321,12 +1459,17 @@ public final class HOTTrieReader implements AutoCloseable {
    * Release the currently guarded leaf page.
    */
   private void clearCurrentLeaf() {
-    // Nothing to release: the reader holds no guard. Clearing only drops the references so an
-    // idle reader does not keep a leaf object (and its stamp) reachable.
+    final HOTLeafPage guarded = currentLeafGuarded
+        ? currentLeaf
+        : null;
     currentLeaf = null;
     currentLeafRef = null;
     currentLeafBinding = HOTLeafPage.STAMP_INVALID;
     currentLeafStamp = HOTLeafPage.STAMP_INVALID;
+    currentLeafGuarded = false;
+    if (guarded != null) {
+      guarded.releaseGuard();
+    }
   }
 
   /**
@@ -1336,9 +1479,28 @@ public final class HOTTrieReader implements AutoCloseable {
     return storageEngineReader;
   }
 
+  /**
+   * Finish the current walk: release the current leaf's lifetime guard if one is held, return to
+   * optimistic unguarded reads, and clear the traversal path. Idempotent and allocation-free; the
+   * reader stays reusable for the next walk.
+   *
+   * <p>
+   * Callers must not read the previously resolved leaf, or any slice of it, after this returns: the
+   * leaf may be evicted at any point afterwards, and {@link #validateCurrentLeaf()} no longer covers
+   * it.
+   * </p>
+   */
+  public void endWalk() {
+    try {
+      clearCurrentLeaf();
+    } finally {
+      guardReads = false;
+      clearPath();
+    }
+  }
+
   @Override
   public void close() {
-    clearCurrentLeaf();
-    clearPath();
+    endWalk();
   }
 }

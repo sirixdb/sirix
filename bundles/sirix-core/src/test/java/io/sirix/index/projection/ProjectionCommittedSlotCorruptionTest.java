@@ -32,6 +32,8 @@ final class ProjectionCommittedSlotCorruptionTest {
         (reader, slotKey) -> ProjectionIndexHOTStorage.readColumnSegmentSlot(reader, 0, slotKey));
     assertUnreadableValueRejected(-17L, (reader, slotKey) -> ProjectionIndexHOTStorage.readRawSlot(reader, 0, slotKey));
     assertUnreadableValueRejected(0L, (reader, slotKey) -> ProjectionIndexHOTStorage.readBlob(reader, 0, slotKey));
+    assertUnreadableValueRejected(0L,
+        (reader, slotKey) -> ProjectionIndexHOTStorage.readBlobBatch(reader, 0, new long[] {slotKey})[0]);
   }
 
   @Test
@@ -40,6 +42,8 @@ final class ProjectionCommittedSlotCorruptionTest {
         (reader, slotKey) -> ProjectionIndexHOTStorage.readColumnSegmentSlot(reader, 0, slotKey));
     assertValidTombstoneIsAbsent(-17L, (reader, slotKey) -> ProjectionIndexHOTStorage.readRawSlot(reader, 0, slotKey));
     assertValidTombstoneIsAbsent(0L, (reader, slotKey) -> ProjectionIndexHOTStorage.readBlob(reader, 0, slotKey));
+    assertValidTombstoneIsAbsent(0L,
+        (reader, slotKey) -> ProjectionIndexHOTStorage.readBlobBatch(reader, 0, new long[] {slotKey})[0]);
   }
 
   private static void assertUnreadableValueRejected(final long slotKey, final CommittedSlotRead read) {

@@ -54,6 +54,8 @@ import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.ValueDictionaryEntryNode;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrays;
+import it.unimi.dsi.fastutil.ints.IntComparator;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
@@ -120,6 +122,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 
@@ -480,11 +483,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private volatile boolean asyncTerminalFailure;
 
   /**
-   * Native-payload budget for one immutable side-page batch. At most one frozen batch and one active
-   * batch exist, each backed by one fixed reusable reservoir. A caller still owns the next encoded
-   * heap array while backpressure fences the frozen batch, but staging copies it immediately and
-   * replaces the pending page with a native view. The property is deliberately byte-based: a count
-   * cap cannot bound projection segments, whose legal sizes span three orders of magnitude.
+   * Native-payload budget for one immediate side-page batch. Its active/frozen pair uses two fixed
+   * reservoirs; the independently rotating grouped pair has its own smaller byte/count bounds.
+   * Together both pairs reserve at most 136 MiB with the defaults. A caller still owns the next
+   * encoded heap array while backpressure fences the frozen batch, but staging copies it immediately
+   * and replaces the pending page with a native view. A count cap alone cannot bound projection
+   * segments, whose legal sizes span three orders of magnitude.
    */
   private static final long MAX_STAGED_SIDE_PAGE_BYTES =
       positiveLongProperty("sirix.asyncFlush.sidePageBytes", 64L * 1024 * 1024);
@@ -526,6 +530,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private @Nullable KeyValueLeafPage secondCursorDurableReadPage;
 
+  /** NAME-page readback retention is bounded by the configured arena and a fixed page ceiling. */
+  private @Nullable WriterRecordPageCache recordReadPages;
+
+  // Swizzled overflow payloads are not bounded by a page's native allocation. Preserve the
+  // immediate-release route when that diagnostic mode explicitly requests retaining them.
+  private static final boolean CACHE_RECORD_READ_PAGES =
+      !"false".equals(System.getProperty("sirix.writer.cacheRecordReadPages"))
+          && !Boolean.getBoolean("sirix.overflow.swizzleIndexPages");
+
+  @Nullable
+  WriterRecordPageCache cachedRecordReadPagesForTesting() {
+    return recordReadPages;
+  }
+
   /**
    * Owner of the two fixed native side-payload reservoirs. Lazily allocated and explicitly closed.
    */
@@ -536,6 +554,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /** Frozen side pages owned by the current background append. */
   private @Nullable SidePageBatch snapshotSidePages;
+
+  /** Small, independently rotating window for side pages whose parents stay pinned. */
+  private @Nullable Arena groupedSidePagePayloadArena;
+  private @Nullable SidePageBatch activeGroupedSidePages;
+  private @Nullable SidePageBatch snapshotGroupedSidePages;
 
   /** Whether the in-flight worker also owns a TransactionIntentLog snapshot. */
   private boolean asyncSnapshotIncludesLog;
@@ -666,6 +689,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private boolean hftMaxBlockedEpochDataGrowExact;
   private boolean hftMaxBlockedEpochRotation;
   private int hftNativeReservoirCount;
+  /** Sum of active capacities; the equally sized frozen reservoirs double this native footprint. */
   private long hftNativeReservoirBytes;
   private long hftKvlFrameCachePages;
   private long hftKvlFrameCacheBytes;
@@ -696,14 +720,25 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return value;
   }
 
+  private static final boolean GROUP_SIDE_PAGES =
+      Boolean.parseBoolean(System.getProperty("sirix.asyncFlush.groupSidePages", "true"));
+
+  private static final long SIDE_GROUP_TARGET_BYTES = Math.min(MAX_STAGED_SIDE_PAGE_BYTES,
+      positiveLongProperty("sirix.asyncFlush.sideGroupTargetBytes", 4L * 1024 * 1024));
+  private static final int SIDE_GROUP_TARGET_COUNT =
+      Math.min(MAX_STAGED_SIDE_PAGE_COUNT, positiveIntProperty("sirix.asyncFlush.sideGroupTargetCount", 1024));
+
   /**
    * Reusable primitive side-channel for immutable OverflowPage writes. The background thread never
    * mutates a real PageReference; it writes offsets/hashes here, then the foreground publishes them
    * only after the shared append buffer has been flushed.
    */
-  private static final class SidePageBatch {
+  private static final class SidePageBatch implements IntComparator {
     private PageReference[] references;
     private long[] diskOffsets;
+    private long[] localityGroups;
+    private int[] writeOrder;
+    private boolean needsOrdering;
     private final MemorySegment payloadStorage;
     private final MemorySegment readOnlyPayloadStorage;
     private int size;
@@ -712,6 +747,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     private SidePageBatch(final int initialCapacity, final MemorySegment payloadStorage) {
       references = new PageReference[initialCapacity];
       diskOffsets = new long[initialCapacity];
+      localityGroups = new long[initialCapacity];
+      writeOrder = new int[initialCapacity];
       this.payloadStorage = payloadStorage;
       readOnlyPayloadStorage = payloadStorage.asReadOnly();
     }
@@ -727,10 +764,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return new OverflowPage(readOnlyPayloadStorage, payloadOffset, payloadLength);
     }
 
-    private void addReserved(final PageReference reference, final int payloadLength) {
+    private void addReserved(final PageReference reference, final int payloadLength, final long localityGroup) {
       if (size >= references.length) {
         throw new IllegalStateException("Immutable side-page batch slot was not reserved before publication");
       }
+      if (size > 0 && localityGroups[size - 1] > localityGroup) {
+        needsOrdering = true;
+      }
+      localityGroups[size] = localityGroup;
+      writeOrder[size] = size;
       references[size] = reference;
       diskOffsets[size] = Constants.NULL_ID_LONG;
       size++;
@@ -746,12 +788,33 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         throw new IllegalStateException("Too many immutable side pages in one async-flush batch");
       }
       final int newCapacity = Math.min(MAX_STAGED_SIDE_PAGE_COUNT, Math.max(required, doubled));
-      references = Arrays.copyOf(references, newCapacity);
-      diskOffsets = Arrays.copyOf(diskOffsets, newCapacity);
+      final PageReference[] grownReferences = Arrays.copyOf(references, newCapacity);
+      final long[] grownOffsets = Arrays.copyOf(diskOffsets, newCapacity);
+      final long[] grownGroups = Arrays.copyOf(localityGroups, newCapacity);
+      final int[] grownOrder = Arrays.copyOf(writeOrder, newCapacity);
+      references = grownReferences;
+      diskOffsets = grownOffsets;
+      localityGroups = grownGroups;
+      writeOrder = grownOrder;
+    }
+
+    /** Sort only the frozen permutation; references and result slots keep their original indices. */
+    private void prepareWriteOrder() {
+      if (GROUP_SIDE_PAGES && needsOrdering) {
+        IntArrays.quickSort(writeOrder, 0, size, this);
+      }
+    }
+
+    @Override
+    public int compare(final int left, final int right) {
+      final int groupOrder = Long.compare(localityGroups[left], localityGroups[right]);
+      return groupOrder == 0
+          ? Integer.compare(left, right)
+          : groupOrder;
     }
 
     /** Validate every result before publishing any of them, avoiding a half-published batch. */
-    private void publishCompletedWrites() {
+    private void validateCompletedWrites() {
       for (int i = 0; i < size; i++) {
         if (diskOffsets[i] == Constants.NULL_ID_LONG) {
           throw new SirixIOException(
@@ -762,6 +825,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
               "Immutable side-page batch entry " + i + " lost its pending-write identity before publication");
         }
       }
+    }
+
+    /** Publish a batch only after every frozen queue has passed validation. */
+    private void publishCompletedWrites() {
       for (int i = 0; i < size; i++) {
         // HOT side-map wire records persist only the offset. Payload integrity is the owning
         // descriptor's XXH3, so retaining another checksum on every pinned reference would
@@ -783,6 +850,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       size = 0;
       payloadBytes = 0L;
+      needsOrdering = false;
     }
   }
 
@@ -829,7 +897,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final int snapshotCount = snapshotSidePages == null
         ? 0
         : snapshotSidePages.size;
-    return activeCount + snapshotCount;
+    return activeCount + snapshotCount + (activeGroupedSidePages == null
+        ? 0
+        : activeGroupedSidePages.size)
+        + (snapshotGroupedSidePages == null
+            ? 0
+            : snapshotGroupedSidePages.size);
   }
 
   /**
@@ -842,7 +915,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final long snapshotBytes = snapshotSidePages == null
         ? 0L
         : snapshotSidePages.payloadBytes;
-    return activeBytes + snapshotBytes;
+    return activeBytes + snapshotBytes + (activeGroupedSidePages == null
+        ? 0L
+        : activeGroupedSidePages.payloadBytes)
+        + (snapshotGroupedSidePages == null
+            ? 0L
+            : snapshotGroupedSidePages.payloadBytes);
   }
 
   /**
@@ -1572,6 +1650,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return (V) storageEngineReader.checkItemIfDeleted(node);
     }
 
+    if (indexType == IndexType.NAME && CACHE_RECORD_READ_PAGES) {
+      WriterRecordPageCache cache = recordReadPages;
+      if (cache == null) {
+        cache = new WriterRecordPageCache(storageEngineReader);
+        recordReadPages = cache;
+      }
+      return (V) storageEngineReader.readDetachedRecord(cache.get(requireNonNull(durableReference)), recordKey);
+    }
     final KeyValueLeafPage durablePage =
         storageEngineReader.readRecordPageFromExactReference(requireNonNull(durableReference));
     try {
@@ -1708,6 +1794,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public boolean stageUncommittedOverflowPage(final PageReference reference) {
+    return stageUncommittedOverflowPage(reference, 0L, false);
+  }
+
+  @Override
+  public boolean stageUncommittedOverflowPage(final PageReference reference, final long localityGroup) {
+    return stageUncommittedOverflowPage(reference, localityGroup, true);
+  }
+
+  private boolean stageUncommittedOverflowPage(final PageReference reference, final long localityGroup,
+      final boolean retainAcrossEpochs) {
     if (isClosed) {
       throw new IllegalStateException("The storage engine writer is already closed");
     }
@@ -1725,13 +1821,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       throw new IllegalArgumentException("The staged OverflowPage reference must be fresh and unresolved");
     }
 
-    // RAM and legacy append-at-physical-size backends cannot reclaim bytes written before the root
-    // is published. Leave the page resident there; recursive final commit is slower but space-safe.
-    if (!storagePageReaderWriter.supportsReclaimableUncommittedWrites()) {
+    // A backend that cannot take a page ahead of the root (RAM) keeps it resident until the final
+    // commit. The legacy append-at-physical-size profile can take it; it only cannot reuse the bytes
+    // of an aborted transaction, which then stay unreachable in the file like the record pages the
+    // async flush already wrote there. Keeping the page resident instead would grow the transaction's
+    // memory with every such page for the whole load.
+    if (!storagePageReaderWriter.supportsUncommittedWrites()) {
       return false;
     }
 
-    // A 128 MiB per-writer reservoir must have deterministic ownership. AUTO would defer release
+    // The bounded native reservoirs must have deterministic ownership. AUTO would defer release
     // to GC/Cleaner activity (the opposite of the no-major-GC contract), while GLOBAL would leak it
     // forever. Those configurations keep the ordinary resident-page commit path until they have a
     // process-level native reservoir pool with explicit lifecycle semantics.
@@ -1747,58 +1846,85 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return false;
     }
 
-    if (activeSidePages == null) {
-      initializeSidePageBatches();
+    // A record snapshot may need its side pages immediately. Keep independently pinned parents
+    // in a separate bounded window, so one record dependency cannot scatter every projection column.
+    // Large payloads retain the original 64 MiB path; the locality window never expands for one item.
+    final boolean grouped = GROUP_SIDE_PAGES && retainAcrossEpochs && payloadLength <= SIDE_GROUP_TARGET_BYTES;
+    SidePageBatch batch = activeSidePageBatch(grouped);
+    if (batch == null) {
+      initializeSidePageBatches(grouped);
+      batch = activeSidePageBatch(grouped);
     }
+    final long byteLimit = grouped
+        ? SIDE_GROUP_TARGET_BYTES
+        : MAX_STAGED_SIDE_PAGE_BYTES;
+    final int countLimit = grouped
+        ? SIDE_GROUP_TARGET_COUNT
+        : MAX_STAGED_SIDE_PAGE_COUNT;
 
-    // Preflight BEFORE marking the new ref pending. The caller already owns this incoming byte[];
-    // if it would overflow the active budget, rotate the existing capped batch first. This bounds
-    // writer-owned state to two capped buffers plus the one incoming payload being backpressured.
-    if (activeSidePages.size > 0 && (payloadLength > MAX_STAGED_SIDE_PAGE_BYTES - activeSidePages.payloadBytes
-        || activeSidePages.size >= MAX_STAGED_SIDE_PAGE_COUNT)) {
+    // Reserve before claiming the reference. Crossing either hard bound applies backpressure via
+    // the same append permit, without rotating the transaction log while projection maintenance runs.
+    if (batch.size > 0 && (payloadLength > byteLimit - batch.payloadBytes || batch.size >= countLimit)) {
       flushStagedSidePagesOnly();
+      batch = activeSidePageBatch(grouped);
     }
-
-    // Reserve before marking the reference pending. Array growth is the only allocating/failing
-    // operation in add(); if it failed after the marker was installed, the HOT leaf would contain a
-    // pending page owned by no batch and final commit would (correctly) refuse to serialize it.
-    activeSidePages.ensureCapacity(activeSidePages.size + 1);
-    final OverflowPage nativePage = activeSidePages.copyToNative(overflowPage);
+    batch.ensureCapacity(batch.size + 1);
+    final OverflowPage nativePage = batch.copyToNative(overflowPage);
     reference.replaceAndBindPendingPageWrite(overflowPage, nativePage);
-    activeSidePages.addReserved(reference, payloadLength);
+    batch.addReserved(reference, payloadLength, localityGroup);
     if (HFT_TELEMETRY_ENABLED) {
       hftStagedSidePages++;
       hftStagedSideBytes += payloadLength;
-      hftPeakActiveSideBytes = Math.max(hftPeakActiveSideBytes, activeSidePages.payloadBytes);
+      hftPeakActiveSideBytes = Math.max(hftPeakActiveSideBytes, (activeSidePages == null
+          ? 0L
+          : activeSidePages.payloadBytes)
+          + (activeGroupedSidePages == null
+              ? 0L
+              : activeGroupedSidePages.payloadBytes));
     }
-
-    // This is an overflow-only epoch. Projection maintenance may still be reading KVL records in
-    // the same drain, so crossing the side-page budget must never rotate or clean the live TIL.
-    if (activeSidePages.payloadBytes >= MAX_STAGED_SIDE_PAGE_BYTES
-        || activeSidePages.size >= MAX_STAGED_SIDE_PAGE_COUNT) {
+    if (batch.payloadBytes >= byteLimit || batch.size >= countLimit) {
       flushStagedSidePagesOnly();
     }
     return true;
   }
 
-  /** Allocate both fixed native reservoirs as one all-or-nothing lazy initialization. */
-  private void initializeSidePageBatches() {
-    if (activeSidePages != null || snapshotSidePages != null || sidePagePayloadArena != null) {
+  private @Nullable SidePageBatch activeSidePageBatch(final boolean grouped) {
+    return grouped
+        ? activeGroupedSidePages
+        : activeSidePages;
+  }
+
+  /** Allocate a fixed native pair atomically; grouped pages use only 8 MiB by default. */
+  private void initializeSidePageBatches(final boolean grouped) {
+    if (activeSidePageBatch(grouped) != null || (grouped
+        ? snapshotGroupedSidePages != null || groupedSidePagePayloadArena != null
+        : snapshotSidePages != null || sidePagePayloadArena != null)) {
       throw new IllegalStateException("Immutable side-page reservoirs are only initialized as an empty pair");
     }
-    final int initialCapacity = Math.min(INITIAL_SIDE_PAGE_BATCH_CAPACITY, MAX_STAGED_SIDE_PAGE_COUNT);
+    final int initialCapacity = Math.min(INITIAL_SIDE_PAGE_BATCH_CAPACITY, grouped
+        ? SIDE_GROUP_TARGET_COUNT
+        : MAX_STAGED_SIDE_PAGE_COUNT);
+    final long byteLimit = grouped
+        ? SIDE_GROUP_TARGET_BYTES
+        : MAX_STAGED_SIDE_PAGE_BYTES;
     final Arena arena = SharedArenas.newSharedArena();
     try {
-      final MemorySegment activePayload = arena.allocate(MAX_STAGED_SIDE_PAGE_BYTES, Long.BYTES);
-      final MemorySegment snapshotPayload = arena.allocate(MAX_STAGED_SIDE_PAGE_BYTES, Long.BYTES);
+      final MemorySegment activePayload = arena.allocate(byteLimit, Long.BYTES);
+      final MemorySegment snapshotPayload = arena.allocate(byteLimit, Long.BYTES);
       final SidePageBatch active = new SidePageBatch(initialCapacity, activePayload);
       final SidePageBatch snapshot = new SidePageBatch(initialCapacity, snapshotPayload);
-      sidePagePayloadArena = arena;
-      activeSidePages = active;
-      snapshotSidePages = snapshot;
+      if (grouped) {
+        groupedSidePagePayloadArena = arena;
+        activeGroupedSidePages = active;
+        snapshotGroupedSidePages = snapshot;
+      } else {
+        sidePagePayloadArena = arena;
+        activeSidePages = active;
+        snapshotSidePages = snapshot;
+      }
       if (HFT_TELEMETRY_ENABLED) {
-        hftNativeReservoirCount = 2;
-        hftNativeReservoirBytes = activePayload.byteSize();
+        hftNativeReservoirCount += 2;
+        hftNativeReservoirBytes += activePayload.byteSize();
       }
     } catch (final Throwable failure) {
       try {
@@ -1811,24 +1937,37 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   private boolean hasActiveSidePages() {
-    return activeSidePages != null && activeSidePages.size > 0;
+    return (activeSidePages != null && activeSidePages.size > 0)
+        || (activeGroupedSidePages != null && activeGroupedSidePages.size > 0);
   }
 
-  /** Swap the foreground and background side-page buffers after the prior snapshot was cleaned. */
-  private int rotateSidePageBatch() {
-    if (!hasActiveSidePages()) {
-      return 0;
+  /** Swap only queues included in this epoch, after the prior snapshot has been cleaned. */
+  private int rotateSidePageBatches(final boolean includeTransactionLog) {
+    int count = 0;
+    if (activeSidePages != null && activeSidePages.size > 0) {
+      if (snapshotSidePages == null || snapshotSidePages.size != 0) {
+        throw new IllegalStateException("Prior immutable side-page batch was not cleaned before reuse");
+      }
+      final SidePageBatch frozen = activeSidePages;
+      activeSidePages = snapshotSidePages;
+      snapshotSidePages = frozen;
+      count = frozen.size;
     }
-    if (snapshotSidePages == null || snapshotSidePages.size != 0) {
-      throw new IllegalStateException("Prior immutable side-page batch was not cleaned before reuse");
+    // Combined epochs preserve the small grouped window. Its own bound and every explicit final
+    // drain cause a side-only rotation, which always takes both queues through the same append owner.
+    if (!includeTransactionLog && activeGroupedSidePages != null && activeGroupedSidePages.size > 0) {
+      if (snapshotGroupedSidePages == null || snapshotGroupedSidePages.size != 0) {
+        throw new IllegalStateException("Prior grouped side-page batch was not cleaned before reuse");
+      }
+      final SidePageBatch frozen = activeGroupedSidePages;
+      activeGroupedSidePages = snapshotGroupedSidePages;
+      snapshotGroupedSidePages = frozen;
+      count += frozen.size;
     }
-    final SidePageBatch frozen = activeSidePages;
-    activeSidePages = snapshotSidePages;
-    snapshotSidePages = frozen;
-    return frozen.size;
+    return count;
   }
 
-  /** Release every pending payload, both reusable arrays, and their fixed native arena. */
+  /** Release every pending payload, both queue pairs, and their fixed native arenas. */
   private void discardSidePageBatches() {
     if (asyncFlushWorkerRunning) {
       throw new SirixIOException("Cannot discard immutable side-page buffers while their append worker may still "
@@ -1849,6 +1988,33 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (snapshot != null) {
       try {
         snapshot.clear(true);
+      } catch (final Throwable t) {
+        failure = retainFirstFailure(failure, t);
+      }
+    }
+    final SidePageBatch activeGrouped = activeGroupedSidePages;
+    activeGroupedSidePages = null;
+    if (activeGrouped != null) {
+      try {
+        activeGrouped.clear(true);
+      } catch (final Throwable t) {
+        failure = retainFirstFailure(failure, t);
+      }
+    }
+    final SidePageBatch snapshotGrouped = snapshotGroupedSidePages;
+    snapshotGroupedSidePages = null;
+    if (snapshotGrouped != null) {
+      try {
+        snapshotGrouped.clear(true);
+      } catch (final Throwable t) {
+        failure = retainFirstFailure(failure, t);
+      }
+    }
+    final Arena groupedArena = groupedSidePagePayloadArena;
+    groupedSidePagePayloadArena = null;
+    if (groupedArena != null) {
+      try {
+        SharedArenas.close(groupedArena);
       } catch (final Throwable t) {
         failure = retainFirstFailure(failure, t);
       }
@@ -1874,6 +2040,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void asyncFlush() {
+    // Preserve the original asynchronous failure even after teardown has closed the reader.
+    throwIfAsyncFlushFailed();
+    storageEngineReader.assertNotClosed();
+    if (STAGE_ADOPTED_OVERFLOW_CARRIERS && carrierStagingSupported()) {
+      // Only this epoch's mutable pages are visited. Materializing on the foreground thread exposes
+      // overflow carriers before the snapshot serializer would create them on a disposable copy and
+      // pin the original until commit. Staging may rotate a full side-page batch, so it must happen
+      // BEFORE startAsyncFlush acquires the append permit.
+      log.forEachActiveRecordPage(activeRecordCarrierStager);
+    }
     startAsyncFlush(true);
   }
 
@@ -2006,7 +2182,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final int snapshotSize = includeTransactionLog
           ? log.snapshot()
           : 0;
-      final int sidePageCount = rotateSidePageBatch();
+      final int sidePageCount = rotateSidePageBatches(includeTransactionLog);
       if (snapshotSize == 0 && sidePageCount == 0) {
         if (includeTransactionLog) {
           // snapshot() still installed empty frozen arrays. Retire them now rather than carrying a
@@ -2200,8 +2376,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       throw incomplete;
     }
     final SidePageBatch sidePages = snapshotSidePages;
-    if (sidePages != null && sidePages.size > 0) {
+    final SidePageBatch groupedPages = snapshotGroupedSidePages;
+    if (sidePages != null) {
+      sidePages.validateCompletedWrites();
+    }
+    if (groupedPages != null) {
+      groupedPages.validateCompletedWrites();
+    }
+    if (sidePages != null) {
       sidePages.publishCompletedWrites();
+    }
+    if (groupedPages != null) {
+      groupedPages.publishCompletedWrites();
     }
     if (asyncSnapshotIncludesLog) {
       log.cleanupSnapshot();
@@ -2225,7 +2411,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * </p>
    */
   private void spillEligiblePinnedTriePages() {
-    if (!storagePageReaderWriter.supportsReclaimableUncommittedWrites() || log.pinnedSize() == 0) {
+    // Only a backend that cannot take pages ahead of the root keeps every pinned trie page until the
+    // final commit. Reclaiming an aborted tail is not required: see stageUncommittedOverflowPage.
+    if (!storagePageReaderWriter.supportsUncommittedWrites() || log.pinnedSize() == 0) {
       return;
     }
 
@@ -2965,11 +3153,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private void writeSnapshotSidePages(final ResourceConfiguration config, final PageReference shadowRef,
       final BytesOut<?> bgBuffer) {
-    final SidePageBatch sidePages = snapshotSidePages;
+    writeSnapshotSidePages(snapshotSidePages, config, shadowRef, bgBuffer);
+    writeSnapshotSidePages(snapshotGroupedSidePages, config, shadowRef, bgBuffer);
+  }
+
+  private void writeSnapshotSidePages(final @Nullable SidePageBatch sidePages, final ResourceConfiguration config,
+      final PageReference shadowRef, final BytesOut<?> bgBuffer) {
     if (sidePages == null) {
       return;
     }
-    for (int i = 0; i < sidePages.size; i++) {
+    sidePages.prepareWriteOrder();
+    for (int at = 0; at < sidePages.size; at++) {
+      final int i = sidePages.writeOrder[at];
       final PageReference liveReference = sidePages.references[i];
       if (liveReference == null || !liveReference.hasPendingPageWrite()
           || !(liveReference.getPage() instanceof OverflowPage overflowPage)) {
@@ -2980,7 +3175,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       shadowRef.clearHash();
       writeUncommittedPage(config, shadowRef, overflowPage, bgBuffer);
       sidePages.diskOffsets[i] = shadowRef.getKey();
-      if ((i & 63) == 63) {
+      if ((at & 63) == 63) {
         markAsyncFlushProgress();
       }
       injectAsyncFlushFault("side-write");
@@ -3167,8 +3362,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final int parallelism =
         positiveIntProperty("sirix.asyncFlush.appendParallelism", Math.min(2, Math.max(1, processors / 4)));
     // One queued epoch is enough burst absorption for the default two append lanes. Every extra
-    // slot can retain a writer's frozen TIL plus up to 64 MiB of side payload while a slow device
-    // occupies the workers, so a deep task-count queue is not an acceptable memory bound here.
+    // slot can retain a writer's frozen TIL plus up to 68 MiB of side payload at the defaults while
+    // a slow device occupies the workers, so a deep task-count queue is not a sufficient memory bound.
     final int queueCapacity = positiveIntProperty("sirix.asyncFlush.appendQueueCapacity", 1);
     return createSnapshotAppendExecutor(parallelism, queueCapacity);
   }
@@ -3822,7 +4017,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // eventual close must not invalidate those committed offsets.
       hasUncommittedReclaimableWrites = false;
       firstUncommittedPageOffset = Long.MAX_VALUE;
-      closeCursorDurableReadPage();
+      closeDurableReadPages();
 
       final long t4 = timing
           ? System.nanoTime()
@@ -4469,7 +4664,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     try {
-      closeCursorDurableReadPage();
+      closeDurableReadPages();
     } catch (final Throwable t) {
       teardownFailure = retainFirstFailure(teardownFailure, t);
     }
@@ -4607,7 +4802,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
     }
     try {
-      closeCursorDurableReadPage();
+      closeDurableReadPages();
     } catch (final Throwable t) {
       teardownFailure = retainFirstFailure(teardownFailure, t);
     }
@@ -5186,7 +5381,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public io.sirix.page.interfaces.@Nullable Page loadHOTPage(PageReference reference) {
+  public @Nullable Page loadHOTPage(PageReference reference) {
+    return loadHOTPage(reference, false);
+  }
+
+  @Override
+  public @Nullable Page loadHOTPageAndGuard(final PageReference reference) {
+    return loadHOTPage(reference, true);
+  }
+
+  private @Nullable Page loadHOTPage(final PageReference reference, final boolean retainLeafGuard) {
     storageEngineReader.assertNotClosed();
 
     if (reference == null) {
@@ -5198,16 +5402,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (container != null) {
       Page modified = container.getModified();
       if (modified instanceof HOTLeafPage || modified instanceof HOTIndirectPage) {
+        if (retainLeafGuard && modified instanceof HOTLeafPage leaf && !leaf.acquireGuard()) {
+          throw new IllegalStateException("Transaction HOT leaf was retired before read handoff");
+        }
         return modified;
       }
       Page complete = container.getComplete();
       if (complete instanceof HOTLeafPage || complete instanceof HOTIndirectPage) {
+        if (retainLeafGuard && complete instanceof HOTLeafPage leaf && !leaf.acquireGuard()) {
+          throw new IllegalStateException("Transaction HOT leaf was retired before read handoff");
+        }
         return complete;
       }
     }
 
     // Delegate to the reader
-    return storageEngineReader.loadHOTPage(reference);
+    return retainLeafGuard
+        ? storageEngineReader.loadHOTPageAndGuard(reference)
+        : storageEngineReader.loadHOTPage(reference);
   }
 
   @Override
@@ -5294,18 +5506,39 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
-  private void closeCursorDurableReadPage() {
+  private void closeDurableReadPages() {
+    final WriterRecordPageCache cache = recordReadPages;
     final KeyValueLeafPage firstPage = cursorDurableReadPage;
     final KeyValueLeafPage secondPage = secondCursorDurableReadPage;
+    recordReadPages = null;
     cursorDurableReadPage = null;
     cursorDurableReadOffset = Constants.NULL_ID_LONG;
     secondCursorDurableReadPage = null;
     secondCursorDurableReadOffset = Constants.NULL_ID_LONG;
-    if (firstPage != null && !firstPage.isClosed()) {
-      firstPage.retire();
+    Throwable failure = null;
+    try {
+      if (cache != null) {
+        cache.close();
+      }
+    } catch (final Throwable exception) {
+      failure = retainFirstFailure(failure, exception);
     }
-    if (secondPage != null && !secondPage.isClosed()) {
-      secondPage.retire();
+    try {
+      if (firstPage != null && !firstPage.isClosed()) {
+        firstPage.retire();
+      }
+    } catch (final Throwable exception) {
+      failure = retainFirstFailure(failure, exception);
+    }
+    try {
+      if (secondPage != null && !secondPage.isClosed()) {
+        secondPage.retire();
+      }
+    } catch (final Throwable exception) {
+      failure = retainFirstFailure(failure, exception);
+    }
+    if (failure != null) {
+      throw asRuntimeFailure(failure);
     }
   }
 
@@ -5469,7 +5702,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Test seam: {@code false} restores the pre-fix behaviour in which an adopted page's overflow
+   * Test seam: {@code false} restores the pre-fix behaviour in which a record page's overflow
    * carriers stay resident until final commit, so the background flush pins the page. Only
    * {@code AdoptedOverflowCarrierStagingTest} flips it, to prove its guard is not vacuous.
    */
@@ -5481,6 +5714,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /** Memo of {@link #carrierStagingSupported()}: 0 unknown, 1 supported, 2 unsupported. */
   private byte carrierStagingSupport;
 
+  private final Consumer<KeyValueLeafPage> activeRecordCarrierStager = page -> {
+    if (!page.isAdoptedImmutableForFlush()) {
+      stageOverflowCarriersOfLiveLeaf(page);
+    }
+  };
+
   /**
    * Whether this writer's backend can stage an immutable page before the root is published — the same
    * two gates {@link #stageUncommittedOverflowPage} applies, evaluated once per writer so an
@@ -5488,20 +5727,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private boolean carrierStagingSupported() {
     if (carrierStagingSupport == 0) {
-      final boolean reclaimable = storagePageReaderWriter.supportsReclaimableUncommittedWrites();
+      final boolean prewritable = storagePageReaderWriter.supportsUncommittedWrites();
       final boolean deterministicClose = SharedArenas.supportsDeterministicClose();
-      carrierStagingSupport = reclaimable && deterministicClose
+      carrierStagingSupport = prewritable && deterministicClose
           ? (byte) 1
           : (byte) 2;
       if (carrierStagingSupport == 2 && CARRIER_STAGING_WARNED.compareAndSet(false, true)) {
-        LOGGER.warn("Adopted-page overflow carriers stay resident until final commit on this configuration: "
-            + (reclaimable
+        LOGGER.warn("Record-page overflow carriers stay resident until final commit on this configuration: "
+            + (prewritable
                 ? ""
-                : "the storage backend cannot reclaim uncommitted writes (storage type / sirix.commit.preallocated); ")
+                : "the storage backend cannot write pages ahead of the commit (storage type); ")
             + (deterministicClose
                 ? ""
                 : "the arena strategy has no deterministic close (sirix.arena.strategy); ")
-            + "every bulk-adopted leaf holding such a carrier is pinned in the intent log for the life of its"
+            + "every record leaf holding such a carrier can be pinned in the intent log for the life of its"
             + " transaction, which bounds the load size by the arena");
       }
     }
@@ -5514,6 +5753,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     requireNonNull(page);
     // The live leaf is mutable foreground state (its generation is current), so materializing here
     // is the same kind of mutation the blit itself was. A survivor throws inside.
+    page.resetFlushDeferralsIfCarriersResolved();
     page.materializePendingRecords(getResourceSession().getResourceConfig());
     stageLeafOverflowCarriers(page);
   }
@@ -5736,7 +5976,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         storageEngineReader.getResourceId());
     hasUncommittedReclaimableWrites = false;
     firstUncommittedPageOffset = Long.MAX_VALUE;
-    closeCursorDurableReadPage();
+    closeDurableReadPages();
     // Path-class records are cached per (resource, revision), and truncateTo RE-ISSUES the
     // truncated revision numbers over different content -- the same offset-reuse hazard the page
     // caches are dropped for above. Without this a PathFilter/CASFilter at a re-issued revision is

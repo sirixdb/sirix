@@ -177,6 +177,15 @@ public final class IndexDefs {
   }
 
   /**
+   * Declare an optional sorted view, ordered by the given key columns, over the same covering fields.
+   */
+  public static IndexDef createProjectionIdxDef(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
+      final List<Type> fieldTypes, final int indexDefNo, final IndexDef.DbType dbType,
+      final ProjectionSortedSpec sortedSpec) {
+    return new IndexDef(rootPath, fieldPaths, fieldTypes, indexDefNo, dbType, sortedSpec);
+  }
+
+  /**
    * Create a valid-time (bitemporal) interval {@link IndexDef}. The index registers each record
    * OBJECT's {@code [validFrom, validTo]} interval in a persistent Relational-Interval-Tree for
    * output-sensitive stabbing queries; the valid-time field names are read from the resource's

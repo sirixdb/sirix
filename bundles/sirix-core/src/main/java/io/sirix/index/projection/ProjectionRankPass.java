@@ -15,7 +15,9 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.PriorityQueue;
 
 /**
@@ -377,6 +379,7 @@ public final class ProjectionRankPass {
     final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), indexNumber);
     final ProjectionIndexColumnSegmentCodec.EncodeWorkspace workspace =
         new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
+    final ProjectionFlagSummaryChunks.BuildWriter flagSummaryWriter = new ProjectionFlagSummaryChunks.BuildWriter();
     int rewritten = 0;
     try (RandomAccessFile in = new RandomAccessFile(grouped.toFile(), "r")) {
       final byte[] record = new byte[TRIPLE_BYTES];
@@ -401,7 +404,10 @@ public final class ProjectionRankPass {
           localToGlobal[readInt(record, 4)] = readInt(record, 8);
         }
         page.remapStringDictColumnToGlobal(column, localToGlobal);
-        storage.putRowGroupAsColumnSegmentSlots(rowGroupId, ProjectionIndexColumnSegmentCodec.encode(page, workspace));
+        final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+            ProjectionIndexColumnSegmentCodec.encode(page, workspace);
+        storage.putRowGroupAsColumnSegmentSlots(rowGroupId, encoded);
+        flagSummaryWriter.append(storage, encoded.descriptor());
         rewritten++;
       }
     }
@@ -413,6 +419,7 @@ public final class ProjectionRankPass {
 
     final byte[] kinds = metadata.columnKinds();
     kinds[column] = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+    flagSummaryWriter.finish(storage, rowGroupCount, kinds.length, wtx.getRevisionNumber());
     long[] anchors = metadata.valueDictionaryHeaderKeys();
     if (anchors == null) {
       anchors = new long[kinds.length];
@@ -421,9 +428,16 @@ public final class ProjectionRankPass {
     // predicate pushdown that would show up only as latency, which is exactly the failure this
     // pass is measured against.
     anchors[column] = headerKey;
-    final ProjectionIndexMetadata next =
-        new ProjectionIndexMetadata(metadata.rootPath(), metadata.fieldPaths(), metadata.fieldNames(), kinds,
-            metadata.rowGroupCount(), wtx.getRevisionNumber(), metadata.setValueRowCounts(), anchors);
+    // A value-count summary is a per-leaf string dictionary's capability; the global column drops its
+    // summary and takes the scan route, exactly as a column that outgrows its summary does.
+    Map<Integer, Map<String, Long>> summaries = metadata.setValueRowCounts();
+    if (summaries != null && summaries.containsKey(column)) {
+      summaries = new LinkedHashMap<>(summaries);
+      summaries.remove(column);
+      storage.tombstoneBlob(ProjectionSetSummaryChunks.slotKey(column));
+    }
+    final ProjectionIndexMetadata next = new ProjectionIndexMetadata(metadata.rootPath(), metadata.fieldPaths(),
+        metadata.fieldNames(), kinds, metadata.rowGroupCount(), wtx.getRevisionNumber(), summaries, anchors);
     // Slot 0 LAST and in the SAME commit as every descriptor: the kind lives in both, and a store
     // whose leaves and metadata disagree refuses to build at all.
     storage.putBlob(0L, next.serialize());

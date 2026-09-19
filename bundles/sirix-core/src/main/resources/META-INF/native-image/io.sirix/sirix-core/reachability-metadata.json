@@ -2,6 +2,29 @@
   "foreign": {
     "downcalls": [
       {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*",
+          "jint",
+          "void*",
+          "jint"
+        ],
+        "options": {
+          "critical": {
+            "allowHeapAccess": true
+          }
+        }
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "jint",
+          "jlong",
+          "jlong",
+          "jint"
+        ]
+      },
+      {
         "returnType": "void*",
         "parameterTypes": [
           "void*",
@@ -78,6 +101,14 @@
       }
     ]
   },
+  "resources": [
+    {
+      "condition": {
+        "typeReached": "io.sirix.page.SirixLZ77NativeDecoder"
+      },
+      "glob": "native/**/libsirix_lz77.so"
+    }
+  ],
   "serialization": [
     {
       "type": "org.junit.platform.engine.UniqueId$SerializedForm"

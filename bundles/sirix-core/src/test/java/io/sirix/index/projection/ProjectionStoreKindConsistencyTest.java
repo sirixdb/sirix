@@ -62,6 +62,35 @@ final class ProjectionStoreKindConsistencyTest {
         "the bytes decode fine — blaming them is what task #45 spent four rounds chasing: " + message);
   }
 
+  /**
+   * Above {@code PARALLEL_VERIFY_MIN_LEAVES} the constructor checks the leaves on the common pool.
+   * The refusal must still name the LOWEST disagreeing leaf (two disagree here, in reverse discovery
+   * order), carry the same typed exception, and a store of the same size whose leaves agree must
+   * construct — the control that proves the parallel route ran to completion.
+   */
+  @Test
+  void aLargeStoreIsCheckedInParallelAndNamesTheLowestDisagreeingLeaf() {
+    final int leaves = 4_500;
+    final byte[] divergent = KINDS.clone();
+    divergent[1] = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+    final RowGroupDirectory agreeing = directory(1, KINDS);
+    final RowGroupDirectory disagreeing = directory(2, divergent);
+    final java.util.ArrayList<RowGroupDirectory> directories = new java.util.ArrayList<>(leaves);
+    for (int leaf = 0; leaf < leaves; leaf++) {
+      directories.add(agreeing);
+    }
+    final ProjectionColumnStore control = new ProjectionColumnStore(List.copyOf(directories));
+    assertEquals(KINDS.length, control.columnCount(), "the agreeing large store must construct");
+
+    directories.set(4_100, disagreeing);
+    directories.set(2_750, disagreeing);
+    final List<RowGroupDirectory> withTwoDisagreeing = List.copyOf(directories);
+    final ProjectionStoreInconsistentException refused =
+        assertThrows(ProjectionStoreInconsistentException.class, () -> new ProjectionColumnStore(withTwoDisagreeing));
+    assertEquals(2_750, refused.leaf(), "the refusal must name the lowest disagreeing leaf, as the serial check does");
+    assertTrue(refused.getMessage().contains("column 1"), refused.getMessage());
+  }
+
   @Test
   void aSingleLeafStoreHasNothingToDisagreeWith() {
     final ProjectionColumnStore store = new ProjectionColumnStore(List.of(directory(1, KINDS)));

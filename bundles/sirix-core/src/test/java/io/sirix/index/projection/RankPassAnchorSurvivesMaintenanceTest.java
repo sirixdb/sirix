@@ -29,6 +29,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -170,6 +171,97 @@ final class RankPassAnchorSurvivesMaintenanceTest {
         assertProbesResolve(session, afterMaintenance.valueDictionaryHeaderKey(0), "c");
         assertProbesResolve(session, afterMaintenance.valueDictionaryHeaderKey(1), "l");
       }
+    }
+  }
+
+  /**
+   * A low-cardinality column carries a value-count summary as a per-leaf dictionary; the pass drops
+   * that summary with the per-leaf form, the column's values stay exact, and later maintenance
+   * commits keep working.
+   */
+  @Test
+  void aLowCardinalityColumnWithAValueSummaryIsGlobalizedExactly() throws Exception {
+    final int records = 600;
+    final String[] codes = new String[records];
+    final StringBuilder json = new StringBuilder(records * 24).append('[');
+    for (int record = 0; record < records; record++) {
+      codes[record] = "k" + record % 8;
+      if (record > 0) {
+        json.append(',');
+      }
+      json.append("{\"code\":\"").append(codes[record]).append("\",\"label\":\"l").append(record).append("\"}");
+    }
+    json.append(']');
+    Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
+      database.createResource(resourceConfig());
+      try (JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+        }
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
+          wtx.commit();
+        }
+        final ProjectionIndexMetadata beforePass = metadata(session);
+        assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, beforePass.columnKinds()[0]);
+        assertNotNull(beforePass.setValueRowCounts());
+        assertTrue(beforePass.setValueRowCounts().containsKey(0),
+            "the fixture's low-cardinality column must carry a value-count summary");
+
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          ProjectionRankPass.run(wtx, INDEX_NUMBER, 0, JsonTestHelper.PATHS.PATH2.getFile(), 1 << 20);
+        }
+
+        final ProjectionIndexMetadata afterPass = metadata(session);
+        assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, afterPass.columnKinds()[0]);
+        assertTrue(afterPass.setValueRowCounts() == null || !afterPass.setValueRowCounts().containsKey(0),
+            "a global column carries no per-leaf value-count summary");
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          assertNull(new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).getBlob(
+              ProjectionSetSummaryChunks.slotKey(0)), "the dropped summary's chunk is tombstoned");
+        }
+        assertGlobalColumnHolds(session, codes);
+
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.moveToDocumentRoot();
+          wtx.moveToFirstChild();
+          wtx.moveToFirstChild();
+          wtx.moveToFirstChild();
+          wtx.setStringValue("k5");
+          wtx.commit();
+        }
+        codes[0] = "k5";
+        assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, metadata(session).columnKinds()[0]);
+        assertGlobalColumnHolds(session, codes);
+      }
+    }
+  }
+
+  /** Column 0, row by row in document order, resolved through its published dictionary anchor. */
+  private static void assertGlobalColumnHolds(final JsonResourceSession session, final String[] expected) {
+    final ProjectionIndexMetadata metadata = metadata(session);
+    final long anchor = metadata.valueDictionaryHeaderKey(0);
+    assertTrue(anchor > 0);
+    try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+      final ProjectionIndexHOTStorage storage =
+          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+      int row = 0;
+      for (int rowGroupId = 1; rowGroupId <= metadata.rowGroupCount(); rowGroupId++) {
+        final byte[] raw = storage.getRowGroupFromColumnSegmentSlots(rowGroupId);
+        if (raw == null) {
+          continue;
+        }
+        final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.deserialize(raw);
+        final long[] ids = page.numericColumn(0);
+        for (int i = 0; i < page.getRowCount(); i++) {
+          assertEquals(expected[row],
+              GlobalValueDictionary.value(anchor, Math.toIntExact(ids[i]), wtx.getStorageEngineWriter()), "row " + row);
+          row++;
+        }
+      }
+      assertEquals(expected.length, row);
     }
   }
 

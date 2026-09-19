@@ -17,6 +17,8 @@ import org.jspecify.annotations.Nullable;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.index.IndexDef;
+import io.sirix.index.projection.ProjectionDirectoryLoad.Result;
+import io.sirix.index.ProjectionSortedSpec;
 import io.sirix.index.Indexes;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.page.ChunkedBodyConfig;
@@ -25,14 +27,17 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.stream.IntStream;
 
 /**
  * Revision-scoped, catalog-driven access to projection indexes — the projection analogue of how
@@ -97,6 +102,8 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public final class ProjectionIndexCatalog {
 
+  private static final boolean DIRECTORY_WINDOWS = Boolean.getBoolean("sirix.projection.directoryWindows");
+
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ProjectionIndexCatalog.class));
 
   /**
@@ -116,11 +123,11 @@ public final class ProjectionIndexCatalog {
   private record ProbeKey(String resourceKey, int indexDefId, int revision) {
   }
 
-  /** Slot-0 probe result: usable build revision, or {@link #UNUSABLE}. */
-  private record Probe(int buildRevision) {
+  /** Slot-0 probe result: usable build revision and access shape, or {@link #UNUSABLE}. */
+  private record Probe(int buildRevision, int rowGroupCount, ProjectionSlotLayout slotLayout) {
   }
 
-  private static final Probe UNUSABLE = new Probe(-1);
+  private static final Probe UNUSABLE = new Probe(-1, 0, ProjectionSlotLayout.ROW_GROUP_MAJOR);
 
   private record DataKey(String resourceKey, int indexDefId, int buildRevision) {
   }
@@ -274,6 +281,32 @@ public final class ProjectionIndexCatalog {
     return defEntries(session, resourceKey, revision).length > 0;
   }
 
+  /**
+   * Check that a covering projection has a usable persisted header without opening its row groups.
+   * This is a planning/preflight check; the serving path still validates the referenced data when it
+   * reads it. A caller that only needs a summary or sorted access path must not hydrate every
+   * row-group directory just to establish that the projection exists.
+   */
+  public static boolean hasUsableCoveringProjection(final ResourceSession<?, ?> session, final String resourceKey,
+      final int revision, final String[] sourcePath, final String[] requiredFields) {
+    Objects.requireNonNull(session, "session");
+    Objects.requireNonNull(resourceKey, "resourceKey");
+    Objects.requireNonNull(requiredFields, "requiredFields");
+    final String root = canonicalSourcePath(sourcePath);
+    if (root == null) {
+      return false;
+    }
+    for (final DefEntry candidate : selectCandidates(defEntries(session, resourceKey, revision), root,
+        requiredFields)) {
+      final Probe probe = PROBES.get(new ProbeKey(resourceKey, candidate.def.getID(), revision),
+          key -> probeMetadata(session, revision, candidate.def));
+      if (probe != null && probe != UNUSABLE && probe.buildRevision >= 0 && probe.buildRevision <= revision) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** Whether any catalogued projection of {@code revision} carries {@code field} as a column. */
   public static boolean anyDefCoversField(final ResourceSession<?, ?> session, final String resourceKey,
       final int revision, final String field) {
@@ -318,6 +351,153 @@ public final class ProjectionIndexCatalog {
       }
     }
     return null;
+  }
+
+  /**
+   * Read an exact scalar count summary through the revision's catalog and two small persisted blobs.
+   * A missing or malformed capability falls back to ordinary projection serving.
+   */
+  public static @Nullable Map<String, Long> lookupScalarValueRowCounts(final ResourceSession<?, ?> session,
+      final String resourceKey, final int revision, final String[] sourcePath, final String field) {
+    Objects.requireNonNull(session, "session");
+    Objects.requireNonNull(resourceKey, "resourceKey");
+    Objects.requireNonNull(field, "field");
+    final String root = canonicalSourcePath(sourcePath);
+    if (root == null) {
+      return null;
+    }
+    final DefEntry[] candidates =
+        selectCandidates(defEntries(session, resourceKey, revision), root, new String[] {field});
+    for (final DefEntry candidate : candidates) {
+      final int column = columnOf(candidate, field);
+      if (column < 0) {
+        continue;
+      }
+      try (NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+        final StorageEngineReader reader = rtx.getStorageEngineReader();
+        final ProjectionIndexMetadata metadata =
+            ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(reader, candidate.def.getID(), 0L));
+        if (metadata == null || metadata.isStale() || metadata.buildRevision() > revision
+            || !metadata.matches(candidate.def.getProjectionRootPath().toString(), defFieldPaths(candidate.def),
+                defColumnKinds(candidate.def))) {
+          continue;
+        }
+        final byte[] kinds = metadata.columnKinds();
+        final Map<Integer, Map<String, Long>> capabilities = metadata.setValueRowCounts();
+        if (column >= kinds.length || kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+            || capabilities == null || !capabilities.containsKey(column)) {
+          continue;
+        }
+        final Map<String, Long> counts = ProjectionSetSummaryChunks.readColumn(reader, candidate.def.getID(), column);
+        if (counts != null) {
+          SERVED.increment();
+          return counts;
+        }
+      } catch (final IllegalStateException corrupt) {
+        LOGGER.warn("Scalar summary for projection definition #" + candidate.def.getID() + " is unusable at revision "
+            + revision + ": " + corrupt.getMessage());
+      } catch (final RuntimeException transientFailure) {
+        LOGGER.warn("Scalar summary lookup failed for resource " + resourceKey + ", definition #"
+            + candidate.def.getID() + " at revision " + revision + ": " + transientFailure.getMessage());
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Serve a filtered grouped extremum from a revisioned sorted access path. The query's string
+   * equality predicates must name exactly the view's leading key columns, the group field the next
+   * key column and the aggregate field the last one; the equality literals then bound one contiguous
+   * key range. Equality columns must be string columns, so a literal compares exactly as the
+   * interpreter compares it. No decoded row groups are loaded for this path.
+   */
+  public static @Nullable List<ProjectionSortedGroupScan.Group> sortedGroupTopK(final ResourceSession<?, ?> session,
+      final String resourceKey, final int revision, final String[] sourcePath, final Map<String, String> equalities,
+      final String groupField, final String aggregateField, final int limit,
+      final ProjectionSortedGroupScan.Order order, final long spanDivisor, final boolean minOnly) {
+    Objects.requireNonNull(session, "session");
+    Objects.requireNonNull(resourceKey, "resourceKey");
+    Objects.requireNonNull(equalities, "equalities");
+    Objects.requireNonNull(groupField, "groupField");
+    Objects.requireNonNull(aggregateField, "aggregateField");
+    final String root = canonicalSourcePath(sourcePath);
+    if (root == null) {
+      return null;
+    }
+    final String[] required = new String[2 + equalities.size()];
+    required[0] = groupField;
+    required[1] = aggregateField;
+    int at = 2;
+    for (final String field : equalities.keySet()) {
+      required[at++] = field;
+    }
+    for (final DefEntry candidate : selectCandidates(defEntries(session, resourceKey, revision), root, required)) {
+      final ProjectionSortedSpec sorted = candidate.def.getProjectionSortedSpec();
+      if (sorted == null) {
+        continue;
+      }
+      final List<Integer> keyColumns = sorted.keyColumns();
+      final int prefixColumns = equalities.size();
+      if (keyColumns.size() != prefixColumns + 2 || keyColumns.get(prefixColumns) != columnOf(candidate, groupField)
+          || keyColumns.get(prefixColumns + 1) != columnOf(candidate, aggregateField)) {
+        continue;
+      }
+      final byte[] kinds = defColumnKinds(candidate.def);
+      if (!ProjectionSortKeyCodec.Layout.isStringKind(kinds[keyColumns.get(prefixColumns)])
+          || kinds[keyColumns.get(prefixColumns + 1)] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        continue;
+      }
+      final byte[] prefix = equalityPrefix(candidate, keyColumns, prefixColumns, kinds, equalities);
+      if (prefix == null) {
+        continue;
+      }
+      try (NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+        final StorageEngineReader reader = rtx.getStorageEngineReader();
+        final Probe probe = probeMetadata(reader, candidate.def, revision);
+        if (probe == UNUSABLE || probe.buildRevision < 0 || probe.buildRevision > revision) {
+          continue;
+        }
+        final List<ProjectionSortedGroupScan.Group> groups = ProjectionSortedGroupScan.topK(reader,
+            candidate.def.getID(), prefix, limit, order, spanDivisor, minOnly, worker -> {
+              try (NodeReadOnlyTrx lane = session.beginNodeReadOnlyTrx(revision)) {
+                worker.accept(lane.getStorageEngineReader());
+              }
+            });
+        if (groups != null) {
+          return groups;
+        }
+      } catch (final RuntimeException e) {
+        LOGGER.warn("Sorted grouped projection #" + candidate.def.getID() + " declined at revision " + revision + ": "
+            + e.getMessage());
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Encoded key prefix for the equality literals in key-column order, or null when some leading key
+   * column has no literal or is not a string column.
+   */
+  private static byte @Nullable [] equalityPrefix(final DefEntry candidate, final List<Integer> keyColumns,
+      final int prefixColumns, final byte[] kinds, final Map<String, String> equalities) {
+    final ProjectionSortKeyCodec.Writer prefix = new ProjectionSortKeyCodec.Writer();
+    for (int i = 0; i < prefixColumns; i++) {
+      final int column = keyColumns.get(i);
+      if (!ProjectionSortKeyCodec.Layout.isStringKind(kinds[column])) {
+        return null;
+      }
+      final String field = candidate.fieldChains == null || candidate.fieldChains[column] == null
+          ? candidate.fieldNames[column]
+          : candidate.fieldChains[column];
+      final String literal = equalities.get(field);
+      if (literal == null) {
+        return null;
+      }
+      final byte[] utf8 = literal.getBytes(StandardCharsets.UTF_8);
+      prefix.appendUtf8(utf8, 0, utf8.length);
+    }
+    return prefix.copyKey();
   }
 
   // ==================== wtx-visible (uncommitted) serving ====================
@@ -461,8 +641,14 @@ public final class ProjectionIndexCatalog {
       if (probe == UNUSABLE || probe.buildRevision < 0) {
         return null;
       }
-      final ProjectionIndexRegistry.Handle handle = DATA.get(new DataKey(resourceKey, def.getID(), probe.buildRevision),
-          key -> decodeRowGroups(session, revision, def));
+      // A bounded-window loader closes over this caller's session and revision. Keep it out of the
+      // process-wide handle cache, even when another caller asks for the same committed revision.
+      final boolean bounded =
+          DIRECTORY_WINDOWS && probe.rowGroupCount >= 1024 && probe.slotLayout == ProjectionSlotLayout.ROW_GROUP_MAJOR;
+      final ProjectionIndexRegistry.Handle handle = bounded
+          ? decodeRowGroups(session, revision, def)
+          : DATA.get(new DataKey(resourceKey, def.getID(), probe.buildRevision),
+              key -> decodeRowGroups(session, revision, def));
       if (handle == NOT_USABLE) {
         if (DIAG) {
           System.err.println("[cat] load: decodeRowGroups -> NOT_USABLE (def #" + def.getID() + ", buildRevision "
@@ -535,7 +721,7 @@ public final class ProjectionIndexCatalog {
       }
       return UNUSABLE;
     }
-    return new Probe(metadata.buildRevision());
+    return new Probe(metadata.buildRevision(), metadata.rowGroupCount(), metadata.slotLayout());
   }
 
   /**
@@ -577,24 +763,40 @@ public final class ProjectionIndexCatalog {
       if (metadata == null || metadata.isStale()) {
         return NOT_USABLE;
       }
-      physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, def.getID(), metadata.rowGroupCount());
       tParse = DIAG
           ? System.nanoTime()
           : 0L;
-      // The segment-slot directory reader captures each segment's durable offset (and an inline
-      // segment slot's bytes), so a column fill batches ONLY the queried column's offsets — reading
-      // one column's segments across all row groups and skipping the rest. Whole-row-group query
-      // shapes materialize from the same directory representation.
-      // This call site — and only this one — opts into the parallel walk: it runs under a fresh
-      // read-only transaction on a COMMITTED revision, so extra leases resolve the same immutable
-      // pages. The writer-facing decode path keeps the serial cursor walk (its reader consults a
-      // transaction intent log, whose read path mutates shared state).
-      directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, def.getID(),
-          metadata.rowGroupCount(), physicalOrder, worker -> {
-            try (NodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
-              worker.accept(laneRtx.getStorageEngineReader());
+      // Committed column-major directories contain immutable descriptors; their independent leases
+      // always bind to this exact revision. Writer readers keep their intent-log-local path.
+      if (metadata.slotLayout() == ProjectionSlotLayout.COLUMN_MAJOR && !reader.hasTrxIntentLog()) {
+        final Result loaded = ProjectionDirectoryLoad.read(reader, def.getID(), metadata.rowGroupCount(), worker -> {
+          try (NodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
+            worker.accept(laneRtx.getStorageEngineReader());
+          }
+        }, !"false".equals(System.getProperty("sirix.projection.overlapDirectoryLoad")));
+        physicalOrder = loaded.physicalOrder();
+        directories = loaded.directories();
+      } else {
+        physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, def.getID(), metadata.rowGroupCount());
+        if (DIRECTORY_WINDOWS && metadata.rowGroupCount() >= 1024
+            && metadata.slotLayout() == ProjectionSlotLayout.ROW_GROUP_MAJOR && !reader.hasTrxIntentLog()) {
+          directories = new ProjectionDirectoryWindows(metadata.rowGroupCount(), metadata.columnKinds(), number -> {
+            final int from = number * ProjectionDirectoryWindows.WINDOW_SIZE;
+            final int to = Math.min(from + ProjectionDirectoryWindows.WINDOW_SIZE, physicalOrder.length);
+            try (NodeReadOnlyTrx windowRtx = session.beginNodeReadOnlyTrx(revision)) {
+              return ProjectionIndexHOTStorage.readDirectoryWindow(windowRtx.getStorageEngineReader(), def.getID(),
+                  physicalOrder, from, to);
             }
           });
+        } else {
+          directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, def.getID(),
+              metadata.rowGroupCount(), physicalOrder, worker -> {
+                try (NodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
+                  worker.accept(laneRtx.getStorageEngineReader());
+                }
+              });
+        }
+      }
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during " + "directory walk ("
           + corrupt.getMessage() + ")");
@@ -622,16 +824,18 @@ public final class ProjectionIndexCatalog {
     // Worst-case RESIDENT weight (Caffeine weights are fixed at insert): the raw leaves a
     // whole-leaf consumer materializes (Σ segment byteLens) PLUS the decoded column-slice
     // arrays (bit-packed segments decode to 8 bytes/value — up to ~8× their packed size).
-    long projectedBytes = 0;
-    for (final ProjectionIndexHOTStorage.RowGroupDirectory dir : live) {
-      projectedBytes += residentWeightOf(dir.descriptor());
+    long projectedBytes = live instanceof ProjectionDirectoryWindows
+        ? 1L << 60
+        : 0;
+    if (!(live instanceof ProjectionDirectoryWindows)) {
+      projectedBytes += residentWeightOf(live);
     }
     // The shared store carries only immutable descriptor state; every fill binds to the
     // CALLER's own live fetcher, threaded in per call — nothing session-scoped is stored.
     final long tWalk = DIAG
         ? System.nanoTime()
         : 0L;
-    final ProjectionColumnStore store = new ProjectionColumnStore(live);
+    final ProjectionColumnStore store = new ProjectionColumnStore(live, def.getID());
     // Fingerprint manifests and durable chunk locators are captured synchronously on this already
     // owned reader. Payload pages remain deferred to the caller-scoped fetcher, so hydration is a
     // small, resource-free range walk and there is no daemon transaction to leak on an early return.
@@ -641,7 +845,7 @@ public final class ProjectionIndexCatalog {
     if (DIAG) {
       final long tBloom = System.nanoTime();
       System.err.printf(
-          "[cat] lazy-handle timings: metaParse %.1f ms, directoryWalk %.1f ms, bloomBlocks %.1f ms (%d leaves,"
+          "[cat] lazy-handle timings: metadata %.1f ms, orderAndDirectoryWalk %.1f ms, bloomBlocks %.1f ms (%d leaves,"
               + " projectedWeight %d MB)%n",
           (tParse - t0) / 1e6, (tWalk - tParse) / 1e6, (tBloom - tWalk) / 1e6, rowGroupCount, projectedBytes >> 20);
     }
@@ -650,6 +854,22 @@ public final class ProjectionIndexCatalog {
     }
     final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.Handle.columnLazy(metadata.rootPath(),
         metadata.buildRevision(), metadata.fieldNames(), store, def.getID(), projectedBytes);
+    if (rowGroupCount >= 1024 && metadata.columnKinds().length <= ProjectionFlagSummaryChunks.MAX_COLUMNS
+        && !"false".equals(System.getProperty("sirix.projection.flagSummary"))) {
+      final long flagsStart = DIAG
+          ? System.nanoTime()
+          : 0L;
+      final byte[] evidence = ProjectionFlagSummaryChunks.readAll(reader, def.getID(), rowGroupCount,
+          metadata.columnKinds().length, metadata.buildRevision());
+      if (evidence != null) {
+        handle.setFlagSummaryEvidence(evidence);
+      }
+      if (flagsStart != 0L) {
+        System.err.printf("[flagSummary] revision=%d groups=%d columns=%d loaded=%s ms=%.1f%n",
+            metadata.buildRevision(), rowGroupCount, metadata.columnKinds().length, evidence != null,
+            (System.nanoTime() - flagsStart) / 1e6);
+      }
+    }
     // Metadata identifies bounded summary chunks; hydrate them before the handle can serve counts.
     handle.setSetValueRowCounts(ProjectionSetSummaryChunks.readAll(reader, def.getID(), metadata.setValueRowCounts()));
     // …as do the per-column value dictionary anchors, without which a global string column can
@@ -744,6 +964,27 @@ public final class ProjectionIndexCatalog {
    * the raw segments a whole-leaf consumer materializes PLUS what they decode to (a bit-packed
    * segment becomes 8 bytes per value, up to ~8× its packed size).
    */
+  /** Leaves at or above which the resident-weight sum is reduced on the common pool. */
+  private static final int PARALLEL_WEIGHT_MIN_LEAVES = 4096;
+
+  /**
+   * The resident weight of every directory in {@code live}, summed. A leaf's weight is a pure
+   * function of its immutable descriptor bytes, so a large store's sum is reduced over disjoint index
+   * ranges on the common pool; the total is the same in any order, and a small store keeps the serial
+   * loop.
+   */
+  static long residentWeightOf(final List<ProjectionIndexHOTStorage.RowGroupDirectory> live) {
+    final int leaves = live.size();
+    if (leaves < PARALLEL_WEIGHT_MIN_LEAVES) {
+      long bytes = 0;
+      for (int leaf = 0; leaf < leaves; leaf++) {
+        bytes += residentWeightOf(live.get(leaf).descriptor());
+      }
+      return bytes;
+    }
+    return IntStream.range(0, leaves).parallel().mapToLong(leaf -> residentWeightOf(live.get(leaf).descriptor())).sum();
+  }
+
   private static long residentWeightOf(final byte[] descriptor) {
     long bytes = 0;
     final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(descriptor);
@@ -778,6 +1019,34 @@ public final class ProjectionIndexCatalog {
   public static ProjectionColumnStore.ColumnSegmentFetcher columnSegmentFetcher(final ResourceSession<?, ?> session,
       final int revision) {
     return new ProjectionColumnStore.ColumnSegmentFetcher() {
+      @Override
+      public byte[] @Nullable [] fetchNumericProofs(final int indexNumber, final int column, final long[] slots) {
+        try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+          final StorageEngineReader reader = fetchRtx.getStorageEngineReader();
+          if (!ProjectionNumericProofs.available(
+              ProjectionIndexHOTStorage.readBlob(reader, indexNumber, ProjectionNumericProofs.HEADER_SLOT), column)) {
+            return null;
+          }
+          final byte[][] chunks = new byte[slots.length][];
+          for (int from = 0; from < slots.length; from += 1024) {
+            final int to = Math.min(from + 1024, slots.length);
+            final byte[][] part =
+                ProjectionIndexHOTStorage.readBlobBatch(reader, indexNumber, Arrays.copyOfRange(slots, from, to));
+            System.arraycopy(part, 0, chunks, from, part.length);
+          }
+          return chunks;
+        }
+      }
+
+      @Override
+      public void fetchSlotRange(final int indexNumber, final long[] slotKeys, final int from, final int to,
+          final byte[][] out) {
+        try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+          ProjectionIndexHOTStorage.readColumnSlotRange(fetchRtx.getStorageEngineReader(), indexNumber, slotKeys, from,
+              to, out);
+        }
+      }
+
       @Override
       public byte @Nullable [] @Nullable [] fetchAll(final long[] offsets) {
         try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
@@ -988,9 +1257,10 @@ public final class ProjectionIndexCatalog {
           // thread-safe, and parallel kernels touch disjoint windows concurrently.
           try (NodeReadOnlyTrx windowRtx = source.openReader()) {
             final StorageEngineReader reader = windowRtx.getStorageEngineReader();
+            final ProjectionSlotLayout layout = ProjectionIndexHOTStorage.readSlotLayout(reader, defId);
             for (int logical = from; logical < toExclusive; logical++) {
-              final byte[] payload =
-                  ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, defId, physicalOrder[logical]);
+              final byte[] payload = ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, defId, layout,
+                  physicalOrder[logical]);
               if (payload == null) {
                 throw new IllegalStateException("Projection definition #" + defId + " truncated during windowed "
                     + "materialization: logical row group " + logical + " (physical slot " + physicalOrder[logical]
@@ -1287,6 +1557,21 @@ public final class ProjectionIndexCatalog {
       return false;
     }
     return true;
+  }
+
+  /** Resolve a query field by the same declared-chain rule used by the hydrated handle. */
+  private static int columnOf(final DefEntry entry, final String field) {
+    for (int column = 0; column < entry.fieldNames.length; column++) {
+      final String chain = entry.fieldChains == null || entry.fieldChains.length != entry.fieldNames.length
+          ? null
+          : entry.fieldChains[column];
+      if (chain == null
+          ? entry.fieldNames[column].equals(field)
+          : chain.equals(field)) {
+        return column;
+      }
+    }
+    return -1;
   }
 
   /** Total catalog-served lookups since process start — for test assertions. */
