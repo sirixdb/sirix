@@ -140,16 +140,16 @@ below HotSpot tiered. Not compute-bound — it's serialization + single-thread.
 on-disk V0 format. A JVM-shredded DB queried natively hits the same warm
 numbers above. Future levers: an AOT-friendly JSON parser (fastjson2 / a
 record-shape-specific parser / simdjson) and parallel shred partitioning.
-(**This split is largely obsolete on the GraalVM 25.1 line — see the update
-below.**)
+(**This split was largely unnecessary on the GraalVM 25.1-dev EA build
+measured in the update below.**)
 
 ### Update — GraalVM 25.1-dev (EA): MemorySegment intrinsification closes most of the ingest gap
 
 GraalVM commit `8edcbb77` ("Intrinsify MemorySegment.get/set before analysis",
 2026-03-06) makes native-image intrinsify the scalar `MemorySegment` accessors
-that HotSpot's JIT already intrinsifies. It is **not in any stable release**; it
-first appears in the Oracle GraalVM **25.1-dev** EA line (verified here in
-`graalvm-jdk-25e1-25.0.3-ea.32`, 2026-06-16). A standalone scalar get/set
+that HotSpot's JIT already intrinsifies. It was measured here on an Oracle GraalVM
+**25.1-dev** EA build (`graalvm-jdk-25e1-25.0.3-ea.32`, 2026-06-16), and every
+figure in this section comes from that build. A standalone scalar get/set
 microbench goes **4466 ms → ~75 ms native (≈56×)** on it — native is now ~2× the
 JVM instead of ~100×.
 
@@ -166,8 +166,8 @@ The native ingest penalty drops from **~4.8× → ~1.2×** (near parity). That a
 *MemorySegment*-specific fix alone buys ~4× indicates the un-intrinsified scalar
 accessor in the page-serialization **write path** was a substantial part of the
 native ingest cost — not only the single-threaded Gson tokenizer the earlier
-profile flagged. On the 25.1 line a single native binary can ingest *and* query
-with only a ~20 % ingest tax (was ~5×).
+profile flagged. On that EA build a single native binary could ingest *and*
+query with only a ~20 % ingest tax (was ~5×).
 
 The warm analytical kernels above are **unchanged** — they are already
 AVX-vectorized (Vector API) and never touched the slow scalar accessor.
@@ -176,8 +176,13 @@ AVX-vectorized (Vector API) and never touched the slow scalar accessor.
 profile is dominated by the ~28 s shred and mis-weights the microsecond kernels;
 plain `-O3` is the better build here.
 
-Caveat: 25.1-dev is a **pre-release EA build** — treat these as a preview until
-the intrinsification ships in a stable GraalVM.
+Caveat: the 25.1 line is no longer pre-release. GraalVM 25.1.3 reached GA on
+2026-06-30, 25.2.4 on 2026-07-28, and GraalVM CE 25.3.4.1 on 2026-08-25. Whether
+commit `8edcbb77` is in any of these shipped releases has **not been re-checked
+here**, so the figures above describe the 25.1-dev EA build only. Re-measure
+them before quoting them for a stable GraalVM. This intrinsification is a
+separate matter from the build-time downcall-handle support that the next
+section depends on.
 
 ## Optional constant FFM adapters for optimized builds
 
@@ -203,7 +208,7 @@ configuration. Shell commands must single-quote the raw Native Image argument to
 This optimization was verified on GraalVM CE `25.3.4.1` and on the Oracle GraalVM 25.4 development
 build (`25.4.4.1.1-dev`, Java `25.0.4.1.1`, compiler revision
 `cb905c0ea0e868072ee525107e468ac2b5ff964d`), using `-O3`, G1 and the retained PGO profiles. Oracle
-GraalVM `25.0.4` rejects it with `linkToNative`, the same error CI hits. Builds with the two
+GraalVM `25.0.3` and `25.0.4` reject it with `linkToNative`, the same error CI hits. Builds with the two
 adapters preinitialized reproduced all five 100M JSONBench answers exactly and recovered the Q2/Q3
 regression that the run-time adapters introduced: roughly 160 ms per Q3 query and 90-120 ms per Q2
 query. Treat the option as explicitly toolchain-dependent: validate that the image builds and run
