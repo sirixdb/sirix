@@ -31,6 +31,7 @@ list of files.
 | [PROJECTION_INDEXES.md](PROJECTION_INDEXES.md) | The user-facing feature: what a columnar projection index is, how to create one in JSONiq, and which analytical queries it accelerates. Start here. |
 | [PROJECTION_INDEX_DEEP_DIVE.md](PROJECTION_INDEX_DEEP_DIVE.md) | One dataset walked through every layer — JSON rows to columnar leaves to semantic segments to the bytes on disk to the SIMD kernels — and back up through maintenance and time travel. |
 | [PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md) | Normative contract for the V0 storage format: exact record lookup, document-order routing, and local update/delete/insert/move maintenance. |
+| [SEGMENT_PROJECTION_INDEXES.md](SEGMENT_PROJECTION_INDEXES.md) | Specification of the projection storage format, dictionaries, sorted views, read structures, query routes and I/O layer, with the 2026 ClickBench/JSONBench campaign record, its measured results and open questions. |
 
 The remaining `PROJECTION_INDEX_*.md` files are storage-format design notes; the deep dive cites
 them where they matter. Plans for shrinking what these indexes store are working notes of the
@@ -52,6 +53,9 @@ These are engineering working-notes kept for transparency and future reference. 
 superseded iterations; treat them as an archive of the design process rather than current
 user-facing documentation.
 
+- **HOT index — current specification (start here):**
+  [HOT_INDEX_SPECIFICATION.md](HOT_INDEX_SPECIFICATION.md) specifies the code as it stands and lists
+  which of the documents below are stale.
 - **HOT index — foundations & invariants:**
   [HOT_FORMAL_FOUNDATION.md](HOT_FORMAL_FOUNDATION.md),
   [HOT_INVARIANTS_CATALOG.md](HOT_INVARIANTS_CATALOG.md),
