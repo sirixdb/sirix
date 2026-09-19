@@ -5829,9 +5829,7 @@ public enum PageKind {
 
       // Read slot offsets (allocate MAX_ENTRIES to allow insertions after deserialization)
       final int[] slotOffsets = new int[HOTLeafPage.MAX_ENTRIES];
-      for (int i = 0; i < entryCount; i++) {
-        slotOffsets[i] = source.readInt();
-      }
+      source.readInts(slotOffsets, 0, entryCount);
 
       // Read slot memory (zero-copy when possible). The ownership variables deliberately cover the
       // entire acquisition-to-return interval: the optional side-reference trailer is parsed only
@@ -8316,11 +8314,10 @@ public enum PageKind {
    * Per-thread NATIVE landing area for an LZ77 frame being read back.
    *
    * <p>
-   * {@link SirixLZ77Codec#decode} dispatches to the C decoder only when its output is native-backed
-   * with tail slack; a heap output silently takes the Java decoder, measured here at 3.0 GB/s against
-   * 16.9 GB/s native on a 32 KB frame — 5.6&times;. An {@link OverflowPage} must own a heap array
-   * (its constructor's contract, so nothing retains a reservoir view), so the frame is decoded
-   * natively and then copied out. The copy runs at memcpy speed and is bought back many times over.
+   * {@link SirixLZ77Codec#decode} requires output tail slack for native decoding. An
+   * {@link OverflowPage} owns an exact-length heap array, so decode into padded thread-local storage
+   * and copy the result into that array. This also applies to small frames: the Java fallback for an
+   * exact-length destination already uses scratch storage and a final copy.
    * </p>
    *
    * <p>
@@ -8331,9 +8328,6 @@ public enum PageKind {
    */
   private static final ThreadLocal<MemorySegment> OVERFLOW_DECODE_NATIVE =
       ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(1 << 16));
-
-  /** Below this the native detour's extra copy costs more than the faster decoder saves. */
-  private static final int OVERFLOW_NATIVE_DECODE_MIN_BYTES = 1 << 10;
 
   /**
    * Exhaustive pick-smallest over the same three codecs the leaf body uses, plus STORED.
@@ -8431,7 +8425,7 @@ public enum PageKind {
 
     final byte[] data = new byte[decodedLength];
     final int produced;
-    if (codec == 3 && decodedLength >= OVERFLOW_NATIVE_DECODE_MIN_BYTES && SirixLZ77NativeDecoder.isAvailable()) {
+    if (codec == 3 && decodedLength > 0 && SirixLZ77NativeDecoder.isAvailable()) {
       MemorySegment landing = OVERFLOW_DECODE_NATIVE.get();
       // NATIVE_OUTPUT_TAIL_SLACK, not the INPUT constant: the dispatch tests the OUTPUT against 64
       // bytes of slack and the input against 16. This read INPUT until it was measured, which left

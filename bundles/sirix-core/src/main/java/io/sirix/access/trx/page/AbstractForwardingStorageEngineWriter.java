@@ -103,6 +103,11 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public boolean stageUncommittedOverflowPage(final PageReference reference, final long localityGroup) {
+    return delegate().stageUncommittedOverflowPage(reference, localityGroup);
+  }
+
+  @Override
   public UberPage commitWritePages(String commitMessage, Instant commitTimeStamp, boolean isIntermediateCommit) {
     return delegate().commitWritePages(commitMessage, commitTimeStamp, isIntermediateCommit);
   }

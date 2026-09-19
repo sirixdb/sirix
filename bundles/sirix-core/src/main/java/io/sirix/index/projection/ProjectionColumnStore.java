@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.NumericBucketDecoder;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
@@ -11,13 +12,16 @@ import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 import it.unimi.dsi.fastutil.ints.Int2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.IntToLongFunction;
 import java.util.stream.IntStream;
 
 /**
@@ -66,6 +70,12 @@ public final class ProjectionColumnStore {
   public interface ColumnSegmentFetcher {
     byte @Nullable [] @Nullable [] fetchAll(long[] offsets);
 
+    /** Optional, revision-bound numeric proofs. Older and offset-only fetchers retain BODY reads. */
+    default byte[] @Nullable [] fetchNumericProofs(final int indexNumber, final int column, final long[] slots) {
+      return null;
+    }
+
+
     /**
      * Fetch the contiguous sub-range {@code [from, to)} of {@code offsets} into {@code out} at the SAME
      * indices.
@@ -95,6 +105,16 @@ public final class ProjectionColumnStore {
     default boolean rangedFetchIsConcurrent() {
       return false;
     }
+
+    /**
+     * Fetch logical slots from one column-major segment chain into the same output indices. Kept
+     * separate from physical offsets so an offset-only fetcher cannot misinterpret a trie key as a file
+     * address. Implementations use the calling session and this handle's revision.
+     */
+    default void fetchSlotRange(final int indexNumber, final long[] slotKeys, final int from, final int to,
+        final byte[][] out) {
+      throw new IllegalStateException("fetcher does not support logical projection slots");
+    }
   }
 
   /**
@@ -117,7 +137,30 @@ public final class ProjectionColumnStore {
   public record ColumnSlice(int rowCount, byte flags, long min, long max, long[] presenceWords,
       long @Nullable [] numericValues, long @Nullable [] boolWords, int @Nullable [] stringDictIds,
       byte @Nullable [] dictBytes, int @Nullable [] dictOffsets, int @Nullable [] setCounts,
-      long @Nullable [] dictHashes) {
+      long @Nullable [] dictHashes, @Nullable PackedDictionaryIds packedStringIds) {
+
+    /** Existing dense slice shape; packed IDs are an optional immutable read representation. */
+    public ColumnSlice(final int rowCount, final byte flags, final long min, final long max, final long[] presenceWords,
+        final long @Nullable [] numericValues, final long @Nullable [] boolWords, final int @Nullable [] stringDictIds,
+        final byte @Nullable [] dictBytes, final int @Nullable [] dictOffsets, final int @Nullable [] setCounts,
+        final long @Nullable [] dictHashes) {
+      this(rowCount, flags, min, max, presenceWords, numericValues, boolWords, stringDictIds, dictBytes, dictOffsets,
+          setCounts, dictHashes, null);
+    }
+
+    /** Arrays returned by a slice are immutable. Dense consumers materialize packed IDs once. */
+    @Override
+    public int @Nullable [] stringDictIds() {
+      return stringDictIds != null
+          ? stringDictIds
+          : packedStringIds == null
+              ? null
+              : packedStringIds.materialize();
+    }
+
+    public boolean hasStringDictIds() {
+      return stringDictIds != null || packedStringIds != null;
+    }
 
     /**
      * Slice with a set column but no precomputed dictionary hashes — every fill but the
@@ -195,7 +238,236 @@ public final class ProjectionColumnStore {
     }
   }
 
+  /** A verified immutable ID stream with word-sized equality and lazy dense compatibility. */
+  public static final class PackedDictionaryIds {
+    private final byte[] bytes;
+    private final int offset;
+    private final int rowCount;
+    private final int width;
+    private volatile int @Nullable [] materialized;
+
+    PackedDictionaryIds(final byte[] bytes, final int offset, final int rowCount, final int width) {
+      if (bytes == null || rowCount < 1 || rowCount > ProjectionIndexRowGroupPage.MAX_ROWS
+          || (width != 0 && width != 1 && width != 2 && width != 4) || offset < 1
+          || offset > bytes.length - ((rowCount * width + 7) >>> 3)) {
+        throw new IllegalStateException("invalid packed scalar dictionary ID stream");
+      }
+      if ((bytes[offset - 1] & 0xFF) != width) {
+        throw new IllegalStateException("packed scalar dictionary width does not match its stream");
+      }
+      this.bytes = bytes;
+      this.offset = offset;
+      this.rowCount = rowCount;
+      this.width = width;
+    }
+
+    int alphabetSize() {
+      return 1 << width;
+    }
+
+    boolean isMaterialized() {
+      return materialized != null;
+    }
+
+    /**
+     * Count selected dictionary ids without expanding the packed stream. Missing cells occupy the extra
+     * dictionary-size slot. Counters and first-row ordinals match the dense loop exactly.
+     */
+    void countSelected(final int dictSize, final long[] mask, final long[] presence, final int[] counts,
+        final int[] firstRows) {
+      final int stride = (rowCount + 63) >>> 6;
+      if (dictSize < 0 || counts.length <= dictSize || firstRows.length <= dictSize || mask.length < stride
+          || presence.length < stride) {
+        throw new IllegalArgumentException("invalid packed dictionary count shape");
+      }
+      final int alphabet = alphabetSize();
+      for (int word = 0; word < stride; word++) {
+        final int rowBase = word << 6;
+        final long selected = mask[word] & ProjectionIndexByteScan.validRowsMask(word, stride, rowCount);
+        final long present = selected & presence[word];
+        if (present != 0) {
+          if (width == 0) {
+            if (dictSize == 0) {
+              throw new IllegalStateException("present cell has no dictionary entry");
+            }
+            addCount(0, present, rowBase, counts, firstRows);
+          } else {
+            final int valuesPerWord = Long.SIZE / width;
+            final int idMask = alphabet - 1;
+            for (int part = 0; part < width; part++) {
+              final int partBase = part * valuesPerWord;
+              final int rowsInPart = Math.min(valuesPerWord, rowCount - rowBase - partBase);
+              if (rowsInPart <= 0) {
+                break;
+              }
+              final long valid = rowsInPart == Long.SIZE
+                  ? -1L
+                  : (1L << rowsInPart) - 1;
+              long selectedPart = (present >>> partBase) & valid;
+              if (selectedPart == 0) {
+                continue;
+              }
+              final int start = offset + ((rowBase * width) >>> 3) + part * Long.BYTES;
+              final int byteCount = (rowsInPart * width + 7) >>> 3;
+              long packed = 0L;
+              if (byteCount == Long.BYTES) {
+                packed = ProjectionIndexRowGroupCodec.getLongLE(bytes, start);
+              } else {
+                for (int b = 0; b < byteCount; b++) {
+                  packed |= (bytes[start + b] & 0xFFL) << (b * Byte.SIZE);
+                }
+              }
+              if (selectedPart == valid) {
+                // One loaded word supplies 16, 32, or 64 consecutive IDs; no dense array or
+                // alphabet-wide equality passes. The full selection avoids per-row bit scans.
+                for (int row = 0; row < rowsInPart; row++) {
+                  final int id = (int) packed & idMask;
+                  if (id >= dictSize) {
+                    throw new IllegalStateException("packed id exceeds dictionary size");
+                  }
+                  if (counts[id]++ == 0) {
+                    firstRows[id] = rowBase + partBase + row;
+                  }
+                  packed >>>= width;
+                }
+              } else {
+                while (selectedPart != 0) {
+                  final int row = Long.numberOfTrailingZeros(selectedPart);
+                  selectedPart &= selectedPart - 1;
+                  final int id = (int) (packed >>> (row * width)) & idMask;
+                  if (id >= dictSize) {
+                    throw new IllegalStateException("packed id exceeds dictionary size");
+                  }
+                  if (counts[id]++ == 0) {
+                    firstRows[id] = rowBase + partBase + row;
+                  }
+                }
+              }
+            }
+          }
+        }
+        final long missing = selected & ~presence[word];
+        if (missing != 0) {
+          addCount(dictSize, missing, rowBase, counts, firstRows);
+        }
+      }
+    }
+
+    private static void addCount(final int id, final long matches, final int rowBase, final int[] counts,
+        final int[] firstRows) {
+      if (counts[id] == 0) {
+        firstRows[id] = rowBase + Long.numberOfTrailingZeros(matches);
+      }
+      counts[id] += Long.bitCount(matches);
+    }
+
+    private int[] materialize() {
+      int[] ids = materialized;
+      if (ids == null) {
+        ids = ProjectionIndexRowGroupCodec.decodePackedIds(new ProjectionIndexRowGroupCodec.Cursor(bytes, offset - 1),
+            rowCount);
+        materialized = ids;
+      }
+      return ids;
+    }
+
+    /** Matching bits for a row-aligned word; the caller intersects its candidate/presence mask. */
+    long matchingWord(final int rowBase, final long acceptedIds) {
+      final int alphabet = alphabetSize();
+      final long universe = (1L << alphabet) - 1;
+      final long accepted = acceptedIds & universe;
+      if (accepted == 0) {
+        return 0L;
+      }
+      if (accepted == universe) {
+        return -1L;
+      }
+      final boolean invert = Long.bitCount(accepted) > alphabet / 2;
+      long ids = invert
+          ? universe ^ accepted
+          : accepted;
+      long result = 0L;
+      while (ids != 0) {
+        final int id = Long.numberOfTrailingZeros(ids);
+        ids &= ids - 1;
+        result |= equalsWord(rowBase, id);
+      }
+      return invert
+          ? ~result
+          : result;
+    }
+
+    private long equalsWord(final int rowBase, final int target) {
+      if (rowBase + 64 > rowCount) {
+        long result = 0L;
+        final int idMask = (1 << width) - 1;
+        for (int row = rowBase; row < rowCount; row++) {
+          final int bit = row * width;
+          final int id = (bytes[offset + (bit >>> 3)] >>> (bit & 7)) & idMask;
+          if (id == target) {
+            result |= 1L << (row - rowBase);
+          }
+        }
+        return result;
+      }
+      final long laneBits = width == 1
+          ? -1L
+          : width == 2
+              ? 0x5555555555555555L
+              : 0x1111111111111111L;
+      final long repeated = laneBits * target;
+      final int valuesPerWord = 64 / width;
+      final int start = offset + ((rowBase * width) >>> 3);
+      long result = 0L;
+      for (int part = 0; part < width; part++) {
+        long mismatch = ProjectionIndexRowGroupCodec.getLongLE(bytes, start + part * Long.BYTES) ^ repeated;
+        if (width == 4) {
+          mismatch |= mismatch >>> 2;
+        }
+        if (width >= 2) {
+          mismatch |= mismatch >>> 1;
+        }
+        result |= Long.compress(~mismatch & laneBits, laneBits) << (part * valuesPerWord);
+      }
+      return result;
+    }
+  }
+
+  /**
+   * Capability for immutable BODY bytes that passed this store's descriptor and checksum gate. Only
+   * the store can construct it, and construction always obtains bytes through that gate. One instance
+   * covers a whole column; decoders need no per-leaf wrapper allocations.
+   */
+  static final class VerifiedBodyColumn {
+    private final ProjectionColumnStore owner;
+    private final int column;
+    private final byte[][] bodies;
+
+    private VerifiedBodyColumn(final ProjectionColumnStore owner, final int column,
+        final ColumnSegmentFetcher fetcher) {
+      this.owner = owner;
+      this.column = column;
+      this.bodies = owner.columnBytes(column, fetcher);
+    }
+
+    int column() {
+      return column;
+    }
+
+    byte[] descriptor(final int leaf) {
+      return owner.directories.get(leaf).descriptor();
+    }
+
+    byte[] body(final int leaf) {
+      return bodies[leaf];
+    }
+  }
+
   private final List<RowGroupDirectory> directories;
+
+  /** Physical index identity for logical slot requests; -1 for directories of durable offsets. */
+  private final int logicalSlotIndexNumber;
+  private final int proofIndexNumber;
   private final byte[] columnKinds;
 
   /** Lazily filled per column; slot = decoded slices for every leaf, ascending rowGroupId. */
@@ -247,7 +519,10 @@ public final class ProjectionColumnStore {
         ? blocks[col]
         : null;
     if (block != null) {
-      return block.prune(literalHash, keep, n, fetcher);
+      // One literal is the degenerate case of the many-literal walk, which splits the chunk range
+      // over the common pool when the fetcher permits concurrent ranged fetches; the per-leaf probe
+      // is the same allocation-free single-literal test either way.
+      return (int) applyBloomPruneMany(col, new long[] {literalHash}, new long[][] {keep}, fetcher);
     }
     final byte[][] chain = stringBloomSegments(col, fetcher);
     if (chain == null) {
@@ -301,8 +576,10 @@ public final class ProjectionColumnStore {
     if (block != null) {
       final int chunkCount = block.chunkCount();
       final int ranges = chunkCount < BLOOM_MANY_PARALLEL_MIN_CHUNKS || !fetcher.rangedFetchIsConcurrent()
-          ? 1
-          : Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), chunkCount / BLOOM_MANY_CHUNKS_PER_RANGE));
+          || !block.parallelPruningIsSafe()
+              ? 1
+              : Math.max(1,
+                  Math.min(Runtime.getRuntime().availableProcessors(), chunkCount / BLOOM_MANY_CHUNKS_PER_RANGE));
       if (ranges <= 1) {
         return block.pruneMany(hashes, keeps, n, fetcher, 0, chunkCount);
       }
@@ -423,11 +700,39 @@ public final class ProjectionColumnStore {
   private final byte[] stringSupplementary;
 
   public ProjectionColumnStore(final List<RowGroupDirectory> directories) {
+    this(directories, -1);
+  }
+
+  ProjectionColumnStore(final List<RowGroupDirectory> directories, final int indexNumber) {
     if (directories == null) {
       throw new IllegalArgumentException("directories must not be null");
     }
-    this.directories = List.copyOf(directories);
-    if (this.directories.isEmpty()) {
+    final ProjectionDirectoryWindows bounded = directories instanceof ProjectionDirectoryWindows windows
+        ? windows
+        : null;
+    this.directories = bounded == null
+        ? List.copyOf(directories)
+        : directories;
+    final boolean logical =
+        bounded == null && !this.directories.isEmpty() && this.directories.getFirst().logicalSlots();
+    if (logical && (indexNumber < 0 || indexNumber >= Constants.INP_REFERENCE_COUNT)) {
+      throw new IllegalArgumentException("logical directories require a valid projection index number");
+    }
+    if (bounded == null) {
+      for (final RowGroupDirectory directory : this.directories) {
+        if (directory.logicalSlots() != logical) {
+          throw new IllegalArgumentException("a column store cannot mix logical slots and physical offsets");
+        }
+      }
+    }
+    proofIndexNumber = indexNumber;
+    logicalSlotIndexNumber = logical
+        ? indexNumber
+        : -1;
+    if (bounded != null) {
+      // Every loaded window validates against the persisted metadata before becoming visible.
+      this.columnKinds = bounded.columnKinds();
+    } else if (this.directories.isEmpty()) {
       this.columnKinds = new byte[0];
     } else {
       final byte[] d0 = this.directories.get(0).descriptor();
@@ -481,12 +786,41 @@ public final class ProjectionColumnStore {
    */
   private void verifyEveryLeafAgreesWithLeafZero(final byte[] d0) {
     final int leaves = directories.size();
-    for (int leaf = 1; leaf < leaves; leaf++) {
-      final byte[] di = directories.get(leaf).descriptor();
-      RowGroupDescriptor.validate(di);
-      if (!RowGroupDescriptor.kindsAgree(d0, di)) {
-        throw new ProjectionStoreInconsistentException(leaf, describeDisagreement(d0, di));
+    if (leaves < PARALLEL_VERIFY_MIN_LEAVES) {
+      for (int leaf = 1; leaf < leaves; leaf++) {
+        verifyLeafAgreesWithLeafZero(d0, leaf);
       }
+      return;
+    }
+    // Every leaf's check is independent and reads only immutable descriptor bytes, so a large store's
+    // leaves are checked over disjoint index ranges on the common pool. A failure is reported for the
+    // LOWEST failing leaf and re-run serially, so the exception is the one the serial loop throws.
+    final AtomicInteger firstFailure = new AtomicInteger(Integer.MAX_VALUE);
+    IntStream.range(1, leaves).parallel().forEach(leaf -> {
+      if (leaf >= firstFailure.get()) {
+        return;
+      }
+      try {
+        verifyLeafAgreesWithLeafZero(d0, leaf);
+      } catch (final RuntimeException failure) {
+        firstFailure.accumulateAndGet(leaf, Math::min);
+      }
+    });
+    final int failed = firstFailure.get();
+    if (failed != Integer.MAX_VALUE) {
+      verifyLeafAgreesWithLeafZero(d0, failed);
+      throw new IllegalStateException("leaf " + failed + " failed its descriptor check concurrently but not serially");
+    }
+  }
+
+  /** Leaves at or above which {@link #verifyEveryLeafAgreesWithLeafZero} runs on the common pool. */
+  private static final int PARALLEL_VERIFY_MIN_LEAVES = 4096;
+
+  private void verifyLeafAgreesWithLeafZero(final byte[] d0, final int leaf) {
+    final byte[] di = directories.get(leaf).descriptor();
+    RowGroupDescriptor.validate(di);
+    if (!RowGroupDescriptor.kindsAgree(d0, di)) {
+      throw new ProjectionStoreInconsistentException(leaf, describeDisagreement(d0, di));
     }
   }
 
@@ -1489,15 +1823,13 @@ public final class ProjectionColumnStore {
       return known;
     }
     final int bodySegId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
-    long total = 0;
-    final int n = directories.size();
-    for (int i = 0; i < n; i++) {
+    final long total = sumOverLeaves(directories.size(), i -> {
       final byte[] descriptor = directories.get(i).descriptor();
       final int bodyEntry = RowGroupDescriptor.entryIndexOf(descriptor, bodySegId);
-      if (bodyEntry >= 0) {
-        total += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
-      }
-    }
+      return bodyEntry >= 0
+          ? RowGroupDescriptor.entryByteLen(descriptor, bodyEntry)
+          : 0L;
+    });
     // A benign same-column race writes the identical sum twice.
     cached[col] = Math.max(1, total);
     return cached[col];
@@ -1532,25 +1864,24 @@ public final class ProjectionColumnStore {
     }
     final int bodySegId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
     final int dictSegId = ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col);
-    long total = 0;
-    final int n = directories.size();
-    for (int i = 0; i < n; i++) {
+    final byte kind = columnKinds[col];
+    return sumOverLeaves(directories.size(), i -> {
       final int word = i >>> 6;
       if (word >= keepWords.length || (keepWords[word] & (1L << (i & 63))) == 0) {
-        continue;
+        return 0L;
       }
       final byte[] descriptor = directories.get(i).descriptor();
+      long bytes = 0;
       final int bodyEntry = RowGroupDescriptor.entryIndexOf(descriptor, bodySegId);
       if (bodyEntry >= 0) {
-        total += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
+        bytes += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
       }
       final int dictEntry = RowGroupDescriptor.entryIndexOf(descriptor, dictSegId);
       if (dictEntry >= 0) {
-        total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
+        bytes += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
       }
-      total += decodedColumnResidentBytes(descriptor, col, columnKinds[col]);
-    }
-    return total;
+      return bytes + decodedColumnResidentBytes(descriptor, col, kind);
+    });
   }
 
   /**
@@ -1864,23 +2195,43 @@ public final class ProjectionColumnStore {
     }
     final int bodySegId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
     final int dictSegId = ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col);
-    long total = 0;
-    final int n = directories.size();
-    for (int i = 0; i < n; i++) {
+    final byte kind = columnKinds[col];
+    final long total = sumOverLeaves(directories.size(), i -> {
       final byte[] descriptor = directories.get(i).descriptor();
+      long bytes = 0;
       final int bodyEntry = RowGroupDescriptor.entryIndexOf(descriptor, bodySegId);
       if (bodyEntry >= 0) {
-        total += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
+        bytes += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
       }
       final int dictEntry = RowGroupDescriptor.entryIndexOf(descriptor, dictSegId);
       if (dictEntry >= 0) {
-        total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
+        bytes += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
       }
-      total += decodedColumnResidentBytes(descriptor, col, columnKinds[col]);
-    }
+      return bytes + decodedColumnResidentBytes(descriptor, col, kind);
+    });
     // A benign same-column race writes the identical sum twice.
     cached[col] = Math.max(1, total);
     return cached[col];
+  }
+
+  /** Leaves at or above which a pricing walk over the descriptors is reduced on the common pool. */
+  private static final int PARALLEL_PRICING_MIN_LEAVES = 4096;
+
+  /**
+   * {@code Σ perLeaf(i)} over {@code [0, n)}. Every pricing walk of this store is a pure function of
+   * the immutable descriptors, so a large store's sum is reduced over disjoint index ranges on the
+   * common pool: the total is the same in any order, and the main thread no longer walks 100k
+   * descriptors alone once per column and per pricing call. Small stores keep the serial loop.
+   */
+  private static long sumOverLeaves(final int n, final IntToLongFunction perLeaf) {
+    if (n < PARALLEL_PRICING_MIN_LEAVES) {
+      long total = 0;
+      for (int i = 0; i < n; i++) {
+        total += perLeaf.applyAsLong(i);
+      }
+      return total;
+    }
+    return IntStream.range(0, n).parallel().mapToLong(perLeaf).sum();
   }
 
   /**
@@ -2797,6 +3148,158 @@ public final class ProjectionColumnStore {
     return view;
   }
 
+  /**
+   * Query-local representative values for one numeric grouping transform. Every present cell maps to
+   * the same transformed value as its original cell; missing cells remain missing. Ordinary
+   * predicates and aggregates must use {@link #column}, never this derived view. Only verified BODY
+   * bytes enter the shared cache, so another transform or an ordinary read cannot observe
+   * substitutes.
+   */
+  public ColumnSlice[] numericBucketKeyColumn(final int col, final ColumnSegmentFetcher fetcher, final long offset,
+      final long divisor, final long modulus) {
+    if (col < 0 || col >= columnKinds.length || columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        || divisor < 1 || modulus < 0) {
+      throw new IllegalArgumentException("unsupported numeric bucket column or transform");
+    }
+    if (columnFilled(col)) {
+      return column(col, fetcher);
+    }
+    final int count = rowGroupCount();
+    final int ranges = count >= PARALLEL_DECODE_MIN
+        ? Math.min(8, Math.min(Runtime.getRuntime().availableProcessors(), Math.max(1, count / 1024)))
+        : 1;
+    // Unproven blocks retain their ordinary arrays. Budget representative buffers separately,
+    // including earlier power-of-two capacities still referenced after a worker grows one bucket.
+    final long representativeBytes = Math.min(count, ranges * NumericBucketDecoder.MAX_BUCKETS) * 2L
+        * ProjectionIndexRowGroupPage.MAX_ROWS * Long.BYTES + ranges * NumericBucketDecoder.MAX_BUCKETS * 32L;
+    final long required = incrementalFillBytes(col, Math.addExact(projectedColumnFillBytes(col), representativeBytes));
+    if (!fitsMakingRoom(required, new int[] {col}, false)) {
+      // The optional representatives need extra scratch space. Preserve the ordinary column
+      // route whenever it fits, instead of declining a previously servable grouped query.
+      return column(col, fetcher);
+    }
+    if (corruptColumns[col] != 0) {
+      throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
+    }
+    final ColumnSlice[] proven = numericProofColumn(col, fetcher, offset, divisor, modulus, ranges, required);
+    if (proven != null) {
+      return proven;
+    }
+    final VerifiedBodyColumn bodies = new VerifiedBodyColumn(this, col, fetcher);
+    final ColumnSlice[] slices = new ColumnSlice[count];
+    try {
+      forEachMemoRange(count, ranges, (from, to, range) -> {
+        final NumericBucketDecoder decoder = new NumericBucketDecoder(offset, divisor, modulus);
+        for (int leaf = from; leaf < to; leaf++) {
+          slices[leaf] = decoder.decodeVerified(bodies, leaf);
+        }
+      });
+    } catch (final ProjectionStoreInconsistentException inconsistent) {
+      throw inconsistent;
+    } catch (final IllegalStateException corrupt) {
+      corruptColumns[col] = 1;
+      throw corrupt;
+    }
+    return slices;
+  }
+
+  /** Bound optional proof scratch to 20 MiB, and read BODYs only for leaves lacking usable proof. */
+  private ColumnSlice @Nullable [] numericProofColumn(final int col, final ColumnSegmentFetcher fetcher,
+      final long offset, final long divisor, final long modulus, final int ranges, final long ordinaryRequired) {
+    final int count = directories.size();
+    if (proofIndexNumber < 0 || count > 1 << 20 || columnBytes[col] != null
+        || "false".equals(System.getProperty("sirix.projection.numericProofs"))) {
+      return null;
+    }
+    final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
+    final IntOpenHashSet requested = new IntOpenHashSet();
+    long eligibleBytes = 0;
+    for (int leaf = 0; leaf < count; leaf++) {
+      final RowGroupDirectory directory = directories.get(leaf);
+      final byte[] descriptor = directory.descriptor();
+      final int entry = RowGroupDescriptor.entryIndexOf(descriptor, bodyId);
+      if (RowGroupDescriptor.rowCount(descriptor) > 0 && RowGroupDescriptor.entryColFlags(descriptor, entry) == 0
+          && NumericBucketDecoder.oneQuotient(RowGroupDescriptor.entryMin(descriptor, entry),
+              RowGroupDescriptor.entryMax(descriptor, entry), offset, divisor)) {
+        requested.add(ProjectionNumericProofs.chunk(directory.rowGroupId()));
+        eligibleBytes += RowGroupDescriptor.entryByteLen(descriptor, entry);
+        if (requested.size() > 8192) {
+          return null;
+        }
+      }
+    }
+    final long scratch = count * 16L + requested.size() * (long) (ProjectionNumericProofs.CHUNK_BYTES + 64);
+    if (requested.isEmpty() || scratch > 20L << 20
+        || eligibleBytes < requested.size() * (long) ProjectionNumericProofs.CHUNK_BYTES * 4
+        || !fitsMakingRoom(Math.addExact(ordinaryRequired, scratch), new int[] {col}, false)) {
+      return null;
+    }
+    final int[] chunks = requested.toIntArray();
+    Arrays.sort(chunks);
+    final long[] slots = new long[chunks.length];
+    for (int i = 0; i < chunks.length; i++) {
+      slots[i] = ProjectionNumericProofs.slot(col, chunks[i]);
+    }
+    final byte[][] bytes = fetcher.fetchNumericProofs(proofIndexNumber, col, slots);
+    if (bytes == null) {
+      return null;
+    }
+    if (bytes.length != chunks.length) {
+      throw new IllegalStateException("numeric proof fetch returned an unexpected chunk count");
+    }
+    final ProjectionNumericProofs.Chunk[] evidence = new ProjectionNumericProofs.Chunk[chunks.length];
+    for (int i = 0; i < chunks.length; i++) {
+      if (bytes[i] != null) {
+        evidence[i] = new ProjectionNumericProofs.Chunk(bytes[i], col, chunks[i]);
+      }
+    }
+    final ColumnSlice[] slices = new ColumnSlice[count];
+    final NumericBucketDecoder[] decoders = new NumericBucketDecoder[ranges];
+    forEachMemoRange(count, ranges, (from, to, range) -> {
+      final NumericBucketDecoder decoder = new NumericBucketDecoder(offset, divisor, modulus);
+      decoders[range] = decoder;
+      for (int leaf = from; leaf < to; leaf++) {
+        final RowGroupDirectory directory = directories.get(leaf);
+        final int index = Arrays.binarySearch(chunks, ProjectionNumericProofs.chunk(directory.rowGroupId()));
+        if (index >= 0 && evidence[index] != null) {
+          slices[leaf] = evidence[index].decode(directory.descriptor(), directory.rowGroupId(), decoder);
+        }
+      }
+    });
+    final long[] residual = new long[(count + 63) >>> 6];
+    int proven = 0;
+    for (int leaf = 0; leaf < count; leaf++) {
+      if (slices[leaf] == null) {
+        residual[leaf >>> 6] |= 1L << (leaf & 63);
+      } else {
+        proven++;
+      }
+    }
+    if (proven == 0) {
+      return null;
+    }
+    if (proven != count) {
+      final byte[][] bodies = fetchSegmentChain(col, bodyId, ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false,
+          fetcher, residual, true);
+      try {
+        forEachMemoRange(count, ranges, (from, to, range) -> {
+          final NumericBucketDecoder decoder = decoders[range];
+          for (int leaf = from; leaf < to; leaf++) {
+            if (slices[leaf] == null) {
+              slices[leaf] = decoder.decode(directories.get(leaf).descriptor(), bodies[leaf], col);
+            }
+          }
+        });
+      } catch (final ProjectionStoreInconsistentException inconsistent) {
+        throw inconsistent;
+      } catch (final IllegalStateException corrupt) {
+        corruptColumns[col] = 1;
+        throw corrupt;
+      }
+    }
+    return slices;
+  }
+
   public ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher, final long[] keepWords) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable (kind="
@@ -2812,13 +3315,16 @@ public final class ProjectionColumnStore {
     // retained (an identity fill, a previous plain fill) adds nothing the ledger has not counted, and
     // re-charging its masked projection against a budget it already fills declined q19 at 100M/8 GB.
     checkFillBudget(col, incrementalFillBytes(col, projectedMaskedFillBytes(col, keepWords)), "masked slice fill");
+    // These buffers remain local until the checked slice decoders finish. Each decoder verifies
+    // length, checksum and descriptor mirrors before parsing; a separate verification pass here
+    // would hash the same immutable bytes twice. Raw column caches use the verified fetch below.
     final byte[][] segments = fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
-        ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher, keepWords);
+        ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher, keepWords, true);
     final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
     final boolean string = set || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
     final byte[][] dictSegments = string
         ? fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col),
-            ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true, fetcher, keepWords)
+            ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true, fetcher, keepWords, true)
         : null;
     final int n = directories.size();
     final ColumnSlice[] slices = new ColumnSlice[n];
@@ -2990,9 +3496,12 @@ public final class ProjectionColumnStore {
     b += s.boolWords() == null
         ? 0
         : s.boolWords().length * 8L;
-    b += s.stringDictIds() == null
-        ? 0
-        : s.stringDictIds().length * 4L;
+    // Keep the conservative dense budget without forcing lazy IDs to materialize during a fill.
+    b += s.packedStringIds() != null
+        ? 64L + s.rowCount() * 4L
+        : s.stringDictIds() == null
+            ? 0
+            : s.stringDictIds().length * 4L;
     b += s.dictBytes() == null
         ? 0
         : s.dictBytes().length;
@@ -3285,7 +3794,7 @@ public final class ProjectionColumnStore {
    * for a fetcher that declares {@link ColumnSegmentFetcher#rangedFetchIsConcurrent()}, which is what
    * promises each range a transaction of its own.
    */
-  private static byte[][] fetchRangesParallel(final ColumnSegmentFetcher fetcher, final long[] offsets, final int n,
+  private byte[][] fetchRangesParallel(final ColumnSegmentFetcher fetcher, final long[] offsets, final int n,
       final int workers) {
     final byte[][] segments = new byte[n][];
     final int chunk = (n + workers - 1) / workers;
@@ -3297,7 +3806,7 @@ public final class ProjectionColumnStore {
         return; // a range of inline-only or pruned leaves needs no transaction at all
       }
       try {
-        fetcher.fetchRange(offsets, from, to, segments);
+        fetchSegmentRange(fetcher, offsets, from, to, segments);
       } catch (final RuntimeException fetchFailed) {
         failed.compareAndSet(null, fetchFailed);
       }
@@ -3307,6 +3816,32 @@ public final class ProjectionColumnStore {
       throw fetchFailed;
     }
     return segments;
+  }
+
+  private void fetchSegmentRange(final ColumnSegmentFetcher fetcher, final long[] addresses, final int from,
+      final int to, final byte[][] out) {
+    if (logicalSlotIndexNumber >= 0) {
+      fetcher.fetchSlotRange(logicalSlotIndexNumber, addresses, from, to, out);
+    } else {
+      fetcher.fetchRange(addresses, from, to, out);
+    }
+  }
+
+  private byte[][] fetchAllSegments(final ColumnSegmentFetcher fetcher, final long[] addresses) {
+    if (logicalSlotIndexNumber < 0) {
+      return fetcher.fetchAll(addresses);
+    }
+    final byte[][] out = new byte[addresses.length][];
+    fetcher.fetchSlotRange(logicalSlotIndexNumber, addresses, 0, addresses.length, out);
+    return out;
+  }
+
+  boolean hasLogicalSlotSources() {
+    return logicalSlotIndexNumber >= 0;
+  }
+
+  public boolean hasBoundedDirectoryWindows() {
+    return directories instanceof ProjectionDirectoryWindows;
   }
 
   /** {@link #verifyFetchedSegments} split across {@code workers} contiguous leaf ranges. */
@@ -3407,6 +3942,15 @@ public final class ProjectionColumnStore {
    */
   private byte[][] fetchSegmentChain(final int col, final int segId, final byte segKind, final boolean optional,
       final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
+    return fetchSegmentChain(col, segId, segKind, optional, fetcher, keepWords, false);
+  }
+
+  /**
+   * {@code sliceDecoderWillVerify} is only for temporary masked-fill buffers. They must go directly
+   * to the checked slice decoders, and must never be published in a raw-byte cache.
+   */
+  private byte[][] fetchSegmentChain(final int col, final int segId, final byte segKind, final boolean optional,
+      final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final boolean sliceDecoderWillVerify) {
     final int n = directories.size();
     // Leaf order IS file order to within noise: the builder persists leaves 1..N in one
     // sequential commit, so a column's segment offsets ascend with the leaf index — no
@@ -3443,7 +3987,7 @@ public final class ProjectionColumnStore {
           ? new byte[n][]
           : workers > 1 && fetcher.rangedFetchIsConcurrent()
               ? fetchRangesParallel(fetcher, offsets, n, workers)
-              : fetcher.fetchAll(offsets);
+              : fetchAllSegments(fetcher, offsets);
     } catch (final RuntimeException fetchFailed) {
       // Fetch-level failure (session closed mid-read, transient I/O): NOT memoized —
       // the next query retries against the caller's own live fetcher.
@@ -3461,6 +4005,9 @@ public final class ProjectionColumnStore {
           segments[i] = inlineBytes[i];
         }
       }
+    }
+    if (sliceDecoderWillVerify) {
+      return segments;
     }
     try {
       if (workers > 1) {
@@ -3529,6 +4076,11 @@ public final class ProjectionColumnStore {
    * failures are ignored and nothing is retained.
    */
   public void prefetchAllSegments(final StorageEngineReader reader) {
+    if (hasLogicalSlotSources()) {
+      // Resolving every column here would undo descriptor-only hydration. A demanded chain resolves
+      // its own slots and retains the backend's ordinary batch/coalesced read behavior.
+      return;
+    }
     final boolean diag = Boolean.getBoolean("sirix.projDiag");
     final long startNanos = diag
         ? System.nanoTime()
@@ -3832,7 +4384,7 @@ public final class ProjectionColumnStore {
       // Pruned leaves of a window are fetched with it (their offsets stay real); the kernel never
       // reads them, and the window's contiguity is what the backend's run coalescing lives on.
       try {
-        fetcher.fetchRange(offsets, 0, len, out);
+        fetchSegmentRange(fetcher, offsets, 0, len, out);
       } catch (final RuntimeException fetchFailed) {
         throw new IllegalStateException(
             "Segment fetch failed for segment id " + segId + ": " + fetchFailed.getMessage(), fetchFailed);

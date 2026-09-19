@@ -141,10 +141,10 @@ Linux-only; elsewhere a run against the campaign database prints that it is not 
 continues, which makes its timings unusable as rig evidence. The rig's [`README.md`](rig/README.md)
 owns that contract and the measurement protocol.
 
-The default parallel path requires `hashType=NONE` and `storeNodeHistory=false`; both are already the
-ClickBench defaults. A non-standard hashed or temporal-history load must set
-`-Dclickbench.parallelImport=false`. The loader checks this before allocating off-heap memory or
-opening the target.
+The default parallel path requires `hashType=NONE`, which is already the ClickBench default. A
+hashed load must set `-Dclickbench.parallelImport=false`; the loader checks this before allocating
+off-heap memory or opening the target. Node history (`-DstoreNodeHistory=true`, default `false`)
+works on the parallel path too: the importer records the history of every node it adopts.
 
 `run-differential.sh` always loads with `clickbench.projection=true`,
 `clickbench.projection.incremental=true`, and the exact `buildPathSummary=true` property. For a file
@@ -295,9 +295,9 @@ python3 bundles/sirix-query/bench/clickbench/hft_gc_gate.py \
 The extra `-Xms4g -Xmx4g` arguments occur after the ClickBench Gradle task's defaults, so the
 measurement JVM really has a fixed 4 GiB heap. `-XX:+DisableExplicitGC` ensures a forbidden old/full
 event reflects organic pressure rather than a diagnostic `System.gc()` call. Keep
-`-DstorageType=FILE_CHANNEL`: 64-bit Linux otherwise defaults to `MEMORY_MAPPED`, while safe
-side-page prewrite is capability-gated to the preallocated file-channel writer. Omitting the flag
-would measure the fallback and can retain payload that the intended path releases.
+`-DstorageType=FILE_CHANNEL`, also the loader's default and the gate's required `storage` value: the
+store itself defaults to `MEMORY_MAPPED` on 64-bit Linux, which writes side pages ahead of the commit
+too but pins the legacy grow-the-file commit profile, so it would measure a different commit path.
 `-XX:MetaspaceSize=256m -XX:MaxMetaspaceSize=512m` likewise belongs to the measurement contract:
 without the initial metaspace headroom, deterministic class loading can trigger a G1
 `Metadata GC Threshold` concurrent cycle just after the start marker and make every otherwise
@@ -760,6 +760,13 @@ It evicts the page cache before every round (`../common/evict.py`, `posix_fadvis
 for the CPU package to fall below 55 °C, runs each arm in a **fresh process**, and reports the best
 and median suite time per arm against the DuckDB reference (0.520 s cold / 0.351 s hot on the
 campaign box; override with `--duckdb-cold` / `--duckdb-hot`).
+
+A cold round does not pre-read the store. Before the first query, the runner's untimed open step
+only builds the projection's catalog handle (directory walk and Bloom blocks), just as every engine
+loads its catalog when it opens a database; `-Dclickbench.catalogWarm.disabled=true` skips that as
+well. The whole-projection segment sweep runs only with `-Dsirix.projection.prefetchAll=true`, the
+switch that also governs the executor's background sweep; set it to restore the sweep, for example
+for a long-lived process whose later queries touch most columns anyway.
 
 The JVM arm is a runtime frozen by `rig/measure.py prepare` for the database under test, and every
 round re-verifies against it. Which envelope it is frozen at is decided from the database, not from

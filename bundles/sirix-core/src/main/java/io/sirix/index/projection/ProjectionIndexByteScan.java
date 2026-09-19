@@ -3,6 +3,10 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.index.projection.GlobalValueDictionary.ReadView;
+import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
+import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
+
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
@@ -90,6 +94,8 @@ import org.jspecify.annotations.Nullable;
  * {@link #numericZoneUnion} for where {@code base} comes from (metadata, no row touches).
  */
 public final class ProjectionIndexByteScan {
+  private static final int[] NO_COUNT_CONDITIONS = new int[0];
+  private static final long[] NO_COUNT_VALUES = new long[0];
 
   /** Aggregate operand is numeric, not a string-length transform. */
   public static final byte STRING_LENGTH_NONE = 0;
@@ -3042,6 +3048,13 @@ public final class ProjectionIndexByteScan {
     if (out == null || aggColumns == null || groupColumns == null) {
       throw new IllegalArgumentException("out, aggColumns and groupColumns must not be null");
     }
+    if (aggColumns.length == 0 && distinctBlock < 0
+        && !"false".equals(System.getProperty("sirix.projection.longLaneCompositeCounts")) && plainLongCountKeys(
+            rowGroupPayloads, groupColumns, keyOffsets, keySubstr, keyCondCols, keyCondElse, keyDivMod)) {
+      countByLongComposite(rowGroupPayloads, predicates, groupColumns, out, leafIndexBase, treeOrNull, budget,
+          declineFlag, identityRegistry, keyCondCols, keyCondLits, keyCondElse, globalKeyViews, globalCondElseIds);
+      return;
+    }
     // The SUM lanes the query actually reads. Every other lane goes unfolded, so a query that
     // asks only for min/max/count can never decline on an overflow no answer depends on —
     // see NumericGroupAggTable#sumsExact for the rule the partition merge obeys too.
@@ -3501,6 +3514,195 @@ public final class ProjectionIndexByteScan {
             foldRowDistinct(slotArr, base, payload, aggPresOff, aggValOff, aggCount, distinctBlock,
                 distinctOut.sinkFor(h), budget, w, bit, rowIdx, sumExactMask);
           }
+        }
+      }
+    }
+  }
+
+  /** Every selected component must already carry exact identity in one long lane. */
+  private static boolean plainLongCountKeys(final List<byte[]> payloads, final int[] columns, final long[] offsets,
+      final int[] substrings, final int[] conditions, final byte[][] elseBytes, final long[] divMod) {
+    if (payloads.isEmpty() || columns.length == 0 || columns.length > CompositeGroupIdentity.MAX_KEY_COMPONENTS
+        || (conditions == null) != (elseBytes == null)) {
+      return false;
+    }
+    final byte[] first = payloads.get(0);
+    for (int k = 0; k < columns.length; k++) {
+      final byte kind = first[24 + columns[k]];
+      final boolean global = kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+      if (!global && !ProjectionIndexRowGroupPage.isOrderedLongKind(kind) || offsets != null && offsets[k] != 0L
+          || substrings != null && (substrings[2 * k] != 0 || substrings[2 * k + 1] != 0)
+          || divMod != null && (divMod[2 * k] != 0L || divMod[2 * k + 1] != 0L)
+          || !global && conditions != null && (conditions[2 * k] >= 0 || elseBytes[k] != null)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Count numeric, temporal and global-id tuples in a bounded primitive loop. Conditional global keys
+   * use the executor's resolved literal id, in the same exact domain as the stored ids. Local
+   * dictionaries and arithmetic/string transforms retain the general proof-bearing kernel.
+   */
+  private static void countByLongComposite(final List<byte[]> payloads, final ColumnPredicate[] predicates,
+      final int[] columns, final NumericGroupAggTable out, final int leafIndexBase, final PredicateTree tree,
+      final long[] budget, final long[] declineFlag, final ProjectionStringIdentityRegistry identityRegistry,
+      final int[] conditions, final long[] conditionLiterals, final byte[][] elseBytes, final ReadView[] globalViews,
+      final long[] globalElseIds) {
+    final int keyCount = columns.length;
+    if (out.idWidth() != keyCount + 1) {
+      throw new IllegalArgumentException("group table identity width " + out.idWidth()
+          + " does not match the long-lane composite key's " + (keyCount + 1));
+    }
+    final ScanScratch scratch = SCRATCH.get();
+    final byte[] first = payloads.get(0);
+    final int[] valueOffsets = new int[keyCount];
+    final int[] presenceOffsets = new int[keyCount];
+    final long[] presenceWords = new long[keyCount];
+    final long[] identity = new long[keyCount + 1];
+    final int conditionCount = conditions == null
+        ? 0
+        : 2 * keyCount;
+    final int[] conditionValueOffsets = conditionCount == 0
+        ? NO_COUNT_CONDITIONS
+        : new int[conditionCount];
+    final int[] conditionPresenceOffsets = conditionCount == 0
+        ? NO_COUNT_CONDITIONS
+        : new int[conditionCount];
+    final long[] conditionPresenceWords = conditionCount == 0
+        ? NO_COUNT_VALUES
+        : new long[conditionCount];
+    final long[] elseHashes = conditions == null
+        ? NO_COUNT_VALUES
+        : new long[keyCount];
+    for (int k = 0; conditions != null && k < keyCount; k++) {
+      if (elseBytes[k] != null) {
+        if (globalElseIds == null || globalElseIds[k] == Long.MIN_VALUE) {
+          throw new IllegalStateException("global conditional component " + k + " has no resolved else id");
+        }
+        elseHashes[k] = HashCommon.mix(globalElseIds[k]);
+      }
+    }
+    for (int leaf = 0; leaf < payloads.size(); leaf++) {
+      if (budget != null && budget[1] != 0 || declineFlag != null && declineFlag[0] != 0
+          || identityRegistry != null && !identityRegistry.identityProven()) {
+        return;
+      }
+      final byte[] payload = payloads.get(leaf);
+      final int columnCount = columnCountOf(payload);
+      if (scratch.columnDataOff.length < columnCount) {
+        scratch.columnDataOff = new int[columnCount];
+        scratch.columnMinMaxOff = new int[columnCount];
+      }
+      final int rows = tree != null
+          ? evaluateRowGroupMaskTree(payload, tree, scratch)
+          : evaluateRowGroupMask(payload, predicates, scratch);
+      if (rows <= 0) {
+        continue;
+      }
+      final int tail = presenceTailStart(payload, scratch.leafDataEnd);
+      for (int k = 0; k < keyCount; k++) {
+        final int column = columns[k];
+        final byte kind = payload[24 + column];
+        if (kind != first[24 + column]) {
+          throw new IllegalStateException("composite key component " + column + " changes kind across leaves");
+        }
+        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+            && (globalViews == null || globalViews.length != keyCount || globalViews[k] == null)) {
+          throw new IllegalStateException("global composite key component requires a readable dictionary view");
+        }
+        valueOffsets[k] = scratch.columnDataOff[column];
+        presenceOffsets[k] = tail >= 0
+            ? presenceWordsOff(payload, tail, column)
+            : -1;
+      }
+      for (int c = 0; c < conditionCount; c++) {
+        final int column = conditions[c];
+        if (column >= 0) {
+          if (payload[24 + column] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+            throw new IllegalStateException("condition column " + column + " is not NUMERIC_LONG");
+          }
+          conditionValueOffsets[c] = scratch.columnDataOff[column];
+          conditionPresenceOffsets[c] = tail >= 0
+              ? presenceWordsOff(payload, tail, column)
+              : -1;
+        }
+      }
+      final long ordinalBase = (long) (leafIndexBase + leaf) << 20;
+      final int stride = rows + 63 >>> 6;
+      for (int w = 0; w < stride; w++) {
+        long word = scratch.mask[w] & validRowsMask(w, stride, rows);
+        if (word == 0L) {
+          continue;
+        }
+        for (int k = 0; k < keyCount; k++) {
+          presenceWords[k] = presenceOffsets[k] >= 0
+              ? getLongLE(payload, presenceOffsets[k] + (w << 3))
+              : -1L;
+        }
+        for (int c = 0; c < conditionCount; c++) {
+          if (conditions[c] >= 0) {
+            conditionPresenceWords[c] = conditionPresenceOffsets[c] >= 0
+                ? getLongLE(payload, conditionPresenceOffsets[c] + (w << 3))
+                : -1L;
+          }
+        }
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int row = (w << 6) + bit;
+          long hash = FNV_SEED;
+          long missing = 0L;
+          for (int k = 0; k < keyCount; k++) {
+            boolean useStored = true;
+            if (conditions != null && conditions[2 * k] >= 0) {
+              for (int j = 0; j < 2 && useStored; j++) {
+                final int c = 2 * k + j;
+                if (conditions[c] >= 0) {
+                  useStored = (conditionPresenceWords[c] & 1L << bit) != 0L
+                      && getLongLE(payload, conditionValueOffsets[c] + (row << 3)) == conditionLiterals[c];
+                }
+              }
+            }
+            final long componentHash;
+            if (!useStored) {
+              if (elseBytes[k] != null) {
+                identity[k + 1] = globalElseIds[k];
+                componentHash = elseHashes[k];
+              } else {
+                missing |= 1L << k;
+                identity[k + 1] = ABSENT_ELSE_LITERAL_IDENTITY;
+                componentHash = 0L;
+              }
+            } else if ((presenceWords[k] & 1L << bit) == 0L) {
+              if (conditions != null && elseBytes[k] != null && conditions[2 * k] < 0) {
+                identity[k + 1] = globalElseIds[k];
+                componentHash = elseHashes[k];
+              } else {
+                missing |= 1L << k;
+                identity[k + 1] = MISSING_COMPONENT_IDENTITY;
+                componentHash = MISSING_COMPONENT_HASH;
+              }
+            } else {
+              final long value = getLongLE(payload, valueOffsets[k] + (row << 3));
+              identity[k + 1] = value;
+              componentHash = HashCommon.mix(value);
+            }
+            hash = hash * FNV_PRIME ^ componentHash;
+          }
+          identity[0] = missing;
+          final long ordinal = ordinalBase | row;
+          final int handle = out.acquireExact(hash, ordinal, identity, 0);
+          if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
+            continue;
+          }
+          final long[] values = out.storageAtAccBase(handle);
+          final int base = out.offsetAtAccBase(handle);
+          if (values[base] == 0L) {
+            out.setAuxAtAccBase(handle, ordinal);
+          }
+          values[base]++;
         }
       }
     }

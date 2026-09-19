@@ -10,6 +10,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -19,7 +20,8 @@ final class ProjectionSetSummaryChunks {
 
   private static final long SLOT_BASE = 1L << 44;
   private static final int MAGIC = 0x43534950;
-  private static final byte VERSION = 0;
+  private static final byte VERSION = 1;
+  private static final int MISSING_VALUE_LENGTH = 0xFFFF;
   private static final int MAX_VALUES =
       Math.min(0xFFFF, Math.max(0, Integer.getInteger("sirix.projection.metadataSetCountsValues", 256)));
   private static final int MAX_BYTES = Math.max(7, Integer.getInteger("sirix.projection.metadataSetCountsBytes", 1024));
@@ -47,6 +49,7 @@ final class ProjectionSetSummaryChunks {
     private boolean @Nullable [] disabledColumns;
     private int @Nullable [] encodedBytesByColumn;
     private int @Nullable [] peakRetainedValuesByColumn;
+    private final long[] scalarRowCounts = new long[MAX_VALUES];
 
     /** Fold one borrowed leaf into the bounded resource-wide summaries. */
     void append(final ProjectionIndexRowGroupPage leaf) {
@@ -63,51 +66,89 @@ final class ProjectionSetSummaryChunks {
         throw new IllegalStateException("set-summary accumulator shape was not initialized");
       }
       for (int column = 0; column < leaf.getColumnCount(); column++) {
-        if (leaf.columnKind(column) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET || disabled[column]) {
+        final byte kind = leaf.columnKind(column);
+        if ((kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+            && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) || disabled[column]) {
           continue;
         }
         final int dictionarySize = leaf.stringDictionarySize(column);
-        final long[] rowCounts = ProjectionIndexColumnSegmentCodec.valueRowCounts(dictionarySize,
-            leaf.stringSetCountColumn(column), leaf.stringSetIdColumn(column), leaf.getRowCount());
+        if (dictionarySize > MAX_VALUES
+            || (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && leaf.columnUnrepresentable(column))) {
+          disable(column, values(column));
+          continue;
+        }
+        final long[] rowCounts;
+        long missingRows = 0;
+        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+          rowCounts = ProjectionIndexColumnSegmentCodec.valueRowCounts(dictionarySize,
+              leaf.stringSetCountColumn(column), leaf.stringSetIdColumn(column), leaf.getRowCount());
+        } else {
+          Arrays.fill(scalarRowCounts, 0, dictionarySize, 0L);
+          final int[] ids = leaf.stringDictIdColumn(column);
+          final long[] presence = leaf.presenceColumnBits(column);
+          for (int row = 0; row < leaf.getRowCount(); row++) {
+            if ((presence[row >>> 6] & (1L << (row & 63))) == 0L) {
+              missingRows++;
+              continue;
+            }
+            final int id = ids[row];
+            if (id < 0 || id >= dictionarySize) {
+              throw new IllegalStateException("invalid scalar dictionary id " + id + " in column " + column);
+            }
+            scalarRowCounts[id]++;
+          }
+          rowCounts = scalarRowCounts;
+        }
         if (rowCounts == null) {
           continue;
         }
         Object2LongLinkedOpenHashMap<String> values = values(column);
-        for (int dictionaryId = 0; dictionaryId < rowCounts.length; dictionaryId++) {
+        if (missingRows > 0) {
+          if (!addRows(column, values, null, missingRows, 0)) {
+            continue;
+          }
+        }
+        for (int dictionaryId = 0; dictionaryId < dictionarySize; dictionaryId++) {
           final long rows = rowCounts[dictionaryId];
           if (rows == 0) {
             continue;
           }
           final int utf8Length = leaf.stringDictionaryEntryLength(column, dictionaryId);
-          if (utf8Length > 0xFFFF) {
+          if (utf8Length >= MISSING_VALUE_LENGTH) {
             disable(column, values);
             break;
           }
           final String value = new String(leaf.stringDictionaryEntryBacking(column, dictionaryId),
               leaf.stringDictionaryEntryOffset(column, dictionaryId), utf8Length, StandardCharsets.UTF_8);
-          if (values.containsKey(value)) {
-            final long updated;
-            try {
-              updated = Math.addExact(values.getLong(value), rows);
-            } catch (final ArithmeticException overflow) {
-              throw new IllegalStateException("projection set summary overflow for column " + column, overflow);
-            }
-            values.put(value, updated);
-            continue;
-          }
-          final long nextEncodedBytes = (long) encodedBytes[column] + Short.BYTES + utf8Length + Long.BYTES;
-          if (values.size() >= MAX_VALUES || nextEncodedBytes > MAX_BYTES) {
-            disable(column, values);
+          if (!addRows(column, values, value, rows, utf8Length)) {
             break;
-          }
-          values.put(value, rows);
-          encodedBytes[column] = (int) nextEncodedBytes;
-          final int[] peaks = peakRetainedValuesByColumn;
-          if (peaks != null) {
-            peaks[column] = Math.max(peaks[column], values.size());
           }
         }
       }
+    }
+
+    private boolean addRows(final int column, final Object2LongLinkedOpenHashMap<String> values,
+        final @Nullable String value, final long rows, final int utf8Length) {
+      if (values.containsKey(value)) {
+        values.put(value, Math.addExact(values.getLong(value), rows));
+        return true;
+      }
+      final int[] encodedBytes = encodedBytesByColumn;
+      if (encodedBytes == null) {
+        throw new IllegalStateException("summary accumulator shape was not initialized");
+      }
+      final long nextBytes = (long) encodedBytes[column] + Short.BYTES + utf8Length + Long.BYTES;
+      if (values.size() >= MAX_VALUES || nextBytes > MAX_BYTES) {
+        disable(column, values);
+        return false;
+      }
+      values.put(value, rows);
+      encodedBytes[column] = (int) nextBytes;
+      final int[] peaks = peakRetainedValuesByColumn;
+      if (peaks != null) {
+        peaks[column] = Math.max(peaks[column], values.size());
+      }
+      return true;
     }
 
     /**
@@ -126,7 +167,8 @@ final class ProjectionSetSummaryChunks {
       }
       final Map<Integer, Map<String, Long>> capabilities = new LinkedHashMap<>();
       for (int column = 0; column < columnKinds.length; column++) {
-        if (columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        if (columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+            && columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           continue;
         }
         if (disabled[column]) {
@@ -281,6 +323,15 @@ final class ProjectionSetSummaryChunks {
     return summaries;
   }
 
+  /** Read one explicitly advertised summary without hydrating unrelated columns or row groups. */
+  static @Nullable Map<String, Long> readColumn(final StorageEngineReader reader, final int indexNumber,
+      final int column) {
+    if (reader == null || indexNumber < 0) {
+      throw new IllegalArgumentException("reader and non-negative index number are required");
+    }
+    return decode(ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slotKey(column)));
+  }
+
   static long slotKey(final int column) {
     if (column < 0 || column >= RowGroupDescriptor.MAX_COLUMNS) {
       throw new IllegalArgumentException("set-summary column out of range: " + column);
@@ -293,6 +344,7 @@ final class ProjectionSetSummaryChunks {
     private final Set<Integer> capabilities;
     private final Map<Integer, Map<String, Long>> loaded = new LinkedHashMap<>();
     private final Set<Integer> changed = new LinkedHashSet<>();
+    private final Set<Integer> disabled = new LinkedHashSet<>();
     private int chunksRead;
     private int chunksWritten;
     private long bytesRead;
@@ -320,7 +372,7 @@ final class ProjectionSetSummaryChunks {
       if (deltas == null) {
         throw new NullPointerException("set-summary deltas are required");
       }
-      if (!capabilities.contains(column) || deltas.isEmpty()) {
+      if (!capabilities.contains(column) || disabled.contains(column) || deltas.isEmpty()) {
         return;
       }
       final Map<String, Long> target = values(column);
@@ -346,18 +398,36 @@ final class ProjectionSetSummaryChunks {
       changed.add(column);
     }
 
+    boolean hasCapability(final int column) {
+      return capabilities.contains(column) && !disabled.contains(column);
+    }
+
+    void disable(final int column) {
+      if (capabilities.contains(column)) {
+        disabled.add(column);
+        changed.add(column);
+      }
+    }
+
     Map<Integer, Map<String, Long>> flush(final byte[] columnKinds) {
       if (columnKinds == null) {
         throw new NullPointerException("column kinds are required");
       }
       final Map<Integer, Map<String, Long>> persisted = new LinkedHashMap<>(capabilities.size());
       for (final int column : capabilities) {
-        if (column >= columnKinds.length || columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
-          throw new IllegalStateException("set-summary capability names non-set column " + column);
+        if (column >= columnKinds.length || (columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+            && columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT)) {
+          throw new IllegalStateException("value-summary capability names non-string column " + column);
         }
         persisted.put(column, new LinkedHashMap<>());
       }
       for (final int column : changed) {
+        if (disabled.contains(column)) {
+          storage.tombstoneBlob(slotKey(column));
+          persisted.remove(column);
+          chunksWritten++;
+          continue;
+        }
         final byte[] encoded = encode(loaded.get(column));
         if (encoded == null) {
           storage.tombstoneBlob(slotKey(column));
@@ -413,15 +483,24 @@ final class ProjectionSetSummaryChunks {
     }
     final ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(MAX_BYTES, 256));
     putInt(out, MAGIC);
-    out.write(VERSION);
+    out.write(values.containsKey(null)
+        ? VERSION
+        : 0);
     putShort(out, values.size());
     for (final Map.Entry<String, Long> entry : values.entrySet()) {
-      final byte[] value = entry.getKey().getBytes(StandardCharsets.UTF_8);
-      if (value.length > 0xFFFF || entry.getValue() < 0) {
+      final String key = entry.getKey();
+      final byte[] value = key == null
+          ? null
+          : key.getBytes(StandardCharsets.UTF_8);
+      if ((value != null && value.length >= MISSING_VALUE_LENGTH) || entry.getValue() < 0) {
         return null;
       }
-      putShort(out, value.length);
-      out.write(value, 0, value.length);
+      putShort(out, value == null
+          ? MISSING_VALUE_LENGTH
+          : value.length);
+      if (value != null) {
+        out.write(value, 0, value.length);
+      }
       putLong(out, entry.getValue());
       if (out.size() > MAX_BYTES) {
         return null;
@@ -440,17 +519,26 @@ final class ProjectionSetSummaryChunks {
     }
     final ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(MAX_BYTES, 256));
     putInt(out, MAGIC);
-    out.write(VERSION);
+    out.write(values != null && values.containsKey(null)
+        ? VERSION
+        : 0);
     putShort(out, size);
     if (values != null) {
       for (final Object2LongMap.Entry<String> entry : values.object2LongEntrySet()) {
-        final byte[] value = entry.getKey().getBytes(StandardCharsets.UTF_8);
+        final String key = entry.getKey();
+        final byte[] value = key == null
+            ? null
+            : key.getBytes(StandardCharsets.UTF_8);
         final long rows = entry.getLongValue();
-        if (value.length > 0xFFFF || rows < 0) {
+        if ((value != null && value.length >= MISSING_VALUE_LENGTH) || rows < 0) {
           return null;
         }
-        putShort(out, value.length);
-        out.write(value, 0, value.length);
+        putShort(out, value == null
+            ? MISSING_VALUE_LENGTH
+            : value.length);
+        if (value != null) {
+          out.write(value, 0, value.length);
+        }
         putLong(out, rows);
         if (out.size() > MAX_BYTES) {
           return null;
@@ -472,9 +560,10 @@ final class ProjectionSetSummaryChunks {
       return null;
     }
     try {
-      if (bytes.length < 7 || getInt(bytes, 0) != MAGIC || bytes[4] != VERSION) {
+      if (bytes.length < 7 || getInt(bytes, 0) != MAGIC || (bytes[4] != 0 && bytes[4] != VERSION)) {
         throw new IllegalStateException("malformed set-summary chunk");
       }
+      final boolean nullable = bytes[4] == VERSION;
       int offset = 5;
       final int count = getShort(bytes, offset);
       offset += 2;
@@ -485,8 +574,13 @@ final class ProjectionSetSummaryChunks {
       for (int i = 0; i < count; i++) {
         final int length = getShort(bytes, offset);
         offset += 2;
-        final String value = new String(bytes, offset, length, StandardCharsets.UTF_8);
-        offset += length;
+        final String value;
+        if (nullable && length == MISSING_VALUE_LENGTH) {
+          value = null;
+        } else {
+          value = new String(bytes, offset, length, StandardCharsets.UTF_8);
+          offset += length;
+        }
         final long rows = getLong(bytes, offset);
         offset += Long.BYTES;
         if (rows < 0 || values.put(value, rows) != null) {

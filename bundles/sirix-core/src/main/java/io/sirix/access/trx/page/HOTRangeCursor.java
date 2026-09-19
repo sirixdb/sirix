@@ -110,6 +110,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   private HOTLeafPage currentLeaf;
   private int currentIndex;
   private boolean exhausted = false;
+  private boolean closed;
 
 
   /**
@@ -144,7 +145,12 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
     this.toKey = toKey;
 
     // Initialize to first entry
-    descendToFirstEntry();
+    try {
+      descendToFirstEntry();
+    } catch (RuntimeException | Error e) {
+      close();
+      throw e;
+    }
   }
 
   /**
@@ -550,13 +556,21 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
     return currentIndex;
   }
 
+  /**
+   * End this cursor's walk on its reader: drops the position and runs
+   * {@link HOTTrieReader#endWalk()}, which releases a guarded current leaf and returns the reader to
+   * optimistic reads. Idempotent, so a repeated close can never end a later walk that reuses the same
+   * reader.
+   */
   @Override
   public void close() {
-    // Nothing to release: neither the cursor nor the reader pins leaves. Clearing just drops the
-    // references so an abandoned cursor does not keep a leaf object reachable.
+    if (closed) {
+      return;
+    }
+    closed = true;
     currentLeaf = null;
     positionedValid = false;
     exhausted = true;
-    reader.clearPath();
+    reader.endWalk();
   }
 }

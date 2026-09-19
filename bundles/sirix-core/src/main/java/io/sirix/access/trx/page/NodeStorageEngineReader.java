@@ -123,7 +123,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.LongAdder;
 
 import static io.sirix.utils.Preconditions.checkArgument;
@@ -159,6 +158,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   /** Reusable scratch for {@link #prefetchRecordPages} — this reader is transaction-confined. */
   private PageReference @Nullable [] prefetchRefsScratch;
+
+  /**
+   * Reusable key-only references for {@link #hintUncachedFragments}: the backend copies the offsets
+   * out of an advisory batch and never retains the array, so the same objects serve every chain this
+   * transaction reads. Transaction-confined like the scratch above.
+   */
+  private PageReference @Nullable [] fragmentHintScratch;
 
   /**
    * Uber page this transaction is bound to.
@@ -737,11 +743,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // that into an attributable error instead of a ClassCastException deep in a scan.
     final var loadedPage = pageReader.read(reference, resourceSession.getResourceConfig());
     if (!(loadedPage instanceof OverflowPage segmentPage)) {
-      throw new SirixIOException("Side-map overflow reference (offset key " + reference.getKey() + ") resolved to "
-          + (loadedPage == null
-              ? "null"
-              : loadedPage.getClass().getSimpleName())
-          + " — dangling or corrupted side-map reference.");
+      final SirixIOException dangling =
+          new SirixIOException("Side-map overflow reference (offset key " + reference.getKey() + ") resolved to "
+              + (loadedPage == null
+                  ? "null"
+                  : loadedPage.getClass().getSimpleName())
+              + " — dangling or corrupted side-map reference.");
+      retireUnadoptedPage(loadedPage, dangling);
+      throw dangling;
     }
     return segmentPage;
   }
@@ -772,8 +781,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         continue;
       }
       if (!(loadedPage instanceof OverflowPage segmentPage)) {
-        throw new SirixIOException("Side-map overflow reference (offset key " + offsets[i] + ") resolved to "
-            + loadedPage.getClass().getSimpleName() + " — dangling or corrupted side-map reference.");
+        final SirixIOException dangling =
+            new SirixIOException("Side-map overflow reference (offset key " + offsets[i] + ") resolved to "
+                + loadedPage.getClass().getSimpleName() + " — dangling or corrupted side-map reference.");
+        retireUnadoptedPages(loadedPages, 0, dangling);
+        throw dangling;
       }
       pages[i] = segmentPage;
     }
@@ -2347,6 +2359,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
     final int count = 1 + fragmentKeys.size();
     final RegionsOnlyPage[] fragments = new RegionsOnlyPage[count];
+    // Every fragment offset is known here; hint them together so their (partial) reads below find
+    // the bytes in the page cache instead of each waiting its own device round trip.
+    final PageReference[] fragmentRefs = new PageReference[count - 1];
+    for (int i = 1; i < count; i++) {
+      fragmentRefs[i - 1] =
+          new PageReference().setKey(fragmentKeys.get(i - 1).key()).setDatabaseId(databaseId).setResourceId(resourceId);
+    }
+    hintDurableReferences(fragmentRefs, count - 1);
     try {
       fragments[0] = pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, 0);
       if (fragments[0] == null || !fragments[0].hasSlotBitmap() || !fragments[0].hasCompleteColumnCoverage()) {
@@ -2354,10 +2374,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         return null;
       }
       for (int i = 1; i < count; i++) {
-        final PageReference fragmentRef = new PageReference().setKey(fragmentKeys.get(i - 1).key())
-                                                             .setDatabaseId(databaseId)
-                                                             .setResourceId(resourceId);
-        final RegionsOnlyPage fragment = pageReader.readRegionsOnly(fragmentRef, resourceConfig, regionKindMask, 0);
+        final RegionsOnlyPage fragment =
+            pageReader.readRegionsOnly(fragmentRefs[i - 1], resourceConfig, regionKindMask, 0);
         if (fragment == null || !fragment.hasSlotBitmap() || !fragment.hasCompleteColumnCoverage()) {
           if (fragment != null) {
             fragment.close();
@@ -2812,11 +2830,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       final KeyValueLeafPage latestPage = readOwnedRecordPage(pageReference, true);
       pages.add(latestPage);
       if (resourceConfig.versioningType != VersioningType.FULL && latestPage.size() != Constants.NDP_NODE_COUNT) {
-        for (final PageFragmentKey fragment : pageReference.getPageFragments()) {
-          final PageReference fragmentReference =
-              new PageReference().setKey(fragment.key()).setDatabaseId(databaseId).setResourceId(resourceId);
-          pages.add(readOwnedRecordPage(fragmentReference, false));
-        }
+        readOwnedFragmentChain(pageReference.getPageFragments(), pages);
         pages.subList(1, pages.size()).sort(Comparator.comparingInt(KeyValuePage<DataRecord>::getRevision).reversed());
       }
       // Resolve BEFORE materializing, but ONLY where a resolver can actually answer. The combine
@@ -2850,6 +2864,49 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           }
         }
       }
+      throw failure;
+    }
+  }
+
+  /**
+   * The older fragments of an owned page, appended to {@code pages} (the caller sorts them). Every
+   * key is known up front, so the chain is hinted as one batch and then read either in ONE coalesced
+   * batch (the eager route, exactly the per-fragment {@code pageReader.read} it replaces) or, on the
+   * trie lane, one by one through the lazy route — lazy expansion is load-bearing there (see
+   * {@link #readOwnedRecordPage}), and the batch API has no lazy form, so that route keeps its reads
+   * and gains only the overlap from the hint. Pages the batch read but this method could not hand
+   * over are closed here; pages already in {@code pages} are the caller's to close on failure.
+   */
+  private void readOwnedFragmentChain(final List<PageFragmentKey> fragments,
+      final List<KeyValuePage<DataRecord>> pages) {
+    final int count = fragments.size();
+    if (count == 0) {
+      return;
+    }
+    final PageReference[] references = new PageReference[count];
+    for (int i = 0; i < count; i++) {
+      references[i] =
+          new PageReference().setKey(fragments.get(i).key()).setDatabaseId(databaseId).setResourceId(resourceId);
+    }
+    hintDurableReferences(references, count);
+    if (documentPagesUseTheTrieLane()) {
+      for (int i = 0; i < count; i++) {
+        pages.add(readOwnedRecordPage(references[i], false));
+      }
+      return;
+    }
+    final Page[] loaded = readDurableBatch(references);
+    int handed = 0;
+    try {
+      for (; handed < count; handed++) {
+        if (!(loaded[handed] instanceof KeyValueLeafPage recordPage)) {
+          throw new SirixIOException(
+              "Durable key " + references[handed].getKey() + " does not reference a record page");
+        }
+        pages.add(recordPage);
+      }
+    } catch (final RuntimeException | Error failure) {
+      closeUnhandedPages(loaded, handed, count, failure);
       throw failure;
     }
   }
@@ -3033,6 +3090,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Copy hash for checksum verification of the first fragment
     pageReferenceWithKey.copyHashFrom(pageReference);
 
+    // Every key of the chain is known before the first byte is read, so the older fragments that are
+    // not resident go to the device NOW and their round trips overlap the first fragment's read below
+    // instead of following it one after another. Advisory: a backend without the primitive skips it,
+    // and the only speculation is the rare complete newest fragment, whose chain is then hinted but
+    // never read.
+    if (!originalPageFragments.isEmpty()) {
+      hintUncachedFragments(originalPageFragments);
+    }
+
     // Load first fragment atomically with guard
     KeyValueLeafPage page =
         resourceBufferManager.getRecordPageFragmentCache()
@@ -3048,10 +3114,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return new PageFragmentsResult(pages, originalPageFragments, originalStorageKey);
     }
 
-    // Load additional fragments for versioning reconstruction
-    final List<PageFragmentKey> pageFragmentKeys = new ArrayList<>(originalPageFragments.size() + 1);
-    pageFragmentKeys.addAll(originalPageFragments);
-    pages.addAll(getPreviousPageFragments(pageFragmentKeys));
+    // Load additional fragments for versioning reconstruction: one batch for every miss.
+    try {
+      pages.addAll(getPreviousPageFragments(originalPageFragments));
+    } catch (final RuntimeException | Error failure) {
+      // The first fragment's guard is this method's to release when its caller never sees the list.
+      try {
+        page.releaseGuard();
+      } catch (final Throwable releaseFailure) {
+        addSuppressedSafely(failure, releaseFailure);
+      }
+      throw failure;
+    }
 
     materializeFragments(pages);
     return new PageFragmentsResult(pages, originalPageFragments, originalStorageKey);
@@ -3092,14 +3166,207 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
   }
 
+  /**
+   * Load the older fragments of a chain, newest first.
+   *
+   * <p>
+   * Every key is known before the first read, so the chain is loaded in TWO passes rather than one
+   * read per fragment: a guarded probe of the fragment cache for every key, then ONE
+   * {@link Reader#read(PageReference[], ResourceConfiguration)} for every miss — the backend
+   * coalesces adjacent fragments into ranged reads and hints the whole batch before the first pread,
+   * so the misses' device round trips overlap instead of queueing behind each other. Each loaded page
+   * is then adopted through the same atomic cache-or-store as before, the loser of an adoption race
+   * is closed, and the result is sorted by revision exactly as the per-fragment loop sorted it.
+   *
+   * <p>
+   * Reads happen on THIS thread with the reader this transaction already owns: borrowing a reader per
+   * fragment took a storage-wide monitor twice per fragment (measured at 19.07 ms of thread time per
+   * reconstructed page against 0.92 ms to merge it), and hopping to another thread bought nothing for
+   * a caller that blocks on the result anyway.
+   *
+   * <p>
+   * On failure every guard this call took is released and every page the batch read but nobody
+   * adopted is closed; the caller never sees a partial list.
+   */
   private List<KeyValuePage<DataRecord>> getPreviousPageFragments(final List<PageFragmentKey> pageFragments) {
-    final var pages = new ArrayList<CompletableFuture<KeyValuePage<DataRecord>>>(pageFragments.size());
-    for (final var fragment : pageFragments) {
-      pages.add(readPage(fragment));
+    final int count = pageFragments.size();
+    final Cache<PageReference, KeyValueLeafPage> fragmentCache = resourceBufferManager.getRecordPageFragmentCache();
+    final List<KeyValuePage<DataRecord>> result = new ArrayList<>(count);
+    // Misses keep a fresh PageReference each: the cache stores it as the entry's stable key.
+    PageReference[] misses = null;
+    PageFragmentKey[] missKeys = null;
+    int missCount = 0;
+    try {
+      final PageReference lookup = LOOKUP_REF.get();
+      for (int i = 0; i < count; i++) {
+        final PageFragmentKey fragment = pageFragments.get(i);
+        lookup.setKey(fragment.key()).setDatabaseId(databaseId).setResourceId(resourceId);
+        // Guarded probe with the thread-local lookup key: the map never stores the passed-in key.
+        final KeyValueLeafPage cached = fragmentCache.getAndGuard(lookup);
+        if (cached != null) {
+          assert fragment.revision() == cached.getRevision()
+              : "Revision mismatch: key=" + fragment.revision() + ", page=" + cached.getRevision();
+          result.add(cached);
+          continue;
+        }
+        if (misses == null) {
+          misses = new PageReference[count - i];
+          missKeys = new PageFragmentKey[count - i];
+        }
+        misses[missCount] =
+            new PageReference().setKey(fragment.key()).setDatabaseId(databaseId).setResourceId(resourceId);
+        missKeys[missCount++] = fragment;
+      }
+      if (missCount > 0) {
+        adoptFragmentBatch(fragmentCache, misses, missKeys, missCount, result);
+      }
+    } catch (final RuntimeException | Error failure) {
+      for (int i = 0, size = result.size(); i < size; i++) {
+        try {
+          ((KeyValueLeafPage) result.get(i)).releaseGuard();
+        } catch (final Throwable releaseFailure) {
+          addSuppressedSafely(failure, releaseFailure);
+        }
+      }
+      throw failure;
     }
-    final var result = sequence(pages).join();
     result.sort(Comparator.<KeyValuePage<DataRecord>, Integer>comparing(KeyValuePage::getRevision).reversed());
     return result;
+  }
+
+  /**
+   * One coalesced read for every cache miss of a chain, then per-page adoption. Pages the batch read
+   * but this method did not adopt (a failure part way) are closed here, so nothing leaks a slot.
+   */
+  private void adoptFragmentBatch(final Cache<PageReference, KeyValueLeafPage> fragmentCache,
+      final PageReference[] misses, final PageFragmentKey[] missKeys, final int missCount,
+      final List<KeyValuePage<DataRecord>> result) {
+    final PageReference[] batch = missCount == misses.length
+        ? misses
+        : Arrays.copyOf(misses, missCount);
+    final Page[] loaded = readDurableBatch(batch);
+    int adopted = 0;
+    try {
+      for (; adopted < missCount; adopted++) {
+        final Page loadedPage = loaded[adopted];
+        if (!(loadedPage instanceof KeyValueLeafPage fragment)) {
+          throw new SirixIOException("Fragment key " + misses[adopted].getKey() + " does not reference a record page");
+        }
+        assert missKeys[adopted].revision() == fragment.getRevision()
+            : "Revision mismatch: key=" + missKeys[adopted].revision() + ", page=" + fragment.getRevision();
+        // Atomic cache-or-store with guard (handles the race with other threads). If another thread
+        // won, its instance is cached and guarded for us; ours was never adopted — close it to free
+        // its off-heap segments (production builds have no Cleaner fallback).
+        final KeyValueLeafPage cached = fragmentCache.getOrLoadAndGuard(misses[adopted], _ -> fragment);
+        if (cached != fragment) {
+          try {
+            fragment.close();
+          } catch (final Throwable loserCloseFailure) {
+            if (cached != null) {
+              try {
+                cached.releaseGuard();
+              } catch (final Throwable guardReleaseFailure) {
+                addSuppressedSafely(loserCloseFailure, guardReleaseFailure);
+              }
+            }
+            throw loserCloseFailure;
+          }
+        }
+        result.add(cached);
+      }
+    } catch (final RuntimeException | Error failure) {
+      closeUnhandedPages(loaded, adopted, missCount, failure);
+      throw failure;
+    }
+  }
+
+  /**
+   * The backend's batched read for a chain's durable references. A backend that answers the batch
+   * form with nothing at all — a partial implementation, a test double stubbing only the scalar read
+   * — gets the scalar reads the batch replaced, one per reference, so it still serves every load it
+   * served before; a misaligned answer is a backend fault and is reported as one, with whatever it
+   * returned retired rather than leaked. Real backends take neither branch: the contract is one page
+   * per reference, input-aligned.
+   */
+  private Page[] readDurableBatch(final PageReference[] references) {
+    final Page[] loaded = pageReader.read(references, resourceConfig);
+    if (loaded == null) {
+      final Page[] scalar = new Page[references.length];
+      try {
+        for (int i = 0; i < references.length; i++) {
+          scalar[i] = pageReader.read(references[i], resourceConfig);
+        }
+      } catch (final RuntimeException | Error failure) {
+        retireUnadoptedPages(scalar, 0, failure);
+        throw failure;
+      }
+      return scalar;
+    }
+    if (loaded.length != references.length) {
+      final SirixIOException misaligned =
+          new SirixIOException("Backend returned " + loaded.length + " pages for " + references.length + " references");
+      retireUnadoptedPages(loaded, 0, misaligned);
+      throw misaligned;
+    }
+    return loaded;
+  }
+
+  /**
+   * Advisory read-ahead for the fragments of a chain that are not resident in the fragment cache,
+   * issued before the chain's first fragment is read so the device works on all of them at once.
+   * Gated on the backend's batch (zero probes, zero syscalls on a backend without the primitive); not
+   * on the intent log — fragment keys are committed offsets, valid for a writer's reader too. A
+   * declined hint changes nothing: the pages read normally afterwards.
+   */
+  private void hintUncachedFragments(final List<PageFragmentKey> fragments) {
+    if (recordPagePrefetchBatch == 0) {
+      return;
+    }
+    final Cache<PageReference, KeyValueLeafPage> fragmentCache = resourceBufferManager.getRecordPageFragmentCache();
+    final PageReference lookup = LOOKUP_REF.get();
+    final int count = fragments.size();
+    PageReference[] refs = fragmentHintScratch;
+    if (refs == null || refs.length < count) {
+      refs = new PageReference[count];
+      fragmentHintScratch = refs;
+    }
+    int n = 0;
+    for (int i = 0; i < count; i++) {
+      final long key = fragments.get(i).key();
+      lookup.setKey(key).setDatabaseId(databaseId).setResourceId(resourceId);
+      if (fragmentCache.get(lookup) != null) {
+        continue; // resident — nothing for the device to do
+      }
+      PageReference ref = refs[n];
+      if (ref == null) {
+        ref = refs[n] = new PageReference();
+      }
+      ref.setKey(key);
+      n++;
+    }
+    if (n > 0) {
+      try {
+        pageReader.prefetch(refs, n);
+      } catch (final SirixIOException e) {
+        LOGGER.debug("Fragment prefetch declined: {}", e.getMessage());
+      }
+    }
+  }
+
+  /**
+   * Advisory read-ahead for durable references this transaction is about to read one by one (owned
+   * fragments, regions-only fragments). Same gate and failure contract as
+   * {@link #hintUncachedFragments}.
+   */
+  private void hintDurableReferences(final PageReference[] references, final int count) {
+    if (recordPagePrefetchBatch == 0 || count <= 0) {
+      return;
+    }
+    try {
+      pageReader.prefetch(references, count);
+    } catch (final SirixIOException e) {
+      LOGGER.debug("Page prefetch declined: {}", e.getMessage());
+    }
   }
 
   /**
@@ -3110,61 +3377,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * so each cache entry owns a stable key.
    */
   private static final ThreadLocal<PageReference> LOOKUP_REF = ThreadLocal.withInitial(PageReference::new);
-
-  @SuppressWarnings("unchecked")
-  private CompletableFuture<KeyValuePage<DataRecord>> readPage(final PageFragmentKey pageFragmentKey) {
-    final long key = pageFragmentKey.key();
-    final PageReference lookup = LOOKUP_REF.get();
-    lookup.setKey(key).setDatabaseId(databaseId).setResourceId(resourceId);
-
-    // Try to get from cache with guard using the thread-local lookup key.
-    KeyValueLeafPage pageFromCache = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(lookup);
-
-    if (pageFromCache != null) {
-      assert pageFragmentKey.revision() == pageFromCache.getRevision()
-          : "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + pageFromCache.getRevision();
-      return CompletableFuture.completedFuture(pageFromCache);
-    }
-
-    // Cache miss — allocate a proper PageReference for insertion as the map key.
-    final var pageReference = new PageReference().setKey(key).setDatabaseId(databaseId).setResourceId(resourceId);
-
-    // Read on THIS thread with the reader this transaction already owns, rather than borrowing a
-    // fresh one and hopping to a virtual thread. The caller blocks on the result either way, so the
-    // async round trip bought nothing — and it cost a great deal: IOStorage.createReader takes a
-    // storage-wide monitor to borrow a channel stripe, and close() takes it again to return it, so
-    // every fragment of every reconstructed page put two acquisitions of one global lock on the
-    // path of every scan worker. Measured on a cold scan of a store with 529 multi-fragment pages,
-    // fetching their fragments cost 19.07 ms of thread time per page against 0.92 ms to merge them.
-    final Page loadedPage = pageReader.read(pageReference, resourceSession.getResourceConfig());
-    assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) loadedPage).getRevision()
-        : "Revision mismatch: key=" + pageFragmentKey.revision() + ", page="
-            + ((KeyValuePage<DataRecord>) loadedPage).getRevision();
-
-    // Atomic cache-or-store with guard (handles race with other threads).
-    final KeyValueLeafPage cachedPage =
-        resourceBufferManager.getRecordPageFragmentCache()
-                             .getOrLoadAndGuard(pageReference, _ -> (KeyValueLeafPage) loadedPage);
-
-    // If another thread won the race, its instance is now cached and the page we loaded from disk
-    // was never adopted — close it to free its off-heap segments (production builds have no
-    // Cleaner fallback, so this would leak the slot).
-    if (cachedPage != loadedPage) {
-      ((KeyValueLeafPage) loadedPage).close();
-    }
-
-    return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) cachedPage);
-  }
-
-  static <T> CompletableFuture<List<T>> sequence(List<CompletableFuture<T>> listOfCompletableFutures) {
-    return CompletableFuture.allOf(listOfCompletableFutures.toArray(new CompletableFuture[0])).thenApply(_ -> {
-      final var result = new ArrayList<T>(listOfCompletableFutures.size());
-      for (final var future : listOfCompletableFutures) {
-        result.add(future.join());
-      }
-      return result;
-    });
-  }
 
   /**
    * Get the page reference which points to the right subtree (nodes, path summary nodes, CAS index
@@ -3550,11 +3762,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(PageReference chainRef, PageReference cacheKey,
       PageReference handoffReference, HOTLeafPage firstPage) {
+    return loadHOTLeafPageWithVersioning(chainRef, cacheKey, handoffReference, firstPage, false);
+  }
+
+  private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(final PageReference chainRef,
+      final PageReference cacheKey, final PageReference handoffReference, final HOTLeafPage firstPage,
+      final boolean retainLeafGuard) {
     final VersioningType versioningType = resourceConfig.versioningType;
     final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
 
     if (versioningType == VersioningType.FULL) {
-      return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, firstPage);
+      return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, firstPage,
+          retainLeafGuard);
     }
 
     final List<HOTLeafPage> fragments = loadHOTPageFragments(chainRef, firstPage);
@@ -3593,7 +3812,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       throw releaseFailure;
     }
 
-    return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, combinedPage);
+    return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, combinedPage,
+        retainLeafGuard);
   }
 
   /**
@@ -3614,6 +3834,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   static @Nullable HOTLeafPage adoptCanonicalHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
       final PageReference cacheKey, final PageReference handoffReference, final @Nullable HOTLeafPage incoming) {
+    return adoptCanonicalHOTLeaf(cache, cacheKey, handoffReference, incoming, false);
+  }
+
+  /** Transfer the cache's guard without opening a publication-to-reader eviction window. */
+  static @Nullable HOTLeafPage adoptCanonicalHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
+      final PageReference cacheKey, final PageReference handoffReference, final @Nullable HOTLeafPage incoming,
+      final boolean retainLeafGuard) {
     requireNonNull(cache);
     requireNonNull(cacheKey);
     requireNonNull(handoffReference);
@@ -3622,12 +3849,20 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     if (cache instanceof EmptyCache<?, ?>) {
-      if (incoming.isClosed()) {
+      if (incoming.isClosed() || (retainLeafGuard && !incoming.acquireGuard())) {
         incoming.retire();
         return null;
       }
-      handoffReference.setPage(incoming);
-      return incoming;
+      boolean handedOff = false;
+      try {
+        handoffReference.setPage(incoming);
+        handedOff = true;
+        return incoming;
+      } finally {
+        if (retainLeafGuard && !handedOff) {
+          incoming.releaseGuard();
+        }
+      }
     }
 
     final HOTLeafPage canonical;
@@ -3643,20 +3878,29 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return null;
     }
 
+    boolean handedOff = false;
     try {
       if (canonical != incoming) {
         incoming.retire();
       }
       handoffReference.setPage(canonical);
+      handedOff = true;
       return canonical;
     } finally {
-      canonical.releaseGuard();
+      if (!retainLeafGuard || !handedOff) {
+        canonical.releaseGuard();
+      }
     }
   }
 
   /** Guard a cache hit through its swizzle handoff, then return to the optimistic HOT API. */
   private static @Nullable HOTLeafPage handoffCachedHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
       final PageReference cacheKey, final PageReference handoffReference) {
+    return handoffCachedHOTLeaf(cache, cacheKey, handoffReference, false);
+  }
+
+  private static @Nullable HOTLeafPage handoffCachedHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
+      final PageReference cacheKey, final PageReference handoffReference, final boolean retainLeafGuard) {
     if (cache instanceof EmptyCache<?, ?>) {
       return null;
     }
@@ -3664,11 +3908,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (cached == null) {
       return null;
     }
+    boolean handedOff = false;
     try {
       handoffReference.setPage(cached);
+      handedOff = true;
       return cached;
     } finally {
-      cached.releaseGuard();
+      if (!retainLeafGuard || !handedOff) {
+        cached.releaseGuard();
+      }
     }
   }
 
@@ -3754,11 +4002,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   private List<HOTLeafPage> loadHOTPageFragments(PageReference chainRef, HOTLeafPage firstPage) {
-    final List<HOTLeafPage> fragments = new ArrayList<>();
-    fragments.add(firstPage);
-
     // Check if there are additional fragments to load
     final List<PageFragmentKey> pageFragments = chainRef.getPageFragments();
+    final List<HOTLeafPage> fragments = new ArrayList<>(1 + pageFragments.size());
+    fragments.add(firstPage);
     if (pageFragments.isEmpty()) {
       return fragments;
     }
@@ -3767,26 +4014,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Note: Fragment keys don't include hashes - only the first fragment can be verified
     // Future improvement: Store fragment hashes in PageFragmentKey for complete verification
     try {
-      for (PageFragmentKey fragmentKey : pageFragments) {
-        final HOTLeafPage hotFragment = loadChainFragmentGuarded(fragmentKey.key());
-        if (hotFragment == null) {
-          // A SHORT window is worse than none: carryForwardAgingHOTEntries takes the LAST element as
-          // the fragment about to age out, so a skipped fragment silently re-points that at the
-          // wrong one — carrying entries that are not aging and losing the ones that are.
-          throw new SirixIOException("HOT fragment at key " + fragmentKey.key()
-              + " is absent or not a HOTLeafPage — the versioning window is incomplete");
-        }
-        // Publish the newly guarded fragment into the cleanup-owned list BEFORE validating its
-        // header. A corrupt metadata/header pair must fail closed, but throwing before this add
-        // would strand the fragment's cache guard because the catch below can release only pages
-        // reachable from this list.
-        fragments.add(hotFragment);
-        final int physicalRevision = hotFragment.getRevision();
-        if (fragmentKey.revision() != physicalRevision) {
-          throw new SirixIOException("HOT fragment revision mismatch at key " + fragmentKey.key()
-              + ": metadata revision=" + fragmentKey.revision() + ", physical header revision=" + physicalRevision);
-        }
-      }
+      loadChainFragmentsGuarded(pageFragments, fragments);
     } catch (final Throwable loadFailed) {
       // A read failing part way through leaves the window unreachable by the caller, so nothing
       // would ever release the guards taken for the fragments already loaded — and a permanently
@@ -3811,7 +4039,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /**
-   * Load one chain fragment through {@link BufferManager#getHOTLeafFragmentCache()}, GUARDED.
+   * Load the chain fragments of a HOT leaf window through
+   * {@link BufferManager#getHOTLeafFragmentCache()}, GUARDED, appending them to {@code fragments} in
+   * chain order.
+   *
+   * <p>
+   * Every key of the chain is known before the first read, so the window is loaded in TWO passes
+   * rather than one synchronous read per fragment: a guarded probe of the fragment cache for every
+   * key, then ONE {@link Reader#read(PageReference[], ResourceConfiguration)} for every miss — the
+   * backend coalesces adjacent fragments and hints the whole batch before its first pread, so the
+   * misses' device round trips overlap instead of queueing behind each other. Each loaded page is
+   * then adopted exactly as the scalar load adopted it (below).
+   * </p>
    *
    * <p>
    * Chain fragments are re-read by every commit that copy-on-writes the same leaf while the
@@ -3837,30 +4076,111 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * </p>
    *
    * <p>
-   * The returned page is always guarded, whether or not it was adopted by the cache, so callers have
-   * ONE lifetime rule (release exactly once — see {@link #releaseHOTLeafFragments}). When the cache
-   * cannot adopt it (a guard-less {@code EmptyCache}, or a lost adoption race) the page is guarded
-   * and immediately orphaned, so the caller's release drops the last guard and frees its off-heap
-   * slot right there.
+   * Every published page is guarded, whether or not it was adopted by the cache, so callers have ONE
+   * lifetime rule (release exactly once — see {@link #releaseHOTLeafFragments}). When the cache
+   * cannot adopt a page (a guard-less {@code EmptyCache}, or a lost adoption race) the page is
+   * guarded and immediately orphaned, so the caller's release drops the last guard and frees its
+   * off-heap slot right there. Every guarded page reaches {@code fragments} BEFORE any header is
+   * validated: a corrupt metadata/header pair must fail closed, and the caller's catch can release
+   * only pages reachable from that list. If loading itself fails, this method releases exactly the
+   * guards it took and retires every page the batch read but nobody adopted.
    * </p>
    *
-   * @param fragmentKey the fragment's durable offset
-   * @return the guarded fragment, or {@code null} if it is absent or not a HOT leaf
+   * @param pageFragments the chain keys, newest first
+   * @param fragments the cleanup-owned window; element 0 is the caller's first page
+   * @throws SirixIOException when a fragment is absent, not a HOT leaf, or carries another revision
    */
-  private @Nullable HOTLeafPage loadChainFragmentGuarded(final long fragmentKey) {
-    final PageReference fragmentRef =
-        new PageReference().setKey(fragmentKey).setDatabaseId(databaseId).setResourceId(resourceId);
+  private void loadChainFragmentsGuarded(final List<PageFragmentKey> pageFragments, final List<HOTLeafPage> fragments) {
+    final int count = pageFragments.size();
     final Cache<PageReference, HOTLeafPage> fragmentCache = resourceBufferManager.getHOTLeafFragmentCache();
+    final HOTLeafPage[] window = new HOTLeafPage[count];
+    PageReference[] misses = null;
+    int[] missIndex = null;
+    int missCount = 0;
     try {
-      final HOTLeafPage cached = fragmentCache.getAndGuard(fragmentRef);
-      if (cached != null) {
-        return cached;
+      for (int i = 0; i < count; i++) {
+        final PageReference fragmentRef =
+            new PageReference().setKey(pageFragments.get(i).key()).setDatabaseId(databaseId).setResourceId(resourceId);
+        HOTLeafPage cached = null;
+        try {
+          cached = fragmentCache.getAndGuard(fragmentRef);
+        } catch (final UnsupportedOperationException guardUnsupported) {
+          // A cache implementation without guard support (EmptyCache) — fall through to an uncached read.
+        }
+        if (cached != null) {
+          window[i] = cached;
+          continue;
+        }
+        if (misses == null) {
+          misses = new PageReference[count - i];
+          missIndex = new int[count - i];
+        }
+        missIndex[missCount] = i;
+        misses[missCount++] = fragmentRef;
       }
-    } catch (final UnsupportedOperationException guardUnsupported) {
-      // A cache implementation without guard support (EmptyCache) — fall through to an uncached read.
+      if (missCount > 0) {
+        final PageReference[] batch = missCount == misses.length
+            ? misses
+            : Arrays.copyOf(misses, missCount);
+        final Page[] loaded = readDurableBatch(batch);
+        for (int m = 0; m < missCount; m++) {
+          final Page page = loaded[m];
+          loaded[m] = null; // ownership moves to the adoption below
+          try {
+            window[missIndex[m]] = adoptChainFragment(fragmentCache, misses[m], page);
+          } catch (final Throwable adoptionFailure) {
+            retireUnadoptedPages(loaded, m + 1, adoptionFailure);
+            throw adoptionFailure;
+          }
+        }
+      }
+    } catch (final Throwable failure) {
+      // Nothing of the window has reached the caller's list yet: release exactly what this call
+      // guarded. Throwable, not RuntimeException: the reads above allocate, and allocator exhaustion
+      // surfaces as OutOfMemoryError.
+      for (final HOTLeafPage guarded : window) {
+        if (guarded != null) {
+          try {
+            guarded.releaseGuard();
+          } catch (final Throwable releaseFailure) {
+            addSuppressedSafely(failure, releaseFailure);
+          }
+        }
+      }
+      throw failure;
     }
+    // Publish every guarded page into the cleanup-owned list first, then validate in chain order.
+    for (final HOTLeafPage hotFragment : window) {
+      if (hotFragment != null) {
+        fragments.add(hotFragment);
+      }
+    }
+    for (int i = 0; i < count; i++) {
+      final PageFragmentKey fragmentKey = pageFragments.get(i);
+      final HOTLeafPage hotFragment = window[i];
+      if (hotFragment == null) {
+        // A SHORT window is worse than none: carryForwardAgingHOTEntries takes the LAST element as
+        // the fragment about to age out, so a skipped fragment silently re-points that at the
+        // wrong one — carrying entries that are not aging and losing the ones that are.
+        throw new SirixIOException("HOT fragment at key " + fragmentKey.key()
+            + " is absent or not a HOTLeafPage — the versioning window is incomplete");
+      }
+      final int physicalRevision = hotFragment.getRevision();
+      if (fragmentKey.revision() != physicalRevision) {
+        throw new SirixIOException("HOT fragment revision mismatch at key " + fragmentKey.key() + ": metadata revision="
+            + fragmentKey.revision() + ", physical header revision=" + physicalRevision);
+      }
+    }
+  }
 
-    final Page loaded = pageReader.read(fragmentRef, resourceConfig);
+  /**
+   * Adopt one freshly read chain fragment into the fragment cache, guarded for the caller; the scalar
+   * tail of the load described on {@link #loadChainFragmentsGuarded}.
+   *
+   * @return the guarded fragment, or {@code null} if the page is absent or not a HOT leaf
+   */
+  private static @Nullable HOTLeafPage adoptChainFragment(final Cache<PageReference, HOTLeafPage> fragmentCache,
+      final PageReference fragmentRef, final @Nullable Page loaded) {
     if (!(loaded instanceof HOTLeafPage fragment)) {
       if (loaded != null) {
         loaded.close();
@@ -3871,7 +4191,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     try {
       adopted = fragmentCache.getOrLoadAndGuard(fragmentRef, _ -> fragment);
     } catch (final UnsupportedOperationException guardUnsupported) {
-      // Same fall-through as above: keep the page, just uncached.
+      // Same fall-through as the probe: keep the page, just uncached.
     } catch (final Throwable adoptionFailure) {
       detachAndRetireHOTLeaf(fragmentCache, fragment, adoptionFailure);
       throw adoptionFailure;
@@ -3903,6 +4223,65 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
     fragment.markOrphaned();
     return fragment;
+  }
+
+  /**
+   * Free the pages a batch read that no adoption ever reached (a failure part way), best effort.
+   * Pages of a backend that {@linkplain Reader#returnsSharedPages() returns shared pages} stay with
+   * it.
+   */
+  private void retireUnadoptedPages(final Page[] loaded, final int from, final Throwable primary) {
+    if (pageReader.returnsSharedPages()) {
+      return;
+    }
+    for (int k = from; k < loaded.length; k++) {
+      retireOwnedPage(loaded[k], primary);
+    }
+  }
+
+  /**
+   * Free one page the backend returned for a read that failed before any caller received it, best
+   * effort, unless the backend {@linkplain Reader#returnsSharedPages() still owns it}.
+   */
+  private void retireUnadoptedPage(final @Nullable Page page, final Throwable primary) {
+    if (!pageReader.returnsSharedPages()) {
+      retireOwnedPage(page, primary);
+    }
+  }
+
+  /**
+   * Close {@code loaded[from, to)}, the pages a batch read that no caller received (a failure part
+   * way), best effort, unless the backend {@linkplain Reader#returnsSharedPages() still owns them}.
+   */
+  private void closeUnhandedPages(final Page[] loaded, final int from, final int to, final Throwable primary) {
+    if (pageReader.returnsSharedPages()) {
+      return;
+    }
+    for (int i = from; i < to; i++) {
+      final Page unhanded = loaded[i];
+      if (unhanded != null && !unhanded.isClosed()) {
+        try {
+          unhanded.close();
+        } catch (final Throwable closeFailure) {
+          addSuppressedSafely(primary, closeFailure);
+        }
+      }
+    }
+  }
+
+  private static void retireOwnedPage(final @Nullable Page page, final Throwable primary) {
+    if (page == null) {
+      return;
+    }
+    try {
+      if (page instanceof HOTLeafPage leaf) {
+        leaf.retire();
+      } else {
+        page.close();
+      }
+    } catch (final Throwable retirementFailure) {
+      addSuppressedSafely(primary, retirementFailure);
+    }
   }
 
   /**
@@ -3974,6 +4353,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   public @Nullable Page loadHOTPage(PageReference reference) {
+    return loadHOTPage(reference, false);
+  }
+
+  @Override
+  public @Nullable Page loadHOTPageAndGuard(final PageReference reference) {
+    return loadHOTPage(reference, true);
+  }
+
+  private @Nullable Page loadHOTPage(final PageReference reference, final boolean retainLeafGuard) {
     assertNotClosed();
 
     if (reference == null) {
@@ -3986,10 +4374,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       if (container != null) {
         Page modified = container.getModified();
         if (modified instanceof HOTLeafPage || modified instanceof HOTIndirectPage) {
+          if (retainLeafGuard && modified instanceof HOTLeafPage leaf && !leaf.acquireGuard()) {
+            throw new IllegalStateException("Transaction HOT leaf was retired before read handoff");
+          }
           return modified;
         }
         Page complete = container.getComplete();
         if (complete instanceof HOTLeafPage || complete instanceof HOTIndirectPage) {
+          if (retainLeafGuard && complete instanceof HOTLeafPage leaf && !leaf.acquireGuard()) {
+            throw new IllegalStateException("Transaction HOT leaf was retired before read handoff");
+          }
           return complete;
         }
       }
@@ -3998,7 +4392,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Check if page is swizzled (directly on reference)
     Page swizzled = reference.getPage();
     if (swizzled instanceof HOTLeafPage hotSwizzled) {
-      if (!hotSwizzled.isClosed()) {
+      if (!hotSwizzled.isClosed() && (!retainLeafGuard || hotSwizzled.acquireGuard())) {
         return hotSwizzled;
       }
       reference.clearPageIfSame(hotSwizzled);
@@ -4017,7 +4411,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           new PageReference().setKey(reference.getKey()).setDatabaseId(getDatabaseId()).setResourceId(getResourceId());
 
       final HOTLeafPage cachedHot =
-          handoffCachedHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), canonicalKey, reference);
+          handoffCachedHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), canonicalKey, reference, retainLeafGuard);
       if (cachedHot != null) {
         return cachedHot;
       }
@@ -4031,7 +4425,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         }
 
         if (loadedPage instanceof HOTLeafPage hotLeaf) {
-          return loadHOTLeafPageWithVersioning(reference, canonicalKey, reference, hotLeaf);
+          return loadHOTLeafPageWithVersioning(reference, canonicalKey, reference, hotLeaf, retainLeafGuard);
         }
       } catch (SirixIOException e) {
         return null;

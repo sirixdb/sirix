@@ -42,7 +42,9 @@ import java.util.List;
  * {@code TupleSort} the interpreter would have used, rather than a second implementation of
  * XQuery's ordering rules that could drift from it on empty keys, {@code NaN}, or ties. The
  * executor emits groups in document first-appearance order, so a stable sort over that input
- * reproduces the interpreter's tie order exactly.
+ * reproduces the interpreter's tie order exactly. A single plain key ordered by its count alone
+ * arrives already ordered instead, equal counts by key, so every projection route of that shape
+ * agrees on ties.
  */
 public final class SirixGroupAggregateExpr implements Expr {
 

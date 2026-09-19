@@ -48,11 +48,15 @@ import java.util.concurrent.atomic.LongAdder;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Objects;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -71,6 +75,50 @@ public final class FileChannelReader extends AbstractReader {
    * Data file channel.
    */
   private final FileChannel dataFileChannel;
+
+  /** Switch for decoding coalesced batch members straight from the borrowed read buffer. */
+  static final String BORROW_BATCH_INPUT = "sirix.filechannel.borrowBatchInput";
+
+  /** Overflow-input switch of {@link AbstractReader}; the default of {@link #BORROW_BATCH_INPUT}. */
+  static final String BORROW_OVERFLOW_INPUT = "sirix.io.borrowOverflowInput";
+
+  /** Decode a coalesced page while its read buffer is still exclusively owned by this call. */
+  private final boolean borrowBatchInput = batchInputBorrowingEnabled();
+
+  /**
+   * Requested offsets only: bounded OS read-ahead without queued tasks or staged page objects.
+   *
+   * <p>
+   * {@code BATCH_READ_AHEAD} is how many pages of a batch may be hinted ahead of the batch's read
+   * cursor. Every caller today hands at most 1,024 references, so the default hints the WHOLE batch
+   * up front — the kernel then has every page of the batch in flight while the first run is still
+   * being read, instead of the sixteen-page trickle that kept a cold coalesced fill at queue depth
+   * one for most of its life. The bound exists for a pathological batch, not for the ordinary one.
+   *
+   * <p>
+   * {@code BATCH_READ_AHEAD_BYTES} is the tail hinted past an offset whose page length is unknown —
+   * the last page of a run, or every page of an advisory {@link #prefetch} whose successor is farther
+   * away than this. A page is bounded by the next page's offset in an append-only data file, so every
+   * other page's extent is exact and hinting it costs no bandwidth. 32 KiB covers the length header
+   * and the whole body of the typical page (the 100M JSONBench Q4/Q5 cold reads average 9–12 KiB) so
+   * the body read that follows the header is a cache hit rather than a second device round trip.
+   */
+  private static final int BATCH_READ_AHEAD =
+      Math.max(0, Math.min(4096, Integer.getInteger("sirix.filechannel.batchReadAhead", 1024)));
+  private static final long BATCH_READ_AHEAD_BYTES =
+      Math.max(4096L, Math.min(1024 * 1024L, Long.getLong("sirix.filechannel.batchReadAheadBytes", 32L * 1024)));
+
+  /**
+   * Pages per advisory {@link #prefetch} batch advertised through {@link #preferredPrefetchBatch()};
+   * {@code 0} disables the advisory route and restores the pre-hint behaviour of every caller (the
+   * HOT trie sibling window, the projection directory walk and the column-store sweep all gate on
+   * it). 32 matches the NVMe queue-depth sweet spot the callers were sized for.
+   */
+  private static final int PREFETCH_BATCH =
+      Math.max(0, Math.min(1024, Integer.getInteger("sirix.filechannel.prefetchBatch", 32)));
+
+  private static final int UNRESOLVED_READ_AHEAD_FD = -2;
+  private volatile int readAheadFd = UNRESOLVED_READ_AHEAD_FD;
 
   /**
    * Revisions offset file channel.
@@ -94,21 +142,78 @@ public final class FileChannelReader extends AbstractReader {
   private final AtomicBoolean closed = new AtomicBoolean();
 
   /**
-   * Direct-ByteBuffer pool for page reads. Owning a buffer via
-   * {@link java.util.concurrent.ArrayBlockingQueue#poll} gives a thread exclusive use without holding
-   * any shared monitor during the expensive decompress + deserialize phase. Replaces the prior
-   * {@code synchronized(STRIPE_LOCK)} design which serialized {@code read → decompress → deserialize}
-   * per-stripe and was the dominant cold-cache wall-time contributor (profiled: 97 % of lock samples,
-   * ~770 s off-CPU at cold 100M).
+   * Direct-ByteBuffer pool for page reads. Atomic slot ownership avoids a common queue lock both
+   * during acquisition and return. No buffer is shared while a reader decompresses or deserializes.
    *
    * <p>
-   * HFT constraints honored: bounded off-heap (POOL_SIZE × per-buffer capacity), zero alloc in steady
-   * state (buffers are reused), virtual-thread-safe (queue applies back-pressure instead of letting
-   * the buffer population scale with thread count).
+   * Retained buffers are bounded by POOL_SIZE, independent of platform or virtual thread count. An
+   * exhausted pool permits a transient allocation; returns to a full pool are discarded. A successful
+   * borrow/return allocates nothing and retains no per-thread state.
    */
   private static final int POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
-  private static final java.util.concurrent.ArrayBlockingQueue<ByteBuffer> BUF_POOL =
-      new java.util.concurrent.ArrayBlockingQueue<>(POOL_SIZE);
+  private static final BufferPool BUF_POOL =
+      new BufferPool(POOL_SIZE, Boolean.parseBoolean(System.getProperty("sirix.filechannel.lockFreeBuffers", "true")));
+
+  /** Bounded unordered pool: FIFO ordering is unnecessary for exclusive scratch-buffer ownership. */
+  static final class BufferPool {
+    // Four-byte references leave at least two cache lines between active slots. The sparse
+    // array is small (two slots per processor); separate workers normally reuse separate slots.
+    private static final int SLOT_STRIDE = 32;
+    private static final VarHandle SLOTS = MethodHandles.arrayElementVarHandle(ByteBuffer[].class);
+    private final int capacity;
+    private final ByteBuffer @Nullable [] slots;
+    private final @Nullable ArrayBlockingQueue<ByteBuffer> queue;
+
+    BufferPool(final int capacity, final boolean lockFree) {
+      if (capacity < 1 || capacity > Integer.MAX_VALUE / SLOT_STRIDE) {
+        throw new IllegalArgumentException("invalid buffer pool capacity: " + capacity);
+      }
+      this.capacity = capacity;
+      this.slots = lockFree
+          ? new ByteBuffer[capacity * SLOT_STRIDE]
+          : null;
+      this.queue = lockFree
+          ? null
+          : new ArrayBlockingQueue<>(capacity);
+    }
+
+    @Nullable
+    ByteBuffer poll() {
+      if (queue != null) {
+        return queue.poll();
+      }
+      int slot = (int) (Thread.currentThread().threadId() % capacity) * SLOT_STRIDE;
+      for (int remaining = capacity; remaining > 0; remaining--) {
+        final ByteBuffer buffer = (ByteBuffer) SLOTS.getAcquire(slots, slot);
+        if (buffer != null && SLOTS.compareAndSet(slots, slot, buffer, null)) {
+          return buffer;
+        }
+        slot += SLOT_STRIDE;
+        if (slot == slots.length) {
+          slot = 0;
+        }
+      }
+      return null;
+    }
+
+    boolean offer(final ByteBuffer buffer) {
+      Objects.requireNonNull(buffer, "buffer");
+      if (queue != null) {
+        return queue.offer(buffer);
+      }
+      int slot = (int) (Thread.currentThread().threadId() % capacity) * SLOT_STRIDE;
+      for (int remaining = capacity; remaining > 0; remaining--) {
+        if (SLOTS.getOpaque(slots, slot) == null && SLOTS.compareAndSet(slots, slot, null, buffer)) {
+          return true;
+        }
+        slot += SLOT_STRIDE;
+        if (slot == slots.length) {
+          slot = 0;
+        }
+      }
+      return false;
+    }
+  }
 
   /**
    * Per-pool-buffer capacity. Kept at 128 KiB because measurement at cold 100 M showed that enlarging
@@ -123,6 +228,10 @@ public final class FileChannelReader extends AbstractReader {
    */
   private static final int BUFFER_BYTES =
       Math.max(64 * 1024, Math.min(16 * 1024 * 1024, Integer.getInteger("sirix.filechannel.bufferBytes", 128 * 1024)));
+
+  /** Bounded prefix for small pages; four bytes restores separate header and body reads. */
+  private static final int PAGE_PREFIX_BYTES =
+      Math.max(Integer.BYTES, Math.min(64 * 1024, Integer.getInteger("sirix.filechannel.pagePrefixBytes", 1024)));
 
   static {
     for (int i = 0; i < POOL_SIZE; i++) {
@@ -202,11 +311,17 @@ public final class FileChannelReader extends AbstractReader {
    * page can never be longer than the file that contains it, so bound it accordingly.
    */
   private void checkDataLength(final int dataLength) throws IOException {
+    checkDataLength(dataLength, -1L);
+  }
+
+  private void checkDataLength(final int dataLength, final long batchFileSize) throws IOException {
     // Zero is as invalid as negative: no serialized page is empty. It matters under preallocated
     // commits (the default), where a stale/corrupt reference into the zero-filled preallocation
     // tail reads a 0 length header — fail with this clean diagnostic instead of feeding a
     // zero-length payload into the decompression/deserialization pipeline.
-    final long fileSize = dataFileChannel.size();
+    final long fileSize = batchFileSize < 0L
+        ? dataFileChannel.size()
+        : batchFileSize;
     if (dataLength <= 0 || dataLength > fileSize) {
       throw new SirixIOException("Corrupt page reference: declared data length " + dataLength
           + " is out of bounds for a data file of " + fileSize + " bytes.");
@@ -242,30 +357,46 @@ public final class FileChannelReader extends AbstractReader {
 
   private Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration,
       final boolean lazyRecordPage) {
-    // First pread: 4-byte length header. Uses a pooled buffer so we can size the
-    // data buffer exactly for the second pread.
-    ByteBuffer buffer = acquireBuffer(4);
+    return read(reference, resourceConfiguration, lazyRecordPage, -1L);
+  }
+
+  private Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration,
+      final boolean lazyRecordPage, final long batchFileSize) {
+    ByteBuffer buffer = acquireBuffer(PAGE_PREFIX_BYTES);
     try {
       final long position = reference.getKey();
-
-      buffer.clear().limit(4);
-      readFully(buffer, position, "page length header");
+      final long fileSize = batchFileSize < 0L
+          ? dataFileChannel.size()
+          : batchFileSize;
+      final int prefixBytes = (int) Math.min(PAGE_PREFIX_BYTES, Math.max(Integer.BYTES, fileSize - position));
+      buffer.clear().limit(prefixBytes);
+      // A concurrent truncation beyond this page may shorten only the speculative suffix.
+      // Require the header and declared body below, never bytes belonging to a following page.
+      readAtMost(buffer, position);
+      if (buffer.position() < Integer.BYTES) {
+        buffer.limit(Integer.BYTES);
+        readFully(buffer, position, "page length header");
+      }
       buffer.flip();
       final int dataLength = buffer.getInt();
-      checkDataLength(dataLength);
-
-      // If the header-probe buffer is too small for the page body, swap it for a
-      // right-sized one. The rare-extra-alloc branch returns the old buffer to the
-      // pool and gives us one large enough. Keeps the pool invariant.
-      if (buffer.capacity() < dataLength) {
-        final ByteBuffer grown = acquireBuffer(dataLength);
-        releaseBuffer(buffer);
-        buffer = grown;
+      checkDataLength(dataLength, fileSize);
+      if (dataLength <= buffer.remaining()) {
+        // Checksum and deserialization see exactly the declared body, excluding both the
+        // length header and any following bytes fetched by the bounded prefix.
+        buffer.limit(buffer.position() + dataLength);
+      } else {
+        if (buffer.capacity() < dataLength) {
+          final ByteBuffer grown = acquireBuffer(dataLength);
+          grown.clear().put(buffer);
+          releaseBuffer(buffer);
+          buffer = grown;
+        } else {
+          buffer.compact();
+        }
+        buffer.limit(dataLength);
+        readFully(buffer, position + Integer.BYTES, "page body");
+        buffer.flip();
       }
-
-      buffer.clear().limit(dataLength);
-      readFully(buffer, position + 4, "page body");
-      buffer.flip();
 
       // Deserialize while this thread exclusively owns `buffer`. No shared monitor.
       // The buffer is released in finally — this is safe because deserialize either
@@ -423,10 +554,13 @@ public final class FileChannelReader extends AbstractReader {
    * whole column fill in a handful of sequential reads. Beyond the gap the pages read individually
    * (no wasted bandwidth on sparse layouts).
    */
-  private static final long COALESCE_MAX_GAP = Long.getLong("sirix.filechannel.coalesceGapBytes", 256L * 1024);
+  private static final long COALESCE_MAX_GAP = Long.getLong("sirix.filechannel.coalesceGapBytes", 64L * 1024);
 
   /** Cap on one coalesced span; bounds the transient read buffer. */
   private static final long COALESCE_MAX_SPAN = Long.getLong("sirix.filechannel.coalesceSpanBytes", 8L * 1024 * 1024);
+
+  private static final boolean BATCH_FILE_SIZE =
+      Boolean.parseBoolean(System.getProperty("sirix.filechannel.batchFileSize", "true"));
 
 
   /**
@@ -455,33 +589,214 @@ public final class FileChannelReader extends AbstractReader {
       order[k] = k;
     }
     IntArrays.quickSort(order, (a, b) -> Long.compare(keyOf(references[a]), keyOf(references[b])));
+    if (n == 0 || keyOf(references[order[n - 1]]) < 0) {
+      return pages;
+    }
+    // All durable references in this batch already exist. Capture their allocation bound once;
+    // never retain it across calls, since the same reader may observe a later committed append.
+    final long batchFileSize;
+    try {
+      batchFileSize = BATCH_FILE_SIZE
+          ? dataFileChannel.size()
+          : -1L;
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+    // Ordinary single-page readers pay no native-advice setup. Concurrent first batches may
+    // resolve the same descriptor twice; publication needs no lock and retains no extra resource.
+    final int batchReadAheadFd = BATCH_READ_AHEAD > 0 && n > 1
+        ? readAheadFd()
+        : -1;
+    // Unresolved references sort first; the durable part of the batch starts after them.
     int i = 0;
-    while (i < n) {
-      final long start = keyOf(references[order[i]]);
-      if (start < 0) {
-        i++;
-        continue;
-      }
-      // Grow the run while offsets stay ascending, near-adjacent, and inside the span cap.
-      int j = i;
-      long last = start;
-      while (j + 1 < n) {
-        final long next = keyOf(references[order[j + 1]]);
-        if (next <= last || next - last > COALESCE_MAX_GAP || next - start > COALESCE_MAX_SPAN) {
-          break;
+    while (i < n && keyOf(references[order[i]]) < 0) {
+      i++;
+    }
+    // Hint cursor: the first position whose RUN has not been hinted yet. Hints run ahead of the
+    // reads by at most BATCH_READ_AHEAD pages and are issued per run, so a whole batch costs one
+    // advice call per coalesced span rather than one per page — and every span is in flight
+    // before its predecessor's synchronous pread returns.
+    int hintFrom = i;
+    try {
+      while (i < n) {
+        final int j = runEnd(references, order, i, n);
+        if (batchReadAheadFd >= 0) {
+          final int hintLimit = Math.min(n, i + BATCH_READ_AHEAD);
+          while (hintFrom < hintLimit) {
+            final int hintTo = runEnd(references, order, hintFrom, n);
+            adviseRun(batchReadAheadFd, keyOf(references[order[hintFrom]]), keyOf(references[order[hintTo]]),
+                hintTo + 1 < n
+                    ? keyOf(references[order[hintTo + 1]])
+                    : Long.MAX_VALUE,
+                batchFileSize);
+            hintFrom = hintTo + 1;
+          }
         }
-        last = next;
-        j++;
+        if (j == i) {
+          pages[order[i]] = read(references[order[i]], resourceConfiguration, false, batchFileSize);
+          i++;
+          continue;
+        }
+        readRun(references, pages, order, i, j, resourceConfiguration, batchFileSize);
+        i = j + 1;
       }
-      if (j == i) {
-        pages[order[i]] = read(references[order[i]], resourceConfiguration);
-        i++;
-        continue;
-      }
-      readRun(references, pages, order, i, j, resourceConfiguration);
-      i = j + 1;
+    } catch (final RuntimeException | Error failure) {
+      retireDecodedPages(pages, failure);
+      throw failure;
     }
     return pages;
+  }
+
+  /**
+   * Last index (in sorted {@code order}) of the coalesced run that starts at {@code from}: offsets
+   * stay strictly ascending, near-adjacent, and inside the span cap. {@code from} must name a durable
+   * reference.
+   */
+  private static int runEnd(final PageReference[] references, final int[] order, final int from, final int n) {
+    final long start = keyOf(references[order[from]]);
+    long last = start;
+    int j = from;
+    while (j + 1 < n) {
+      final long next = keyOf(references[order[j + 1]]);
+      if (next <= last || next - last > COALESCE_MAX_GAP || next - start > COALESCE_MAX_SPAN) {
+        break;
+      }
+      last = next;
+      j++;
+    }
+    return j;
+  }
+
+  /**
+   * One {@code WILLNEED} for a whole coalesced run: its span up to the last member's length header,
+   * plus a bounded tail for the last body whose length is unknown until that header is read. The tail
+   * never reaches into the next run (that run gets its own hint, and in an append-only file the body
+   * ends before the next page anyway) nor past the file. Advisory only: a declined hint changes
+   * nothing about the reads that follow.
+   */
+  private static void adviseRun(final int fd, final long start, final long lastOffset, final long nextRunStart,
+      final long fileSize) {
+    long end = lastOffset + Integer.BYTES + BATCH_READ_AHEAD_BYTES;
+    if (nextRunStart > lastOffset && nextRunStart < end) {
+      end = nextRunStart;
+    }
+    if (fileSize >= 0L && end > fileSize) {
+      end = fileSize;
+    }
+    if (end > start) {
+      PosixFadvise.adviseWillNeed(fd, start, end - start);
+    }
+  }
+
+  /**
+   * The data channel's raw descriptor for native advice, resolved once per reader; {@code -1} when
+   * the platform cannot provide it (then every advisory route below is a no-op).
+   */
+  private int readAheadFd() {
+    int fd = readAheadFd;
+    if (fd == UNRESOLVED_READ_AHEAD_FD) {
+      fd = PosixFadvise.extractFd(dataFileChannel);
+      readAheadFd = fd;
+    }
+    return fd;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>
+   * The standard backend advertises its batch only where the advice can actually reach the kernel
+   * (Linux, extractable descriptor). Resolved once per reader — this is called once per transaction —
+   * so the scan loops that gate on it pay nothing per page.
+   */
+  @Override
+  public int preferredPrefetchBatch() {
+    if (PREFETCH_BATCH == 0) {
+      return 0;
+    }
+    return readAheadFd() >= 0
+        ? PREFETCH_BATCH
+        : 0;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>
+   * {@code posix_fadvise(WILLNEED)} over the referenced offsets: the kernel submits every page of the
+   * batch to the device at once and the {@link #read(PageReference, ResourceConfiguration)} that
+   * follows for each of them finds the bytes in the page cache instead of waiting one device round
+   * trip per page. Extents are derived from the SORTED keys — a page ends where the next one begins
+   * in an append-only file — so touching pages merge into one advice call and only a page without a
+   * near successor is hinted with the bounded tail. Stages nothing, reads no page objects, and never
+   * throws: {@link PosixFadvise#adviseWillNeed} swallows every failure, so a declined hint leaves the
+   * subsequent reads exactly as they are without it.
+   */
+  @Override
+  public void prefetch(final PageReference[] references, final int count) {
+    if (references == null || count <= 0) {
+      return;
+    }
+    final int fd = readAheadFd();
+    if (fd < 0) {
+      return;
+    }
+    final int n = Math.min(count, references.length);
+    if (n == 1) {
+      // The single-reference hint of a trie descent: no sort, no scratch.
+      final long key = keyOf(references[0]);
+      if (key >= 0) {
+        PosixFadvise.adviseWillNeed(fd, key, BATCH_READ_AHEAD_BYTES);
+      }
+      return;
+    }
+    final long[] keys = new long[n];
+    int durable = 0;
+    for (int i = 0; i < n; i++) {
+      final long key = keyOf(references[i]);
+      if (key >= 0) {
+        keys[durable++] = key;
+      }
+    }
+    if (durable == 0) {
+      return;
+    }
+    Arrays.sort(keys, 0, durable);
+    long start = keys[0];
+    long end = start;
+    for (int i = 0; i < durable; i++) {
+      final long key = keys[i];
+      if (key > end) {
+        // A gap the tail did not bridge: this extent is complete, the next one starts here.
+        PosixFadvise.adviseWillNeed(fd, start, end - start);
+        start = key;
+      }
+      long pageEnd = key + BATCH_READ_AHEAD_BYTES;
+      if (i + 1 < durable) {
+        final long span = keys[i + 1] - key;
+        if (span > 0 && span < BATCH_READ_AHEAD_BYTES) {
+          pageEnd = key + span; // exact: the page cannot extend past its successor's offset
+        }
+      }
+      if (pageEnd > end) {
+        end = pageEnd;
+      }
+    }
+    PosixFadvise.adviseWillNeed(fd, start, end - start);
+  }
+
+  /**
+   * Resolves whether coalesced batch reads decode from the borrowed read buffer. An explicitly set
+   * {@code sirix.filechannel.borrowBatchInput} decides on its own; while it is unset the batch path
+   * follows {@code sirix.io.borrowOverflowInput}, so setting only that switch to {@code false}
+   * restores owned input on both paths. With neither set, input is borrowed.
+   *
+   * @return {@code true} if batch members may be decoded from the borrowed read buffer
+   */
+  static boolean batchInputBorrowingEnabled() {
+    return borrowedInputEnabled(System.getProperty(BORROW_BATCH_INPUT) != null
+        ? BORROW_BATCH_INPUT
+        : BORROW_OVERFLOW_INPUT);
   }
 
   private static long keyOf(final @Nullable PageReference reference) {
@@ -506,7 +821,7 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   private void readRun(final PageReference[] references, final Page[] pages, final int[] order, final int from,
-      final int to, final @Nullable ResourceConfiguration resourceConfiguration) {
+      final int to, final @Nullable ResourceConfiguration resourceConfiguration, final long batchFileSize) {
     final long start = references[order[from]].getKey();
     final long lastOffset = references[order[to]].getKey();
     final int spanLen = (int) (lastOffset + 4 - start);
@@ -519,6 +834,13 @@ public final class FileChannelReader extends AbstractReader {
       buffer.clear().limit(spanLen);
       readFully(buffer, start, "coalesced page span");
       buffer.flip();
+      final boolean useSegments = borrowBatchInput && byteHandler.supportsMemorySegments();
+      final MemorySegment span = useSegments
+          ? MemorySegment.ofBuffer(buffer)
+          : null;
+      final ByteBuffer checksumView = useSegments
+          ? buffer.duplicate()
+          : null;
       // Non-final members: length header + full body sit inside the span.
       for (int k = from; k < to; k++) {
         final PageReference member = references[order[k]];
@@ -526,23 +848,31 @@ public final class FileChannelReader extends AbstractReader {
         final int rel = (int) (offset - start);
         final int dataLength = buffer.getInt(rel);
         final long bound = references[order[k + 1]].getKey() - offset - 4;
-        if (dataLength < 0 || dataLength > bound) {
+        if (dataLength <= 0 || dataLength > bound) {
           // Body would cross the next page's offset — not the append-only layout this
           // fast path assumes. Exact per-page read decides whether it is corruption.
           if (DIAG) {
             RUN_FALLBACKS.increment();
           }
-          pages[order[k]] = read(member, resourceConfiguration);
+          pages[order[k]] = read(member, resourceConfiguration, false, batchFileSize);
           continue;
         }
-        final byte[] page = new byte[dataLength];
-        buffer.get(rel + 4, page);
-        verifyChecksumIfNeeded(page, member, resourceConfiguration);
-        pages[order[k]] = deserialize(resourceConfiguration, page, member);
+        if (useSegments) {
+          // The independent view leaves header lookup bounds intact for the next member.
+          checksumView.clear().position(rel + Integer.BYTES).limit(rel + Integer.BYTES + dataLength);
+          verifyChecksumIfNeeded(checksumView, member, resourceConfiguration);
+          pages[order[k]] =
+              deserializeFromSegment(resourceConfiguration, span.asSlice(rel + Integer.BYTES, dataLength), member);
+        } else {
+          final byte[] page = new byte[dataLength];
+          buffer.get(rel + 4, page);
+          verifyChecksumIfNeeded(page, member, resourceConfiguration);
+          pages[order[k]] = deserialize(resourceConfiguration, page, member);
+        }
       }
       // Final member: its length header ends the span; the body needs one more pread.
       final int lastLength = buffer.getInt(spanLen - 4);
-      checkDataLength(lastLength);
+      checkDataLength(lastLength, batchFileSize);
       if (buffer.capacity() < lastLength) {
         final ByteBuffer grown = acquireBuffer(lastLength);
         releaseBuffer(buffer);
@@ -551,11 +881,16 @@ public final class FileChannelReader extends AbstractReader {
       buffer.clear().limit(lastLength);
       readFully(buffer, lastOffset + 4, "coalesced last page body");
       buffer.flip();
-      final byte[] page = new byte[lastLength];
-      buffer.get(page);
       final PageReference lastMember = references[order[to]];
-      verifyChecksumIfNeeded(page, lastMember, resourceConfiguration);
-      pages[order[to]] = deserialize(resourceConfiguration, page, lastMember);
+      if (useSegments) {
+        verifyChecksumIfNeeded(buffer, lastMember, resourceConfiguration);
+        pages[order[to]] = deserializeFromSegment(resourceConfiguration, MemorySegment.ofBuffer(buffer), lastMember);
+      } else {
+        final byte[] page = new byte[lastLength];
+        buffer.get(page);
+        verifyChecksumIfNeeded(page, lastMember, resourceConfiguration);
+        pages[order[to]] = deserialize(resourceConfiguration, page, lastMember);
+      }
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } finally {

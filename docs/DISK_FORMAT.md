@@ -418,8 +418,10 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                                          entry stays stale). The reason bits are additive: they
                                          were always zero before, so a tombstone written without
                                          them parses identically and ver stays 0.
-                                         ver=0 is the ONLY supported version: any other value
-                                         parses to null → "no metadata" → fail-closed decline.
+                                         ver=0 (row-group-major slots) and ver=1 (column-major
+                                         slots, see Compatibility) are the only supported
+                                         versions: any other value parses to null → "no
+                                         metadata" → fail-closed decline.
     slotKind 0: PIXD descriptor, a PIXB blob whose payload is
                                 { int "PIXD"; u8 ver=0; int rowCount; u16 columnCount;
                                   i64 firstRecordKey; i64 lastRecordKey;
@@ -505,7 +507,7 @@ There is no projection-format reader bridge or migration path. Explicit index cr
 may install a fresh CoW sub-tree when the target has no describable current layout; ordinary
 maintenance never resets the tree and instead fails the owning transaction on inconsistent units.
 
-A PIXM whose version byte is anything other than the one supported value (0) parses to null —
+A PIXM whose version byte is anything other than a supported value (0 or 1) parses to null —
 same PIXB/PIXM magic, so the version is the only discriminator — which every caller treats as
 "no metadata" and declines; maintenance fails the owning write until the index is explicitly
 re-created. That is what the byte is for: rejecting a format rather than misreading it. Earlier
@@ -521,3 +523,42 @@ entries are immutable `ValueDictionaryEntryNode` keys. Ordinary maintenance CoWs
 paths and reverse block touched by new values, while IDs, metadata anchors, and historical roots
 remain stable. Probe telemetry counts radix, bucket, reverse-block, and value-entry reads actually
 performed.
+
+### Compatibility
+
+These persisted projection structures were added after the previous release:
+
+- **Flag-summary chunks** (`ProjectionFlagSummaryChunks`): per-leaf liveness and BODY-flag evidence
+  for projections of at most eight columns, 32 leaves per chunk at `2^45 + chunkId`, with a header
+  at `2^45 + 2^20`.
+- **Numeric-proof chunks** (`ProjectionNumericProofs`): optional evidence binding an integral BODY's
+  extrema and full presence to its content hash, 64 row groups per chunk at
+  `2^46 + 2^34 + column·2^18 + chunk`, with a header at `2^46 + 2^34 + 2^32 − 1`.
+- **Value-summary capabilities for dictionary string columns**: PIXM `setSummaryCapabilityColumns[]`
+  may name `STRING_DICT` columns, not only `STRING_SET` columns. Their bounded summaries use the
+  existing `2^44 + column` slots.
+- **Version-1 set-summary chunks**: a summary with a missing-value entry is written with version
+  byte 1; a u16 length of `0xFFFF` marks that entry and no value bytes follow. Summaries without one
+  are still written as version 0.
+- **`projectionSort` element** of the projection `IndexDef`: the ordered sort-column list, one
+  `keyColumn column="N"` child per key column. Column numbers index the declared projection fields.
+- **Sorted-view slots**, only when `projectionSort` is declared: leaves at `2^46 + leafId`, the
+  directory header at `2^46 + 2^32` followed by its nodes, group summaries at `2^46 + 2^33 + leafId`,
+  and leaf-bounds chunks (16 leaves each, stored inline) from `2^46 + 3·2^32`. The directory header
+  records the key-field layout and the number of rows held under the reserved unencodable key.
+- **Column-major slot layout** (PIXM version 1), created only by a fresh bulk build with
+  `-Dsirix.projection.columnMajorSlots=true`: descriptor and segment slots move to
+  `2^41 | slotKind << 25 | rowGroupId`.
+
+The additions are backward-readable but not forward-readable. This code reads projection indexes
+written by the previous release: version-0 metadata and set-summary chunks still parse, missing
+flag-summary and numeric-proof slots fall back to the descriptor and BODY paths, and a definition
+without `projectionSort` has no sorted view.
+
+Projection indexes built by this code cannot be opened by the previous release. It rejects metadata
+that names a value-summary capability on a dictionary string column, and version-1 set-summary
+chunks, as corrupt: queries decline the index and maintenance fails the owning transaction. It also
+declines PIXM version 1 as unsupported. It ignores the remaining slots and the `projectionSort`
+element, so its maintenance would leave them stale even in an index it does not reject. When
+downgrading, drop the projection index and rebuild it with the previous release; there is no
+in-place conversion.

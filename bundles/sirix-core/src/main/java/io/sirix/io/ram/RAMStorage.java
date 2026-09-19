@@ -156,6 +156,17 @@ public final class RAMStorage implements IOStorage {
       return mResourceFileStorage.get(reference.getKey());
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>
+     * Always {@code true}: every read returns the instance held in this storage's page map.
+     */
+    @Override
+    public boolean returnsSharedPages() {
+      return true;
+    }
+
     @Override
     public PageReference readUberPageReference() {
       final Page page = mResourceFileStorage.get(mUberPageKey.get(-1));

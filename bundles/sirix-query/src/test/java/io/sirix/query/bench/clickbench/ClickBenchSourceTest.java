@@ -91,6 +91,27 @@ final class ClickBenchSourceTest {
   }
 
   @Test
+  void ldjsonAdapterPreservesLongUtf8RecordsAcrossRefillsAndSingleCharacterReads() throws IOException {
+    final String first = "{\"name\":\"" + "ü".repeat(8_200) + "\"}";
+    final String second = "{\"name\":\"漢字\"}";
+    final Path ldjson = temporaryDirectory.resolve("long-utf8-records.jsonl");
+    Files.writeString(ldjson, first + "\r\n \t\r\n" + second + "\r\n", StandardCharsets.UTF_8);
+    final String expected = "[" + first + "," + second + "]";
+
+    try (Reader source = ClickBenchSource.open(ldjson.toString())) {
+      assertEquals(expected, sourceToString(source));
+    }
+    try (Reader source = ClickBenchSource.open(ldjson.toString())) {
+      final StringBuilder actual = new StringBuilder(expected.length());
+      final char[] one = new char[1];
+      while (source.read(one, 0, 1) != -1) {
+        actual.append(one[0]);
+      }
+      assertEquals(expected, actual.toString());
+    }
+  }
+
+  @Test
   void officialLdjsonSchemaIsNormalizedBeforeIngestion() throws IOException {
     String record;
     try (Reader generated = ClickBenchSource.open("generate:1:7")) {

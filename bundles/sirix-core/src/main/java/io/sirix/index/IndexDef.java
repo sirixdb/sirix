@@ -57,6 +57,9 @@ public final class IndexDef implements Materializable {
   private static final QNm PROJECTION_FIELDS_TAG = new QNm("projectionFields");
   private static final QNm PROJECTION_FIELD_TAG = new QNm("projectionField");
   private static final QNm PROJECTION_FIELD_TYPE_ATTRIBUTE = new QNm("contentType");
+  private static final QNm PROJECTION_SORT_TAG = new QNm("projectionSort");
+  private static final QNm PROJECTION_SORT_KEY_TAG = new QNm("keyColumn");
+  private static final QNm PROJECTION_SORT_COLUMN_ATTRIBUTE = new QNm("column");
 
   public static final QNm INDEX_TAG = new QNm("index");
 
@@ -100,6 +103,9 @@ public final class IndexDef implements Materializable {
    * {@code int[]} with a per-leaf local dictionary.
    */
   private final ArrayList<Type> projectionFieldTypes = new ArrayList<>();
+
+  /** Optional sorted view, ordered by some of this projection's declared fields. */
+  private @Nullable ProjectionSortedSpec projectionSortedSpec;
 
   public enum DbType {
     XML,
@@ -218,6 +224,11 @@ public final class IndexDef implements Materializable {
    */
   IndexDef(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes,
       final int indexDefNo, final DbType dbType) {
+    this(rootPath, fieldPaths, fieldTypes, indexDefNo, dbType, null);
+  }
+
+  IndexDef(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes,
+      final int indexDefNo, final DbType dbType, final @Nullable ProjectionSortedSpec sortedSpec) {
     if (fieldPaths.size() != fieldTypes.size()) {
       throw new IllegalArgumentException("projection field-path count (" + fieldPaths.size()
           + ") must match field-type count (" + fieldTypes.size() + ")");
@@ -226,6 +237,10 @@ public final class IndexDef implements Materializable {
     this.paths.add(requireNonNull(rootPath));
     this.projectionFields.addAll(fieldPaths);
     this.projectionFieldTypes.addAll(fieldTypes);
+    if (sortedSpec != null) {
+      sortedSpec.validate(fieldPaths, fieldTypes);
+    }
+    this.projectionSortedSpec = sortedSpec;
     id = indexDefNo;
     this.dbType = dbType;
   }
@@ -269,6 +284,16 @@ public final class IndexDef implements Materializable {
         tmp.openElement(PROJECTION_FIELD_TAG);
         tmp.attribute(PROJECTION_FIELD_TYPE_ATTRIBUTE, new Una(projectionFieldTypes.get(i).toString()));
         tmp.content(projectionFields.get(i).toString());
+        tmp.closeElement();
+      }
+      tmp.closeElement();
+    }
+
+    if (type == IndexType.PROJECTION && projectionSortedSpec != null) {
+      tmp.openElement(PROJECTION_SORT_TAG);
+      for (final int column : projectionSortedSpec.keyColumns()) {
+        tmp.openElement(PROJECTION_SORT_KEY_TAG);
+        tmp.attribute(PROJECTION_SORT_COLUMN_ATTRIBUTE, new Una(Integer.toString(column)));
         tmp.closeElement();
       }
       tmp.closeElement();
@@ -414,8 +439,38 @@ public final class IndexDef implements Materializable {
               projectionFieldTypes.add(fieldType);
             }
           }
+        } else if (childName.equals(PROJECTION_SORT_TAG)) {
+          if (projectionSortedSpec != null) {
+            throw new DocumentException("Duplicate sorted projection declaration");
+          }
+          final List<Integer> keyColumns = new ArrayList<>();
+          try (Stream<? extends Node<?>> sortNodes = child.getChildren()) {
+            Node<?> sortNode;
+            while ((sortNode = sortNodes.next()) != null) {
+              final Node<?> columnAttribute = sortNode.getAttribute(PROJECTION_SORT_COLUMN_ATTRIBUTE);
+              if (columnAttribute == null) {
+                throw new DocumentException("Sorted projection entry has no column number");
+              }
+              final int column = Integer.parseInt(columnAttribute.getValue().stringValue());
+              if (!sortNode.getName().equals(PROJECTION_SORT_KEY_TAG)) {
+                throw new DocumentException("Unknown sorted projection entry: %s", sortNode.getName());
+              }
+              keyColumns.add(column);
+            }
+          }
+          projectionSortedSpec = new ProjectionSortedSpec(keyColumns);
         }
         // }
+      }
+    }
+    if (projectionSortedSpec != null) {
+      if (type != IndexType.PROJECTION) {
+        throw new DocumentException("Sorted view belongs only to a projection index");
+      }
+      try {
+        projectionSortedSpec.validate(projectionFields, projectionFieldTypes);
+      } catch (final IllegalArgumentException invalid) {
+        throw new DocumentException(invalid, "Invalid sorted projection declaration: %s", invalid.getMessage());
       }
     }
   }
@@ -470,6 +525,10 @@ public final class IndexDef implements Materializable {
    */
   public List<Type> getProjectionFieldTypes() {
     return Collections.unmodifiableList(projectionFieldTypes);
+  }
+
+  public @Nullable ProjectionSortedSpec getProjectionSortedSpec() {
+    return projectionSortedSpec;
   }
 
   /**
@@ -571,7 +630,8 @@ public final class IndexDef implements Materializable {
         && Objects.equals(contentType, other.contentType) && samePersistedPaths(paths, other.paths)
         && included.equals(other.included) && excluded.equals(other.excluded)
         && samePersistedPaths(projectionFields, other.projectionFields)
-        && projectionFieldTypes.equals(other.projectionFieldTypes) && dimension == other.dimension
+        && projectionFieldTypes.equals(other.projectionFieldTypes)
+        && Objects.equals(projectionSortedSpec, other.projectionSortedSpec) && dimension == other.dimension
         && Objects.equals(distanceType, other.distanceType) && hnswM == other.hnswM
         && hnswEfConstruction == other.hnswEfConstruction && hnswEfSearch == other.hnswEfSearch;
   }

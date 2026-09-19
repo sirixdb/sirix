@@ -1,10 +1,13 @@
 package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.CacheablePage;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.node.MemorySegmentBytesIn;
+import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.RegionsOnlyPage;
@@ -20,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -39,12 +43,65 @@ public abstract class AbstractReader implements Reader {
    */
   protected final PagePersister pagePersister;
 
+  /** Only overflow decoders always finish with independently owned payload bytes. */
+  private final boolean borrowOverflowInput;
+
+  /**
+   * Borrowed input is the default on every runtime; each option can still be set to {@code false} to
+   * restore the owned-buffer path. Native images used to default to owned input: there, every page of
+   * a page-heavy scan paid a frame-slot allocation, a copy into the frame, the decoder's own copy and
+   * a release, and on a 100M-row column scan those allocator round trips were the largest single cost
+   * of the column fills.
+   */
+  private static final boolean DEFAULT_BORROWED_INPUT = true;
+
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractReader.class);
 
   public AbstractReader(ByteHandler byteHandler, PagePersister pagePersister, SerializationType type) {
     this.byteHandler = byteHandler;
     this.pagePersister = pagePersister;
     this.type = type;
+    this.borrowOverflowInput = byteHandler instanceof ByteHandlerPipeline pipeline && pipeline.isEmpty()
+        && borrowedInputEnabled("sirix.io.borrowOverflowInput");
+  }
+
+  /** Each input-borrowing option can independently override the runtime's default. */
+  protected static boolean borrowedInputEnabled(final String option) {
+    final String configured = System.getProperty(option);
+    return configured == null
+        ? DEFAULT_BORROWED_INPUT
+        : !"false".equalsIgnoreCase(configured.trim());
+  }
+
+  /**
+   * Retire every page a failed batch read decoded before the failure, so the members that did decode
+   * return their allocator frames instead of stranding them. Best effort: a failing release is
+   * attached to {@code failure} and the remaining pages are still released. Only for pages decoded
+   * for the failed call, never for those of a reader that {@linkplain Reader#returnsSharedPages()
+   * returns shared pages}.
+   *
+   * @param pages the partially filled batch result; released entries are cleared
+   * @param failure the failure that aborted the batch
+   */
+  protected static void retireDecodedPages(final Page[] pages, final Throwable failure) {
+    for (int k = 0; k < pages.length; k++) {
+      final Page page = pages[k];
+      if (page == null) {
+        continue;
+      }
+      pages[k] = null;
+      try {
+        if (page instanceof CacheablePage cacheablePage) {
+          cacheablePage.retire();
+        } else {
+          page.close();
+        }
+      } catch (final Throwable releaseFailure) {
+        if (releaseFailure != failure) {
+          failure.addSuppressed(releaseFailure);
+        }
+      }
+    }
   }
 
   /**
@@ -263,6 +320,15 @@ public abstract class AbstractReader implements Reader {
       PageReference reference, boolean lazyRecordPage) throws IOException {
     if (!byteHandler.supportsMemorySegments()) {
       throw new UnsupportedOperationException("ByteHandler does not support MemorySegment operations");
+    }
+
+    if (borrowOverflowInput && compressedPage.byteSize() > 0
+        && compressedPage.get(ValueLayout.JAVA_BYTE, 0L) == PageKind.OVERFLOWPAGE.getID()) {
+      // The empty pipeline needs no transformation. Both raw and region-compressed overflow
+      // decoders produce their own byte array before returning, so this input can remain borrowed.
+      // Record/HOT pages still take the owned-buffer path below. Overflow pages have no references
+      // to fix up, and their ordinary decoder retains all version, length and codec checks.
+      return pagePersister.deserializePage(resourceConfiguration, new MemorySegmentBytesIn(compressedPage), type);
     }
 
     // Decompress - ownership may be transferred to page for zero-copy

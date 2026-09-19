@@ -1,0 +1,32 @@
+--- /home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-eviction-fix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieReader.java	2026-09-11 12:21:02.000000000 +0200
++++ /home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-eviction-final/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieReader.java	2026-09-11 12:26:21.000000000 +0200
+@@ -1129,8 +1129,8 @@
+       if (page == null) {
+         return null;
+       }
+-      // Swizzle: pin the loaded page so future descents skip I/O. HOT pages are immutable
+-      // once loaded (COW creates new pages for modifications), so setPage is idempotent.
++      // Swizzle the loaded page so future descents skip I/O. This publishes an object reference,
++      // not a lifetime guard; stamp validation below still protects against eviction.
+       ref.setPage(page);
+     }
+ 
+--- /home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-eviction-fix/bundles/sirix-core/src/main/java/io/sirix/index/hot/AbstractHOTIndexReader.java	2026-09-11 11:24:38.000000000 +0200
++++ /home/johannes/.treehouse/sirix-cdde48/1/sirix/build/jsonbench-campaign/source-eviction-final/bundles/sirix-core/src/main/java/io/sirix/index/hot/AbstractHOTIndexReader.java	2026-09-11 12:26:21.000000000 +0200
+@@ -429,12 +429,13 @@
+       // exactly-sized caller buffer uses the pooled fallback scratch, allocating at most when it grows.
+       final byte[] fromBytes = state.compositeSeekBuffer(prefixBuf, prefixLen, compositeLen);
+       HOTKeySerializer.writeChunkIdxBE(fromBytes, prefixLen, 0);
+-      // The whole walk runs against UNPINNED leaves under optimistic stamps: each leaf's read
++      // The walk starts with unpinned leaves under optimistic stamps: each leaf's read
+       // batch — the per-slot prefix compares, the chunkIdx reads, the payload merges — is
+       // validated once before its outcome (stop, or advance to the next leaf) takes effect. A
+       // torn batch poisons the accumulator, so recovery is wholesale: reset and re-walk from a
+-      // fresh lower-bound descent. Content per PageReference is immutable, so every retry
+-      // re-derives the identical result.
++      // fresh lower-bound descent. A failed stamp also switches the trie to guarded handoff for
++      // the rest of this walk, so eviction cannot invalidate every retry. Content per
++      // PageReference is immutable, so every retry re-derives the identical result.
+       for (int walkAttempt = 0; walkAttempt < HOTTrieReader.MAX_STAMP_RETRIES; walkAttempt++) {
+         accumulator.reset();
+         // One decision route: every logical lookup starts at canonical PEXT lowerBound. Do not

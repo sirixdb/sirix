@@ -201,6 +201,11 @@ public final class JNFun {
     Functions.predefine(new CreateProjectionIndex(CREATE_PROJECTION_INDEX,
         new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM, new SequenceType(AtomicType.STR, Cardinality.One),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
+    Functions.predefine(new CreateProjectionIndex(CREATE_PROJECTION_INDEX,
+        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM, new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
     Functions.predefine(new CreateProjectionIndex(CREATE_PROJECTION_INDEX,
         new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM, new SequenceType(AtomicType.STR, Cardinality.One),

@@ -18,52 +18,41 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * A delegating {@link Writer} that throws at a configurable {@link Point} after a
- * configurable number of invocations. Used to simulate process death partway through a
- * commit or other Writer operation, so recovery can be exercised in CI without needing
- * a real {@code kill -9}.
+ * A delegating {@link Writer} that throws at a configurable {@link Point} after a configurable
+ * number of invocations. Used to simulate process death partway through a commit or other Writer
+ * operation, so recovery can be exercised in CI without needing a real {@code kill -9}.
  *
- * <p>Usage:
+ * <p>
+ * Usage:
  *
  * <pre>{@code
- * FaultInjectingWriter w = new FaultInjectingWriter(realWriter)
- *     .injectAt(Point.AFTER_UBER_PAGE_REFERENCE_WRITE, 1);
+ * FaultInjectingWriter w = new FaultInjectingWriter(realWriter).injectAt(Point.AFTER_UBER_PAGE_REFERENCE_WRITE, 1);
  *
  * // real writer code path uses w; the second writeUberPageReference call throws.
  * }</pre>
  *
- * <p>The decorator is forward-only — once an injection has fired, subsequent calls
- * delegate normally (no automatic re-arming). To re-fire, call
- * {@link #injectAt(Point, int)} again.
+ * <p>
+ * The decorator is forward-only — once an injection has fired, subsequent calls delegate normally
+ * (no automatic re-arming). To re-fire, call {@link #injectAt(Point, int)} again.
  *
- * <p>This class is test-scope-only; production code never sees it. The full integration
- * pattern (wiring this into the live storage factory so real {@link
- * io.sirix.access.trx.node.AbstractResourceSession} commits run through the injector)
- * is deferred — the present scope verifies the decorator's own contract so future tests
- * can rely on it.
+ * <p>
+ * This class is test-scope-only; production code never sees it. The full integration pattern
+ * (wiring this into the live storage factory so real
+ * {@link io.sirix.access.trx.node.AbstractResourceSession} commits run through the injector) is
+ * deferred — the present scope verifies the decorator's own contract so future tests can rely on
+ * it.
  */
 public final class FaultInjectingWriter implements Writer {
 
   /**
-   * Where to throw. Names map onto the {@link Writer} entry points: every method that
-   * mutates storage has both a {@code BEFORE_*} and an {@code AFTER_*} point so a test
-   * can simulate "crashed before write started" vs. "crashed after write returned but
-   * before next step." Read-only Reader methods inherited from {@link Writer}'s
-   * {@code extends Reader} are not injected — recovery doesn't depend on read failures.
+   * Where to throw. Names map onto the {@link Writer} entry points: every method that mutates storage
+   * has both a {@code BEFORE_*} and an {@code AFTER_*} point so a test can simulate "crashed before
+   * write started" vs. "crashed after write returned but before next step." Read-only Reader methods
+   * inherited from {@link Writer}'s {@code extends Reader} are not injected — recovery doesn't depend
+   * on read failures.
    */
   public enum Point {
-    BEFORE_WRITE,
-    AFTER_WRITE,
-    BEFORE_UBER_PAGE_REFERENCE_WRITE,
-    AFTER_UBER_PAGE_REFERENCE_WRITE,
-    BEFORE_TRUNCATE_TO,
-    AFTER_TRUNCATE_TO,
-    BEFORE_TRUNCATE,
-    AFTER_TRUNCATE,
-    BEFORE_FORCE_ALL,
-    AFTER_FORCE_ALL,
-    BEFORE_CLOSE,
-    AFTER_CLOSE,
+    BEFORE_WRITE, AFTER_WRITE, BEFORE_UBER_PAGE_REFERENCE_WRITE, AFTER_UBER_PAGE_REFERENCE_WRITE, BEFORE_TRUNCATE_TO, AFTER_TRUNCATE_TO, BEFORE_TRUNCATE, AFTER_TRUNCATE, BEFORE_FORCE_ALL, AFTER_FORCE_ALL, BEFORE_CLOSE, AFTER_CLOSE,
   }
 
   /** Exception thrown at the injection point — distinct so tests can catch it cleanly. */
@@ -82,12 +71,13 @@ public final class FaultInjectingWriter implements Writer {
   }
 
   /**
-   * Arm the injector. The next {@code afterNCalls}-th invocation of the method
-   * corresponding to {@code point} will throw {@link SimulatedCrashException} instead
-   * of (or in addition to) calling the delegate. {@code afterNCalls == 1} means "throw
-   * on the very next call;" {@code 2} means "let one call through, throw on the next."
+   * Arm the injector. The next {@code afterNCalls}-th invocation of the method corresponding to
+   * {@code point} will throw {@link SimulatedCrashException} instead of (or in addition to) calling
+   * the delegate. {@code afterNCalls == 1} means "throw on the very next call;" {@code 2} means "let
+   * one call through, throw on the next."
    *
-   * <p>Calling this again before the previous arming fires replaces it.
+   * <p>
+   * Calling this again before the previous arming fires replaces it.
    */
   public FaultInjectingWriter injectAt(final Point point, final int afterNCalls) {
     if (afterNCalls < 1) {
@@ -111,9 +101,9 @@ public final class FaultInjectingWriter implements Writer {
   }
 
   /**
-   * Internal: fire if the active point matches and the countdown hits zero. Disarms
-   * after firing so subsequent calls delegate normally — the decorator simulates a
-   * single crash, not a continuously-failing storage device.
+   * Internal: fire if the active point matches and the countdown hits zero. Disarms after firing so
+   * subsequent calls delegate normally — the decorator simulates a single crash, not a
+   * continuously-failing storage device.
    */
   private void maybeFire(final Point point) {
     if (this.activePoint != point) {
@@ -129,8 +119,8 @@ public final class FaultInjectingWriter implements Writer {
   // ─────────────────────── Writer methods ───────────────────────
 
   @Override
-  public Writer write(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes) {
+  public Writer write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
+      final Page page, final BytesOut<?> bufferedBytes) {
     maybeFire(Point.BEFORE_WRITE);
     delegate.write(resourceConfiguration, pageReference, page, bufferedBytes);
     maybeFire(Point.AFTER_WRITE);
@@ -157,10 +147,10 @@ public final class FaultInjectingWriter implements Writer {
   /**
    * Forwarded, not defaulted. {@link Writer#supportsTruncateTo()} defaults to {@code true}, so a
    * decorator that stays silent CLAIMS a capability on behalf of a delegate that may not have it —
-   * and callers ask this precisely so they can refuse before mutating anything. Wrapping an
-   * in-memory writer would then let a rollback downgrade the uber-page beacons and only afterwards
-   * hit the delegate's {@code UnsupportedOperationException}, which is the half-applied state the
-   * capability check exists to prevent.
+   * and callers ask this precisely so they can refuse before mutating anything. Wrapping an in-memory
+   * writer would then let a rollback downgrade the uber-page beacons and only afterwards hit the
+   * delegate's {@code UnsupportedOperationException}, which is the half-applied state the capability
+   * check exists to prevent.
    */
   @Override
   public boolean supportsTruncateTo() {
@@ -194,7 +184,8 @@ public final class FaultInjectingWriter implements Writer {
     maybeFire(Point.AFTER_CLOSE);
   }
 
-  // ─────────────────────── Reader methods (inherited via Writer extends Reader) ───────────────────────
+  // ─────────────────────── Reader methods (inherited via Writer extends Reader)
+  // ───────────────────────
   // Read-only methods are not injected — recovery contracts don't depend on read failures.
 
   @Override
@@ -208,8 +199,12 @@ public final class FaultInjectingWriter implements Writer {
   }
 
   @Override
-  public RevisionRootPage readRevisionRootPage(final int revision,
-      final ResourceConfiguration resourceConfiguration) {
+  public boolean returnsSharedPages() {
+    return delegate.returnsSharedPages();
+  }
+
+  @Override
+  public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     return delegate.readRevisionRootPage(revision, resourceConfiguration);
   }
 

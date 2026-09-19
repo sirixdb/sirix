@@ -143,11 +143,16 @@ including record reordering, moves into or out of the projected set, replacing a
 wholesale, and descendant-pattern record sets appearing or disappearing.
 
 Maintenance has no dirty-record cliff and never scans or rebuilds the complete projection.
-It updates only touched row groups, 32-physical-leaf order/fence chunks, 256-leaf Bloom
-chunks, bounded per-column set summaries, sparse locators, and immutable global-dictionary
-radix paths. An unresolvable or corrupt touched unit fails the owning transaction and requires
-rollback. Calling `jn:create-projection-index` with a different shape creates an additional
-projection.
+It updates only touched row groups, 32-physical-leaf order/fence and flag-summary chunks,
+256-leaf Bloom chunks, bounded per-column set summaries, sparse locators, immutable
+global-dictionary radix paths and, when the projection declares a sorted view, the touched
+sorted leaves with their group summaries and bounds chunks. The exception is a sorted view,
+where finding a record's prior key may take an ordered scan of that view: when the view was built
+earlier in the same, still-open transaction, or when its persisted key layout no longer matches
+the configured column kinds (see
+[`PROJECTION_READ_PERFORMANCE.md`](PROJECTION_READ_PERFORMANCE.md#sorted-views)). An
+unresolvable or corrupt touched unit fails the owning transaction and requires rollback. Calling
+`jn:create-projection-index` with a different shape creates an additional projection.
 
 Serving is memory-bounded, not all-or-nothing. Kernels that want a column's whole byte image get
 it eagerly while the projection's worst-case resident size fits

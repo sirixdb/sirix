@@ -2,6 +2,7 @@ package io.sirix.index;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.brackit.query.atomic.QNm;
@@ -81,6 +82,40 @@ final class IndexDefPersistedDefinitionTest {
     assertFalse(projection.getProjectionFields().equals(reread.getProjectionFields()),
         "the relative field spelling no longer differs after the round trip — pick one that does");
     assertTrue(projection.hasSameDefinition(reread));
+  }
+
+  @Test
+  void sortedProjectionOrderSurvivesCataloguePersistence() {
+    final List<Path<QNm>> fields = List.of(json("/[]/kind"), json("/[]/did"), json("/[]/collection"));
+    final List<Type> types = List.of(Type.STR, Type.STR, Type.STR);
+    final ProjectionSortedSpec sorted = new ProjectionSortedSpec(List.of(0, 2, 1));
+    final IndexDef definition =
+        IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4, IndexDef.DbType.JSON, sorted);
+    final IndexDef reread = roundTrip(definition);
+    assertTrue(definition.hasSameDefinition(reread));
+    assertTrue(reread.hasSameDefinition(definition));
+    assertTrue(sorted.equals(reread.getProjectionSortedSpec()));
+    final IndexDef differentOrder = IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4,
+        IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(2, 0, 1)));
+    assertFalse(definition.hasSameDefinition(differentOrder));
+    assertFalse(definition.hasSameDefinition(
+        IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4, IndexDef.DbType.JSON)));
+    assertThrows(IllegalArgumentException.class, () -> IndexDefs.createProjectionIdxDef(json("/[]"), fields, types, 4,
+        IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(3))));
+    assertThrows(IllegalArgumentException.class, () -> new ProjectionSortedSpec(List.of(1, 1)));
+    assertThrows(IllegalArgumentException.class,
+        () -> IndexDefs.createProjectionIdxDef(json("/[]"), List.of(json("/[]/kind"), json("/[]/score")),
+            List.of(Type.STR, Type.DBL), 4, IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(1))),
+        "a floating column cannot be a sort key");
+    assertThrows(IllegalArgumentException.class,
+        () -> IndexDefs.createProjectionIdxDef(json("/[]"), List.of(json("/[]/kind"), json("/[]/tags/[]")),
+            List.of(Type.STR, Type.STR), 4, IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(1))),
+        "an array-element (set) column cannot be a sort key");
+    assertTrue(IndexDefs.createProjectionIdxDef(json("/[]"), List.of(json("/[]/flag"), json("/[]/day")),
+        List.of(Type.BOOL, Type.DATE), 4, IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(1, 0)))
+                        .hasSameDefinition(roundTrip(IndexDefs.createProjectionIdxDef(json("/[]"),
+                            List.of(json("/[]/flag"), json("/[]/day")), List.of(Type.BOOL, Type.DATE), 4,
+                            IndexDef.DbType.JSON, new ProjectionSortedSpec(List.of(1, 0))))));
   }
 
   @Test

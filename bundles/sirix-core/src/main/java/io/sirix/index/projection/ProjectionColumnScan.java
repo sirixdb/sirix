@@ -5,6 +5,7 @@ package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
+import io.sirix.index.projection.ProjectionColumnStore.PackedDictionaryIds;
 import io.sirix.index.projection.ProjectionColumnStore.StringValueExtrema;
 import io.sirix.index.projection.ProjectionColumnStore.ZoneIndex;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
@@ -2425,8 +2426,8 @@ public final class ProjectionColumnScan {
       } else if (slice.setCounts() != null) {
         evalStringSetContains(slice.dictBytes(), slice.dictOffsets(), slice.setCounts(), slice.stringDictIds(), rows,
             p.stringLitBytes, presence, mask);
-      } else if (slice.stringDictIds() != null) {
-        evalStringDict(slice.dictBytes(), slice.dictOffsets(), slice.stringDictIds(), rows, p, presence, mask);
+      } else if (slice.hasStringDictIds()) {
+        evalStringDict(slice, rows, p, presence, mask);
       } else {
         evalBoolean(slice.boolWords(), stride, p.boolLit, presence, mask);
       }
@@ -2862,6 +2863,38 @@ public final class ProjectionColumnScan {
       }
     }
     return false;
+  }
+
+  private static void evalStringDict(final ColumnSlice slice, final int rowCount, final ColumnPredicate predicate,
+      final long[] presence, final long[] mask) {
+    final PackedDictionaryIds packed = slice.packedStringIds();
+    if (packed != null && !packed.isMaterialized()) {
+      final byte[] dictionary = slice.dictBytes();
+      final int[] offsets = slice.dictOffsets();
+      final byte[] literal = predicate.stringLitBytes;
+      final boolean supplementary = ProjectionIndexScan.hasFourByteUtf8(literal, 0, literal.length);
+      final int alphabet = packed.alphabetSize();
+      long accepted = 0L;
+      for (int id = 0, count = Math.min(offsets.length - 1, alphabet); id < count; id++) {
+        if (ProjectionIndexScan.stringDictEntryMatches(dictionary, offsets[id], offsets[id + 1] - offsets[id],
+            predicate.op, literal, supplementary)) {
+          accepted |= 1L << id;
+        }
+      }
+      final int matches = Long.bitCount(accepted);
+      // At most two equality passes (or their complement) beat expanding an integer per row.
+      // Complex dictionary verdicts retain the established SIMD/dense path.
+      if (Math.min(matches, alphabet - matches) <= 2) {
+        for (int word = 0, words = (rowCount + 63) >>> 6; word < words; word++) {
+          final long candidates = mask[word] & presence[word];
+          mask[word] = candidates == 0L
+              ? 0L
+              : candidates & packed.matchingWord(word << 6, accepted);
+        }
+        return;
+      }
+    }
+    evalStringDict(slice.dictBytes(), slice.dictOffsets(), slice.stringDictIds(), rowCount, predicate, presence, mask);
   }
 
   private static void evalStringDict(final byte[] dictBytes, final int[] dictOffsets, final int[] ids,
@@ -3449,8 +3482,8 @@ public final class ProjectionColumnScan {
     } else if (slice.setCounts() != null) {
       evalStringSetContains(slice.dictBytes(), slice.dictOffsets(), slice.setCounts(), slice.stringDictIds(), rowCount,
           p.stringLitBytes, presence, dst);
-    } else if (slice.stringDictIds() != null) {
-      evalStringDict(slice.dictBytes(), slice.dictOffsets(), slice.stringDictIds(), rowCount, p, presence, dst);
+    } else if (slice.hasStringDictIds()) {
+      evalStringDict(slice, rowCount, p, presence, dst);
     } else {
       evalBoolean(slice.boolWords(), stride, p.boolLit, presence, dst);
     }

@@ -96,9 +96,69 @@ The SirixDB side itself lives in
 `bundles/sirix-query/src/main/java/io/sirix/query/bench/jsonbench/`: `JsonBenchSchema` (encoding
 contract), `JsonBenchLoadMain` (loader), `JsonBenchProjection` (the 5-column projection index),
 `JsonBenchQueries` (the five queries in the exact FLWOR shape detection recognises) and
-`JsonBenchRunMain` (the runner). The loader reuses `ClickBenchSource.open(...)` verbatim — that class
-is ClickBench-*named* but format-generic: it fabricates the enclosing JSON array around a JSON-lines
-stream on the fly, which is what keeps a 48 GB corpus from being buffered whole.
+`JsonBenchRunMain` (the runner). The default `-Djsonbench.loader=parallel` path uses the generic
+parallel bulk importer with node history and one-pass projection maintenance. It reads the NDJSON
+stream through `ClickBenchSource.openParallelInput(...)`, which fabricates the enclosing JSON array
+without buffering the corpus. `-Djsonbench.loader=gson` and `jackson` retain the sequential paths
+for matched comparisons.
+
+On the 100M Bluesky corpus, the parallel path loaded 99,999,968 rows in 3423.214 s versus
+10274.520 s for the sequential path on the same host, an observed 3.00× speedup with 29.4% less
+database space. Those full-scale runs occurred at different times; the matched 5M comparison measured
+2.12×. The 100M load retained revision 1 and node creation history (129/129 sampled keys), and its
+Q1–Q5 answers matched ClickHouse exactly. A separate 200k-row ClickBench differential passed all 43
+queries. Its compact JSON summary of the numbers and rejected tuning screens is in branch history
+(see the note at the end of this section).
+
+The subsequent [constant-bucket counting experiment](evidence/20260914-constant-bucket-count-100m/README.md)
+reduced warmed JVM Q3 time by 37% in an isolated comparison. The native candidate, also including
+sorted-directory prefix jumps, measured 2.34–2.40× behind ClickHouse across the five-query hot score,
+with exact results. That evidence separates the native protocol from warmed-JVM timings and records
+the ClickBench regression screen.
+
+The later [column-layout and sorted-group-summary candidate](evidence/20260914-column-layout-group-summaries/README.md)
+measured **1.61–1.67× behind ClickHouse** at 100M with exact Q1–Q5 results. It retains versioning
+and updates summaries per affected sorted leaf. The evidence includes the full summary audit,
+matched smaller comparisons, ClickBench checks, and a rejected batch-read experiment.
+[Writer dictionary ingestion work](evidence/20260914-writer-dictionary-ingestion/README.md) is measured
+separately; allocation reductions alone are not ingestion throughput results.
+The subsequent [query-local predicate-slice reuse](evidence/20260914-composite-predicate-reuse/README.md)
+reduced native Q3 warm time by 16.55% on the same 100M database; all five results and the 43-query
+ClickBench screen on the retained 200,000-row fixture remained exact.
+The combined [parallel-directory and sorted-leaf-bounds candidate](evidence/20260914-parallel-directory-leaf-bounds/README.md)
+then measured **0.85 / 0.81× ClickHouse's geometric score** at 100M (lower is better), with exact
+results and preserved revision-1 source leaves. Q2, Q3, and Q5 still take longer individually;
+the evidence records both the geometric score and the higher total elapsed time.
+The subsequent [bounded writer readback cache](evidence/20260914-writer-readback-cache/README.md)
+reduced matched 10M ingestion time by **32.0%** (1.47× throughput), including the cost of the
+combined query improvements. A subsequent isolated 100M pair reduced ingestion time by **26.2%**
+(1.35× throughput), from 44m 14s to 32m 39s. All query, bounds, layout and creation-history
+checks passed. The final checksum-identity correction passed 106 focused tests and a separate
+10M cost check (+0.69% in one pair). Final native warm ratios were **0.770 / 0.767× ClickHouse's
+geometric score**; Sirix's total warm query time remains higher, chiefly due to Q3 and Q5.
+All 43 ClickBench queries remained exact in ABBA and BAAB screens on 200,000 rows, with no
+consistent timing regression. Disk-cold ranking is unverified because visible-file eviction
+does not control the lower filesystem cache on this host's eCryptfs workspace.
+
+The projection's sorted view is now declared by columns only — `kind`, `operation`, `collection`,
+`did`, `time_us`, ClickHouse's `ORDER BY` for this table — and Q4/Q5's equality filter is served
+as a key range of that view. The column-only view has been built at 100M: it loads in 35m13s to a
+37,170,382,376-byte database, 6.54% larger than the earlier view's, and all five answers are exact
+with Q4/Q5 served by the sorted prefix range. Because the earlier view stored only the rows matching
+Q4/Q5's literals while this one holds every row, the load time, data size and Q4/Q5 figures quoted
+elsewhere in this README still describe that earlier structure. On the measured column-only view,
+Q4/Q5 cold/hot medians are 0.047/0.032 s and 0.108/0.074 s, against 0.046/0.027 s and 0.084/0.055 s
+for the earlier one: still well ahead of ClickHouse, but slower than the filtered structure.
+
+Databases built by earlier heads of this branch (up to and including commit `7a619dd20`), among them
+the retained local 100M JSONBench databases, must be rebuilt. Their index catalogue still declares
+the removed literal-filtered view, which this code rejects when the resource is opened, and their
+sorted-view directory uses an older header format.
+
+The generated JSON evidence artifacts (build archives, raw-file inventories, validation and summary
+dumps) were removed from `evidence/`. The scripts, READMEs, evidence notes, checksums and raw
+archives remain. The removed files are in this branch's history before commit `7a619dd20`, e.g.
+`git show 7a619dd20^:bundles/sirix-query/bench/jsonbench/evidence/20260914-parallel-ingest-100m/summary.json`.
 
 ---
 
@@ -121,23 +181,23 @@ what made the campaign's numbers repeatable to ~1 %.
 mis-attributed a change by 2.7× — it reported +73 ms where the truth was −17.7 ms. The kit reports
 the minimum across rounds and the median beside it.
 
-**Cold means evicted cache *and* a fresh process.** `common/evict.py` calls
-`posix_fadvise(DONTNEED)` over every file of the target directory. That needs no root, and it evicts
-exactly the files under test — unlike `echo 3 > /proc/sys/vm/drop_caches`, which needs root and drops
-everything including the binary under test and the other engine's files, making interleaved arms
-depend on the order they ran in. For the files being measured the two are equivalent; `evict.py
---verify` proves it per run by reporting page-cache residency before and after, measured with
-`mincore(2)`. The script calls `sync(2)` first, because **fadvise cannot evict dirty pages** — without
-that, the first "cold" run after a load silently measures a warm cache. Set
-`BENCH_EVICT_FLAGS=--verify` to make every round in a measurement prove its own coldness:
+**Distinguish visible-file eviction from disk-cold reads.** `common/evict.py` calls
+`posix_fadvise(DONTNEED)` over every file of the target directory. This needs no root and targets
+the files under test. `evict.py --verify` reports their visible mapping residency before and after
+with `mincore(2)`; every query also needs a fresh process. The script calls `sync(2)` first, because
+**fadvise cannot evict dirty pages**. Set `BENCH_EVICT_FLAGS=--verify` to record this evidence:
 
 ```
   /var/tmp/jsonbench/db-1m: 6 files, 321.5 MiB on disk, cached 321.5 MiB -> 0.0 MiB
 evicted 6 files, 321.5 MiB on disk; page cache 321.5 MiB -> 0.0 MiB (freed 321.5 MiB)
 ```
 
-A non-zero residual is reported as a warning: another process still maps those pages, and that run is
-not fully cold.
+A non-zero residual means visible-page eviction was incomplete. Zero residency alone does not
+prove physical disk-cold reads: this workspace uses [eCryptfs, a stacked filesystem](https://www.kernel.org/doc/html/latest/filesystems/ecryptfs.html),
+and the lower filesystem cache is not controlled by this check. The final v68 comparison observed
+millions of input blocks on a fresh database where earlier nominally cold runs read almost none.
+Record filesystem type and process block I/O, retain the `cold` label's exact scope, and do not
+equate this protocol with a global cache drop or use it to assert verified disk-cold ranking.
 
 **Prove the route with counters, not with timing.** The runner prints `# served: …`. A route can
 decline silently and the differential still passes — vacuously, because both legs then ran the same
@@ -146,9 +206,9 @@ route is dead" when the print simply did not include that counter: check that th
 reasoning about is in the line at all. `-Dsirix.projDiag=true` prints *why* a query declined.
 
 **Every timed query is isolated.** For each query, the harness cool-gates and evicts the database,
-then launches one fresh cold process and three fresh hot processes without another eviction. Catalog
-discovery and projection-segment prefetch run inside each process's query timer. This is the same
-state sequence used by the ClickHouse baseline. Both scripts default to `ROUNDS=2` and `TRIES=4`;
+then launches one fresh cold process and three fresh hot processes without another eviction. The
+revisioned projection-header check runs inside each process's query timer; each query opens only the
+projection data its serving route needs. Both scripts default to `ROUNDS=2` and `TRIES=4`;
 the baseline records those values and the scoreboard refuses a mismatch or a legacy baseline.
 Every timed ClickHouse query uses the same UTC session setting as reference generation. Attribution
 runs must reproduce the complete protocol.
@@ -187,6 +247,13 @@ find *where* the time is, and a CPU profile only to name *what* that phase is do
   database without that early init inherits the size persisted in `dbsetting.obj` (16 GiB by default)
   and silently ignores the flag — the knob looks dead there, and a whole ledger of "offheap 8g"
   numbers was once recorded from runs that actually used a 16 GiB arena.
+* **The loader creates a FILE_CHANNEL resource.** `JsonBenchLoadMain` selects
+  `-DstorageType=FILE_CHANNEL` unless the flag names another backend, the same default
+  `ClickBenchLoadMain` uses and the backend of the 100 M database the campaign measured. The store's own
+  default on 64-bit Linux and macOS is MEMORY_MAPPED. Both backends write the load-time projection's
+  pages out before the final commit; FILE_CHANNEL's preallocated profile also reuses an aborted load's
+  tail instead of leaving it in the file. A database records its backend as `storageKind` in
+  `<db>/<name>/resources/<res>/ressetting.obj`, and the runner opens it with that backend.
 * **`-Dsirix.projection.promoteMaxBytes=0` is a workaround, not a tuning.** It disables the
   byte-kernel promotion at 100 M, where the promotion tries to materialise ~30 GB of row-group
   payloads and OOMs a 14 GB heap (open defect, task #36). **Remove it once #36 is fixed.** With
@@ -255,8 +322,9 @@ Ordered by how much time each one cost.
 13. **A served route is not a fast route.** Counters prove routing; only phase-level attribution proves
     the route does the right work. A top-k pruner that never pruned and a filter that walked the whole
     document per row both passed every counter check.
-14. **At 100 M, cold is CPU, not I/O.** A warm-page-cache control moved the evicted cold suite by 4 %.
-    Every readahead lever is capped there; do not re-litigate it.
+14. **Cold-read bottlenecks depend on verified cache state.** An earlier 100M visible-eviction
+    control moved by only 4%, but eCryptfs lower-cache state was uncontrolled. The fresh v68 database
+    incurred substantial block I/O. That earlier control does not prove disk-cold reads are CPU-bound.
 15. **Fold timings swing.** Hot Q2 once ranged 0.127–0.886 s across identical runs (GC from per-group
     hash sets). Min-of-many is mandatory for any fold A/B.
 
@@ -317,7 +385,9 @@ freedom SQL leaves, and no more.
 
 `JsonBenchProjection` declares five columns: `/[]/kind`, `/[]/did`, `/[]/time_us`,
 `/[]/commit/collection` and `/[]/commit/operation` — the same five fields the ClickHouse schema types
-explicitly.
+explicitly — and a sorted view ordered by `kind`, `operation`, `collection`, `did`, `time_us`. Both
+the load-time declaration and the second-pass `jn:create-projection-index` call declare that view,
+and the runner requires Q4 and Q5 to be answered from it.
 
 Projection creation is part of the benchmark load contract and fails the loader by default. On the
 explicit second-pass route, `-Djsonbench.projection.required=false` may retain a successfully shredded
@@ -343,8 +413,10 @@ answered from the projected column.
 ## 11. Serving status and diagnosing a decline
 
 All five queries are served from the projection index — one `groupAggregates` increment each, so a
-three-try run reports `groupAggregates=15`. At 100 M the dense group table adds `groupDense=2`. The
-answers are byte-identical to the generic pipeline's and match the ClickHouse reference 5/5.
+three-try run reports `groupAggregates=15`; Q4 and Q5 each also add one `sortedGroupBys` increment
+per try. Unless `--allow-missing-projection` is given, the runner fails a suite whose counts do not
+match the tries it ran. At 100 M the dense group table adds `groupDense=2`. The answers are
+byte-identical to the generic pipeline's and match the ClickHouse reference 5/5.
 
 A declined pipeline used to be silent, indistinguishable from "no fast path exists". Run with
 `-Pjsonbench.jvmArgs="-Dsirix.projDiag=true"` and the detection stage prints one line per declined

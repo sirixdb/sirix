@@ -73,7 +73,9 @@ final class ProjectionUnifiedMutationPathTest {
         JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0);
-        for (long slot = 0; slot < INITIAL_SLOTS; slot++) {
+        // Slot zero identifies the persisted projection layout; opaque mutation fixtures start
+        // after it so reopening a writer never has to interpret arbitrary bytes as metadata.
+        for (long slot = 1; slot < INITIAL_SLOTS; slot++) {
           if (slot != TOMBSTONED_BLOOM_SLOT) {
             storage.writeSlotValue(slot, initialValue(slot));
           }

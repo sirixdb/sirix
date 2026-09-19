@@ -137,7 +137,6 @@ public final class NestedDerefProjectionServingTest extends AbstractJsonTest {
       final String genericFiltered = evaluateQuery(chain, ctx, filtered);
       final String genericTwoKeys = evaluateQuery(chain, ctx, twoKeys);
       final String genericNestedAgg = evaluateQuery(chain, ctx, nestedAggregate);
-      final String genericOrdered = evaluateQuery(chain, ctx, ordered);
 
       final SirixVectorizedExecutor executor =
           new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
@@ -147,7 +146,12 @@ public final class NestedDerefProjectionServingTest extends AbstractJsonTest {
         assertServed(chain, ctx, filtered, genericFiltered, "nested group key under a top-level predicate");
         assertServed(chain, ctx, twoKeys, genericTwoKeys, "two nested group keys");
         assertServed(chain, ctx, nestedAggregate, genericNestedAgg, "nested aggregate operand");
-        assertServed(chain, ctx, ordered, genericOrdered, "ordered nested group key");
+        final long orderedBefore = SirixVectorizedExecutor.groupAggServedCount();
+        Assertions.assertEquals("{\"collection\":\"app.bsky.feed.post\",\"cnt\":3} {\"collection\":null,\"cnt\":1}"
+            + " {\"collection\":\"app.bsky.feed.like\",\"cnt\":1} {\"collection\":\"app.bsky.graph.follow\",\"cnt\":1}",
+            evaluateQuery(chain, ctx, ordered), "equal counts order by key, the null-key group first");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - orderedBefore,
+            "ordered nested group key must be SERVED from the projection");
         // Document first-appearance order, null-key group last (the record without `commit`).
         Assertions.assertEquals("{\"collection\":\"app.bsky.feed.post\",\"n\":3,\"total\":9}"
             + " {\"collection\":\"app.bsky.feed.like\",\"n\":1,\"total\":2}"

@@ -25,6 +25,7 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.KeyValuePage;
+import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -224,8 +225,13 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public io.sirix.page.interfaces.Page loadHOTPage(PageReference reference) {
+  public @Nullable Page loadHOTPage(PageReference reference) {
     return delegate().loadHOTPage(reference);
+  }
+
+  @Override
+  public @Nullable Page loadHOTPageAndGuard(final PageReference reference) {
+    return delegate().loadHOTPageAndGuard(reference);
   }
 
   @Override

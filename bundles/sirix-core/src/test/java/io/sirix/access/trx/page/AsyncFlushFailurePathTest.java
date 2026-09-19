@@ -19,6 +19,7 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.PageContainer;
+import io.sirix.exception.SirixIOException;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.io.StorageType;
 import io.sirix.page.IndirectPage;
@@ -31,6 +32,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
@@ -99,10 +103,11 @@ final class AsyncFlushFailurePathTest {
   private Logger writerLogger;
   private Level originalLevel;
 
-  @Test
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
   @Timeout(value = 3, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
   @DisplayName("Staged side payloads move to a fixed native reservoir and rollback closes it")
-  void stagedSidePayloadUsesNativeReservoir() {
+  void stagedSidePayloadUsesNativeReservoir(final boolean grouped) {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
@@ -124,7 +129,9 @@ final class AsyncFlushFailurePathTest {
         final PageReference reference = new PageReference();
         reference.setPage(producerPage);
 
-        assertTrue(engineWriter.stageUncommittedOverflowPage(reference));
+        assertTrue(grouped
+            ? engineWriter.stageUncommittedOverflowPage(reference, Long.MIN_VALUE)
+            : engineWriter.stageUncommittedOverflowPage(reference));
         final OverflowPage stagedPage = (OverflowPage) reference.getPage();
         assertNotSame(producerPage, stagedPage);
         assertFalse(stagedPage.isHeapBacked(),
@@ -152,6 +159,54 @@ final class AsyncFlushFailurePathTest {
         assertSame(staleWriterPage, staleWriterReference.getPage());
         assertEquals(0, engineWriter.stagedSidePageCount());
         assertEquals(0L, engineWriter.stagedSidePagePayloadBytes());
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"1025,128", "5,1048577"})
+  @Timeout(value = 3, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  @DisplayName("Grouped side windows rotate at both count and byte bounds and drain the tail")
+  void groupedSideWindowsRemainBounded(final int pageCount, final int payloadLength) {
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                             .storeDiffs(false)
+                                             .hashKind(HashType.NONE)
+                                             .buildPathSummary(false)
+                                             .storageType(StorageType.FILE_CHANNEL)
+                                             .build());
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
+        final PageReference[] references = new PageReference[pageCount];
+        final OverflowPage[] views = new OverflowPage[pageCount];
+        for (int i = 0; i < pageCount; i++) {
+          final byte[] payload = new byte[payloadLength];
+          payload[0] = (byte) i;
+          payload[payloadLength - 1] = (byte) (i >>> 8);
+          final PageReference reference = new PageReference();
+          reference.setPage(new OverflowPage(payload));
+          assertTrue(writer.stageUncommittedOverflowPage(reference, -((long) i)));
+          references[i] = reference;
+          views[i] = (OverflowPage) reference.getPage();
+          assertArrayEquals(payload, views[i].getDataBytes());
+          assertTrue(writer.stagedSidePagePayloadBytes() <= 8L * 1024 * 1024,
+              "active and frozen windows must stay within their combined native byte budget");
+          assertTrue(writer.stagedSidePageCount() <= 2048,
+              "active and frozen windows must stay within their combined reference budget");
+        }
+        writer.awaitPendingAsyncFlush();
+        assertEquals(0, writer.stagedSidePageCount());
+        assertEquals(0, writer.stagedSidePagePayloadBytes());
+        for (int i = 0; i < pageCount; i++) {
+          assertTrue(references[i].getKey() >= 0);
+          assertFalse(references[i].hasPendingPageWrite());
+          assertNull(references[i].getPage());
+          assertTrue(views[i].isClosed());
+        }
+        wtx.rollback();
+        assertTrue(writer.isClosed());
       }
     }
   }
@@ -367,10 +422,11 @@ final class AsyncFlushFailurePathTest {
     }
   }
 
-  @Test
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1, 2})
   @Timeout(value = 3, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
   @DisplayName("A mid-side-write failure publishes no offsets and invalidates every native view")
-  void sideWriteFailureCancelsTheWholeNativeBatch() {
+  void sideWriteFailureCancelsTheWholeNativeBatch(final int mode) {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
@@ -393,7 +449,9 @@ final class AsyncFlushFailurePathTest {
           }
           final PageReference reference = new PageReference();
           reference.setPage(new OverflowPage(payload));
-          assertTrue(failedWriter.stageUncommittedOverflowPage(reference));
+          assertTrue((mode == 1 || mode == 2 && i != 0)
+              ? failedWriter.stageUncommittedOverflowPage(reference, -((long) i))
+              : failedWriter.stageUncommittedOverflowPage(reference));
           references[i] = reference;
           stagedPages[i] = (OverflowPage) reference.getPage();
           assertFalse(stagedPages[i].isHeapBacked());
@@ -407,7 +465,13 @@ final class AsyncFlushFailurePathTest {
         };
 
         try {
-          failedWriter.asyncFlush();
+          if (mode == 0) {
+            failedWriter.asyncFlush();
+          } else {
+            // A final drain includes both queues in one epoch. Failure in either queue must
+            // leave the other queue's successfully written shadow offsets unpublished too.
+            assertThrows(SirixIOException.class, failedWriter::awaitPendingAsyncFlush);
+          }
           wtx.rollback();
         } finally {
           NodeStorageEngineWriter.asyncFlushFaultHook = null;

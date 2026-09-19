@@ -204,10 +204,15 @@ public final class MMFileReader extends AbstractReader {
       willNeedSpans(references, references.length);
     }
     final Page[] pages = new Page[references.length];
-    for (int i = 0; i < references.length; i++) {
-      if (references[i] != null && references[i].getKey() != Constants.NULL_ID_LONG) {
-        pages[i] = read(references[i], resourceConfiguration);
+    try {
+      for (int i = 0; i < references.length; i++) {
+        if (references[i] != null && references[i].getKey() != Constants.NULL_ID_LONG) {
+          pages[i] = read(references[i], resourceConfiguration);
+        }
       }
+    } catch (final RuntimeException | Error failure) {
+      retireDecodedPages(pages, failure);
+      throw failure;
     }
     return pages;
   }

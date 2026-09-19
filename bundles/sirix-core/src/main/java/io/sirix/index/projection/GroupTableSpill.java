@@ -35,8 +35,11 @@ import static java.util.Objects.requireNonNull;
  * its candidates — so a pass allocates its storage once and G1 promotes it once, instead of copying
  * ≈ 9 GB of short-lived tables through the young generation per pass (the q32 profile at 100M).
  * Kill switch {@code -Dsirix.projection.groupTable.chunkPool=false}. Dense table indexes use a
- * separate recycler scoped to this spill. Payload recycling retains the existing policy; index
- * chunks never enter a new global pool. The group budget is unchanged.
+ * separate recycler, retained across scans by default in native images and scan-local on the JVM.
+ * When enabled, payload and index pools share the existing global retained-byte ceiling. The index
+ * returns to scan-local recycling with
+ * {@code -Dsirix.projection.groupTable.chunkPool.retainProbe=false}; {@code true} enables it on
+ * either runtime. The group budget is unchanged.
  * </p>
  *
  * <p>
@@ -177,7 +180,18 @@ public final class GroupTableSpill {
 
   /** Recycle table chunks through a per-spill {@link LongChunkPool} (default on). */
   public static final String CHUNK_POOL_PROPERTY = "sirix.projection.groupTable.chunkPool";
+  /** Retain dense index chunks across scans; defaults on in native images and off on the JVM. */
+  public static final String RETAIN_PROBE_PROPERTY = "sirix.projection.groupTable.chunkPool.retainProbe";
+  private static final boolean DEFAULT_RETAIN_PROBE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
   private static volatile int chunkPoolForTesting = -1;
+
+  /** Runtime default with an explicit per-process override, independent of query shape and schema. */
+  static boolean retainProbeAcrossScans() {
+    final String configured = System.getProperty(RETAIN_PROBE_PROPERTY);
+    return configured == null
+        ? DEFAULT_RETAIN_PROBE
+        : Boolean.parseBoolean(configured);
+  }
 
   /** Whether spills recycle their tables' chunks: the test override when set, else the property. */
   public static boolean chunkPoolEnabled() {
@@ -1062,12 +1076,20 @@ public final class GroupTableSpill {
       // handed back are this pass's tables, and nothing is allocated for them.
       final int probeChunks =
           (int) Math.max(1L, Math.min(Integer.MAX_VALUE, budget / (NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES / 2L)));
-      this.probePool = denseIndex
-          ? new LongChunkPool(NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES, probeChunks)
-          : null;
-      this.pool = LongChunkPool.retainAcrossScans()
-          ? LongChunkPool.shared(chunkLanes, capacity)
-          : new LongChunkPool(chunkLanes, capacity);
+      final boolean retain = LongChunkPool.retainAcrossScans();
+      final boolean retainProbe = retain && denseIndex && retainProbeAcrossScans();
+      if (retainProbe) {
+        this.pool = LongChunkPool.sharedWithProbe(chunkLanes, capacity, NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES);
+        this.probePool =
+            LongChunkPool.sharedProbe(NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES, probeChunks, chunkLanes);
+      } else {
+        this.probePool = denseIndex
+            ? new LongChunkPool(NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES, probeChunks)
+            : null;
+        this.pool = retain
+            ? LongChunkPool.shared(chunkLanes, capacity)
+            : new LongChunkPool(chunkLanes, capacity);
+      }
     } else {
       this.pool = null;
       this.probePool = null;
@@ -1546,8 +1568,8 @@ public final class GroupTableSpill {
       // A per-scan pool is invisible to the budget; a shared one is added back to the headroom.
       pool.drain();
     }
-    if (probePool != null) {
-      // Always per-scan, so never added back: the released tables' index chunks must go too.
+    if (probePool != null && !probePool.isShared()) {
+      // Only retained index chunks are included in the global reusable-byte accounting.
       probePool.drain();
     }
     RELEASES.increment();

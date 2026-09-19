@@ -284,7 +284,7 @@ public final class RowGroupDescriptor {
   private static void validateCanonicalSchema(final byte[] descriptor, final int rowCount, final int columnCount,
       final int segmentCount) {
     if (rowCount == 0) {
-      requireSentinelPair("record-key fence", firstRecordKey(descriptor), lastRecordKey(descriptor));
+      requireSentinelPair("record-key fence", -1, "", firstRecordKey(descriptor), lastRecordKey(descriptor));
     } else {
       final long first = firstRecordKey(descriptor);
       final long last = lastRecordKey(descriptor);
@@ -294,24 +294,24 @@ public final class RowGroupDescriptor {
       }
     }
 
-    int entry = requireEntry(descriptor, 0, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(), "KEYS");
-    requireNonBodyMirror(descriptor, 0, "KEYS");
+    int entry = requireEntry(descriptor, 0, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(), "KEYS", -1);
+    requireNonBodyMirror(descriptor, 0, "KEYS", -1);
     final int minimumKeysBytes =
         ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES + 2 * Long.BYTES + 1 + 2 * Integer.BYTES;
-    requireMinimumBytes(descriptor, 0, minimumKeysBytes, "KEYS");
+    requireMinimumBytes(descriptor, 0, minimumKeysBytes, "KEYS", -1);
 
     for (int column = 0; column < columnCount; column++) {
       final byte kind = kind(descriptor, column);
       requireKnownColumnKind(kind, column);
 
       final int bodyEntry = entry;
-      entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column),
-          "BODY(" + column + ")");
+      entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column), "BODY",
+          column);
       requireMinimumBytes(descriptor, bodyEntry,
           ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES + 1 + (rowCount == 0
               ? 0
               : 2 * Long.BYTES + 1),
-          "BODY(" + column + ")");
+          "BODY", column);
       final int unknownFlags =
           entryColFlags(descriptor, bodyEntry) & ~(ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE
               | ProjectionIndexRowGroupPage.COLUMN_FLAG_NON_INTEGRAL
@@ -328,7 +328,7 @@ public final class RowGroupDescriptor {
       final long min = entryMin(descriptor, bodyEntry);
       final long max = entryMax(descriptor, bodyEntry);
       if (rowCount == 0) {
-        requireSentinelPair("BODY(" + column + ") zone map", min, max);
+        requireSentinelPair("BODY", column, " zone map", min, max);
       } else if (min > max && (min != Long.MAX_VALUE || max != Long.MIN_VALUE)) {
         throw new IllegalStateException(
             "Corrupt leaf descriptor: BODY(" + column + ") has invalid zone map [" + min + ", " + max + "]");
@@ -338,15 +338,15 @@ public final class RowGroupDescriptor {
           || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
       if (rowCount > 0 && localString) {
         final int dictEntry = entry;
-        entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(column),
-            "DICT(" + column + ")");
-        requireNonBodyMirror(descriptor, dictEntry, "DICT(" + column + ")");
+        entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(column), "DICT",
+            column);
+        requireNonBodyMirror(descriptor, dictEntry, "DICT", column);
 
         if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET && entry < segmentCount
             && entryColumnSegmentId(descriptor,
                 entry) == ProjectionIndexColumnSegmentCodec.setCountsColumnSegmentId(column)) {
           final int countsEntry = entry++;
-          requireNonBodyMirror(descriptor, countsEntry, "SET_COUNTS(" + column + ")");
+          requireNonBodyMirror(descriptor, countsEntry, "SET_COUNTS", column);
           if (entryByteLen(descriptor, countsEntry) > ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES) {
             throw new IllegalStateException("Corrupt leaf descriptor: SET_COUNTS(" + column + ") has "
                 + entryByteLen(descriptor, countsEntry) + " bytes and cannot be inline in its segment slot");
@@ -354,9 +354,9 @@ public final class RowGroupDescriptor {
         }
 
         final int bloomEntry = entry;
-        entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(column),
-            "BLOOM(" + column + ")");
-        requireNonBodyMirror(descriptor, bloomEntry, "BLOOM(" + column + ")");
+        entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(column), "BLOOM",
+            column);
+        requireNonBodyMirror(descriptor, bloomEntry, "BLOOM", column);
       }
     }
 
@@ -367,8 +367,8 @@ public final class RowGroupDescriptor {
         }
         final int hashEntry = entry;
         entry = requireEntry(descriptor, entry, ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(column),
-            "DICT_HASHES(" + column + ")");
-        requireNonBodyMirror(descriptor, hashEntry, "DICT_HASHES(" + column + ")");
+            "DICT_HASHES", column);
+        requireNonBodyMirror(descriptor, hashEntry, "DICT_HASHES", column);
       }
     }
 
@@ -380,14 +380,14 @@ public final class RowGroupDescriptor {
 
   /** Return the entry immediately after {@code entryIndex}, or throw on a missing/wrong entry. */
   private static int requireEntry(final byte[] descriptor, final int entryIndex, final int expectedId,
-      final String name) {
+      final String name, final int column) {
     final int count = columnSegmentCount(descriptor);
     if (entryIndex >= count || entryColumnSegmentId(descriptor, entryIndex) != expectedId) {
       final String actual = entryIndex >= count
           ? "<missing>"
           : Integer.toString(entryColumnSegmentId(descriptor, entryIndex));
-      throw new IllegalStateException(
-          "Corrupt leaf descriptor: expected " + name + " segment id " + expectedId + " but found " + actual);
+      throw new IllegalStateException("Corrupt leaf descriptor: expected " + segmentName(name, column) + " segment id "
+          + expectedId + " but found " + actual);
     }
     if (expectedId >= HOTLeafPage.MAX_OVERFLOW_PAGE_REF_SUB_ID) {
       throw new IllegalStateException(
@@ -403,26 +403,36 @@ public final class RowGroupDescriptor {
     }
   }
 
-  private static void requireNonBodyMirror(final byte[] descriptor, final int entry, final String name) {
+  private static void requireNonBodyMirror(final byte[] descriptor, final int entry, final String name,
+      final int column) {
     if (entryColFlags(descriptor, entry) != 0 || entryMin(descriptor, entry) != 0L
         || entryMax(descriptor, entry) != 0L) {
-      throw new IllegalStateException("Corrupt leaf descriptor: " + name + " carries BODY-only mirror fields");
+      throw new IllegalStateException(
+          "Corrupt leaf descriptor: " + segmentName(name, column) + " carries BODY-only mirror fields");
     }
   }
 
   private static void requireMinimumBytes(final byte[] descriptor, final int entry, final int minimum,
-      final String name) {
+      final String name, final int column) {
     if (entryByteLen(descriptor, entry) < minimum) {
-      throw new IllegalStateException("Corrupt leaf descriptor: " + name + " has " + entryByteLen(descriptor, entry)
-          + " bytes, expected at least " + minimum);
+      throw new IllegalStateException("Corrupt leaf descriptor: " + segmentName(name, column) + " has "
+          + entryByteLen(descriptor, entry) + " bytes, expected at least " + minimum);
     }
   }
 
-  private static void requireSentinelPair(final String name, final long min, final long max) {
+  private static void requireSentinelPair(final String name, final int column, final String suffix, final long min,
+      final long max) {
     if (min != Long.MAX_VALUE || max != Long.MIN_VALUE) {
-      throw new IllegalStateException("Corrupt leaf descriptor: empty " + name + " is [" + min + ", " + max
-          + "] instead of the canonical sentinel pair");
+      throw new IllegalStateException("Corrupt leaf descriptor: empty " + segmentName(name, column) + suffix + " is ["
+          + min + ", " + max + "] instead of the canonical sentinel pair");
     }
+  }
+
+  /** Format column-qualified names only when validation has already failed. */
+  private static String segmentName(final String name, final int column) {
+    return column < 0
+        ? name
+        : name + '(' + column + ')';
   }
 
   public static int rowCount(final byte[] d) {

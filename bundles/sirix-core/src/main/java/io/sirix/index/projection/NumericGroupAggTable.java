@@ -151,6 +151,10 @@ public final class NumericGroupAggTable {
   /** Null for interleaved buckets; otherwise hash-tag/record-handle entries in bounded chunks. */
   private long[][] probeIndex;
 
+  /** Dense handles survive index growth; repeated probes still prove every identity lane. */
+  private long previousDenseKey;
+  private int previousDenseHandle = -1;
+
   /** Initial ordinary acquisitions used to decide whether a worker benefits from partial grouping. */
   private static final int PARTIAL_PROBE_SAMPLE = 8_192;
 
@@ -547,6 +551,7 @@ public final class NumericGroupAggTable {
    * references — must copy what it keeps before this call.
    */
   public void release() {
+    previousDenseHandle = -1;
     final long[][] chunks = storage;
     for (int i = 0; i < chunks.length; i++) {
       final long[] chunk = chunks[i];
@@ -1009,6 +1014,14 @@ public final class NumericGroupAggTable {
 
   private int acquireDense(final long key, final long firstSeenOrdinal, final long[] identity,
       final int identityOffset) {
+    final int previous = previousDenseHandle;
+    if (previous >= 0 && previousDenseKey == key) {
+      final long[] chunk = storage[previous >>> chunkBucketShift];
+      final int offset = (previous & chunkBucketMask) * stride;
+      if (idWidth == 0 || identityMatches(chunk, offset + 1 + idOffsetFromAcc, identity, identityOffset, idWidth)) {
+        return previous;
+      }
+    }
     final long hash = HashCommon.mix(key);
     int bucket = (int) hash & mask;
     while (true) {
@@ -1040,6 +1053,8 @@ public final class NumericGroupAggTable {
         if (++size > growAt) {
           rehash();
         }
+        previousDenseKey = key;
+        previousDenseHandle = handle;
         return handle;
       }
       if (((entry ^ hash) & PROBE_TAG_MASK) == 0L) {
@@ -1048,6 +1063,8 @@ public final class NumericGroupAggTable {
         final int offset = (handle & chunkBucketMask) * stride;
         if (chunk[offset] == key) {
           if (idWidth == 0 || identityMatches(chunk, offset + 1 + idOffsetFromAcc, identity, identityOffset, idWidth)) {
+            previousDenseKey = key;
+            previousDenseHandle = handle;
             return handle;
           }
           probeKeyCollision = true;

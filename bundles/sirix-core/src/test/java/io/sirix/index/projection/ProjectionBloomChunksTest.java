@@ -11,17 +11,22 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -294,7 +299,9 @@ final class ProjectionBloomChunksTest {
         };
         final long rejected = hashRejectedBy(bloomSegment(encoded));
         final long[] keep = prune(evidence[0], rowGroupCount, rejected, tracking);
-        assertEquals(2, fetchStats[0], "five chunks must fetch as one four-chunk and one padded window");
+        final int windows = (evidence[0].chunkCount() + ProjectionBloomChunks.FETCH_WINDOW_CHUNKS - 1)
+            / ProjectionBloomChunks.FETCH_WINDOW_CHUNKS;
+        assertEquals(windows, fetchStats[0], "five chunks must fetch in whole windows, the last one padded");
         assertEquals(ProjectionBloomChunks.FETCH_WINDOW_CHUNKS, fetchStats[1]);
         assertDropped(keep, 0, "valid first chunk must prune");
         assertDropped(keep, rowGroupCount - 1, "valid final chunk must prune");
@@ -369,7 +376,8 @@ final class ProjectionBloomChunksTest {
         }
         fetches[0] = 0;
         final long manyDropped = evidence[0].pruneMany(hashes, many, rowGroupCount, tracking, 0, 5);
-        assertEquals(2, fetches[0], "eight literals over five chunks fetch two windows, once");
+        assertEquals((5 + ProjectionBloomChunks.FETCH_WINDOW_CHUNKS - 1) / ProjectionBloomChunks.FETCH_WINDOW_CHUNKS,
+            fetches[0], "eight literals over five chunks fetch whole windows, once");
         assertTrue(ProjectionBloomChunks.fetchScratchIsClearForTesting());
         // ... equals one walk per literal.
         long singleDropped = 0;
@@ -432,6 +440,138 @@ final class ProjectionBloomChunksTest {
         assertThrows(IllegalArgumentException.class,
             () -> evidence[0].pruneMany(hashes, many, rowGroupCount, delegate, 3, 2));
         assertTrue(ProjectionBloomChunks.fetchScratchIsClearForTesting());
+      }
+    } finally {
+      writer.release();
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+  void batchedPruningRetainsExactMatchesAcrossClustersAndLogicalReordering(final boolean selective,
+      final boolean reordered) {
+    final int rowGroupCount = 65 * ProjectionBloomChunks.CHUNK_LEAVES + 13;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup present = encodedRowGroup("chosen-value");
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup absent = encodedRowGroup("different-value");
+    final long hash = ProjectionIndexColumnSegmentCodec.bloomHash("chosen-value".getBytes(StandardCharsets.UTF_8));
+    assertFalse(ProjectionIndexColumnSegmentCodec.bloomMayContainHash(bloomSegment(absent), hash));
+    final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int leaf = 0; leaf < rowGroupCount; leaf++) {
+          // Mix clustered values, one isolated exclusion, and an absent interval across different
+          // physical chunks. Reversing the partial final word makes physical chunk boundaries
+          // disagree with logical mask-word boundaries.
+          final boolean excluded = leaf == 0 || (selective
+              ? leaf >= rowGroupCount / 2
+              : leaf / ProjectionBloomChunks.CHUNK_LEAVES == 16);
+          writer.append(excluded
+              ? absent
+              : present, leaf + 1, storage);
+        }
+        writer.finishChunks(storage, rowGroupCount, COLUMN_KINDS);
+        writer.publishManifests(storage, rowGroupCount);
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final ProjectionBloomChunks.ColumnEvidence[] physical =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, rowGroupCount);
+        assertNotNull(physical);
+        final int[] order = new int[rowGroupCount];
+        for (int logical = 0; logical < rowGroupCount; logical++) {
+          order[logical] = reordered
+              ? rowGroupCount - logical
+              : logical + 1;
+        }
+        final ProjectionBloomChunks.ColumnEvidence[] mapped = ProjectionBloomChunks.reorder(physical, order);
+        assertNotNull(mapped);
+        final ProjectionBloomChunks.ColumnEvidence evidence = mapped[0];
+        assertEquals(!reordered, evidence.parallelPruningIsSafe(),
+            "reordered physical chunks may share a logical mask word and must not race");
+        final ProjectionColumnStore.ColumnSegmentFetcher delegate =
+            ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber());
+        final int[] fetches = new int[1];
+        final ProjectionColumnStore.ColumnSegmentFetcher tracking = offsets -> {
+          fetches[0]++;
+          return delegate.fetchAll(offsets);
+        };
+        final long[] initial = filled(rowGroupCount);
+        for (int logical = 17; logical < rowGroupCount; logical += 17) {
+          initial[logical >>> 6] &= ~(1L << (logical & 63));
+        }
+        final long[] exhaustive = initial.clone();
+        final long[] single = initial.clone();
+        final int fullDropped = evidence.pruneMany(new long[] {hash}, new long[][] {exhaustive}, rowGroupCount,
+            delegate, 0, evidence.chunkCount());
+        final int singleDropped = evidence.prune(hash, single, rowGroupCount, tracking);
+        assertArrayEquals(exhaustive, single);
+        assertEquals(fullDropped, singleDropped);
+        assertEquals((evidence.chunkCount() + ProjectionBloomChunks.FETCH_WINDOW_CHUNKS - 1)
+            / ProjectionBloomChunks.FETCH_WINDOW_CHUNKS, fetches[0]);
+        for (int word = 0; word < initial.length; word++) {
+          assertEquals(exhaustive[word], single[word] & exhaustive[word], "no exhaustive candidate may be lost");
+          assertEquals(single[word], initial[word] & single[word], "pruning may not resurrect excluded bits");
+        }
+        for (int logical = 0; logical < rowGroupCount; logical++) {
+          final int leaf = order[logical] - 1;
+          final boolean excluded = leaf == 0 || (selective
+              ? leaf >= rowGroupCount / 2
+              : leaf / ProjectionBloomChunks.CHUNK_LEAVES == 16);
+          if (!excluded && (initial[logical >>> 6] & (1L << (logical & 63))) != 0) {
+            assertKept(single, logical, "exact matches must survive every evidence walk");
+          }
+        }
+        final ProjectionColumnStore.ColumnSegmentFetcher unreadable = offsets -> {
+          throw new IllegalStateException("injected optional evidence failure");
+        };
+        final long[] uncertain = initial.clone();
+        assertEquals(0, evidence.prune(hash, uncertain, rowGroupCount, unreadable));
+        assertArrayEquals(initial, uncertain);
+        assertTrue(ProjectionBloomChunks.fetchScratchIsClearForTesting());
+
+        final List<RowGroupDirectory> directories = new ArrayList<>(rowGroupCount);
+        final int[] segmentIds = present.columnSegmentIds();
+        final long[] noOffsets = new long[segmentIds.length];
+        final byte[][] noInline = new byte[segmentIds.length][];
+        for (final int physicalId : order) {
+          directories.add(new RowGroupDirectory(physicalId, present.descriptor(), segmentIds, noOffsets, noInline));
+        }
+        final ProjectionColumnStore store = new ProjectionColumnStore(directories);
+        store.attachBloomBlocks(mapped);
+        final long otherHash =
+            ProjectionIndexColumnSegmentCodec.bloomHash("different-value".getBytes(StandardCharsets.UTF_8));
+        final long[] hashes = {hash, otherHash};
+        final long[][] fullMasks = {initial.clone(), initial.clone()};
+        final long[][] batchedMasks = {initial.clone(), initial.clone()};
+        final int fullCount = evidence.pruneMany(hashes, fullMasks, rowGroupCount, delegate, 0, evidence.chunkCount());
+        final ProjectionColumnStore.ColumnSegmentFetcher concurrent = new ProjectionColumnStore.ColumnSegmentFetcher() {
+          @Override
+          public byte[][] fetchAll(final long[] offsets) {
+            return delegate.fetchAll(offsets);
+          }
+
+          @Override
+          public boolean rangedFetchIsConcurrent() {
+            return true;
+          }
+        };
+        assertEquals(fullCount, store.applyBloomPruneMany(0, hashes, batchedMasks, concurrent),
+            "the shared evidence walk preserves total exclusions for both literals");
+        assertArrayEquals(fullMasks[0], batchedMasks[0]);
+        assertArrayEquals(fullMasks[1], batchedMasks[1]);
+        // One literal through the store takes the same many-literal walk (split over the common pool
+        // when the fetcher allows it) and must clear exactly the bits the evidence's own single-literal
+        // walk clears.
+        final long[] direct = initial.clone();
+        final long[] viaStore = initial.clone();
+        final int directCount = evidence.prune(hash, direct, rowGroupCount, delegate);
+        assertEquals(directCount, store.applyBloomPrune(0, hash, viaStore, concurrent),
+            "a single literal through the store drops what the evidence's own walk drops");
+        assertArrayEquals(direct, viaStore);
       }
     } finally {
       writer.release();

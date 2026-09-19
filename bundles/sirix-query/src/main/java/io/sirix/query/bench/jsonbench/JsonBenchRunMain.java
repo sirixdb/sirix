@@ -12,11 +12,9 @@ import io.brackit.query.Query;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
-import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.Allocators;
 import io.sirix.index.projection.ProjectionIndexCatalog;
-import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -157,44 +155,29 @@ public final class JsonBenchRunMain {
     System.exit(0);
   }
 
-  /**
-   * Catalog discovery and segment readahead performed inside the first query's measured window.
-   *
-   * <p>
-   * A published benchmark requires a usable covering projection. Diagnostic runs may explicitly allow
-   * the generic pipeline with {@code --allow-missing-projection}.
-   */
-  static void warmCatalog(final JsonResourceSession session, final int revision, final boolean allowMissingProjection) {
-    final long t0 = System.nanoTime();
-    final ProjectionIndexRegistry.Handle handle =
-        ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(), revision,
-            new String[] {"[]"}, REQUIRED_PROJECTION_FIELDS);
-    final long tLookup = System.nanoTime();
-    requireUsableProjection(handle, allowMissingProjection);
-    if (handle != null && handle.columnStoreOrNull() != null) {
-      handle.kickSegmentPrefetch(Runnable::run, () -> session.beginNodeReadOnlyTrx(revision),
-          trx -> ((JsonNodeReadOnlyTrx) trx).getStorageEngineReader());
-    }
-    if (PHASE_DIAG) {
-      System.err.printf("[phase] warmCatalog lookup=%.1f ms kick=%.1f ms | t=%.1f..%.1f%n", (tLookup - t0) / 1e6,
-          (System.nanoTime() - tLookup) / 1e6, t0 / 1e6, System.nanoTime() / 1e6);
-    }
-  }
-
-  static void requireUsableProjection(final ProjectionIndexRegistry.Handle handle,
+  /** Verify the covering persisted index from its header inside the first measured query. */
+  static void verifyProjectionHeader(final JsonResourceSession session, final int revision,
       final boolean allowMissingProjection) {
-    if (!allowMissingProjection && (handle == null || handle.columnStoreOrNull() == null)) {
+    final long t0 = System.nanoTime();
+    final boolean usable = ProjectionIndexCatalog.hasUsableCoveringProjection(session,
+        session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
+        REQUIRED_PROJECTION_FIELDS);
+    final long tLookup = System.nanoTime();
+    if (!usable && !allowMissingProjection) {
       throw new IllegalStateException("JSONBench requires a usable projection covering all five query columns; "
           + "load with projection indexing enabled or rerun with --build-projection. "
           + "Use --allow-missing-projection only for diagnostic generic-pipeline runs");
     }
+    if (PHASE_DIAG) {
+      System.err.printf("[phase] projection header check=%.1f ms | t=%.1f..%.1f%n", (tLookup - t0) / 1e6, t0 / 1e6,
+          tLookup / 1e6);
+    }
   }
 
   /**
-   * {@code -Dsirix.projDiag=true} stamps every query and the open-time warm on the same
-   * {@link System#nanoTime()} clock the store's fill and readahead diagnostics use, so a cold run's
-   * phases can be laid end to end — the only way to see whether the background sweep still leads the
-   * query that needs its columns.
+   * {@code -Dsirix.projDiag=true} stamps the projection-header check and each query on the same
+   * {@link System#nanoTime()} clock as the store's fill diagnostics, so a cold run's phases can be
+   * laid end to end.
    */
   private static final boolean PHASE_DIAG = Boolean.getBoolean("sirix.projDiag");
 
@@ -266,7 +249,7 @@ public final class JsonBenchRunMain {
     }
     try {
       final long t0 = System.nanoTime();
-      warmCatalog(session, revision, options.allowMissingProjection());
+      verifyProjectionHeader(session, revision, options.allowMissingProjection());
       final String serialized = execute(chain, ctx,
           JsonBenchQueries.wrap(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, options.adHoc()));
       System.out.printf("# ad-hoc query took %.3f s%n", (System.nanoTime() - t0) / 1e9);
@@ -289,11 +272,16 @@ public final class JsonBenchRunMain {
   private static void runSuite(final Options options, final SirixCompileChain chain, final SirixQueryContext ctx,
       final JsonResourceSession session, final int revision, final boolean fastPaths,
       final Map<Integer, double[]> timings) throws IOException {
+    final long groupsBefore = SirixVectorizedExecutor.groupAggServedCount();
+    final long sortedGroupsBefore = SirixVectorizedExecutor.groupSortedServedCount();
+    long expectedGroups = 0;
+    long expectedSortedGroups = 0;
     System.out.printf("%-4s | %10s | %10s | %10s | %s%n", "q", "try1(s)", "hot(s)", "rows", "note");
     for (final JsonBenchQueries.Query query : JsonBenchQueries.all()) {
       if (options.selected() != null && !options.selected().contains(query.index())) {
         continue;
       }
+      final boolean sortedRoute = query.index() == 4 || query.index() == 5;
       final String text =
           JsonBenchQueries.wrap(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, query.jsoniq(options.variant()));
       final double[] tries = timings.get(query.index());
@@ -308,11 +296,15 @@ public final class JsonBenchRunMain {
         try {
           final long t0 = System.nanoTime();
           if (t == 0) {
-            warmCatalog(session, revision, options.allowMissingProjection());
+            verifyProjectionHeader(session, revision, options.allowMissingProjection());
           }
           try {
             final String serialized = execute(chain, ctx, text);
             tries[t] = (System.nanoTime() - t0) / 1e9;
+            expectedGroups++;
+            if (sortedRoute) {
+              expectedSortedGroups++;
+            }
             if (PHASE_DIAG) {
               System.err.printf("[phase] q%d try%d ran %.3f s | t=%.1f..%.1f%n", query.index(), t + 1, tries[t],
                   t0 / 1e6, System.nanoTime() / 1e6);
@@ -340,6 +332,11 @@ public final class JsonBenchRunMain {
     printServedCounters();
     System.out.printf("# chunked: lazyLoads=%d chunkMaterializations=%d eagerFallbacks=%d%n",
         ChunkedBodyConfig.lazyLoads(), ChunkedBodyConfig.chunkMaterializations(), ChunkedBodyConfig.eagerFallbacks());
+    if (fastPaths && options.variant() == 0 && !options.allowMissingProjection()
+        && (SirixVectorizedExecutor.groupAggServedCount() - groupsBefore != expectedGroups
+            || SirixVectorizedExecutor.groupSortedServedCount() - sortedGroupsBefore != expectedSortedGroups)) {
+      throw new IllegalStateException("JSONBench query did not use its required projection aggregate route");
+    }
   }
 
   /**
@@ -349,11 +346,12 @@ public final class JsonBenchRunMain {
    */
   private static void printServedCounters() {
     System.out.printf(
-        "# served: predicateCounts=%d groupAggregates=%d numericGroupBys=%d groupSliced=%d groupDense=%d "
-            + "sortedScans=%d predicateScans=%d valueEmissions=%d%n",
+        "# served: predicateCounts=%d groupAggregates=%d numericGroupBys=%d groupSliced=%d groupSummary=%d groupDense=%d "
+            + "sortedScans=%d sortedGroupBys=%d predicateScans=%d valueEmissions=%d%n",
         SirixVectorizedExecutor.projectionCountsServed(), SirixVectorizedExecutor.groupAggServedCount(),
         SirixVectorizedExecutor.numericGroupByServedCount(), SirixVectorizedExecutor.groupAggSlicedServedCount(),
-        SirixVectorizedExecutor.groupDenseServedCount(), SirixVectorizedExecutor.sortedScanServedCount(),
+        SirixVectorizedExecutor.groupAggSummaryServedCount(), SirixVectorizedExecutor.groupDenseServedCount(),
+        SirixVectorizedExecutor.sortedScanServedCount(), SirixVectorizedExecutor.groupSortedServedCount(),
         SirixVectorizedExecutor.predicateScanServedCount(),
         SirixVectorizedExecutor.predicateValueEmissionsServedCount());
   }

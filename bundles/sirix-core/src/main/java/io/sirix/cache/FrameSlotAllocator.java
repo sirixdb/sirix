@@ -927,11 +927,16 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       return hinted;
     }
 
-    final int wordCount = c.recycledSlots.length();
-    int firstWord = c.recycleScanCursor.getAcquire();
     for (int pass = 0; pass < MAX_RECYCLED_SCAN_PASSES; pass++) {
+      // Never-allocated slots cannot be free. Fresh allocation advances this monotonic bound
+      // before a release can publish a recycled count credit; refresh it on each retry because
+      // competing consumers may claim old free bits while newly allocated slots are released.
+      final int wordCount = (c.nextFreshIndex.getAcquire() + Long.SIZE - 1) >>> 6;
+      final int firstWord = c.recycleScanCursor.getAcquire();
+      int wordIndex = firstWord < wordCount
+          ? firstWord
+          : 0;
       for (int offset = 0; offset < wordCount; offset++) {
-        final int wordIndex = (firstWord + offset) % wordCount;
         long freeBits = c.recycledSlots.get(wordIndex);
         while (freeBits != 0L) {
           final int bitIndex = Long.numberOfTrailingZeros(freeBits);
@@ -944,9 +949,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
           }
           freeBits = c.recycledSlots.get(wordIndex);
         }
+        if (++wordIndex == wordCount) {
+          wordIndex = 0;
+        }
       }
       Thread.onSpinWait();
-      firstWord = c.recycleScanCursor.getAcquire();
     }
 
     // A caller can lose every observed bit to competing reserved consumers. Return this caller's
