@@ -671,6 +671,47 @@ tasks.register('jsonBench', JavaExec) {
         : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
 }
 
+def bitemporalJvmArgs = [
+    '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+    '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+    '--add-modules', 'jdk.incubator.vector',
+    '--enable-native-access=ALL-UNNAMED',
+    '--enable-preview',
+    '-Xms512m',
+    '-Xmx2g',
+    '-XX:MaxDirectMemorySize=1g'
+]
+
+tasks.register('bitemporalGenerate', JavaExec) {
+    group = 'verification'
+    description = 'Generate the deterministic SH1 bitemporal event stream.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.bitemporal.BitemporalGenerateMain'
+    def argsStr = (findProperty('bitemporal.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    jvmArgs = bitemporalJvmArgs
+}
+
+tasks.register('bitemporalSirixLoad', JavaExec) {
+    group = 'verification'
+    description = 'Load an SH1 stream into revisioned Sirix resources.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.bitemporal.BitemporalSirixLoadMain'
+    def argsStr = (findProperty('bitemporal.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    jvmArgs = bitemporalJvmArgs
+}
+
+tasks.register('bitemporalSirixRun', JavaExec) {
+    group = 'verification'
+    description = 'Run and canonicalize the twelve SH1 queries in Sirix.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.bitemporal.BitemporalSirixRunMain'
+    def argsStr = (findProperty('bitemporal.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    jvmArgs = bitemporalJvmArgs
+}
+
 // Correctness-validation runner: prints each scale-bench query's actual
 // result against an existing shredded DB so we can diff against DuckDB /
 // other reference engines. Usage:

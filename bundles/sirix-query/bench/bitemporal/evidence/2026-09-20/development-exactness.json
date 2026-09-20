@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "comparison": "literal cmp of oracle, Sirix and XTDB canonical TSV",
+  "event_sha256": "bc0c819476a6ee4804ad246262ce223a04d044fcaf363b15e87d6bb542378fa2",
+  "queries": [
+    {"q": 1, "rows": 1, "sha256": "06fc08666f2aedf388ef94543817f070237d2833aa93085e8efd45b9ca6c4e61"},
+    {"q": 2, "rows": 1, "sha256": "e4aefb74f809ae46ab3dff34181945637d468f6605a5d0fbcbd19ae833e85a0b"},
+    {"q": 3, "rows": 1, "sha256": "2b33db4275bb42f191ca5d8096a3be65536d2dff0d34e5b49cc33a4e553eaefd"},
+    {"q": 4, "rows": 100, "sha256": "c2979a654746a5f6f42de17c856d1e289aa4c387c971aee94a531a150afbd854"},
+    {"q": 5, "rows": 23, "sha256": "7383cb9030cb08f76c7c48dd3ca6963467341d46ac8ff341bcde70ab1881321b"},
+    {"q": 6, "rows": 100, "sha256": "63373e262b782e0fdb08845574693447359d6bb3f142c7a8d6c629308b1acb26"},
+    {"q": 7, "rows": 4, "sha256": "62ff1bdc1d6b7a58214bc0990a6f956a878ac560f7f54565c2a9b967423c6741"},
+    {"q": 8, "rows": 400, "sha256": "eafa8da0456f751e9b33c3164df06fa06e39859b529a7c3bafa78b7bc2af5a68"},
+    {"q": 9, "rows": 32, "sha256": "99258d0ef143e03eba59bd5b77bfe66eac8500a7553c94a4ce8d98501f3627c1"},
+    {"q": 10, "rows": 16, "sha256": "b89c693744c07afa6a996ba8d5402335edf08acb6400556272a0ceb5fb7d3e33"},
+    {"q": 11, "rows": 240, "sha256": "842c2d6c0d8d60a5f85d93bce293de12624c5da7df943dd23de441fc2fc88520"},
+    {"q": 12, "rows": 4, "sha256": "38dba69c590158f723282bcced2027d225b394d81496de8054e89038d334c1b9"}
+  ]
+}

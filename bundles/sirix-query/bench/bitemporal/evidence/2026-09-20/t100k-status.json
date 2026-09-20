@@ -1,0 +1,32 @@
+{
+  "status": "SIRIX_LOAD_FAILED",
+  "tier": "t100k",
+  "commit": "858d0bb8a5a055db902a22e402c7eda9fcc264cd",
+  "events": 234884,
+  "puts": 210814,
+  "deletes": 24070,
+  "event_sha256": "fe3f025b5e143e75a6ec63badef4c2d830c91d1a0067cb41ba824a6e61f42c39",
+  "generator_repeat_cmp": "identical",
+  "oracle_status": "PASS",
+  "oracle_manifest_sha256": "98cdefc938d1043210b2f1676ed6cfad012a282ea18ffba83cbf1972d1283c0b",
+  "oracle_queries": [
+    {"q": 1, "rows": 1, "sha256": "06fc08666f2aedf388ef94543817f070237d2833aa93085e8efd45b9ca6c4e61"},
+    {"q": 2, "rows": 1, "sha256": "e4aefb74f809ae46ab3dff34181945637d468f6605a5d0fbcbd19ae833e85a0b"},
+    {"q": 3, "rows": 1, "sha256": "2b33db4275bb42f191ca5d8096a3be65536d2dff0d34e5b49cc33a4e553eaefd"},
+    {"q": 4, "rows": 5412, "sha256": "daf9baae89150d4c246f8732bf70a1ab128d343c02b883918849f27a85a6c62b"},
+    {"q": 5, "rows": 23, "sha256": "7383cb9030cb08f76c7c48dd3ca6963467341d46ac8ff341bcde70ab1881321b"},
+    {"q": 6, "rows": 100, "sha256": "22f6ba0f15c1583b5100ca6a413781c35f52c9c20cb9b793ab0537cb12ca64b6"},
+    {"q": 7, "rows": 4, "sha256": "1c8d640043a6891baa382f84f4298f48613fb2f7af76fbf4d6c303da27ed6356"},
+    {"q": 8, "rows": 8000, "sha256": "92605c80f32c54b37af7d5db857799508961de2b5809df5508ae46bd73168ff9"},
+    {"q": 9, "rows": 32, "sha256": "71d55ebfe02a35bb0e87ce0825c7adb2d9f0972c48c574a3c7e832fb0a7f232e"},
+    {"q": 10, "rows": 16, "sha256": "6a224d3bdcecf4d463071429e4dd6f6590c4a404b2f0b72f43ed74dbcac619f1"},
+    {"q": 11, "rows": 240, "sha256": "13f1551d4f2fe4aca176df9d65d9c22bff2089ab1d795af391ec6bcc0af2c34a"},
+    {"q": 12, "rows": 4, "sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068"}
+  ],
+  "sirix_last_completed_epoch": 0,
+  "sirix_failure_epoch": 1,
+  "sirix_log_sha256": "7225bb1dcca18b92780bc32f00fd5ad97728dae83a020571fa6f850f373e759f",
+  "validator": "I8-children-sorted-by-firstkey",
+  "message": "child[7] firstKey 018000018d000000008000018d2e77800100000000 <= a preceding child's firstKey 018000018d000000008000018d339ddc0100000000",
+  "finding": "T100k must be rerun unchanged after the generic HOT structural splice repair"
+}

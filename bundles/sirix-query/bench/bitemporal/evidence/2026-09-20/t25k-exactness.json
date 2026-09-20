@@ -1,0 +1,21 @@
+{
+  "status": "PASS",
+  "tier": "t25k",
+  "event_sha256": "0d7a24032cf76152e1fbbb00f9972890a608c1a42470db3ab036b35d6f03c597",
+  "comparison": "literal cmp: oracle = Sirix = XTDB",
+  "comparator_manifest_sha256": "9ea494127115cd6d7859b7579e4f1bdbd4c12194a0839272eab217b724d56cae",
+  "queries": [
+    {"q": 1, "rows": 1, "sha256": "06fc08666f2aedf388ef94543817f070237d2833aa93085e8efd45b9ca6c4e61"},
+    {"q": 2, "rows": 1, "sha256": "e4aefb74f809ae46ab3dff34181945637d468f6605a5d0fbcbd19ae833e85a0b"},
+    {"q": 3, "rows": 1, "sha256": "2b33db4275bb42f191ca5d8096a3be65536d2dff0d34e5b49cc33a4e553eaefd"},
+    {"q": 4, "rows": 1384, "sha256": "2e00fed02cfb0b4602c184748de96437f5179cdbddbcfdd5f5e61b034aee837f"},
+    {"q": 5, "rows": 23, "sha256": "7383cb9030cb08f76c7c48dd3ca6963467341d46ac8ff341bcde70ab1881321b"},
+    {"q": 6, "rows": 100, "sha256": "428c919d0848af777264e5f76e13a3610bf9139693de39bb38e912422be0999c"},
+    {"q": 7, "rows": 4, "sha256": "210009e6bb135fc301a525bb748bfff5fabf55b77478a6146efa36c4cbfaa3d6"},
+    {"q": 8, "rows": 2000, "sha256": "57d1cc3588cdb0284cb36950dbc7a1d3884c8bb49058aa35f1e7d67f010eb0f9"},
+    {"q": 9, "rows": 32, "sha256": "1d891dfd6e7d94a80f48de073f6d3384f8fe82e11828e57dde781ef58a0ab490"},
+    {"q": 10, "rows": 16, "sha256": "6625b815ba8c73ebe7831d78c4438d46d461f9354685a79098f807f511322f88"},
+    {"q": 11, "rows": 240, "sha256": "816cef64ffa8a2f50e4631ff46307482a3d73c86b4e59831661b1890198d4503"},
+    {"q": 12, "rows": 4, "sha256": "c39ee4da3a067c5705c834f047a019218baedb0e03decc4d6f55c15d0ceae519"}
+  ]
+}

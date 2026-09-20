@@ -1,0 +1,77 @@
+{
+  "units": {
+    "wall_seconds": "seconds",
+    "peak_rss": "KiB",
+    "bytes": "bytes"
+  },
+  "development": {
+    "sirix_load": {
+      "wall_seconds": 11.29,
+      "outer_invocation_peak_rss": 407360,
+      "logical_bytes": 11341962,
+      "allocated_bytes": 12009472
+    },
+    "xtdb_load": {
+      "wall_seconds": 17.38,
+      "peak_rss": 819908,
+      "logical_bytes": 787345,
+      "allocated_bytes": 806912
+    }
+  },
+  "t25k": {
+    "oracle": {
+      "wall_seconds": 2.20,
+      "peak_rss": 172480
+    },
+    "sirix_pre_fix_failed_load": {
+      "wall_seconds": 57.89,
+      "outer_invocation_peak_rss": 411200,
+      "last_completed_epoch": 10,
+      "last_completed_logical_bytes": 42010377,
+      "last_completed_allocated_bytes": 42364928,
+      "log_sha256": "67c6550ec0b3507a0d4a208a88a14bcdca5afb9021889801f5218d5146b41e1d"
+    },
+    "sirix_load": {
+      "wall_seconds": 172.93,
+      "loader_reported_wall_seconds": 169.175,
+      "outer_invocation_peak_rss": 411200,
+      "last_completed_epoch": 24,
+      "logical_bytes": 109381261,
+      "allocated_bytes": 109998080
+    },
+    "sirix_query_process": {
+      "wall_seconds": 175.67,
+      "outer_invocation_peak_rss": 401100
+    },
+    "xtdb_load": {
+      "wall_seconds": 167.58,
+      "peak_rss": 1145108,
+      "logical_bytes_after_reopen": 25483960,
+      "allocated_bytes_after_reopen": 26759168
+    },
+    "xtdb_query_process": {
+      "wall_seconds": 823.03,
+      "peak_rss": 941656
+    }
+  },
+  "t100k": {
+    "oracle": {
+      "wall_seconds": 9.25,
+      "peak_rss": 638080
+    },
+    "sirix_failed_load": {
+      "wall_seconds": 12.14,
+      "outer_invocation_peak_rss": 372000,
+      "last_completed_epoch": 0,
+      "last_completed_logical_bytes": 19423861,
+      "last_completed_allocated_bytes": 19595264,
+      "failure_epoch": 1,
+      "log_sha256": "7225bb1dcca18b92780bc32f00fd5ad97728dae83a020571fa6f850f373e759f"
+    }
+  },
+  "notes": [
+    "Sirix peak RSS values cover the outer Gradle invocation and are not isolated engine-process peaks.",
+    "XTDB closed-store sizes were observed after reopen; shutdown had cancelled an in-flight compaction job."
+  ],
+  "claim": "resource observations only; not a comparative performance result"
+}
