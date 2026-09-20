@@ -126,6 +126,25 @@ All notable changes to SirixDB are documented in this file.
   page exactly as it was so the caller takes its ordinary "leaf is full" path (split, skipped
   consolidation merge, multi-page half). Results, on-disk format, revision visibility and write
   granularity are unchanged. Specified in `docs/HOT_INDEX_SPECIFICATION.md` §3.2.2.
+- **A HOT structural insert could place part of a leaf's key range past a sibling** — a HOT node's
+  mask is shared by all its branches, so a bit one branch discriminates on is an unused, zero column
+  for every child elsewhere, and a multi-value leaf there may hold keys on both sides of it. Two
+  handlers assumed it could not. Folding such a leaf's split into the node inserted its upper half at
+  that half's partial-key position, which lies past any sibling told apart by a less significant
+  bit: the children were no longer ordered by first key, and that sibling's keys were routed to the
+  inserted child. The complete-frontier splice, which takes over when a fold is declined, built its
+  block around sides the block's own bits cut through: it gave up on a side straddling the block's
+  most significant bit and did not look at the second bit at all, where a straddling side's keys are
+  routed to the new key's leaf. Loading a JSON resource with a declared valid-time index at 100,000
+  records stopped with `IllegalStateException: HOT published structural splice is malformed (first:
+  I8-children-sorted-by-firstkey …)`, raised by the writer's own validation, so nothing was published
+  in that state. The fold is now declined unless the upper half lands beside its slot, and the
+  complete-frontier splice splits a side where a bit of its block cuts through it, so that every
+  child of the block is one-sided on the bits of its path. A leaf overflow whose fold has to be
+  declined and that has no other placement fails before anything is published, and marks the
+  transaction rollback-only exactly as the published-splice validation did. Results, on-disk format,
+  revision visibility, write granularity and the validation itself are unchanged. Specified in
+  `docs/HOT_INDEX_SPECIFICATION.md` §4.5.3–§4.5.4 and §4.5.6.
 
 ## [1.0.0-beta7] — 2026-07-15
 

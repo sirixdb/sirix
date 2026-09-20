@@ -3813,6 +3813,14 @@ public abstract class AbstractHOTIndexWriter<K> {
       return false;
     }
     final int comboPartial = lPartial | betaBitWeight;
+    if (!HOTIncrementalInsert.canMergeBiNodeAtExistingDiscBit(parentN, beta, slotOfL)) {
+      // comboPartial is taken (C2), or a sibling's partial sorts between L's slot and comboPartial.
+      // L₁ holds keys of L's own range, so it may only ever land beside L₀ — never after a sibling
+      // whose keys all sort above that range. Both fold variants below insert at comboPartial's I7
+      // position; refuse before either builds anything and leave the halves to the caller.
+      OFF_PATH_OVERFLOW_FALLBACK.incrementAndGet();
+      return false;
+    }
     if (parentN.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
       // N is full. The N-full handler (handleOffPathOverflowFullN) operates incrementally at
       // every pathDepth. The historical `pathDepth < 2` guard was a workaround for the silent
@@ -3997,7 +4005,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     final byte[] keySlice = exactKeyForStructuralMutation(keyBuf, keyLen);
     final HOTIncrementalInsert.BiNode biNode =
         HOTIncrementalInsert.splitLeafPage(leaf, keySlice, valueSlice, revision, indexType, pageKeyAllocator);
-    boolean published = false;
     try {
       ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
 
@@ -4014,15 +4021,15 @@ public abstract class AbstractHOTIndexWriter<K> {
       final HOTIncrementalInsert.IntegrationResult result =
           HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
               navResult.pathDepth(), biNode, revision, pageKeyAllocator);
-      published = true;
       lastDispatchHandler = "h:merge-offpath-fullN";
       registerFreshSubtree(result.touchedRef());
       retireReplacedLeaf(navResult.leafRef(), result.touchedRef(), TransactionIntentLog.RELEASE_SITE_LEAF_SPLIT);
       return keySlice;
     } catch (final RuntimeException | Error failure) {
-      if (published) {
-        markTransactionRollbackOnly(failure);
-      }
+      // Published or not, the key is not in the index: the transaction must not commit a document
+      // its index no longer reflects. A fold this path had to refuse ends here before publication,
+      // where it used to end after one, in the published-splice validation — rollback-only either way.
+      markTransactionRollbackOnly(failure);
       closeFreshBiNode(biNode, failure);
       throw failure;
     }
@@ -4059,7 +4066,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (!tryBranchIncremental(navResult, mismatchBit, insertDepth, affectedChildIndex, keySlice, valueSlice)) {
       // Sparse routing and lexicographic placement disagree (Direction 1 / stranding / integration
       // collision). Persistently split only the smallest complete structural frontier around those
-      // two positions, copy at most its one boundary leaf, and splice K there. This is the total
+      // two positions, copy at most one boundary leaf per split, and splice K there. This is the total
       // incremental discharge: no subtree entry collection and no posting-payload rebuild.
       spliceCompleteFrontierIncrementally(navResult, insertDepth, keySlice, valueSlice);
     }
@@ -5366,10 +5373,12 @@ public abstract class AbstractHOTIndexWriter<K> {
    *
    * <p>
    * The frontier is persistently split immediately before {@code K}. Every indirect split copies only
-   * one bounded child table and shares all untouched descendants. At most one physical leaf is
-   * copied, namely the leaf whose key range contains the insertion point. The two retained halves and
-   * a one-entry K leaf are joined into a canonical Patricia mini-root and the complete frontier is
-   * replaced atomically. No posting payload outside that boundary leaf is read or copied.
+   * one bounded child table and shares all untouched descendants, and copies at most one physical
+   * leaf, namely the one whose key range contains the split point. The two retained halves and a
+   * one-entry K leaf are joined into a canonical Patricia block ({@link #joinOrderedAroundKey}),
+   * which splits a half the same way wherever one of its own bits cuts through it, and the complete
+   * frontier is replaced atomically. No posting payload outside those boundary leaves is read or
+   * copied.
    * </p>
    *
    * <p>
@@ -5424,11 +5433,14 @@ public abstract class AbstractHOTIndexWriter<K> {
         throw new IllegalStateException("HOT incremental frontier has a null source reference");
       }
 
-      split = splitSubtreeBeforeKey(sourceRef, keySlice, replacedLeafRefs, 0);
+      split = splitSubtreeBeforeKey(sourceRef, keySlice, false, replacedLeafRefs, 0);
       final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
       putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
       keyRef = swizzle(keyLeaf);
-      replacementRef = joinOrderedAroundKey(split.left(), keyRef, split.right(), keySlice, revision);
+      replacementRef = joinOrderedAroundKey(split.left(), keyRef, split.right(), keySlice, revision, replacedLeafRefs);
+      if (replacementRef == null) {
+        return false; // no canonical block over this frontier; the join retired its own inputs
+      }
 
       if (frontier.size() == 1) {
         candidateRef = replaceSingleChildAndReencode(node, frontier.fromInclusive(), replacementRef, revision);
@@ -5529,22 +5541,26 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Persistent lexicographic split of a canonical subtree immediately before an absent key. Only the
-   * boundary path is copied; an interior boundary leaf is split into two fresh leaves.
+   * Persistent lexicographic split of a canonical subtree immediately before a key. Only the boundary
+   * path is copied; an interior boundary leaf is split into two fresh leaves. The key being inserted
+   * must be absent; a bit boundary ({@link #firstKeyOnOneSide}) may coincide with a stored key, which
+   * then opens the right half ({@code keyMayBePresent}).
    */
   private StructuralKeySplit splitSubtreeBeforeKey(final PageReference sourceRef, final byte[] keySlice,
-      final List<PageReference> replacedLeafRefs, final int depth) {
+      final boolean keyMayBePresent, final List<PageReference> replacedLeafRefs, final int depth) {
     if (depth > MAX_PATH_DEPTH) {
       throw new IllegalStateException("HOT persistent key split exceeded " + MAX_PATH_DEPTH + " levels");
     }
     final Page source = resolveHOTPageForTraversal(sourceRef);
     if (source instanceof HOTLeafPage leaf) {
       final int search = leaf.findEntry(keySlice);
-      if (search >= 0) {
+      if (search >= 0 && !keyMayBePresent) {
         throw new IllegalStateException(
             "HOT incremental frontier found the supposedly absent key in leaf " + leaf.getPageKey());
       }
-      final int insertionPoint = -search - 1;
+      final int insertionPoint = search >= 0
+          ? search
+          : -search - 1;
       if (insertionPoint == 0) {
         return new StructuralKeySplit(null, sourceRef);
       }
@@ -5590,8 +5606,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     final int target = lexicographicBoundaryChild(indirect, keySlice);
 
     final int revision = storageEngineWriter.getRevisionNumber();
-    final StructuralKeySplit childSplit =
-        splitSubtreeBeforeKey(indirect.getChildReference(target), keySlice, replacedLeafRefs, depth + 1);
+    final StructuralKeySplit childSplit = splitSubtreeBeforeKey(indirect.getChildReference(target), keySlice,
+        keyMayBePresent, replacedLeafRefs, depth + 1);
     PageReference left = null;
     PageReference right = null;
     try {
@@ -5653,75 +5669,221 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
   }
 
-  /** Join {@code <K}, {@code K}, {@code >K} as one canonical one- or two-bit HOT block. */
-  private PageReference joinOrderedAroundKey(final @Nullable PageReference left, final PageReference keyRef,
-      final @Nullable PageReference right, final byte[] keySlice, final int revision) {
-    final PageReference[] children = new PageReference[3];
-    final byte[][] first = new byte[3][];
-    final byte[][] last = new byte[3][];
-    int count = 0;
-    if (left != null) {
-      children[count] = left;
-      first[count] = requireNonNull(firstKeyOfSubtree(left), "left frontier first key");
-      last[count++] = requireNonNull(lastKeyOfSubtree(left), "left frontier last key");
-    }
-    children[count] = keyRef;
-    first[count] = keySlice;
-    last[count++] = keySlice;
-    if (right != null) {
-      children[count] = right;
-      first[count] = requireNonNull(firstKeyOfSubtree(right), "right frontier first key");
-      last[count++] = requireNonNull(lastKeyOfSubtree(right), "right frontier last key");
-    }
-    for (int i = 1; i < count; i++) {
-      if (Arrays.compareUnsigned(last[i - 1], first[i]) >= 0) {
-        throw new IllegalStateException("HOT incremental frontier inputs overlap at ordered child " + i);
-      }
-    }
-    if (count == 1) {
-      return keyRef;
-    }
+  /**
+   * One ordered input of a complete-frontier join — a subtree reference with its extreme keys — and
+   * the path the join assigns it: the block bits on which it sits on the 1-side, root first.
+   */
+  private static final class FrontierPart {
+    private final PageReference ref;
+    private final byte[] first;
+    private final byte[] last;
+    private int[] oneBits = NO_FRONTIER_BITS;
 
-    final int rootBit = HOTBulkBuilder.msdb(first[0], last[count - 1]);
-    int split = 1;
-    while (split < count && !HOTBulkBuilder.bitAt(first[split], rootBit)) {
-      split++;
+    private FrontierPart(final PageReference ref, final byte[] first, final byte[] last) {
+      this.ref = ref;
+      this.first = first;
+      this.last = last;
     }
-    if (split == count) {
-      throw new IllegalStateException("HOT incremental frontier has no Patricia transition at bit " + rootBit);
-    }
-    for (int i = 0; i < split; i++) {
-      if (HOTBulkBuilder.bitAt(first[i], rootBit) || HOTBulkBuilder.bitAt(last[i], rootBit)) {
-        throw new IllegalStateException("HOT left frontier child straddles Patricia bit " + rootBit);
-      }
-    }
-    for (int i = split; i < count; i++) {
-      if (!HOTBulkBuilder.bitAt(first[i], rootBit) || !HOTBulkBuilder.bitAt(last[i], rootBit)) {
-        throw new IllegalStateException("HOT right frontier child straddles Patricia bit " + rootBit);
-      }
-    }
+  }
 
-    int maxChildHeight = 0;
-    for (int i = 0; i < count; i++) {
-      maxChildHeight = Math.max(maxChildHeight, structuralHeight(children[i]));
-    }
-    if (count == 2) {
-      return swizzle(HOTIndirectPage.createBiNode(pageKeyAllocator.getAsLong(), revision, rootBit, children[0],
-          children[1], maxChildHeight + 1));
-    }
+  private static final int[] NO_FRONTIER_BITS = new int[0];
 
-    final int nestedBit = split == 1
-        ? HOTBulkBuilder.msdb(first[1], last[2])
-        : HOTBulkBuilder.msdb(first[0], last[1]);
-    if (nestedBit <= rootBit) {
-      throw new IllegalStateException("HOT nested frontier bit " + nestedBit + " is not below root bit " + rootBit);
+  /**
+   * Sides a complete-frontier join had to split because a bit of the block being built cut through
+   * them — a side holding keys on both sides of that bit cannot be one child of the block. One join
+   * can split several.
+   */
+  public static final AtomicLong FRONTIER_JOIN_STRADDLE_SPLIT = new AtomicLong();
+
+  /**
+   * Join {@code <K}, {@code K}, {@code >K} as one canonical HOT block: the Patricia trie over the
+   * ordered parts, flattened into a single node with sparse-path partials.
+   *
+   * <p>
+   * Each level branches on the MSDB of its range's extremes. The parts are ordered and share every
+   * bit above it, so the 0-side is a prefix of the range and the 1-side the rest, and one part at
+   * most holds the transition. A part may only be a child of the block if all its keys agree on every
+   * bit of its path: a key that disagrees matches the neighbouring partial instead and is routed away
+   * from its own subtree. The published-splice validation notices that only where the part carries
+   * the bit as a 1 (I5) and the scope fits its budget — a zero column claims nothing. {@code K}'s two
+   * sides are arbitrary key ranges, not complete {@code R(S)}-subtrees, so they do straddle such
+   * bits: a side the branching bit cuts through is split there persistently, exactly as the frontier
+   * was split around {@code K}, and both pieces join the block. With no such side this yields the
+   * former one- and two-bit blocks unchanged.
+   * </p>
+   *
+   * @return the block, {@code keyRef} itself when it has no sides, or {@code null} when no block
+   *         could be built — every fresh input is then retired and the caller only declines
+   */
+  private @Nullable PageReference joinOrderedAroundKey(final @Nullable PageReference left, final PageReference keyRef,
+      final @Nullable PageReference right, final byte[] keySlice, final int revision,
+      final List<PageReference> replacedLeafRefs) {
+    final List<FrontierPart> parts = new ArrayList<>(4);
+    try {
+      if (left != null) {
+        parts.add(frontierPart(left));
+      }
+      parts.add(new FrontierPart(keyRef, keySlice, keySlice));
+      if (right != null) {
+        parts.add(frontierPart(right));
+      }
+      for (int i = 1; i < parts.size(); i++) {
+        if (Arrays.compareUnsigned(parts.get(i - 1).last, parts.get(i).first) >= 0) {
+          throw new IllegalStateException("HOT incremental frontier inputs overlap at ordered child " + i);
+        }
+      }
+      if (parts.size() == 1) {
+        return keyRef;
+      }
+
+      final int[] blockBits = new int[HOTIndirectPage.MAX_NODE_ENTRIES];
+      final int blockBitCount =
+          assignFrontierPaths(parts, 0, parts.size() - 1, blockBits, 0, NO_FRONTIER_BITS, replacedLeafRefs);
+      if (blockBitCount < 0) {
+        discardFrontierParts(parts);
+        return null;
+      }
+
+      final int partCount = parts.size();
+      final PageReference[] children = new PageReference[partCount];
+      int maxChildHeight = 0;
+      for (int i = 0; i < partCount; i++) {
+        children[i] = parts.get(i).ref;
+        maxChildHeight = Math.max(maxChildHeight, structuralHeight(children[i]));
+      }
+      final HOTIndirectPage block;
+      if (partCount == 2) {
+        block = HOTIndirectPage.createBiNode(pageKeyAllocator.getAsLong(), revision, blockBits[0], children[0],
+            children[1], maxChildHeight + 1);
+      } else {
+        // A bit can branch on both sides of a more significant one; the mask holds it once.
+        Arrays.sort(blockBits, 0, blockBitCount);
+        int maskSize = 0;
+        for (int i = 0; i < blockBitCount; i++) {
+          if (maskSize == 0 || blockBits[maskSize - 1] != blockBits[i]) {
+            blockBits[maskSize++] = blockBits[i];
+          }
+        }
+        final int[] discBits = Arrays.copyOf(blockBits, maskSize);
+        final int[] partials = new int[partCount];
+        for (int i = 0; i < partCount; i++) {
+          int partial = 0;
+          for (final int oneBit : parts.get(i).oneBits) {
+            partial |= 1 << (maskSize - 1 - Arrays.binarySearch(discBits, oneBit));
+          }
+          partials[i] = partial;
+        }
+        block = HOTBulkBuilder.assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision,
+            pageKeyAllocator);
+      }
+      // By construction every key of a part routes to it. That rests on the parts being ordered and
+      // their extremes true; probing the extremes on the assembled node declines a block whose
+      // premises do not hold instead of publishing it.
+      for (int i = 0; i < partCount; i++) {
+        final FrontierPart part = parts.get(i);
+        if (block.findChildIndex(part.first) != i || block.findChildIndex(part.last) != i) {
+          discardFrontierParts(parts);
+          return null;
+        }
+      }
+      return swizzle(block);
+    } catch (final RuntimeException | Error failure) {
+      // A split inside the join replaces a part by two fresh halves no caller ever saw.
+      for (final FrontierPart part : parts) {
+        closeUnregisteredFreshSubtree(part.ref, failure);
+      }
+      throw failure;
     }
-    final int[] discBits = {rootBit, nestedBit};
-    final int[] partials = split == 1
-        ? new int[] {0, 2, 3}
-        : new int[] {0, 1, 2};
-    return swizzle(HOTBulkBuilder.assembleIndirect(discBits, partials, Arrays.copyOf(children, count),
-        maxChildHeight + 1, revision, pageKeyAllocator));
+  }
+
+  private FrontierPart frontierPart(final PageReference ref) {
+    return new FrontierPart(ref, requireNonNull(firstKeyOfSubtree(ref), "frontier part first key"),
+        requireNonNull(lastKeyOfSubtree(ref), "frontier part last key"));
+  }
+
+  /**
+   * Assign the canonical paths of {@code parts[lo..hi]}, splitting a part the branching bit cuts
+   * through. {@code onePath} holds the bits on which the whole range already sits on the 1-side.
+   *
+   * @return the number of branching bits recorded in {@code blockBits}, or {@code -1} when the range
+   *         cannot be one block — it would exceed a node's fan-out, or a part does not split
+   */
+  private int assignFrontierPaths(final List<FrontierPart> parts, final int lo, final int hi, final int[] blockBits,
+      final int blockBitCount, final int[] onePath, final List<PageReference> replacedLeafRefs) {
+    if (lo == hi) {
+      parts.get(lo).oneBits = onePath;
+      return blockBitCount;
+    }
+    final int bit = HOTBulkBuilder.msdb(parts.get(lo).first, parts.get(hi).last);
+    // The range's first key has the bit clear and its last key has it set, so a transition exists.
+    int cut = lo;
+    while (!HOTBulkBuilder.bitAt(parts.get(cut).last, bit)) {
+      cut++;
+    }
+    int rangeEnd = hi;
+    final FrontierPart transition = parts.get(cut);
+    if (!HOTBulkBuilder.bitAt(transition.first, bit)) {
+      if (parts.size() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
+        return -1;
+      }
+      final StructuralKeySplit halves =
+          splitSubtreeBeforeKey(transition.ref, firstKeyOnOneSide(transition.first, bit), true, replacedLeafRefs, 0);
+      if (halves.left() == null || halves.right() == null) {
+        // The extremes disagree on the bit yet no key sits on one side: the part is not ordered.
+        // The surviving half stays owned by the list so the caller retires it.
+        final PageReference survivor = halves.left() != null
+            ? halves.left()
+            : halves.right();
+        if (survivor != null) {
+          parts.set(cut, new FrontierPart(survivor, transition.first, transition.last));
+        }
+        return -1;
+      }
+      final FrontierPart zeroSide;
+      final FrontierPart oneSide;
+      try {
+        zeroSide = frontierPart(halves.left());
+        oneSide = frontierPart(halves.right());
+      } catch (final RuntimeException | Error failure) {
+        // Neither half is in the list yet, so the join's own cleanup cannot reach them.
+        closeUnregisteredFreshSubtree(halves.left(), failure);
+        closeUnregisteredFreshSubtree(halves.right(), failure);
+        throw failure;
+      }
+      parts.set(cut, zeroSide);
+      parts.add(cut + 1, oneSide);
+      FRONTIER_JOIN_STRADDLE_SPLIT.incrementAndGet();
+      cut++;
+      rangeEnd++;
+    }
+    blockBits[blockBitCount] = bit;
+    // The 1-side first: parts it adds sit above the 0-side's indexes and leave them valid.
+    final int[] oneSidePath = Arrays.copyOf(onePath, onePath.length + 1);
+    oneSidePath[onePath.length] = bit;
+    final int afterOneSide =
+        assignFrontierPaths(parts, cut, rangeEnd, blockBits, blockBitCount + 1, oneSidePath, replacedLeafRefs);
+    return afterOneSide < 0
+        ? -1
+        : assignFrontierPaths(parts, lo, cut - 1, blockBits, afterOneSide, onePath, replacedLeafRefs);
+  }
+
+  /**
+   * The smallest key that shares {@code key}'s bits above {@code bit} and has {@code bit} set: among
+   * keys agreeing above {@code bit}, exactly those with the bit set sort at or after it.
+   */
+  private static byte[] firstKeyOnOneSide(final byte[] key, final int bit) {
+    final int bytePos = bit >>> 3;
+    final byte[] boundary = Arrays.copyOf(key, bytePos + 1);
+    final int bitMask = 1 << (7 - (bit & 7));
+    boundary[bytePos] = (byte) ((boundary[bytePos] & -(bitMask << 1)) | bitMask);
+    return boundary;
+  }
+
+  /** Retire the fresh pages of a join that declines; shared and logged children are left alone. */
+  private void discardFrontierParts(final List<FrontierPart> parts) {
+    for (final FrontierPart part : parts) {
+      discardUnpublishedStructuralCandidateOrThrow(part.ref);
+    }
   }
 
   /** Re-encode one parent with a single child replacement, preserving its sparse coordinates. */
