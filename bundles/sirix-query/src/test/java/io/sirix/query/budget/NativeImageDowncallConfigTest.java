@@ -16,12 +16,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -33,14 +33,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * initialized at run time, every native decode and every fadvise goes through a slower call path.
  * The portable default has to be run time, because the GraalVM 25.0.x LTS line rejects a build-time
  * downcall handle outright, so an optimized build opts in with
- * {@code -Pnative.preinitializeDowncalls=true}. The whole arrangement is three strings that must
- * agree and two classes that must keep a particular shape, and none of it is Java code a compiler
- * or a result test looks at:
+ * {@code -Pnative.preinitializeDowncalls=true}. None of that is Java code a compiler or a result
+ * test looks at, and each piece fails silently:
  *
  * <ul>
  * <li>the argument names the adapters by binary class name, and Native Image does not complain
  * about a name that matches nothing, so renaming or inlining a holder turns the opt-in into a
- * silent no-op;</li>
+ * no-op;</li>
  * <li>a holder may be initialized early only while it holds nothing but the call signature; a
  * library handle or a symbol address in it would be baked into the image heap;</li>
  * <li>listing a holder in a shared {@code native-image.properties} fails the build on the LTS
@@ -48,115 +47,132 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </ul>
  *
  * <p>
- * <b>What this cannot catch:</b> whether an image built with the option is actually fast, or builds
- * at all on a given GraalVM. Nothing here compiles a native image. That is the job of a timed run
- * on a real image; this test only keeps the configuration such a run depends on from drifting
- * unnoticed.
+ * <b>The build is asked, not read.</b> The script defines the argument once, adds it to the main
+ * image, and hands this test what Gradle itself evaluated: the arguments the opt-in and the default
+ * produce, whether this build asked for the opt-in, and the build-time initialization arguments the
+ * main and smoke-test images really end up with (see the {@code test} block of
+ * {@code bundles/sirix-query/build.gradle}). Run the suite with
+ * {@code -Pnative.preinitializeDowncalls=true} and the same assertions check the other state. The
+ * shared {@code native-image.properties} files are parsed as properties, the way Native Image reads
+ * them.
+ *
+ * <p>
+ * <b>What this cannot catch:</b> whether an image built with the option is actually fast, whether
+ * it builds at all on a given GraalVM, or whether a binary someone measured was built with the
+ * option. Nothing here compiles a native image. That is the job of a timed run on a real image;
+ * this test only keeps the configuration such a run depends on from drifting unnoticed.
  */
 final class NativeImageDowncallConfigTest {
 
-  private static final String OPT_IN_PROPERTY = "native.preinitializeDowncalls";
+  /** The Gradle property the documentation tells people to pass. */
+  private static final String DOCUMENTED_PROPERTY = "native.preinitializeDowncalls";
+
+  private static final String OPT_IN = "-P" + DOCUMENTED_PROPERTY + "=true";
 
   private static final String BUILD_TIME_FLAG = "--initialize-at-build-time=";
 
-  /** The two adapters, by the binary names the builder argument has to use. */
+  /** The two adapters, by the binary names a builder argument has to use. */
   private static final List<String> HOLDERS =
       List.of("io.sirix.page.SirixLZ77NativeDecoder$DecodeCall", "io.sirix.io.filechannel.PosixFadvise$AdviceCall");
 
-  private static final String OPT_IN_ARGUMENT = BUILD_TIME_FLAG + String.join(",", HOLDERS);
+  private static final String ARGS_WHEN_OPTED_IN = "sirix.test.nativeImage.downcallArgs.optedIn";
 
-  private static final Pattern BUILD_TIME_ENTRIES =
-      Pattern.compile(Pattern.quote(BUILD_TIME_FLAG) + "([^\\s'\"\\\\]+)");
+  private static final String ARGS_BY_DEFAULT = "sirix.test.nativeImage.downcallArgs.default";
 
-  private static final Path REPOSITORY = repositoryRoot();
+  private static final String OPT_IN_REQUESTED = "sirix.test.nativeImage.downcallArgs.requested";
+
+  private static final String PROPERTY_CONSULTED = "sirix.test.nativeImage.downcallArgs.property";
+
+  private static final String MAIN_IMAGE_ARGS = "sirix.test.nativeImage.buildTimeArgs.main";
+
+  private static final String SMOKE_TEST_IMAGE_ARGS = "sirix.test.nativeImage.buildTimeArgs.smokeTest";
 
   @Test
-  void theDocumentationGivesTheArgumentTheBuildAdds() throws IOException {
-    final List<String> documented = new ArrayList<>();
-    for (final String line : Files.readAllLines(REPOSITORY.resolve("docs/NATIVE_IMAGE.md"), StandardCharsets.UTF_8)) {
-      if (line.strip().startsWith(BUILD_TIME_FLAG) && coversAHolder(line.strip().substring(BUILD_TIME_FLAG.length()))) {
-        documented.add(line.strip());
-      }
-    }
-    assertEquals(List.of(OPT_IN_ARGUMENT), documented,
-        "docs/NATIVE_IMAGE.md must state the opt-in argument exactly once, and exactly as the build adds it");
-    assertTrue(Files.readString(REPOSITORY.resolve("docs/NATIVE_IMAGE.md")).contains("-P" + OPT_IN_PROPERTY + "=true"),
-        "docs/NATIVE_IMAGE.md must name the property that switches the argument on");
+  void theOptInProducesOneArgumentNamingExactlyTheTwoHolders() {
+    assertEquals(List.of(BUILD_TIME_FLAG + String.join(",", HOLDERS)), evaluatedByTheBuild(ARGS_WHEN_OPTED_IN),
+        OPT_IN + " must add one build-time initialization argument, for the two downcall holders and nothing else");
+    assertEquals(List.of(), evaluatedByTheBuild(ARGS_BY_DEFAULT),
+        "without the opt-in the build must add nothing: the portable configuration is the run-time one");
   }
 
   @Test
-  void theBuildAddsTheArgumentOnlyBehindTheOptInProperty() throws IOException {
-    final List<String> lines =
-        Files.readAllLines(REPOSITORY.resolve("bundles/sirix-query/build.gradle"), StandardCharsets.UTF_8);
-    int gate = -1;
-    for (int i = 0; i < lines.size(); i++) {
-      if (lines.get(i).contains(OPT_IN_PROPERTY) && !lines.get(i).strip().startsWith("//")) {
-        assertEquals(-1, gate, "the opt-in property must gate the argument in exactly one place");
-        gate = i;
-      }
+  void theMainImageInitializesTheHoldersEarlyOnlyWhenThisBuildAskedFor() {
+    final List<String> early = holdersCoveredBy(buildTimeEntries(evaluatedByTheBuild(MAIN_IMAGE_ARGS)));
+    if (Boolean.parseBoolean(evaluated(OPT_IN_REQUESTED))) {
+      assertEquals(Set.copyOf(HOLDERS), Set.copyOf(early),
+          "this build passed " + OPT_IN + ", so the main image must initialize both holders at build time");
+    } else {
+      assertEquals(List.of(), early, "this build did not pass " + OPT_IN + ", yet the main image initializes a "
+          + "downcall holder at build time: the GraalVM 25.0.x LTS line rejects that with a linkToNative error");
     }
-    assertTrue(gate >= 0, "bundles/sirix-query/build.gradle no longer reads -P" + OPT_IN_PROPERTY
-        + ", so an optimized build silently keeps the run-time adapters");
-
-    final String condition = lines.get(gate).strip();
-    assertTrue(condition.startsWith("if (") && condition.endsWith("{"),
-        "the property must guard a block, not be consulted in passing: " + condition);
-    assertTrue(condition.contains("getOrElse('false')"),
-        "the option must default to off: the portable configuration is the run-time one. Found: " + condition);
-    // Single quotes matter: in a Groovy double-quoted string "$DecodeCall" is an interpolation, and
-    // the argument would name a class that does not exist.
-    assertEquals("buildArgs.add('" + OPT_IN_ARGUMENT + "')", lines.get(gate + 1).strip(),
-        "the guarded block must add exactly the documented argument, single-quoted");
-    assertEquals("}", lines.get(gate + 2).strip(), "the guarded block must add that argument and nothing else");
   }
 
   @Test
-  void nothingInitializesAHolderAtBuildTimeExceptTheOptIn() throws IOException {
-    final List<Path> configured = new ArrayList<>();
+  void theSmokeTestImageNeverInitializesAHolderEarly() {
+    assertEquals(List.of(), holdersCoveredBy(buildTimeEntries(evaluatedByTheBuild(SMOKE_TEST_IMAGE_ARGS))),
+        "the smoke-test image is what CI builds on the LTS toolchain, opt-in or not; a build-time downcall holder "
+            + "fails it with a linkToNative error");
+  }
+
+  @Test
+  void noSharedConfigurationInitializesAHolderEarly() throws IOException {
+    final Path repository = repositoryRoot();
+    final List<Path> shared = new ArrayList<>();
     final List<Path> modules;
-    try (Stream<Path> bundles = Files.list(REPOSITORY.resolve("bundles"))) {
+    try (Stream<Path> bundles = Files.list(repository.resolve("bundles"))) {
       modules = bundles.filter(Files::isDirectory).sorted().toList();
     }
     for (final Path module : modules) {
-      if (Files.isRegularFile(module.resolve("build.gradle"))) {
-        configured.add(module.resolve("build.gradle"));
-      }
       // Only the sources: a module's build output carries copies of the same files.
-      final Path shared = module.resolve("src/main/resources/META-INF/native-image");
-      if (Files.isDirectory(shared)) {
-        try (Stream<Path> files = Files.walk(shared)) {
+      final Path nativeImage = module.resolve("src/main/resources/META-INF/native-image");
+      if (Files.isDirectory(nativeImage)) {
+        try (Stream<Path> files = Files.walk(nativeImage)) {
           files.filter(path -> path.getFileName().toString().equals("native-image.properties"))
                .sorted()
-               .forEach(configured::add);
+               .forEach(shared::add);
         }
       }
     }
-    try (Stream<Path> scripts = Files.list(REPOSITORY.resolve("native-image"))) {
-      scripts.filter(path -> path.getFileName().toString().endsWith(".sh")).sorted().forEach(configured::add);
-    }
-    assertTrue(configured.stream().anyMatch(path -> path.endsWith("sirix-core/native-image.properties")),
-        "the scan must reach sirix-core's shared configuration, or it proves nothing: " + configured);
 
     final List<String> offenders = new ArrayList<>();
-    for (final Path file : configured) {
-      for (final String entry : buildTimeEntries(file)) {
-        final boolean isTheOptIn = file.endsWith("bundles/sirix-query/build.gradle") && HOLDERS.contains(entry);
-        if (coversAHolder(entry) && !isTheOptIn) {
-          offenders.add(REPOSITORY.relativize(file) + " -> " + entry);
-        }
+    boolean sawSirixCoresBuildTimeList = false;
+    for (final Path file : shared) {
+      final List<String> entries = buildTimeEntries(argsOf(file));
+      sawSirixCoresBuildTimeList |=
+          file.endsWith("sirix-core/native-image.properties") && entries.contains("io.sirix.node.LE");
+      for (final String holder : holdersCoveredBy(entries)) {
+        offenders.add(repository.relativize(file) + " initializes " + holder);
       }
     }
+    assertTrue(sawSirixCoresBuildTimeList,
+        "the scan no longer reaches sirix-core's build-time list, so it would pass " + "on anything: " + shared);
     assertEquals(List.of(), offenders,
-        "a downcall holder is initialized at build time outside the opt-in, by name or through its package or "
-            + "outer class. The GraalVM 25.0.x LTS line CI builds with rejects that with a linkToNative error");
+        "a shared native-image.properties applies to every image, the opt-in to one: a holder listed there, by "
+            + "name, outer class or package, fails every build on the GraalVM 25.0.x LTS line");
   }
 
+  /**
+   * The fenced argument in {@code docs/NATIVE_IMAGE.md} is a text contract of its own: it is what
+   * someone copies into a raw {@code native-image} command line, so it has to be the argument the
+   * build produces, not a description of it.
+   */
   @Test
-  void sirixCoresSharedConfigurationIsReadAsNativeImageReadsIt() throws IOException {
-    final List<String> entries = buildTimeEntries(REPOSITORY.resolve(
-        "bundles/sirix-core/src/main/resources/META-INF/native-image/io.sirix/sirix-core/native-image.properties"));
-    assertTrue(entries.contains("io.sirix.node.LE"),
-        "the parser no longer sees sirix-core's build-time list, so the scan above would pass on anything: " + entries);
+  void theDocumentationStatesTheArgumentTheBuildProduces() throws IOException {
+    final Path document = repositoryRoot().resolve("docs/NATIVE_IMAGE.md");
+    final List<String> documented = new ArrayList<>();
+    for (final String line : Files.readAllLines(document, StandardCharsets.UTF_8)) {
+      final String argument = line.strip();
+      if (argument.startsWith(BUILD_TIME_FLAG) && !holdersCoveredBy(buildTimeEntries(List.of(argument))).isEmpty()) {
+        documented.add(argument);
+      }
+    }
+    assertEquals(evaluatedByTheBuild(ARGS_WHEN_OPTED_IN), documented,
+        "docs/NATIVE_IMAGE.md must state the opt-in argument once, exactly as the build produces it");
+    assertTrue(Files.readString(document, StandardCharsets.UTF_8).contains(OPT_IN),
+        "docs/NATIVE_IMAGE.md must name the property that switches the argument on: " + OPT_IN);
+    assertEquals(DOCUMENTED_PROPERTY, evaluated(PROPERTY_CONSULTED),
+        "the build consults a different property than the one the documentation tells people to pass, so the "
+            + "documented switch does nothing and an optimized build silently keeps the run-time adapters");
   }
 
   @Test
@@ -180,25 +196,43 @@ final class NativeImageDowncallConfigTest {
     }
   }
 
-  /** Every class or package a file asks Native Image to initialize at build time. */
-  private static List<String> buildTimeEntries(final Path file) throws IOException {
-    final String text;
-    if (file.getFileName().toString().endsWith(".properties")) {
-      // Properties syntax joins the backslash-continued Args lines the way Native Image reads them.
-      final Properties properties = new Properties();
-      try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-        properties.load(reader);
-      }
-      text = properties.getProperty("Args", "");
-    } else {
-      text = Files.readString(file, StandardCharsets.UTF_8);
+  /** One value the build evaluated and handed over; absent when the suite does not run through it. */
+  private static String evaluated(final String property) {
+    final String value = System.getProperty(property);
+    assertNotNull(value, "-D" + property + " is missing. This guard checks what the Gradle build evaluates, so it "
+        + "has to run through the sirix-query test task, which provides it");
+    return value;
+  }
+
+  /** Builder arguments the build evaluated, as it would pass them: one per element. */
+  private static List<String> evaluatedByTheBuild(final String property) {
+    final String value = evaluated(property).strip();
+    return value.isEmpty()
+        ? List.of()
+        : List.of(value.split("\\s+"));
+  }
+
+  /** The {@code Args} of a shared configuration, read as properties: continuation lines joined. */
+  private static List<String> argsOf(final Path nativeImageProperties) throws IOException {
+    final Properties properties = new Properties();
+    try (Reader reader = Files.newBufferedReader(nativeImageProperties, StandardCharsets.UTF_8)) {
+      properties.load(reader);
     }
+    final String args = properties.getProperty("Args", "").strip();
+    return args.isEmpty()
+        ? List.of()
+        : List.of(args.split("\\s+"));
+  }
+
+  /** Every class or package a list of builder arguments initializes at build time. */
+  private static List<String> buildTimeEntries(final List<String> builderArguments) {
     final List<String> entries = new ArrayList<>();
-    final Matcher matcher = BUILD_TIME_ENTRIES.matcher(text);
-    while (matcher.find()) {
-      for (final String entry : matcher.group(1).split(",")) {
-        if (!entry.isBlank()) {
-          entries.add(entry.strip());
+    for (final String argument : builderArguments) {
+      if (argument.startsWith(BUILD_TIME_FLAG)) {
+        for (final String entry : argument.substring(BUILD_TIME_FLAG.length()).split(",")) {
+          if (!entry.isBlank()) {
+            entries.add(entry.strip());
+          }
         }
       }
     }
@@ -206,18 +240,19 @@ final class NativeImageDowncallConfigTest {
   }
 
   /**
-   * Whether initializing {@code entry} early initializes a holder: itself, its outer class or a
-   * package.
+   * The holders those entries initialize early: named outright, or through an outer class or package.
    */
-  private static boolean coversAHolder(final String entries) {
-    for (final String entry : entries.split(",")) {
-      for (final String holder : HOLDERS) {
+  private static List<String> holdersCoveredBy(final List<String> buildTimeEntries) {
+    final List<String> covered = new ArrayList<>();
+    for (final String holder : HOLDERS) {
+      for (final String entry : buildTimeEntries) {
         if (holder.equals(entry) || holder.startsWith(entry + ".") || holder.startsWith(entry + "$")) {
-          return true;
+          covered.add(holder);
+          break;
         }
       }
     }
-    return false;
+    return covered;
   }
 
   /**
@@ -229,10 +264,8 @@ final class NativeImageDowncallConfigTest {
     while (directory != null && !Files.isRegularFile(directory.resolve("settings.gradle"))) {
       directory = directory.getParent();
     }
-    if (directory == null) {
-      throw new IllegalStateException("no settings.gradle above " + Path.of("").toAbsolutePath()
-          + ": this guard reads the build and the documentation, so it has to run inside the checkout");
-    }
+    assertNotNull(directory, "no settings.gradle above " + Path.of("").toAbsolutePath() + ": this guard reads the "
+        + "shared native-image configuration and its documentation, so it has to run inside the checkout");
     return directory;
   }
 }

@@ -222,10 +222,12 @@ with `linkToNative` even though the right toolchain is installed. Pass
 `-Dorg.gradle.java.home=<graalvm>` (which starts a daemon with that JDK) and confirm the banner.
 
 `NativeImageDowncallConfigTest` (`sirix-query`, part of the ordinary test task) keeps this section, the
-build script and the two holder classes in step: the property adds exactly the argument above, the
-argument names classes that exist and still hold nothing but their call signature, and no shared
-`native-image.properties` or build script initializes a holder early outside the opt-in. Renaming a
-holder, for instance, would otherwise turn the option into a silent no-op, because Native Image does
-not reject a name that matches nothing. The test builds no image, so it **cannot** tell whether an
+build script and the two holder classes in step. The build script defines the argument once and hands
+the test what Gradle evaluated, so it checks that the property above produces exactly the argument
+above and the default produces none, that the main image initializes the holders early only when the
+build asked for it, that the smoke-test image never does, that the argument names classes that exist
+and still hold nothing but their call signature, and that no shared `native-image.properties`
+initializes a holder early. Renaming a holder, for instance, would otherwise turn the option into a
+silent no-op, because Native Image does not reject a name that matches nothing. The test builds no image, so it **cannot** tell whether an
 image built with the option is fast, or builds at all on a given GraalVM; only a timed run of a real
 image can.
