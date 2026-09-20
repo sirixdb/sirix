@@ -164,9 +164,16 @@ configured handlers, malformed payloads, and the diagnostic off switch. Mixed HO
 tests also overwrite both span and final-body buffers before reading previously returned pages.
 `ConstantBucketGroupCountTest`, `PackedDictionaryPredicateTest`, and `PackedIntegerWordDecodeTest`
 use independent result or encoding oracles. `ProjectionSortedGroupSummaryTest` exercises revision
-history, edits, asynchronous flushes, and worker cleanup. `ProjectionBlobBatchReadTest` checks
-ordered sparse and duplicate requests, inline/overflow transitions, writer-local state, historical
-revisions, and per-payload integrity while reusing traversal workspace.
+history, edits, asynchronous flushes, and worker cleanup. `ProjectionSortedMissingAggregateTest`
+checks the four range shapes over an optional aggregate field — a range fully containing a leaf
+without a summary declines without the second walk, the two meeting such a leaf at an end still
+walk, one of them still serving, and a range whose leaves all have summaries is served from them
+alone — every shape answering what it answered with the count absent, plus a version-3 header
+parsing with the count unknown, per-commit insert/update/delete maintenance of the count, a
+spilled build, the summary backfill, and the leaf recount staying a build-time cost no maintenance
+write pays. `ProjectionBlobBatchReadTest` checks ordered sparse and duplicate requests,
+inline/overflow transitions, writer-local state, historical revisions, and per-payload integrity
+while reusing traversal workspace.
 `LongLaneCompositeCountTest` checks 1–64 numeric/temporal keys, conditional global IDs, missing
 values, partial bitmap words, predicate trees, forced hash collisions, partition merges, first-seen
 ordinals, discard handles, metadata errors and checked-transform fallbacks against row oracles.
