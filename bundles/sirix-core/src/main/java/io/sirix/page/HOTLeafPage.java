@@ -1619,18 +1619,24 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   // ===== Insert/Update operations =====
 
   /**
-   * Insert or update an entry. Handles prefix establishment and shrinkage.
+   * Insert an entry. Handles prefix establishment and shrinkage.
    *
    * @param key the full key
    * @param value the value
-   * @return true if inserted, false if updated
+   * @return {@code true} if inserted; {@code false} if the key already exists (the stored value is
+   *         kept) or the entry does not fit — including when shortening the common prefix for
+   *         {@code key} would grow the resident entries past the page's capacity. A refused entry
+   *         leaves the stored keys and values unchanged; callers inserting distinct keys treat
+   *         {@code false} as "leaf full" and split.
    */
   public boolean put(byte[] key, byte[] value) {
     Objects.requireNonNull(key);
     Objects.requireNonNull(value);
 
     // Handle prefix for the incoming key
-    handlePrefixForInsert(key);
+    if (!handlePrefixForInsert(key, key.length, value.length)) {
+      return false;
+    }
 
     int index = findEntry(key);
     if (index >= 0) {
@@ -1671,7 +1677,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
           "valueOff=" + valueOff + " valueLen=" + valueLen + " valueBuf.length=" + valueBuf.length);
     }
 
-    handlePrefixForInsert(key);
+    if (!handlePrefixForInsert(key, key.length, valueLen)) {
+      return false; // shortening the prefix does not fit — page full, caller splits
+    }
 
     int index = findEntry(key);
     if (index >= 0) {
@@ -1689,12 +1697,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   private boolean insertAtSuffixRange(int pos, byte[] keyBuf, int suffixOffset, int suffixLen, byte[] valueBuf,
       int valueOff, int valueLen) {
-    if (suffixLen > MAX_KEY_VALUE_LENGTH) {
-      throw new IllegalArgumentException("Suffix length " + suffixLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
-    }
-    if (valueLen > MAX_KEY_VALUE_LENGTH) {
-      throw new IllegalArgumentException("Value length " + valueLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
-    }
+    requireStorableLengths(suffixLen, valueLen);
     if (entryCount >= MAX_ENTRIES) {
       return false;
     }
@@ -1758,7 +1761,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
           "valueOff=" + valueOff + " valueLen=" + valueLen + " segBytes=" + valueSrc.byteSize());
     }
 
-    handlePrefixForInsert(key);
+    if (!handlePrefixForInsert(key, key.length, valueLen)) {
+      return false; // shortening the prefix does not fit — page full, caller splits
+    }
 
     int index = findEntry(key);
     if (index >= 0) {
@@ -1772,12 +1777,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   private boolean insertAtSuffixSegmentRange(int pos, byte[] keyBuf, int suffixOffset, int suffixLen,
       MemorySegment valueSrc, long valueOff, int valueLen) {
-    if (suffixLen > MAX_KEY_VALUE_LENGTH) {
-      throw new IllegalArgumentException("Suffix length " + suffixLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
-    }
-    if (valueLen > MAX_KEY_VALUE_LENGTH) {
-      throw new IllegalArgumentException("Value length " + valueLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
-    }
+    requireStorableLengths(suffixLen, valueLen);
     if (entryCount >= MAX_ENTRIES) {
       return false;
     }
@@ -2027,32 +2027,46 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Establish or update the common prefix when inserting a new key.
+   * Establish or shorten the common prefix so that it covers a key about to be stored.
    *
    * <p>
    * On first insert: commonPrefix = key (suffix = empty). On subsequent inserts: if LCP(key,
    * commonPrefix) &lt; commonPrefixLen, shrink prefix and extend all existing suffixes.
    * </p>
+   *
+   * <p>
+   * Shortening the prefix grows <em>every</em> resident entry, so it is a space-consuming step that
+   * can fail exactly like the insert it prepares. A resident key always carries the whole prefix; a
+   * key that shortens it is therefore absent, and the entry the caller is about to add —
+   * {@code [u16][suffix][u16][valueLen bytes]} — is known here. The prefix is shortened only when the
+   * rebuilt residents <em>and</em> that pending entry fit, so an entry that is refused never leaves a
+   * shortened prefix, or the cost of a rebuild, behind.
+   * </p>
+   *
+   * @param key buffer holding the key
+   * @param keyLen number of valid bytes in {@code key}
+   * @param valueLen length of the value the caller stores if {@code key} is absent
+   * @return {@code true} if the prefix covers {@code key}; {@code false} if shortening it cannot fit
+   *         — the leaf is unchanged and the caller must report the entry as not fitting
+   * @throws IllegalArgumentException if the prefix must shrink and the pending suffix or value
+   *         exceeds {@link #MAX_KEY_VALUE_LENGTH}
    */
-  private void handlePrefixForInsert(byte[] key) {
-    handlePrefixForInsert(key, key.length);
-  }
-
-  private void handlePrefixForInsert(byte[] key, int keyLen) {
+  private boolean handlePrefixForInsert(final byte[] key, final int keyLen, final int valueLen) {
     if (entryCount == 0) {
       // First entry: set prefix to entire key
       commonPrefix = Arrays.copyOfRange(key, 0, keyLen);
       commonPrefixLen = keyLen;
-      return;
+      return true;
     }
 
     // Compute LCP of key with current prefix
     final int lcp = longestCommonPrefix(commonPrefix, commonPrefixLen, key, keyLen);
 
-    if (lcp < commonPrefixLen) {
-      // Prefix must shrink — extend all existing suffixes
-      rebuildForShorterPrefix(lcp);
+    if (lcp >= commonPrefixLen) {
+      return true;
     }
+    // Prefix must shrink — extend all existing suffixes
+    return rebuildForShorterPrefix(lcp, keyLen - lcp, valueLen);
   }
 
   /**
@@ -2078,23 +2092,86 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * becomes impossible because the discriminative bit will separate such keys.
    * </p>
    *
+   * <p>
+   * <b>Capacity.</b> Every resident grows by the reclaimed prefix bytes, so the rebuilt image is
+   * {@code liveBytes + entryCount * (commonPrefixLen - newPrefixLen)} and can exceed the frame even
+   * when the pending entry alone is tiny (a few dozen large values fill a leaf; a handful of bytes
+   * per entry then tips it over). The image is sized <em>before</em> anything is written: if it does
+   * not fit together with the pending entry, the rebuild is refused and the leaf is left exactly as
+   * it was, so the caller takes its ordinary "leaf is full" path (split, skipped consolidation,
+   * multi-page rebuild). Only live bytes count — the rebuild repacks the heap, reclaiming dead bytes
+   * as {@link #compact()} would.
+   * </p>
+   *
+   * <p>
+   * <b>Atomicity.</b> Bytes are staged in the compaction scratch and offsets in
+   * {@link #COMPACT_OFFSETS_SCRATCH}; slot memory, offsets, used size and prefix are published only
+   * after every entry has been validated and copied. A refusal or a corrupt slot therefore never
+   * leaves relocated offsets pointing at un-relocated bytes.
+   * </p>
+   *
    * @param newPrefixLen the new (shorter) prefix length
+   * @param pendingSuffixLen suffix length, under the new prefix, of the entry that forces the rebuild
+   * @param pendingValueLen value length of that entry
+   * @return {@code true} if the page was rebuilt; {@code false} if the rebuilt residents plus the
+   *         pending entry exceed the frame, the entry limit is reached, or a rebuilt suffix would not
+   *         be representable — the page is unchanged
+   * @throws IllegalArgumentException if the pending suffix or value exceeds
+   *         {@link #MAX_KEY_VALUE_LENGTH}
+   * @throws IllegalStateException if a resident slot is corrupt
    */
-  private void rebuildForShorterPrefix(int newPrefixLen) {
+  private boolean rebuildForShorterPrefix(final int newPrefixLen, final int pendingSuffixLen,
+      final int pendingValueLen) {
     if (newPrefixLen >= commonPrefixLen) {
-      return; // No change needed
+      return true; // No change needed
+    }
+    // The insert step rejects these after the rebuild; reject them before it, in the same order, so
+    // an entry that cannot be stored never costs a rebuild nor leaves a shortened prefix behind.
+    requireStorableLengths(pendingSuffixLen, pendingValueLen);
+    if (entryCount >= MAX_ENTRIES) {
+      return false;
     }
 
     ensureMutableSlotMemory();
 
     // The bytes being removed from the prefix that must be prepended to each suffix
     final int extensionLen = commonPrefixLen - newPrefixLen;
-    final byte[] extension = new byte[extensionLen];
-    System.arraycopy(commonPrefix, newPrefixLen, extension, 0, extensionLen);
 
-    // Rebuild all entries with extended suffixes
-    // Use scratch buffer to avoid quadratic allocation
-    final byte[] scratch = COMPACT_SCRATCH.get();
+    // Pass 1: validate every resident slot and size the rebuilt image. Nothing is mutated here.
+    int rebuiltSize = 0;
+    for (int i = 0; i < entryCount; i++) {
+      final int oldOffset = slotOffsets[i];
+      if (oldOffset < 0 || oldOffset > usedSlotMemorySize - 4) {
+        throw new IllegalStateException("HOT leaf " + recordPageKey + " has invalid slot offset " + oldOffset
+            + " at entry " + i + " (used=" + usedSlotMemorySize + ')');
+      }
+      final int oldSuffixLen = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, oldOffset));
+      final int valueOffset = oldOffset + 2 + oldSuffixLen;
+      if (valueOffset > usedSlotMemorySize - 2) {
+        throw new IllegalStateException("HOT leaf " + recordPageKey + " has truncated key suffix at entry " + i);
+      }
+      final int valueLen = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, valueOffset));
+      if (valueLen > usedSlotMemorySize - valueOffset - 2) {
+        throw new IllegalStateException("HOT leaf " + recordPageKey + " has truncated value at entry " + i);
+      }
+      final int newSuffixLen = extensionLen + oldSuffixLen;
+      if (newSuffixLen > MAX_KEY_VALUE_LENGTH) {
+        return false; // not representable in the u16 length field: this key cannot share the leaf
+      }
+      rebuiltSize = Math.addExact(rebuiltSize, 2 + newSuffixLen + 2 + valueLen);
+    }
+    final long pendingEntrySize = 2L + pendingSuffixLen + 2L + pendingValueLen;
+    if (rebuiltSize + pendingEntrySize > slotMemory.byteSize()) {
+      return false;
+    }
+
+    // Pass 2: stage the rebuilt entries. Use scratch buffers to avoid per-entry allocation.
+    byte[] scratch = COMPACT_SCRATCH.get();
+    if (scratch.length < rebuiltSize) {
+      scratch = new byte[rebuiltSize];
+      COMPACT_SCRATCH.set(scratch);
+    }
+    final int[] relocatedOffsets = COMPACT_OFFSETS_SCRATCH.get();
     int newOffset = 0;
 
     for (int i = 0; i < entryCount; i++) {
@@ -2109,20 +2186,26 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       // Write new entry: [u16 newSuffixLen][extension][oldSuffix][u16 valueLen][value]
       scratch[newOffset] = (byte) (newSuffixLen & 0xFF);
       scratch[newOffset + 1] = (byte) ((newSuffixLen >>> 8) & 0xFF);
-      System.arraycopy(extension, 0, scratch, newOffset + 2, extensionLen);
+      System.arraycopy(commonPrefix, newPrefixLen, scratch, newOffset + 2, extensionLen);
       MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, oldOffset + 2, scratch, newOffset + 2 + extensionLen,
           oldSuffixLen);
       // Copy value length and value bytes
       MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, valueOffset, scratch, newOffset + 2 + newSuffixLen,
           2 + valueLen);
 
-      slotOffsets[i] = newOffset;
+      relocatedOffsets[i] = newOffset;
       newOffset += newEntrySize;
     }
+    if (newOffset != rebuiltSize) {
+      throw new IllegalStateException(
+          "HOT prefix rebuild size drift: expected " + rebuiltSize + " but staged " + newOffset);
+    }
 
-    // Copy rebuilt entries back to slotMemory
-    MemorySegment.copy(scratch, 0, slotMemory, ValueLayout.JAVA_BYTE, 0, newOffset);
-    usedSlotMemorySize = newOffset;
+    // Publish: no failing computation remains. Bytes first, then the offsets and size that address
+    // them, then the prefix they are relative to.
+    MemorySegment.copy(scratch, 0, slotMemory, ValueLayout.JAVA_BYTE, 0, rebuiltSize);
+    System.arraycopy(relocatedOffsets, 0, slotOffsets, 0, entryCount);
+    usedSlotMemorySize = rebuiltSize;
 
     // Update prefix
     commonPrefix = Arrays.copyOf(commonPrefix, newPrefixLen);
@@ -2130,6 +2213,21 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
     // Invalidate PEXT index (disc bits over suffixes changed)
     pextValid = false;
+    return true;
+  }
+
+  /**
+   * Reject a suffix or value whose length does not fit the entry's u16 length fields.
+   *
+   * @throws IllegalArgumentException if either length exceeds {@link #MAX_KEY_VALUE_LENGTH}
+   */
+  private static void requireStorableLengths(final int suffixLen, final int valueLen) {
+    if (suffixLen > MAX_KEY_VALUE_LENGTH) {
+      throw new IllegalArgumentException("Suffix length " + suffixLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
+    }
+    if (valueLen > MAX_KEY_VALUE_LENGTH) {
+      throw new IllegalArgumentException("Value length " + valueLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
+    }
   }
 
   /**
@@ -2162,12 +2260,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @throws IllegalArgumentException if suffix or value length exceeds 65535 bytes
    */
   private boolean insertAtSuffix(int pos, byte[] keyBuf, int suffixOffset, int suffixLen, byte[] value) {
-    if (suffixLen > MAX_KEY_VALUE_LENGTH) {
-      throw new IllegalArgumentException("Suffix length " + suffixLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
-    }
-    if (value.length > MAX_KEY_VALUE_LENGTH) {
-      throw new IllegalArgumentException("Value length " + value.length + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
-    }
+    requireStorableLengths(suffixLen, value.length);
     if (entryCount >= MAX_ENTRIES) {
       return false; // Page full, needs split
     }
@@ -2710,7 +2803,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @param keyLen the key length
    * @param value the value bytes (serialized NodeReferences)
    * @param valueLen the value length
-   * @return true if merged/inserted successfully
+   * @return {@code true} if merged/inserted successfully; {@code false} if the result does not fit —
+   *         including when shortening the common prefix for a new {@code key} would grow the resident
+   *         entries past the page's capacity. The stored keys and values are then unchanged and the
+   *         caller must split.
    */
   public boolean mergeWithNodeRefs(byte[] key, int keyLen, byte[] value, int valueLen) {
     Objects.requireNonNull(key);
@@ -2719,7 +2815,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     // Handle prefix for the incoming key (may shrink prefix). The whole merge chain is
     // length-parameterized, so the oversized serialization buffer is searched and spliced from
     // directly — no exact-length key copy per insert.
-    handlePrefixForInsert(key, keyLen);
+    if (!handlePrefixForInsert(key, keyLen, valueLen)) {
+      return false;
+    }
     return mergeWithNodeRefsImpl(key, keyLen, value, valueLen);
   }
 
@@ -2749,7 +2847,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     if (offendingBit >= 0) {
       return -(offendingBit + 1);
     }
-    handlePrefixForInsert(key, keyLen);
+    if (!handlePrefixForInsert(key, keyLen, valueLen)) {
+      return 0; // shortening the prefix does not fit — overflow, leaf unchanged
+    }
     return mergeWithNodeRefsImpl(key, keyLen, value, valueLen)
         ? 1
         : 0;
@@ -2782,7 +2882,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     Objects.requireNonNull(value);
     Objects.checkFromIndexSize(0, keyLen, key.length);
 
-    handlePrefixForInsert(key, keyLen);
+    if (!handlePrefixForInsert(key, keyLen, value.length)) {
+      return false; // shortening the prefix does not fit — caller must split further
+    }
 
     final int index = findEntry(key, keyLen);
     if (index >= 0) {
@@ -3249,11 +3351,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     }
 
     // Save source state before truncation. The insert step below may legitimately
-    // mutate slotMemory and slotOffsets before reporting failure (prefix shrink via
-    // handlePrefixForInsert rebuilds every entry; insertAtSuffix/updateValue may
-    // compact()), so a valid rollback must snapshot the full mutable state — not just
-    // the scalar fields. Splits are O(log N)-frequency events; the extra
-    // usedSlotMemorySize-byte copy is irrelevant next to the right-half transfer above.
+    // mutate slotMemory and slotOffsets in a split that is then rolled back:
+    // insertAtSuffix/updateValue may compact() before reporting failure, and an insert
+    // that succeeds (a prefix shrink via handlePrefixForInsert rebuilds every entry) is
+    // still undone when the other half turns out empty. A valid rollback must therefore
+    // snapshot the full mutable state — not just the scalar fields. Splits are
+    // O(log N)-frequency events; the extra usedSlotMemorySize-byte copy is irrelevant
+    // next to the right-half transfer above.
     final int savedEntryCount = entryCount;
     final int savedUsedMemory = usedSlotMemorySize;
     final byte[] savedPrefix = commonPrefix;
@@ -3293,12 +3397,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     // An EMPTY half is never a valid split and always rolls back. A failed INSERT only rolls
     // back when the caller demanded all-or-nothing: the split itself is sound (both halves
     // non-empty, every key on the side the parent BiNode will route it to), and a failed
-    // putOrReplace leaves its half semantically unchanged — it may have compacted or shrunk the
-    // common prefix, both of which recomputePrefix() below normalises away.
+    // insert leaves its half semantically unchanged — it may have compacted, which needs no
+    // undoing, and it never shortens the common prefix: handlePrefixForInsert shrinks the
+    // prefix only when the entry then fits.
     final boolean degenerateHalves = entryCount == 0 || target.entryCount == 0;
     if (degenerateHalves || (!insertOk && !keepSplitWhenValueDoesNotFit)) {
-      // Restore source page from the full snapshot — the failed insert step may have
-      // compacted or prefix-rebuilt the left half before failing.
+      // Restore source page from the full snapshot — the insert step may have compacted the
+      // left half before failing, or prefix-rebuilt it before the right half proved empty.
       entryCount = savedEntryCount;
       usedSlotMemorySize = savedUsedMemory;
       commonPrefix = savedPrefix;

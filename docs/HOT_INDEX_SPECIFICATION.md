@@ -388,7 +388,7 @@ window.
 
 **Prefix edge case (open, §7).** For `K` and `K ‖ 0x00…`, step 4 returns `len(K)*8`, but `isBitSet`
 reports that bit as 0 for both keys, so the returned bit does not separate them. The production leaf
-split selects "first existing key with bit msdb = 1" (`page/HOTLeafPage.java:3221-3228`) and would
+split selects "first existing key with bit msdb = 1" (`page/HOTLeafPage.java:3323-3330`) and would
 then find no such key and put every entry on one side. Composite keys make this reachable only if one
 stored key is a strict byte prefix of another whose continuation starts with a zero bit (for example
 CAS strings containing U+0000 bytes at the position of another key's chunk trailer). Whether real
@@ -473,8 +473,8 @@ The production criterion:
 1. **Leaf split = MSDB split.** A full leaf with the new key is split on the MSDB of the union: keys
    with that bit 0 go left, 1 go right, and the parent gains one BiNode on that bit
    (`hot/HOTIncrementalInsert.java:108-181`, split bit `:150`; in-place variant
-   `page/HOTLeafPage.java:3188-3334`). "Splitting on the MSDB rather than at the midpoint is what
-   makes this safe to repeat: the parent BiNode routes on one bit" (`page/HOTLeafPage.java:3165-3228`).
+   `page/HOTLeafPage.java:3290-3439`). "Splitting on the MSDB rather than at the midpoint is what
+   makes this safe to repeat: the parent BiNode routes on one bit" (`page/HOTLeafPage.java:3267-3330`).
    If a half does not fit one leaf it is built by `HOTBulkBuilder` (`hot/HOTIncrementalInsert.java:266-288`).
 2. **Integration = Binna's insertion cases** (§4.5.3): the new BiNode is added to the parent if the
    parent is not full and the bit is new, merged at an existing bit if it is already in `D`, placed
@@ -501,8 +501,8 @@ the writer's local guard `nodeStructurallyMalformed` (`hot/AbstractHOTIndexWrite
 | I11 | every indirect child's MSB index is greater than N's | detector `:210-227`; writer guard |
 | I12 | key ranges of consecutive children are disjoint; hence leaf visit order is lexicographic | detector `:235-269`; writer guard; relied on by `trx/HOTRangeCursor.java:215-219` |
 | I5 | leaf constancy: every key K in child i's subtree satisfies `(p_i & ~dense(K)) == 0` for its partial key `p_i`, tombstones included | detector `:271-293`, `:308-344` (not in the writer's local guard) |
-| leaf order | entries of a leaf are sorted by unsigned key order and unique | `page/HOTLeafPage.java:2188-2195`; `put` rejects an existing key (`:1628-1644`) |
-| leaf bounds | ≤ 512 entries; suffix and value ≤ 65535 bytes | `page/HOTLeafPage.java:164`, `:183`, `:2165-2186` |
+| leaf order | entries of a leaf are sorted by unsigned key order and unique | `page/HOTLeafPage.java:2281-2288`; `put` rejects an existing key (`:1632-1651`) |
+| leaf bounds | ≤ 512 entries; suffix and value ≤ 65535 bytes | `page/HOTLeafPage.java:164`, `:183`, `:2224-2231`, `:2263-2279` |
 | height | ≤ 64 levels | `trx/HOTTrieReader.java:93`, `:1165-1167`; `hot/AbstractHOTIndexWriter.java:93`, `:890-892` |
 
 I10 of the catalog ("2 ≤ numChildren") is not enforced: `createMultiNode` accepts one child
@@ -537,9 +537,9 @@ container pages; it contains no body layout for either HOT page kind. This secti
 | `DEFAULT_SIZE` | 65 536 | off-heap frame of a mutable leaf | `page/HOTLeafPage.java:115` |
 | `MAX_ENTRIES` | 512 | entry limit | `:164` |
 | `PEXT_MAX_ENTRIES` | 32 | in-leaf PEXT/SIMD search used for 2..32 entries | `:167`, `:618` |
-| `MAX_KEY_VALUE_LENGTH` | 0xFFFF | suffix and value length limit (u16 fields) | `:183`, `:2165-2170` |
+| `MAX_KEY_VALUE_LENGTH` | 0xFFFF | suffix and value length limit (u16 fields) | `:183`, `:2224-2231` |
 | `FLAG_OVERFLOW_PAGE_REFS` | 0x01 | envelope flag: side-reference map present | `:123` |
-| min free space before split | 128 bytes | `needsSplit()` is true below 128 free bytes or at 512 entries | `:2228-2237` |
+| min free space before split | 128 bytes | `needsSplit()` is true below 128 free bytes or at 512 entries | `:2321-2330` |
 | side-map key | `(ownerSlotKey << 16) \| subId` with `abs(ownerSlotKey) < 2^47` and `subId ≤ 0xFFFF` | | `:126`, `:147-161` |
 | `MAX_HOT_LEAF_SIDE_REFERENCES` | 512 × 65 536 | format ceiling of the side map | `page/PageKind.java:6460-6461` |
 
@@ -561,29 +561,44 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
 - Fields: `recordPageKey`, `revision`, `indexType` (final); `slotMemory`, `slotOffsets[512]`,
   `entryCount`, `usedSlotMemorySize` (`page/HOTLeafPage.java:245-256`, `:499`, `:514`).
 - Entries are appended at `usedSlotMemorySize`; order is carried only by `slotOffsets`, which an
-  insert shifts with `System.arraycopy` (`:2188-2195`).
-- **Prefix compression**: the first insert sets `commonPrefix` to the whole key (`:2042-2046`); a key
-  with a shorter common prefix rewrites every entry (`rebuildForShorterPrefix`, `:2051-2055`,
-  `:2083-2135`); after a split or truncation the prefix grows back to LCP(first, last)
-  (`recomputePrefix`, `:3516-3596`).
+  insert shifts with `System.arraycopy` (`:2281-2288`).
+- **Prefix compression**: the first insert sets `commonPrefix` to the whole key (`:2055-2060`); a key
+  with a shorter common prefix rewrites every entry (`handlePrefixForInsert`, `:2062-2069`;
+  `rebuildForShorterPrefix`, `:2123-2217`); after a split or truncation the prefix grows back to
+  LCP(first, last) (`recomputePrefix`, `:3621-3701`).
+- **A prefix shrink consumes space and can be refused.** Shortening the prefix by `e` bytes grows
+  every resident entry by `e`, so the rebuilt image is `liveBytes + entryCount × e`; with a few dozen
+  large values a handful of reclaimed bytes per entry exceeds the frame although the pending entry is
+  tiny. A key that shortens the prefix is necessarily absent (a resident key carries the whole
+  prefix), so its entry size is known. The rebuild therefore runs only if
+  `rebuilt residents + pending entry ≤ capacity`, `entryCount < 512` and every rebuilt suffix is
+  `≤ 0xFFFF`; otherwise the insert returns its "does not fit" result with the leaf unchanged
+  (`:2130-2166`) and the caller takes its ordinary leaf-full path: a split (`mergeIntoLeaf`,
+  `hot/AbstractHOTIndexWriter.java:3972-3999`), a skipped consolidation merge
+  (`hot/HOTIncrementalInsert.java:1029-1040`) or a multi-page half (`:266-288`;
+  `hot/HOTBulkBuilder.java:339-360`). Only live bytes count, because the rebuild repacks the heap.
+  Bytes and offsets are staged in thread-local scratch and published after every entry was validated
+  and copied, so no failure leaves relocated offsets over un-relocated bytes
+  (`page/HOTLeafPage.java:2168-2216`).
+  Consequently an entry that is refused never leaves a shortened prefix behind.
 - **Updates**: a smaller or equal value is overwritten in place; a larger one is appended and the
   offset repointed; dead bytes are reclaimed only by `compact()` when an append does not fit
-  (`:2354-2411`, `:2664-2695`).
+  (`:2447-2504`, `:2757-2788`).
 - **In-leaf search**: common-prefix check, then for 2..32 entries a lazily built PEXT index over the
   leaf's own discriminative bits (spanning < 8 bytes, ≤ 32 bits) searched with SIMD equality and
   verified against the full suffix, otherwise binary search over suffixes; result is the index or
   `−(insertionPoint + 1)` (`:618-685`, `:832`, `:843-927`, `:1036-1045`).
 - **Side-reference map**: `PageReference`s to overflow pages owned by entries (used by projection
   storage for values larger than an entry), with a lifecycle ACTIVE → RETIRED → RELEASING → RELEASED
-  (`:293-298`, `:346-444`, `:4223-4234`).
+  (`:293-298`, `:346-444`, `:4328-4339`).
 - **Versioning state**: `completePageRef` (the source image a copy was made from, `:449-453`) and
   `completeDump` (this page holds every entry of its key range, `:455-459`).
 - **β-constancy metadata** `ancestorOwnedBits[]`/`ancestorOwnedValues[]`: sorted absolute bit
   positions that ancestors route on and the constant value every key in this leaf has there
-  (`:461-476`); propagated on copy and split and checked by `mergeWithNodeRefsStrict` (`:2743-2757`).
+  (`:461-476`); propagated on copy and split and checked by `mergeWithNodeRefsStrict` (`:2841-2857`).
 - **Tombstones**: posting indexes store `[0xFE]`, PROJECTION stores a zero-length value
-  (`:2559-2583`). `delete`/`deleteAt` never remove a key; they overwrite its value with the
-  tombstone so a newer fragment shadows older ones (`:2585-2634`).
+  (`:2652-2676`). `delete`/`deleteAt` never remove a key; they overwrite its value with the
+  tombstone so a newer fragment shadows older ones (`:2678-2727`).
 
 #### 3.2.3 Serialized layout (`PageKind.HOT_LEAF_PAGE`)
 
@@ -608,13 +623,13 @@ Writer `page/PageKind.java:5904-5984`; reader `:5806-5899`.
 - **Sparse vs. full image**: `sparse = versioningType != FULL && completePageRef != null && hasDirty()`
   (`page/PageKind.java:5907-5908`). A sparse image holds only the entries changed since the page was
   copied from its previous image. Fresh pages from splits and structural rewrites are full images
-  with `completeDump = true` (`hot/AbstractHOTIndexWriter.java:6871-6875`; `page/HOTLeafPage.java:2905-2913`).
+  with `completeDump = true` (`hot/AbstractHOTIndexWriter.java:6871-6875`; `page/HOTLeafPage.java:3007-3015`).
 - The reader always allocates `slotOffsets` with 512 elements and does not check `entryCount ≤ 512`
   explicitly; an oversized count fails as an array bounds error (`page/PageKind.java:5827-5832`).
 - **Zero-copy**: if the input is a `MemorySegmentBytesIn` with a `DecompressionResult`, `slotMemory`
   becomes a slice of the decompressed buffer and ownership of that buffer transfers to the page;
   otherwise a 64 KiB frame is allocated and the heap copied (`:5838-5871`). The first mutation of a
-  zero-copy leaf promotes it into a fresh frame (`page/HOTLeafPage.java:2283-2345`).
+  zero-copy leaf promotes it into a fresh frame (`page/HOTLeafPage.java:2376-2438`).
 - There is no checksum in the body; see §3.6 for what is and is not hashed.
 
 ### 3.3 HOTIndirectPage
@@ -665,13 +680,13 @@ staged in the intent log (`:1514-1521`).
 
 | Method | Page key | Revision | `completePageRef` | `completeDump` | Dirty bits | Cite |
 |---|---|---|---|---|---|---|
-| `copy()` | same | same | `this` | unchanged | cleared | `page/HOTLeafPage.java:2869-2871`, `:2915-2980` |
-| `copyForRevision(rev)` | same | `rev` (≥ source) | `this` | false | cleared | `:2885-2896` |
-| `copyAsFreshPage(key, rev)` | new | new | null | **true** | cleared | `:2905-2913` |
+| `copy()` | same | same | `this` | unchanged | cleared | `page/HOTLeafPage.java:2971-2973`, `:3017-3082` |
+| `copyForRevision(rev)` | same | `rev` (≥ source) | `this` | false | cleared | `:2987-2998` |
+| `copyAsFreshPage(key, rev)` | new | new | null | **true** | cleared | `:3007-3015` |
 
 All copies allocate a new 64 KiB frame and copy `[0, usedSlotMemorySize)` including dead bytes;
 side references are deep-copied except references whose page write is still pending, which are
-shared (`:2918-2963`).
+shared (`:3020-3065`).
 
 ### 3.5 Versioned leaf chains
 
@@ -1224,7 +1239,7 @@ mutated, new pages get new offsets, and leaf history is a fragment chain (`set/V
 
 #### 4.9.3 Optimistic leaf reads (seqlock over frame-slot versions)
 
-Leaves are read without pins. The protocol (`page/HOTLeafPage.java:3899-3997`):
+Leaves are read without pins. The protocol (`page/HOTLeafPage.java:4004-4102`):
 
 ```
 binding = leaf.readStampBinding()     // even = stable binding; odd = rebind in flight or torn down
@@ -1238,8 +1253,8 @@ if !ok: re-resolve the PageReference and redo (slot indices stay valid: content 
 ```
 
 - The writer side publishes a new `slotMemory` only through `publishSlotMemory`: generation + 1 (odd),
-  `storeStoreFence`, swap, generation + 2 (even) (`:4048-4058`). Teardown sets the generation odd
-  permanently before releasing memory (`:4166`).
+  `storeStoreFence`, swap, generation + 2 (even) (`:4153-4163`). Teardown sets the generation odd
+  permanently before releasing memory (`:4271`).
 - "A stamp is a per-SLOT sequence number and proves nothing without the slot it belongs to", hence the
   binding (`trx/HOTTrieReader.java:219-230`).
 - **Torn read vs. corruption**: every read batch is wrapped in a `catch (RuntimeException)`; if the stamp
@@ -1256,7 +1271,7 @@ if !ok: re-resolve the PageReference and redo (slot indices stay valid: content 
   guarded: **at most one guarded leaf per reader** (`:1285-1310`, `:1461-1473`).
 - Guards: `acquireGuard` increments and re-checks closed/orphaned; `releaseGuard` frees an orphaned page
   at zero; `close()` orphans and frees only without guards; the clock sweeper skips guarded pages
-  (`page/HOTLeafPage.java:4063-4155`; `cache/ClockSweeper.java:245-250`).
+  (`page/HOTLeafPage.java:4168-4260`; `cache/ClockSweeper.java:245-250`).
 - This is what the commit "Guarantee HOT read progress with guarded recovery after eviction"
   (`5d76b53ac`) added: a reader under continuous eviction makes progress because it stops relying on
   validation once validation has failed.
