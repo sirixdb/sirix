@@ -57,13 +57,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </p>
  *
  * <p>
- * That the load still reaches that pair is asserted rather than assumed, in the two halves it is
- * made of: a prefix shrink refused because the rebuilt residents plus the pending entry do not fit
+ * That the load still reaches that pair is asserted rather than assumed, by two counters read
+ * independently, each for only what it counts: a prefix shrink refused because the rebuilt
+ * residents plus the pending entry do not fit
  * ({@link HOTIncrementalInsert#PREFIX_SHRINK_REFUSED_FOR_CAPACITY}), and consolidation leaving an
- * adjacent pair unmerged in response ({@link HOTIncrementalInsert#CONSOLIDATION_PAIR_DID_NOT_FIT}).
- * The record layout fixes the node keys, hence the posting sizes and the leaf shapes consolidation
- * meets, so an unrelated layout change can move that pair — but it can no longer silently remove
- * it, and any layout that still reaches the refusal keeps the guard.
+ * adjacent pair unmerged because the merged leaf refused an entry poured into it
+ * ({@link HOTIncrementalInsert#CONSOLIDATION_PAIR_DID_NOT_FIT}, which does not distinguish which
+ * refusal made the union not fit). The record layout fixes the node keys, hence the posting sizes
+ * and the leaf shapes consolidation meets, so an unrelated layout change can move that pair — but
+ * it can no longer silently remove it, and any layout that still reaches the refusal keeps the
+ * guard.
  * </p>
  *
  * <p>
@@ -183,7 +186,8 @@ final class JsonValidTimeIndexLeafConsolidationTest {
           "the load must reach a prefix shrink whose rebuilt entries do not fit; without one it no "
               + "longer covers the rebuild that overflowed and its record layout must be re-tuned");
       assertTrue(HOTIncrementalInsert.CONSOLIDATION_PAIR_DID_NOT_FIT.get() > refusedPairsBefore,
-          "consolidation must answer that refusal by leaving the pair unmerged");
+          "consolidation must leave an adjacent pair unmerged because the merged leaf refused an "
+              + "entry poured into it; this counter does not say which refusal made the union not fit");
       assertExactStabs(database, latestRevision, FACTS, objectKeys, from, to);
       assertExactStabs(database, historicalRevision, historicalFacts, objectKeys, from, historicalTo);
     }
