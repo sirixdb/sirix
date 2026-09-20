@@ -22,6 +22,22 @@ TIERS = {
     "t100k": (100_000, 10_000, 2_000, 234_884),
 }
 
+Payload = tuple[int, ...]
+DayValue = Payload | None
+Relation = list[list[DayValue] | None]
+DenseState = dict[str, Relation]
+Snapshot = list[DayValue]
+Interval = tuple[int, int, Payload]
+IntervalState = dict[str, list[list[Interval] | None]]
+Replay = tuple[
+    int,
+    DenseState,
+    list[tuple[int, int, int]],
+    list[tuple[int, ...]],
+    Snapshot,
+    Snapshot,
+]
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -36,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def new_relation(cardinality: int) -> list[list[tuple[int, ...] | None] | None]:
+def new_relation(cardinality: int) -> Relation:
     return [None] + [[None] * HORIZON for _ in range(cardinality)]
 
 
@@ -160,13 +176,11 @@ def cross_check(
                 raise AssertionError("dense/interval mismatch without differing cell")
 
 
-def point_snapshot(
-    relation: list[list[tuple[int, ...] | None] | None], day: int
-) -> list[tuple[int, ...] | None]:
+def point_snapshot(relation: Relation, day: int) -> Snapshot:
     return [None] + [identity[day] for identity in relation[1:] if identity is not None]
 
 
-def grouped_epoch(epoch: int, contracts: list[list[tuple[int, ...] | None] | None]) -> list[tuple[int, ...]]:
+def grouped_epoch(epoch: int, contracts: Relation) -> list[tuple[int, ...]]:
     groups: dict[int, list[int]] = {}
     for identity in contracts[1:]:
         assert identity is not None
@@ -180,15 +194,15 @@ def grouped_epoch(epoch: int, contracts: list[list[tuple[int, ...] | None] | Non
     return [(epoch, grade, values[0], values[1]) for grade, values in sorted(groups.items())]
 
 
-def evaluate(args: argparse.Namespace) -> dict[int, list[tuple[int, ...]]]:
+def replay(args: argparse.Namespace) -> Replay:
     contract_count, product_count, supplier_count, _ = TIERS[args.tier]
     events = load_events(args.events, args.tier)
-    dense = {
+    dense: DenseState = {
         "contracts": new_relation(contract_count),
         "products": new_relation(product_count),
         "suppliers": new_relation(supplier_count),
     }
-    intervals = None
+    intervals: IntervalState | None = None
     if args.cross_check_intervals:
         if args.tier != "development":
             raise ValueError("--cross-check-intervals is intentionally bounded to development")
@@ -220,49 +234,66 @@ def evaluate(args: argparse.Namespace) -> dict[int, list[tuple[int, ...]]]:
         if epoch == 18:
             at_d = point_snapshot(dense["contracts"], V)
 
-    assert at_a is not None and at_d is not None
-    at_b = point_snapshot(dense["contracts"], V)
-    supplier_b = point_snapshot(dense["suppliers"], V)
+    if at_a is None or at_d is None:
+        raise AssertionError("required publication snapshots were not captured")
+    return contract_count, dense, history, grouped_history, at_a, at_d
 
+
+def point_beliefs(at_a: Snapshot, at_b: Snapshot) -> tuple[list[tuple[int, ...]], list[tuple[int, ...]]]:
     q1_value = at_b[1]
     q2_value = at_a[1]
-    assert q1_value is not None and q2_value is not None
-    q1 = [(1, q1_value[2], q1_value[3], q1_value[4])]
-    q2 = [(1, q2_value[2], q2_value[3], q2_value[4])]
+    if q1_value is None or q2_value is None:
+        raise AssertionError("contract 1 must be present at E12 and E24")
+    return (
+        [(1, q1_value[2], q1_value[3], q1_value[4])],
+        [(1, q2_value[2], q2_value[3], q2_value[4])],
+    )
 
-    contract_one = dense["contracts"][1]
+
+def valid_range_prices(contracts: Relation) -> list[tuple[int, ...]]:
+    contract_one = contracts[1]
     assert contract_one is not None
     prices = {value[2] for value in contract_one[L:U] if value is not None}
-    q3 = [(min(prices), max(prices), len(prices))]
+    return [(min(prices), max(prices), len(prices))]
 
-    q4 = []
-    for identity in range(1, contract_count + 1):
-        old, new = at_a[identity], at_b[identity]
-        if old is not None and new is not None and (old[2] != new[2] or old[3] != new[3]):
-            q4.append((identity, old[2], new[2], old[3], new[3]))
 
-    q7_groups: dict[int, list[int]] = {}
+def corrections(at_a: Snapshot, at_b: Snapshot) -> list[tuple[int, ...]]:
+    return [
+        (identity, old[2], new[2], old[3], new[3])
+        for identity, (old, new) in enumerate(zip(at_a[1:], at_b[1:]), start=1)
+        if old is not None
+        and new is not None
+        and (old[2] != new[2] or old[3] != new[3])
+    ]
+
+
+def exposure_by_grade(at_b: Snapshot) -> list[tuple[int, ...]]:
+    groups: dict[int, list[int]] = {}
     for value in at_b[1:]:
         if value is None:
             continue
-        group = q7_groups.setdefault(value[4], [0, 0, 0])
+        group = groups.setdefault(value[4], [0, 0, 0])
         group[0] += 1
         group[1] += value[3]
         group[2] += value[2] * value[3]
-    q7 = [(grade, *values) for grade, values in sorted(q7_groups.items())]
+    return [(grade, *values) for grade, values in sorted(groups.items())]
 
-    q8_groups: dict[tuple[int, int], list[int]] = {}
+
+def supplier_grade_distribution(at_a: Snapshot) -> list[tuple[int, ...]]:
+    groups: dict[tuple[int, int], list[int]] = {}
     for value in at_a[1:]:
         if value is None:
             continue
         key = (value[1], value[4])
-        group = q8_groups.setdefault(key, [0, value[2], value[2]])
+        group = groups.setdefault(key, [0, value[2], value[2]])
         group[0] += 1
         group[1] = min(group[1], value[2])
         group[2] = max(group[2], value[2])
-    q8 = [(sid, grade, *values) for (sid, grade), values in sorted(q8_groups.items())]
+    return [(sid, grade, *values) for (sid, grade), values in sorted(groups.items())]
 
-    q9_groups: dict[tuple[int, int], list[int]] = {}
+
+def supplier_temporal_join(at_b: Snapshot, supplier_b: Snapshot) -> list[tuple[int, ...]]:
+    groups: dict[tuple[int, int], list[int]] = {}
     for value in at_b[1:]:
         if value is None:
             continue
@@ -270,12 +301,14 @@ def evaluate(args: argparse.Namespace) -> dict[int, list[tuple[int, ...]]]:
         if supplier is None:
             continue
         key = (supplier[0], value[4])
-        group = q9_groups.setdefault(key, [0, 0])
+        group = groups.setdefault(key, [0, 0])
         group[0] += 1
         group[1] += value[2] * value[3]
-    q9 = [(region, grade, *values) for (region, grade), values in sorted(q9_groups.items())]
+    return [(region, grade, *values) for (region, grade), values in sorted(groups.items())]
 
-    q10_groups: dict[int, list[object]] = {}
+
+def interval_overlap_join(contract_count: int, dense: DenseState) -> list[tuple[int, ...]]:
+    groups: dict[int, tuple[set[int], int, int]] = {}
     for identity in range(1, contract_count + 1):
         contract_days = dense["contracts"][identity]
         assert contract_days is not None
@@ -290,19 +323,20 @@ def evaluate(args: argparse.Namespace) -> dict[int, list[tuple[int, ...]]]:
                 continue
             category = product[0]
             margin = product[1] - contract[2]
-            group = q10_groups.setdefault(category, [set(), margin, margin])
-            group[0].add(identity)
-            group[1] = min(group[1], margin)
-            group[2] = max(group[2], margin)
-    q10 = [
-        (category, len(values[0]), values[1], values[2])
-        for category, values in sorted(q10_groups.items())
+            identities, minimum, maximum = groups.get(category, (set(), margin, margin))
+            identities.add(identity)
+            groups[category] = identities, min(minimum, margin), max(maximum, margin)
+    return [
+        (category, len(identities), minimum, maximum)
+        for category, (identities, minimum, maximum) in sorted(groups.items())
     ]
 
-    q11 = []
+
+def daily_exposure(contracts: Relation) -> list[tuple[int, ...]]:
+    result: list[tuple[int, ...]] = []
     for day in range(L, U):
         groups: dict[int, list[int]] = {}
-        for identity in dense["contracts"][1:]:
+        for identity in contracts[1:]:
             assert identity is not None
             value = identity[day]
             if value is None:
@@ -310,40 +344,55 @@ def evaluate(args: argparse.Namespace) -> dict[int, list[tuple[int, ...]]]:
             group = groups.setdefault(value[4], [0, 0])
             group[0] += 1
             group[1] += value[2] * value[3]
-        q11.extend((day, grade, *values) for grade, values in sorted(groups.items()))
+        result.extend((day, grade, *values) for grade, values in sorted(groups.items()))
+    return result
 
-    q12_groups: dict[int, list[int]] = {}
-    for identity in range(1, contract_count + 1):
-        old = at_a[identity]
-        if old is None or at_d[identity] is not None:
+
+def disappearance(at_a: Snapshot, at_d: Snapshot) -> list[tuple[int, ...]]:
+    groups: dict[int, list[int]] = {}
+    for old, new in zip(at_a[1:], at_d[1:]):
+        if old is None or new is not None:
             continue
-        group = q12_groups.setdefault(old[4], [0, 0])
+        group = groups.setdefault(old[4], [0, 0])
         group[0] += 1
         group[1] += old[2] * old[3]
-    q12 = [(grade, *values) for grade, values in sorted(q12_groups.items())]
+    return [(grade, *values) for grade, values in sorted(groups.items())]
 
-    if history[18][0] == 18 or history[19][0] == 19:
-        raise AssertionError("fixture must be absent at E18 and E19")
+
+def validate_fixture(
+    history: list[tuple[int, int, int]],
+    q1: list[tuple[int, ...]],
+    q2: list[tuple[int, ...]],
+) -> None:
     history_epochs = {row[0] for row in history}
     if 18 in history_epochs or 19 in history_epochs or 20 not in history_epochs:
         raise AssertionError("fixture history boundary invariant failed")
     if q1[0][1] == q2[0][1]:
         raise AssertionError("Q1 and Q2 fixture prices must differ")
 
-    return {
+
+def evaluate(args: argparse.Namespace) -> dict[int, list[tuple[int, ...]]]:
+    contract_count, dense, history, grouped_history, at_a, at_d = replay(args)
+    at_b = point_snapshot(dense["contracts"], V)
+    supplier_b = point_snapshot(dense["suppliers"], V)
+    q1, q2 = point_beliefs(at_a, at_b)
+
+    results = {
         1: q1,
         2: q2,
-        3: q3,
-        4: q4,
+        3: valid_range_prices(dense["contracts"]),
+        4: corrections(at_a, at_b),
         5: history,
         6: grouped_history,
-        7: q7,
-        8: q8,
-        9: q9,
-        10: q10,
-        11: q11,
-        12: q12,
+        7: exposure_by_grade(at_b),
+        8: supplier_grade_distribution(at_a),
+        9: supplier_temporal_join(at_b, supplier_b),
+        10: interval_overlap_join(contract_count, dense),
+        11: daily_exposure(dense["contracts"]),
+        12: disappearance(at_a, at_d),
     }
+    validate_fixture(history, q1, q2)
+    return results
 
 
 def write_results(results: dict[int, list[tuple[int, ...]]], output: Path) -> None:
