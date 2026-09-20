@@ -2055,9 +2055,23 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 
 ### A.6 Diagnostics (no intended effect on results)
 
-`sirix.projDiag` (route declines, catalog candidates, `[sortedLookahead]`, `[prune]`, `[topk]`, `[phase]` timings, file-channel
-run counters; e.g. `query/compiler/optimizer/GroupAggregateDetectionStage.java:211`, `SVE:14616-14618`,
-`proj/ProjectionIndexCatalog.java:581`, `io/filechannel/FileChannelReader.java:812-821`), `sirix.projection.fillDiag`,
+`sirix.projDiag` (route declines, catalog candidates, `[sortedLookahead]`, `[prune]`, `[topk]`, `[phase]` timings, the
+`[io] segBatch` line; e.g. `query/compiler/optimizer/GroupAggregateDetectionStage.java:211`, `SVE:14616-14618`,
+`proj/ProjectionIndexCatalog.java:581`, `proj/ProjectionIndexHOTStorage.java:3699-3712`), `sirix.projection.fillDiag`,
 `sirix.projection.bulkDiag`, `sirix.segBuildDiag`, `sirix.projection.verifyDirectAssembly` (parity check),
 `sirix.hft.telemetry`, `sirix.fadvise.diag`, `sirix.lz77Codec.diag`, `sirix.lz77Codec.diag.counters`,
 `sirix.chunkedBody.diag`, `sirix.projection.groupPasses.planDiag`, `sirix.debug.ast`.
+
+**Always-on work counters.** The file-channel batch read counts unconditionally, because each event is at least one
+positional read: `FileChannelReader.runCount()` (coalesced runs), `runSpanBytes()` (bytes their span reads covered, gaps
+included), `runFallbacks()` (members re-read exactly because their body crossed the next offset) and `runSingletons()`
+(batch members with no near-adjacent neighbour, read one page at a time), reset by `resetRunStats()`; `runDiagSummary()`
+prints all four. A batch that stops coalescing, or is not sorted by file offset, returns the same bytes, so these are the
+only way to tell. `AbstractReader.regionChunkHits()` / `regionChunkFallbacks()`, the `# chunked:` projection events
+(§7.3) and the frame-slot allocator's `allocateCount` / `releaseCount` are unconditional for the same reason. The HOT
+fragment-merge counters in `VersioningType` sit on the default read path and stay gated behind `sirix.hot.mergeDiag`,
+which the `sirix-core` and `sirix-query` test JVMs switch on.
+
+**Work-budget tests** assert on these counters and on the `# served:` route counters (§7.3): a load or query may not
+start doing materially more work, where a result check would see nothing. The catalog of counters, the tests, and the
+rules for adding or changing a budget are in `bundles/sirix-core/src/test/java/io/sirix/budget/README.md`.

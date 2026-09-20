@@ -1404,7 +1404,7 @@ manager's record-page budget (§4.1); there is no HOT-specific property for them
 | `hot.diag.directionOneFallback` | dump the shape when a Direction-1 fallback is taken | `:4159-4162`, `:4310-4313` |
 | `hot.diag.branchFallback` | dump a malformed combo-add candidate | `:4172-4174` |
 | `hot.localize.i8`, `hot.localize.fromRev` (0) | after each dispatch, locate the first I4/I7/I8 violation from the root and report the handler (≤ 60 reports) | `:282-286`, `:1966-1985`, `:2149-2195` |
-| `sirix.hot.mergeDiag` | fragment-merge and carry-forward `LongAdder` counters, including `completeDumpsWalkedPast` which must stay 0; **on in the sirix-core test JVM** | `set/VersioningType.java:1215-1225` |
+| `sirix.hot.mergeDiag` | fragment-merge and carry-forward `LongAdder` counters, including `completeDumpsWalkedPast` which must stay 0; **on in the sirix-core and sirix-query test JVMs**, where the work-budget tests also read their sum as "HOT leaves loaded" | `set/VersioningType.java:1215-1225` |
 
 Always-on counters (public `AtomicLong`s): `STRUCTURAL_VALIDATION_FAILURE` ("Must stay zero"),
 `STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED`, `DIRECTION_ONE_SUBINSERT`, `DIRECTION_ONE_FALLBACK`,

@@ -16,6 +16,7 @@ well they catch the characteristic failure mode of AI-generated (and, frankly, h
 | Fixed-corpus sweeps | Adversarial shapes (control chars, astral pairs, 2^128 numbers, …) round-trip and serialize valid metadata | `JsonCorrectnessSweepTest`, `JsonUnicodeTest`, `JsonNumberEdgeCaseTest` |
 | Concurrency invariant harnesses | Eviction watermark safety, slot-allocation exclusivity, guard/close protocol, cache weight accounting under contention | `RevisionEpochTrackerWatermarkSafetyTest`, `ShardedPageCacheInvariantStressTest` |
 | Crash injection / soak | Durability across simulated crashes; leak-free long-running bitemporal workloads | `crash/CrashRecoveryInjectionTest`, `stress/BitemporalSoakStressTest`, `stress.yml` workflow |
+| Work-budget tests | A load or query does **no materially more work** than it should (leaves read, route taken, pages left pinned), where its answer would be identical either way | `sirix-query/src/test/java/io/sirix/query/budget/`, `sirix-core/.../index/projection/BatchedSegmentReadWorkBudgetTest.java`; rules in `sirix-core/src/test/java/io/sirix/budget/README.md` |
 | Mutation testing (PIT) | The tests **assert** on behavior instead of merely executing it — a surviving mutant is a code change no test noticed | `:sirix-core:pitest`, `verification.yml` workflow |
 | Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns and nullness-contract violations | `-PerrorProne`, `verification.yml` workflow |
 | SonarQube / Checkstyle | Style and maintainability smells | `sonarqube.yml`, `checkstyle.xml` |
@@ -44,6 +45,15 @@ custom concurrent structures here either expose *by-design eventually-consistent
 resources (pages, buffers), both of which break the deterministic sequential specification those
 tools require. The hand-rolled harnesses check exactly the contracts the code documents.
 
+**Work-budget tests** cover the one regression class every layer above is blind to: the engine doing
+more work for the same answer. A projection query that stops being served from a summary, a load
+whose intent log stops spilling, a batch read that stops coalescing all return exactly what they
+returned before, so result checks, oracles and invariants stay green while a large database slows
+down or a large load dies. These tests capture the engine's own counters around one operation and
+assert a budget on them. They deliberately assert no wall-clock time: a threshold on a shared runner
+is flaky and cannot say what changed, where a counter is exact on any machine and names the path
+that grew. Each budget was proven by putting the guarded defect back and watching it fail.
+
 **Mutation testing** guards the tests themselves. AI-generated tests tend to assert too little —
 they run the code and check something trivially true. PIT mutates the production code and reports
 which mutants the tests fail to kill. Scope is deliberately curated (see the `pitest` block in
@@ -69,6 +79,11 @@ in CI via the `Deep verification` workflow.
 # Concurrency invariant harnesses
 ./gradlew :sirix-core:test --tests 'io.sirix.access.trx.RevisionEpochTrackerWatermarkSafetyTest' \
                            --tests 'io.sirix.cache.ShardedPageCacheInvariantStressTest'
+
+# Work budgets (add -Dsirix.workBudget.print=true -i to print every captured counter table)
+./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*'
+./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \
+                           --tests 'io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest'
 
 # Mutation testing (report: bundles/sirix-core/build/reports/pitest/index.html)
 ./gradlew :sirix-core:pitest
@@ -113,5 +128,7 @@ soak weekly and on demand.
    not just "run it on 8 threads and hope".
 4. Run `:sirix-core:pitest` scoped to the changed classes; a low kill rate means the new tests
    are decorative.
-5. Never accept a green build as proof when the same author (human or model) wrote both the code
+5. If it touches a read, load or query path — run the work-budget tests, and treat a broken budget
+   as a regression until shown otherwise. A bound changes only with the evidence its README asks for.
+6. Never accept a green build as proof when the same author (human or model) wrote both the code
    and its tests — the oracle/property layers exist precisely because they are independent.

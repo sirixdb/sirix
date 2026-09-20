@@ -220,3 +220,12 @@ builder prints. Exporting `JAVA_HOME` is not enough: a Gradle daemon that is alr
 supplies its own JDK, so the build can silently use a different GraalVM than you intended and fail
 with `linkToNative` even though the right toolchain is installed. Pass
 `-Dorg.gradle.java.home=<graalvm>` (which starts a daemon with that JDK) and confirm the banner.
+
+`NativeImageDowncallConfigTest` (`sirix-query`, part of the ordinary test task) keeps this section, the
+build script and the two holder classes in step: the property adds exactly the argument above, the
+argument names classes that exist and still hold nothing but their call signature, and no shared
+`native-image.properties` or build script initializes a holder early outside the opt-in. Renaming a
+holder, for instance, would otherwise turn the option into a silent no-op, because Native Image does
+not reject a name that matches nothing. The test builds no image, so it **cannot** tell whether an
+image built with the option is fast, or builds at all on a given GraalVM; only a timed run of a real
+image can.

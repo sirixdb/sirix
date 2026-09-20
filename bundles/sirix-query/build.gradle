@@ -202,6 +202,26 @@ test {
     systemProperty "sirix.probe.segmentDump", System.getProperty("sirix.probe.segmentDump")
     systemProperty "sirix.probe.segmentDump.out", System.getProperty("sirix.probe.segmentDump.out")
 
+    // The "provide" half of assert-and-provide for the HOT fragment-merge counters, exactly as in
+    // bundles/sirix-core/build.gradle: they sit on the default read path behind a static-final flag,
+    // so a test cannot switch them on for itself. The work-budget tests (io.sirix.query.budget) read
+    // them as "HOT leaves loaded" and ASSERT the gate is on through WorkCounter.requireLive(), because
+    // with it off every counter reads zero and an upper bound on zero always holds. An explicit
+    // -Dsirix.hot.mergeDiag=false still wins, so the gated-off path stays testable.
+    systemProperty 'sirix.hot.mergeDiag', System.getProperty('sirix.hot.mergeDiag', 'true')
+
+    // NativeImageDowncallConfigTest reads the native-image configuration straight from the checkout:
+    // the builder arguments in the build scripts, the shared native-image.properties files and the
+    // documentation that states them. None of that is on the test classpath, so without declaring it
+    // an edit to any of those files would leave this task up to date (or restore it from the build
+    // cache) and the guard would not run on exactly the change it exists for.
+    inputs.files(rootProject.fileTree(dir: 'bundles', includes: ['*/build.gradle',
+                                                                 '*/src/main/resources/META-INF/native-image/**/native-image.properties']),
+                 rootProject.fileTree(dir: 'native-image', include: '*.sh'),
+                 rootProject.file('docs/NATIVE_IMAGE.md'))
+          .withPropertyName('nativeImageConfiguration')
+          .withPathSensitivity(PathSensitivity.RELATIVE)
+
     // Async-profiler support
     def profilerPath = System.getenv("ASYNC_PROFILER")
     def profileEvent = System.getenv("PROFILE_EVENT") ?: "cpu"

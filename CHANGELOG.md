@@ -65,6 +65,25 @@ All notable changes to SirixDB are documented in this file.
   final recursive commit (their durable image needs the overflow disk keys). Pass `false`
   (or `-Dsirix.import.asyncFlush=false`) to restore synchronous intermediate auto-commits;
   `-Dsirix.asyncFlush.parallelism` sizes the shared background-serialization pool.
+- **Work-budget tests** — performance regression tests that run in the ordinary suites and fail when
+  a load or query starts doing materially more *work*, which a result check cannot see because the
+  answer is unchanged. They capture the engine's own counters around one operation (`WorkCapture`,
+  `EngineWorkCounters`, `QueryWorkCounters`) and assert a budget on them; they assert no wall-clock
+  time, so they are exact on any CI machine and a broken budget names the path that grew. Covered:
+  projection queries keep their route (value-count summary, column slices, sorted view) and read no
+  more leaves than it needs; a sorted view over an optional aggregate field declines a range after
+  one walk without declining clean ranges of the same view; a projection bulk load spills and keeps
+  its pinned pages bounded on `FILE_CHANNEL` and `MEMORY_MAPPED`; a batched page read coalesces and
+  covers its region once. `NativeImageDowncallConfigTest` guards the
+  `-Pnative.preinitializeDowncalls` build configuration (it builds no image, so it cannot measure
+  one). Each budget was proven by putting the guarded defect back. See
+  `bundles/sirix-core/src/test/java/io/sirix/budget/README.md` and `docs/VERIFICATION.md`.
+- **Always-on batch-read counters** — `FileChannelReader.runCount()`, `runSpanBytes()`,
+  `runFallbacks()` and the new `runSingletons()` (batch members read one page at a time), with
+  `resetRunStats()`. The first three were previously counted only under `-Dsirix.projDiag` and
+  readable only as a formatted string; each event is at least one positional read, so counting is
+  free at that granularity. A batch that stops coalescing returns the same bytes, so these are the
+  only way to tell.
 
 ### Changed
 
