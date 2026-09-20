@@ -38,6 +38,7 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.settings.Constants;
 import io.sirix.cache.Allocators;
 import io.sirix.index.hot.DiscriminativeBitComputer;
+import io.sirix.index.hot.HOTIncrementalInsert;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.cache.FrameSlotAllocator;
@@ -2168,6 +2169,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     final byte[] scratch = COMPACT_SCRATCH.get();
     final long pendingEntrySize = 2L + pendingSuffixLen + 2L + pendingValueLen;
     if (rebuiltSize + pendingEntrySize > slotMemory.byteSize() || rebuiltSize > scratch.length) {
+      HOTIncrementalInsert.PREFIX_SHRINK_REFUSED_FOR_CAPACITY.incrementAndGet();
       return false;
     }
 

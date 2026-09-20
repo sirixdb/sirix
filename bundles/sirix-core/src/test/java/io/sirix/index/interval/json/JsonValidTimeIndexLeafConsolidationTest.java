@@ -57,12 +57,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </p>
  *
  * <p>
- * That the load still reaches such a pair is asserted rather than assumed: it must leave at least
- * one adjacent leaf pair unmerged because the merged leaf refused the union
- * ({@link HOTIncrementalInsert#CONSOLIDATION_PAIR_DID_NOT_FIT}). The record layout fixes the node
- * keys, hence the posting sizes and the leaf shapes consolidation meets, so an unrelated layout
- * change can move that pair — but it can no longer silently remove it, and any layout that still
- * reaches the refusal keeps the guard.
+ * That the load still reaches that pair is asserted rather than assumed, in the two halves it is
+ * made of: a prefix shrink refused because the rebuilt residents plus the pending entry do not fit
+ * ({@link HOTIncrementalInsert#PREFIX_SHRINK_REFUSED_FOR_CAPACITY}), and consolidation leaving an
+ * adjacent pair unmerged in response ({@link HOTIncrementalInsert#CONSOLIDATION_PAIR_DID_NOT_FIT}).
+ * The record layout fixes the node keys, hence the posting sizes and the leaf shapes consolidation
+ * meets, so an unrelated layout change can move that pair — but it can no longer silently remove
+ * it, and any layout that still reaches the refusal keeps the guard.
  * </p>
  *
  * <p>
@@ -110,6 +111,7 @@ final class JsonValidTimeIndexLeafConsolidationTest {
     final int historicalRevision;
     final int historicalFacts = 2 * FACTS_PER_PUBLICATION;
     final int latestRevision;
+    final long refusedShrinksBefore = HOTIncrementalInsert.PREFIX_SHRINK_REFUSED_FOR_CAPACITY.get();
     final long refusedPairsBefore = HOTIncrementalInsert.CONSOLIDATION_PAIR_DID_NOT_FIT.get();
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
@@ -177,9 +179,11 @@ final class JsonValidTimeIndexLeafConsolidationTest {
       }
 
       assertTrue(historicalRevision > 0 && historicalRevision < latestRevision);
+      assertTrue(HOTIncrementalInsert.PREFIX_SHRINK_REFUSED_FOR_CAPACITY.get() > refusedShrinksBefore,
+          "the load must reach a prefix shrink whose rebuilt entries do not fit; without one it no "
+              + "longer covers the rebuild that overflowed and its record layout must be re-tuned");
       assertTrue(HOTIncrementalInsert.CONSOLIDATION_PAIR_DID_NOT_FIT.get() > refusedPairsBefore,
-          "the load must reach an adjacent leaf pair the merged leaf refuses; without one it no longer "
-              + "covers the prefix-shrink rebuild and its record layout must be re-tuned");
+          "consolidation must answer that refusal by leaving the pair unmerged");
       assertExactStabs(database, latestRevision, FACTS, objectKeys, from, to);
       assertExactStabs(database, historicalRevision, historicalFacts, objectKeys, from, historicalTo);
     }

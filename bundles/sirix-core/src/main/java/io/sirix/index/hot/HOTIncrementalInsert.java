@@ -47,10 +47,19 @@ public final class HOTIncrementalInsert {
   public static final AtomicLong SPLIT_SEGMENT_REFS_ROUTED = new AtomicLong();
 
   /**
+   * Diagnostic: prefix shrinks {@link HOTLeafPage} refused because the rebuilt residents plus the
+   * pending entry do not fit its buffers. Counts that capacity refusal alone — not a shrink refused
+   * for the entry limit or an unrepresentable suffix, and not an insert that ran out of bytes without
+   * shortening the prefix. A test that means to exercise the prefix-shrink capacity refusal must
+   * assert this counter moved.
+   */
+  public static final AtomicLong PREFIX_SHRINK_REFUSED_FOR_CAPACITY = new AtomicLong();
+
+  /**
    * Diagnostic: adjacent leaf pairs {@link #consolidateNodeLeaves} left unmerged because the merged
-   * leaf reported their union does not fit — the byte budget the entry-count gate cannot see, most
-   * notably a common prefix the right sibling shortens for every entry already poured in. A test that
-   * means to exercise that path must assert this counter moved.
+   * leaf refused an entry poured into it — the byte budget the entry-count gate cannot see. Counts
+   * the caller taking its leaf-full path whatever made the union not fit; it does not distinguish a
+   * refused prefix shrink from a plain byte overflow.
    */
   public static final AtomicLong CONSOLIDATION_PAIR_DID_NOT_FIT = new AtomicLong();
 
