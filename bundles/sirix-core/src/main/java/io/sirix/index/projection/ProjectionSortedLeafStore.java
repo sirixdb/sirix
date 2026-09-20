@@ -39,8 +39,11 @@ final class ProjectionSortedLeafStore {
     storageReadObserverForTesting = observer;
   }
 
-  static void setQueryLeafReadObserverForTesting(final @Nullable IntConsumer observer) {
+  /** @return the observer this one displaces, so a nested observation can hand it back */
+  static @Nullable IntConsumer setQueryLeafReadObserverForTesting(final @Nullable IntConsumer observer) {
+    final IntConsumer previous = queryLeafReadObserverForTesting;
     queryLeafReadObserverForTesting = observer;
+    return previous;
   }
 
   /** Write one leaf, its group summary and its bound in the owning transaction. */

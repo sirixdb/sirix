@@ -194,6 +194,23 @@ jar {
     }
 }
 
+// The two FFM downcall adapters an optimized main image may initialize at build time
+// (docs/NATIVE_IMAGE.md, "Optional constant FFM adapters for optimized builds"). Defined ONCE: the
+// main image below adds what this returns, and the test task hands Gradle's own evaluation of it to
+// NativeImageDowncallConfigTest, so that guard checks what this build computes rather than the text
+// of this script. Single quotes on purpose: in a double-quoted Groovy string "$DecodeCall" would be
+// an interpolation and the argument would name a class that does not exist.
+ext.nativeDowncallPreinitializeArgs = { boolean optedIn ->
+    optedIn
+        ? ['--initialize-at-build-time=io.sirix.page.SirixLZ77NativeDecoder$DecodeCall,io.sirix.io.filechannel.PosixFadvise$AdviceCall']
+        : []
+}
+// Off unless asked for: the portable configuration initializes the adapters at run time, because the
+// GraalVM 25.0.x LTS line rejects a build-time downcall handle with a linkToNative error.
+ext.nativeDowncallPreinitializeProperty = 'native.preinitializeDowncalls'
+ext.nativeDowncallPreinitializeRequested =
+    project.providers.gradleProperty(nativeDowncallPreinitializeProperty).getOrElse('false').toBoolean()
+
 test {
     useJUnitPlatform()
     systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")
@@ -201,6 +218,50 @@ test {
     systemProperty "sirix.projDiag", System.getProperty("sirix.projDiag")
     systemProperty "sirix.probe.segmentDump", System.getProperty("sirix.probe.segmentDump")
     systemProperty "sirix.probe.segmentDump.out", System.getProperty("sirix.probe.segmentDump.out")
+
+    // The "provide" half of assert-and-provide for the HOT fragment-merge counters, exactly as in
+    // bundles/sirix-core/build.gradle: they sit on the default read path behind a static-final flag,
+    // so a test cannot switch them on for itself. The work-budget tests (io.sirix.query.budget) read
+    // them as "HOT leaves loaded" and ASSERT the gate is on through WorkCounter.requireLive(), because
+    // with it off every counter reads zero and an upper bound on zero always holds. An explicit
+    // -Dsirix.hot.mergeDiag=false still wins, so the gated-off path stays testable.
+    systemProperty 'sirix.hot.mergeDiag', System.getProperty('sirix.hot.mergeDiag', 'true')
+
+    // NativeImageDowncallConfigTest guards the native-image downcall configuration. It is handed what
+    // THIS BUILD evaluates, not the text of this script: the argument the opt-in produces and the one
+    // the default produces, whether the opt-in was requested, and the build-time initialization
+    // arguments the main and smoke-test images really end up with. Those two are read lazily, because
+    // graalvmNative is configured further down and registers the smoke-test binary there.
+    systemProperty 'sirix.test.nativeImage.downcallArgs.optedIn', nativeDowncallPreinitializeArgs(true).join(' ')
+    systemProperty 'sirix.test.nativeImage.downcallArgs.default', nativeDowncallPreinitializeArgs(false).join(' ')
+    systemProperty 'sirix.test.nativeImage.downcallArgs.requested', nativeDowncallPreinitializeRequested.toString()
+    // The name this script really consults: a rename here that the documentation does not follow
+    // would leave the documented -P switch doing nothing, silently.
+    systemProperty 'sirix.test.nativeImage.downcallArgs.property', nativeDowncallPreinitializeProperty
+    def nativeBuildTimeArgsOf = { String binary ->
+        project.provider {
+            graalvmNative.binaries.getByName(binary).buildArgs.get()
+                         .findAll { it.startsWith('--initialize-at-build-time=') }
+                         .join(' ')
+        }
+    }
+    ['main', 'smokeTest'].each { binary ->
+        // Declared, so a change to an image's arguments re-runs the guard instead of leaving it cached.
+        inputs.property("nativeImageBuildTimeArgs.${binary}", nativeBuildTimeArgsOf(binary))
+    }
+    doFirst {
+        ['main', 'smokeTest'].each { binary ->
+            systemProperty "sirix.test.nativeImage.buildTimeArgs.${binary}", nativeBuildTimeArgsOf(binary).get()
+        }
+    }
+    // The guard also reads the shared native-image.properties of every module. They are not on this
+    // task's classpath, so without declaring them an edit to one would leave the task up to date (or
+    // restore it from the build cache) and the guard would not run on exactly the change it exists
+    // for.
+    inputs.files(rootProject.fileTree(dir: 'bundles',
+                                      include: '*/src/main/resources/META-INF/native-image/**/native-image.properties'))
+          .withPropertyName('nativeImageConfiguration')
+          .withPathSensitivity(PathSensitivity.RELATIVE)
 
     // Async-profiler support
     def profilerPath = System.getenv("ASYNC_PROFILER")
@@ -747,11 +808,10 @@ graalvmNative {
             imageName = (project.findProperty('native.imageName') ?: 'sirix-bench').toString()
             mainClass = (project.findProperty('native.mainClass') ?: 'io.sirix.query.bench.ScaleBenchMain').toString()
             sharedLibrary = false
-            // Optional optimization for toolchains that can compile constant FFM adapters.
-            // Keep the portable resource defaults and smoke-test binary unchanged.
-            if (project.providers.gradleProperty('native.preinitializeDowncalls').getOrElse('false').toBoolean()) {
-                buildArgs.add('--initialize-at-build-time=io.sirix.page.SirixLZ77NativeDecoder$DecodeCall,io.sirix.io.filechannel.PosixFadvise$AdviceCall')
-            }
+            // Optional optimization for toolchains that can compile constant FFM adapters:
+            // -Pnative.preinitializeDowncalls=true. Keep the portable resource defaults and the
+            // smoke-test binary unchanged. The argument is defined once, above the test task.
+            buildArgs.addAll(nativeDowncallPreinitializeArgs(nativeDowncallPreinitializeRequested))
             // Preview features and vector API
             buildArgs.add('--enable-preview')
             buildArgs.add('--enable-native-access=ALL-UNNAMED')

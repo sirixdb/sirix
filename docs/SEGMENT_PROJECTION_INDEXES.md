@@ -1273,7 +1273,7 @@ evidence shows `groupDense=0` and `sortedGroupBys=1`.
 - **Single read** (`:363-420`): one pread of `sirix.filechannel.pagePrefixBytes` (1024) → u32 length → if the body fits,
   no second pread → checksum → deserialize from the pooled direct buffer (2 × CPUs buffers of 128 KiB, lock-free CAS
   slots, `:153-263`).
-- **Batched read** (`:576-689`, `:823-899`):
+- **Batched read** (`:576-690`, `:867-939`):
   1. sort the batch into file order (the comment cites 5× re-coverage with zig-zag order);
   2. snapshot the file size once (`sirix.filechannel.batchFileSize`);
   3. build runs: extend while the next offset is ascending, the gap is ≤ `coalesceGapBytes` (64 KiB) and the span is
@@ -1362,7 +1362,7 @@ loaders now read all cache misses together (`trx/NodeStorageEngineReader.java`):
   `--initialize-at-build-time=io.sirix.page.SirixLZ77NativeDecoder$DecodeCall,io.sirix.io.filechannel.PosixFadvise$AdviceCall`
   to the **main binary only** — not the smoke-test or test binaries, not the shared properties file, and nothing
   selects it by version string, toolchain autodetection or workload
-  (`bundles/sirix-query/build.gradle:750-755`). It needs a GraalVM 25 **innovation** release 25.1.3 or later
+  (`bundles/sirix-query/build.gradle:203-212`, `:814`). It needs a GraalVM 25 **innovation** release 25.1.3 or later
   (upstream [oracle/graal#13309](https://github.com/oracle/graal/pull/13309)); on 25.0.x it fails with
   `linkToNative`. Measured on identical bytecode, an unchanged database and unchanged PGO profiles with only that
   setting changed, run-time adapters cost roughly **160 ms per Q3 query and 90-120 ms per Q2 query** — ongoing
@@ -1925,7 +1925,7 @@ What reading the merged code shows:
 | `bundles/sirix-query/bench/jsonbench/README.md` | the kit | PR #1214 added the column-only sorted-view declaration and its 100M figures (`:143-162`), the FILE_CHANNEL loader default (`:250-256`) and the per-try route expectation (`:415-418`), and recorded that databases built before `7a619dd20` must be rebuilt. Still stale: `groupDense=2` at 100M (`:418`) and byte-kernel routing of Q4/Q5 (`:257-261`) vs `sortedGroupBys=1`, `groupDense=0`; §6 figures are "historical campaign figures from the earlier whole-suite process protocol" (`:265-267`) and describe the filtered view |
 | [operations.md](operations.md) | operator tuning | stale for caches: revision-root cache "5,000 entries (fixed count)" (`:136`) vs 20 000 and overridable; `sirix.cache.page` byte budget (`:135`) is ignored (50 000 entries via `sirix.cache.page.max.entries`); "(default: 25% of budget)" log lines (`:153-154`); "The default `FFILz4Compressor`" (`:188`) vs the empty pipeline; "there is no runtime fallback for LZ4" (`:193-195`) vs `JavaLz4BlockDecoder`; "the second beacon at offset 512" (`:351`) vs 8192; documents 5 of ~230 sirix-core properties |
 | [ZERO_COPY_PLAN.md](ZERO_COPY_PLAN.md) | zero-copy deserialization plan | stale: all todos unchecked (`:513-526`) though `DecompressionResult` ownership transfer exists (`io/bytepipe/ByteHandler.java:55-80`); allocator and page layout sketches outdated |
-| [NATIVE_IMAGE.md](NATIVE_IMAGE.md) | native builds | PR #1214 added an *Optional constant FFM adapters for optimized builds* section (`:187-222`) covering `-Pnative.preinitializeDowncalls=true`, the `linkToNative` failure on the 25.0.x LTS line, the 25.1.3 requirement and the builder-JDK pin. The document still omits the LZ77 downcall and resource registration; "borrowed input off in native images" is no longer a native-specific default (§8.4), and `manualLE` off and the chunk-pool retain probe are still undocumented |
+| [NATIVE_IMAGE.md](NATIVE_IMAGE.md) | native builds | PR #1214 added an *Optional constant FFM adapters for optimized builds* section (`:187-222`, now running to `:235` with the `NativeImageDowncallConfigTest` guard paragraph) covering `-Pnative.preinitializeDowncalls=true`, the `linkToNative` failure on the 25.0.x LTS line, the 25.1.3 requirement and the builder-JDK pin. The document still omits the LZ77 downcall and resource registration; "borrowed input off in native images" is no longer a native-specific default (§8.4), and `manualLE` off and the chunk-pool retain probe are still undocumented |
 | [RECORD_PATH_DEPINNING.md](RECORD_PATH_DEPINNING.md) | stamp-validated record reads | current (spot-checked) |
 
 Code comments that contradict code, relevant to this document: `core/page/ProjectionIndexPage.java:22-31` and
@@ -2055,9 +2055,24 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 
 ### A.6 Diagnostics (no intended effect on results)
 
-`sirix.projDiag` (route declines, catalog candidates, `[sortedLookahead]`, `[prune]`, `[topk]`, `[phase]` timings, file-channel
-run counters; e.g. `query/compiler/optimizer/GroupAggregateDetectionStage.java:211`, `SVE:14616-14618`,
-`proj/ProjectionIndexCatalog.java:581`, `io/filechannel/FileChannelReader.java:812-821`), `sirix.projection.fillDiag`,
+`sirix.projDiag` (route declines, catalog candidates, `[sortedLookahead]`, `[prune]`, `[topk]`, `[phase]` timings, the
+`[io] segBatch` line; e.g. `query/compiler/optimizer/GroupAggregateDetectionStage.java:211`, `SVE:14616-14618`,
+`proj/ProjectionIndexCatalog.java:581`, `proj/ProjectionIndexHOTStorage.java:3699-3712`), `sirix.projection.fillDiag`,
 `sirix.projection.bulkDiag`, `sirix.segBuildDiag`, `sirix.projection.verifyDirectAssembly` (parity check),
 `sirix.hft.telemetry`, `sirix.fadvise.diag`, `sirix.lz77Codec.diag`, `sirix.lz77Codec.diag.counters`,
 `sirix.chunkedBody.diag`, `sirix.projection.groupPasses.planDiag`, `sirix.debug.ast`.
+
+**Always-on work counters.** The file-channel batch read counts unconditionally, because each event is at least one
+positional read: `FileChannelReader.runCount()` (coalesced runs), `runSpanBytes()` (bytes their span reads covered, gaps
+included), `runFallbacks()` (members re-read exactly because their body crossed the next offset) and `runSingletons()`
+(batch members with no near-adjacent neighbour, read one page at a time); `runDiagSummary()` prints all four. They are
+process-wide running totals: read them as a difference across the operation you are attributing, never reset in place —
+a work-budget capture fails outright on a counter that ran backwards while it was running. A batch that stops
+coalescing, or is not sorted by file offset, returns the same bytes, so these are the only way to tell. `AbstractReader.regionChunkHits()` / `regionChunkFallbacks()`, the `# chunked:` projection events
+(§7.3) and the frame-slot allocator's `allocateCount` / `releaseCount` are unconditional for the same reason. The HOT
+fragment-merge counters in `VersioningType` sit on the default read path and stay gated behind `sirix.hot.mergeDiag`,
+which the `sirix-core` and `sirix-query` test JVMs switch on.
+
+**Work-budget tests** assert on these counters and on the `# served:` route counters (§7.3): a load or query may not
+start doing materially more work, where a result check would see nothing. The catalog of counters, the tests, and the
+rules for adding or changing a budget are in `bundles/sirix-core/src/test/java/io/sirix/budget/README.md`.

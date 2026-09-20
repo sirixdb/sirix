@@ -33,8 +33,11 @@ final class ProjectionSortedGroupSummary {
 
   private ProjectionSortedGroupSummary() {}
 
-  static void setReadObserverForTesting(final @Nullable IntConsumer observer) {
+  /** @return the observer this one displaces, so a nested observation can hand it back */
+  static @Nullable IntConsumer setReadObserverForTesting(final @Nullable IntConsumer observer) {
+    final IntConsumer previous = readObserverForTesting;
     readObserverForTesting = observer;
+    return previous;
   }
 
   static void setMissingCountObserverForTesting(final @Nullable IntConsumer observer) {

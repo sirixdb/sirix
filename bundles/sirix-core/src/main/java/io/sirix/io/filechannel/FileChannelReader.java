@@ -633,6 +633,7 @@ public final class FileChannelReader extends AbstractReader {
           }
         }
         if (j == i) {
+          RUN_SINGLETONS.increment();
           pages[order[i]] = read(references[order[i]], resourceConfiguration, false, batchFileSize);
           i++;
           continue;
@@ -805,30 +806,71 @@ public final class FileChannelReader extends AbstractReader {
         : reference.getKey();
   }
 
+  /** Coalesced runs read: one span pread plus one last-body pread each. */
+  private static final LongAdder RUN_COUNT = new LongAdder();
+
+  /** Bytes the span preads of all coalesced runs covered, gaps between members included. */
+  private static final LongAdder RUN_SPAN_BYTES = new LongAdder();
+
+  /** Run members whose body crossed the next member's offset and were re-read exactly. */
+  private static final LongAdder RUN_FALLBACKS = new LongAdder();
+
+  /** Batch members with no near-adjacent neighbour, read one page at a time. */
+  private static final LongAdder RUN_SINGLETONS = new LongAdder();
+
+  /**
+   * Coalesced runs the batch read has issued in this process.
+   *
+   * <p>
+   * Unconditional rather than gated behind a diagnostic flag, for the reason given at
+   * {@link AbstractReader#regionChunkHits()}: every event counted here is at least one positional
+   * read, and a striped counter increment is three orders of magnitude below that. Coalescing
+   * declines silently, by reading the same pages one at a time with identical results, so a batch
+   * that stopped coalescing is invisible except as a slowdown. Together with {@link #runSingletons()}
+   * and {@link #runFallbacks()} this is what lets a test, or an operator, tell that the batch read
+   * still batches.
+   */
+  public static long runCount() {
+    return RUN_COUNT.sum();
+  }
+
+  /**
+   * Bytes covered by the span reads of all coalesced runs. Re-covering a region, as a run builder
+   * over unsorted offsets once did, shows here as a multiple of the bytes the pages occupy.
+   */
+  public static long runSpanBytes() {
+    return RUN_SPAN_BYTES.sum();
+  }
+
+  /** Members of a coalesced run that did not fit before their successor and were read exactly. */
+  public static long runFallbacks() {
+    return RUN_FALLBACKS.sum();
+  }
+
+  /** Batch members that coalesced with no neighbour and cost a page read of their own. */
+  public static long runSingletons() {
+    return RUN_SINGLETONS.sum();
+  }
+
+  /**
+   * The four batch-read counters on one line, for the {@code -Dsirix.projDiag} segment-batch trace.
+   */
+  public static String runDiagSummary() {
+    return "[runs] count=" + RUN_COUNT.sum() + " spanBytes=" + RUN_SPAN_BYTES.sum() + " fallbacks="
+        + RUN_FALLBACKS.sum() + " singletons=" + RUN_SINGLETONS.sum();
+  }
+
   /**
    * One coalesced run [{@code from}, {@code to}]: span pread + last-body pread + per-page
    * deserialize.
    */
-  /** DIAGNOSTIC (-Dsirix.projDiag): span bytes read and per-page fallbacks across all runs. */
-  private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
-  private static final LongAdder RUN_SPAN_BYTES = new LongAdder();
-  private static final LongAdder RUN_FALLBACKS = new LongAdder();
-  private static final LongAdder RUN_COUNT = new LongAdder();
-
-  public static String runDiagSummary() {
-    return "[runs] count=" + RUN_COUNT.sum() + " spanBytes=" + RUN_SPAN_BYTES.sum() + " fallbacks="
-        + RUN_FALLBACKS.sum();
-  }
-
   private void readRun(final PageReference[] references, final Page[] pages, final int[] order, final int from,
       final int to, final @Nullable ResourceConfiguration resourceConfiguration, final long batchFileSize) {
     final long start = references[order[from]].getKey();
     final long lastOffset = references[order[to]].getKey();
     final int spanLen = (int) (lastOffset + 4 - start);
-    if (DIAG) {
-      RUN_COUNT.increment();
-      RUN_SPAN_BYTES.add(spanLen);
-    }
+    RUN_COUNT.increment();
+    RUN_SPAN_BYTES.add(spanLen);
     ByteBuffer buffer = acquireBuffer(spanLen);
     try {
       buffer.clear().limit(spanLen);
@@ -851,9 +893,7 @@ public final class FileChannelReader extends AbstractReader {
         if (dataLength <= 0 || dataLength > bound) {
           // Body would cross the next page's offset — not the append-only layout this
           // fast path assumes. Exact per-page read decides whether it is corruption.
-          if (DIAG) {
-            RUN_FALLBACKS.increment();
-          }
+          RUN_FALLBACKS.increment();
           pages[order[k]] = read(member, resourceConfiguration, false, batchFileSize);
           continue;
         }
