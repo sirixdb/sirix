@@ -1051,8 +1051,23 @@ PCRs (`idx/cas/CASIndex.java:599-605`).
    subtree immediately before `K` and gives `K` a fresh one-entry leaf, which relieves the overflow
    without folding anything into the parent's block. A byte overflow on a key the leaf already holds
    passes that leaf the value `splitLeafPage` computed — the posting union, or for a projection the
-   new bytes — and the split drops the stale entry from the boundary leaf (§4.5.4 case 9). A side
-   reference owned by the dropped entry has no home and fails the insert before publication.
+   new bytes — and the split drops the stale entry from the boundary leaf (§4.5.4 case 9).
+
+   **Dropping an entry that owns a side reference refuses the insert.** `rehomeSplitLeafSideReferences`
+   (`:5850-5872`) looks each side reference's owning slot up in the two halves of the boundary leaf
+   only, so a reference whose owner is the entry just dropped finds no home and the split throws
+   before publication. `spliceOverflowThroughFrontier` catches that and marks the transaction
+   rollback-only (`:4103-4107`) — this is the routed path, where the key's document node was written
+   while its index entry was not — so the insert fails, the transaction cannot commit, and a load
+   stops. Only a **PROJECTION** index can reach it: side references are attached to a HOT leaf in
+   exactly one place, `ProjectionIndexHOTStorage.putSegmentPage`
+   (`index/projection/ProjectionIndexHOTStorage.java:4382`, whose writer is hardwired to
+   `IndexType.PROJECTION` at `:173`); every other `setPageReference` call on a HOT leaf re-homes an
+   existing reference across a split. The posting indexes — **PATH, CAS, NAME and VALIDTIME** —
+   therefore never carry one, `segmentRefCount()` is zero on their leaves, and the re-homing returns
+   immediately, so the valid-time index this change was made for cannot reach this shape. It is not a
+   regression in outcome: before this change the same input folded and published a mis-ordered node.
+   Carrying the dropped entry's reference onto `K`'s fresh leaf is filed as its own task.
 
 #### 4.5.3 `integrate`: propagating a BiNode
 
@@ -1230,6 +1245,17 @@ or above a spine node (d*). Cases, in order:
   and the transaction is not marked rollback-only — but the insert, and with it a load, stops. The
   frontier routing of §4.5.2 step 7 covers the immediate parent only; this shape has no test coverage
   and no fallback.
+- A **PROJECTION** leaf overflowing by bytes on a key it already holds, whose fold is declined at a
+  parent that would fold rather than nest, is routed through the frontier (§4.5.2 step 7), which drops
+  the stale entry. When that entry owns a side reference — a segment page — the reference has no home
+  in either half of the boundary leaf and the split refuses before publication
+  (`rehomeSplitLeafSideReferences`, `:5850-5872`). The transaction **is** marked rollback-only
+  (`:4103-4107`; it is the routed path, where the document node was written while the index entry was
+  not), the insert fails, and a load stops. Only PROJECTION reaches it — side references originate in
+  `ProjectionIndexHOTStorage.putSegmentPage` alone, so PATH, CAS, NAME and VALIDTIME leaves have
+  `segmentRefCount() == 0` and the re-homing returns before it can refuse. Not a regression in
+  outcome: before this change the same input folded and published a mis-ordered node. No test
+  constructs it; carrying the reference onto `K`'s fresh leaf is a separate task.
 
 #### 4.5.7 Complexity (derived from the code, not measured)
 

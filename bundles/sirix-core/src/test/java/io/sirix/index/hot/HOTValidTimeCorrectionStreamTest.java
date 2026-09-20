@@ -74,6 +74,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * that each stored key still routes to the leaf that holds it, and the postings of every interval
  * must equal what the stream says they are.
  * </p>
+ *
+ * <p>
+ * Runs in about 8 seconds here, so it belongs in the default lane; a suite that grows past 60
+ * seconds belongs behind {@code @Tag("heavy")}, which the advisory cross-platform CI lanes exclude
+ * ({@code bundles/sirix-core/build.gradle}).
+ * </p>
  */
 final class HOTValidTimeCorrectionStreamTest {
 

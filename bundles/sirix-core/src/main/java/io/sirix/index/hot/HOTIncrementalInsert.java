@@ -414,19 +414,6 @@ public final class HOTIncrementalInsert {
   }
 
   /**
-   * {@code compressEntries} for one half of an indirect split: drop every discriminative bit that is
-   * constant across {@code halfChildren} (it no longer branches), re-pack the surviving bits into
-   * MSB-first partial keys, and assemble a fresh compound node. A half of a single child is the bare
-   * child reference — Binna's 1:31 caveat ({@code
-   * HOTSingleThreaded.hpp:524-528}): a lone entry is pulled up, never wrapped.
-   *
-   * @param halfChildren the half's child references, in ascending partial-key order
-   * @param halfPartials the half's stored partials (parallel to {@code halfChildren}), encoded
-   *        against the parent's full {@code discBits}
-   * @param discBits the parent node's discriminative bits, ascending absolute positions
-   * @return the assembled half (a fresh swizzled compound node, or the lone child reference)
-   */
-  /**
    * The most significant discriminative bit {@link #compressHalf} keeps for the children
    * {@code [from, to)} of a node being split: the first bit whose column varies across them, which
    * becomes that half's own MSB. {@code -1} for a lone child — it is pulled up bare and gets no node.
@@ -454,6 +441,19 @@ public final class HOTIncrementalInsert {
     return -1;
   }
 
+  /**
+   * {@code compressEntries} for one half of an indirect split: drop every discriminative bit that is
+   * constant across {@code halfChildren} (it no longer branches), re-pack the surviving bits into
+   * MSB-first partial keys, and assemble a fresh compound node. A half of a single child is the bare
+   * child reference — Binna's 1:31 caveat ({@code
+   * HOTSingleThreaded.hpp:524-528}): a lone entry is pulled up, never wrapped.
+   *
+   * @param halfChildren the half's child references, in ascending partial-key order
+   * @param halfPartials the half's stored partials (parallel to {@code halfChildren}), encoded
+   *        against the parent's full {@code discBits}
+   * @param discBits the parent node's discriminative bits, ascending absolute positions
+   * @return the assembled half (a fresh swizzled compound node, or the lone child reference)
+   */
   private static PageReference compressHalf(final PageReference[] halfChildren, final int[] halfPartials,
       final int[] discBits, final int revision, final LongSupplier pageKeyAllocator) {
     final int n = halfChildren.length;

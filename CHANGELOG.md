@@ -145,9 +145,15 @@ All notable changes to SirixDB are documented in this file.
   is now discharged through that same complete-frontier splice: the parent's subtree is split
   immediately before the key and the key gets its own leaf. When the overflow was a byte overflow on a
   key the leaf already holds, that leaf carries the merged value and the split drops the stale entry;
-  a side reference the dropped entry owned fails the insert before publication rather than being
-  orphaned. A pre-publication failure still leaves the transaction usable, as before, except on that
-  routed path, where the key's document node is already written while its index entry is not. Further
+  a side reference the dropped entry owned has no home in either half, so the split refuses before
+  publication rather than orphaning a segment page: the transaction is marked rollback-only (this is
+  the routed path, where the document node was written while the index entry was not) and a load
+  stops. Only a projection index can reach that — side references are attached to a HOT leaf by
+  `ProjectionIndexHOTStorage` alone, so path, CAS, name and valid-time leaves never carry one — and it
+  is not a regression in outcome, since the same input previously folded and published a mis-ordered
+  node. Carrying the dropped entry's reference onto the key's fresh leaf is a separate task. A
+  pre-publication failure still leaves the transaction usable, as before, except on that routed path,
+  where the key's document node is already written while its index entry is not. Further
   into the same load, splitting a full node published a half that broke the trie condition (I11)
   against its own child: a half keeps only the bits that still vary within it, so a child that sat
   safely below the node's most significant bit can sit above the half's. Only the half the new key
