@@ -237,7 +237,7 @@ A zero-length value is a tombstone (`:115-116`).
 
 - `slotKind 0` is the descriptor; `slotKind = segmentId + 1` is a segment (`proj/ProjectionSlotLayout.java:33-42`).
 - **Blob-capable namespaces must stay below 2^47**, because overflow side-map keys are
-  `(ownerSlotKey << 16) | subId` with `|ownerSlotKey| < 2^47` (`core/page/HOTLeafPage.java:126`, `:147-156`;
+  `(ownerSlotKey << 16) | subId` with `|ownerSlotKey| < 2^47` (`core/page/HOTLeafPage.java:127`, `:148-157`;
   `proj/ProjectionSortedDirectory.java:26`). Structural-order and locator slots are raw values that never
   use side pages (`proj/ProjectionIndexHOTStorage.java:3855-3901`).
 - `COLUMN_MAJOR` is chosen only for a fresh bulk-built tree with `-Dsirix.projection.columnMajorSlots=true`;

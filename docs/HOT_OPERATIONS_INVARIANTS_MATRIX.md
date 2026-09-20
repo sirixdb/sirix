@@ -109,9 +109,9 @@ The 16 invariants from `HOT_INVARIANTS_CATALOG.md`:
 the common prefix; appends to slot heap; binary-search-sorted by key.
 
 **Code:** `HOTLeafPage:892, 933, 1022`. Calls `findEntry` (binary search), `insertAtWithKey`,
-`handlePrefixForInsert` (slotMemory rewrite if prefix narrows; refused — the put reports "does not
-fit" and the leaf is unchanged — when the rewritten residents plus the pending entry exceed the
-frame, so the caller splits).
+`handlePrefixForInsert` (slotMemory rewrite if prefix narrows, which the leaf refuses — reporting
+"does not fit" and leaving itself unchanged — when the rewrite would not fit; that contract is
+specified in `HOT_INDEX_SPECIFICATION.md` §3.2.2).
 
 **Invariant scoring:**
 
