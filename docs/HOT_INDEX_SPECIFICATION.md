@@ -1067,13 +1067,27 @@ first key (I8), and the sibling's keys that carry β now subset-match the insert
 slot and are routed away from their leaf. With no partial in between, no existing key's match
 changes: a key routed to an earlier slot did not match the slot's partial and cannot match a superset
 of it, and a later slot still wins by index. `canMergeBiNodeAtExistingDiscBit`
-(`hot/HOTIncrementalInsert.java:1268-1294`) therefore reports three un-mergeable corners — the
-straddle orientation, the C2 collision, and this placement (`landsBesideSlot`, `:1314-1319`, counted
+(`hot/HOTIncrementalInsert.java:1296-1322`) therefore reports three un-mergeable corners — the
+straddle orientation, the C2 collision, and this placement (`landsBesideSlot`, `:1342-1347`, counted
 by `EXISTING_BIT_FOLD_NOT_ADJACENT`) — and both fold primitives throw `IllegalArgumentException` on
 the last two if called regardless. The merge path asks the predicate before it folds (§4.5.2 step 5);
 the branch path asks it through `canIntegrateBiNodeCleanly`
-(`hot/AbstractHOTIndexWriter.java:4696-4713`), whose `false` hands the insert to the complete-frontier
+(`hot/AbstractHOTIndexWriter.java:4698-4718`), whose `false` hands the insert to the complete-frontier
 splice (§4.5.4 case 9).
+
+**Splitting a full node.** `compressHalf` keeps for each half only the bits that still vary within
+it, so a half's MSB can be far less significant than the node's. The node's children satisfied I11
+against the node; against the half they need not — where two siblings are told apart by a bit *less*
+significant than one of them branches on internally, a shape the writer's own handlers build and every
+invariant accepts until the split changes who the parent is. Such a half routes and scans correctly,
+but the structural guards reject it, so the next insert routed through it fails; and only the half `K`
+joins lies on `K`'s route, so the other is seen by no guard unless the published scope fits the
+validation budget. `splitKeepsTrieCondition` (`hot/AbstractHOTIndexWriter.java:4747-4759`, from
+`HOTIncrementalInsert.mostSignificantLiveBit`, `hot/HOTIncrementalInsert.java:440-455`) asks the question before a split is built: the
+full-node decomposition of §4.5.4 case 2 declines on it (counted by
+`FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION`), and so does `canIntegrateBiNodeCleanly` for every full
+level the cascade would split. Both hand the insert to the complete-frontier splice, which never
+splits the node. The merge path's cascade is unguarded: it has no other placement.
 
 Each `integrate` publishes with exactly one `setPage` (`:1969-1972`, `:1983`, `:2003`). Node
 "upgrades" from span to multi node are implicit: the layout is chosen from the discriminative-bit
@@ -1101,9 +1115,9 @@ or above a spine node (d*). Cases, in order:
 9. **any case that returns false** → `spliceCompleteFrontierIncrementally` (`:4062-4066`,
    `:5382-5726`, `:6559-6683`): from d* upwards, find the minimal complete BiNode frontier that contains
    both the routed and the lexicographic slot; split only the boundary path (copying at most one leaf);
-   build the canonical Patricia block over `<K`, `K`, `>K` (`joinOrderedAroundKey`, `:5717-5796`):
+   build the canonical Patricia block over `<K`, `K`, `>K` (`joinOrderedAroundKey`, `:5786-5865`):
    each level branches on the MSDB of its range, and a side that bit cuts through is split there in
-   the same persistent way (`assignFrontierPaths`, `:5810-5867`, counted by
+   the same persistent way (`assignFrontierPaths`, `:5879-5936`, counted by
    `FRONTIER_JOIN_STRADDLE_SPLIT`), so that every child is one-sided on the bits of its path — `K`'s
    sides are arbitrary key ranges, not complete `R(S)`-subtrees, and a child straddling a bit of the
    block has the keys on its other side routed to a neighbour. Without such a side this is a 1-2-bit

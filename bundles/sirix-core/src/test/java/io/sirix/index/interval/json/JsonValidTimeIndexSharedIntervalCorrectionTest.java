@@ -193,6 +193,15 @@ final class JsonValidTimeIndexSharedIntervalCorrectionTest {
       }
 
       assertTrue(firstRevision < latestRevision);
+      assertStructurallySound(database, latestRevision);
+      assertExactStabs(database, latestRevision, records, objectKeys, fromDay, toDay);
+      // Before the corrections every record was valid from the first day over the whole horizon.
+      final int[] toDayAtFirstRevision = new int[RECORDS];
+      Arrays.fill(toDayAtFirstRevision, HORIZON_DAYS);
+      assertExactStabs(database, firstRevision, RECORDS, objectKeys, new int[RECORDS], toDayAtFirstRevision);
+
+      // Last, so that a broken writer is reported as the defect it is and not as a load that no longer
+      // reaches it.
       assertTrue(HOTIncrementalInsert.EXISTING_BIT_FOLD_NOT_ADJACENT.get() > foldsDeclinedBefore,
           "the load must reach a fold whose upper half would not land beside its slot; without one it no "
               + "longer covers the placement that was published out of order and its record layout must be "
@@ -200,13 +209,6 @@ final class JsonValidTimeIndexSharedIntervalCorrectionTest {
       assertTrue(AbstractHOTIndexWriter.FRONTIER_JOIN_STRADDLE_SPLIT.get() > joinSplitsBefore,
           "the load must reach a complete-frontier join that has to split a side a bit of its block cuts "
               + "through; without one it no longer covers the join a declined fold falls back to");
-
-      assertStructurallySound(database, latestRevision);
-      assertExactStabs(database, latestRevision, records, objectKeys, fromDay, toDay);
-      // Before the corrections every record was valid from the first day over the whole horizon.
-      final int[] toDayAtFirstRevision = new int[RECORDS];
-      Arrays.fill(toDayAtFirstRevision, HORIZON_DAYS);
-      assertExactStabs(database, firstRevision, RECORDS, objectKeys, new int[RECORDS], toDayAtFirstRevision);
     }
   }
 

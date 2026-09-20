@@ -4676,7 +4676,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Pre-check whether {@link HOTIncrementalInsert#integrate}'s cascade — starting at
    * {@code currentDepth} with a BiNode on {@code biNodeBeta} — will fold cleanly, or whether any
    * level requires an un-mergeable cross-level-overlap fold (which would otherwise throw out of
-   * integrate). Returns {@code false} before publication so the caller uses the complete frontier.
+   * integrate), or would split a full node into a half that breaks the trie condition against its own
+   * children ({@link #splitKeepsTrieCondition}). Returns {@code false} before publication so the
+   * caller uses the complete frontier.
    *
    * <p>
    * <b>Crash-safety.</b> The walk is conservative: it never returns {@code true} when integrate would
@@ -4706,10 +4708,69 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (parent.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
         return true; // addEntry/merge fits; cascade terminates
       }
+      if (!splitKeepsTrieCondition(parent)) {
+        return false; // the cascade would publish a half whose own children contradict it (I11)
+      }
       beta = parent.getMostSignificantBitIndex(); // parent full → split → cascade with parent.MSB
       depth--;
     }
     return true; // reached the root
+  }
+
+  /**
+   * Full-node decompositions declined because one of the two halves would break the trie condition
+   * (I11) against its own children. Counts that refusal alone — not a cascade that cannot fold and
+   * not a lone-child or C2 dead end.
+   */
+  public static final AtomicLong FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION = new AtomicLong();
+
+  /**
+   * Whether splitting {@code node} at its most significant bit leaves each half satisfying the trie
+   * condition against its own children (I11: an indirect child's MSB is strictly less significant
+   * than its parent's).
+   *
+   * <p>
+   * The node's children satisfy it against the node. A half, however, keeps only the bits that still
+   * vary within it, so its MSB may be much less significant than the node's — and a child that sat
+   * safely below the node's MSB can then sit <em>above</em> the half's. That happens where two
+   * siblings are told apart by a bit less significant than one of them branches on internally, a
+   * shape the writer's own handlers build: it passes every invariant until the split changes who the
+   * parent is. Such a half routes and scans correctly, but the structural guards reject it, so the
+   * next insert through it fails. Only the half {@code K} joins lies on {@code K}'s route; the other
+   * is seen by no guard unless the published scope happens to fit the validation budget.
+   * </p>
+   *
+   * <p>
+   * Costs one page resolution per child and reads no key.
+   * </p>
+   */
+  private boolean splitKeepsTrieCondition(final HOTIndirectPage node) {
+    final int[] discBits = HOTIncrementalInsert.discriminativeBits(node);
+    final int[] partials = node.getPartialKeysRef();
+    final int childCount = node.getNumChildren();
+    // The first child with the node's MSB set begins the upper half, exactly as splitIndirect cuts.
+    final int topWeight = 1 << (discBits.length - 1);
+    int splitPoint = 0;
+    while (splitPoint < childCount && (partials[splitPoint] & topWeight) == 0) {
+      splitPoint++;
+    }
+    return halfKeepsTrieCondition(node, discBits, partials, 0, splitPoint)
+        && halfKeepsTrieCondition(node, discBits, partials, splitPoint, childCount);
+  }
+
+  private boolean halfKeepsTrieCondition(final HOTIndirectPage node, final int[] discBits, final int[] partials,
+      final int from, final int to) {
+    final int halfMsb = HOTIncrementalInsert.mostSignificantLiveBit(discBits, partials, from, to);
+    if (halfMsb < 0) {
+      return true; // a lone child hangs directly under the split's BiNode, as it hung under the node
+    }
+    for (int slot = from; slot < to; slot++) {
+      if (resolveHOTPageForTraversal(node.getChildReference(slot)) instanceof HOTIndirectPage child
+          && child.getMostSignificantBitIndex() <= halfMsb) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private boolean branchFullNodeAtExistingBit(LeafNavigationResult navResult, HOTIndirectPage node, int insertDepth,
@@ -4719,6 +4780,13 @@ public abstract class AbstractHOTIndexWriter<K> {
     // un-mergeable cross-level overlap and delegate to the complete frontier if found.
     if (!canIntegrateBiNodeCleanly(navResult.pathNodes(), navResult.pathChildIndices(), insertDepth,
         node.getMostSignificantBitIndex())) {
+      return false;
+    }
+    // Both halves of the split are published below, but only K's half is checked there and lies on
+    // K's route: a sibling half that breaks the trie condition would go out unseen. Decided before
+    // K's leaf is allocated, so the fallback never orphans it.
+    if (!splitKeepsTrieCondition(node)) {
+      FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.incrementAndGet();
       return false;
     }
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);

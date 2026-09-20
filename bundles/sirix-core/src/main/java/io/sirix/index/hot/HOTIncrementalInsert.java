@@ -426,6 +426,34 @@ public final class HOTIncrementalInsert {
    * @param discBits the parent node's discriminative bits, ascending absolute positions
    * @return the assembled half (a fresh swizzled compound node, or the lone child reference)
    */
+  /**
+   * The most significant discriminative bit {@link #compressHalf} keeps for the children
+   * {@code [from, to)} of a node being split: the first bit whose column varies across them, which
+   * becomes that half's own MSB. {@code -1} for a lone child — it is pulled up bare and gets no node.
+   *
+   * <p>
+   * A half drops every column that is constant within it, so its MSB can be far less significant than
+   * the node's was. The node's children satisfied the trie condition against the node (I11); whether
+   * they satisfy it against the half is a separate question, which the caller has to ask before it
+   * publishes the split.
+   */
+  static int mostSignificantLiveBit(final int[] discBits, final int[] partials, final int from, final int to) {
+    if (to - from < 2) {
+      return -1;
+    }
+    final int m = discBits.length;
+    for (int k = 0; k < m; k++) {
+      final int weight = 1 << (m - 1 - k);
+      final int first = partials[from] & weight;
+      for (int i = from + 1; i < to; i++) {
+        if ((partials[i] & weight) != first) {
+          return discBits[k];
+        }
+      }
+    }
+    return -1;
+  }
+
   private static PageReference compressHalf(final PageReference[] halfChildren, final int[] halfPartials,
       final int[] discBits, final int revision, final LongSupplier pageKeyAllocator) {
     final int n = halfChildren.length;
