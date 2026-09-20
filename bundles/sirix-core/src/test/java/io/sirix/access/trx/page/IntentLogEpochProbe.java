@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiConsumer;
 
 /**
- * Watches a load's transaction intent log, epoch by epoch: how many pages it left pinned, and how
- * many the pre-commit spill drained.
+ * Watches a load's transaction intent log, async-flush rotation by rotation: how many pages it left
+ * pinned, and how many the pre-commit spill drained.
  *
  * <p>
  * Trie pages a load cannot flush yet sit in the intent log's pinned region, each holding an
@@ -26,13 +26,19 @@ import java.util.function.BiConsumer;
  * the other.
  *
  * <ul>
- * <li>{@code "prepare"} fires once per epoch, <em>after</em> the previous snapshot's cleanup has
- * promoted pages into the pinned region and the spill has drained what it could. The pinned size
- * there is the epoch's residue. A spill that runs keeps it bounded; one refused at its gate lets it
- * grow with every epoch until the arena is exhausted.</li>
+ * <li>{@code "prepare"} fires once per async-flush <em>rotation</em>, <em>after</em> the previous
+ * snapshot's cleanup has promoted pages into the pinned region. That is every rotation, not only a
+ * full intent-log epoch: {@code startAsyncFlushOwned} runs the spill inside
+ * {@code if (includeTransactionLog)} and injects this site outside it, so a side-pages-only rotation
+ * — the path a projection bulk load drives most — reaches it with no spill having run. The pinned
+ * size sampled there is therefore post-spill on a full epoch and pre-spill on a side-only rotation,
+ * which can only make {@link #pinnedPagesPeak()} read high, never low. A spill that runs keeps the
+ * region bounded; one refused at its gate lets it grow until the arena is exhausted.</li>
  * <li>{@code "trie-spill-before-publish"} and {@code "trie-spill-after-publish"} bracket the
- * publication of one spill batch, so the drop in pinned size between them is the pages it
- * drained.</li>
+ * publication of one spill batch, so the drop in pinned size between them is the pages it drained.
+ * A batch can only be published inside a full epoch whose spill ran, which is what makes
+ * {@link #spillBatches()} — and not {@link #rotations()} — the figure that proves a fixture really
+ * exercised the spill.</li>
  * </ul>
  *
  * <p>
@@ -41,13 +47,13 @@ import java.util.function.BiConsumer;
  */
 public final class IntentLogEpochProbe implements WorkProbe {
 
-  private static final String EPOCH_SITE = "prepare";
+  private static final String ROTATION_SITE = "prepare";
 
   private static final String BEFORE_PUBLISH_SITE = "trie-spill-before-publish";
 
   private static final String AFTER_PUBLISH_SITE = "trie-spill-after-publish";
 
-  private final LongAdder epochs = new LongAdder();
+  private final LongAdder rotations = new LongAdder();
 
   private final LongAdder spillBatches = new LongAdder();
 
@@ -58,8 +64,8 @@ public final class IntentLogEpochProbe implements WorkProbe {
   /** A spill publishes on the thread that started it, so its before/after samples pair up here. */
   private final ThreadLocal<int[]> pinnedBeforePublish = ThreadLocal.withInitial(() -> new int[1]);
 
-  private final WorkCounter epochCounter =
-      WorkCounter.alwaysOn("til.epochs", "one async-flush epoch of the load's transaction intent log", epochs::sum);
+  private final WorkCounter rotationCounter = WorkCounter.alwaysOn("til.rotations",
+      "one async-flush rotation of the load's storage engine, with or without the intent log", rotations::sum);
 
   private final WorkCounter spillBatchCounter = WorkCounter.alwaysOn("til.spillBatches",
       "one batch of pinned trie pages written and published ahead of the final commit", spillBatches::sum);
@@ -68,7 +74,7 @@ public final class IntentLogEpochProbe implements WorkProbe {
       "one pinned trie page drained from the intent log ahead of the final commit", spilledPages::sum);
 
   private final WorkCounter pinnedPagesPeakCounter = WorkCounter.alwaysOn("til.pinnedPagesPeak",
-      "the most pages any epoch left pinned after its spill; each holds an off-heap frame", pinnedPagesPeak::get);
+      "the most pages any rotation found pinned; each holds an off-heap frame", pinnedPagesPeak::get);
 
   private final BiConsumer<NodeStorageEngineWriter, String> hook = this::observe;
 
@@ -76,12 +82,15 @@ public final class IntentLogEpochProbe implements WorkProbe {
 
   private boolean open;
 
-  /** Async-flush epochs the load went through; a budget over too few epochs proves nothing. */
-  public WorkCounter epochs() {
-    return epochCounter;
+  /**
+   * Async-flush rotations the load went through, side-pages-only ones included. Too coarse to prove
+   * a fixture exercised the spill; use {@link #spillBatches()} for that.
+   */
+  public WorkCounter rotations() {
+    return rotationCounter;
   }
 
-  /** Spill batches published ahead of the final commit. */
+  /** Spill batches published ahead of the final commit; each one ran inside a full epoch. */
   public WorkCounter spillBatches() {
     return spillBatchCounter;
   }
@@ -91,14 +100,14 @@ public final class IntentLogEpochProbe implements WorkProbe {
     return spilledPageCounter;
   }
 
-  /** The largest post-spill pinned region of any epoch. */
+  /** The largest pinned region any rotation sampled; see the class javadoc on when it is taken. */
   public WorkCounter pinnedPagesPeak() {
     return pinnedPagesPeakCounter;
   }
 
   @Override
   public List<WorkCounter> counters() {
-    return List.of(epochCounter, spillBatchCounter, spilledPageCounter, pinnedPagesPeakCounter);
+    return List.of(rotationCounter, spillBatchCounter, spilledPageCounter, pinnedPagesPeakCounter);
   }
 
   @Override
@@ -106,7 +115,7 @@ public final class IntentLogEpochProbe implements WorkProbe {
     if (open) {
       throw new IllegalStateException("the intent-log probe is already open");
     }
-    epochs.reset();
+    rotations.reset();
     spillBatches.reset();
     spilledPages.reset();
     pinnedPagesPeak.set(0);
@@ -128,8 +137,8 @@ public final class IntentLogEpochProbe implements WorkProbe {
   private void observe(final NodeStorageEngineWriter writer, final String site) {
     // Only sites inside a running epoch are sampled: the close and rollback sites fire after the
     // intent log has been closed, where getLog() is unusable on purpose.
-    if (EPOCH_SITE.equals(site)) {
-      epochs.increment();
+    if (ROTATION_SITE.equals(site)) {
+      rotations.increment();
       final int pinned = writer.getLog().pinnedSize();
       pinnedPagesPeak.accumulateAndGet(pinned, Math::max);
     } else if (BEFORE_PUBLISH_SITE.equals(site)) {

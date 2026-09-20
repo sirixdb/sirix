@@ -113,9 +113,10 @@ Nothing in this package counts anything. Each `WorkCounter` reads a figure the e
 maintains, so a budget quotes the same numbers an investigation would:
 
 - `EngineWorkCounters`: HOT leaf loads and fragments walked, coalesced read runs / span bytes /
-  fallbacks / singletons, column-only chunk reads, projection payload materialization
-  (`lazyLoads`, `chunkMaterializations`, `eagerFallbacks`), frame-slot allocations and releases,
-  intent-log promotions.
+  fallbacks / singletons, projection payload materialization (`lazyLoads`,
+  `chunkMaterializations`, `eagerFallbacks`), intent-log promotions. Only what a budget captures is
+  listed: a catalog entry nothing reads is one more thing to keep true, and a *gated* one nothing
+  asserts is worse than dead, because capturing it aborts the test wherever its gate is off.
 - `QueryWorkCounters` (`sirix-query`): the served-route counters, named as the benchmark runners
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of
@@ -123,7 +124,8 @@ maintains, so a budget quotes the same numbers an investigation would:
 - Probes, for work the engine exposes through a test seam instead of a counter. They live in the
   package that owns the seam and restore whatever they displace: `SortedViewReadProbe` (summary
   reads against data-leaf reads, the only way to tell a sorted view's two walks apart) and
-  `IntentLogEpochProbe` (epochs, spilled pages, peak pinned pages of a load).
+  `IntentLogEpochProbe` (async-flush rotations, spill batches, spilled pages, peak pinned pages of a
+  load; a rotation is not always a spilling epoch, so non-vacuity floors go on the spill batches).
 
 **Gated counters.** Counters on a hot path are compiled away behind a `static final` flag, so a test
 cannot switch one on for itself. The module's `test` block provides the property and the capture

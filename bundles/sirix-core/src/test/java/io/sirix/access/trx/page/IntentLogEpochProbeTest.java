@@ -90,7 +90,7 @@ final class IntentLogEpochProbeTest {
     probe.close();
 
     assertEquals(4, probe.counters().size());
-    assertEquals(0, probe.epochs().read());
+    assertEquals(0, probe.rotations().read());
     assertEquals(0, probe.spillBatches().read());
     assertEquals(0, probe.spilledPages().read());
     assertEquals(0, probe.pinnedPagesPeak().read());

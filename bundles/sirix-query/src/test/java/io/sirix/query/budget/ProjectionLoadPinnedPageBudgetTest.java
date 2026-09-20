@@ -35,11 +35,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  *
  * <p>
  * A projection declared at load time writes its HOT trie pages inside the load transaction. They
- * cannot be flushed like record pages, so each epoch moves them into the intent log's pinned
- * region, where every one holds an off-heap frame, and the only way out before the final commit is
- * the pre-commit spill. While that spill runs, the region holds a few dozen pages; when it does
- * not, the region grows by one page per filled leaf for as long as the load lasts, and a large load
- * exhausts the arena and dies.
+ * cannot be flushed like record pages, so each full intent-log epoch moves them into the log's
+ * pinned region, where every one holds an off-heap frame, and the only way out before the final
+ * commit is the pre-commit spill. While that spill runs, the region holds a few dozen pages; when it
+ * does not, the region grows by one page per filled leaf for as long as the load lasts, and a large
+ * load exhausts the arena and dies.
  *
  * <p>
  * Nothing about a small load's <em>result</em> changes either way, which is why a suite that checks
@@ -64,7 +64,7 @@ final class ProjectionLoadPinnedPageBudgetTest {
 
   private static final String RESOURCE = "events.jn";
 
-  /** Enough rows for some sixty epochs: a bound over a handful of epochs would prove nothing. */
+  /** Enough rows for some sixty spill batches: a bound over a handful would prove nothing. */
   private static final int RECORDS = 200_000;
 
   @TempDir
@@ -85,15 +85,18 @@ final class ProjectionLoadPinnedPageBudgetTest {
     final WorkReport load =
         WorkCapture.of(EngineWorkCounters.INTENT_LOG).with(intentLog).run(() -> bulkLoad(storageType));
 
-    load.assertAtLeast(intentLog.epochs(), 30,
-        "the fixture no longer rotates enough intent-log epochs for a bound on the pinned region to mean anything; "
-            + "raise RECORDS rather than the bound");
     // Zero here is the whole defect: a backend whose writer is asked the wrong capability question
     // refuses every spill at its gate, silently, and the load only fails once it is large enough.
+    // Asserted before the non-vacuity floor below, so a broken gate names the defect, not the fixture.
     load.assertAtLeast(intentLog.spilledPages(), 1,
         "the pre-commit spill never drained a pinned trie page on " + storageType + ", so a projection load holds "
             + "every HOT leaf it writes until the final commit (the 100M load died of exactly this on "
             + "MEMORY_MAPPED, where the spill was gated on reclaimable instead of uncommitted writes)");
+    // Spill batches, not rotations: a batch is published only inside a full intent-log epoch whose
+    // spill ran, where a side-pages-only rotation reaches the probe's site having spilled nothing.
+    load.assertAtLeast(intentLog.spillBatches(), 30,
+        "the fixture no longer drives enough spilling intent-log epochs for a bound on the pinned region to mean "
+            + "anything (60 measured); raise RECORDS rather than the bound");
     // The floor proves pages were pinned at all, so the ceiling is not satisfied by an idle log.
     load.assertBetween(intentLog.pinnedPagesPeak(), 1, 160,
         "the intent log's pinned region grows with the load instead of staying bounded: measured 62 with the "

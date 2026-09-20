@@ -355,8 +355,7 @@ final class ProjectionQueryWorkBudgetTest {
   private static WorkCapture routesAndReads() {
     return WorkCapture.of(QueryWorkCounters.ROUTES)
                       .and(EngineWorkCounters.CHUNKED_BODIES)
-                      .and(EngineWorkCounters.HOT_LEAVES)
-                      .and(EngineWorkCounters.FRAME_SLOTS);
+                      .and(EngineWorkCounters.HOT_LEAVES);
   }
 
   /** Answers {@code query} cache-cold through a bound executor, capturing the work it takes. */

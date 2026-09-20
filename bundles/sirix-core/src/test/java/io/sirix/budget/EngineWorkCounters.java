@@ -3,11 +3,7 @@
  */
 package io.sirix.budget;
 
-import io.sirix.cache.Allocators;
-import io.sirix.cache.FrameSlotAllocator;
-import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.io.AbstractReader;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.settings.VersioningType;
@@ -77,16 +73,6 @@ public final class EngineWorkCounters {
   public static final List<WorkCounter> BATCHED_READS =
       List.of(READ_RUNS, READ_RUN_SPAN_BYTES, READ_RUN_FALLBACKS, READ_SINGLETONS);
 
-  // ===== Column-only chunk reads ============================================
-
-  public static final WorkCounter REGION_CHUNK_HITS = WorkCounter.alwaysOn("read.regionChunkHits",
-      "one column-only page answered from a bounded chunk read", AbstractReader::regionChunkHits);
-
-  public static final WorkCounter REGION_CHUNK_FALLBACKS = WorkCounter.alwaysOn("read.regionChunkFallbacks",
-      "one column-only read that declined and read the whole page image", AbstractReader::regionChunkFallbacks);
-
-  public static final List<WorkCounter> REGION_CHUNKS = List.of(REGION_CHUNK_HITS, REGION_CHUNK_FALLBACKS);
-
   // ===== Projection payload materialization =================================
 
   /**
@@ -109,23 +95,6 @@ public final class EngineWorkCounters {
   /** The benchmark runner's {@code # chunked:} line. */
   public static final List<WorkCounter> CHUNKED_BODIES = List.of(LAZY_LOADS, CHUNK_MATERIALIZATIONS, EAGER_FALLBACKS);
 
-  // ===== Off-heap frame slots ===============================================
-
-  /**
-   * Frame slots acquired, over all size classes. How they split between recycled and fresh slots
-   * depends on scheduling; only the total is a stable figure.
-   */
-  public static final WorkCounter FRAME_ALLOCATIONS =
-      WorkCounter.gated("frames.allocations", "one off-heap frame slot acquired, recycled or fresh",
-          () -> sumOverFrameClasses(true), "-Dsirix.allocator=frame", EngineWorkCounters::frameSlotAllocatorInUse);
-
-  public static final WorkCounter FRAME_RELEASES =
-      WorkCounter.gated("frames.releases", "one off-heap frame slot returned", () -> sumOverFrameClasses(false),
-          "-Dsirix.allocator=frame", EngineWorkCounters::frameSlotAllocatorInUse);
-
-  /** Frame-slot traffic; live only with the default frame-slot allocator. */
-  public static final List<WorkCounter> FRAME_SLOTS = List.of(FRAME_ALLOCATIONS, FRAME_RELEASES);
-
   // ===== Transaction intent log =============================================
 
   /**
@@ -141,26 +110,4 @@ public final class EngineWorkCounters {
 
   public static final List<WorkCounter> INTENT_LOG =
       List.of(KVL_PAGES_PINNED_BY_PROMOTION, KVL_PAGES_RETRIED_NEXT_EPOCH);
-
-  private static boolean frameSlotAllocatorInUse() {
-    return Allocators.getInstance() instanceof FrameSlotAllocator;
-  }
-
-  /**
-   * An allocator that was never initialized, or was freed, has handed out nothing. Freeing restarts
-   * the counts, which a capture spanning it reports as a counter running backwards.
-   */
-  private static long sumOverFrameClasses(final boolean allocations) {
-    final MemorySegmentAllocator allocator = Allocators.getInstance();
-    if (!(allocator instanceof final FrameSlotAllocator frames) || !frames.isInitialized()) {
-      return 0;
-    }
-    long sum = 0;
-    for (int sizeClass = 0; sizeClass < FrameSlotAllocator.SIZE_CLASSES.length; sizeClass++) {
-      sum += allocations
-          ? frames.allocateCount(sizeClass)
-          : frames.releaseCount(sizeClass);
-    }
-    return sum;
-  }
 }

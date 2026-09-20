@@ -7,6 +7,7 @@ import io.sirix.budget.WorkCounter;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * The vectorized executor's served-route counters, as {@link WorkCounter}s a budget test can
@@ -84,8 +85,12 @@ public final class QueryWorkCounters {
   public static final List<WorkCounter> SERVED = List.of(PREDICATE_COUNTS, GROUP_AGGREGATES, NUMERIC_GROUP_BYS,
       GROUP_SLICED, GROUP_SUMMARY, GROUP_DENSE, SORTED_SCANS, SORTED_GROUP_BYS, PREDICATE_SCANS, VALUE_EMISSIONS);
 
-  /** The served routes plus the two ways a group-aggregate leaves them. */
-  public static final List<WorkCounter> ROUTES = List.of(PREDICATE_COUNTS, GROUP_AGGREGATES, NUMERIC_GROUP_BYS,
-      GROUP_SLICED, GROUP_SUMMARY, GROUP_DENSE, SORTED_SCANS, SORTED_GROUP_BYS, PREDICATE_SCANS, VALUE_EMISSIONS,
-      GROUP_AGGREGATES_DECLINED, GROUP_AGGREGATES_FAILED);
+  /**
+   * The served routes plus the two ways a group-aggregate leaves them. Built from {@link #SERVED}
+   * rather than restating it: a route named in one list and forgotten in the other would drop out of
+   * every capture the budget tests take, which is the quiet loss of coverage this package exists to
+   * prevent.
+   */
+  public static final List<WorkCounter> ROUTES =
+      Stream.concat(SERVED.stream(), Stream.of(GROUP_AGGREGATES_DECLINED, GROUP_AGGREGATES_FAILED)).toList();
 }
