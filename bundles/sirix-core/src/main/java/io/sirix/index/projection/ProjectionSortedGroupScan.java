@@ -659,19 +659,7 @@ public final class ProjectionSortedGroupScan {
     private void fill() {
       size = 0;
       position = 0;
-      while (size < leafIds.length && cursor.id() != 0) {
-        final int at = size;
-        leafIds[size++] = cursor.id();
-        // The leaf's own first key decides the lower end; that another leaf of the range follows it
-        // decides the upper end, because that leaf's first key is below the range's upper bound.
-        // A leaf meeting either end answers false on purpose: the rows it holds outside the range
-        // may be the ones without a value, so it proves nothing about the range itself.
-        final boolean insideLower = entirelyInside == null || startsWithPrefix();
-        final boolean more = cursor.advance();
-        if (entirelyInside != null) {
-          entirelyInside[at] = insideLower && (upperExclusive == null || more);
-        }
-      }
+      collectWindow();
       if (size == 0) {
         throw new IllegalStateException("sorted summary window is exhausted");
       }
@@ -712,6 +700,26 @@ public final class ProjectionSortedGroupScan {
       }
       if (failure instanceof Error error) {
         throw error;
+      }
+    }
+
+    /**
+     * Take the next window of leaf ids from the cursor, and, when the caller asked for the per-leaf
+     * range test, record for each of them whether it lies entirely inside the queried range.
+     */
+    private void collectWindow() {
+      while (size < leafIds.length && cursor.id() != 0) {
+        final int at = size;
+        leafIds[size++] = cursor.id();
+        // The leaf's own first key decides the lower end; that another leaf of the range follows it
+        // decides the upper end, because that leaf's first key is below the range's upper bound.
+        // A leaf meeting either end answers false on purpose: the rows it holds outside the range
+        // may be the ones without a value, so it proves nothing about the range itself.
+        final boolean insideLower = entirelyInside == null || startsWithPrefix();
+        final boolean more = cursor.advance();
+        if (entirelyInside != null) {
+          entirelyInside[at] = insideLower && (upperExclusive == null || more);
+        }
       }
     }
 
