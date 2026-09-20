@@ -153,11 +153,21 @@ All notable changes to SirixDB are documented in this file.
   safely below the node's most significant bit can sit above the half's. Only the half the new key
   joins was checked and lies on the key's route, so the other went out unseen, committed, and stopped
   the load three publications later with `HOT published structural path is malformed`, when an insert
-  was first routed through it. A full-node decomposition, and the integrate cascade behind it, are now
-  declined when a half would break the condition, and likewise when the fold bit is the node's own
-  most significant bit — there the insertion moves the far half's own bit and the node's children
-  cannot decide it. Results, on-disk format, revision visibility, write granularity and the validation
-  itself are unchanged. Specified in `docs/HOT_INDEX_SPECIFICATION.md` §4.5.2–§4.5.4 and §4.5.6.
+  was first routed through it. Both branch-path decompositions of a full node, and the integrate
+  cascade behind them, are now declined when a half would break the condition, and likewise when the
+  fold bit is the node's own most significant bit — there the insertion moves the far half's own bit
+  and the node's children cannot decide it. What is *not* covered: the merge path's own capacity
+  cascade above the overflowing leaf's immediate parent. There a full ancestor whose mask does not
+  hold the cascaded split bit still takes the same unguarded decomposition, and an ancestor whose mask
+  does hold it, with that bit's straddle partial taken or not landing beside the slot, now refuses the
+  fold with `IllegalArgumentException` in mid-cascade — nothing is published, nothing is touched, the
+  transaction stays usable, and the insert fails, where the same input previously published a
+  mis-ordered node and failed in the published-splice validation instead. The 100,000-record
+  valid-time correction stream that the regression test replays (25 publications, 1,080,574
+  index-writer operations) reaches neither shape, and no test constructs either, so neither has test
+  coverage; covering the merge cascade is a separate task. Results, on-disk format, revision
+  visibility, write granularity and the validation itself are unchanged. Specified in
+  `docs/HOT_INDEX_SPECIFICATION.md` §4.5.2–§4.5.4 and §4.5.6.
 
 ## [1.0.0-beta7] — 2026-07-15
 

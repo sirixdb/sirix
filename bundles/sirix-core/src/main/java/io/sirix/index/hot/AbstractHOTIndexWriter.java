@@ -4690,6 +4690,13 @@ public abstract class AbstractHOTIndexWriter<K> {
         node.getMostSignificantBitIndex())) {
       return false;
     }
+    // The half K does not join is a plain compressHalf of the node's own children, published below
+    // and off K's route: exactly what splitKeepsTrieCondition exists to refuse. Decided before K's
+    // leaf is allocated, so the fallback never orphans it.
+    if (!splitKeepsTrieCondition(node)) {
+      FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.incrementAndGet();
+      return false;
+    }
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
     putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
     boolean published = false;
