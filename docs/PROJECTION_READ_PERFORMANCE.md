@@ -164,9 +164,16 @@ configured handlers, malformed payloads, and the diagnostic off switch. Mixed HO
 tests also overwrite both span and final-body buffers before reading previously returned pages.
 `ConstantBucketGroupCountTest`, `PackedDictionaryPredicateTest`, and `PackedIntegerWordDecodeTest`
 use independent result or encoding oracles. `ProjectionSortedGroupSummaryTest` exercises revision
-history, edits, asynchronous flushes, and worker cleanup. `ProjectionBlobBatchReadTest` checks
-ordered sparse and duplicate requests, inline/overflow transitions, writer-local state, historical
-revisions, and per-payload integrity while reusing traversal workspace.
+history, edits, asynchronous flushes, and worker cleanup. `ProjectionSortedMissingAggregateTest`
+checks the four range shapes over an optional aggregate field — a range fully containing a leaf
+without a summary declines without the second walk, the two meeting such a leaf at an end still
+walk, one of them still serving, and a range whose leaves all have summaries is served from them
+alone — every shape answering what it answered with the count absent, plus a version-3 header
+parsing with the count unknown, per-commit insert/update/delete maintenance of the count, a
+spilled build, the summary backfill, and the leaf recount staying a build-time cost no maintenance
+write pays. `ProjectionBlobBatchReadTest` checks ordered sparse and duplicate requests,
+inline/overflow transitions, writer-local state, historical revisions, and per-payload integrity
+while reusing traversal workspace.
 `LongLaneCompositeCountTest` checks 1–64 numeric/temporal keys, conditional global IDs, missing
 values, partial bitmap words, predicate trees, forced hash collisions, partition merges, first-seen
 ordinals, discard handles, metadata errors and checked-transform fallbacks against row oracles.
@@ -233,9 +240,55 @@ found them, which on a large view can mean reading most of it. Results stay exac
 declaration never rejects a valid document; a full or unwritable disk fails the load as any write
 does.
 
-When the aggregated field is optional, a query over a prefix range holding rows without that field
-may walk the range up to twice before it falls back to the generic route: once through the leaf
-summaries and once key by key. Results stay exact; only such queries pay the extra walk.
+A row whose aggregated last key field has no value can be ordered, but no route can prove its
+group's extrema: its leaf gets no group summary, and the full-key scan declines the group it falls
+in. Such a query used to walk the queried range up to twice before falling back to the generic
+route — once through the leaf summaries, to the first leaf whose summary is missing, and once key
+by key, to the first row without a value — which could make the view slower than no view at all.
+
+The second walk is now skipped whenever the first one has already proved it futile. The summaries
+route still runs for every range. When it stops at a leaf that lies entirely inside the queried
+range, that leaf holds a row of the range with no value, so the full-key walk would seek the
+prefix only to reach the same row and decline: the route declines there and then, without reading
+a single data leaf. When the leaf without a summary instead meets the range at one of its two
+ends, the offending row may be one of that leaf's rows outside the range, and the full-key walk
+runs exactly as it did before — it may well serve the range, and nothing that used to be served
+stops being served. A leaf's position is read from the fence keys the directory already holds, so
+the test costs no read of its own.
+
+One case therefore still pays both walks: a range whose only row without a value sits in a leaf
+straddling one of its two ends, so the summaries walk covers the whole range without proving
+anything and the full-key walk then reaches that row and declines. It is left alone on purpose.
+Removing it would mean declining on the view-wide count up front, which would also decline every
+range whose own rows all carry a value — including the ranges that leaf serves from its other end
+— and that loses more than the walk it saves. As it stands the case costs exactly what it cost
+before the count existed, never more, and the full-key walk can still serve such a range outright.
+
+The directory header counts the view's rows without a value, beside the rows under the reserved
+unencodable key. The count is what makes the per-leaf proof sound, and it is consulted only where
+it is exactly right: while it is zero, a leaf without a summary can only mean a revision whose
+summaries were never built, so no per-leaf test runs at all and every route keeps the decisions it
+had; while it is unknown, a leaf without a summary may mean either, so the full-key walk still
+runs. Only a nonzero count — a view that demonstrably holds such rows — turns a missing summary
+inside the range into a proof. A wrong count could therefore cost a walk or spare one; it can
+never change an answer.
+
+A reserved unencodable key is not a well-formed row key, so it is never also counted as a row
+without an aggregate value; the two header counts never overlap.
+
+A view written before the count existed carries a version-3 header, which has no count. It parses
+unchanged, reports the count as unknown and keeps exactly the behaviour it had — both walks
+included — until a rebuild or a `ProjectionSortedGroupScan.buildLeafSummaries` backfill publishes
+an exact count in a version-4 header. A view whose last key field is not an ordered long
+aggregates nothing and can never consult the count, so it keeps none either: its header stays at
+version 3 rather than recording a zero a later release could misread. Maintenance never invents a
+count: a commit sees only the rows it touches, never the rest of the view. Per commit, each
+inserted or removed key is classified from its own bytes, so the count follows inserts, updates
+and deletes without reading anything extra; the initial build, including its spilling external
+sort and merge, and the backfill walk a leaf's keys for the count only when that leaf gets no
+summary, since a summarized leaf provably holds none. A view that aggregates nothing summarizes no
+leaf at all and no route of it ever reads the total, so neither pass walks a single leaf's keys
+for one.
 
 Memory and maintenance cost:
 

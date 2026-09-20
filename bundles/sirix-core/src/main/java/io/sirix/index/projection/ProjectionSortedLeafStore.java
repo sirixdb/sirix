@@ -23,6 +23,12 @@ final class ProjectionSortedLeafStore {
    */
   private static volatile @Nullable IntConsumer storageReadObserverForTesting;
 
+  /**
+   * Test observation of the sorted data leaves a query's reader fetches, which is how the full-key
+   * walk is told apart from the summaries walk; null in production.
+   */
+  private static volatile @Nullable IntConsumer queryLeafReadObserverForTesting;
+
   private ProjectionSortedLeafStore() {}
 
   static void setWriteObserverForTesting(final @Nullable IntConsumer observer) {
@@ -33,6 +39,10 @@ final class ProjectionSortedLeafStore {
     storageReadObserverForTesting = observer;
   }
 
+  static void setQueryLeafReadObserverForTesting(final @Nullable IntConsumer observer) {
+    queryLeafReadObserverForTesting = observer;
+  }
+
   /** Write one leaf, its group summary and its bound in the owning transaction. */
   static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
       final ProjectionSortKeyCodec.Layout layout) {
@@ -41,16 +51,40 @@ final class ProjectionSortedLeafStore {
     bounds.flush();
   }
 
-  /** Maintenance form: the caller publishes the coalesced bound chunks once per pass. */
+  /**
+   * Maintenance form: the caller publishes the coalesced bound chunks once per pass.
+   *
+   * <p>
+   * No count is derived here. A maintenance pass keeps the header's missing-aggregate total from the
+   * keys it inserts and removes, so a rewritten leaf's remaining rows are already accounted for;
+   * counting them again would both cost a second walk of the leaf and double count.
+   * </p>
+   */
   static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
       final ProjectionSortKeyCodec.Layout layout, final ProjectionSortedLeafBounds.Updater bounds) {
-    bounds.set(leafId, writeLeafAndSummary(storage, leafId, leaf, layout));
+    final ProjectionSortedLeaf summary = writeLeafAndSummary(storage, leafId, leaf, layout);
+    bounds.set(leafId, summary);
   }
 
-  /** Initial-build form: bounds are appended in consecutive leaf-id order and published by chunk. */
-  static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
+  /**
+   * Initial-build form: bounds are appended in consecutive leaf-id order and published by chunk.
+   *
+   * <p>
+   * The build visits every leaf exactly once, so summing this is the view's only exact derivation of
+   * the header count and the only write that pays for it. A summarized leaf provably holds no row
+   * without the aggregated value, and a layout that aggregates nothing never consults the count, so
+   * neither walks the leaf's keys a second time.
+   * </p>
+   *
+   * @return the leaf's rows whose aggregated last key field has no value
+   */
+  static int write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
       final ProjectionSortKeyCodec.Layout layout, final ProjectionSortedLeafBounds.Builder initialBounds) {
-    initialBounds.append(leafId, writeLeafAndSummary(storage, leafId, leaf, layout));
+    final ProjectionSortedLeaf summary = writeLeafAndSummary(storage, leafId, leaf, layout);
+    initialBounds.append(leafId, summary);
+    return summary != null || !layout.groupsByLastLong()
+        ? 0
+        : ProjectionSortedGroupSummary.countMissingLastField(leaf, layout);
   }
 
   private static @Nullable ProjectionSortedLeaf writeLeafAndSummary(final ProjectionIndexHOTStorage storage,
@@ -76,6 +110,10 @@ final class ProjectionSortedLeafStore {
       final int leafId) {
     if (reader == null) {
       throw new NullPointerException("storage reader is required");
+    }
+    final IntConsumer observer = queryLeafReadObserverForTesting;
+    if (observer != null) {
+      observer.accept(leafId);
     }
     final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot(leafId));
     return bytes == null
