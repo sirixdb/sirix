@@ -58,9 +58,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 final class ProjectionSortedMissingAggregateTest {
 
-  private static final ProjectionSortKeyCodec.Layout LAYOUT =
-      new ProjectionSortKeyCodec.Layout(new byte[] {ProjectionSortKeyCodec.FIELD_STRING,
-          ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_LONG});
+  private static final ProjectionSortKeyCodec.Layout LAYOUT = new ProjectionSortKeyCodec.Layout(new byte[] {
+      ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_LONG});
 
   /** Rows per data leaf, small enough that any walk of a range reads many leaves. */
   private static final int ROWS_PER_LEAF = 2;
@@ -104,8 +103,8 @@ final class ProjectionSortedMissingAggregateTest {
    * that leaf holds a row of the range with no value. The summaries walk proves the full-key walk
    * would only reach the same row, and declines without it: no data leaf is read at all.</li>
    * <li>{@code BOUNDARY}: the only leaf of the range without a summary meets it at one end, so the
-   * offending row may be outside the range. The full-key walk still runs, exactly as before, and
-   * here it serves the range — the very answer a view-wide decline would have thrown away.</li>
+   * offending row may be outside the range. The full-key walk still runs, exactly as before, and here
+   * it serves the range — the very answer a view-wide decline would have thrown away.</li>
    * <li>{@code CLEAN}: every leaf of the range has a summary, so the summaries route serves it
    * untouched, again without reading a data leaf.</li>
    * </ul>
@@ -123,20 +122,17 @@ final class ProjectionSortedMissingAggregateTest {
         assertTrue(inside.summaries() > 0, "the proof comes from the summaries walk");
 
         // BOUNDARY, offending row outside the range: the walk still runs and serves it.
-        final Reads served = measure(reader,
-            () -> assertEquals(expected(rows, BOUNDARY_SERVED_PREFIX, 4, order, false),
-                topK(reader, BOUNDARY_SERVED_PREFIX, order, false)));
+        final Reads served = measure(reader, () -> assertEquals(expected(rows, BOUNDARY_SERVED_PREFIX, 4, order, false),
+            topK(reader, BOUNDARY_SERVED_PREFIX, order, false)));
         assertTrue(served.leaves() > 0, "a boundary leaf proves nothing, so the walk must still run");
 
         // BOUNDARY, offending row inside the range: the walk still runs and declines, as before.
-        final Reads declined =
-            measure(reader, () -> assertNull(topK(reader, BOUNDARY_DECLINED_PREFIX, order, false)));
+        final Reads declined = measure(reader, () -> assertNull(topK(reader, BOUNDARY_DECLINED_PREFIX, order, false)));
         assertTrue(declined.leaves() > 0, "a boundary leaf proves nothing here either");
 
         // CLEAN: served from the summaries alone.
-        final Reads clean = measure(reader,
-            () -> assertEquals(expected(rows, SHAPES_CLEAN_PREFIX, 4, order, false),
-                topK(reader, SHAPES_CLEAN_PREFIX, order, false)));
+        final Reads clean = measure(reader, () -> assertEquals(expected(rows, SHAPES_CLEAN_PREFIX, 4, order, false),
+            topK(reader, SHAPES_CLEAN_PREFIX, order, false)));
         assertEquals(0, clean.leaves(), "a range whose leaves all have summaries needs no data leaf");
       }
 
@@ -145,8 +141,7 @@ final class ProjectionSortedMissingAggregateTest {
       downgradeHeader(session);
       try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
         final StorageEngineReader uncounted = trx.getStorageEngineReader();
-        assertEquals(ProjectionSortedDirectory.MISSING_AGGREGATE_ROWS_UNKNOWN,
-            missingAggregateRowsOf(uncounted));
+        assertEquals(ProjectionSortedDirectory.MISSING_AGGREGATE_ROWS_UNKNOWN, missingAggregateRowsOf(uncounted));
         assertEquals(counted, everyRoute(uncounted), "the count may only save reads, never change an answer");
       }
     });
@@ -456,15 +451,14 @@ final class ProjectionSortedMissingAggregateTest {
 
   /**
    * A view whose last key field is not an aggregated long never consults the count, so it never pays
-   * for one: neither the build nor the summary backfill walks a leaf's keys to derive it, even
-   * though no leaf of such a view can be summarized. The header keeps no count at all rather than a
-   * zero a later release could misread.
+   * for one: neither the build nor the summary backfill walks a leaf's keys to derive it, even though
+   * no leaf of such a view can be summarized. The header keeps no count at all rather than a zero a
+   * later release could misread.
    */
   @Test
   void aViewThatAggregatesNothingKeepsNoCount() {
-    final ProjectionSortKeyCodec.Layout strings =
-        new ProjectionSortKeyCodec.Layout(new byte[] {ProjectionSortKeyCodec.FIELD_STRING,
-            ProjectionSortKeyCodec.FIELD_STRING});
+    final ProjectionSortKeyCodec.Layout strings = new ProjectionSortKeyCodec.Layout(
+        new byte[] {ProjectionSortKeyCodec.FIELD_STRING, ProjectionSortKeyCodec.FIELD_STRING});
     assertFalse(strings.groupsByLastLong());
     final List<byte[]> keys = new ArrayList<>();
     for (int row = 0; row < 8; row++) {
@@ -573,9 +567,9 @@ final class ProjectionSortedMissingAggregateTest {
    * {@code k0} holds an odd number of rows, so the leaf that carries its last row also carries the
    * first row of {@code k1} — and that {@code k1} row is the one without a value. The leaf therefore
    * has no summary, while meeting {@code k0}'s range at its upper end and {@code k1}'s at its lower
-   * end. {@code k1} holds no other such row, so its walk still runs and, since the offending row is
-   * a {@code k1} row, declines; {@code k0}'s walk runs and serves, because the offending row is not
-   * in its range. {@code k2} has one row without a value well inside it, and {@code k3} has none.
+   * end. {@code k1} holds no other such row, so its walk still runs and, since the offending row is a
+   * {@code k1} row, declines; {@code k0}'s walk runs and serves, because the offending row is not in
+   * its range. {@code k2} has one row without a value well inside it, and {@code k3} has none.
    * </p>
    */
   private static List<Row> shapesFixture() {
@@ -589,11 +583,11 @@ final class ProjectionSortedMissingAggregateTest {
 
   /**
    * {@code groups} groups of {@code rowsPerGroup} rows. The first row of {@code absentGroup}, if any,
-   * carries no value; an absent value sorts before every present one, so it is that group's first
-   * row in key order. Minima, maxima and spans stay distinct across groups, so no fold ties.
+   * carries no value; an absent value sorts before every present one, so it is that group's first row
+   * in key order. Minima, maxima and spans stay distinct across groups, so no fold ties.
    */
-  private static void appendKind(final List<Row> rows, final String kind, final int groups,
-      final int rowsPerGroup, final int absentGroup) {
+  private static void appendKind(final List<Row> rows, final String kind, final int groups, final int rowsPerGroup,
+      final int absentGroup) {
     for (int group = 0; group < groups; group++) {
       for (int row = 0; row < rowsPerGroup; row++) {
         rows.add(new Row(kind, "g" + group, group == absentGroup && row == 0
@@ -676,7 +670,9 @@ final class ProjectionSortedMissingAggregateTest {
     builder.finish();
   }
 
-  /** Build the view, commit it, then hand a read-only reader of that revision to {@code assertions}. */
+  /**
+   * Build the view, commit it, then hand a read-only reader of that revision to {@code assertions}.
+   */
   private void withView(final List<Row> rows, final String name, final ViewAssertions assertions) {
     final Path databasePath = temporaryDirectory.resolve(name);
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
@@ -736,7 +732,9 @@ final class ProjectionSortedMissingAggregateTest {
     }
   }
 
-  /** The range {@link #fixture(boolean)} puts its rows without a value in, and the edits above too. */
+  /**
+   * The range {@link #fixture(boolean)} puts its rows without a value in, and the edits above too.
+   */
   private static @Nullable List<Group> topKOfDirtyRange(final JsonResourceSession session) {
     try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
       return topK(trx.getStorageEngineReader(), DIRTY_PREFIX, Order.MIN_ASC, false);
@@ -763,8 +761,7 @@ final class ProjectionSortedMissingAggregateTest {
   }
 
   /** Apply {@code edits} in one transaction; returns the revision they were committed as. */
-  private static int edit(final JsonResourceSession session,
-      final Consumer<ProjectionSortedDirectory.Editor> edits) {
+  private static int edit(final JsonResourceSession session, final Consumer<ProjectionSortedDirectory.Editor> edits) {
     try (JsonNodeTrx writer = session.beginNodeTrx()) {
       edits.accept(
           new ProjectionSortedDirectory.Editor(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0)));

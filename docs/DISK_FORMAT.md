@@ -563,9 +563,8 @@ without `projectionSort` has no sorted view.
 
 Projection indexes built by this code cannot be opened by the previous release. It rejects metadata
 that names a value-summary capability on a dictionary string column, version-1 set-summary chunks,
-and version-4 sorted directory headers, as corrupt: queries decline the index and maintenance
-fails the owning transaction. It also declines PIXM version 1 as unsupported. It ignores the
-remaining slots and the `projectionSort` element, so its maintenance would leave them stale even
-in an index it does not reject. When
-downgrading, drop the projection index and rebuild it with the previous release; there is no
-in-place conversion.
+and version-4 sorted directory headers, as corrupt: queries decline the index and maintenance fails
+the owning transaction. It also declines PIXM version 1 as unsupported. It ignores the remaining
+slots and the `projectionSort` element, so its maintenance would leave them stale even in an index
+it does not reject. When downgrading, drop the projection index and rebuild it with the previous
+release; there is no in-place conversion.

@@ -252,9 +252,11 @@ public final class ProjectionSortedGroupScan {
    * Backfill this optional acceleration in the caller's transaction; commit remains caller-owned.
    *
    * <p>
-   * Every live leaf is visited, so the pass also publishes an exact count of the rows with no
-   * aggregate value — upgrading a view written before that count existed, which until then keeps
-   * attempting the routes those rows defeat.
+   * Every live leaf is visited, so for a view that aggregates its last key field the pass also
+   * publishes an exact count of the rows with no aggregate value — upgrading a view written before
+   * that count existed, which until then keeps attempting the routes those rows defeat. A view that
+   * aggregates nothing can never consult the count, so the pass neither walks a leaf's keys for one
+   * nor publishes one, and its header keeps the version it had.
    * </p>
    */
   public static int buildLeafSummaries(final StorageEngineWriter writer, final int indexNumber) {
@@ -501,8 +503,7 @@ public final class ProjectionSortedGroupScan {
   static @Nullable List<Group> topKFromSummaries(final StorageEngineReader reader, final int indexNumber,
       final ProjectionSortedDirectory.Accessor directory, final byte[] prefix, final byte @Nullable [] upper,
       final int limit, final Order order, final long spanDivisor, final boolean minOnly,
-      final @Nullable ParallelWalkReaders workerReaders, final int workers,
-      final @Nullable SummaryDecline decline) {
+      final @Nullable ParallelWalkReaders workerReaders, final int workers, final @Nullable SummaryDecline decline) {
     final ProjectionSortKeyCodec.Layout layout = directory.layout();
     final int capacity = limit + 1;
     final byte[][] winners = new byte[capacity][];
@@ -519,7 +520,8 @@ public final class ProjectionSortedGroupScan {
     final SummaryWindow summaries = new SummaryWindow(reader, indexNumber, directory.leaves(prefix, upper),
         workerReaders, workers, decline == null
             ? null
-            : prefix, upper);
+            : prefix,
+        upper);
     while (summaries.hasNext()) {
       final ProjectionSortedLeaf summary = summaries.next();
       if (summary == null) {
@@ -646,8 +648,8 @@ public final class ProjectionSortedGroupScan {
      * happen to hold no row outside it.
      *
      * <p>
-     * Erring that way costs only the walk such a range always made, and that walk can still serve
-     * the range — the answer a decline taken from the view-wide count alone would have thrown away.
+     * Erring that way costs only the walk such a range always made, and that walk can still serve the
+     * range — the answer a decline taken from the view-wide count alone would have thrown away.
      * </p>
      */
     boolean lastLeafWasEntirelyInsideRange() {

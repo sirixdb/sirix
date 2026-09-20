@@ -20,8 +20,8 @@ final class ProjectionSortedGroupSummary {
   static final int PAYLOAD_BYTES = 2 * Long.BYTES;
 
   /**
-   * Test observation of the group summaries a query's reader fetches, which is how the summaries
-   * walk is told apart from the full-key walk; null in production.
+   * Test observation of the group summaries a query's reader fetches, which is how the summaries walk
+   * is told apart from the full-key walk; null in production.
    */
   private static volatile @Nullable IntConsumer readObserverForTesting;
 

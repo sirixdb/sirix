@@ -278,8 +278,10 @@ version 3 rather than recording a zero a later release could misread. Maintenanc
 count: a commit sees only the rows it touches, never the rest of the view. Per commit, each
 inserted or removed key is classified from its own bytes, so the count follows inserts, updates
 and deletes without reading anything extra; the initial build, including its spilling external
-sort and merge, counts a leaf's rows only when that leaf gets no summary, since a summarized leaf
-provably holds none.
+sort and merge, and the backfill walk a leaf's keys for the count only when that leaf gets no
+summary, since a summarized leaf provably holds none. A view that aggregates nothing summarizes no
+leaf at all and no route of it ever reads the total, so neither pass walks a single leaf's keys
+for one.
 
 Memory and maintenance cost:
 

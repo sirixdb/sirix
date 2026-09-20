@@ -27,7 +27,8 @@ import java.util.Objects;
  * version-3 header, written before the missing-aggregate count existed, still parses and reports
  * that count as {@link #MISSING_AGGREGATE_ROWS_UNKNOWN}; such a view keeps the behaviour it had
  * before the count was added and gains an exact one when it is rebuilt or its leaf summaries are
- * backfilled. A header carrying the count is written at version 4, which an earlier release rejects.
+ * backfilled. A header carrying the count is written at version 4, which an earlier release
+ * rejects.
  * </p>
  */
 final class ProjectionSortedDirectory {
@@ -40,12 +41,17 @@ final class ProjectionSortedDirectory {
   private static final byte[] EMPTY_PAYLOAD = new byte[0];
   private static final byte[][] NO_KEYS = new byte[0][];
   private static final int MAGIC = 0x31445350; // PSD1
-  /** Header carrying the missing-aggregate count; {@link #VERSION_WITHOUT_MISSING_AGGREGATE} lacks it. */
+  /**
+   * Header carrying the missing-aggregate count; {@link #VERSION_WITHOUT_MISSING_AGGREGATE} lacks it.
+   */
   private static final byte VERSION = 4;
   private static final byte VERSION_WITHOUT_MISSING_AGGREGATE = 3;
   private static final int FIXED_HEADER_BYTES = 39;
   private static final int FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE = 31;
-  /** Rows without a value in the aggregated last key field, for a view written before they were counted. */
+  /**
+   * Rows without a value in the aggregated last key field, for a view written before they were
+   * counted.
+   */
   static final long MISSING_AGGREGATE_ROWS_UNKNOWN = -1;
   private static final int MAX_HEIGHT = 8;
   /** First capacity of a range's leaf-id array; it doubles up to the caller's maximum. */
@@ -189,8 +195,8 @@ final class ProjectionSortedDirectory {
     }
 
     /**
-     * Rows whose aggregated last key field has no value, or {@link #MISSING_AGGREGATE_ROWS_UNKNOWN}
-     * for a view written before they were counted.
+     * Rows whose aggregated last key field has no value, or {@link #MISSING_AGGREGATE_ROWS_UNKNOWN} for
+     * a view written before they were counted.
      */
     long missingAggregateRows() {
       return missingAggregateRows;
@@ -639,7 +645,9 @@ final class ProjectionSortedDirectory {
     private int activeLeafCount;
     private int leafHighWater;
     private long unencodableRows;
-    /** {@link #MISSING_AGGREGATE_ROWS_UNKNOWN} for an uncounted view and for one aggregating nothing. */
+    /**
+     * {@link #MISSING_AGGREGATE_ROWS_UNKNOWN} for an uncounted view and for one aggregating nothing.
+     */
     private long missingAggregateRows;
 
     Editor(final ProjectionIndexHOTStorage storage) {
@@ -672,9 +680,9 @@ final class ProjectionSortedDirectory {
     }
 
     /**
-     * Publish an exact count recomputed from every live leaf, upgrading a view written before the
-     * count existed. The caller must have visited every leaf of the current directory; a count that
-     * disagrees with the data only costs or spares an accelerated route, never changes a result.
+     * Publish an exact count recomputed from every live leaf, upgrading a view written before the count
+     * existed. The caller must have visited every leaf of the current directory; a count that disagrees
+     * with the data only costs or spares an accelerated route, never changes a result.
      */
     void publishMissingAggregateRows(final long rows) {
       if (rows < 0) {
@@ -1246,9 +1254,11 @@ final class ProjectionSortedDirectory {
       }
       final Header header = new Header(height, count == 0
           ? 0
-          : levelIds[0], nextNodeId - 1, count, count, unencodableRows, countsMissingAggregates
+          : levelIds[0], nextNodeId - 1, count, count, unencodableRows,
+          countsMissingAggregates
               ? missingAggregateRows
-              : MISSING_AGGREGATE_ROWS_UNKNOWN, layout);
+              : MISSING_AGGREGATE_ROWS_UNKNOWN,
+          layout);
       bounds.finish();
       storage.putBlob(HEADER_SLOT, header.serialize());
       finished = true;
