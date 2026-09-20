@@ -455,8 +455,10 @@ final class ProjectionSortedMissingAggregateTest {
   }
 
   /**
-   * A view whose last key field is not an aggregated long never consults the count, so it is never
-   * paid for: the header keeps no count at all rather than a zero a later release could misread.
+   * A view whose last key field is not an aggregated long never consults the count, so it never pays
+   * for one: neither the build nor the summary backfill walks a leaf's keys to derive it, even
+   * though no leaf of such a view can be summarized. The header keeps no count at all rather than a
+   * zero a later release could misread.
    */
   @Test
   void aViewThatAggregatesNothingKeepsNoCount() {
@@ -464,37 +466,56 @@ final class ProjectionSortedMissingAggregateTest {
         new ProjectionSortKeyCodec.Layout(new byte[] {ProjectionSortKeyCodec.FIELD_STRING,
             ProjectionSortKeyCodec.FIELD_STRING});
     assertFalse(strings.groupsByLastLong());
+    final List<byte[]> keys = new ArrayList<>();
+    for (int row = 0; row < 8; row++) {
+      final ProjectionSortKeyCodec.Writer key = new ProjectionSortKeyCodec.Writer();
+      appendString(key, "g" + row);
+      if (row % 3 == 0) {
+        key.appendMissing();
+      } else {
+        appendString(key, "v" + row);
+      }
+      key.appendRecordKey(row + 1);
+      keys.add(key.copyKey());
+    }
+    keys.sort(Arrays::compareUnsigned);
+    final int leaves = (keys.size() + ROWS_PER_LEAF - 1) / ROWS_PER_LEAF;
     final Path databasePath = temporaryDirectory.resolve("aggregates-nothing");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
-        try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(
-              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), strings);
-          final List<byte[]> keys = new ArrayList<>();
-          for (int row = 0; row < 8; row++) {
-            final ProjectionSortKeyCodec.Writer key = new ProjectionSortKeyCodec.Writer();
-            appendString(key, "g" + row);
-            if (row % 3 == 0) {
-              key.appendMissing();
-            } else {
-              appendString(key, "v" + row);
+        assertEquals(0, recounts(() -> {
+          try (JsonNodeTrx writer = session.beginNodeTrx()) {
+            final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(
+                new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), strings);
+            for (int from = 0; from < keys.size(); from += ROWS_PER_LEAF) {
+              final byte[][] leafKeys =
+                  keys.subList(from, Math.min(keys.size(), from + ROWS_PER_LEAF)).toArray(byte[][]::new);
+              final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.encode(leafKeys, null, leafKeys.length);
+              assertNotNull(leaf);
+              builder.append(leaf);
             }
-            key.appendRecordKey(row + 1);
-            keys.add(key.copyKey());
+            builder.finish();
+            writer.commit();
           }
-          keys.sort(Arrays::compareUnsigned);
-          for (int from = 0; from < keys.size(); from += ROWS_PER_LEAF) {
-            final byte[][] leafKeys =
-                keys.subList(from, Math.min(keys.size(), from + ROWS_PER_LEAF)).toArray(byte[][]::new);
-            final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.encode(leafKeys, null, leafKeys.length);
-            assertNotNull(leaf);
-            builder.append(leaf);
-          }
-          builder.finish();
-          writer.commit();
+        }), "the build must not walk a leaf's keys for a count this view can never read");
+        assertEquals(ProjectionSortedDirectory.MISSING_AGGREGATE_ROWS_UNKNOWN, missingAggregateRowsOf(session));
+
+        final AtomicInteger leafReads = new AtomicInteger();
+        ProjectionSortedLeafStore.setStorageReadObserverForTesting(ignored -> leafReads.incrementAndGet());
+        try {
+          assertEquals(0, recounts(() -> {
+            try (JsonNodeTrx writer = session.beginNodeTrx()) {
+              assertEquals(0, ProjectionSortedGroupScan.buildLeafSummaries(writer.getStorageEngineWriter(), 0),
+                  "no leaf of such a view can be summarized");
+              writer.commit();
+            }
+          }), "nor may the backfill, which would discard the total it derived");
+        } finally {
+          ProjectionSortedLeafStore.setStorageReadObserverForTesting(null);
         }
+        assertEquals(leaves, leafReads.get(), "yet the backfill did visit every leaf");
         assertEquals(ProjectionSortedDirectory.MISSING_AGGREGATE_ROWS_UNKNOWN, missingAggregateRowsOf(session));
       }
     }

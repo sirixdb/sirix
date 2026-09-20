@@ -267,6 +267,7 @@ public final class ProjectionSortedGroupScan {
     final ProjectionSortedLeafBounds.Updater bounds = new ProjectionSortedLeafBounds.Updater(storage);
     final ProjectionSortedDirectory.Accessor.LeafCursor cursor = directory.leaves();
     final ProjectionSortKeyCodec.Layout layout = directory.layout();
+    final boolean counts = layout.groupsByLastLong();
     int written = 0;
     long missingAggregateRows = 0;
     while (cursor.id() != 0) {
@@ -281,13 +282,15 @@ public final class ProjectionSortedGroupScan {
         written++;
       } else {
         storage.tombstoneBlob(ProjectionSortedGroupSummary.slot(id));
-        missingAggregateRows += ProjectionSortedGroupSummary.countMissingLastField(leaf, layout);
+        if (counts) {
+          missingAggregateRows += ProjectionSortedGroupSummary.countMissingLastField(leaf, layout);
+        }
       }
       bounds.set(id, summary);
       cursor.advance();
     }
     bounds.flush();
-    if (layout.groupsByLastLong()) {
+    if (counts) {
       new ProjectionSortedDirectory.Editor(storage).publishMissingAggregateRows(missingAggregateRows);
     }
     return written;
