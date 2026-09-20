@@ -54,6 +54,15 @@ assert a budget on them. They deliberately assert no wall-clock time: a threshol
 is flaky and cannot say what changed, where a counter is exact on any machine and names the path
 that grew. Each budget was proven by putting the guarded defect back and watching it fail.
 
+They are the first of two layers, not the whole of performance regression testing. A budget only
+sees a change in the amount of counted work; it is blind to anything that makes the same work
+slower, such as a slower call path or a native-image build setting, which is how two benchmark
+queries once lost 150 ms each with every counter unchanged. That is the job of a separate, timed
+baseline harness run on one known machine under the benchmark campaign's protocol (ClickBench's 43
+queries, the 100M JSONBench numbers, later the bitemporal benchmark), which is deliberately not part
+of these suites. A green budget suite means the engine did not start doing more work on the guarded
+paths; it does not mean nothing got slower.
+
 **Mutation testing** guards the tests themselves. AI-generated tests tend to assert too little —
 they run the code and check something trivially true. PIT mutates the production code and reports
 which mutants the tests fail to kill. Scope is deliberately curated (see the `pitest` block in

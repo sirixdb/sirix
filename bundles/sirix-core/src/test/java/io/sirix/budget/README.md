@@ -11,13 +11,43 @@ capability pinned every page until the off-heap arena was exhausted; a sorted vi
 aggregate field walked its key range twice before declining; and a native-image build setting cost
 two queries about 150 ms each.
 
+## Two layers: these tests are half the story
+
+Performance regressions are guarded in two layers, and this is only the first.
+
+1. **Work budgets (this package).** They run in the ordinary suites on every CI machine, are exact
+   on any hardware, and say which path grew. They can only see a regression that changes the
+   *amount of counted work*.
+2. **A timed baseline harness** (working name `sirix-perf-baseline-harness`), run on one known
+   machine under the benchmark campaign's measurement protocol, against recorded baselines:
+   ClickBench's 43 queries, the 100M JSONBench numbers, and later the bitemporal benchmark. It is
+   deliberately **not** part of these suites or of this repository's CI.
+
+The second layer exists because a budget is blind to anything that makes the same work slower: a
+slower call path, worse generated code, a native-image build setting, cache or allocator behaviour,
+I/O latency. Do not read a green budget suite as "performance did not regress". It means the engine
+did not start doing more work on the guarded paths, which is a narrower claim.
+
+## Last week's regressions, and which budget catches each
+
+| Regression | Would a budget have caught it? |
+|---|---|
+| The 100M projection load **died on `MEMORY_MAPPED`**: the pre-commit spill was gated on the writer's ability to *reclaim* an aborted tail instead of its ability to write ahead of the commit, so nothing spilled and every pinned page held its frame until the arena ran out (fixed in PR 1214) | **Yes.** `ProjectionLoadPinnedPageBudgetTest[MEMORY_MAPPED]`: with the old gate it spills 0 pages and peaks at 557 pinned pages, against 537 spilled and a peak of 62. |
+| A **sorted view over an optional aggregate field walked its key range twice** before declining; a reviewer caught it by reading (fixed in PR 1216) | **Yes.** `ProjectionQueryWorkBudgetTest`, "a range holding a row without the aggregate declines the sorted view after one walk": with the double walk back it reads 3 data leaves, against 0. The same test fails on the tempting wrong fix, declining the whole view, because a clean range of that view must still be served. |
+| **Q2 and Q3 lost about 150 ms each** on the 100M JSONBench after a CI repair moved two FFM downcall adapters from build-time to run-time initialization in native images | **No, and no work budget can.** The engine did exactly the same work; each native call went through a slower path. Only the timed layer, on a real native image, measures that. `NativeImageDowncallConfigTest` keeps the *remedy* (the opt-in build argument) from silently rotting, which is a different and smaller thing; see below. |
+
+The remaining budgets guard paths those measurements rely on rather than a regression of that week:
+the count-only group-by answered from the value-count summary (JSONBench Q1's route), the filtered
+group-by on column slices (Q2 and Q3's), and the coalesced batch read, whose source records an
+earlier regression of exactly this kind (an unsorted batch turned 9 MB of segments into 355 MB of
+reads).
+
 ## Why there are no wall-clock assertions
 
 Deliberately none, and please do not add one. A time threshold on a shared CI runner is flaky, so
 it gets widened until it means nothing; and when it does fail it cannot say what changed. A work
 counter reads the same on a laptop and on a loaded three-core runner, and a broken budget names the
-path that grew. Timed measurement against recorded baselines is a separate layer, run on one known
-machine under a measurement protocol; it is not part of the ordinary suites.
+path that grew. Timing belongs to the second layer above, on one known machine under a protocol.
 
 For the same reason a budget test must not depend on anything a CI machine varies:
 
@@ -57,8 +87,18 @@ classes that exist; each still holds nothing but its call signature, so initiali
 time is legal; and no shared `native-image.properties` or build script initializes a holder early
 outside the opt-in, by name, outer class or package, which the GraalVM LTS line rejects.
 
-It does **not** build a native image, so it cannot tell whether an image built with the option is
-fast, or builds at all on a given GraalVM. Only a timed run of a real image can.
+What it **cannot** catch, stated plainly because it is the larger part:
+
+- **whether a native image is fast.** It builds no image and times nothing. It would not have
+  measured the 150 ms, and it will not measure the next loss of that kind;
+- **whether an image builds at all** on a given GraalVM: the option is toolchain-dependent, and only
+  building with that toolchain tells;
+- **whether the binary someone measured was built with the option.** A benchmark binary built
+  without `-Pnative.preinitializeDowncalls=true` is slower by that margin and nothing here notices;
+- **any other build setting** with a performance effect (optimization level, PGO profile, GC,
+  `-march`). It guards these two holders because they are the ones that already cost something.
+
+All four belong to the timed layer.
 
 ## The counters
 
