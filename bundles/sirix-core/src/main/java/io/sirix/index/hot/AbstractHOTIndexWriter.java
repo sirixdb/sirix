@@ -3489,6 +3489,22 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong OFF_PATH_OVERFLOW_OK = new AtomicLong();
   public static final AtomicLong OFF_PATH_OVERFLOW_FALLBACK = new AtomicLong();
 
+  /**
+   * Leaf overflows whose β-in-D(N) fold had to be declined and whose parent would have folded rather
+   * than nested, discharged through the complete structural frontier instead.
+   */
+  public static final AtomicLong MERGE_OVERFLOW_ROUTED_TO_FRONTIER = new AtomicLong();
+
+  /** How {@link #mergeIntoLeaf} must discharge a leaf split the off-path handler looked at. */
+  private enum OffPathOverflow {
+    /** The handler published the split itself. */
+    HANDLED,
+    /** Not the off-path-straddle shape, or a fold the standard cascade still discharges. */
+    INTEGRATE,
+    /** The fold was declined and the cascade would refuse it too: use the complete frontier. */
+    FRONTIER
+  }
+
   /** Ancestors re-encoded in place solely to refresh exact structural height. */
   public static final AtomicLong STRUCTURAL_HEIGHT_REENCODE = new AtomicLong();
 
@@ -3780,29 +3796,31 @@ public abstract class AbstractHOTIndexWriter<K> {
    * 0's off-path-straddle canonicity finding.
    *
    * <p>
-   * Returns {@code false} before publication when β is not in D(N), L's β-column is already 1, a C2
-   * collision occurs, or a precondition is uncertain. The shared branch driver then uses the complete
-   * structural-frontier primitive.
+   * Reports {@link OffPathOverflow#INTEGRATE} before publication when β is not in D(N), L's β-column
+   * is already 1, or a precondition is uncertain — the caller's standard integrate still applies.
+   * Reports {@link OffPathOverflow#FRONTIER} for the one shape integrate would refuse in turn: the
+   * fold declined because {@code comboPartial} has no free position beside L's slot, at a parent
+   * integrate would fold into rather than nest under.
    *
-   * @return {@code true} if the off-path-overflow was handled incrementally
+   * @return how the caller must discharge the split
    */
-  private boolean handleOffPathOverflow(LeafNavigationResult navResult, HOTIncrementalInsert.BiNode biNode,
+  private OffPathOverflow handleOffPathOverflow(LeafNavigationResult navResult, HOTIncrementalInsert.BiNode biNode,
       byte[] keySlice, byte[] valueSlice) {
     final int pathDepth = navResult.pathDepth();
     if (pathDepth == 0) {
-      return false; // L is the root; no parent to fold into
+      return OffPathOverflow.INTEGRATE; // L is the root; no parent to fold into
     }
     final HOTIndirectPage parentN = navResult.pathNodes()[pathDepth - 1];
     final int beta = biNode.discriminativeBitIndex();
     final int[] discBits = HOTIncrementalInsert.discriminativeBits(parentN);
     final int betaCol = Arrays.binarySearch(discBits, beta);
     if (betaCol < 0) {
-      return false; // β fresh to N -- standard integrate handles
+      return OffPathOverflow.INTEGRATE; // β fresh to N -- standard integrate handles
     }
     final int slotOfL = navResult.pathChildIndices()[pathDepth - 1];
     final int[] oldPartials = parentN.getPartialKeysRef();
     if (oldPartials == null || slotOfL >= oldPartials.length) {
-      return false; // defensive: malformed partial array
+      return OffPathOverflow.INTEGRATE; // defensive: malformed partial array
     }
     final int lPartial = oldPartials[slotOfL];
     final int betaBitWeight = 1 << (discBits.length - 1 - betaCol);
@@ -3810,16 +3828,22 @@ public abstract class AbstractHOTIndexWriter<K> {
       // L's β-column is already 1 -- not the off-path-straddle case. The plan §3.2 proof
       // says this can't happen (L's keys would all be β=1, contradicting splitLeafPage's β
       // = msdb(L ∪ {K})), but stay defensive.
-      return false;
+      return OffPathOverflow.INTEGRATE;
     }
     final int comboPartial = lPartial | betaBitWeight;
     if (!HOTIncrementalInsert.canMergeBiNodeAtExistingDiscBit(parentN, beta, slotOfL)) {
       // comboPartial is taken (C2), or a sibling's partial sorts between L's slot and comboPartial.
       // L₁ holds keys of L's own range, so it may only ever land beside L₀ — never after a sibling
       // whose keys all sort above that range. Both fold variants below insert at comboPartial's I7
-      // position; refuse before either builds anything and leave the halves to the caller.
+      // position; refuse before either builds anything.
       OFF_PATH_OVERFLOW_FALLBACK.incrementAndGet();
-      return false;
+      // A taller N nests the halves under their own node (integrate's intermediate-node arm) and
+      // never touches N's block, so the decline costs nothing there. At N's own level integrate
+      // would reach the very fold just refused, so K has no incremental placement left: route the
+      // whole overflow through the complete structural frontier instead of failing the insert.
+      return parentN.getHeight() <= biNode.height()
+          ? OffPathOverflow.FRONTIER
+          : OffPathOverflow.INTEGRATE;
     }
     if (parentN.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
       // N is full. The N-full handler (handleOffPathOverflowFullN) operates incrementally at
@@ -3858,7 +3882,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         // C2: comboPartial collides with an existing c'. The unmodified caller still owns both
         // split halves and may continue with its standard incremental integration.
         OFF_PATH_OVERFLOW_FALLBACK.incrementAndGet();
-        return false;
+        return OffPathOverflow.INTEGRATE;
       }
       closeFreshBiNode(biNode, constructionFailure);
       throw constructionFailure;
@@ -3874,7 +3898,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       registerFreshSubtree(replacementRef);
       retireReplacedLeaf(originalLeafRef, replacementRef, TransactionIntentLog.RELEASE_SITE_LEAF_SPLIT);
       OFF_PATH_OVERFLOW_OK.incrementAndGet();
-      return true;
+      return OffPathOverflow.HANDLED;
     } catch (final RuntimeException | Error failure) {
       if (published) {
         markTransactionRollbackOnly(failure);
@@ -3897,6 +3921,14 @@ public abstract class AbstractHOTIndexWriter<K> {
     closeUnregisteredFreshSubtree(biNode.left(), failure);
     if (biNode.right() != biNode.left()) {
       closeUnregisteredFreshSubtree(biNode.right(), failure);
+    }
+  }
+
+  /** Retire both halves of a split no handler accepted; a cleanup fault fails the insert. */
+  private void discardFreshBiNode(final HOTIncrementalInsert.BiNode biNode) {
+    discardUnpublishedStructuralCandidateOrThrow(biNode.left());
+    if (biNode.right() != biNode.left()) {
+      discardUnpublishedStructuralCandidateOrThrow(biNode.right());
     }
   }
 
@@ -3923,9 +3955,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * N sat in the spine. When N is the root, that grows the tree by one level (the new root is a
    * 2-entry compound at {@code N.MSB}, height = N.height + 1).
    *
-   * @return {@code true} if the N-full off-path-overflow was handled incrementally
+   * @return how the caller must discharge the split
    */
-  private boolean handleOffPathOverflowFullN(LeafNavigationResult navResult, HOTIncrementalInsert.BiNode biNode,
+  private OffPathOverflow handleOffPathOverflowFullN(LeafNavigationResult navResult, HOTIncrementalInsert.BiNode biNode,
       int slotOfL, int comboPartial) {
     final int pathDepth = navResult.pathDepth();
     final HOTIndirectPage parentN = navResult.pathNodes()[pathDepth - 1];
@@ -3934,7 +3966,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       // Verified C2: the would-be inserted partial already has a physical owner. No construction or
       // allocation has started, so the caller may safely take its standard incremental path.
       OFF_PATH_OVERFLOW_FALLBACK.incrementAndGet();
-      return false;
+      return OffPathOverflow.INTEGRATE;
     }
     final HOTIncrementalInsert.BiNode parentSplit = HOTIncrementalInsert.splitIndirectWithSlotReplaceAndInsertion(
         parentN, slotOfL, biNode.left(), comboPartial, biNode.right(), revision, pageKeyAllocator);
@@ -3953,7 +3985,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       throw failure;
     }
     OFF_PATH_OVERFLOW_OK.incrementAndGet();
-    return true;
+    return OffPathOverflow.HANDLED;
   }
 
   /**
@@ -4005,6 +4037,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     final byte[] keySlice = exactKeyForStructuralMutation(keyBuf, keyLen);
     final HOTIncrementalInsert.BiNode biNode =
         HOTIncrementalInsert.splitLeafPage(leaf, keySlice, valueSlice, revision, indexType, pageKeyAllocator);
+    boolean published = false;
     try {
       ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
 
@@ -4012,27 +4045,69 @@ public abstract class AbstractHOTIndexWriter<K> {
       // standard addEntry will reject. Apply the incremental off-path-overflow handler before
       // calling integrate -- it slot-replaces L with L₀ and adds L₁ at comboPartial, sidestepping
       // the historical over-partitioning observed in iterations 3/5/6/7/8.
-      if (handleOffPathOverflow(navResult, biNode, keySlice, valueSlice)) {
+      final OffPathOverflow outcome = handleOffPathOverflow(navResult, biNode, keySlice, valueSlice);
+      if (outcome == OffPathOverflow.HANDLED) {
         return keySlice;
       }
-
-      // Plan §12 Stage 3b: an exception escaping integrate after the clean preflight is a real
-      // bug. integrate allocates first and re-points exactly one spine reference as its final step.
-      final HOTIncrementalInsert.IntegrationResult result =
-          HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
-              navResult.pathDepth(), biNode, revision, pageKeyAllocator);
-      lastDispatchHandler = "h:merge-offpath-fullN";
-      registerFreshSubtree(result.touchedRef());
-      retireReplacedLeaf(navResult.leafRef(), result.touchedRef(), TransactionIntentLog.RELEASE_SITE_LEAF_SPLIT);
-      return keySlice;
+      if (outcome != OffPathOverflow.FRONTIER) {
+        // Plan §12 Stage 3b: an exception escaping integrate after the clean preflight is a real
+        // bug. integrate allocates first and re-points exactly one spine reference as its final step.
+        final HOTIncrementalInsert.IntegrationResult result =
+            HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
+                navResult.pathChildIndices(), navResult.pathDepth(), biNode, revision, pageKeyAllocator);
+        published = true;
+        lastDispatchHandler = "h:merge-offpath-fullN";
+        registerFreshSubtree(result.touchedRef());
+        retireReplacedLeaf(navResult.leafRef(), result.touchedRef(), TransactionIntentLog.RELEASE_SITE_LEAF_SPLIT);
+        return keySlice;
+      }
+      // Nothing was published and the source leaf is untouched, so the halves are the only pages
+      // this attempt owns. Retire them and start over from the frontier, which places K itself.
+      discardFreshBiNode(biNode);
     } catch (final RuntimeException | Error failure) {
-      // Published or not, the key is not in the index: the transaction must not commit a document
-      // its index no longer reflects. A fold this path had to refuse ends here before publication,
-      // where it used to end after one, in the published-splice validation — rollback-only either way.
-      markTransactionRollbackOnly(failure);
+      if (published) {
+        markTransactionRollbackOnly(failure);
+      }
       closeFreshBiNode(biNode, failure);
       throw failure;
     }
+    return spliceOverflowThroughFrontier(navResult, leaf, keySlice, valueSlice);
+  }
+
+  /**
+   * Discharge a leaf overflow whose β-in-D(N) fold was declined through the complete structural
+   * frontier — the same total primitive the branch path falls back to, entered at N's own depth.
+   *
+   * <p>
+   * The frontier splits N's subtree immediately before {@code K} and gives {@code K} a fresh
+   * one-entry leaf, which relieves the overflow without folding anything into N's block. When the
+   * overflow was a byte overflow on a key the leaf already holds, that fresh leaf carries the value
+   * {@link HOTIncrementalInsert#splitLeafPage} would have stored — the posting union, or for a
+   * projection the new bytes — and the split drops the stale entry from the boundary leaf.
+   * </p>
+   *
+   * <p>
+   * The key's document node has already been written, so a failure here leaves a document the index
+   * does not reflect: the transaction must not be allowed to commit it.
+   * </p>
+   */
+  private byte[] spliceOverflowThroughFrontier(final LeafNavigationResult navResult, final HOTLeafPage leaf,
+      final byte[] keySlice, final byte[] valueSlice) {
+    final int existingSlot = leaf.findEntry(keySlice);
+    final StructuralSplitKey keyMode = existingSlot >= 0
+        ? StructuralSplitKey.PRESENT_AND_DROPPED
+        : StructuralSplitKey.ABSENT;
+    final byte[] frontierValue = existingSlot < 0 || indexType == IndexType.PROJECTION
+        ? valueSlice
+        : HOTIncrementalInsert.mergeIndexValues(leaf.copyStoredValue(existingSlot), valueSlice);
+    try {
+      spliceCompleteFrontierIncrementally(navResult, navResult.pathDepth() - 1, keySlice, frontierValue, keyMode);
+    } catch (final RuntimeException | Error failure) {
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+    MERGE_OVERFLOW_ROUTED_TO_FRONTIER.incrementAndGet();
+    return keySlice;
   }
 
   /**
@@ -4068,7 +4143,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       // collision). Persistently split only the smallest complete structural frontier around those
       // two positions, copy at most one boundary leaf per split, and splice K there. This is the total
       // incremental discharge: no subtree entry collection and no posting-payload rebuild.
-      spliceCompleteFrontierIncrementally(navResult, insertDepth, keySlice, valueSlice);
+      spliceCompleteFrontierIncrementally(navResult, insertDepth, keySlice, valueSlice, StructuralSplitKey.ABSENT);
     }
     return true; // incremental branch/frontier splice — verify the path structurally
   }
@@ -4677,8 +4752,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * {@code currentDepth} with a BiNode on {@code biNodeBeta} — will fold cleanly, or whether any
    * level requires an un-mergeable cross-level-overlap fold (which would otherwise throw out of
    * integrate), or would split a full node into a half that breaks the trie condition against its own
-   * children ({@link #splitKeepsTrieCondition}). Returns {@code false} before publication so the
-   * caller uses the complete frontier.
+   * children ({@link #splitKeepsTrieCondition}) — or into a half whose membership those children do
+   * not decide, which is the full β-at-the-MSB cascade. Returns {@code false} before publication so
+   * the caller uses the complete frontier.
    *
    * <p>
    * <b>Crash-safety.</b> The walk is conservative: it never returns {@code true} when integrate would
@@ -4707,6 +4783,15 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       if (parent.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
         return true; // addEntry/merge fits; cascade terminates
+      }
+      if (beta == parent.getMostSignificantBitIndex()) {
+        // The full β-in-mask cascade inserts the straddle partial on the far side of the split
+        // (splitIndirectWithSlotReplaceAndInsertion) — the one half neither the slot nor the
+        // inserted child was measured against below. Adding that partial can make a previously
+        // constant, more significant column live, lifting the half's own MSB past the inserted
+        // child's, and the child is only known to branch below β. Undecidable from the node's
+        // existing children alone, so decide against it.
+        return false;
       }
       if (!splitKeepsTrieCondition(parent)) {
         return false; // the cascade would publish a half whose own children contradict it (I11)
@@ -4765,8 +4850,11 @@ public abstract class AbstractHOTIndexWriter<K> {
       return true; // a lone child hangs directly under the split's BiNode, as it hung under the node
     }
     for (int slot = from; slot < to; slot++) {
-      if (resolveHOTPageForTraversal(node.getChildReference(slot)) instanceof HOTIndirectPage child
-          && child.getMostSignificantBitIndex() <= halfMsb) {
+      final Page child = resolveHOTPageForTraversal(node.getChildReference(slot));
+      if (child == null) {
+        return false; // a released leaf with no forward target, or a forward cycle: decide against
+      }
+      if (child instanceof HOTIndirectPage indirectChild && indirectChild.getMostSignificantBitIndex() <= halfMsb) {
         return false;
       }
     }
@@ -5428,6 +5516,16 @@ public abstract class AbstractHOTIndexWriter<K> {
   private record StructuralKeySplit(@Nullable PageReference left, @Nullable PageReference right) {
   }
 
+  /** What {@link #splitSubtreeBeforeKey} may find of its split key in the boundary leaf. */
+  private enum StructuralSplitKey {
+    /** The key is being inserted and is not in the subtree; finding it is a defect. */
+    ABSENT,
+    /** A bit boundary ({@link #firstKeyOnOneSide}) may coincide with a stored key. */
+    MAY_BE_PRESENT,
+    /** The key is in the subtree and its stale entry is dropped: a fresh leaf carries the value. */
+    PRESENT_AND_DROPPED
+  }
+
   /** The direct-child interval which brackets a key's physical and sparse-routing positions. */
   private record StructuralFrontier(int fromInclusive, int toExclusive) {
     private int size() {
@@ -5457,21 +5555,22 @@ public abstract class AbstractHOTIndexWriter<K> {
    * </p>
    */
   private void spliceCompleteFrontierIncrementally(final LeafNavigationResult navResult, final int initialDepth,
-      final byte[] keySlice, final byte[] valueSlice) {
+      final byte[] keySlice, final byte[] valueSlice, final StructuralSplitKey keyMode) {
     final int deepest = Math.min(initialDepth, navResult.pathDepth() - 1);
     for (int nodeDepth = deepest; nodeDepth >= 0; nodeDepth--) {
       final HOTIndirectPage node = navResult.pathNodes()[nodeDepth];
       ensureNodeChildrenLoaded(node);
       final StructuralFrontier minimal = structuralFrontierForKey(node, keySlice);
-      if (trySpliceCompleteFrontier(navResult, node, nodeDepth, minimal, keySlice, valueSlice)) {
+      if (trySpliceCompleteFrontier(navResult, node, nodeDepth, minimal, keySlice, valueSlice, keyMode)) {
         return;
       }
 
       // A complete sub-frontier can still be too narrow when its replacement changes a boundary
       // discriminator shared with another direct child. Retry the whole bounded block before moving
       // up the spine; this remains reference-only except for the same one boundary leaf.
-      if ((minimal.fromInclusive() != 0 || minimal.toExclusive() != node.getNumChildren()) && trySpliceCompleteFrontier(
-          navResult, node, nodeDepth, new StructuralFrontier(0, node.getNumChildren()), keySlice, valueSlice)) {
+      if ((minimal.fromInclusive() != 0 || minimal.toExclusive() != node.getNumChildren())
+          && trySpliceCompleteFrontier(navResult, node, nodeDepth, new StructuralFrontier(0, node.getNumChildren()),
+              keySlice, valueSlice, keyMode)) {
         return;
       }
     }
@@ -5481,7 +5580,8 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /** Build, validate and publish one exact complete-frontier candidate. */
   private boolean trySpliceCompleteFrontier(final LeafNavigationResult navResult, final HOTIndirectPage node,
-      final int nodeDepth, final StructuralFrontier frontier, final byte[] keySlice, final byte[] valueSlice) {
+      final int nodeDepth, final StructuralFrontier frontier, final byte[] keySlice, final byte[] valueSlice,
+      final StructuralSplitKey keyMode) {
     final int revision = storageEngineWriter.getRevisionNumber();
     final List<PageReference> replacedLeafRefs = new ArrayList<>(1);
     StructuralKeySplit split = null;
@@ -5501,7 +5601,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         throw new IllegalStateException("HOT incremental frontier has a null source reference");
       }
 
-      split = splitSubtreeBeforeKey(sourceRef, keySlice, false, replacedLeafRefs, 0);
+      split = splitSubtreeBeforeKey(sourceRef, keySlice, keyMode, replacedLeafRefs, 0);
       final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
       putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
       keyRef = swizzle(keyLeaf);
@@ -5610,39 +5710,64 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /**
    * Persistent lexicographic split of a canonical subtree immediately before a key. Only the boundary
-   * path is copied; an interior boundary leaf is split into two fresh leaves. The key being inserted
-   * must be absent; a bit boundary ({@link #firstKeyOnOneSide}) may coincide with a stored key, which
-   * then opens the right half ({@code keyMayBePresent}).
+   * path is copied; an interior boundary leaf is split into two fresh leaves. What the split may find
+   * of the key itself is the caller's to state ({@link StructuralSplitKey}): a key being inserted is
+   * absent, a bit boundary ({@link #firstKeyOnOneSide}) may coincide with a stored key, and a key
+   * whose own entry the caller replaces is dropped out of the boundary leaf here.
    */
   private StructuralKeySplit splitSubtreeBeforeKey(final PageReference sourceRef, final byte[] keySlice,
-      final boolean keyMayBePresent, final List<PageReference> replacedLeafRefs, final int depth) {
+      final StructuralSplitKey keyMode, final List<PageReference> replacedLeafRefs, final int depth) {
     if (depth > MAX_PATH_DEPTH) {
       throw new IllegalStateException("HOT persistent key split exceeded " + MAX_PATH_DEPTH + " levels");
     }
     final Page source = resolveHOTPageForTraversal(sourceRef);
     if (source instanceof HOTLeafPage leaf) {
       final int search = leaf.findEntry(keySlice);
-      if (search >= 0 && !keyMayBePresent) {
+      if (search >= 0 && keyMode == StructuralSplitKey.ABSENT) {
         throw new IllegalStateException(
             "HOT incremental frontier found the supposedly absent key in leaf " + leaf.getPageKey());
       }
+      if (search < 0 && keyMode == StructuralSplitKey.PRESENT_AND_DROPPED) {
+        // The stale entry has to be dropped exactly where it lives. Not finding it means the
+        // boundary descent left it somewhere else, which would publish the key twice.
+        throw new IllegalStateException(
+            "HOT incremental frontier did not find the key it replaces in boundary leaf " + leaf.getPageKey());
+      }
+      final boolean dropped = keyMode == StructuralSplitKey.PRESENT_AND_DROPPED;
       final int insertionPoint = search >= 0
           ? search
           : -search - 1;
-      if (insertionPoint == 0) {
-        return new StructuralKeySplit(null, sourceRef);
-      }
-      if (insertionPoint == leaf.getEntryCount()) {
-        return new StructuralKeySplit(sourceRef, null);
+      final int rightFrom = dropped
+          ? insertionPoint + 1
+          : insertionPoint;
+      if (!dropped) {
+        // Sharing the source whole is only sound while every one of its entries survives.
+        if (insertionPoint == 0) {
+          return new StructuralKeySplit(null, sourceRef);
+        }
+        if (insertionPoint == leaf.getEntryCount()) {
+          return new StructuralKeySplit(sourceRef, null);
+        }
       }
 
       HOTLeafPage left = null;
       HOTLeafPage right = null;
       try {
-        left = copyLeafRange(leaf, 0, insertionPoint);
-        right = copyLeafRange(leaf, insertionPoint, leaf.getEntryCount());
+        if (insertionPoint > 0) {
+          left = copyLeafRange(leaf, 0, insertionPoint);
+        }
+        if (rightFrom < leaf.getEntryCount()) {
+          right = copyLeafRange(leaf, rightFrom, leaf.getEntryCount());
+        }
+        // A side reference whose owning slot is the dropped entry finds no home and fails closed
+        // here: projection segment pages are never silently orphaned.
         rehomeSplitLeafSideReferences(leaf, left, right);
-        final StructuralKeySplit result = new StructuralKeySplit(swizzle(left), swizzle(right));
+        final StructuralKeySplit result = new StructuralKeySplit(left == null
+            ? null
+            : swizzle(left),
+            right == null
+                ? null
+                : swizzle(right));
         if (sourceRef.getKey() >= 0 || sourceRef.getLogKey() >= 0) {
           replacedLeafRefs.add(sourceRef);
         } else if (!leaf.isClosed()) {
@@ -5655,10 +5780,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         if (left != null) {
           closeSpeculativeLeafIfOpen(left, failure);
         }
-        if (right != left) {
-          if (right != null) {
-            closeSpeculativeLeafIfOpen(right, failure);
-          }
+        if (right != null && right != left) {
+          closeSpeculativeLeafIfOpen(right, failure);
         }
         throw failure;
       }
@@ -5674,8 +5797,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     final int target = lexicographicBoundaryChild(indirect, keySlice);
 
     final int revision = storageEngineWriter.getRevisionNumber();
-    final StructuralKeySplit childSplit = splitSubtreeBeforeKey(indirect.getChildReference(target), keySlice,
-        keyMayBePresent, replacedLeafRefs, depth + 1);
+    final StructuralKeySplit childSplit =
+        splitSubtreeBeforeKey(indirect.getChildReference(target), keySlice, keyMode, replacedLeafRefs, depth + 1);
     PageReference left = null;
     PageReference right = null;
     try {
@@ -5712,9 +5835,13 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
   }
 
-  /** Preserve projection side-map ownership when the one boundary leaf is split. */
-  private void rehomeSplitLeafSideReferences(final HOTLeafPage source, final HOTLeafPage left,
-      final HOTLeafPage right) {
+  /**
+   * Preserve projection side-map ownership when the one boundary leaf is split. A side whose range is
+   * empty has no half; an owner in neither half — the entry a replacing split dropped — is refused
+   * rather than orphaning its segment page.
+   */
+  private void rehomeSplitLeafSideReferences(final HOTLeafPage source, final @Nullable HOTLeafPage left,
+      final @Nullable HOTLeafPage right) {
     if (source.segmentRefCount() == 0) {
       return;
     }
@@ -5725,9 +5852,9 @@ public abstract class AbstractHOTIndexWriter<K> {
         throw new IllegalStateException("HOT boundary leaf side reference " + refKey + " has no owner reference");
       }
       PathKeySerializer.INSTANCE.serialize(HOTLeafPage.overflowPageRefOwnerSlot(refKey), ownerKey, 0);
-      final HOTLeafPage owner = left.findEntry(ownerKey) >= 0
+      final HOTLeafPage owner = left != null && left.findEntry(ownerKey) >= 0
           ? left
-          : right.findEntry(ownerKey) >= 0
+          : right != null && right.findEntry(ownerKey) >= 0
               ? right
               : null;
       if (owner == null) {
@@ -5894,8 +6021,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (parts.size() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
         return -1;
       }
-      final StructuralKeySplit halves =
-          splitSubtreeBeforeKey(transition.ref, firstKeyOnOneSide(transition.first, bit), true, replacedLeafRefs, 0);
+      final StructuralKeySplit halves = splitSubtreeBeforeKey(transition.ref, firstKeyOnOneSide(transition.first, bit),
+          StructuralSplitKey.MAY_BE_PRESENT, replacedLeafRefs, 0);
       if (halves.left() == null || halves.right() == null) {
         // The extremes disagree on the bit yet no key sits on one side: the part is not ordered.
         // The surviving half stays owned by the list so the caller retires it.

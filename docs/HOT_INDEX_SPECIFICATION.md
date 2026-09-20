@@ -1029,7 +1029,7 @@ PCRs (`idx/cas/CASIndex.java:599-605`).
 
 #### 4.5.2 Merge path
 
-`mergeIntoLeaf` (`hot/AbstractHOTIndexWriter.java:3964-4036`):
+`mergeIntoLeaf` (`hot/AbstractHOTIndexWriter.java:3996-4076`):
 
 1. `leaf.mergeWithNodeRefs(key, value)` (OR into the existing chunk, or insert) or `putOrReplace`
    for PROJECTION; if it fits, done — no structural change, no validation.
@@ -1037,12 +1037,22 @@ PCRs (`idx/cas/CASIndex.java:599-605`).
 3. `!canSplit()` → `SirixIOException("single value exceeds page capacity")`.
 4. `splitLeafPage(leaf ∪ {K})` (§2.7; the source leaf is not mutated; side references move to the half
    that owns them).
-5. **β already a discriminative bit of the parent** (`handleOffPathOverflow`, `:3789-3893`): replace the
+5. **β already a discriminative bit of the parent** (`handleOffPathOverflow`, `:3807-3911`): replace the
    leaf slot by the left half and add the right half at `partial | βbit`; a full parent goes through
    `splitIndirectWithSlotReplaceAndInsertion`. Only where that fold is placement-safe (§4.5.3,
-   `:3816-3823`): on a partial-key collision or a sibling between the two partials it falls back to
-   step 6 before building anything.
-6. Otherwise `integrate(spine, BiNode, depth)`; register the fresh subtree; retire the replaced leaf.
+   `:3836-3849`): on a partial-key collision or a sibling between the two partials it declines before
+   building anything, and reports which of the two remaining steps applies.
+6. A parent taller than the BiNode, or any β ∉ D(parent) → `integrate(spine, BiNode, depth)`; register
+   the fresh subtree; retire the replaced leaf.
+7. A declined fold at a parent `integrate` would fold into rather than nest under — where step 6 would
+   reach the very fold just refused — → the two halves are retired and the overflow is discharged
+   through the complete-frontier splice at the parent's own depth (`spliceOverflowThroughFrontier`,
+   `:4094-4112`, counted by `MERGE_OVERFLOW_ROUTED_TO_FRONTIER`). The frontier splits the parent's
+   subtree immediately before `K` and gives `K` a fresh one-entry leaf, which relieves the overflow
+   without folding anything into the parent's block. A byte overflow on a key the leaf already holds
+   passes that leaf the value `splitLeafPage` computed — the posting union, or for a projection the
+   new bytes — and the split drops the stale entry from the boundary leaf (§4.5.4 case 9). A side
+   reference owned by the dropped entry has no home and fails the insert before publication.
 
 #### 4.5.3 `integrate`: propagating a BiNode
 
@@ -1072,7 +1082,7 @@ straddle orientation, the C2 collision, and this placement (`landsBesideSlot`, `
 by `EXISTING_BIT_FOLD_NOT_ADJACENT`) — and both fold primitives throw `IllegalArgumentException` on
 the last two if called regardless. The merge path asks the predicate before it folds (§4.5.2 step 5);
 the branch path asks it through `canIntegrateBiNodeCleanly`
-(`hot/AbstractHOTIndexWriter.java:4698-4718`), whose `false` hands the insert to the complete-frontier
+(`hot/AbstractHOTIndexWriter.java:4774-4802`), whose `false` hands the insert to the complete-frontier
 splice (§4.5.4 case 9).
 
 **Splitting a full node.** `compressHalf` keeps for each half only the bits that still vary within
@@ -1082,12 +1092,24 @@ significant than one of them branches on internally, a shape the writer's own ha
 invariant accepts until the split changes who the parent is. Such a half routes and scans correctly,
 but the structural guards reject it, so the next insert routed through it fails; and only the half `K`
 joins lies on `K`'s route, so the other is seen by no guard unless the published scope fits the
-validation budget. `splitKeepsTrieCondition` (`hot/AbstractHOTIndexWriter.java:4747-4759`, from
-`HOTIncrementalInsert.mostSignificantLiveBit`, `hot/HOTIncrementalInsert.java:440-455`) asks the question before a split is built: the
-full-node decomposition of §4.5.4 case 2 declines on it (counted by
-`FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION`), and so does `canIntegrateBiNodeCleanly` for every full
+validation budget. `splitKeepsTrieCondition` (`hot/AbstractHOTIndexWriter.java:4832-4844`, from
+`HOTIncrementalInsert.mostSignificantLiveBit`, `hot/HOTIncrementalInsert.java:440-455`) asks the
+question before a split is built: the full-node decomposition of §4.5.4 case 2 declines on it (counted
+by `FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION`), and so does `canIntegrateBiNodeCleanly` for every full
 level the cascade would split. Both hand the insert to the complete-frontier splice, which never
-splits the node. The merge path's cascade is unguarded: it has no other placement.
+splits the node. The merge path's own full-parent handler (`handleOffPathOverflowFullN`,
+`hot/AbstractHOTIndexWriter.java:3960-3991`) splits the parent in its own coordinate space without
+asking; it is not covered by either guard.
+
+The predicate reads the node's existing children, and a β ∈ D cascade splits a node the insertion has
+already widened. Where β is *below* the node's MSB the two are the same question: the inserted child
+joins the half its own slot is in, where it can only add the β column, and it branches below β by
+construction. Where β *is* the node's MSB they are not: the slot stays on the 0-side while the
+straddle partial joins the 1-side, whose constant columns it can make vary again — the half's own MSB
+moves up, possibly past the inserted child's, which is only known to lie below β. Nothing in the
+node's children decides that, so `canIntegrateBiNodeCleanly` declines the level outright and the
+insert takes the complete frontier. The `IllegalArgumentException` both fold primitives raise
+(§4.5.3) is therefore the last line, not the mechanism: no path reaches them uninvited.
 
 Each `integrate` publishes with exactly one `setPage` (`:1969-1972`, `:1983`, `:2003`). Node
 "upgrades" from span to multi node are implicit: the layout is chosen from the discriminative-bit
@@ -1102,7 +1124,7 @@ or above a spine node (d*). Cases, in order:
    partial-key collision try, in order, `subInsertAt` into the affected child if it keeps I8
    (`:3366-3395`), a leaf-pair splice, an opposite-frontier wrap; strand and malformation guards before
    publishing (`:4117-4182`).
-2. β ∈ D(d*), d* full: `branchFullNodeAtExistingBit` (`:4708-4803`).
+2. β ∈ D(d*), d* full: `branchFullNodeAtExistingBit` (`:4864-4959`).
 3. β ∉ D, d* full, all children affected: wrap the node and the new leaf under a BiNode and integrate
    (`:4202-4254`).
 4. β ∉ D, d* full, some children affected: `splitIndirectWithEntry` and integrate (`:4256`, `:4602-4630`).
@@ -1112,19 +1134,26 @@ or above a spine node (d*). Cases, in order:
 7. one affected boundary node not full: `addEntryWithInsertInfo` (new partition root); full: wrap and
    integrate (`:4485-4549`).
 8. several affected entries: fold the new leaf into d* (`:4556-4576`).
-9. **any case that returns false** → `spliceCompleteFrontierIncrementally` (`:4062-4066`,
-   `:5382-5726`, `:6559-6683`): from d* upwards, find the minimal complete BiNode frontier that contains
-   both the routed and the lexicographic slot; split only the boundary path (copying at most one leaf);
-   build the canonical Patricia block over `<K`, `K`, `>K` (`joinOrderedAroundKey`, `:5786-5865`):
+9. **any case that returns false**, and the declined merge-path overflow of §4.5.2 step 7 →
+   `spliceCompleteFrontierIncrementally` (`:4146`, `:5557-5901`, `:6734-6858`): from d* upwards,
+   find the minimal complete BiNode frontier that contains both the routed and the lexicographic slot;
+   split only the boundary path (copying at most one leaf);
+   build the canonical Patricia block over `<K`, `K`, `>K` (`joinOrderedAroundKey`, `:5913-5992`):
    each level branches on the MSDB of its range, and a side that bit cuts through is split there in
-   the same persistent way (`assignFrontierPaths`, `:5879-5936`, counted by
+   the same persistent way (`assignFrontierPaths`, `:6006-6063`, counted by
    `FRONTIER_JOIN_STRADDLE_SPLIT`), so that every child is one-sided on the bits of its path — `K`'s
    sides are arbitrary key ranges, not complete `R(S)`-subtrees, and a child straddling a bit of the
    block has the keys on its other side routed to a neighbour. Without such a side this is a 1-2-bit
    mini-root. Preflight (the block routes each part's extremes to it, fresh pages not malformed, the
    routed descent contains the key, the splice can propagate); publish; propagate height changes up
    the spine without rewriting stored partial keys. If no level works:
-   `IllegalStateException("could not construct an invariant-clean incremental frontier")` (`:5401-5402`).
+   `IllegalStateException("could not construct an invariant-clean incremental frontier")` (`:5577-5578`).
+   What the boundary split may find of `K` is the caller's to state (`StructuralSplitKey`, `:5520-5528`):
+   a branch insert's key is absent and finding it is a defect; the bit boundary the block's own split
+   uses may coincide with a stored key, which then opens the right half; and a merge-path overflow on a
+   resident key drops that key's stale entry, always copying the boundary leaf and retiring the source,
+   so `K`'s fresh leaf is its only home. Not finding an entry the caller says is there fails closed
+   rather than publishing the key twice.
 
 #### 4.5.5 What happened to rebuilds and the straddle guard
 
@@ -1133,8 +1162,8 @@ or above a spine node (d*). Cases, in order:
   `splitIndirectWithSlotReplaceAndInsertion` (`hot/HOTIncrementalInsert.java:1164-1168`, `:1999-2030`).
   `docs/HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` is implemented.
 - `docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md` §4.1 is `branchFullNodeAtExistingBit`
-  (`hot/AbstractHOTIndexWriter.java:4708`, citing the plan at `:4636`), §4.2 is the boundary-child case
-  (`:4261-4335`, citing it at `:4264`).
+  (`hot/AbstractHOTIndexWriter.java:4864`, citing the plan at `:4718`), §4.2 is the boundary-child case
+  (`:4343-4417`, citing it at `:4346`).
 - `docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md` is implemented and exceeded: `rebuildWholeIndex`,
   `rebuildSubtree` and `detectAndHeal` were removed in `09a20540c` (`git log -S`).
 - Remaining `HOTBulkBuilder.build` calls on the mutation path are bounded: a split half that does not
@@ -1152,12 +1181,13 @@ or above a spine node (d*). Cases, in order:
   leaves, 63 pages, 16 384 entries, 8 192 side references, 8 MiB materialized; otherwise
   `MutationTraversalRefusal` and the transaction becomes rollback-only
   (`hot/AbstractHOTIndexWriter.java:166-170`, `:499-594`, `:680-694`).
-- Every post-publication failure calls `markTransactionRollbackOnly` (e.g. `:2317-2320`). The merge
-  path does so for every failure of its split integration, published or not (`:4028-4036`): a β ∈ D
-  fold it has to refuse (§4.5.3) throws before anything is published, where the same input used to
-  end after publication in the published-splice validation, and either way the key is not in the
-  index. Whether the final `IllegalStateException` of the complete-frontier splice poisons the
-  transaction is unclear: `doMutation`'s insert arm has no catch that does it (§7).
+- Every post-publication failure calls `markTransactionRollbackOnly` (e.g. `:2317-2320`, `:4068-4070`).
+  A pre-publication failure leaves the transaction usable — it touched nothing — with one exception:
+  the merge path's routed overflow (§4.5.2 step 7, `:4104-4108`). There the key's document node is
+  already written while its index entry is not, and no further placement exists, so a failure of the
+  routing poisons the transaction rather than committing a document the index does not reflect.
+  Whether the final `IllegalStateException` of the complete-frontier splice poisons the transaction on
+  the branch path is unclear: `doMutation`'s insert arm has no catch that does it (§7).
 
 #### 4.5.7 Complexity (derived from the code, not measured)
 

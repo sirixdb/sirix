@@ -140,18 +140,24 @@ All notable changes to SirixDB are documented in this file.
   I8-children-sorted-by-firstkey …)`, raised by the writer's own validation, so nothing was published
   in that state. The fold is now declined unless the upper half lands beside its slot, and the
   complete-frontier splice splits a side where a bit of its block cuts through it, so that every
-  child of the block is one-sided on the bits of its path. A leaf overflow whose fold has to be
-  declined and that has no other placement fails before anything is published, and marks the
-  transaction rollback-only exactly as the published-splice validation did. Further into the same
-  load, splitting a full node published a half that broke the trie condition (I11) against its own
-  child: a half keeps only the bits that still vary within it, so a child that sat safely below the
-  node's most significant bit can sit above the half's. Only the half the new key joins was checked
-  and lies on the key's route, so the other went out unseen, committed, and stopped the load three
-  publications later with `HOT published structural path is malformed`, when an insert was first
-  routed through it. A full-node decomposition, and the integrate cascade behind it, are now declined
-  when a half would break the condition. Results, on-disk format, revision visibility, write
-  granularity and the validation itself are unchanged. Specified in
-  `docs/HOT_INDEX_SPECIFICATION.md` §4.5.3–§4.5.4 and §4.5.6.
+  child of the block is one-sided on the bits of its path. A leaf overflow whose fold is declined at a
+  parent the cascade would fold into rather than nest under has no second placement of its own, so it
+  is now discharged through that same complete-frontier splice: the parent's subtree is split
+  immediately before the key and the key gets its own leaf. When the overflow was a byte overflow on a
+  key the leaf already holds, that leaf carries the merged value and the split drops the stale entry;
+  a side reference the dropped entry owned fails the insert before publication rather than being
+  orphaned. A pre-publication failure still leaves the transaction usable, as before, except on that
+  routed path, where the key's document node is already written while its index entry is not. Further
+  into the same load, splitting a full node published a half that broke the trie condition (I11)
+  against its own child: a half keeps only the bits that still vary within it, so a child that sat
+  safely below the node's most significant bit can sit above the half's. Only the half the new key
+  joins was checked and lies on the key's route, so the other went out unseen, committed, and stopped
+  the load three publications later with `HOT published structural path is malformed`, when an insert
+  was first routed through it. A full-node decomposition, and the integrate cascade behind it, are now
+  declined when a half would break the condition, and likewise when the fold bit is the node's own
+  most significant bit — there the insertion moves the far half's own bit and the node's children
+  cannot decide it. Results, on-disk format, revision visibility, write granularity and the validation
+  itself are unchanged. Specified in `docs/HOT_INDEX_SPECIFICATION.md` §4.5.2–§4.5.4 and §4.5.6.
 
 ## [1.0.0-beta7] — 2026-07-15
 
