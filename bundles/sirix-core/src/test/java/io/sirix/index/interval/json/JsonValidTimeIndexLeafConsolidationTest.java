@@ -16,6 +16,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.index.hot.HOTIncrementalInsert;
 import io.sirix.index.interval.IntervalDomain;
 import io.sirix.index.interval.RelationalIntervalTree;
 import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
@@ -51,15 +52,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * index writer's periodic leaf consolidation then pours two sibling leaves into one; the right
  * sibling's first key shortens the merged leaf's common prefix and every entry already poured in
  * grows at once — past 64 KiB. Before the fix the load died with an
- * {@code IndexOutOfBoundsException} from {@code HOTLeafPage.rebuildForShorterPrefix} (at record
- * 28096 with this exact data); the pair must instead be left unmerged.
+ * {@code IndexOutOfBoundsException} from {@code HOTLeafPage.rebuildForShorterPrefix}; the pair must
+ * instead be left unmerged.
  * </p>
  *
  * <p>
- * The record layout is part of the reproduction: it fixes the node keys, hence the posting sizes
- * and the leaf shapes the consolidation meets. Dropping the {@code payload} field, for instance,
- * yields a load that never reaches the overflowing pair. With the fix the test is a plain exactness
- * check for any layout; only its value as a regression guard depends on keeping this one.
+ * That the load still reaches such a pair is asserted rather than assumed: it must leave at least
+ * one adjacent leaf pair unmerged because the merged leaf refused the union
+ * ({@link HOTIncrementalInsert#CONSOLIDATION_PAIR_DID_NOT_FIT}). The record layout fixes the node
+ * keys, hence the posting sizes and the leaf shapes consolidation meets, so an unrelated layout
+ * change can move that pair — but it can no longer silently remove it, and any layout that still
+ * reaches the refusal keeps the guard.
  * </p>
  *
  * <p>
@@ -107,6 +110,7 @@ final class JsonValidTimeIndexLeafConsolidationTest {
     final int historicalRevision;
     final int historicalFacts = 2 * FACTS_PER_PUBLICATION;
     final int latestRevision;
+    final long refusedPairsBefore = HOTIncrementalInsert.CONSOLIDATION_PAIR_DID_NOT_FIT.get();
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
@@ -173,6 +177,9 @@ final class JsonValidTimeIndexLeafConsolidationTest {
       }
 
       assertTrue(historicalRevision > 0 && historicalRevision < latestRevision);
+      assertTrue(HOTIncrementalInsert.CONSOLIDATION_PAIR_DID_NOT_FIT.get() > refusedPairsBefore,
+          "the load must reach an adjacent leaf pair the merged leaf refuses; without one it no longer "
+              + "covers the prefix-shrink rebuild and its record layout must be re-tuned");
       assertExactStabs(database, latestRevision, FACTS, objectKeys, from, to);
       assertExactStabs(database, historicalRevision, historicalFacts, objectKeys, from, historicalTo);
     }

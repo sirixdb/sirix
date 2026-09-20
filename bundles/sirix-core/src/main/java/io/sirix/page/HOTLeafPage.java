@@ -2114,8 +2114,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @param pendingSuffixLen suffix length, under the new prefix, of the entry that forces the rebuild
    * @param pendingValueLen value length of that entry
    * @return {@code true} if the page was rebuilt; {@code false} if the rebuilt residents plus the
-   *         pending entry exceed the frame, the entry limit is reached, or a rebuilt suffix would not
-   *         be representable — the page is unchanged
+   *         pending entry exceed the frame or the residents alone exceed the staging scratch, the
+   *         entry limit is reached, or a rebuilt suffix would not be representable — the page is
+   *         unchanged
    * @throws IllegalArgumentException if the pending suffix or value exceeds
    *         {@link #MAX_KEY_VALUE_LENGTH}
    * @throws IllegalStateException if a resident slot is corrupt
@@ -2160,17 +2161,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       }
       rebuiltSize = Math.addExact(rebuiltSize, 2 + newSuffixLen + 2 + valueLen);
     }
+    // Two buffers bound the rebuild: the frame must hold the image plus the pending entry, and the
+    // staging scratch must hold the image. Both are DEFAULT_SIZE, so the second bound only bites for
+    // a frame a caller sized past it; such a frame is refused like any other overflow, never grown
+    // into.
+    final byte[] scratch = COMPACT_SCRATCH.get();
     final long pendingEntrySize = 2L + pendingSuffixLen + 2L + pendingValueLen;
-    if (rebuiltSize + pendingEntrySize > slotMemory.byteSize()) {
+    if (rebuiltSize + pendingEntrySize > slotMemory.byteSize() || rebuiltSize > scratch.length) {
       return false;
     }
 
     // Pass 2: stage the rebuilt entries. Use scratch buffers to avoid per-entry allocation.
-    byte[] scratch = COMPACT_SCRATCH.get();
-    if (scratch.length < rebuiltSize) {
-      scratch = new byte[rebuiltSize];
-      COMPACT_SCRATCH.set(scratch);
-    }
     final int[] relocatedOffsets = COMPACT_OFFSETS_SCRATCH.get();
     int newOffset = 0;
 

@@ -46,6 +46,14 @@ public final class HOTIncrementalInsert {
   /** Diagnostic: individual segment references re-homed by {@link #routeSegmentRefs}. */
   public static final AtomicLong SPLIT_SEGMENT_REFS_ROUTED = new AtomicLong();
 
+  /**
+   * Diagnostic: adjacent leaf pairs {@link #consolidateNodeLeaves} left unmerged because the merged
+   * leaf reported their union does not fit — the byte budget the entry-count gate cannot see, most
+   * notably a common prefix the right sibling shortens for every entry already poured in. A test that
+   * means to exercise that path must assert this counter moved.
+   */
+  public static final AtomicLong CONSOLIDATION_PAIR_DID_NOT_FIT = new AtomicLong();
+
   private HOTIncrementalInsert() {
     throw new AssertionError("utility class — static primitives only");
   }
@@ -1036,6 +1044,7 @@ public final class HOTIncrementalInsert {
           if (!fits) {
             mergedLeaf.close();
             pendingSpeculativeLeaf = null;
+            CONSOLIDATION_PAIR_DID_NOT_FIT.incrementAndGet();
             continue;
           }
 
