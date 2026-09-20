@@ -819,7 +819,7 @@ public final class FileChannelReader extends AbstractReader {
   private static final LongAdder RUN_SINGLETONS = new LongAdder();
 
   /**
-   * Coalesced runs the batch read has issued since the last {@link #resetRunStats()}.
+   * Coalesced runs the batch read has issued in this process.
    *
    * <p>
    * Unconditional rather than gated behind a diagnostic flag, for the reason given at
@@ -850,14 +850,6 @@ public final class FileChannelReader extends AbstractReader {
   /** Batch members that coalesced with no neighbour and cost a page read of their own. */
   public static long runSingletons() {
     return RUN_SINGLETONS.sum();
-  }
-
-  /** Zero the batch-read counters, so a test can attribute what one read did. */
-  public static void resetRunStats() {
-    RUN_COUNT.reset();
-    RUN_SPAN_BYTES.reset();
-    RUN_FALLBACKS.reset();
-    RUN_SINGLETONS.reset();
   }
 
   /**

@@ -43,10 +43,6 @@ public final class WorkCapture {
    */
   public static final String PRINT_PROPERTY = "sirix.workBudget.print";
 
-  private static final String OWN_CLASS = WorkCapture.class.getName();
-
-  private static final int MAX_PRINTED_CALLERS = 4;
-
   /** An operation that may throw, returning nothing. */
   @FunctionalInterface
   public interface ThrowingAction {
@@ -166,43 +162,12 @@ public final class WorkCapture {
     }
     final WorkReport work = WorkReport.between(captured, before, after);
     if (Boolean.getBoolean(PRINT_PROPERTY)) {
-      printEvidence(work);
+      // Off unless -Dsirix.workBudget.print=true: this is how the figures behind a budget are
+      // gathered, before it is set and whenever it is changed. The surefire output already names the
+      // test each table belongs to.
+      System.out.println("[work-budget]" + System.lineSeparator() + work);
     }
     return new Captured<>(result, work);
-  }
-
-  /**
-   * Prints one capture under the test frame that took it. Off unless
-   * {@code -D}{@value #PRINT_PROPERTY} is set: this is how the figures behind a budget are gathered,
-   * before it is set and whenever it is changed.
-   */
-  private static void printEvidence(final WorkReport work) {
-    // The capturing class's own frames, innermost first: a shared helper and then the test calling it.
-    final List<StackWalker.StackFrame> callers = StackWalker.getInstance().walk(frames -> {
-      final List<StackWalker.StackFrame> own = new ArrayList<>(MAX_PRINTED_CALLERS);
-      frames.filter(frame -> !isOwnFrame(frame.getClassName()))
-            .takeWhile(frame -> own.isEmpty() || frame.getClassName().equals(own.get(0).getClassName()))
-            .limit(MAX_PRINTED_CALLERS)
-            .forEach(own::add);
-      return own;
-    });
-    final StringBuilder label = new StringBuilder(128).append("[work-budget] ");
-    if (callers.isEmpty()) {
-      label.append("unknown caller");
-    } else {
-      label.append(callers.get(0).getClassName());
-      for (int i = callers.size() - 1; i >= 0; i--) {
-        label.append(i == callers.size() - 1
-            ? " "
-            : " -> ").append(callers.get(i).getMethodName()).append(':').append(callers.get(i).getLineNumber());
-      }
-    }
-    System.out.println(label.append(System.lineSeparator()).append(work));
-  }
-
-  /** Frames of this class and its nested types; everything else is the code that captured. */
-  private static boolean isOwnFrame(final String className) {
-    return className.equals(OWN_CLASS) || className.startsWith(OWN_CLASS + '$');
   }
 
   private List<WorkCounter> allCounters() {

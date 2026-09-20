@@ -68,6 +68,7 @@ public final class WorkReport {
 
   /** Requires exactly {@code expected}; for deterministic paths only. */
   public WorkReport assertExactly(final WorkCounter counter, final long expected, final String guardsAgainst) {
+    requireExplanation(counter, guardsAgainst);
     final long actual = of(counter);
     if (actual != expected) {
       throw failure(counter, actual, "exactly " + expected, guardsAgainst);
@@ -85,6 +86,7 @@ public final class WorkReport {
    * of this work, so a counter that stopped counting cannot pass.
    */
   public WorkReport assertAtMost(final WorkCounter counter, final long max, final String guardsAgainst) {
+    requireExplanation(counter, guardsAgainst);
     requireBound(max, "max");
     final long actual = of(counter);
     if (actual > max) {
@@ -95,6 +97,7 @@ public final class WorkReport {
 
   /** Requires at least {@code min}: the operation really took this path, or the counter is live. */
   public WorkReport assertAtLeast(final WorkCounter counter, final long min, final String guardsAgainst) {
+    requireExplanation(counter, guardsAgainst);
     requireBound(min, "min");
     final long actual = of(counter);
     if (actual < min) {
@@ -108,6 +111,7 @@ public final class WorkReport {
    */
   public WorkReport assertBetween(final WorkCounter counter, final long min, final long max,
       final String guardsAgainst) {
+    requireExplanation(counter, guardsAgainst);
     requireBound(min, "min");
     requireBound(max, "max");
     if (min > max) {
@@ -122,10 +126,6 @@ public final class WorkReport {
 
   private AssertionError failure(final WorkCounter counter, final long actual, final String budget,
       final String guardsAgainst) {
-    Objects.requireNonNull(guardsAgainst, "guardsAgainst");
-    if (guardsAgainst.isBlank()) {
-      throw new IllegalArgumentException("budget on '" + counter.name() + "' must say what regression it guards");
-    }
     final String line = System.lineSeparator();
     final StringBuilder message = new StringBuilder(256);
     message.append("work budget broken: ")
@@ -181,6 +181,19 @@ public final class WorkReport {
   private static void requireBound(final long bound, final String what) {
     if (bound < 0) {
       throw new IllegalArgumentException(what + " must not be negative: " + bound);
+    }
+  }
+
+  /**
+   * Every budget says what regression it guards, whether or not it holds today. Checking this only
+   * while building a failure message would let a magic number sit green for years and report itself
+   * malformed on the one day someone needs it to explain what broke.
+   */
+  private static void requireExplanation(final WorkCounter counter, final String guardsAgainst) {
+    Objects.requireNonNull(counter, "counter");
+    Objects.requireNonNull(guardsAgainst, "guardsAgainst");
+    if (guardsAgainst.isBlank()) {
+      throw new IllegalArgumentException("budget on '" + counter.name() + "' must say what regression it guards");
     }
   }
 

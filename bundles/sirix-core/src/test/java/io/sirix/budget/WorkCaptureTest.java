@@ -210,13 +210,22 @@ final class WorkCaptureTest {
 
   @Test
   void aBudgetMustBeWellFormedAndSayWhatItGuards() throws Exception {
-    final WorkReport work = WorkCapture.of(leafReads).run(() -> leaves.addAndGet(5));
+    final WorkReport work = WorkCapture.of(leafReads, runReads).run(() -> leaves.addAndGet(5));
 
     assertThrows(IllegalArgumentException.class, () -> work.assertBetween(leafReads, 9, 1, "empty range"));
     assertThrows(IllegalArgumentException.class, () -> work.assertAtMost(leafReads, -1, "negative"));
     assertThrows(IllegalArgumentException.class, () -> work.assertAtLeast(leafReads, -1, "negative"));
     assertThrows(IllegalArgumentException.class, () -> work.assertAtMost(leafReads, 1, "  "),
         "a budget that breaks without saying what it guards is a magic number");
+
+    // The work is 5, so every bound below holds: a magic number must be rejected while it is green,
+    // not only on the day it breaks and someone needs the sentence to know what to do about it.
+    assertThrows(IllegalArgumentException.class, () -> work.assertExactly(leafReads, 5, " "));
+    assertThrows(IllegalArgumentException.class, () -> work.assertZero(runReads, ""));
+    assertThrows(IllegalArgumentException.class, () -> work.assertAtMost(leafReads, 8, ""));
+    assertThrows(IllegalArgumentException.class, () -> work.assertAtLeast(leafReads, 1, ""));
+    assertThrows(IllegalArgumentException.class, () -> work.assertBetween(leafReads, 1, 8, ""));
+    assertThrows(NullPointerException.class, () -> work.assertAtMost(leafReads, 8, null));
   }
 
   @Test

@@ -2065,9 +2065,10 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 **Always-on work counters.** The file-channel batch read counts unconditionally, because each event is at least one
 positional read: `FileChannelReader.runCount()` (coalesced runs), `runSpanBytes()` (bytes their span reads covered, gaps
 included), `runFallbacks()` (members re-read exactly because their body crossed the next offset) and `runSingletons()`
-(batch members with no near-adjacent neighbour, read one page at a time), reset by `resetRunStats()`; `runDiagSummary()`
-prints all four. A batch that stops coalescing, or is not sorted by file offset, returns the same bytes, so these are the
-only way to tell. `AbstractReader.regionChunkHits()` / `regionChunkFallbacks()`, the `# chunked:` projection events
+(batch members with no near-adjacent neighbour, read one page at a time); `runDiagSummary()` prints all four. They are
+process-wide running totals: read them as a difference across the operation you are attributing, never reset in place —
+a work-budget capture fails outright on a counter that ran backwards while it was running. A batch that stops
+coalescing, or is not sorted by file offset, returns the same bytes, so these are the only way to tell. `AbstractReader.regionChunkHits()` / `regionChunkFallbacks()`, the `# chunked:` projection events
 (§7.3) and the frame-slot allocator's `allocateCount` / `releaseCount` are unconditional for the same reason. The HOT
 fragment-merge counters in `VersioningType` sit on the default read path and stay gated behind `sirix.hot.mergeDiag`,
 which the `sirix-core` and `sirix-query` test JVMs switch on.

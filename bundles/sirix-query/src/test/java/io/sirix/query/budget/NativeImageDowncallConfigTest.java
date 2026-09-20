@@ -49,12 +49,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * <b>The build is asked, not read.</b> The script defines the argument once, adds it to the main
  * image, and hands this test what Gradle itself evaluated: the arguments the opt-in and the default
- * produce, whether this build asked for the opt-in, and the build-time initialization arguments the
- * main and smoke-test images really end up with (see the {@code test} block of
- * {@code bundles/sirix-query/build.gradle}). Run the suite with
+ * produce, the name of the property it consults, whether this build asked for the opt-in, and the
+ * build-time initialization arguments the main and smoke-test images really end up with (see the
+ * {@code test} block of {@code bundles/sirix-query/build.gradle}). Run the suite with
  * {@code -Pnative.preinitializeDowncalls=true} and the same assertions check the other state. The
  * shared {@code native-image.properties} files are parsed as properties, the way Native Image reads
- * them.
+ * them. Nothing here asserts on the text of a document: prose is reworded without changing a build.
  *
  * <p>
  * <b>What this cannot catch:</b> whether an image built with the option is actually fast, whether
@@ -134,45 +134,41 @@ final class NativeImageDowncallConfigTest {
       }
     }
 
+    // The one shared configuration that carries a build-time list today. A scan that stopped
+    // reaching it, or stopped parsing it the way Native Image does, would pass on anything.
+    final Path core = repository.resolve(
+        "bundles/sirix-core/src/main/resources/META-INF/native-image/io.sirix/sirix-core/native-image.properties");
+    assertTrue(shared.contains(core),
+        "the scan no longer reaches " + repository.relativize(core) + ", so it would pass on anything: " + shared);
+
     final List<String> offenders = new ArrayList<>();
-    boolean sawSirixCoresBuildTimeList = false;
+    List<String> coreEntries = List.of();
     for (final Path file : shared) {
       final List<String> entries = buildTimeEntries(argsOf(file));
-      sawSirixCoresBuildTimeList |=
-          file.endsWith("sirix-core/native-image.properties") && entries.contains("io.sirix.node.LE");
+      if (file.equals(core)) {
+        coreEntries = entries;
+      }
       for (final String holder : holdersCoveredBy(entries)) {
         offenders.add(repository.relativize(file) + " initializes " + holder);
       }
     }
-    assertTrue(sawSirixCoresBuildTimeList,
-        "the scan no longer reaches sirix-core's build-time list, so it would pass " + "on anything: " + shared);
+    assertFalse(coreEntries.isEmpty(), repository.relativize(core) + " yielded no build-time initialization entry, "
+        + "so this scan reads nothing it could find a holder in");
     assertEquals(List.of(), offenders,
         "a shared native-image.properties applies to every image, the opt-in to one: a holder listed there, by "
             + "name, outer class or package, fails every build on the GraalVM 25.0.x LTS line");
   }
 
   /**
-   * The fenced argument in {@code docs/NATIVE_IMAGE.md} is a text contract of its own: it is what
-   * someone copies into a raw {@code native-image} command line, so it has to be the argument the
-   * build produces, not a description of it.
+   * A rename of the Gradle property is the one drift {@code docs/NATIVE_IMAGE.md} cannot follow on
+   * its own: the documented {@code -P} switch would go on being accepted and do nothing, and an
+   * optimized build would silently keep the run-time adapters.
    */
   @Test
-  void theDocumentationStatesTheArgumentTheBuildProduces() throws IOException {
-    final Path document = repositoryRoot().resolve("docs/NATIVE_IMAGE.md");
-    final List<String> documented = new ArrayList<>();
-    for (final String line : Files.readAllLines(document, StandardCharsets.UTF_8)) {
-      final String argument = line.strip();
-      if (argument.startsWith(BUILD_TIME_FLAG) && !holdersCoveredBy(buildTimeEntries(List.of(argument))).isEmpty()) {
-        documented.add(argument);
-      }
-    }
-    assertEquals(evaluatedByTheBuild(ARGS_WHEN_OPTED_IN), documented,
-        "docs/NATIVE_IMAGE.md must state the opt-in argument once, exactly as the build produces it");
-    assertTrue(Files.readString(document, StandardCharsets.UTF_8).contains(OPT_IN),
-        "docs/NATIVE_IMAGE.md must name the property that switches the argument on: " + OPT_IN);
+  void theDocumentedSwitchIsThePropertyTheBuildConsults() {
     assertEquals(DOCUMENTED_PROPERTY, evaluated(PROPERTY_CONSULTED),
-        "the build consults a different property than the one the documentation tells people to pass, so the "
-            + "documented switch does nothing and an optimized build silently keeps the run-time adapters");
+        "the build consults a different property than the one the documentation tells people to pass (" + OPT_IN
+            + "), so the documented switch does nothing and an optimized build silently keeps the run-time adapters");
   }
 
   @Test
@@ -185,10 +181,13 @@ final class NativeImageDowncallConfigTest {
       assertTrue(holder.isMemberClass() && Modifier.isStatic(holder.getModifiers()),
           name + " must stay a static nested holder: its lazy initialization is what lets the enclosing class "
               + "load the library first and fall back when linkage is unsupported");
-      final Field[] fields = holder.getDeclaredFields();
-      assertEquals(1, fields.length, name + " must hold the call adapter and nothing else. Anything more is process "
-          + "state that build-time initialization would bake into the image heap: " + List.of(fields));
-      final Field handle = fields[0];
+      // The holder's own fields. A synthetic one (javac's $assertionsDisabled, a coverage agent's
+      // probe array on a pre-11 class file) is the compiler's or the instrumenter's, not source this
+      // guard is about, and it is not state a build-time initialized image heap would carry.
+      final List<Field> fields = Stream.of(holder.getDeclaredFields()).filter(field -> !field.isSynthetic()).toList();
+      assertEquals(1, fields.size(), name + " must hold the call adapter and nothing else. Anything more is process "
+          + "state that build-time initialization would bake into the image heap: " + fields);
+      final Field handle = fields.get(0);
       assertEquals(MethodHandle.class, handle.getType(), name + "." + handle.getName());
       assertTrue(Modifier.isStatic(handle.getModifiers()) && Modifier.isFinal(handle.getModifiers()),
           name + "." + handle.getName() + " must be a static final constant, or invokeExact cannot inline through it");
@@ -265,7 +264,7 @@ final class NativeImageDowncallConfigTest {
       directory = directory.getParent();
     }
     assertNotNull(directory, "no settings.gradle above " + Path.of("").toAbsolutePath() + ": this guard reads the "
-        + "shared native-image configuration and its documentation, so it has to run inside the checkout");
+        + "shared native-image configuration of every module, so it has to run inside the checkout");
     return directory;
   }
 }

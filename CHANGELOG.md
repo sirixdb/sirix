@@ -79,11 +79,11 @@ All notable changes to SirixDB are documented in this file.
   one). Each budget was proven by putting the guarded defect back. See
   `bundles/sirix-core/src/test/java/io/sirix/budget/README.md` and `docs/VERIFICATION.md`.
 - **Always-on batch-read counters** — `FileChannelReader.runCount()`, `runSpanBytes()`,
-  `runFallbacks()` and the new `runSingletons()` (batch members read one page at a time), with
-  `resetRunStats()`. The first three were previously counted only under `-Dsirix.projDiag` and
-  readable only as a formatted string; each event is at least one positional read, so counting is
-  free at that granularity. A batch that stops coalescing returns the same bytes, so these are the
-  only way to tell.
+  `runFallbacks()` and the new `runSingletons()` (batch members read one page at a time). The first
+  three were previously counted only under `-Dsirix.projDiag` and readable only as a formatted
+  string; each event is at least one positional read, so counting is free at that granularity. A
+  batch that stops coalescing returns the same bytes, so these are the only way to tell. They are
+  process-wide running totals read as a difference across an operation, never reset in place.
 
 ### Changed
 
