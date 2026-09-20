@@ -18,7 +18,7 @@
   - Avoid virtual method calls in tight loops where possible
   - Pre-size collections when the size is known
   - Use StringBuilder for string concatenation in loops
-- A change to a read, load or query path must keep the **work-budget tests** green (`io.sirix.budget`, `io.sirix.query.budget`). A broken budget is a regression until shown otherwise: never widen a bound to get a green build, and never add a wall-clock assertion. Rules and how to add one: `bundles/sirix-core/src/test/java/io/sirix/budget/README.md`.
+- A change to a read, load or query path must keep the **work-budget tests** green; the *Work budgets* block of `docs/VERIFICATION.md` runs all of them. A broken budget is a regression until shown otherwise: never widen a bound to get a green build, and never add a wall-clock assertion. Rules and how to add one: `bundles/sirix-core/src/test/java/io/sirix/budget/README.md`.
 
 ## Maintaining this file
 

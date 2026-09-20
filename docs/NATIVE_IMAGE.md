@@ -227,9 +227,9 @@ Gradle evaluated, so it checks that the opt-in produces exactly one argument nam
 and the default produces none, that the main image initializes the holders early only when the
 build asked for it, that the smoke-test image never does, that the property the build consults is
 still the `-P` switch named above, that the argument names classes that exist and still hold nothing
-but their call signature, and that no shared `native-image.properties` initializes a holder early. It
-asserts nothing about the wording of this section — keep the argument above in step by hand.
-Renaming a holder, for instance, would otherwise turn the option into a
-silent no-op, because Native Image does not reject a name that matches nothing. The test builds no image, so it **cannot** tell whether an
-image built with the option is fast, or builds at all on a given GraalVM; only a timed run of a real
-image can.
+but their call signature, and that no shared `native-image.properties` initializes a holder early.
+Without that guard, renaming a holder would turn the option into a silent no-op, because Native
+Image does not reject a name that matches nothing; with it, a rename that reaches only one side
+fails the test instead. Only the argument quoted earlier in this document is unchecked prose — keep
+it in step by hand. The test builds no image, so it **cannot** tell whether an image built with the
+option is fast, or builds at all on a given GraalVM; only a timed run of a real image can.
