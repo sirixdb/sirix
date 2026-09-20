@@ -95,6 +95,19 @@ All notable changes to SirixDB are documented in this file.
   `awaitPendingAsyncCommit()` → `awaitPendingAsyncFlush()`. The mechanism creates no revision
   and no commit record; the old names asserted otherwise.
 
+### Fixed
+
+- **A HOT leaf-page rebuild could write past its page** — inserting a key that shortens a leaf's
+  common prefix rewrites every resident entry with the reclaimed prefix bytes, and that rewrite was
+  performed without checking that the grown entries still fit the 64 KiB page. Loading a JSON
+  resource with a declared valid-time index failed mid-load with
+  `IndexOutOfBoundsException: Range [64580, 64580 + 1165) out of bounds for length 65536` out of
+  `HOTLeafPage.rebuildForShorterPrefix`. The rebuilt image is now sized before anything is written
+  and the shrink is refused when the rebuilt entries plus the pending entry do not fit, leaving the
+  page exactly as it was so the caller takes its ordinary "leaf is full" path (split, skipped
+  consolidation merge, multi-page half). Results, on-disk format, revision visibility and write
+  granularity are unchanged. Specified in `docs/HOT_INDEX_SPECIFICATION.md` §3.2.2.
+
 ## [1.0.0-beta7] — 2026-07-15
 
 ### Fixed
