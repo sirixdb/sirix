@@ -817,7 +817,7 @@ frames or leave guards nobody releases:
   file-backed reader, true for `RAMStorage`, whose reads return the only instance it holds
   (`io/Reader.java:134-166`; `io/AbstractReader.java:75-104`; `io/ram/RAMStorage.java:159-169`).
   `FileChannelReader` and `MMFileReader` do the same in their coalesced overrides
-  (`io/filechannel/FileChannelReader.java:642-645`; `io/memorymapped/MMFileReader.java:204-219`).
+  (`io/filechannel/FileChannelReader.java:643-646`; `io/memorymapped/MMFileReader.java:204-219`).
 - **In the chain loader.** A `loadChainFragmentsGuarded` that throws part way releases exactly the
   guards this call acquired (elements ≥ 1): "a permanently guarded entry can never be evicted,
   pinning its off-heap slot for the JVM's lifetime"

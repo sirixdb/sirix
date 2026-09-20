@@ -29,11 +29,11 @@ import java.util.function.BiConsumer;
  * <li>{@code "prepare"} fires once per async-flush <em>rotation</em>, <em>after</em> the previous
  * snapshot's cleanup has promoted pages into the pinned region. That is every rotation, not only a
  * full intent-log epoch: {@code startAsyncFlushOwned} runs the spill inside
- * {@code if (includeTransactionLog)} and injects this site outside it, so a side-pages-only rotation
- * — the path a projection bulk load drives most — reaches it with no spill having run. The pinned
- * size sampled there is therefore post-spill on a full epoch and pre-spill on a side-only rotation,
- * which can only make {@link #pinnedPagesPeak()} read high, never low. A spill that runs keeps the
- * region bounded; one refused at its gate lets it grow until the arena is exhausted.</li>
+ * {@code if (includeTransactionLog)} and injects this site outside it, so a side-pages-only
+ * rotation — the path a projection bulk load drives most — reaches it with no spill having run. The
+ * pinned size sampled there is therefore post-spill on a full epoch and pre-spill on a side-only
+ * rotation, which can only make {@link #pinnedPagesPeak()} read high, never low. A spill that runs
+ * keeps the region bounded; one refused at its gate lets it grow until the arena is exhausted.</li>
  * <li>{@code "trie-spill-before-publish"} and {@code "trie-spill-after-publish"} bracket the
  * publication of one spill batch, so the drop in pinned size between them is the pages it drained.
  * A batch can only be published inside a full epoch whose spill ran, which is what makes
@@ -83,8 +83,8 @@ public final class IntentLogEpochProbe implements WorkProbe {
   private boolean open;
 
   /**
-   * Async-flush rotations the load went through, side-pages-only ones included. Too coarse to prove
-   * a fixture exercised the spill; use {@link #spillBatches()} for that.
+   * Async-flush rotations the load went through, side-pages-only ones included. Too coarse to prove a
+   * fixture exercised the spill; use {@link #spillBatches()} for that.
    */
   public WorkCounter rotations() {
     return rotationCounter;

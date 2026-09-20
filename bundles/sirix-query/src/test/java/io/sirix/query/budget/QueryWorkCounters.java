@@ -91,6 +91,9 @@ public final class QueryWorkCounters {
    * every capture the budget tests take, which is the quiet loss of coverage this package exists to
    * prevent.
    */
-  public static final List<WorkCounter> ROUTES =
-      Stream.concat(SERVED.stream(), Stream.of(GROUP_AGGREGATES_DECLINED, GROUP_AGGREGATES_FAILED)).toList();
+  public static final List<WorkCounter> ROUTES = Stream
+                                                       .concat(SERVED.stream(),
+                                                           Stream.of(GROUP_AGGREGATES_DECLINED,
+                                                               GROUP_AGGREGATES_FAILED))
+                                                       .toList();
 }

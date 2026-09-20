@@ -37,9 +37,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * A projection declared at load time writes its HOT trie pages inside the load transaction. They
  * cannot be flushed like record pages, so each full intent-log epoch moves them into the log's
  * pinned region, where every one holds an off-heap frame, and the only way out before the final
- * commit is the pre-commit spill. While that spill runs, the region holds a few dozen pages; when it
- * does not, the region grows by one page per filled leaf for as long as the load lasts, and a large
- * load exhausts the arena and dies.
+ * commit is the pre-commit spill. While that spill runs, the region holds a few dozen pages; when
+ * it does not, the region grows by one page per filled leaf for as long as the load lasts, and a
+ * large load exhausts the arena and dies.
  *
  * <p>
  * Nothing about a small load's <em>result</em> changes either way, which is why a suite that checks
