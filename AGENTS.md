@@ -2,6 +2,7 @@
 
 - **Always use explicit imports** - no star imports (`import foo.*`), no inline fully-qualified class names. Every type must be imported at the top of the file.
 - Produce production-ready code, use best practices, create tests where appropriate, check input parameters to functions/methods, use common software engineering patterns where appropriate
+- CI fails on unformatted Java (`spotlessCheck`, ratcheted to files changed since `origin/main`; see `build.gradle`): run `./gradlew spotlessApply` before committing.
 
 ## Performance Requirements
 
