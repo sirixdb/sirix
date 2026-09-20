@@ -249,6 +249,14 @@ runs exactly as it did before — it may well serve the range, and nothing that 
 stops being served. A leaf's position is read from the fence keys the directory already holds, so
 the test costs no read of its own.
 
+One case therefore still pays both walks: a range whose only row without a value sits in a leaf
+straddling one of its two ends, so the summaries walk covers the whole range without proving
+anything and the full-key walk then reaches that row and declines. It is left alone on purpose.
+Removing it would mean declining on the view-wide count up front, which would also decline every
+range whose own rows all carry a value — including the ranges that leaf serves from its other end
+— and that loses more than the walk it saves. As it stands the case costs exactly what it cost
+before the count existed, never more, and the full-key walk can still serve such a range outright.
+
 The directory header counts the view's rows without a value, beside the rows under the reserved
 unencodable key. The count is what makes the per-leaf proof sound, and it is consulted only where
 it is exactly right: while it is zero, a leaf without a summary can only mean a revision whose

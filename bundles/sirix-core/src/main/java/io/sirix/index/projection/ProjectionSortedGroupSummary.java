@@ -25,10 +25,20 @@ final class ProjectionSortedGroupSummary {
    */
   private static volatile @Nullable IntConsumer readObserverForTesting;
 
+  /**
+   * Test observation of {@link #countMissingLastField}, which is how a write that pays for a second
+   * walk of a leaf's keys is told apart from one that does not; null in production.
+   */
+  private static volatile @Nullable IntConsumer missingCountObserverForTesting;
+
   private ProjectionSortedGroupSummary() {}
 
   static void setReadObserverForTesting(final @Nullable IntConsumer observer) {
     readObserverForTesting = observer;
+  }
+
+  static void setMissingCountObserverForTesting(final @Nullable IntConsumer observer) {
+    missingCountObserverForTesting = observer;
   }
 
   private static void observeRead(final int leafId) {
@@ -88,11 +98,20 @@ final class ProjectionSortedGroupSummary {
    * second pass. Reserved unencodable keys are not well formed and are never counted here; the
    * directory header counts them on their own.
    * </p>
+   *
+   * <p>
+   * Only a pass that visits every live leaf may sum this into the header, so it runs for the initial
+   * build and the summary backfill alone; maintenance keeps the header count from its own edit keys.
+   * </p>
    */
   static int countMissingLastField(final ProjectionSortedLeaf source, final ProjectionSortKeyCodec.Layout layout) {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(layout, "layout");
     final int rows = source.rowCount();
+    final IntConsumer observer = missingCountObserverForTesting;
+    if (observer != null) {
+      observer.accept(rows);
+    }
     byte[] key = new byte[128];
     int missing = 0;
     for (int row = 0; row < rows; row++) {

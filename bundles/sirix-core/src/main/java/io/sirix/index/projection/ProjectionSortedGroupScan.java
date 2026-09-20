@@ -178,6 +178,9 @@ public final class ProjectionSortedGroupScan {
                           / LEAVES_PER_SUMMARY_WORKER));
       // The header count is the cheap whole-view fact that enables the per-leaf proof below; while
       // it is zero or unknown the summaries route keeps every decision it had, at no added cost.
+      // Declining the whole view here on a nonzero count would be cheaper still, and is deliberately
+      // not done: one row without a value anywhere would then stop accelerating every range whose
+      // own rows all carry one, which loses more than the walk it saves.
       final SummaryDecline decline = directory.holdsRowsWithoutAggregateValues()
           ? new SummaryDecline()
           : null;
@@ -192,6 +195,9 @@ public final class ProjectionSortedGroupScan {
         // walk would seek the prefix only to reach it and decline; the second walk buys nothing.
         return null;
       }
+      // Nothing proven: the missing summary sat in a leaf meeting the range at one of its ends, so
+      // the offending row may lie outside the range and the walk below may still serve it. That
+      // range keeps both walks, exactly as it did before the count existed — never worse.
     }
     final ProjectionSortedDirectory.Accessor.Cursor cursor = directory.seek(prefix);
     final int capacity = limit + 1;
@@ -635,6 +641,11 @@ public final class ProjectionSortedGroupScan {
      * Answered from the fence keys the directory already holds, so it reads nothing, and it errs
      * towards {@code false}: a range's first and last leaf are treated as boundaries even when they
      * happen to hold no row outside it.
+     *
+     * <p>
+     * Erring that way costs only the walk such a range always made, and that walk can still serve
+     * the range — the answer a decline taken from the view-wide count alone would have thrown away.
+     * </p>
      */
     boolean lastLeafWasEntirelyInsideRange() {
       return lastEntirelyInside;
@@ -648,6 +659,8 @@ public final class ProjectionSortedGroupScan {
         leafIds[size++] = cursor.id();
         // The leaf's own first key decides the lower end; that another leaf of the range follows it
         // decides the upper end, because that leaf's first key is below the range's upper bound.
+        // A leaf meeting either end answers false on purpose: the rows it holds outside the range
+        // may be the ones without a value, so it proves nothing about the range itself.
         final boolean insideLower = entirelyInside == null || startsWithPrefix();
         final boolean more = cursor.advance();
         if (entirelyInside != null) {

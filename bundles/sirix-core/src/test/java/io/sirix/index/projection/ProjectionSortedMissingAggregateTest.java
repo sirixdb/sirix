@@ -42,9 +42,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * Such a row has no group summary and no provable extremum, so both the summaries route and the
  * full-key route give up on it — each after walking the queried range. The directory header counts
- * those rows, which turns the decline into a constant-time one. The count is view-wide, exactly like
- * the reserved unencodable rows beside it: one such row anywhere declines every range, including a
- * range that holds none, which trades that range's accelerated route for never paying the walks.
+ * those rows view-wide, beside the reserved unencodable rows, and that count lets the summaries
+ * walk decline for both routes at once — but only where it has proved the second walk futile. A
+ * leaf lying entirely inside the queried range and holding no summary must hold one of the counted
+ * rows, and hold it inside the range, so the full-key walk would only reach the same row: the range
+ * declines without reading a data leaf.
+ * </p>
+ *
+ * <p>
+ * A leaf that meets the range at one of its two ends proves nothing — the row without a value may
+ * be one of the leaf's rows outside the range — so such a range keeps both walks, and keeps the
+ * answer the full-key walk can still find for it. A range whose leaves all have summaries is served
+ * from the summaries alone, untouched. A zero or unknown count changes nothing at all.
  * </p>
  */
 final class ProjectionSortedMissingAggregateTest {
@@ -285,6 +294,47 @@ final class ProjectionSortedMissingAggregateTest {
         // Every committed revision keeps the count it was published with.
         assertEquals(0, missingAggregateRowsOf(session, built));
         assertEquals(1, missingAggregateRowsOf(session, inserted));
+      }
+    }
+  }
+
+  /**
+   * The per-leaf recount is an initial-build cost alone. A maintenance pass keeps the header count
+   * from the keys it inserts and removes, so rewriting a leaf must never walk that leaf's rows again
+   * — a walk whose result the pass could not use anyway, since it would double count what the edit
+   * keys already accounted for.
+   */
+  @Test
+  void onlyTheInitialBuildRecountsALeafsRowsWithoutAValue() {
+    final Path databasePath = temporaryDirectory.resolve("no-maintenance-recount");
+    final List<Row> rows = fixture(true);
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        final int built = recounts(() -> {
+          try (JsonNodeTrx writer = session.beginNodeTrx()) {
+            build(writer, rows);
+            writer.commit();
+          }
+        });
+        assertTrue(built > 0, "the build must count the leaves that get no summary");
+        final long held = rowsWithoutAValue(rows);
+        assertEquals(held, missingAggregateRowsOf(session));
+
+        // Each pass rewrites a leaf that ends up without a summary, which is exactly the leaf a
+        // recount would walk: the insert adds a row with no value, the update takes it away again.
+        final byte[] absent = key(new Row(DIRTY_PREFIX, "g3", null, 9_301));
+        final byte[] present = key(new Row(DIRTY_PREFIX, "g3", 4_242L, 9_301));
+        assertEquals(0, recounts(() -> {
+          edit(session, editor -> editor.insert(absent, new byte[0]));
+          assertEquals(held + 1, missingAggregateRowsOf(session));
+          edit(session, editor -> editor.apply(new byte[][] {absent}, 1, new byte[][] {present}, null, 1));
+          edit(session, editor -> editor.remove(present));
+        }), "a maintenance write must not walk the rewritten leaf's rows again");
+        assertEquals(held, missingAggregateRowsOf(session));
+        assertNull(topKOfDirtyRange(session), "the range still holds the fixture's rows without a value");
+        assertEquals(expected(rows, CLEAN_PREFIX, 4, Order.MIN_ASC, false), topKOfLatest(session));
       }
     }
   }
@@ -548,6 +598,18 @@ final class ProjectionSortedMissingAggregateTest {
       ProjectionSortedGroupSummary.setReadObserverForTesting(null);
     }
     return new Reads(leaves.get(), summaries.get());
+  }
+
+  /** Per-leaf recounts of the rows without a value that {@code work} paid for. */
+  private static int recounts(final Runnable work) {
+    final AtomicInteger recounts = new AtomicInteger();
+    ProjectionSortedGroupSummary.setMissingCountObserverForTesting(ignored -> recounts.incrementAndGet());
+    try {
+      work.run();
+    } finally {
+      ProjectionSortedGroupSummary.setMissingCountObserverForTesting(null);
+    }
+    return recounts.get();
   }
 
   private static long rowsWithoutAValue(final List<Row> rows) {
