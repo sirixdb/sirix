@@ -1556,6 +1556,12 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
 
 ### 8.1 Map
 
+The verdicts below record stale line references in the sibling documents; the same holds for **this**
+specification, whose `File.java:line` citations are equally hand-copied and age with every commit to
+the cited file. Several are already wrong (the §6.2 counter tally's
+`AbstractHOTIndexWriter.java:4937-4958` now lands on `declineFoldIntoFullHalf`; §4.5.1 cites
+`dispatchInsert` at `:2252-2301`) — resolve any citation by the symbol it names, not by the line.
+
 | Document | Covers | Verdict on the merged tree |
 |---|---|---|
 | `docs/DISK_FORMAT.md` | file layout, envelope, kind ids, index container pages, projection slot layout | current for what it covers; no HOT body layouts; integrity claim too strong for HOT (§3.6). PR #1214 added a projection *Compatibility* section (`:526-564`), which does not bear on HOT |
