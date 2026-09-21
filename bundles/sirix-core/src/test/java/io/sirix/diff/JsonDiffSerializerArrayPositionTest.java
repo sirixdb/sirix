@@ -78,9 +78,8 @@ final class JsonDiffSerializerArrayPositionTest {
 
       final List<DiffTuple> reordered =
           List.of(inserted(namedArrayNumberKey), inserted(outerNumberKey), inserted(nestedNumberKey));
-      final JsonObject document =
-          JsonParser.parseString(new JsonDiffSerializer(database.getName(), session, 1, 1, reordered).serializeSidecar())
-                    .getAsJsonObject();
+      final JsonObject document = JsonParser.parseString(
+          new JsonDiffSerializer(database.getName(), session, 1, 1, reordered).serializeSidecar()).getAsJsonObject();
       assertEquals("/[2]/items/[1]", pathOf(document, 0));
       assertEquals("/[0]", pathOf(document, 1));
       assertEquals("/[1]/[1]", pathOf(document, 2));

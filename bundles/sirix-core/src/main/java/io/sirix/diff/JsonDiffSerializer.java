@@ -513,8 +513,8 @@ public final class JsonDiffSerializer {
 
     /**
      * Allocated by the first lookup that reaches the walk. A serialization that resolves no array
-     * position - no path summary, or no emitted path with an array step - allocates no backing
-     * storage at all.
+     * position - no path summary, or no emitted path with an array step - allocates no backing storage
+     * at all.
      */
     private @Nullable Long2IntOpenHashMap positionsByNodeKey;
 

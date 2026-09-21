@@ -49,10 +49,12 @@ tools require. The hand-rolled harnesses check exactly the contracts the code do
 more work for the same answer. A projection query that stops being served from a summary, a load
 whose intent log stops spilling, a batch read that stops coalescing all return exactly what they
 returned before, so result checks, oracles and invariants stay green while a large database slows
-down or a large load dies. These tests capture the engine's own counters around one operation and
-assert a budget on them. They deliberately assert no wall-clock time: a threshold on a shared runner
-is flaky and cannot say what changed, where a counter is exact on any machine and names the path
-that grew. Each budget was proven by putting the guarded defect back and watching it fail.
+down or a large load dies. These tests capture counters around one operation — almost always figures
+the engine already maintains — and assert a budget on them; the budget package's README owns the
+exceptions and the rules for adding one. They deliberately assert no wall-clock time: a threshold on
+a shared runner is flaky and cannot say what changed, where a counter is exact on any machine and
+names the path that grew. Each budget was proven by putting the guarded defect back and watching it
+fail.
 
 They are the first of two layers, not the whole of performance regression testing. A budget only
 sees a change in the amount of counted work; it is blind to anything that makes the same work

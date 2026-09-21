@@ -206,10 +206,10 @@ final class JsonDiffArrayPositionWorkBudgetTest {
       assertTrue(wtx.moveTo(insertedKey));
       assertTrue(wtx.moveToRightSibling());
       final long secondElementKey = wtx.getNodeKey();
-      final WorkCapture.Captured<String> nonHead = WorkCapture.of(moves.counters())
-                                                             .call(() -> new JsonDiffSerializer(database.getName(),
-                                                                 countedSession, 1, 2,
-                                                                 List.of(inserted(secondElementKey))).serializeSidecar());
+      final WorkCapture.Captured<String> nonHead =
+          WorkCapture.of(moves.counters())
+                     .call(() -> new JsonDiffSerializer(database.getName(), countedSession, 1, 2,
+                         List.of(inserted(secondElementKey))).serializeSidecar());
       assertEquals("/[1]", pathOf(JsonParser.parseString(nonHead.result()).getAsJsonObject(), 0));
       nonHead.work()
              .assertExactly(moves.siblingMoves(), 1,
@@ -232,8 +232,9 @@ final class JsonDiffArrayPositionWorkBudgetTest {
 
       final ArrayPositionCacheProbe allocation = new ArrayPositionCacheProbe();
       final WorkCapture.Captured<String> captured =
-          WorkCapture.of().with(allocation).call(() -> serialize(database.getName(), session,
-              List.of(inserted(recordKey))));
+          WorkCapture.of()
+                     .with(allocation)
+                     .call(() -> serialize(database.getName(), session, List.of(inserted(recordKey))));
 
       assertEquals("/a", pathOf(JsonParser.parseString(captured.result()).getAsJsonObject(), 0));
       captured.work()
