@@ -25,10 +25,10 @@ import java.util.function.BiConsumer;
 public final class JsonDiffSerializer {
 
   /** Observes the actual backing storage once per revision cache, outside the traversal loop. */
-  private static volatile @Nullable BiConsumer<Long2IntOpenHashMap, LongArrayList> arrayPositionCacheObserver;
+  private static volatile @Nullable BiConsumer<@Nullable Long2IntOpenHashMap, LongArrayList> arrayPositionCacheObserver;
 
-  static @Nullable BiConsumer<Long2IntOpenHashMap, LongArrayList> setArrayPositionCacheObserverForTesting(
-      final @Nullable BiConsumer<Long2IntOpenHashMap, LongArrayList> observer) {
+  static @Nullable BiConsumer<@Nullable Long2IntOpenHashMap, LongArrayList> setArrayPositionCacheObserverForTesting(
+      final @Nullable BiConsumer<@Nullable Long2IntOpenHashMap, LongArrayList> observer) {
     final var previous = arrayPositionCacheObserver;
     arrayPositionCacheObserver = observer;
     return previous;
@@ -498,8 +498,9 @@ public final class JsonDiffSerializer {
    * child, then unwinds and assigns every ordinal it passed. A single lookup therefore costs at most
    * the steps its own index needs, and the total over all tuples of one array is bounded by the
    * number of distinct siblings walked plus one step per lookup - linear, not quadratic. Nothing is
-   * pre-sized and nothing beyond the walked prefix is stored, so both time and memory follow the
-   * largest index actually asked for rather than the array's length.
+   * pre-sized, nothing is allocated until a position is actually resolved, and nothing beyond the
+   * walked prefix is stored, so both time and memory follow the largest index actually asked for
+   * rather than the array's length.
    *
    * <p>
    * Node keys are unique within a revision, so one key has one ordinal; the two caches are
@@ -510,14 +511,15 @@ public final class JsonDiffSerializer {
     /** Neither a valid ordinal nor a cached one: {@code Long2IntOpenHashMap}'s miss value. */
     private static final int UNKNOWN_POSITION = -1;
 
-    private final Long2IntOpenHashMap positionsByNodeKey = new Long2IntOpenHashMap();
+    /**
+     * Allocated by the first lookup that reaches the walk. A serialization that resolves no array
+     * position - no path summary, or no emitted path with an array step - allocates no backing
+     * storage at all.
+     */
+    private @Nullable Long2IntOpenHashMap positionsByNodeKey;
 
     /** Reused across lookups; holds the keys of one walk, nearest sibling last. */
     private final LongArrayList walkedNodeKeys = new LongArrayList();
-
-    private ArrayPositionCache() {
-      positionsByNodeKey.defaultReturnValue(UNKNOWN_POSITION);
-    }
 
     private int positionOf(final JsonNodeReadOnlyTrx rtx) {
       // iter#32 P2: OBJECT_NAMED_OBJECT plays the OBJECT_KEY role under fusion. An ARRAY whose
@@ -528,9 +530,16 @@ public final class JsonDiffSerializer {
       }
 
       final long originalNodeKey = rtx.getNodeKey();
-      final int cachedPosition = positionsByNodeKey.get(originalNodeKey);
-      if (cachedPosition >= 0) {
-        return cachedPosition;
+      Long2IntOpenHashMap positions = positionsByNodeKey;
+      if (positions == null) {
+        positions = new Long2IntOpenHashMap();
+        positions.defaultReturnValue(UNKNOWN_POSITION);
+        positionsByNodeKey = positions;
+      } else {
+        final int cachedPosition = positions.get(originalNodeKey);
+        if (cachedPosition >= 0) {
+          return cachedPosition;
+        }
       }
 
       walkedNodeKeys.clear();
@@ -541,7 +550,7 @@ public final class JsonDiffSerializer {
           walkedNodeKeys.add(anchorNodeKey);
           rtx.moveToLeftSibling();
           anchorNodeKey = rtx.getNodeKey();
-          anchorPosition = positionsByNodeKey.get(anchorNodeKey);
+          anchorPosition = positions.get(anchorNodeKey);
           if (anchorPosition >= 0) {
             break;
           }
@@ -549,12 +558,12 @@ public final class JsonDiffSerializer {
 
         if (anchorPosition < 0) {
           anchorPosition = 0;
-          positionsByNodeKey.put(anchorNodeKey, anchorPosition);
+          positions.put(anchorNodeKey, anchorPosition);
         }
 
         int position = anchorPosition;
         for (int index = walkedNodeKeys.size() - 1; index >= 0; index--) {
-          positionsByNodeKey.put(walkedNodeKeys.getLong(index), ++position);
+          positions.put(walkedNodeKeys.getLong(index), ++position);
         }
         return position;
       } finally {

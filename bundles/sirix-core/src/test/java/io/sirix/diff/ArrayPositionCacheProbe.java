@@ -17,7 +17,8 @@ import java.util.function.BiConsumer;
  * Observes the actual primitive backing arrays of each completed revision cache. These arrays only
  * grow during serialization, so their final capacities also bound their peak retained payload.
  * Array headers and the fixed number of collection objects are deliberately excluded: payload bytes
- * are exact on every JVM, unlike heap-usage or thread-allocation estimates.
+ * are exact on every JVM, unlike heap-usage or thread-allocation estimates. A cache whose ordinal
+ * map was never needed contributes no bytes and no entries, but is still counted as observed.
  *
  * <p>
  * The reflective access is confined to this probe: fastutil exposes a list's backing array but not
@@ -32,7 +33,7 @@ public final class ArrayPositionCacheProbe implements WorkProbe {
   private long entries;
   private long backingBytes;
   private boolean open;
-  private @Nullable BiConsumer<Long2IntOpenHashMap, LongArrayList> displaced;
+  private @Nullable BiConsumer<@Nullable Long2IntOpenHashMap, LongArrayList> displaced;
 
   private final WorkCounter cachesCounter = WorkCounter.alwaysOn("arrayPositionCaches",
       "one completed revision cache observed, including the unused revision", () -> observedCaches);
@@ -79,13 +80,15 @@ public final class ArrayPositionCacheProbe implements WorkProbe {
     }
   }
 
-  private void observe(final Long2IntOpenHashMap positions, final LongArrayList walkedKeys) {
+  private void observe(final @Nullable Long2IntOpenHashMap positions, final LongArrayList walkedKeys) {
     observedCaches++;
-    entries += positions.size();
     try {
-      backingBytes += (long) ((long[]) KEYS.get(positions)).length * Long.BYTES
-          + (long) ((int[]) VALUES.get(positions)).length * Integer.BYTES
-          + (long) walkedKeys.elements().length * Long.BYTES;
+      if (positions != null) {
+        entries += positions.size();
+        backingBytes += (long) ((long[]) KEYS.get(positions)).length * Long.BYTES
+            + (long) ((int[]) VALUES.get(positions)).length * Integer.BYTES;
+      }
+      backingBytes += (long) walkedKeys.elements().length * Long.BYTES;
     } catch (final IllegalAccessException e) {
       throw new AssertionError("cannot observe the ordinal cache's allocated backing arrays", e);
     }

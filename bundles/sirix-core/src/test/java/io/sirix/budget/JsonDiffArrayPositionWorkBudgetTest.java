@@ -63,10 +63,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Measured on the 10,000-element fixture: the memoized left walk does 9,999 sibling moves for all
  * 10,000 positions, 0 for the head element alone and 9,999 for the tail element alone. The
  * per-tuple walk does 49,995,000 / 0 / 9,999. The eager whole-array scan does 9,999 / 9,999 /
- * 9,999. The 100,000-element head-insert case retains 1,584 backing-array payload bytes across the
+ * 9,999. The 100,000-element head-insert case retains 792 backing-array payload bytes across the
  * real commit and its counted serialization, a figure the array's length does not enter; adding
  * eager preallocation without changing the left walk leaves sibling moves at zero but sizes the
- * cache from the array's length instead, overshooting the independent 2,048-byte bound by three
+ * cache from the array's length instead, overshooting the independent 1,024-byte bound by three
  * orders of magnitude.
  *
  * <p>
@@ -200,8 +200,46 @@ final class JsonDiffArrayPositionWorkBudgetTest {
               .assertExactly(allocation.caches(), 4,
                   "either the real commit or the counted serialization bypassing the probe")
               .assertExactly(allocation.entries(), 2, "one head insert retaining ordinals of untouched siblings")
-              .assertBetween(allocation.backingBytes(), 1, 2_048,
+              .assertBetween(allocation.backingBytes(), 1, 1_024,
                   "preallocating cache storage from array length even when the sibling walk stays at zero");
+
+      assertTrue(wtx.moveTo(insertedKey));
+      assertTrue(wtx.moveToRightSibling());
+      final long secondElementKey = wtx.getNodeKey();
+      final WorkCapture.Captured<String> nonHead = WorkCapture.of(moves.counters())
+                                                             .call(() -> new JsonDiffSerializer(database.getName(),
+                                                                 countedSession, 1, 2,
+                                                                 List.of(inserted(secondElementKey))).serializeSidecar());
+      assertEquals("/[1]", pathOf(JsonParser.parseString(nonHead.result()).getAsJsonObject(), 0));
+      nonHead.work()
+             .assertExactly(moves.siblingMoves(), 1,
+                 "the counting session dropping off the serializer's cursor route, which would leave the "
+                     + "head insert's zero above reading as no instrument rather than as no work");
+    }
+  }
+
+  @Test
+  void aDiffResolvingNoArrayPositionAllocatesNoCacheStorage() throws Exception {
+    try (final var database = openDatabase();
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\":1}"), JsonNodeTrx.Commit.NO);
+      wtx.commit();
+      assertTrue(wtx.moveToDocumentRoot());
+      assertTrue(wtx.moveToFirstChild());
+      assertTrue(wtx.moveToFirstChild());
+      final long recordKey = wtx.getNodeKey();
+
+      final ArrayPositionCacheProbe allocation = new ArrayPositionCacheProbe();
+      final WorkCapture.Captured<String> captured =
+          WorkCapture.of().with(allocation).call(() -> serialize(database.getName(), session,
+              List.of(inserted(recordKey))));
+
+      assertEquals("/a", pathOf(JsonParser.parseString(captured.result()).getAsJsonObject(), 0));
+      captured.work()
+              .assertExactly(allocation.caches(), 2, "the allocation probe missing either revision")
+              .assertZero(allocation.backingBytes(),
+                  "allocating ordinal-cache backing storage for a serialization that resolves no array position");
     }
   }
 

@@ -38,11 +38,21 @@ Fastutil grows both geometrically. Memory is therefore proportional to those tou
 constant initial capacity; it can still be large when a diff actually names a far-tail element.
 The same bound applies separately to the old and new revisions.
 
+That map is allocated by the first lookup that walks, not when the cache is created: fastutil sizes
+a default `Long2IntOpenHashMap`'s backing arrays in its constructor (396 payload bytes), while a
+default `LongArrayList` defers its own. A serialization that resolves no array position therefore
+allocates no cache backing storage - both the `buildPathSummary(false)` case, where `getNodePath`
+returns before any cache is touched, and any document whose emitted paths carry no array step.
+A revision whose cache is never asked for an ordinal costs nothing on the default commit path.
+
 `JsonDiffArrayPositionWorkBudgetTest` is part of the ordinary `io.sirix.budget.*` lane in
-[`VERIFICATION.md`](VERIFICATION.md). It covers forward, reverse, and shuffled tuple order, and a
-100,000-element array followed by a single head insert with default diff storage. Both fixtures
-stay at the scale the budget package already uses, so the memory-constrained cross-platform lanes
-run them; the guard comes from the bound, not from the size of the data.
+[`VERIFICATION.md`](VERIFICATION.md). It covers forward, reverse, and shuffled tuple order, a
+100,000-element array followed by a single head insert with default diff storage, and a diff that
+resolves no array position at all. Both fixtures stay at the scale the budget package already uses,
+so the memory-constrained cross-platform lanes run them; the guard comes from the bound, not from
+the size of the data. The head-insert case resolves a second, non-head tuple through the same
+counting session afterwards, so its zero move count is proven to be no work rather than a decorator
+that has fallen off the serializer's cursor route.
 
 `ArrayPositionCacheProbe` observes actual key, ordinal, and walk-stack backing-array capacities
 after serialization. Their payload sizes are independent of JVM object headers and only grow
@@ -55,7 +65,8 @@ The regressions were checked by mutation:
 | Shape | Memoized walk | Reintroduced defect |
 |---|---:|---:|
 | All 10,000 positions, forward order | 9,999 sibling moves | 49,995,000 without memoization (20,000 ceiling) |
-| Head insert into 100,000 elements, commit plus equivalent counted serialization | 0 sibling moves; 1,584 backing payload bytes; 2 cached entries across 4 revision caches | Eager preallocation alone still makes 0 moves and 2 entries, but sizes the cache from the array's length, overshooting the 2,048-byte ceiling by three orders of magnitude |
+| Head insert into 100,000 elements, commit plus equivalent counted serialization | 0 sibling moves; 792 backing payload bytes; 2 cached entries across 4 revision caches | Eager preallocation alone still makes 0 moves and 2 entries, but sizes the cache from the array's length, overshooting the 1,024-byte ceiling by three orders of magnitude |
+| Diff whose emitted paths carry no array step | 0 backing payload bytes across 2 revision caches | Allocating the ordinal map with the cache reports 792 |
 
 Byte compatibility is checked by readable goldens only, so a break names the bytes that moved and
 can be re-derived by reading the fixture. `JsonDiffSerializerArrayPositionTest` asserts one literal
