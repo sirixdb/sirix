@@ -3495,6 +3495,14 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   public static final AtomicLong MERGE_OVERFLOW_ROUTED_TO_FRONTIER = new AtomicLong();
 
+  /**
+   * The subset of {@link #MERGE_OVERFLOW_ROUTED_TO_FRONTIER} the integrate capacity cascade declined:
+   * a level above L's parent whose fold the cascade would refuse, or a full level whose split would
+   * publish a half no guard can decide. Counted where the cascade pre-check says no, at either merge
+   * entry to {@link HOTIncrementalInsert#integrate}.
+   */
+  public static final AtomicLong MERGE_CASCADE_ROUTED_TO_FRONTIER = new AtomicLong();
+
   /** How {@link #mergeIntoLeaf} must discharge a leaf split the off-path handler looked at. */
   private enum OffPathOverflow {
     /** The handler published the split itself. */
@@ -3853,6 +3861,20 @@ public abstract class AbstractHOTIndexWriter<K> {
       // surfaced as I1+I6 corruption at rev 9 of interleavedInsertDeleteMultiRev. Plan §12
       // Stage 3c (in-spine height/partial propagation) removed the escalation, eliminating
       // the structural divergence. The handler now applies at pathDepth==1 too.
+      //
+      // One pre-check answers for the whole handler. Its first level is N itself: N is full, so it
+      // decides the split the handler is about to build — the β == N.MSB case the node's own
+      // children cannot decide, and the trie condition for both halves. Measuring N without
+      // comboPartial is not conservative on its own: for a half's EXISTING children it is (one more
+      // partial only makes columns live, which only moves the half's MSB to a more significant bit
+      // and so only relaxes what they must satisfy), but not for a half that is a lone child before
+      // the insertion and a pair after it, nor for the inserted child; both arise exactly when β is
+      // N's own MSB, which this pre-check declines outright. The levels above N are the cascade the
+      // handler's own integrate call would run. Decided before anything is allocated.
+      if (!canIntegrateBiNodeCleanly(navResult.pathNodes(), navResult.pathChildIndices(), pathDepth, beta)) {
+        MERGE_CASCADE_ROUTED_TO_FRONTIER.incrementAndGet();
+        return OffPathOverflow.FRONTIER;
+      }
       return handleOffPathOverflowFullN(navResult, biNode, slotOfL, comboPartial);
     }
 
@@ -3972,14 +3994,18 @@ public abstract class AbstractHOTIndexWriter<K> {
         parentN, slotOfL, biNode.left(), comboPartial, biNode.right(), revision, pageKeyAllocator);
 
     final int currentDepth = pathDepth - 1;
-    final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
-        buildSpineRefs(navResult), navResult.pathChildIndices(), currentDepth, parentSplit, revision, pageKeyAllocator);
     try {
+      final HOTIncrementalInsert.IntegrationResult result =
+          HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
+              currentDepth, parentSplit, revision, pageKeyAllocator);
       lastDispatchHandler = "h:merge-offpath";
       registerFreshSubtree(result.touchedRef());
       retireReplacedLeaf(navResult.leafRef(), result.touchedRef(), TransactionIntentLog.RELEASE_SITE_LEAF_SPLIT);
     } catch (final RuntimeException | Error failure) {
-      // integrate has already re-pointed its one touched spine reference.
+      // Either integrate re-pointed its one touched spine reference and registration failed, or the
+      // cascade refused a fold before publishing anything. K's document node is written and its index
+      // entry is not, so neither outcome may be committed. The caller's pre-check makes the second
+      // unreachable by construction; this stays as the honest fail-closed boundary.
       markTransactionRollbackOnly(failure);
       closeFreshBiNode(biNode, failure);
       throw failure;
@@ -4037,7 +4063,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     final byte[] keySlice = exactKeyForStructuralMutation(keyBuf, keyLen);
     final HOTIncrementalInsert.BiNode biNode =
         HOTIncrementalInsert.splitLeafPage(leaf, keySlice, valueSlice, revision, indexType, pageKeyAllocator);
-    boolean published = false;
+    boolean integrating = false;
     try {
       ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
 
@@ -4049,13 +4075,21 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (outcome == OffPathOverflow.HANDLED) {
         return keySlice;
       }
-      if (outcome != OffPathOverflow.FRONTIER) {
+      if (outcome != OffPathOverflow.FRONTIER && integrateWouldFoldIntoParent(navResult, biNode)
+          && !canIntegrateBiNodeCleanly(navResult.pathNodes(), navResult.pathChildIndices(), navResult.pathDepth(),
+              biNode.discriminativeBitIndex())) {
+        // The cascade would refuse a fold, or split a full level into a half no guard can decide, at
+        // or above L's parent. Nothing is allocated yet, so route the whole overflow the way a
+        // declined fold at L's own parent is routed. A taller parent is not asked: integrate nests
+        // the halves under a node of their own there, touching no block and cascading nowhere.
+        MERGE_CASCADE_ROUTED_TO_FRONTIER.incrementAndGet();
+      } else if (outcome != OffPathOverflow.FRONTIER) {
         // Plan §12 Stage 3b: an exception escaping integrate after the clean preflight is a real
         // bug. integrate allocates first and re-points exactly one spine reference as its final step.
+        integrating = true;
         final HOTIncrementalInsert.IntegrationResult result =
             HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
                 navResult.pathChildIndices(), navResult.pathDepth(), biNode, revision, pageKeyAllocator);
-        published = true;
         lastDispatchHandler = "h:merge-offpath-fullN";
         registerFreshSubtree(result.touchedRef());
         retireReplacedLeaf(navResult.leafRef(), result.touchedRef(), TransactionIntentLog.RELEASE_SITE_LEAF_SPLIT);
@@ -4065,13 +4099,27 @@ public abstract class AbstractHOTIndexWriter<K> {
       // this attempt owns. Retire them and start over from the frontier, which places K itself.
       discardFreshBiNode(biNode);
     } catch (final RuntimeException | Error failure) {
-      if (published) {
+      if (integrating) {
+        // Published or not, K's document node is written while its index entry is not: a transaction
+        // that commits from here holds a document with no posting. Every failure before integrate
+        // touched nothing and leaves the transaction usable, as it always did.
         markTransactionRollbackOnly(failure);
       }
       closeFreshBiNode(biNode, failure);
       throw failure;
     }
     return spliceOverflowThroughFrontier(navResult, leaf, keySlice, valueSlice);
+  }
+
+  /**
+   * Whether {@link HOTIncrementalInsert#integrate} would fold {@code biNode} into L's parent block
+   * rather than nest it under a node of its own — its intermediate-node arm, which compares heights
+   * and leaves every block untouched.
+   */
+  private static boolean integrateWouldFoldIntoParent(final LeafNavigationResult navResult,
+      final HOTIncrementalInsert.BiNode biNode) {
+    final int pathDepth = navResult.pathDepth();
+    return pathDepth > 0 && navResult.pathNodes()[pathDepth - 1].getHeight() <= biNode.height();
   }
 
   /**

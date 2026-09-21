@@ -162,18 +162,22 @@ All notable changes to SirixDB are documented in this file.
   was first routed through it. Both branch-path decompositions of a full node, and the integrate
   cascade behind them, are now declined when a half would break the condition, and likewise when the
   fold bit is the node's own most significant bit — there the insertion moves the far half's own bit
-  and the node's children cannot decide it. What is *not* covered: the merge path's own capacity
-  cascade above the overflowing leaf's immediate parent. There a full ancestor whose mask does not
-  hold the cascaded split bit still takes the same unguarded decomposition, and an ancestor whose mask
-  does hold it, with that bit's straddle partial taken or not landing beside the slot, now refuses the
-  fold with `IllegalArgumentException` in mid-cascade — nothing is published, nothing is touched, the
-  transaction stays usable, and the insert fails, where the same input previously published a
-  mis-ordered node and failed in the published-splice validation instead. The 100,000-record
-  valid-time correction stream that the regression test replays (25 publications, 1,080,574
-  index-writer operations) reaches neither shape, and no test constructs either, so neither has test
-  coverage; covering the merge cascade is a separate task. Results, on-disk format, revision
-  visibility, write granularity and the validation itself are unchanged. Specified in
-  `docs/HOT_INDEX_SPECIFICATION.md` §4.5.2–§4.5.4 and §4.5.6.
+  and the node's children cannot decide it. The merge path's own capacity cascade is pre-checked with
+  the same predicate, at both of its entries to the integration: an ancestor that would publish such a
+  half, and one that would refuse the fold outright because the cascaded split bit's straddle partial
+  is taken or would not land beside the slot, both hand the overflow to the complete-frontier splice
+  before anything is allocated. Only where the cascade would fold — a parent taller than the split
+  keeps nesting the halves under a node of their own, which touches no block. A failure that escapes
+  the integration on the merge path now marks the transaction rollback-only whether or not anything
+  was published, since the key's document node is written while its index entry is not; with the
+  pre-checks that is unreachable, and every other pre-publication failure leaves the transaction
+  usable as before. The 100,000-record valid-time correction stream the regression test replays
+  (25 publications, 1,080,574 index-writer operations) never starts a merge-path capacity cascade, so
+  both entries are covered by constructed scenarios instead, each of which fails without its own
+  pre-check; the trie-condition and split-bit-at-the-node's-own-MSB reasons are decided by the same
+  predicate call but are not reached through the merge path by any test. Results, on-disk format,
+  revision visibility, write granularity and the validation itself are unchanged. Specified in
+  `docs/HOT_INDEX_SPECIFICATION.md` §4.5.2–§4.5.4, §4.5.6 and §4.5.7.
 
 ## [1.0.0-beta7] — 2026-07-15
 

@@ -49,10 +49,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </p>
  *
  * <p>
- * Both scenarios build the same shape through the public writer and then reach the decline in the
+ * The first two scenarios build that shape through the public writer and reach the decline in the
  * two ways a leaf overflows: with a key the leaf does not hold yet, and with one it does, whose
- * posting outgrew the page. Each asserts that the decline and the routing were really reached, so a
- * change in leaf geometry cannot let them pass without exercising anything.
+ * posting outgrew the page. The other two carry the same question one level up. Once the node under
+ * the straddling slot is itself a full node of leaves, an overflow inside it starts the capacity
+ * cascade, and the fold of its own split into the root is the refused one — reached from the
+ * integrate arm when the split bit is fresh to the node's mask, and from the full-parent handler
+ * when it is not. Both entries pre-check the cascade and route it the same way; without their
+ * pre-check each scenario ends in the refusal the fold primitives raise. Each asserts that the
+ * decline and the routing were really reached, so a change in leaf geometry cannot let them pass
+ * without exercising anything.
  * </p>
  */
 final class HOTDeclinedOverflowFrontierRouteTest {
@@ -69,6 +75,30 @@ final class HOTDeclinedOverflowFrontierRouteTest {
 
   /** The keys whose postings scenario B grows: the first twelve puts, all of pattern {@code 0x20}. */
   private static final int GROWN_KEYS = 12;
+
+  /**
+   * The resident keys whose postings the cascade scenarios grow. Both are of pattern {@code 0x20} —
+   * the first of the shape phase's opening run, the second of the run that reaches the first routing.
+   */
+  private static final long FILLER_ENDPOINT = 100L;
+  private static final long SECOND_FILLER_ENDPOINT = 1_100L;
+
+  /**
+   * Chunk keys of one posting, most significant chunk bits first: 511 keys {@code v << 20}, then 1023
+   * keys {@code v << 10}, then 1023 keys {@code v}. A later tier always differs from its neighbours
+   * below every bit a split has used so far, so every put merges and every overflow is a merge-path
+   * leaf split that adds exactly one leaf child to that node.
+   */
+  private static final int FIRST_TIER = 511;
+  private static final int SECOND_TIER = 1_023;
+  private static final int THIRD_TIER = 1_023;
+  private static final int FILLER_FAMILY = FIRST_TIER + SECOND_TIER + THIRD_TIER;
+
+  /** Leaves the node one leaf short of full, with that leaf short of full in turn. */
+  private static final int FIRST_TIER_PUTS = 363;
+
+  /** Fills the node up through a second resident key without touching the first one's short leaf. */
+  private static final int SECOND_FILLER_PUTS = 1_100;
 
   @TempDir
   Path temporaryDirectory;
@@ -132,6 +162,53 @@ final class HOTDeclinedOverflowFrontierRouteTest {
     });
   }
 
+  @Test
+  @DisplayName("a cascade the integrate arm would refuse above L's parent is routed instead of throwing")
+  void cascadeRefusedAboveTheParentIsRoutedFromTheIntegrateArm() {
+    loadAndVerify(load -> {
+      load.buildRoutedStraddlingNode();
+      final long cascadesBefore = AbstractHOTIndexWriter.MERGE_CASCADE_ROUTED_TO_FRONTIER.get();
+
+      // One resident key's posting spreads over fresh chunk keys until its node is full; the next
+      // overflow splits that node at a fresh bit and the fold of its half into the root is the one
+      // no position accepts. Without the pre-check integrate reaches that fold and throws.
+      load.growPostingUntilCascadeRouted(FILLER_ENDPOINT, 0, cascadesBefore);
+      assertCascadeRouted(cascadesBefore);
+
+      load.repeat(300, 0x20);
+      load.repeat(100, 0x00);
+      load.repeat(100, 0x30);
+    });
+  }
+
+  @Test
+  @DisplayName("a cascade the full-parent handler would refuse is routed instead of throwing")
+  void cascadeRefusedAboveTheParentIsRoutedFromTheFullParentHandler() {
+    loadAndVerify(load -> {
+      load.buildRoutedStraddlingNode();
+      final long cascadesBefore = AbstractHOTIndexWriter.MERGE_CASCADE_ROUTED_TO_FRONTIER.get();
+
+      // Leave one leaf of the node short of full, fill the node up through a second resident key,
+      // then overflow that leaf at a bit the node's mask already holds with a free position beside
+      // its slot: the fold is accepted, the node is full, and the full-parent handler splits it with
+      // the insertion and integrates at the root — the same refused fold, one frame further down.
+      load.growPosting(FILLER_ENDPOINT, 0, FIRST_TIER_PUTS);
+      load.growPosting(SECOND_FILLER_ENDPOINT, 0, SECOND_FILLER_PUTS);
+      load.growPostingUntilCascadeRouted(FILLER_ENDPOINT, FIRST_TIER + SECOND_TIER, cascadesBefore);
+      assertCascadeRouted(cascadesBefore);
+
+      load.repeat(300, 0x20);
+      load.repeat(100, 0x00);
+      load.repeat(100, 0x30);
+    });
+  }
+
+  private static void assertCascadeRouted(final long cascadesBefore) {
+    assertTrue(AbstractHOTIndexWriter.MERGE_CASCADE_ROUTED_TO_FRONTIER.get() > cascadesBefore,
+        "the scenario must reach an integrate cascade the pre-check refuses at or above L's parent; "
+            + "without one it covers no cascade routing and its shape must be re-tuned");
+  }
+
   private static void assertRouted(final long routedBefore, final long declinedBefore, final long fallbacksBefore) {
     assertTrue(AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_TO_FRONTIER.get() > routedBefore,
         "the scenario must reach a leaf overflow whose fold is declined at a parent the cascade would fold "
@@ -173,6 +250,40 @@ final class HOTDeclinedOverflowFrontierRouteTest {
       for (int i = 0; i < times; i++) {
         put(pattern, SHAPE_NODE_KEY);
       }
+    }
+
+    /**
+     * {@code count} chunk keys of one resident key's posting, starting at family index {@code from}.
+     */
+    private void growPosting(final long endpoint, final int from, final int count) {
+      for (int index = from; index < from + count && index < FILLER_FAMILY; index++) {
+        putResident(0x20, endpoint, fillerNodeKey(index));
+      }
+    }
+
+    /** Grow one posting until the cascade pre-check routes an overflow, or the family runs out. */
+    private void growPostingUntilCascadeRouted(final long endpoint, final int from, final long cascadesBefore) {
+      for (int index = from; index < FILLER_FAMILY
+          && AbstractHOTIndexWriter.MERGE_CASCADE_ROUTED_TO_FRONTIER.get() == cascadesBefore; index++) {
+        putResident(0x20, endpoint, fillerNodeKey(index));
+      }
+    }
+
+    /**
+     * Load until the first declined fold is routed — the height-2 root over a height-1 node of leaves
+     * whose sibling partial still sorts between the node's own and its straddle partial, which is the
+     * node-level analogue of the leaf shape {@link #buildStraddlingLeaf} builds.
+     */
+    private void buildRoutedStraddlingNode() {
+      buildStraddlingLeaf();
+      final long routedBefore = AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_TO_FRONTIER.get();
+      int puts = 0;
+      while (AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_TO_FRONTIER.get() == routedBefore && puts < MAX_SHAPE_PUTS) {
+        put(0x20, SHAPE_NODE_KEY);
+        puts++;
+      }
+      assertTrue(AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_TO_FRONTIER.get() > routedBefore,
+          "the cascade scenarios start from a routed declined fold; without one their shape has drifted");
     }
 
     /**
@@ -228,6 +339,22 @@ final class HOTDeclinedOverflowFrontierRouteTest {
         }
       }
     }
+  }
+
+  /**
+   * The node key whose posting chunk is family member {@code index}: the HOT key for a posting is the
+   * key's prefix with {@code nodeKey >>> 16} appended, so a fresh chunk is a fresh key of that leaf.
+   */
+  private static long fillerNodeKey(final int index) {
+    final long chunk;
+    if (index < FIRST_TIER) {
+      chunk = (long) (index + 1) << 20;
+    } else if (index < FIRST_TIER + SECOND_TIER) {
+      chunk = (long) (index - FIRST_TIER + 1) << 10;
+    } else {
+      chunk = index - FIRST_TIER - SECOND_TIER + 1;
+    }
+    return (chunk << 16) + 7L;
   }
 
   /** {@code pattern} occupies key byte 1 — the serializer sign-flips the fork node. */
