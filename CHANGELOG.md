@@ -146,15 +146,13 @@ All notable changes to SirixDB are documented in this file.
   immediately before the key and the key gets its own leaf. When the overflow was a byte overflow on a
   key the leaf already holds, that leaf carries the merged value and the split drops the stale entry;
   a side reference the dropped entry owned has no home in either half, so the split refuses before
-  publication rather than orphaning a segment page: the transaction is marked rollback-only (this is
-  the routed path, where the document node was written while the index entry was not) and a load
-  stops. Only a projection index can reach that — side references are attached to a HOT leaf by
-  `ProjectionIndexHOTStorage` alone, so path, CAS, name and valid-time leaves never carry one — and it
-  is not a regression in outcome, since the same input previously folded and published a mis-ordered
-  node. Carrying the dropped entry's reference onto the key's fresh leaf is a separate task. A
-  pre-publication failure still leaves the transaction usable, as before, except on that routed path,
-  where the key's document node is already written while its index entry is not. Further
-  into the same load, splitting a full node published a half that broke the trie condition (I11)
+  publication rather than orphaning a segment page and the load stops. Only a projection index can
+  reach that — side references are attached to a HOT leaf by `ProjectionIndexHOTStorage` alone, so
+  path, CAS, name and valid-time leaves never carry one — every entry to that route can, not just the
+  declined fold, and it is not a regression in outcome, since the same input previously folded and
+  published a mis-ordered node. Carrying the dropped entry's reference onto the key's fresh leaf is a
+  separate task. Further into the same load, splitting a full node published a half that broke the
+  trie condition (I11)
   against its own child: a half keeps only the bits that still vary within it, so a child that sat
   safely below the node's most significant bit can sit above the half's. Only the half the new key
   joins was checked and lies on the key's route, so the other went out unseen, committed, and stopped
@@ -167,16 +165,26 @@ All notable changes to SirixDB are documented in this file.
   half, and one that would refuse the fold outright because the cascaded split bit's straddle partial
   is taken or would not land beside the slot, both hand the overflow to the complete-frontier splice
   before anything is allocated. Only where the cascade would fold — a parent taller than the split
-  keeps nesting the halves under a node of their own, which touches no block. A failure that escapes
-  the integration on the merge path now marks the transaction rollback-only whether or not anything
-  was published, since the key's document node is written while its index entry is not; with the
-  pre-checks that is unreachable, and every other pre-publication failure leaves the transaction
-  usable as before. The 100,000-record valid-time correction stream the regression test replays
-  (25 publications, 1,080,574 index-writer operations) never starts a merge-path capacity cascade, so
+  keeps nesting the halves under a node of their own, which touches no block. One rule now governs
+  when a failed index write poisons the transaction: it is poisoned where the write may have been half
+  done, and never where nothing was touched. On the merge path that boundary moved one step earlier,
+  from the return of the integration to its entry, because from there on the key's document node is
+  written while its index entry is not — that covers the routed overflow above and a failure inside
+  the integration itself, which the two pre-checks are believed to make unreachable and which no test
+  exercises. Everything before the integration — loading path children, building the split — touched
+  nothing and leaves the transaction usable, exactly as before. The 100,000-record valid-time
+  correction stream the regression test replays (25 publications, 1,080,574 index-writer operations)
+  never starts a merge-path capacity cascade, so
   both entries are covered by constructed scenarios instead, each of which fails without its own
   pre-check; the trie-condition and split-bit-at-the-node's-own-MSB reasons are decided by the same
-  predicate call but are not reached through the merge path by any test. Results, on-disk format,
-  revision visibility, write granularity and the validation itself are unchanged. Specified in
+  predicate call but are not reached through the merge path by any test. One decomposition is still
+  measured before its insert and re-split after it: on a combination collision the full-node branch
+  arm sub-inserts the key into the affected child and re-splits the same node without re-asking the
+  guard, which can publish a half above a child that breaks the trie condition. That break sits on the
+  key's own route, so the published-structure validation catches it, the transaction is poisoned and
+  the load stops with nothing wrong committed; the 100,000-record stream takes the arm four times
+  without reaching it, no test constructs it, and closing it is a separate task. Results, on-disk
+  format, revision visibility, write granularity and the validation itself are unchanged. Specified in
   `docs/HOT_INDEX_SPECIFICATION.md` §4.5.2–§4.5.4, §4.5.6 and §4.5.7.
 
 ## [1.0.0-beta7] — 2026-07-15

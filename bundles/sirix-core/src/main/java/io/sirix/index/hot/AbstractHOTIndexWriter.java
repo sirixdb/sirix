@@ -4004,8 +4004,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     } catch (final RuntimeException | Error failure) {
       // Either integrate re-pointed its one touched spine reference and registration failed, or the
       // cascade refused a fold before publishing anything. K's document node is written and its index
-      // entry is not, so neither outcome may be committed. The caller's pre-check makes the second
-      // unreachable by construction; this stays as the honest fail-closed boundary.
+      // entry is not, so neither outcome may be committed. The caller's pre-check is believed to make
+      // the second unreachable — nothing has been observed taking it, and no test reaches it — so this
+      // is defence in depth rather than a guard over a known case.
       markTransactionRollbackOnly(failure);
       closeFreshBiNode(biNode, failure);
       throw failure;
@@ -4102,7 +4103,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (integrating) {
         // Published or not, K's document node is written while its index entry is not: a transaction
         // that commits from here holds a document with no posting. Every failure before integrate
-        // touched nothing and leaves the transaction usable, as it always did.
+        // touched nothing and leaves the transaction usable, as it always did. The pre-check above is
+        // believed to make the unpublished half of this unreachable; no test reaches it.
         markTransactionRollbackOnly(failure);
       }
       closeFreshBiNode(biNode, failure);

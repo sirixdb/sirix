@@ -64,10 +64,19 @@ public final class HOTIncrementalInsert {
   public static final AtomicLong CONSOLIDATION_PAIR_DID_NOT_FIT = new AtomicLong();
 
   /**
-   * Diagnostic: folds {@link #canMergeBiNodeAtExistingDiscBit} declined because a sibling's partial
-   * sorts between the split child's slot and the partial its other half would take. Counts that
-   * placement refusal alone — not a C2 collision and not the unexpected straddle orientation. A test
-   * that means to exercise the refusal must assert this counter moved.
+   * Diagnostic: the placement condition of {@link #canMergeBiNodeAtExistingDiscBit} found false — a
+   * sibling's partial sorts between the split child's slot and the partial its other half would take.
+   * Counts that refusal alone, not a C2 collision and not the unexpected straddle orientation.
+   *
+   * <p>
+   * It does <em>not</em> count attempted folds. The predicate is also called speculatively, at every
+   * spine level of {@code AbstractHOTIndexWriter.canIntegrateBiNodeCleanly}'s pre-check walk —
+   * including levels the cascade would never reach, and from callers that then take an entirely
+   * different arm — so a movement proves only that the condition was false somewhere the walk looked.
+   * A test that means to prove a fold was really attempted and declined must pin
+   * {@code AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK} as well, which is incremented only at
+   * the decline site (as {@code HOTDeclinedOverflowFrontierRouteTest} does), or call the predicate
+   * directly (as {@code HOTExistingBitFoldPlacementTest} does).
    */
   public static final AtomicLong EXISTING_BIT_FOLD_NOT_ADJACENT = new AtomicLong();
 
