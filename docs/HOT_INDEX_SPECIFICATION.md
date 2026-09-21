@@ -1102,12 +1102,13 @@ or above a spine node (d*). Cases, in order:
    partial-key collision try, in order, `subInsertAt` into the affected child if it keeps I8
    (`:3366-3395`), a leaf-pair splice, an opposite-frontier wrap; strand and malformation guards before
    publishing (`:4117-4182`).
-2. β ∈ D(d*), d* full: `branchFullNodeAtExistingBit` (`:4799-4932`). Its MSB split hands K's half back
-   either compressed or, on a 1:31 split, bare — as d*'s *own* child reference. A bare *leaf* child is
-   no compound frontier and declines to the complete frontier; a bare *indirect* child is folded into,
-   but only when it has room (`getNumChildren() < MAX_NODE_ENTRIES`; a compressed half always has room,
-   a lone child was sized by its own inserts and may be at capacity), otherwise the fold is declined and
-   counted by `FULL_EXISTING_BIT_LONE_HALF_FULL`. A C2 collision adds no child and needs no room.
+2. β ∈ D(d*), d* full: `branchFullNodeAtExistingBit` → `foldIntoSplitHalf` → `publishFoldedSplit`
+   (`:4799-4975`). Its MSB split hands K's half back either compressed or, on a 1:31 split, bare — as
+   d*'s *own* child reference. A bare *leaf* child is no compound frontier and declines to the
+   complete frontier; a bare *indirect* child is folded into, but only when it has room
+   (`getNumChildren() < MAX_NODE_ENTRIES`; a compressed half always has room, a lone child was sized
+   by its own inserts and may be at capacity), otherwise the fold is declined and counted by
+   `FULL_EXISTING_BIT_LONE_HALF_FULL`. A C2 collision adds no child and needs no room.
    Every fold publishes the folded page under a **fresh** `PageReference`, around which the split's
    BiNode is rebuilt before `integrate`, never by re-pointing the half's reference. That is load-bearing
    for a bare half: its reference is d*'s own and already names the unfolded child in the transaction

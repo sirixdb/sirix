@@ -4814,7 +4814,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
     putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
-    boolean published = false;
     try {
       ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
 
@@ -4834,12 +4833,41 @@ public abstract class AbstractHOTIndexWriter<K> {
         return false;
       }
       // C13 — a lone indirect child comes back bare too: K's half is then the node's own child, not
-      // a half this split compressed. Only a compressed half is known to have room for K's leaf (it
-      // holds at most MAX_NODE_ENTRIES - 1 children); a lone child was sized by its own inserts and
-      // may be full. A C2 collision adds no child and needs no room, so each fold asks for itself.
+      // a half this split compressed. The fold below differs for the two in whether the half is
+      // known to have room and in which reference may carry the folded page.
       final boolean halfIsNodesOwnChild = halfRef == node.getChildReference(kMsbBit
           ? node.getNumChildren() - 1
           : 0);
+      return foldIntoSplitHalf(navResult, node, insertDepth, split, half, kMsbBit, halfIsNodesOwnChild, beta, betaValue,
+          keySlice, valueSlice, keyLeaf, revision);
+    } catch (final RuntimeException | Error failure) {
+      // The fold owns the leaf once it is entered, so this is an outer ownership catch.
+      closeSpeculativeLeafIfOpen(keyLeaf, failure);
+      throw failure;
+    }
+  }
+
+  /**
+   * Fold {@code K}'s leaf into the split half it routes into, then publish the rebuilt split — steps
+   * 3 and 4 of {@link #branchFullNodeAtExistingBit}. The dispatch is on whether {@code beta} survived
+   * {@code compressHalf} as a discriminative bit of the half, which decides the fold primitive.
+   *
+   * <p>
+   * Owns {@code keyLeaf}: every arm either publishes it or retires it before returning.
+   * </p>
+   *
+   * @param halfIsNodesOwnChild whether the split handed the half back bare, as {@code node}'s own
+   *        child reference, rather than compressed (C13)
+   * @return {@code true} iff the key was inserted incrementally
+   */
+  private boolean foldIntoSplitHalf(final LeafNavigationResult navResult, final HOTIndirectPage node,
+      final int insertDepth, final HOTIncrementalInsert.BiNode split, final HOTIndirectPage half, final boolean kMsbBit,
+      final boolean halfIsNodesOwnChild, final int beta, final int betaValue, final byte[] keySlice,
+      final byte[] valueSlice, final HOTLeafPage keyLeaf, final int revision) {
+    try {
+      // C13 room: a compressed half holds at most MAX_NODE_ENTRIES - 1 children, so a fold always
+      // fits; a lone child was sized by its own inserts and may be full. A C2 collision adds no child
+      // and needs no room, so each fold asks for itself.
       final boolean halfIsFull = half.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES;
 
       // 3. In the half: dispatch on whether beta survived compressHalf.
@@ -4900,34 +4928,49 @@ public abstract class AbstractHOTIndexWriter<K> {
         BRANCH_COMPLETE_FRONTIER.incrementAndGet();
         return false; // I8-unsafe combo-add -> complete structural frontier
       }
-      // The folded half goes out under a reference of its own, as foldIntoHalf's does. halfRef is
-      // this dispatch's only when the split compressed the half; a lone child comes back as the
-      // node's own reference, which already names the unfolded child in the transaction log or on
-      // disk. registerFreshPage stops at such a reference, so a page merely swizzled onto it is seen
-      // by a reader following the swizzle but is never logged: the writer, which resolves the log
-      // first, and the commit would both keep the unfolded child, and K's leaf would be lost.
-      final PageReference foldedRef = swizzle(foldedHalf);
-      final HOTIncrementalInsert.BiNode foldedSplit = kMsbBit
-          ? new HOTIncrementalInsert.BiNode(split.discriminativeBitIndex(), split.height(), split.left(), foldedRef)
-          : new HOTIncrementalInsert.BiNode(split.discriminativeBitIndex(), split.height(), foldedRef, split.right());
-
-      // 4. Integrate the split BiNode at insertDepth — the standard capacity cascade.
-      final HOTIncrementalInsert.IntegrationResult result =
-          HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
-              insertDepth, foldedSplit, revision, pageKeyAllocator);
-      published = true;
-      lastDispatchHandler = "h:combo-site2-fold";
-      registerFreshSubtree(result.touchedRef());
-      if (halfIsNodesOwnChild) {
-        FULL_EXISTING_BIT_LONE_HALF_FOLD.incrementAndGet();
-      }
+      publishFoldedSplit(navResult, insertDepth, split, foldedHalf, kMsbBit, halfIsNodesOwnChild, revision);
       return true;
     } catch (final RuntimeException | Error failure) {
-      if (published) {
-        markTransactionRollbackOnly(failure);
-      }
       closeSpeculativeLeaf(keyLeaf, failure);
       throw failure;
+    }
+  }
+
+  /**
+   * Publish {@code foldedHalf} and integrate the rebuilt split at {@code insertDepth} — the standard
+   * capacity cascade.
+   *
+   * <p>
+   * The folded half goes out under a reference of its own, as {@code foldIntoHalf}'s does. The
+   * reference the split handed back is this dispatch's own only when the split compressed the half; a
+   * lone child comes back as the node's own reference, which already names the unfolded child in the
+   * transaction log or on disk. {@code registerFreshPage} stops at such a reference, so a page merely
+   * swizzled onto it is seen by a reader following the swizzle but is never logged: the writer, which
+   * resolves the log first, and the commit would both keep the unfolded child, and {@code K}'s leaf
+   * would be lost.
+   * </p>
+   */
+  private void publishFoldedSplit(final LeafNavigationResult navResult, final int insertDepth,
+      final HOTIncrementalInsert.BiNode split, final HOTIndirectPage foldedHalf, final boolean kMsbBit,
+      final boolean halfIsNodesOwnChild, final int revision) {
+    final PageReference foldedRef = swizzle(foldedHalf);
+    final HOTIncrementalInsert.BiNode foldedSplit = kMsbBit
+        ? new HOTIncrementalInsert.BiNode(split.discriminativeBitIndex(), split.height(), split.left(), foldedRef)
+        : new HOTIncrementalInsert.BiNode(split.discriminativeBitIndex(), split.height(), foldedRef, split.right());
+
+    // 4. Integrate the split BiNode at insertDepth — the standard capacity cascade.
+    final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
+        buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, foldedSplit, revision, pageKeyAllocator);
+    try {
+      lastDispatchHandler = "h:combo-site2-fold";
+      registerFreshSubtree(result.touchedRef());
+    } catch (final RuntimeException | Error failure) {
+      // integrate has published; the mutation can no longer fall back to another handler.
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+    if (halfIsNodesOwnChild) {
+      FULL_EXISTING_BIT_LONE_HALF_FOLD.incrementAndGet();
     }
   }
 
