@@ -4725,6 +4725,19 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION = new AtomicLong();
 
   /**
+   * Full-node decompositions that folded {@code K} into a 1:31 split's lone <em>indirect</em> child —
+   * the half that is the node's own child reference rather than one the split compressed, and so
+   * the one fold whose result must not be published by re-pointing the half's reference.
+   */
+  public static final AtomicLong FULL_EXISTING_BIT_LONE_HALF_FOLD = new AtomicLong();
+
+  /**
+   * Full-node decompositions declined because {@code K}'s half was a lone indirect child with no room
+   * left: a compressed half always has room, the node's own child need not.
+   */
+  public static final AtomicLong FULL_EXISTING_BIT_LONE_HALF_FULL = new AtomicLong();
+
+  /**
    * Whether splitting {@code node} at its most significant bit leaves each half satisfying the trie
    * condition against its own children (I11: an indirect child's MSB is strictly less significant
    * than its parent's).
@@ -4805,11 +4818,19 @@ public abstract class AbstractHOTIndexWriter<K> {
           ? split.right()
           : split.left();
       if (!(halfRef.getPage() instanceof HOTIndirectPage half)) {
-        // C1 — K's half is a lone child (1:31 split, the half is the bare child reference).
+        // C1 — K's half is a lone leaf child (1:31 split, the half is the bare child reference).
         // The half is not a compound frontier; let the shared complete-frontier arm place K.
         keyLeaf.close();
         return false;
       }
+      // C13 — a lone indirect child comes back bare too: K's half is then the node's own child, not
+      // a half this split compressed. Only a compressed half is known to have room for K's leaf (it
+      // holds at most MAX_NODE_ENTRIES - 1 children); a lone child was sized by its own inserts and
+      // may be full. A C2 collision adds no child and needs no room, so each fold asks for itself.
+      final boolean halfIsNodesOwnChild = halfRef == node.getChildReference(kMsbBit
+          ? node.getNumChildren() - 1
+          : 0);
+      final boolean halfIsFull = half.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES;
 
       // 3. In the half: dispatch on whether beta survived compressHalf.
       final int[] halfDiscBits = HOTIncrementalInsert.discriminativeBits(half);
@@ -4837,11 +4858,17 @@ public abstract class AbstractHOTIndexWriter<K> {
           return directionOneIntoSplitHalf(navResult, node, insertDepth, split, half, kMsbBit, childIdx, keySlice,
               valueSlice, revision);
         }
+        if (halfIsFull) {
+          return declineFoldIntoFullHalf(keyLeaf);
+        }
         foldedHalf = HOTIncrementalInsert.addChildAtCombination(half, comboPartial, keyLeafRef, half.getHeight(),
             revision, pageKeyAllocator);
       } else {
         // beta was dropped from the half (constant across it) — beta is genuinely new to the
         // half; addEntryWithInsertInfo folds it as a new disc bit.
+        if (halfIsFull) {
+          return declineFoldIntoFullHalf(keyLeaf);
+        }
         foldedHalf = HOTIncrementalInsert.addEntryWithInsertInfo(half, beta, betaValue, halfInfo.firstAffected(),
             halfInfo.affectedCount(), halfInfo.subtreePrefix(), keyLeafRef, half.getHeight(), revision,
             pageKeyAllocator);
@@ -4863,14 +4890,26 @@ public abstract class AbstractHOTIndexWriter<K> {
         BRANCH_COMPLETE_FRONTIER.incrementAndGet();
         return false; // I8-unsafe combo-add -> complete structural frontier
       }
-      halfRef.setPage(foldedHalf);
+      // The folded half goes out under a reference of its own, as foldIntoHalf's does. halfRef is
+      // this dispatch's only when the split compressed the half; a lone child comes back as the
+      // node's own reference, which already names the unfolded child in the transaction log or on
+      // disk. registerFreshPage stops at such a reference, so a page merely swizzled onto it is seen
+      // by a reader following the swizzle but is never logged: the writer, which resolves the log
+      // first, and the commit would both keep the unfolded child, and K's leaf would be lost.
+      final PageReference foldedRef = swizzle(foldedHalf);
+      final HOTIncrementalInsert.BiNode foldedSplit = kMsbBit
+          ? new HOTIncrementalInsert.BiNode(split.discriminativeBitIndex(), split.height(), split.left(), foldedRef)
+          : new HOTIncrementalInsert.BiNode(split.discriminativeBitIndex(), split.height(), foldedRef, split.right());
 
       // 4. Integrate the split BiNode at insertDepth — the standard capacity cascade.
       final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
-          buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, split, revision, pageKeyAllocator);
+          buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, foldedSplit, revision, pageKeyAllocator);
       published = true;
       lastDispatchHandler = "h:combo-site2-fold";
       registerFreshSubtree(result.touchedRef());
+      if (halfIsNodesOwnChild) {
+        FULL_EXISTING_BIT_LONE_HALF_FOLD.incrementAndGet();
+      }
       return true;
     } catch (final RuntimeException | Error failure) {
       if (published) {
@@ -4879,6 +4918,13 @@ public abstract class AbstractHOTIndexWriter<K> {
       closeSpeculativeLeaf(keyLeaf, failure);
       throw failure;
     }
+  }
+
+  /** Decline a fold into a half with no room for {@code K}'s leaf; the complete frontier places it. */
+  private static boolean declineFoldIntoFullHalf(final HOTLeafPage keyLeaf) {
+    keyLeaf.close();
+    FULL_EXISTING_BIT_LONE_HALF_FULL.incrementAndGet();
+    return false;
   }
 
   /** Complete a full-node C2 collision by descending into the selected child of the split half. */
