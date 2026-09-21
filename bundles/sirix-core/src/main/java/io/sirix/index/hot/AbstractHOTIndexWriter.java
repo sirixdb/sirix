@@ -2008,7 +2008,78 @@ public abstract class AbstractHOTIndexWriter<K> {
         i8ProbeReport("consolidate", keyBuf, keyLen, consCntBefore);
       }
     }
+    if (structuralValidationScope != null) {
+      requireStructuralPutReadable(keyBuf, keyLen);
+    }
     return true;
+  }
+
+  /**
+   * Structural puts whose key was not readable on the route the transaction log resolves. Must stay
+   * zero.
+   */
+  public static final AtomicLong STRUCTURAL_PUT_NOT_READABLE = new AtomicLong();
+
+  /**
+   * Read-your-write for a put that spliced the trie: the key has to be in the leaf that the route the
+   * transaction log resolves ends in — the route the next writer descent and the commit both take.
+   *
+   * <p>
+   * {@link #validatePublishedStructuralPath} proves that route well-formed and ending in a live leaf;
+   * it does not ask whether the leaf holds the key. A fresh page published where the registration
+   * walk does not look satisfies every structural invariant and still loses the key: the log keeps
+   * the page without it, the trie the commit writes is well-formed, and nothing but the missing
+   * answer ever shows. No detector over the trie can see that, because nothing in the trie is wrong.
+   * Only the writer knows the key was just put, so only it can ask.
+   * </p>
+   *
+   * <p>
+   * Asked once per outermost structural put, never inside a sub-insert: a sub-insert places the key
+   * below a split half its caller has yet to integrate, so the route from the root need not be final
+   * before the outermost dispatch returns. A put that spliced nothing wrote into the leaf its own
+   * descent copied into the log and is not asked: its callers test {@link #structuralValidationScope}
+   * themselves, so the ordinary put pays one null check and never enters this method. One descent and
+   * one leaf probe, no allocation; it never repairs — a miss poisons the transaction.
+   * </p>
+   */
+  private void requireStructuralPutReadable(final byte[] keyBuf, final int keyLen) {
+    if (!VALIDATE_STRUCTURAL_MUTATIONS) {
+      return;
+    }
+    try {
+      PageReference cur = rootReference;
+      for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
+        final Page page = resolveHOTPageForTraversal(cur);
+        if (page instanceof HOTLeafPage leaf) {
+          if (leaf.findEntry(keyBuf, keyLen) < 0) {
+            STRUCTURAL_PUT_NOT_READABLE.incrementAndGet();
+            throw new IllegalStateException("HOT structural put is not readable on its logged route: leaf "
+                + leaf.getPageKey() + " at depth " + depth + " does not hold the key (handler=" + lastDispatchHandler
+                + ", key=" + HexFormat.of().formatHex(keyBuf, 0, keyLen) + ')');
+          }
+          return;
+        }
+        if (!(page instanceof HOTIndirectPage indirect)) {
+          throw new IllegalStateException("HOT structural put cannot resolve its logged route at depth " + depth
+              + " (refKey=" + cur.getKey() + ", logKey=" + cur.getLogKey() + ')');
+        }
+        final int childIndex = indirect.findChildIndex(keyBuf, keyLen);
+        if (childIndex < 0 || childIndex >= indirect.getNumChildren()) {
+          throw new IllegalStateException("HOT structural put has no child on its logged route at depth " + depth
+              + " of indirect page " + indirect.getPageKey() + " (childIndex=" + childIndex + ')');
+        }
+        cur = indirect.getChildReference(childIndex);
+        if (cur == null) {
+          throw new IllegalStateException("HOT structural put found a null child " + childIndex + " at depth " + depth
+              + " of indirect page " + indirect.getPageKey());
+        }
+      }
+      throw new IllegalStateException("HOT structural put's logged route exceeds the maximum depth of " + MAX_PATH_DEPTH);
+    } catch (final RuntimeException | Error failure) {
+      // The splice is published. A key the log cannot produce must be impossible to catch-and-commit.
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
   }
 
   /**
@@ -2063,6 +2134,9 @@ public abstract class AbstractHOTIndexWriter<K> {
             + writableLeaf.getPageKey() + ", slot " + writableIndex);
       }
       dispatchInsert(navResult, keyBuf, keyLen, exactReplacement, exactReplacement.length);
+      if (structuralValidationScope != null) {
+        requireStructuralPutReadable(keyBuf, keyLen);
+      }
       return true;
     } catch (final RuntimeException | Error failure) {
       // This includes stable slot corruption discovered by the read-only preflight. Never allow a

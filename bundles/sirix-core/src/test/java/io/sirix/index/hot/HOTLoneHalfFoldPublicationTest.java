@@ -12,14 +12,22 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.cache.TransactionIntentLog;
+import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.interval.ValidTimeKey;
 import io.sirix.index.interval.ValidTimeKeySerializer;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.page.HOTIndirectPage;
+import io.sirix.page.HOTLeafPage;
+import io.sirix.page.PageReference;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
@@ -36,6 +44,8 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -225,6 +235,69 @@ final class HOTLoneHalfFoldPublicationTest {
       assertArrayEquals(new long[] {SHAPE_NODE_KEY + 3, SHAPE_NODE_KEY + 4, SHAPE_NODE_KEY + 5, SHAPE_NODE_KEY + 6,
           SHAPE_NODE_KEY + 7}, toArray(load.snapshots.get(REVISIONS - 1).get(folded)),
           "the last revision holds the folded key's grown posting without the removed node");
+    }
+  }
+
+  /**
+   * What the writer does if a handler ever again publishes a page where the registration walk does not
+   * look. The fold is correct here; the publication seam then hands the folded page's fresh reference
+   * the identity of the log entry that still holds the unfolded child — the state the defect left
+   * behind. Every structural check passes on it, as it did then; only the question "is the key I just
+   * put readable where the log says it is" does not.
+   */
+  @Test
+  @ResourceLock("HOT_STRUCTURAL_PUBLICATION_TEST_HOOK")
+  @DisplayName("a structural put the transaction log cannot produce is refused, never committed")
+  void aPutTheLogCannotProduceIsRefused() {
+    final Path databasePath = createDatabase(VersioningType.SLIDING_SNAPSHOT);
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        JsonNodeTrx wtx = session.beginNodeTrx()) {
+      final Load load = new Load();
+      load.attach(wtx);
+      load.buildFullMixedRoot();
+
+      final TransactionIntentLog log = wtx.getStorageEngineWriter().getLog();
+      final PageReference rootReference = load.writer.getRootReference();
+      final List<HOTLeafPage> unpublishedLeaves = new ArrayList<>(1);
+      final long refusedBefore = AbstractHOTIndexWriter.STRUCTURAL_PUT_NOT_READABLE.get();
+      final long foldsBefore = AbstractHOTIndexWriter.FULL_EXISTING_BIT_LONE_HALF_FOLD.get();
+      final IllegalStateException refusal;
+      try {
+        AbstractHOTIndexWriter.setStructuralPublicationTestHook(() -> {
+          // Published, not yet registered: the root reference holds the new root, the log the old.
+          final HOTIndirectPage published = (HOTIndirectPage) rootReference.getPage();
+          final HOTIndirectPage replaced = (HOTIndirectPage) log.get(rootReference).getModified();
+          final PageReference folded = published.getChildReference(0);
+          final PageReference unfolded = replaced.getChildReference(0);
+          assertTrue(folded.getLogKey() < 0 && folded.getKey() < 0, "the folded half must go out under a fresh reference");
+          assertTrue(unfolded.getLogKey() >= 0, "the unfolded child must be a page of the transaction log");
+          final HOTIndirectPage foldedHalf = (HOTIndirectPage) folded.getPage();
+          for (int slot = 0; slot < foldedHalf.getNumChildren(); slot++) {
+            final PageReference child = foldedHalf.getChildReference(slot);
+            if (child.getLogKey() < 0 && child.getKey() < 0 && child.getPage() instanceof HOTLeafPage keyLeaf) {
+              unpublishedLeaves.add(keyLeaf);
+            }
+          }
+          folded.setLogKey(unfolded.getLogKey());
+          folded.setActiveTilGeneration(unfolded.getActiveTilGeneration());
+        });
+        refusal = assertThrows(IllegalStateException.class, load::putFoldedKey);
+      } finally {
+        AbstractHOTIndexWriter.setStructuralPublicationTestHook(null);
+        for (final HOTLeafPage leaf : unpublishedLeaves) {
+          leaf.close(); // the sabotaged registration never took ownership of the key's leaf
+        }
+      }
+
+      assertEquals(foldsBefore + 1, AbstractHOTIndexWriter.FULL_EXISTING_BIT_LONE_HALF_FOLD.get(),
+          "the refused put must be the fold into the lone indirect half");
+      assertEquals(1, unpublishedLeaves.size(), "the seam must have met the fold: one fresh leaf, the key's");
+      assertEquals(refusedBefore + 1, AbstractHOTIndexWriter.STRUCTURAL_PUT_NOT_READABLE.get(),
+          "the refusal must be the unreadable-put check's, counted where it is raised");
+      final SirixIOException commitFailure = assertThrows(SirixIOException.class, wtx::commit);
+      assertSame(refusal, commitFailure.getCause(), "the transaction must be poisoned with the refusal itself");
+      wtx.rollback();
     }
   }
 
