@@ -33,6 +33,15 @@ Contract 1 is a public boundary fixture: E6 puts `[90,210)` at base cost +100, E
 are selected by the first eight bytes of SHA-256 over seed `20260920`; no runtime PRNG or map
 iteration order affects the stream.
 
+All five Sirix resources explicitly set `ResourceConfiguration.storeDiffs(false)`. The builder
+default is `true`, which the first T100k attempt inherited; at commit time that default serializes
+an update-diff sidecar and resolves each array position by walking its left siblings. The sidecars
+are not read by any SH1 query, are not part of the revision or valid-time model being measured, and
+have no corresponding XTDB work. They are therefore disabled as benchmark configuration, while
+ordinary revision storage, custom commit timestamps, path summaries and VALIDTIME indexes remain
+enabled. Any later correctness or timed result from this kit must explicitly disclose that
+diff-sidecar storage is off.
+
 ## Tiers and capacity
 
 | Tier | Contracts | Products | Suppliers | Events |
@@ -53,12 +62,12 @@ publication. Input, databases, dependency cache, temporary files and outputs liv
 `/var/tmp/sirix-bitemporal` on ext4. Existing `/var/tmp/sirix-jsonbench-*` trees are never read or
 modified by this kit.
 
-T25k is the completed pilot tier: the independent oracle, Sirix and XTDB produced byte-identical
-answers for all twelve queries. T100k input generation and oracle recomputation completed, but
-Sirix from commit `858d0bb8a5a055db902a22e402c7eda9fcc264cd` cannot currently load E1: the HOT
-validator reports an I8 structural splice whose child first keys are not sorted. The evidence is
-retained unchanged and T100k must be rerun after the generic HOT repair; the benchmark does not
-work around the failure.
+T25k and the target T100k tier are complete: the independent oracle, Sirix and XTDB produced
+byte-identical answers for all twelve queries at both scales. T100k uses the generic HOT repair at
+commit `44fc2f4afe0194972a1899c315de1fe70b9a3da1` and the explicitly documented diff-sidecar
+configuration above. The earlier validator-detected T100k failure and the intervening diagnostic
+attempts remain in the evidence record; neither indexes, events nor query bodies were changed to
+obtain the passing result.
 
 ## Queries and Sirix routes
 
@@ -142,9 +151,11 @@ python3 bundles/sirix-query/bench/bitemporal/compare-results.py \
 
 The query commands reopen closed stores. XTDB startup explicitly waits until all 25 committed
 transactions are visible; this is essential because node construction may return before replay has
-indexed the log tail. The comparator invokes `cmp` for every Q1-Q12 pair and reports the first
-differing row. SHA-256 is an integrity aid, never the equality decision. Development additionally
-replays a second interval-list oracle and compares every dense `(epoch,table,id,day)` cell.
+indexed the log tail. The XTDB adapter preserves a primary load or query exception if node close
+also fails, attaching the close failure as suppressed instead of masking the actionable cause. The
+comparator invokes `cmp` for every Q1-Q12 pair and reports the first differing row. SHA-256 is an
+integrity aid, never the equality decision. Development additionally replays a second interval-list
+oracle and compares every dense `(epoch,table,id,day)` cell.
 
 Run the fast kit tests with:
 
@@ -166,8 +177,12 @@ winner from the load facts or one untimed correctness execution in `evidence/`.
 
 ## Recorded evidence
 
-`evidence/2026-09-20/` records the exact commands, development and T25k three-way proofs, route
-assertions, resource facts and the T100k status. The original T25k E11 prefix-rebuild failure is
-retained for provenance; the generic repair on current `main` cleared it and T25k now completes.
-T100k stops at E1 with a different validator-detected malformed HOT structural splice. That defect
-is intentionally not bypassed by disabling indexes, shrinking the workload or changing queries.
+`evidence/2026-09-20/` records the exact commands, three-way proofs for development, T25k and
+T100k, route assertions, resource facts and diagnostic provenance. The original T25k E11
+prefix-rebuild failure and the original T100k E1 malformed structural splice are retained; generic
+HOT repairs cleared both. A later T100k load inherited Sirix's default update-diff sidecars and was
+stopped after diagnosing their quadratic sibling walk; the final, disclosed configuration disables
+those unused sidecars for all five resources. The first XTDB T100k load then failed after E19, but
+its primary exception was masked by a close-time Arrow leak error. No external kill or OOM evidence
+was found, so its cause remains unexplained; a fresh-store retry completed and supplied the passing
+answers. None of these single executions is a timed head-to-head or supports a performance winner.

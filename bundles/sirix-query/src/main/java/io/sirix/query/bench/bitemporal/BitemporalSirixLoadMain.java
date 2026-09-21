@@ -145,10 +145,12 @@ public final class BitemporalSirixLoadMain {
     createBusinessResource(database, BitemporalSchema.PRODUCTS);
     createBusinessResource(database, BitemporalSchema.SUPPLIERS);
     database.createResource(ResourceConfiguration.newBuilder(BitemporalSchema.EPOCHS)
+                                                 .storeDiffs(false)
                                                  .customCommitTimestamps(true)
                                                  .buildPathSummary(true)
                                                  .build());
     database.createResource(ResourceConfiguration.newBuilder(BitemporalSchema.DAYS)
+                                                 .storeDiffs(false)
                                                  .customCommitTimestamps(true)
                                                  .buildPathSummary(true)
                                                  .build());
@@ -157,6 +159,7 @@ public final class BitemporalSirixLoadMain {
   private static void createBusinessResource(final Database<JsonResourceSession> database, final String name) {
     database.createResource(ResourceConfiguration.newBuilder(name)
                                                  .validTimePaths("vf", "vt")
+                                                 .storeDiffs(false)
                                                  .customCommitTimestamps(true)
                                                  .buildPathSummary(true)
                                                  .build());

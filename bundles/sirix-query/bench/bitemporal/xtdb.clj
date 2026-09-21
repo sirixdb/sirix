@@ -7,6 +7,7 @@
          '[xtdb.protocols :as xtp]
          '[xtdb.serde :as serde])
 (import '[java.io BufferedWriter FileOutputStream OutputStreamWriter]
+        '[java.lang AutoCloseable]
         '[java.math BigDecimal BigInteger]
         '[java.nio.charset StandardCharsets]
         '[java.nio.file Files Path Paths StandardOpenOption]
@@ -132,6 +133,21 @@
             (throw (ex-info "timed out waiting for XTDB log replay"
                             {:transactions (count rows) :expected publications}))))))))
 
+(defn call-with-close-suppressed [resource action]
+  (let [primary-failure (volatile! nil)]
+    (try
+      (action resource)
+      (catch Throwable failure
+        (vreset! primary-failure failure)
+        (throw failure))
+      (finally
+        (try
+          (.close ^AutoCloseable resource)
+          (catch Throwable close-failure
+            (if-some [failure @primary-failure]
+              (.addSuppressed ^Throwable failure close-failure)
+              (throw close-failure))))))))
+
 (defn load-database [tier-name event-file database]
   (let [tier (get tiers tier-name)]
     (when-not tier
@@ -142,17 +158,19 @@
     (let [events (read-events event-file tier)
           grouped (group-by :epoch events)
           started (System/nanoTime)]
-      (with-open [node (xtn/start-node (config database))]
-        (doseq [epoch (range publications)]
-          (let [epoch-events (get grouped epoch)
-                ops (if (zero? epoch) (base-ops epoch-events) (mapv event-op epoch-events))
-                result (xt/execute-tx node ops {:system-time (system-time epoch)})
-                footprint (capacity-facts database epoch)]
-            (println (json/write-str (merge {:phase "xtdb-publication" :epoch epoch
-                                             :events (count epoch-events) :tx (pr-str result)}
-                                            footprint)))
-            (flush)))
-        (check-transactions node))
+      (call-with-close-suppressed
+       (xtn/start-node (config database))
+       (fn [node]
+         (doseq [epoch (range publications)]
+           (let [epoch-events (get grouped epoch)
+                 ops (if (zero? epoch) (base-ops epoch-events) (mapv event-op epoch-events))
+                 result (xt/execute-tx node ops {:system-time (system-time epoch)})
+                 footprint (capacity-facts database epoch)]
+             (println (json/write-str (merge {:phase "xtdb-publication" :epoch epoch
+                                              :events (count epoch-events) :tx (pr-str result)}
+                                             footprint)))
+             (flush)))
+         (check-transactions node)))
       (let [sync-result (shell/sh "sync" "-f" (str database))]
         (when-not (zero? (:exit sync-result))
           (throw (ex-info "sync failed" {:exit (:exit sync-result) :err (:err sync-result)}))))
@@ -227,37 +245,41 @@
 
 (defn query-database [database output]
   (Files/createDirectories output (make-array java.nio.file.attribute.FileAttribute 0))
-  (with-open [node (xtn/start-node (config database))]
-    (await-replay node)
-    (let [entries
-          (mapv (fn [spec]
-                  (let [started (System/nanoTime)
-                        rows (with-open [stream (xtp/open-sql-query
-                                                node (:sql spec)
-                                                {:key-fn (serde/read-key-fn :kebab-case-keyword)})]
-                               (vec (.toList stream)))
-                        seconds (/ (- (System/nanoTime) started) 1e9)
-                        result (write-canonical spec rows output)
-                        query-sha (let [digest (MessageDigest/getInstance "SHA-256")]
-                                    (.formatHex (HexFormat/of)
-                                                (.digest digest (.getBytes (:sql spec) StandardCharsets/UTF_8))))]
-                    (spit (.toFile (.resolve output (str "q" (:q spec) ".raw.edn"))) (str (pr-str rows) "\n"))
-                    (println (json/write-str (merge {:phase "xtdb-query" :q (:q spec)
-                                                     :seconds seconds :query-sha256 query-sha}
-                                                    result)))
-                    (flush)
-                    (merge {:q (:q spec) :query_sha256 query-sha} result)))
-                query-specs)]
-      (spit (.toFile (.resolve output "manifest.json"))
-            (str (json/write-str {:engine "xtdb-2.1.0" :queries entries}) "\n")))))
+  (call-with-close-suppressed
+   (xtn/start-node (config database))
+   (fn [node]
+     (await-replay node)
+     (let [entries
+           (mapv (fn [spec]
+                   (let [started (System/nanoTime)
+                         rows (with-open [stream (xtp/open-sql-query
+                                                 node (:sql spec)
+                                                 {:key-fn (serde/read-key-fn :kebab-case-keyword)})]
+                                (vec (.toList stream)))
+                         seconds (/ (- (System/nanoTime) started) 1e9)
+                         result (write-canonical spec rows output)
+                         query-sha (let [digest (MessageDigest/getInstance "SHA-256")]
+                                     (.formatHex (HexFormat/of)
+                                                 (.digest digest (.getBytes (:sql spec) StandardCharsets/UTF_8))))]
+                     (spit (.toFile (.resolve output (str "q" (:q spec) ".raw.edn"))) (str (pr-str rows) "\n"))
+                     (println (json/write-str (merge {:phase "xtdb-query" :q (:q spec)
+                                                      :seconds seconds :query-sha256 query-sha}
+                                                     result)))
+                     (flush)
+                     (merge {:q (:q spec) :query_sha256 query-sha} result)))
+                 query-specs)]
+       (spit (.toFile (.resolve output "manifest.json"))
+             (str (json/write-str {:engine "xtdb-2.1.0" :queries entries}) "\n"))))))
 
 (defn probe-database [database]
-  (with-open [node (xtn/start-node (config database))]
-    (await-replay node)
-    (doseq [sql ["SELECT _id,cost,qty,_valid_from,_valid_to,_system_from,_system_to FROM contracts FOR ALL SYSTEM_TIME FOR ALL VALID_TIME WHERE _id=1 ORDER BY _system_from,_valid_from"
-                 "SELECT _id,cost,qty,_valid_from,_valid_to FROM contracts FOR SYSTEM_TIME AS OF TIMESTAMP '2024-12-26 00:00:00+00:00' FOR ALL VALID_TIME WHERE _id=1 ORDER BY _valid_from"
-                 "SELECT _id,committed,system_time,error FROM xt.txs ORDER BY _id"]]
-      (prn {:phase "probe" :sql sql :rows (xt/q node sql)}))))
+  (call-with-close-suppressed
+   (xtn/start-node (config database))
+   (fn [node]
+     (await-replay node)
+     (doseq [sql ["SELECT _id,cost,qty,_valid_from,_valid_to,_system_from,_system_to FROM contracts FOR ALL SYSTEM_TIME FOR ALL VALID_TIME WHERE _id=1 ORDER BY _system_from,_valid_from"
+                  "SELECT _id,cost,qty,_valid_from,_valid_to FROM contracts FOR SYSTEM_TIME AS OF TIMESTAMP '2024-12-26 00:00:00+00:00' FOR ALL VALID_TIME WHERE _id=1 ORDER BY _valid_from"
+                  "SELECT _id,committed,system_time,error FROM xt.txs ORDER BY _id"]]
+       (prn {:phase "probe" :sql sql :rows (xt/q node sql)})))))
 
 (let [[mode & args] *command-line-args*]
   (case mode

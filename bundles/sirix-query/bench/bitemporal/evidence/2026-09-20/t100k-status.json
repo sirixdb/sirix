@@ -1,7 +1,7 @@
 {
-  "status": "SIRIX_LOAD_FAILED",
+  "status": "PASS",
   "tier": "t100k",
-  "commit": "858d0bb8a5a055db902a22e402c7eda9fcc264cd",
+  "engine_hot_fix_commit": "44fc2f4afe0194972a1899c315de1fe70b9a3da1",
   "events": 234884,
   "puts": 210814,
   "deletes": 24070,
@@ -9,7 +9,45 @@
   "generator_repeat_cmp": "identical",
   "oracle_status": "PASS",
   "oracle_manifest_sha256": "98cdefc938d1043210b2f1676ed6cfad012a282ea18ffba83cbf1972d1283c0b",
-  "oracle_queries": [
+  "comparison": "literal cmp: oracle = Sirix = XTDB for Q1-Q12",
+  "exactness_manifest_sha256": "30287636a849ff18b95a5f5d5b17d2b2912c95049e839d56e016b292c5e8477c",
+  "pre_hot_fix_sirix_failure": {
+    "commit": "858d0bb8a5a055db902a22e402c7eda9fcc264cd",
+    "last_completed_epoch": 0,
+    "failure_epoch": 1,
+    "log_sha256": "7225bb1dcca18b92780bc32f00fd5ad97728dae83a020571fa6f850f373e759f",
+    "validator": "I8-children-sorted-by-firstkey",
+    "message": "child[7] firstKey 018000018d000000008000018d2e77800100000000 <= a preceding child's firstKey 018000018d000000008000018d339ddc0100000000"
+  },
+  "sirix_configuration": {
+    "update_diff_sidecars": false,
+    "ordinary_revisions": true,
+    "custom_commit_timestamps": true,
+    "path_summaries": true,
+    "validtime_indexes": true
+  },
+  "sirix_update_diff_sidecar_attempt": {
+    "status": "STOPPED_AFTER_DIAGNOSIS",
+    "last_completed_epoch": 20,
+    "log_sha256": "4e3b8d3894fec07eb4315bb1396eb00a02ed0490c137e7b3aafcd36212e881a5"
+  },
+  "xtdb_attempts": [
+    {
+      "attempt": 1,
+      "status": "FAILED_UNEXPLAINED",
+      "last_completed_epoch": 19,
+      "log_sha256": "696a79c63181b48366866a0d74c8fddb7a47a4d6aa22ef5d4e7a3cfe5d5a214c",
+      "observations": "the original adapter's close-time Arrow leak exception masked the primary failure; no process signal, heap/OOM marker or kernel OOM/kill record was observed"
+    },
+    {
+      "attempt": 2,
+      "status": "PASS",
+      "store": "fresh",
+      "completed_epochs": 25,
+      "answers": 12
+    }
+  ],
+  "queries": [
     {"q": 1, "rows": 1, "sha256": "06fc08666f2aedf388ef94543817f070237d2833aa93085e8efd45b9ca6c4e61"},
     {"q": 2, "rows": 1, "sha256": "e4aefb74f809ae46ab3dff34181945637d468f6605a5d0fbcbd19ae833e85a0b"},
     {"q": 3, "rows": 1, "sha256": "2b33db4275bb42f191ca5d8096a3be65536d2dff0d34e5b49cc33a4e553eaefd"},
@@ -23,10 +61,5 @@
     {"q": 11, "rows": 240, "sha256": "13f1551d4f2fe4aca176df9d65d9c22bff2089ab1d795af391ec6bcc0af2c34a"},
     {"q": 12, "rows": 4, "sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068"}
   ],
-  "sirix_last_completed_epoch": 0,
-  "sirix_failure_epoch": 1,
-  "sirix_log_sha256": "7225bb1dcca18b92780bc32f00fd5ad97728dae83a020571fa6f850f373e759f",
-  "validator": "I8-children-sorted-by-firstkey",
-  "message": "child[7] firstKey 018000018d000000008000018d2e77800100000000 <= a preceding child's firstKey 018000018d000000008000018d339ddc0100000000",
-  "finding": "T100k must be rerun unchanged after the generic HOT structural splice repair"
+  "claim": "exactness only; no timed head-to-head or performance winner"
 }

@@ -1,0 +1,21 @@
+{
+  "engine": "sirix",
+  "tier": "t100k",
+  "engine_hot_fix_commit": "44fc2f4afe0194972a1899c315de1fe70b9a3da1",
+  "validtime_index_asserted": true,
+  "update_diff_sidecars": false,
+  "queries": [
+    {"q": 1, "route": "revision-scan+half-open-predicate", "strict_end_residual": false},
+    {"q": 2, "route": "revision-scan+half-open-predicate", "strict_end_residual": false},
+    {"q": 3, "route": "revision-scan+strict-overlap", "strict_end_residual": false},
+    {"q": 4, "route": "VALIDTIME+strict-residual", "strict_end_residual": true},
+    {"q": 5, "route": "revision-scan-per-publication+half-open-predicate", "strict_end_residual": false},
+    {"q": 6, "route": "VALIDTIME+strict-residual+generic-group", "strict_end_residual": true},
+    {"q": 7, "route": "VALIDTIME+strict-residual+generic-group", "strict_end_residual": true},
+    {"q": 8, "route": "VALIDTIME+strict-residual+generic-group", "strict_end_residual": true},
+    {"q": 9, "route": "VALIDTIME+strict-residual+generic-join-group", "strict_end_residual": true},
+    {"q": 10, "route": "revision-scan+strict-overlap+generic-join-group", "strict_end_residual": false},
+    {"q": 11, "route": "VALIDTIME+strict-residual+generic-group", "strict_end_residual": true},
+    {"q": 12, "route": "VALIDTIME+strict-residual+generic-anti-join-group", "strict_end_residual": true}
+  ]
+}

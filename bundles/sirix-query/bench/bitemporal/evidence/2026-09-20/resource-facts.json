@@ -59,7 +59,7 @@
       "wall_seconds": 9.25,
       "peak_rss": 638080
     },
-    "sirix_failed_load": {
+    "sirix_pre_hot_fix_failed_load": {
       "wall_seconds": 12.14,
       "outer_invocation_peak_rss": 372000,
       "last_completed_epoch": 0,
@@ -67,11 +67,54 @@
       "last_completed_allocated_bytes": 19595264,
       "failure_epoch": 1,
       "log_sha256": "7225bb1dcca18b92780bc32f00fd5ad97728dae83a020571fa6f850f373e759f"
+    },
+    "sirix_update_diff_sidecar_stopped_load": {
+      "last_completed_epoch": 20,
+      "log_sha256": "4e3b8d3894fec07eb4315bb1396eb00a02ed0490c137e7b3aafcd36212e881a5",
+      "finding": "optional update-diff sidecar serialization performed a quadratic array sibling walk"
+    },
+    "sirix_load": {
+      "wall_seconds": 66.81,
+      "loader_reported_wall_seconds": 62.846,
+      "outer_invocation_peak_rss": 415040,
+      "last_completed_epoch": 24,
+      "logical_bytes": 358405091,
+      "allocated_bytes": 358850560,
+      "update_diff_sidecars": false
+    },
+    "sirix_query_process": {
+      "wall_seconds": 2808.00,
+      "outer_invocation_peak_rss": 418056,
+      "observed_child_rss": 5696500
+    },
+    "xtdb_first_failed_load": {
+      "wall_seconds": 791.66,
+      "peak_rss": 1520192,
+      "signals_delivered": 0,
+      "exit_status": 1,
+      "last_completed_epoch": 19,
+      "log_sha256": "696a79c63181b48366866a0d74c8fddb7a47a4d6aa22ef5d4e7a3cfe5d5a214c",
+      "finding": "primary failure masked by close-time Arrow leak exception; cause unexplained"
+    },
+    "xtdb_load_retry": {
+      "wall_seconds": 1052.79,
+      "loader_reported_wall_seconds": 1047.558738033,
+      "peak_rss": 1514324,
+      "logical_bytes_at_loader_close": 138731164,
+      "allocated_bytes_at_loader_close": 143749120,
+      "logical_bytes_after_query_reopen": 138857273,
+      "allocated_bytes_after_query_reopen": 143872000
+    },
+    "xtdb_query_process": {
+      "wall_seconds": 2419.83,
+      "peak_rss": 957804
     }
   },
   "notes": [
     "Sirix peak RSS values cover the outer Gradle invocation and are not isolated engine-process peaks.",
-    "XTDB closed-store sizes were observed after reopen; shutdown had cancelled an in-flight compaction job."
+    "The Sirix T100k observed_child_rss value is a point observation of the forked Java process, not a measured peak.",
+    "The XTDB T100k load retry completed on a fresh store after the first attempt failed for an unexplained reason.",
+    "XTDB closed-store sizes were observed after reopen; shutdown may continue or cancel compaction work."
   ],
   "claim": "resource observations only; not a comparative performance result"
 }

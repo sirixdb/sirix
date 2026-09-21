@@ -15,6 +15,13 @@ JAVA_ROOT = HERE.parent.parent / "src/main/java/io/sirix/query/bench/bitemporal"
 
 
 class ProtocolTest(unittest.TestCase):
+    def test_sirix_resources_disable_unmeasured_diff_sidecars(self) -> None:
+        loader = (JAVA_ROOT / "BitemporalSirixLoadMain.java").read_text()
+        readme = (HERE / "README.md").read_text()
+        self.assertEqual(3, loader.count(".storeDiffs(false)"))
+        self.assertIn("ResourceConfiguration.storeDiffs(false)", readme)
+        self.assertIn("diff-sidecar storage is off", readme)
+
     def test_both_adapters_define_exactly_twelve_queries(self) -> None:
         sirix = (JAVA_ROOT / "BitemporalQueries.java").read_text()
         xtdb = (HERE / "xtdb.clj").read_text()
@@ -25,12 +32,16 @@ class ProtocolTest(unittest.TestCase):
     def test_pinned_xtdb_runtime(self) -> None:
         pom = (HERE / "pom.xml").read_text()
         wrapper = (HERE / "run-xtdb.sh").read_text()
+        adapter = (HERE / "xtdb.clj").read_text()
         self.assertRegex(
             pom,
             r"<artifactId>xtdb-core</artifactId>\s*<version>2\.1\.0</version>",
         )
         self.assertIn("/usr/lib/jvm/java-21-openjdk-amd64/bin/java", wrapper)
         self.assertIn("/var/tmp/sirix-bitemporal", wrapper)
+        self.assertEqual(4, adapter.count("call-with-close-suppressed"))
+        self.assertIn(".addSuppressed", adapter)
+        self.assertNotIn("(with-open [node", adapter)
 
     def test_comparator_writes_manifest_only_for_identical_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
