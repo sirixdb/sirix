@@ -12,6 +12,7 @@ import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 import java.io.IOException;
 import java.io.StringWriter;
@@ -471,12 +472,34 @@ public final class JsonDiffSerializer {
   }
 
   /**
-   * Resolves every sibling ordinal once per read-only revision and reuses it for the rest of this
-   * serialization. Node keys are unique within a revision, so each cache contains at most one entry
-   * per node in that revision; the two caches are method-local and become unreachable on return.
+   * Memoizes the sibling ordinals a single read-only revision hands out, so the left walk that
+   * determines one of them never repeats a step another tuple already paid for.
+   *
+   * <p>
+   * A lookup walks left from the node until it reaches an already-known sibling or the array's first
+   * child, then unwinds and assigns every ordinal it passed. A single lookup therefore costs exactly
+   * the steps its own index needs, and the total over all tuples of one array is bounded by the
+   * number of distinct siblings walked plus one step per lookup - linear, not quadratic. Nothing is
+   * pre-sized and nothing beyond the walked prefix is stored, so both time and memory follow the
+   * largest index actually asked for rather than the array's length.
+   *
+   * <p>
+   * Node keys are unique within a revision, so one key has one ordinal; the two caches are
+   * method-local and become unreachable when {@code serialize} returns.
    */
   private static final class ArrayPositionCache {
-    private Long2IntOpenHashMap positionsByNodeKey;
+
+    /** Neither a valid ordinal nor a cached one: {@code Long2IntOpenHashMap}'s miss value. */
+    private static final int UNKNOWN_POSITION = -1;
+
+    private final Long2IntOpenHashMap positionsByNodeKey = new Long2IntOpenHashMap();
+
+    /** Reused across lookups; holds the keys of one walk, nearest sibling last. */
+    private final LongArrayList walkedNodeKeys = new LongArrayList();
+
+    private ArrayPositionCache() {
+      positionsByNodeKey.defaultReturnValue(UNKNOWN_POSITION);
+    }
 
     private int positionOf(final JsonNodeReadOnlyTrx rtx) {
       // iter#32 P2: OBJECT_NAMED_OBJECT plays the OBJECT_KEY role under fusion. An ARRAY whose
@@ -487,49 +510,38 @@ public final class JsonDiffSerializer {
       }
 
       final long originalNodeKey = rtx.getNodeKey();
-      if (positionsByNodeKey != null) {
-        final int cachedPosition = positionsByNodeKey.get(originalNodeKey);
-        if (cachedPosition >= 0) {
-          return cachedPosition;
-        }
+      final int cachedPosition = positionsByNodeKey.get(originalNodeKey);
+      if (cachedPosition >= 0) {
+        return cachedPosition;
       }
 
+      walkedNodeKeys.clear();
       try {
-        if (!rtx.moveToParent()) {
-          return 0;
+        long anchorNodeKey = originalNodeKey;
+        int anchorPosition = UNKNOWN_POSITION;
+        while (rtx.hasLeftSibling()) {
+          walkedNodeKeys.add(anchorNodeKey);
+          rtx.moveToLeftSibling();
+          anchorNodeKey = rtx.getNodeKey();
+          anchorPosition = positionsByNodeKey.get(anchorNodeKey);
+          if (anchorPosition >= 0) {
+            break;
+          }
         }
 
-        final int siblingCount = Math.toIntExact(rtx.getChildCount());
-        ensureCapacity(siblingCount);
-        if (!rtx.moveToFirstChild()) {
-          return 0;
+        if (anchorPosition < 0) {
+          anchorPosition = 0;
+          positionsByNodeKey.put(anchorNodeKey, anchorPosition);
         }
 
-        int position = 0;
-        positionsByNodeKey.put(rtx.getNodeKey(), position);
-        while (rtx.hasRightSibling()) {
-          rtx.moveToRightSibling();
-          positionsByNodeKey.put(rtx.getNodeKey(), ++position);
+        int position = anchorPosition;
+        for (int index = walkedNodeKeys.size() - 1; index >= 0; index--) {
+          positionsByNodeKey.put(walkedNodeKeys.getLong(index), ++position);
         }
-
-        final int resolvedPosition = positionsByNodeKey.get(originalNodeKey);
-        return resolvedPosition >= 0
-            ? resolvedPosition
-            : 0;
+        return position;
       } finally {
         rtx.moveTo(originalNodeKey);
       }
-    }
-
-    private void ensureCapacity(final int siblingCount) {
-      if (positionsByNodeKey == null) {
-        positionsByNodeKey = new Long2IntOpenHashMap(siblingCount);
-        positionsByNodeKey.defaultReturnValue(-1);
-        return;
-      }
-
-      final long requiredCapacity = (long) positionsByNodeKey.size() + siblingCount;
-      positionsByNodeKey.ensureCapacity((int) Math.min(requiredCapacity, Integer.MAX_VALUE));
     }
   }
 }

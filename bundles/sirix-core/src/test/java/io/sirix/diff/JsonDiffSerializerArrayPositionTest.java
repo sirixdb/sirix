@@ -4,7 +4,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -12,18 +11,16 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
-import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * The ordinals the sidecar writes. How much traversal producing them costs is budgeted separately,
+ * by {@code io.sirix.budget.JsonDiffArrayPositionWorkBudgetTest}.
+ */
 final class JsonDiffSerializerArrayPositionTest {
-
-  private static final int LARGE_ARRAY_LENGTH = 10_000;
 
   @BeforeEach
   void setUp() {
@@ -136,48 +133,6 @@ final class JsonDiffSerializerArrayPositionTest {
     }
   }
 
-  /**
-   * The legacy prefix walk needs 49,995,000 sibling moves for this fixture. Its counted run exceeds
-   * the 10,000-move budget after only 142 elements; the cached forward scan resolves all 10,000
-   * positions in exactly 9,999 moves.
-   */
-  @Test
-  void largeArrayPositionsRequireOneSiblingPass() {
-    final ResourceConfiguration config =
-        ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).storeDiffs(false).build();
-    try (
-        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
-        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final JsonNodeTrx wtx = session.beginNodeTrx()) {
-      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(largeArray(LARGE_ARRAY_LENGTH)),
-          JsonNodeTrx.Commit.NO);
-      wtx.commit();
-
-      final List<DiffTuple> diffs = new ArrayList<>(LARGE_ARRAY_LENGTH);
-      assertTrue(wtx.moveToDocumentRoot());
-      assertTrue(wtx.moveToFirstChild());
-      assertTrue(wtx.moveToFirstChild());
-      for (int index = 0; index < LARGE_ARRAY_LENGTH; index++) {
-        diffs.add(inserted(wtx.getNodeKey()));
-        if (index + 1 < LARGE_ARRAY_LENGTH) {
-          assertTrue(wtx.moveToRightSibling());
-        }
-      }
-
-      final SiblingMoveCounter moves = new SiblingMoveCounter(LARGE_ARRAY_LENGTH);
-      final JsonResourceSession countedSession = countingSession(session, moves);
-      final String serialized =
-          new JsonDiffSerializer(database.getName(), countedSession, 1, 1, diffs).serializeSidecar();
-      final JsonObject document = JsonParser.parseString(serialized).getAsJsonObject();
-
-      assertEquals(LARGE_ARRAY_LENGTH, document.getAsJsonArray("diffs").size());
-      assertEquals(LARGE_ARRAY_LENGTH, document.get(JsonDiffIntegrity.OPERATION_COUNT_FIELD).getAsInt());
-      assertEquals(0, moves.leftMoves, "position resolution must not walk array prefixes backwards");
-      assertEquals(LARGE_ARRAY_LENGTH - 1, moves.rightMoves,
-          "all positions in one array must be resolved by one forward sibling pass");
-    }
-  }
-
   private static DiffTuple inserted(final long nodeKey) {
     return new DiffTuple(DiffFactory.DiffType.INSERTED, nodeKey, 0, null);
   }
@@ -188,76 +143,5 @@ final class JsonDiffSerializerArrayPositionTest {
 
   private static DiffTuple updated(final long nodeKey) {
     return new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey, null);
-  }
-
-  private static String largeArray(final int length) {
-    final StringBuilder json = new StringBuilder(length * 6);
-    json.append('[');
-    for (int index = 0; index < length; index++) {
-      if (index != 0) {
-        json.append(',');
-      }
-      json.append(index);
-    }
-    return json.append(']').toString();
-  }
-
-  private static JsonResourceSession countingSession(final JsonResourceSession delegate,
-      final SiblingMoveCounter moves) {
-    return (JsonResourceSession) Proxy.newProxyInstance(JsonResourceSession.class.getClassLoader(),
-        new Class<?>[] {JsonResourceSession.class}, (proxy, method, arguments) -> {
-          final Object result = invoke(delegate, method, arguments);
-          if (result instanceof JsonNodeReadOnlyTrx rtx) {
-            return countingTransaction(rtx, moves);
-          }
-          return result;
-        });
-  }
-
-  private static JsonNodeReadOnlyTrx countingTransaction(final JsonNodeReadOnlyTrx delegate,
-      final SiblingMoveCounter moves) {
-    return (JsonNodeReadOnlyTrx) Proxy.newProxyInstance(JsonNodeReadOnlyTrx.class.getClassLoader(),
-        new Class<?>[] {JsonNodeReadOnlyTrx.class}, (proxy, method, arguments) -> {
-          if (method.getName().equals("moveToLeftSibling")) {
-            moves.recordLeftMove();
-          } else if (method.getName().equals("moveToRightSibling")) {
-            moves.recordRightMove();
-          }
-          return invoke(delegate, method, arguments);
-        });
-  }
-
-  private static Object invoke(final Object delegate, final Method method, final Object[] arguments) throws Throwable {
-    try {
-      return method.invoke(delegate, arguments);
-    } catch (final InvocationTargetException exception) {
-      throw exception.getCause();
-    }
-  }
-
-  private static final class SiblingMoveCounter {
-    private final long maximumMoves;
-    private long leftMoves;
-    private long rightMoves;
-
-    private SiblingMoveCounter(final long maximumMoves) {
-      this.maximumMoves = maximumMoves;
-    }
-
-    private void recordLeftMove() {
-      leftMoves++;
-      checkBudget();
-    }
-
-    private void recordRightMove() {
-      rightMoves++;
-      checkBudget();
-    }
-
-    private void checkBudget() {
-      final long totalMoves = leftMoves + rightMoves;
-      assertTrue(totalMoves <= maximumMoves, () -> "array-position resolution exceeded its linear sibling-move budget: "
-          + totalMoves + " > " + maximumMoves);
-    }
   }
 }
