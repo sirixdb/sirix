@@ -4736,8 +4736,8 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /**
    * Full-node decompositions that folded {@code K} into a 1:31 split's lone <em>indirect</em> child —
-   * the half that is the node's own child reference rather than one the split compressed, and so
-   * the one fold whose result must not be published by re-pointing the half's reference.
+   * the half that is the node's own child reference rather than one the split compressed, and so the
+   * one fold whose result must not be published by re-pointing the half's reference.
    */
   public static final AtomicLong FULL_EXISTING_BIT_LONE_HALF_FOLD = new AtomicLong();
 
@@ -4912,8 +4912,9 @@ public abstract class AbstractHOTIndexWriter<K> {
           : new HOTIncrementalInsert.BiNode(split.discriminativeBitIndex(), split.height(), foldedRef, split.right());
 
       // 4. Integrate the split BiNode at insertDepth — the standard capacity cascade.
-      final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
-          buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, foldedSplit, revision, pageKeyAllocator);
+      final HOTIncrementalInsert.IntegrationResult result =
+          HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
+              insertDepth, foldedSplit, revision, pageKeyAllocator);
       published = true;
       lastDispatchHandler = "h:combo-site2-fold";
       registerFreshSubtree(result.touchedRef());
@@ -4930,7 +4931,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
   }
 
-  /** Decline a fold into a half with no room for {@code K}'s leaf; the complete frontier places it. */
+  /**
+   * Decline a fold into a half with no room for {@code K}'s leaf; the complete frontier places it.
+   */
   private static boolean declineFoldIntoFullHalf(final HOTLeafPage keyLeaf) {
     keyLeaf.close();
     FULL_EXISTING_BIT_LONE_HALF_FULL.incrementAndGet();
@@ -5113,11 +5116,13 @@ public abstract class AbstractHOTIndexWriter<K> {
    * </p>
    *
    * <p>
-   * The key terminus is asked after any {@link #registerFreshSubtree} of the outermost mutation —
-   * the dispatch's own splice and the periodic leaf consolidation alike — and never inside the
-   * dispatch {@link #subInsertAt} runs: a sub-insert places the key below a split half its caller has
-   * yet to integrate, so the route from the root need not be final there. A put that spliced nothing
-   * never reaches this walk at all. One leaf probe on top of a walk that already runs, no allocation.
+   * The key terminus is asked after any {@link #registerFreshSubtree} of the outermost mutation — the
+   * dispatch's own splice and the periodic leaf consolidation alike — and never inside the dispatch
+   * {@link #subInsertAt} runs: a sub-insert places the key below a split half its caller has yet to
+   * integrate, so the route from the root need not be final there. A put that spliced nothing reaches
+   * this walk only when its own periodic consolidation published a fresh parent — at most once per
+   * {@code CONSOLIDATION_INTERVAL} puts. One leaf probe on top of a walk that already runs, no
+   * allocation.
    * </p>
    *
    * @param keyBuf buffer holding the key of the mutation that published

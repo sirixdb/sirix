@@ -1102,18 +1102,19 @@ or above a spine node (d*). Cases, in order:
    partial-key collision try, in order, `subInsertAt` into the affected child if it keeps I8
    (`:3366-3395`), a leaf-pair splice, an opposite-frontier wrap; strand and malformation guards before
    publishing (`:4117-4182`).
-2. β ∈ D(d*), d* full: `branchFullNodeAtExistingBit` (`:4708-4803`). Its MSB split hands K's half back
+2. β ∈ D(d*), d* full: `branchFullNodeAtExistingBit` (`:4799-4932`). Its MSB split hands K's half back
    either compressed or, on a 1:31 split, bare — as d*'s *own* child reference. A bare *leaf* child is
    no compound frontier and declines to the complete frontier; a bare *indirect* child is folded into,
-   but only with two rules a compressed half does not need. It is folded into only when it has room
-   (`getNumChildren() < MAX_NODE_ENTRIES`; a compressed half always has room, a lone child was sized by
-   its own inserts), otherwise the fold is declined and counted by `FULL_EXISTING_BIT_LONE_HALF_FULL`.
-   And the folded page is published under a **fresh** `PageReference`, around which the split's BiNode
-   is rebuilt before `integrate` — never by re-pointing the half's reference, which already names the
-   unfolded child in the transaction log, where `registerFreshPage` stops: a page merely
-   swizzled onto it is seen by a reader following the swizzle but never logged, so the writer and the
-   commit keep the unfolded child and K is lost with the trie well-formed. Folds into a lone indirect
-   half are counted by `FULL_EXISTING_BIT_LONE_HALF_FOLD`.
+   but only when it has room (`getNumChildren() < MAX_NODE_ENTRIES`; a compressed half always has room,
+   a lone child was sized by its own inserts and may be at capacity), otherwise the fold is declined and
+   counted by `FULL_EXISTING_BIT_LONE_HALF_FULL`. A C2 collision adds no child and needs no room.
+   Every fold publishes the folded page under a **fresh** `PageReference`, around which the split's
+   BiNode is rebuilt before `integrate`, never by re-pointing the half's reference. That is load-bearing
+   for a bare half: its reference is d*'s own and already names the unfolded child in the transaction
+   log, where `registerFreshPage` stops, so a page merely swizzled onto it is seen by a reader following
+   the swizzle but never logged — the writer and the commit keep the unfolded child and K is lost with
+   the trie well-formed. Folds into a lone indirect half are counted by
+   `FULL_EXISTING_BIT_LONE_HALF_FOLD`.
 3. β ∉ D, d* full, all children affected: wrap the node and the new leaf under a BiNode and integrate
    (`:4202-4254`).
 4. β ∉ D, d* full, some children affected: `splitIndirectWithEntry` and integrate (`:4256`, `:4602-4630`).
@@ -1178,7 +1179,7 @@ or above a spine node (d*). Cases, in order:
 | leaf split | O(entries) union materialization (one `Entry` object per key, `hot/HOTIncrementalInsert.java:134-158`) + O(h · 32) integration |
 | branch cases | O(32) node re-encoding + guards O(children · h); exact scans ≤ 63 pages |
 | complete-frontier splice | O(h · 32) child tables + at most one leaf copy for `K`'s boundary and one per side the block's bits cut through (≤ 32 parts) |
-| consolidation | O(32) every 4096 inserts |
+| consolidation | O(32) every 4096 inserts, plus one O(h) route re-validation when it publishes a changed parent (§4.8) |
 
 ### 4.6 Delete
 
@@ -1247,8 +1248,15 @@ node and all built pages are resident until the splice (`docs/HOT_BULK_BUILD.md:
 - **Only production call**: `validatePublishedStructuralScopeBounded` after a structural publication,
   when `VALIDATE_STRUCTURAL_MUTATIONS` (default on) and the scope fits the bounded budget; oversized
   scopes are counted in `STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED` and not checked
-  (`hot/AbstractHOTIndexWriter.java:2292-2371`, `:4946`). The key's own route is always checked by
-  `validatePublishedStructuralPath` (`:4964-5001`).
+  (`hot/AbstractHOTIndexWriter.java:2319-2378`, `:5090`). The key's own route is always checked by
+  `validatePublishedStructuralPath` (`:5103-5177`): it proves every node on the route the transaction
+  log resolves well-formed and that route ending in a live leaf. Once per outermost mutation that
+  published — the dispatch's own splice, and a periodic leaf consolidation that published a fresh
+  parent — it also asks the terminal leaf for the key, never inside the dispatch `subInsertAt` runs,
+  whose route from the root is not yet final. That terminus is read-your-write: a fresh page published
+  where the registration walk does not look keeps every structural invariant and still loses the key,
+  and no detector over the trie can see that, because nothing in the trie is wrong. A miss counts
+  `STRUCTURAL_PUT_NOT_READABLE` and throws like any other defect.
 - **On a defect**: count it, optionally dump it, `LOG.error`, throw `IllegalStateException`; the caller
   marks the transaction rollback-only. **It never repairs.**
 
@@ -1413,7 +1421,7 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Primitives | `HOTLeafPageSplitFaithfulTest` (3), `HOTIndirectPageSplitFaithfulTest` (15), `HOTDescentAnalysisTest` (4), `HOTIntegrateTest` (4) | MSDB leaf split into complete R(S) halves; `splitIndirect`/`addEntry` on canonical tries; β and d*; `integrate` including cascade to a new root |
 | Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTInvariantValidatorChecksTest` (6) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; validator: I4, I11, leaf-insert precondition |
 | Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `page/HOTCompleteDumpMergeTest` (5), `page/HOTLeafPageCowTest` (15), `page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
-| Writer mechanics | `HOTRebuildFootprintTest` (25), `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2) | bounded footprints, fail-closed refusal, poisoning after a failed publication |
+| Writer mechanics | `HOTRebuildFootprintTest` (25), `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8) |
 | Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
 | Reader | `HOTTrieReaderPextSeekTest` (5), `HOTRangeScanOrderTest` (2) | PEXT seek against an unsigned-lex oracle after cold reopen; each key in range exactly once, ascending |
 | Index builds | `index/JsonCASIndexBuildTest`, `JsonPathAndNameIndexBuildTest`, `JsonIndexDropRecreateVersioningTest` | `STRUCTURAL_VALIDATION_FAILURE` stays zero during real index builds (`JsonCASIndexBuildTest.java:170-176`) |
@@ -1480,9 +1488,7 @@ manager's record-page budget (§4.1); there is no HOT-specific property for them
 | `sirix.hot.mergeDiag` | fragment-merge and carry-forward `LongAdder` counters, including `completeDumpsWalkedPast` which must stay 0; **on in the sirix-core and sirix-query test JVMs**, where the work-budget tests also read their sum as "HOT leaves loaded" | `set/VersioningType.java:1215-1225` |
 
 Always-on counters (public `AtomicLong`s): `STRUCTURAL_VALIDATION_FAILURE` ("Must stay zero"),
-`STRUCTURAL_PUT_NOT_READABLE` (also "must stay zero": a structural put whose key the route the
-transaction log resolves does not produce — raised by the same post-publication route walk, on its
-key terminus, which only the outermost dispatch and a publishing leaf consolidation ask for),
+`STRUCTURAL_PUT_NOT_READABLE` (also "must stay zero"; §4.8),
 `STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED`, `DIRECTION_ONE_SUBINSERT`, `DIRECTION_ONE_FALLBACK`,
 `BRANCH_COMPLETE_FRONTIER`, `FULL_EXISTING_BIT_LONE_HALF_FOLD` and
 `FULL_EXISTING_BIT_LONE_HALF_FULL` (§4.5.4 case 2) and the per-(invariant, handler) tally

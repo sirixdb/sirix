@@ -53,16 +53,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * A full node whose most significant bit tells one child from the other 31 splits into that child —
- * handed back bare, as the node's <em>own</em> child reference — and one compressed half. When a new
- * key forms a new combination of the node's existing bits on the lone child's side, the writer folds
- * the key's leaf into that child. The folded page is fresh, but the reference it would replace is
- * not: it already names the unfolded child in the transaction log. Swizzling the folded page onto
- * that reference publishes nothing, because registration stops at a reference that carries an
- * identity. A reader following the swizzle sees the key; the writer, which resolves the log first,
- * and the commit both keep the unfolded child. The key's posting is then lost with every invariant
- * intact: the committed trie is well-formed, it simply never contained the key. In a valid-time
- * index that is a record answered over part of its span only, by the store that kept its other
- * endpoint.
+ * handed back bare, as the node's <em>own</em> child reference — and one compressed half. When a
+ * new key forms a new combination of the node's existing bits on the lone child's side, the writer
+ * folds the key's leaf into that child. The folded page is fresh, but the reference it would
+ * replace is not: it already names the unfolded child in the transaction log. Swizzling the folded
+ * page onto that reference publishes nothing, because registration stops at a reference that
+ * carries an identity. A reader following the swizzle sees the key; the writer, which resolves the
+ * log first, and the commit both keep the unfolded child. The key's posting is then lost with every
+ * invariant intact: the committed trie is well-formed, it simply never contained the key. In a
+ * valid-time index that is a record answered over part of its span only, by the store that kept its
+ * other endpoint.
  * </p>
  *
  * <p>
@@ -71,16 +71,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * key splits the full leaf again. 29 keys of the other fork, one endpoint bit each, fill the
  * height-1 root, and a fresh posting chunk of a resident key overflows a full leaf under it: the
  * capacity cascade leaves a height-2 root over the fork-{@code 0} node and the other fork's. Of 32
- * more keys of the other fork, two fill its node and thirty become leaves of the root beside it. The
- * root is then full, and its most significant bit — the fork bit — has the fork-{@code 0} node alone
- * on its side. The next fork-{@code 0} key whose endpoint sets a bit the root's mask already carries
- * for the other fork is the fold.
+ * more keys of the other fork, two fill its node and thirty become leaves of the root beside it.
+ * The root is then full, and its most significant bit — the fork bit — has the fork-{@code 0} node
+ * alone on its side. The next fork-{@code 0} key whose endpoint sets a bit the root's mask already
+ * carries for the other fork is the fold.
  * </p>
  *
  * <p>
  * Nothing about the loss depends on how a leaf is versioned — the folded page never reaches the log
- * — so each scenario runs under every {@link VersioningType}, and the multi-revision one checks each
- * revision against exactly what it held, no more and no less. Every scenario asserts through
+ * — so each scenario runs under every {@link VersioningType}, and the multi-revision one checks
+ * each revision against exactly what it held, no more and no less. Every scenario asserts through
  * {@link AbstractHOTIndexWriter#FULL_EXISTING_BIT_LONE_HALF_FOLD} that the fold was really reached,
  * so a change in leaf geometry cannot let it pass without exercising anything.
  * </p>
@@ -232,18 +232,20 @@ final class HOTLoneHalfFoldPublicationTest {
         verifyRevision(session, revision, load.snapshots.get(revision - 1));
       }
       assertTrue(load.snapshots.get(0).get(folded) == null, "revision 1 predates the folded key");
-      assertArrayEquals(new long[] {SHAPE_NODE_KEY + 3, SHAPE_NODE_KEY + 4, SHAPE_NODE_KEY + 5, SHAPE_NODE_KEY + 6,
-          SHAPE_NODE_KEY + 7}, toArray(load.snapshots.get(REVISIONS - 1).get(folded)),
+      assertArrayEquals(
+          new long[] {SHAPE_NODE_KEY + 3, SHAPE_NODE_KEY + 4, SHAPE_NODE_KEY + 5, SHAPE_NODE_KEY + 6,
+              SHAPE_NODE_KEY + 7},
+          toArray(load.snapshots.get(REVISIONS - 1).get(folded)),
           "the last revision holds the folded key's grown posting without the removed node");
     }
   }
 
   /**
-   * What the writer does if a handler ever again publishes a page where the registration walk does not
-   * look. The fold is correct here; the publication seam then hands the folded page's fresh reference
-   * the identity of the log entry that still holds the unfolded child — the state the defect left
-   * behind. Every structural check passes on it, as it did then; only the question "is the key I just
-   * put readable where the log says it is" does not.
+   * What the writer does if a handler ever again publishes a page where the registration walk does
+   * not look. The fold is correct here; the publication seam then hands the folded page's fresh
+   * reference the identity of the log entry that still holds the unfolded child — the state the
+   * defect left behind. Every structural check passes on it, as it did then; only the question "is
+   * the key I just put readable where the log says it is" does not.
    */
   @Test
   @ResourceLock("HOT_STRUCTURAL_PUBLICATION_TEST_HOOK")
@@ -270,7 +272,8 @@ final class HOTLoneHalfFoldPublicationTest {
           final HOTIndirectPage replaced = (HOTIndirectPage) log.get(rootReference).getModified();
           final PageReference folded = published.getChildReference(0);
           final PageReference unfolded = replaced.getChildReference(0);
-          assertTrue(folded.getLogKey() < 0 && folded.getKey() < 0, "the folded half must go out under a fresh reference");
+          assertTrue(folded.getLogKey() < 0 && folded.getKey() < 0,
+              "the folded half must go out under a fresh reference");
           assertTrue(unfolded.getLogKey() >= 0, "the unfolded child must be a page of the transaction log");
           final HOTIndirectPage foldedHalf = (HOTIndirectPage) folded.getPage();
           for (int slot = 0; slot < foldedHalf.getNumChildren(); slot++) {
@@ -314,8 +317,8 @@ final class HOTLoneHalfFoldPublicationTest {
 
     /** A writer lives as long as its transaction; every revision gets its own. */
     private void attach(final JsonNodeTrx wtx) {
-      writer = HOTIndexWriter.create(wtx.getStorageEngineWriter(), ValidTimeKeySerializer.INSTANCE,
-          IndexType.VALIDTIME, INDEX_NUMBER);
+      writer = HOTIndexWriter.create(wtx.getStorageEngineWriter(), ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME,
+          INDEX_NUMBER);
     }
 
     private void put(final long forkNode, final long endpoint, final long nodeKey) {
@@ -370,8 +373,8 @@ final class HOTLoneHalfFoldPublicationTest {
     /**
      * Fill the lone fork-{@code 0} child without touching the full root above it: each key sets one
      * endpoint bit more significant than every bit that child discriminates on and absent from the
-     * root's mask, so it joins the child as a new partition root — 29 of them fill its 3 children up
-     * to {@code MAX_NODE_ENTRIES}.
+     * root's mask, so it joins the child as a new partition root — 29 of them fill its 3 children up to
+     * {@code MAX_NODE_ENTRIES}.
      */
     private void fillLoneChild() {
       for (int bit = 10; bit < 39; bit++) {
@@ -395,7 +398,9 @@ final class HOTLoneHalfFoldPublicationTest {
 
   // ===== Verification =====
 
-  /** The revision's trie is well-formed and holds exactly {@code expected} — every key, every node. */
+  /**
+   * The revision's trie is well-formed and holds exactly {@code expected} — every key, every node.
+   */
   private static void verifyRevision(final JsonResourceSession session, final int revision,
       final Map<ValidTimeKey, TreeSet<Long>> expected) {
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
