@@ -35,12 +35,15 @@ iteration order affects the stream.
 
 All five Sirix resources explicitly set `ResourceConfiguration.storeDiffs(false)`. The builder
 default is `true`, which the first T100k attempt inherited; at commit time that default serializes
-an update-diff sidecar and resolves each array position by walking its left siblings. The sidecars
-are not read by any SH1 query, are not part of the revision or valid-time model being measured, and
-have no corresponding XTDB work. They are therefore disabled as benchmark configuration, while
-ordinary revision storage, custom commit timestamps, path summaries and VALIDTIME indexes remain
-enabled. Any later correctness or timed result from this kit must explicitly disclose that
-diff-sidecar storage is off.
+an update-diff sidecar. That attempt was stopped because each array position was then resolved by
+its own walk over the array's left siblings, making publication work quadratic; the resolver has
+since been made linear in the touched prefix — `docs/JSON_UPDATE_DIFFS.md` owns that behavior and
+its bounds. The sidecars remain off here for reasons the fix does not change: they are not read by
+any SH1 query, are not part of the revision or valid-time model being measured, and have no
+corresponding XTDB work. They are therefore disabled as benchmark configuration, while ordinary
+revision storage, custom commit timestamps, path summaries and VALIDTIME indexes remain enabled.
+Any later correctness or timed result from this kit must explicitly disclose that diff-sidecar
+storage is off.
 
 ## Tiers and capacity
 

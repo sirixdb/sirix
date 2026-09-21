@@ -44,7 +44,7 @@ public final class BasicJsonDiffTest {
       // rather than guessing a nodeKey constant.
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // root object
-      wtx.moveToLastChild();  // last field — tada (fused OBJECT_NAMED_ARRAY)
+      wtx.moveToLastChild(); // last field — tada (fused OBJECT_NAMED_ARRAY)
       final long tadaKey = wtx.getNodeKey();
       final var nodeKey = wtx.insertObjectRecordAsRightSibling("hereIAm", new StringValue("yeah")).getNodeKey();
       wtx.commit();
@@ -138,8 +138,7 @@ public final class BasicJsonDiffTest {
       final String fixtureName = true
           ? "replace1-fused.json"
           : "replace1.json";
-      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve(fixtureName)),
-          diffRev1Rev2);
+      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve(fixtureName)), diffRev1Rev2);
     }
   }
 
@@ -174,8 +173,7 @@ public final class BasicJsonDiffTest {
       final String fixtureName = true
           ? "deletion-at-eof-fused.json"
           : "deletion-at-eof.json";
-      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve(fixtureName)),
-          diffRev1Rev2);
+      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve(fixtureName)), diffRev1Rev2);
     }
   }
 
@@ -204,8 +202,7 @@ public final class BasicJsonDiffTest {
       final String fixtureName = true
           ? "replace2-fused.json"
           : "replace2.json";
-      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve(fixtureName)),
-          diffRev1Rev2);
+      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve(fixtureName)), diffRev1Rev2);
     }
   }
 
@@ -213,8 +210,9 @@ public final class BasicJsonDiffTest {
    * Test that UPDATE operations on array elements at different positions generate correct array index
    * paths.
    *
-   * This test verifies the fix for the bug where getArrayPosition() was corrupting the transaction
-   * cursor position, causing incorrect paths like /items/[5] instead of /items/[10] for updates.
+   * This test verifies the fix for the bug where resolving an array position left the transaction
+   * cursor where the walk ended, causing incorrect paths like /items/[5] instead of /items/[10] for
+   * updates. {@code JsonDiffSerializer}'s ordinal cache restores the cursor in a finally block.
    */
   @Test
   public void test_updateArrayElementPath_atIndex10() {

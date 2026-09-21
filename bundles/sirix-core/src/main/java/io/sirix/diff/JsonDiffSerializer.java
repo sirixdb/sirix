@@ -1,7 +1,5 @@
 package io.sirix.diff;
 
-import java.util.Objects;
-
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import io.brackit.query.atomic.QNm;
@@ -10,16 +8,31 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
-import io.sirix.settings.Fixed;
 import io.sirix.service.json.serialize.JsonSerializer;
+import io.sirix.settings.Fixed;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.UncheckedIOException;
-import java.util.ArrayDeque;
 import java.util.Collection;
+import java.util.Objects;
+import java.util.function.BiConsumer;
 
 public final class JsonDiffSerializer {
+
+  /** Observes the actual backing storage once per revision cache, outside the traversal loop. */
+  private static volatile @Nullable BiConsumer<@Nullable Long2IntOpenHashMap, LongArrayList> arrayPositionCacheObserver;
+
+  static @Nullable BiConsumer<@Nullable Long2IntOpenHashMap, LongArrayList> setArrayPositionCacheObserverForTesting(
+      final @Nullable BiConsumer<@Nullable Long2IntOpenHashMap, LongArrayList> observer) {
+    final var previous = arrayPositionCacheObserver;
+    arrayPositionCacheObserver = observer;
+    return previous;
+  }
 
   private final String databaseName;
   private final JsonResourceSession resourceSession;
@@ -61,6 +74,9 @@ public final class JsonDiffSerializer {
 
     try (final var oldRtx = resourceSession.beginNodeReadOnlyTrx(oldRevisionNumber);
         final var newRtx = resourceSession.beginNodeReadOnlyTrx(newRevisionNumber)) {
+      final var oldArrayPositions = new ArrayPositionCache();
+      final var newArrayPositions = new ArrayPositionCache();
+
       if (emitFromDiffAlgorithm) {
         diffs.removeIf(diffTuple -> diffTuple.getDiff() == DiffFactory.DiffType.SAME
             || diffTuple.getDiff() == DiffFactory.DiffType.SAMEHASH
@@ -100,7 +116,7 @@ public final class JsonDiffSerializer {
 
             // Add path using PathSummary (always available by default)
             // Pass true to include parent path for value nodes (STRING_VALUE, etc.)
-            addPathIfAvailable(jsonInsertDiff, newRtx, newRevisionNumber, true);
+            addPathIfAvailable(jsonInsertDiff, newRtx, newRevisionNumber, true, newArrayPositions);
 
             if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
@@ -122,7 +138,7 @@ public final class JsonDiffSerializer {
 
             // Add path using PathSummary (always available by default)
             // Pass true to include parent path for value nodes (STRING_VALUE, etc.)
-            addPathIfAvailable(jsonDeletedDiff, oldRtx, oldRevisionNumber, true);
+            addPathIfAvailable(jsonDeletedDiff, oldRtx, oldRevisionNumber, true, oldArrayPositions);
 
             if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = oldRtx.getDeweyID();
@@ -144,7 +160,7 @@ public final class JsonDiffSerializer {
 
             // Add path using PathSummary (always available by default)
             // For REPLACE, include parent path for values under OBJECT_KEY
-            addPathIfAvailable(jsonReplaceDiff, newRtx, newRevisionNumber, true);
+            addPathIfAvailable(jsonReplaceDiff, newRtx, newRevisionNumber, true, newArrayPositions);
 
             if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
@@ -164,7 +180,7 @@ public final class JsonDiffSerializer {
 
             // Add path using PathSummary (always available by default)
             // Include parent path for value nodes under OBJECT_KEY
-            addPathIfAvailable(jsonUpdateDiff, newRtx, newRevisionNumber, true);
+            addPathIfAvailable(jsonUpdateDiff, newRtx, newRevisionNumber, true, newArrayPositions);
 
             if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
@@ -208,6 +224,12 @@ public final class JsonDiffSerializer {
           default:
             // Do nothing.
         }
+      }
+
+      final var observer = arrayPositionCacheObserver;
+      if (observer != null) {
+        observer.accept(oldArrayPositions.positionsByNodeKey, oldArrayPositions.walkedNodeKeys);
+        observer.accept(newArrayPositions.positionsByNodeKey, newArrayPositions.walkedNodeKeys);
       }
     }
 
@@ -294,7 +316,8 @@ public final class JsonDiffSerializer {
    * @param revisionNumber the revision number
    * @return the path string, or null if unavailable
    */
-  private String getNodePath(JsonNodeReadOnlyTrx rtx, int revisionNumber, boolean includeParentPathForValues) {
+  private String getNodePath(JsonNodeReadOnlyTrx rtx, int revisionNumber, boolean includeParentPathForValues,
+      ArrayPositionCache arrayPositions) {
     if (!resourceSession.getResourceConfig().withPathSummary) {
       return null;
     }
@@ -375,7 +398,7 @@ public final class JsonDiffSerializer {
       }
 
       // Resolve array positions like sdb:path() does
-      return resolveArrayPositions(rtx, path);
+      return resolveArrayPositions(rtx, path, arrayPositions);
     } catch (final IllegalStateException e) {
       // Resource may have been closed (e.g., memory-mapped file reader)
       // This can happen during concurrent operations or cleanup
@@ -391,7 +414,7 @@ public final class JsonDiffSerializer {
    * @param path the path with unresolved array indices
    * @return the path with resolved array indices
    */
-  private String resolveArrayPositions(JsonNodeReadOnlyTrx rtx, Path<QNm> path) {
+  private String resolveArrayPositions(JsonNodeReadOnlyTrx rtx, Path<QNm> path, ArrayPositionCache arrayPositions) {
     final String pathString = path.toString();
 
     if (!pathString.contains("[]")) {
@@ -400,7 +423,7 @@ public final class JsonDiffSerializer {
 
     // We need to walk up the tree to resolve array positions
     final var steps = path.steps();
-    final var positions = new ArrayDeque<Integer>();
+    final var positions = new IntArrayList();
 
     // Save current position
     final long originalNodeKey = rtx.getNodeKey();
@@ -417,12 +440,12 @@ public final class JsonDiffSerializer {
           final NodeKind pKind = rtx.getParentKind();
           if (pKind == NodeKind.ARRAY || pKind == NodeKind.OBJECT_NAMED_ARRAY) {
             // We're directly inside the array, get position then move up
-            positions.addFirst(getArrayPosition(rtx));
+            positions.add(arrayPositions.positionOf(rtx));
             rtx.moveToParent();
           } else {
             // We're inside a nested structure, move up to the array element first
             rtx.moveToParent();
-            positions.addFirst(getArrayPosition(rtx));
+            positions.add(arrayPositions.positionOf(rtx));
           }
         } else {
           rtx.moveToParent();
@@ -430,7 +453,8 @@ public final class JsonDiffSerializer {
       }
 
       var result = pathString;
-      for (Integer pos : positions) {
+      for (int index = positions.size() - 1; index >= 0; index--) {
+        final int pos = positions.getInt(index);
         if (pos == -1) {
           // Keep as [] for arrays that are direct children of object keys
           continue;
@@ -449,30 +473,6 @@ public final class JsonDiffSerializer {
   }
 
   /**
-   * Get the array position (index) of the current node among its siblings.
-   *
-   * @param rtx the transaction positioned at the node
-   * @return the 0-based index, or -1 if this is an array directly under an object key
-   */
-  private int getArrayPosition(JsonNodeReadOnlyTrx rtx) {
-    // iter#32 P2: OBJECT_NAMED_OBJECT plays the OBJECT_KEY role under fusion. An ARRAY whose
-    // parent is the fused OBJECT_KEY-equivalent has no sibling index either.
-    final NodeKind parentKind = rtx.getParentKind();
-    if (parentKind == NodeKind.OBJECT_NAMED_OBJECT && rtx.isArray()) {
-      return -1;
-    }
-
-    final long originalNodeKey = rtx.getNodeKey();
-    int index = 0;
-    while (rtx.hasLeftSibling()) {
-      rtx.moveToLeftSibling();
-      index++;
-    }
-    rtx.moveTo(originalNodeKey);
-    return index;
-  }
-
-  /**
    * Add path to a diff JSON object if PathSummary is available.
    *
    * @param json the JSON object to add the path to
@@ -482,10 +482,93 @@ public final class JsonDiffSerializer {
    *        operations)
    */
   private void addPathIfAvailable(JsonObject json, JsonNodeReadOnlyTrx rtx, int revisionNumber,
-      boolean includeParentPath) {
-    final String path = getNodePath(rtx, revisionNumber, includeParentPath);
+      boolean includeParentPath, ArrayPositionCache arrayPositions) {
+    final String path = getNodePath(rtx, revisionNumber, includeParentPath, arrayPositions);
     if (path != null) {
       json.addProperty("path", path);
+    }
+  }
+
+  /**
+   * Memoizes the sibling ordinals a single read-only revision hands out, so the left walk that
+   * determines one of them never repeats a step another tuple already paid for.
+   *
+   * <p>
+   * A lookup walks left from the node until it reaches an already-known sibling or the array's first
+   * child, then unwinds and assigns every ordinal it passed. A single lookup therefore costs at most
+   * the steps its own index needs, and the total over all tuples of one array is bounded by the
+   * number of distinct siblings walked plus one step per lookup - linear, not quadratic. Nothing is
+   * pre-sized, nothing is allocated until a position is actually resolved, and nothing beyond the
+   * walked prefix is stored, so both time and memory follow the largest index actually asked for
+   * rather than the array's length.
+   *
+   * <p>
+   * Node keys are unique within a revision, so one key has one ordinal; the two caches are
+   * method-local and become unreachable when {@code serialize} returns.
+   */
+  private static final class ArrayPositionCache {
+
+    /** Neither a valid ordinal nor a cached one: {@code Long2IntOpenHashMap}'s miss value. */
+    private static final int UNKNOWN_POSITION = -1;
+
+    /**
+     * Allocated by the first lookup that reaches the walk. A serialization that resolves no array
+     * position - no path summary, or no emitted path with an array step - allocates no backing storage
+     * at all.
+     */
+    private @Nullable Long2IntOpenHashMap positionsByNodeKey;
+
+    /** Reused across lookups; holds the keys of one walk, nearest sibling last. */
+    private final LongArrayList walkedNodeKeys = new LongArrayList();
+
+    private int positionOf(final JsonNodeReadOnlyTrx rtx) {
+      // iter#32 P2: OBJECT_NAMED_OBJECT plays the OBJECT_KEY role under fusion. An ARRAY whose
+      // parent is the fused OBJECT_KEY-equivalent has no sibling index either.
+      final NodeKind parentKind = rtx.getParentKind();
+      if (parentKind == NodeKind.OBJECT_NAMED_OBJECT && rtx.isArray()) {
+        return -1;
+      }
+
+      final long originalNodeKey = rtx.getNodeKey();
+      Long2IntOpenHashMap positions = positionsByNodeKey;
+      if (positions == null) {
+        positions = new Long2IntOpenHashMap();
+        positions.defaultReturnValue(UNKNOWN_POSITION);
+        positionsByNodeKey = positions;
+      } else {
+        final int cachedPosition = positions.get(originalNodeKey);
+        if (cachedPosition >= 0) {
+          return cachedPosition;
+        }
+      }
+
+      walkedNodeKeys.clear();
+      try {
+        long anchorNodeKey = originalNodeKey;
+        int anchorPosition = UNKNOWN_POSITION;
+        while (rtx.hasLeftSibling()) {
+          walkedNodeKeys.add(anchorNodeKey);
+          rtx.moveToLeftSibling();
+          anchorNodeKey = rtx.getNodeKey();
+          anchorPosition = positions.get(anchorNodeKey);
+          if (anchorPosition >= 0) {
+            break;
+          }
+        }
+
+        if (anchorPosition < 0) {
+          anchorPosition = 0;
+          positions.put(anchorNodeKey, anchorPosition);
+        }
+
+        int position = anchorPosition;
+        for (int index = walkedNodeKeys.size() - 1; index >= 0; index--) {
+          positions.put(walkedNodeKeys.getLong(index), ++position);
+        }
+        return position;
+      } finally {
+        rtx.moveTo(originalNodeKey);
+      }
     }
   }
 }
