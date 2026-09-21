@@ -73,7 +73,7 @@ failure table and tells the reader where the work went.
 | | grouped top-K, range holding a row without the aggregate | the view walks the range twice before declining, **or** declines ranges of the same view whose rows all carry a value |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
-| `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, which is quadratic per array, **or** one lookup pre-resolves the whole child list, which makes a single insert at an array's head pay for the entire array |
+| `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, which is quadratic per array, **or** a single head insert traverses or preallocates cache storage for an untouched array suffix (including a real million-element fixture) |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
 
 Every one of these was checked **by mutation**: the defect it guards was put back, the test was seen
@@ -127,6 +127,11 @@ maintains, so a budget quotes the same numbers an investigation would:
   reads against data-leaf reads, the only way to tell a sorted view's two walks apart) and
   `IntentLogEpochProbe` (async-flush rotations, spill batches, spilled pages, peak pinned pages of a
   load; a rotation is not always a spilling epoch, so non-vacuity floors go on the spill batches).
+  `ArrayPositionCacheProbe` observes the ordinal maps and walk stacks after serialization: their
+  actual primitive backing-array capacities catch eager preallocation even when sibling moves
+  and entry counts stay small. Payload bytes exclude JVM-dependent headers; the arrays only grow
+  during a serialization, so the retained payload also bounds its peak. A cache-observation floor
+  makes a disconnected probe fail rather than report a vacuous zero allocation.
 - A counting decorator, where the path under budget already takes the thing it walks as a
   constructor argument, and adding an engine counter would put one on a cursor move. It counts only
   what the test itself hands in, so there is no global state and nothing to restore - but a decorator

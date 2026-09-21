@@ -13,20 +13,29 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.diff.DiffFactory;
 import io.sirix.diff.DiffTuple;
+import io.sirix.diff.ArrayPositionCacheProbe;
 import io.sirix.diff.JsonDiffSerializer;
+import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -43,28 +52,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * There are two of them, and they fail different tests here. The per-tuple walk is quadratic and
- * blows the ceiling in {@link #everyPositionOfOneArrayCostsOneWalkOverIt()}. Pre-resolving the
- * whole child list on the first lookup is linear in the <em>array</em> instead of in the touched
- * prefix, which passes that test and fails {@link #oneElementCostsOnlyTheWalkItsOwnIndexNeeds()}:
- * it makes the cheapest possible commit - a single insert at the head of a large array - pay for
- * the entire array in traversal and in cache entries.
+ * blows the ceiling in {@link #everyPositionOfOneArrayCostsOneWalkOverIt(TupleOrder)}.
+ * Pre-resolving the whole child list on the first lookup is linear in the <em>array</em> instead of
+ * in the touched prefix, which passes that test and fails
+ * {@link #oneElementCostsOnlyTheWalkItsOwnIndexNeeds()}: it makes the cheapest possible commit - a
+ * single insert at the head of a large array - pay for the entire array in traversal and in cache
+ * entries.
  *
  * <p>
  * Measured on the 10,000-element fixture: the memoized left walk does 9,999 sibling moves for all
  * 10,000 positions, 0 for the head element alone and 9,999 for the tail element alone. The
  * per-tuple walk does 49,995,000 / 0 / 9,999. The eager whole-array scan does 9,999 / 9,999 /
- * 9,999.
+ * 9,999. The million-element head-insert case retains 1,584 backing-array payload bytes across the
+ * real commit and its counted serialization; adding eager preallocation without changing the left
+ * walk raises that to 50,332,464 while sibling moves stay zero, and fails the independent
+ * 2,048-byte bound.
  *
  * <p>
  * The counter is a decorator over {@link JsonResourceSession}, the seam {@link JsonDiffSerializer}
  * already takes as a constructor argument, so it needs no engine counter and nothing global to
- * restore - hence a plain {@link WorkCounter} rather than a {@link WorkProbe}.
+ * restore - hence a plain {@link WorkCounter} rather than a {@link WorkProbe}. The separate
+ * {@link ArrayPositionCacheProbe} measures backing-array payload at the serialization boundary.
  * {@code hasLeftSibling()} does not move the cursor, so every counted move is a real one.
  */
 @Isolated
 final class JsonDiffArrayPositionWorkBudgetTest {
 
   private static final int LARGE_ARRAY_LENGTH = 10_000;
+
+  private static final int HUGE_ARRAY_LENGTH = 1_000_000;
 
   /**
    * Amortized ceiling: a walk either stops on an already-resolved sibling, at most once per lookup,
@@ -86,8 +102,13 @@ final class JsonDiffArrayPositionWorkBudgetTest {
     JsonTestHelper.deleteEverything();
   }
 
-  @Test
-  void everyPositionOfOneArrayCostsOneWalkOverIt() throws Exception {
+  enum TupleOrder {
+    FORWARD, REVERSE, SHUFFLED
+  }
+
+  @ParameterizedTest
+  @EnumSource(TupleOrder.class)
+  void everyPositionOfOneArrayCostsOneWalkOverIt(final TupleOrder order) throws Exception {
     try (final var database = openDatabase();
         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final JsonNodeTrx wtx = session.beginNodeTrx()) {
@@ -97,21 +118,118 @@ final class JsonDiffArrayPositionWorkBudgetTest {
       for (final long elementKey : elementKeys) {
         diffs.add(inserted(elementKey));
       }
+      switch (order) {
+        case REVERSE -> Collections.reverse(diffs);
+        case SHUFFLED -> Collections.shuffle(diffs, new Random(731));
+        case FORWARD -> {
+        }
+      }
 
       final SiblingMoves moves = new SiblingMoves();
+      final ArrayPositionCacheProbe allocation = new ArrayPositionCacheProbe();
       final JsonResourceSession countedSession = countingSession(session, moves);
       final WorkCapture.Captured<String> sidecar =
-          WorkCapture.of(moves.counters()).call(() -> serialize(database.getName(), countedSession, diffs));
+          WorkCapture.of(moves.counters())
+                     .with(allocation)
+                     .call(() -> serialize(database.getName(), countedSession, diffs));
 
       final JsonObject document = JsonParser.parseString(sidecar.result()).getAsJsonObject();
       assertEquals(LARGE_ARRAY_LENGTH, document.getAsJsonArray("diffs").size());
-      assertEquals("/[0]", pathOf(document, 0));
-      assertEquals("/[" + (LARGE_ARRAY_LENGTH - 1) + "]", pathOf(document, LARGE_ARRAY_LENGTH - 1));
+      for (int index = 0; index < LARGE_ARRAY_LENGTH; index++) {
+        final int ordinal = document.getAsJsonArray("diffs")
+                                    .get(index)
+                                    .getAsJsonObject()
+                                    .getAsJsonObject("insert")
+                                    .get("data")
+                                    .getAsInt();
+        assertEquals("/[" + ordinal + "]", pathOf(document, index));
+      }
 
       sidecar.work()
              .assertBetween(moves.siblingMoves(), MOVE_FLOOR, AMORTIZED_MOVE_CEILING,
                  "resolving each tuple's index by its own walk over the array prefix, which is quadratic "
                      + "in the array's length and ran inside commit");
+      sidecar.work()
+             .assertExactly(allocation.caches(), 2, "the allocation probe missing either revision")
+             .assertExactly(allocation.entries(), LARGE_ARRAY_LENGTH, "caching more than the touched prefix")
+             .assertBetween(allocation.backingBytes(), 1, 32L * LARGE_ARRAY_LENGTH,
+                 "cache backing storage exceeding a linear bound on the touched prefix");
+    }
+  }
+
+  @Test
+  void singleHeadInsertIntoMillionElementArrayHasConstantWorkAndBackingAllocation() throws Exception {
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).storageType(StorageType.FILE_CHANNEL).build();
+    assertTrue(config.storeDiffs(), "this regression must exercise the default commit sidecar");
+    try (
+        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(largeArray(HUGE_ARRAY_LENGTH)),
+          JsonNodeTrx.Commit.NO);
+      wtx.commit();
+      assertTrue(wtx.moveToDocumentRoot());
+      assertTrue(wtx.moveToFirstChild());
+      assertEquals(HUGE_ARRAY_LENGTH, wtx.getChildCount());
+      wtx.insertNumberValueAsFirstChild(-1);
+      final long insertedKey = wtx.getNodeKey();
+
+      final SiblingMoves moves = new SiblingMoves();
+      final ArrayPositionCacheProbe allocation = new ArrayPositionCacheProbe();
+      final JsonResourceSession countedSession = countingSession(session, moves);
+      final WorkCapture.Captured<String> captured = WorkCapture.of(moves.counters()).with(allocation).call(() -> {
+        wtx.commit();
+        // Execute the very same serialization with counted cursors, and compare it to the bytes
+        // from the actual default commit. The probe observes both real serialization invocations.
+        return new JsonDiffSerializer(database.getName(), countedSession, 1, 2,
+            List.of(inserted(insertedKey))).serializeSidecar();
+      });
+      final byte[] committed =
+          Files.readAllBytes(config.getResource()
+                                   .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                   .resolve("diffFromRev1toRev2.json"));
+      assertArrayEquals(committed, captured.result().getBytes(StandardCharsets.UTF_8));
+      final JsonObject document = JsonParser.parseString(captured.result()).getAsJsonObject();
+      assertEquals(1, document.getAsJsonArray("diffs").size());
+      assertEquals("/[0]", pathOf(document, 0));
+
+      captured.work()
+              .assertZero(moves.siblingMoves(), "a single head insert scanning an untouched array suffix")
+              .assertExactly(allocation.caches(), 4,
+                  "either the real commit or the counted serialization bypassing the probe")
+              .assertExactly(allocation.entries(), 2, "one head insert retaining ordinals of untouched siblings")
+              .assertBetween(allocation.backingBytes(), 1, 2_048,
+                  "preallocating cache storage from array length even when the sibling walk stays at zero");
+    }
+  }
+
+  @Test
+  void headLookupDoesNotNarrowAnUntouchedLongChildCount() throws Exception {
+    try (final var database = openDatabase();
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      wtx.insertArrayAsFirstChild();
+      wtx.insertNumberValueAsFirstChild(0);
+      final long headKey = wtx.getNodeKey();
+      wtx.commit();
+
+      final SiblingMoves moves = new SiblingMoves();
+      // Virtualize only the untouched suffix's count, not the node or the head lookup. This
+      // checks the >2^31 metadata boundary without allocating billions of fixture records.
+      moves.reportedChildCount = (long) Integer.MAX_VALUE + 1;
+      final ArrayPositionCacheProbe allocation = new ArrayPositionCacheProbe();
+      final WorkCapture.Captured<String> head = WorkCapture.of(moves.counters())
+                                                           .with(allocation)
+                                                           .call(() -> serialize(database.getName(),
+                                                               countingSession(session, moves),
+                                                               List.of(inserted(headKey))));
+      assertEquals("/[0]", pathOf(JsonParser.parseString(head.result()).getAsJsonObject(), 0));
+      head.work()
+          .assertZero(moves.siblingMoves(), "looking beyond the requested head position")
+          .assertExactly(allocation.caches(), 2, "the allocation probe becoming disconnected")
+          .assertBetween(allocation.backingBytes(), 1, 1_024,
+              "narrowing or preallocating from an array's long child count");
     }
   }
 
@@ -148,8 +266,10 @@ final class JsonDiffArrayPositionWorkBudgetTest {
   }
 
   private static Database<JsonResourceSession> openDatabase() {
-    final ResourceConfiguration config =
-        ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).storeDiffs(false).build();
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                                              .storageType(StorageType.FILE_CHANNEL)
+                                                              .storeDiffs(false)
+                                                              .build();
     return JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
   }
 
@@ -186,9 +306,13 @@ final class JsonDiffArrayPositionWorkBudgetTest {
   }
 
   private static String largeArray() {
-    final StringBuilder json = new StringBuilder(LARGE_ARRAY_LENGTH * 6);
+    return largeArray(LARGE_ARRAY_LENGTH);
+  }
+
+  private static String largeArray(final int length) {
+    final StringBuilder json = new StringBuilder(length * 8);
     json.append('[');
-    for (int index = 0; index < LARGE_ARRAY_LENGTH; index++) {
+    for (int index = 0; index < length; index++) {
       if (index != 0) {
         json.append(',');
       }
@@ -215,6 +339,9 @@ final class JsonDiffArrayPositionWorkBudgetTest {
   private static JsonNodeReadOnlyTrx countingTransaction(final JsonNodeReadOnlyTrx delegate, final SiblingMoves moves) {
     return (JsonNodeReadOnlyTrx) Proxy.newProxyInstance(JsonNodeReadOnlyTrx.class.getClassLoader(),
         new Class<?>[] {JsonNodeReadOnlyTrx.class}, (proxy, method, arguments) -> {
+          if (method.getName().equals("getChildCount") && moves.reportedChildCount >= 0) {
+            return moves.reportedChildCount;
+          }
           if (method.getName().equals("moveToLeftSibling")) {
             moves.leftMoves++;
           } else if (method.getName().equals("moveToRightSibling")) {
@@ -238,6 +365,8 @@ final class JsonDiffArrayPositionWorkBudgetTest {
    * so it bounds the traversal rather than the direction of it.
    */
   private static final class SiblingMoves {
+    private long reportedChildCount = -1;
+
     private long leftMoves;
 
     private long rightMoves;

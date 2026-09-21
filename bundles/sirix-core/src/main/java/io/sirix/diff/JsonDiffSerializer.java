@@ -13,14 +13,26 @@ import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.UncheckedIOException;
 import java.util.Collection;
 import java.util.Objects;
+import java.util.function.BiConsumer;
 
 public final class JsonDiffSerializer {
+
+  /** Observes the actual backing storage once per revision cache, outside the traversal loop. */
+  private static volatile @Nullable BiConsumer<Long2IntOpenHashMap, LongArrayList> arrayPositionCacheObserver;
+
+  static @Nullable BiConsumer<Long2IntOpenHashMap, LongArrayList> setArrayPositionCacheObserverForTesting(
+      final @Nullable BiConsumer<Long2IntOpenHashMap, LongArrayList> observer) {
+    final var previous = arrayPositionCacheObserver;
+    arrayPositionCacheObserver = observer;
+    return previous;
+  }
 
   private final String databaseName;
   private final JsonResourceSession resourceSession;
@@ -212,6 +224,12 @@ public final class JsonDiffSerializer {
           default:
             // Do nothing.
         }
+      }
+
+      final var observer = arrayPositionCacheObserver;
+      if (observer != null) {
+        observer.accept(oldArrayPositions.positionsByNodeKey, oldArrayPositions.walkedNodeKeys);
+        observer.accept(newArrayPositions.positionsByNodeKey, newArrayPositions.walkedNodeKeys);
       }
     }
 
@@ -477,7 +495,7 @@ public final class JsonDiffSerializer {
    *
    * <p>
    * A lookup walks left from the node until it reaches an already-known sibling or the array's first
-   * child, then unwinds and assigns every ordinal it passed. A single lookup therefore costs exactly
+   * child, then unwinds and assigns every ordinal it passed. A single lookup therefore costs at most
    * the steps its own index needs, and the total over all tuples of one array is bounded by the
    * number of distinct siblings walked plus one step per lookup - linear, not quadratic. Nothing is
    * pre-sized and nothing beyond the walked prefix is stored, so both time and memory follow the
