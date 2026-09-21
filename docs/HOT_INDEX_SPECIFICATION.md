@@ -1029,7 +1029,7 @@ PCRs (`idx/cas/CASIndex.java:599-605`).
 
 #### 4.5.2 Merge path
 
-`mergeIntoLeaf` (`hot/AbstractHOTIndexWriter.java:3956-4031`):
+`mergeIntoLeaf` (`hot/AbstractHOTIndexWriter.java:3964-4036`):
 
 1. `leaf.mergeWithNodeRefs(key, value)` (OR into the existing chunk, or insert) or `putOrReplace`
    for PROJECTION; if it fits, done — no structural change, no validation.
@@ -1037,9 +1037,11 @@ PCRs (`idx/cas/CASIndex.java:599-605`).
 3. `!canSplit()` → `SirixIOException("single value exceeds page capacity")`.
 4. `splitLeafPage(leaf ∪ {K})` (§2.7; the source leaf is not mutated; side references move to the half
    that owns them).
-5. **β already a discriminative bit of the parent** (`handleOffPathOverflow`, `:3789-3886`): replace the
-   leaf slot by the left half and add the right half at `partial | βbit`; on a partial-key collision
-   restore and fall back; a full parent goes through `splitIndirectWithSlotReplaceAndInsertion`.
+5. **β already a discriminative bit of the parent** (`handleOffPathOverflow`, `:3789-3893`): replace the
+   leaf slot by the left half and add the right half at `partial | βbit`; a full parent goes through
+   `splitIndirectWithSlotReplaceAndInsertion`. Only where that fold is placement-safe (§4.5.3,
+   `:3816-3823`): on a partial-key collision or a sibling between the two partials it falls back to
+   step 6 before building anything.
 6. Otherwise `integrate(spine, BiNode, depth)`; register the fresh subtree; retire the replaced leaf.
 
 #### 4.5.3 `integrate`: propagating a BiNode
@@ -1054,6 +1056,38 @@ PCRs (`idx/cas/CASIndex.java:599-605`).
 | parent has < 32 children, β ∈ D | `mergeBiNodeAtExistingDiscBit` (`:1282`) |
 | parent full, β ∈ D | `splitIndirectWithSlotReplaceAndInsertion` |
 | parent full, β ∉ D | check the trie condition (throws otherwise, `:2032-2035`); `splitIndirect` on the parent's MSB (halves recompressed; a 1:31 lone child is pulled up bare, `:376-426`); fold into the half; recurse one level up |
+
+**Placement of a β ∈ D fold.** Both β ∈ D folds keep the slot's partial for the β = 0 half and insert
+the β = 1 half at `partial | βbit`, at that partial's ascending position. The two halves are one key
+range, so that position has to be the slot's immediate neighbour. It is not when a sibling's partial
+lies strictly between the two — a sibling told apart from the slot by a bit *less* significant than β,
+for which β is an off-path zero column that says nothing about its keys. The β = 1 half would land
+past that sibling, whose keys all sort above the slot's range: the children are no longer ordered by
+first key (I8), and the sibling's keys that carry β now subset-match the inserted partial at a higher
+slot and are routed away from their leaf. With no partial in between, no existing key's match
+changes: a key routed to an earlier slot did not match the slot's partial and cannot match a superset
+of it, and a later slot still wins by index. `canMergeBiNodeAtExistingDiscBit`
+(`hot/HOTIncrementalInsert.java:1296-1322`) therefore reports three un-mergeable corners — the
+straddle orientation, the C2 collision, and this placement (`landsBesideSlot`, `:1342-1347`, counted
+by `EXISTING_BIT_FOLD_NOT_ADJACENT`) — and both fold primitives throw `IllegalArgumentException` on
+the last two if called regardless. The merge path asks the predicate before it folds (§4.5.2 step 5);
+the branch path asks it through `canIntegrateBiNodeCleanly`
+(`hot/AbstractHOTIndexWriter.java:4698-4718`), whose `false` hands the insert to the complete-frontier
+splice (§4.5.4 case 9).
+
+**Splitting a full node.** `compressHalf` keeps for each half only the bits that still vary within
+it, so a half's MSB can be far less significant than the node's. The node's children satisfied I11
+against the node; against the half they need not — where two siblings are told apart by a bit *less*
+significant than one of them branches on internally, a shape the writer's own handlers build and every
+invariant accepts until the split changes who the parent is. Such a half routes and scans correctly,
+but the structural guards reject it, so the next insert routed through it fails; and only the half `K`
+joins lies on `K`'s route, so the other is seen by no guard unless the published scope fits the
+validation budget. `splitKeepsTrieCondition` (`hot/AbstractHOTIndexWriter.java:4747-4759`, from
+`HOTIncrementalInsert.mostSignificantLiveBit`, `hot/HOTIncrementalInsert.java:440-455`) asks the question before a split is built: the
+full-node decomposition of §4.5.4 case 2 declines on it (counted by
+`FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION`), and so does `canIntegrateBiNodeCleanly` for every full
+level the cascade would split. Both hand the insert to the complete-frontier splice, which never
+splits the node. The merge path's cascade is unguarded: it has no other placement.
 
 Each `integrate` publishes with exactly one `setPage` (`:1969-1972`, `:1983`, `:2003`). Node
 "upgrades" from span to multi node are implicit: the layout is chosen from the discriminative-bit
@@ -1081,9 +1115,15 @@ or above a spine node (d*). Cases, in order:
 9. **any case that returns false** → `spliceCompleteFrontierIncrementally` (`:4062-4066`,
    `:5382-5726`, `:6559-6683`): from d* upwards, find the minimal complete BiNode frontier that contains
    both the routed and the lexicographic slot; split only the boundary path (copying at most one leaf);
-   build a 1-2-bit Patricia mini-root; preflight (fresh pages not malformed, the routed descent contains
-   the key, the splice can propagate); publish; propagate height changes up the spine without
-   rewriting stored partial keys. If no level works:
+   build the canonical Patricia block over `<K`, `K`, `>K` (`joinOrderedAroundKey`, `:5786-5865`):
+   each level branches on the MSDB of its range, and a side that bit cuts through is split there in
+   the same persistent way (`assignFrontierPaths`, `:5879-5936`, counted by
+   `FRONTIER_JOIN_STRADDLE_SPLIT`), so that every child is one-sided on the bits of its path — `K`'s
+   sides are arbitrary key ranges, not complete `R(S)`-subtrees, and a child straddling a bit of the
+   block has the keys on its other side routed to a neighbour. Without such a side this is a 1-2-bit
+   mini-root. Preflight (the block routes each part's extremes to it, fresh pages not malformed, the
+   routed descent contains the key, the splice can propagate); publish; propagate height changes up
+   the spine without rewriting stored partial keys. If no level works:
    `IllegalStateException("could not construct an invariant-clean incremental frontier")` (`:5401-5402`).
 
 #### 4.5.5 What happened to rebuilds and the straddle guard
@@ -1112,9 +1152,12 @@ or above a spine node (d*). Cases, in order:
   leaves, 63 pages, 16 384 entries, 8 192 side references, 8 MiB materialized; otherwise
   `MutationTraversalRefusal` and the transaction becomes rollback-only
   (`hot/AbstractHOTIndexWriter.java:166-170`, `:499-594`, `:680-694`).
-- Every post-publication failure calls `markTransactionRollbackOnly` (e.g. `:2317-2320`, `:4024-4025`).
-  Whether the final `IllegalStateException` of the complete-frontier splice poisons the transaction is
-  unclear: `doMutation`'s insert arm has no catch that does it (§7).
+- Every post-publication failure calls `markTransactionRollbackOnly` (e.g. `:2317-2320`). The merge
+  path does so for every failure of its split integration, published or not (`:4028-4036`): a β ∈ D
+  fold it has to refuse (§4.5.3) throws before anything is published, where the same input used to
+  end after publication in the published-splice validation, and either way the key is not in the
+  index. Whether the final `IllegalStateException` of the complete-frontier splice poisons the
+  transaction is unclear: `doMutation`'s insert arm has no catch that does it (§7).
 
 #### 4.5.7 Complexity (derived from the code, not measured)
 
@@ -1123,7 +1166,7 @@ or above a spine node (d*). Cases, in order:
 | merge without split | O(h) copy-on-write descent + O(log 512) leaf search; allocation only on first touch of a page |
 | leaf split | O(entries) union materialization (one `Entry` object per key, `hot/HOTIncrementalInsert.java:134-158`) + O(h · 32) integration |
 | branch cases | O(32) node re-encoding + guards O(children · h); exact scans ≤ 63 pages |
-| complete-frontier splice | O(h · 32) child tables + at most one leaf copy |
+| complete-frontier splice | O(h · 32) child tables + at most one leaf copy for `K`'s boundary and one per side the block's bits cut through (≤ 32 parts) |
 | consolidation | O(32) every 4096 inserts |
 
 ### 4.6 Delete

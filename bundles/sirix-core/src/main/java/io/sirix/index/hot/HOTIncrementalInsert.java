@@ -63,6 +63,14 @@ public final class HOTIncrementalInsert {
    */
   public static final AtomicLong CONSOLIDATION_PAIR_DID_NOT_FIT = new AtomicLong();
 
+  /**
+   * Diagnostic: folds {@link #canMergeBiNodeAtExistingDiscBit} declined because a sibling's partial
+   * sorts between the split child's slot and the partial its other half would take. Counts that
+   * placement refusal alone — not a C2 collision and not the unexpected straddle orientation. A test
+   * that means to exercise the refusal must assert this counter moved.
+   */
+  public static final AtomicLong EXISTING_BIT_FOLD_NOT_ADJACENT = new AtomicLong();
+
   private HOTIncrementalInsert() {
     throw new AssertionError("utility class — static primitives only");
   }
@@ -418,6 +426,34 @@ public final class HOTIncrementalInsert {
    * @param discBits the parent node's discriminative bits, ascending absolute positions
    * @return the assembled half (a fresh swizzled compound node, or the lone child reference)
    */
+  /**
+   * The most significant discriminative bit {@link #compressHalf} keeps for the children
+   * {@code [from, to)} of a node being split: the first bit whose column varies across them, which
+   * becomes that half's own MSB. {@code -1} for a lone child — it is pulled up bare and gets no node.
+   *
+   * <p>
+   * A half drops every column that is constant within it, so its MSB can be far less significant than
+   * the node's was. The node's children satisfied the trie condition against the node (I11); whether
+   * they satisfy it against the half is a separate question, which the caller has to ask before it
+   * publishes the split.
+   */
+  static int mostSignificantLiveBit(final int[] discBits, final int[] partials, final int from, final int to) {
+    if (to - from < 2) {
+      return -1;
+    }
+    final int m = discBits.length;
+    for (int k = 0; k < m; k++) {
+      final int weight = 1 << (m - 1 - k);
+      final int first = partials[from] & weight;
+      for (int i = from + 1; i < to; i++) {
+        if ((partials[i] & weight) != first) {
+          return discBits[k];
+        }
+      }
+    }
+    return -1;
+  }
+
   private static PageReference compressHalf(final PageReference[] halfChildren, final int[] halfPartials,
       final int[] discBits, final int revision, final LongSupplier pageKeyAllocator) {
     final int n = halfChildren.length;
@@ -1224,7 +1260,7 @@ public final class HOTIncrementalInsert {
    * <p>
    * <b>Precondition.</b> {@code node.getNumChildren() + 1 ≤ MAX_NODE_ENTRIES} (= not full);
    * {@code β ∈ discriminativeBits(node)}; the flipped-column partial must not collide with any other
-   * existing slot (C2 collision).
+   * existing slot (C2 collision) and must land beside the affected slot ({@link #landsBesideSlot}).
    *
    * <p>
    * <b>Purity.</b> Returns a fresh compound node; never mutates {@code node} or the biNode.
@@ -1236,7 +1272,8 @@ public final class HOTIncrementalInsert {
    * @param pageKeyAllocator supplier of a fresh persistent page key
    * @return a fresh compound node with one more child; mask unchanged
    * @throws IllegalArgumentException if β is not in {@code node}'s mask, or the flipped-column
-   *         partial collides with an existing slot's partial
+   *         partial collides with an existing slot's partial or would not land beside the affected
+   *         slot
    */
   /**
    * Read-only predicate: would {@link #mergeBiNodeAtExistingDiscBit} (not-full case) or
@@ -1244,11 +1281,12 @@ public final class HOTIncrementalInsert {
    * already a discriminative bit of {@code node} at slot {@code affectedChildIndex}?
    *
    * <p>
-   * Returns {@code false} for the two un-mergeable corners — (1) the affected slot's β-column is 1
+   * Returns {@code false} for the three un-mergeable corners — (1) the affected slot's β-column is 1
    * (not the expected off-path-straddle orientation), (2) the flipped straddle partial
-   * {@code oldPartial ^ β-bit} already occupies another slot (C2 collision). Callers use this to fall
-   * back to a scoped rebuild *before* attempting the fold, so the fold primitives never throw on
-   * these corners. Allocates nothing.
+   * {@code oldPartial ^ β-bit} already occupies another slot (C2 collision), (3) a sibling's partial
+   * sorts between the slot and that straddle partial, so the two halves of one key range would not be
+   * neighbours ({@link #landsBesideSlot}). Callers use this to fall back *before* attempting the
+   * fold, so the fold primitives never throw on these corners. Allocates nothing.
    *
    * @param node the compound node the BiNode folds into
    * @param beta the BiNode's discriminative bit (must be a disc bit of {@code node})
@@ -1276,7 +1314,36 @@ public final class HOTIncrementalInsert {
         return false; // C2 collision on the flipped partial
       }
     }
+    if (!landsBesideSlot(partials, n, affectedChildIndex, straddlePartial)) {
+      EXISTING_BIT_FOLD_NOT_ADJACENT.incrementAndGet();
+      return false; // a sibling would sort between the two halves of one key range
+    }
     return true;
+  }
+
+  /**
+   * Whether a child inserted at {@code insertedPartial} becomes the immediate neighbour of
+   * {@code slot} in ascending partial order (I7), i.e. no other child's partial lies strictly between
+   * the two.
+   *
+   * <p>
+   * This is the exact applicability condition of folding a split child at a bit the node's mask
+   * already holds. Both halves come out of the one key range {@code slot} covered, and every later
+   * sibling's keys sort after that whole range (I12). A sibling whose partial falls between the two
+   * therefore ends up <em>between the halves</em>: the children are no longer ordered by first key
+   * (I8), and every key of that sibling carrying the fold bit now subset-matches the inserted partial
+   * at a higher slot and is routed away from its own leaf. Such a sibling exists because the fold bit
+   * was off-path for it — its zero column says nothing about its keys. With no partial in between,
+   * the inserted child takes the position right after (or before) the slot, where its keys belong,
+   * and no existing key is routed elsewhere: a key routed to an earlier slot either equals that
+   * slot's partial, which still wins, or did not match {@code slot}'s partial and so cannot match a
+   * superset of it; a key routed to a later slot still finds that slot, which wins by index.
+   */
+  private static boolean landsBesideSlot(final int[] partials, final int n, final int slot, final int insertedPartial) {
+    if (insertedPartial > partials[slot]) {
+      return slot + 1 == n || partials[slot + 1] >= insertedPartial;
+    }
+    return slot == 0 || partials[slot - 1] <= insertedPartial;
   }
 
   public static HOTIndirectPage mergeBiNodeAtExistingDiscBit(final HOTIndirectPage node, final BiNode biNode,
@@ -1336,6 +1403,11 @@ public final class HOTIncrementalInsert {
         throw new IllegalArgumentException("straddle partial 0x" + Integer.toHexString(straddlePartial)
             + " collides with existing slot " + i + " — C2 collision");
       }
+    }
+    if (!landsBesideSlot(oldPartials, n, affectedChildIndex, straddlePartial)) {
+      throw new IllegalArgumentException("straddle partial 0x" + Integer.toHexString(straddlePartial)
+          + " would not land beside slot " + affectedChildIndex + " (partial 0x" + Integer.toHexString(oldPartial)
+          + ") — a sibling sorts between the two halves of the split child");
     }
 
     final int newN = n + 1;
@@ -1617,7 +1689,9 @@ public final class HOTIncrementalInsert {
    * discriminates after the modification (it does — the inserted {@code comboPartial} shares the MSB
    * column with {@code lPartial}, and we don't change which other children have MSB set).
    * {@code comboPartial} must not collide with any existing child's partial (other than
-   * {@code slotToReplace}'s — which is replaced anyway); a C2 collision throws.
+   * {@code slotToReplace}'s — which is replaced anyway); a C2 collision throws. It must also land
+   * beside {@code slotToReplace} ({@link #landsBesideSlot}) — the two children are the halves of one
+   * key range — and an insertion that a sibling's partial would separate throws likewise.
    *
    * <p>
    * <b>Purity.</b> Allocates only new pages; never mutates {@code node} or any input reference.
@@ -1660,6 +1734,11 @@ public final class HOTIncrementalInsert {
         throw new IllegalArgumentException(
             "sparse partial key " + comboPartial + " is already a child of the node (slot " + i + ") — C2 collision");
       }
+    }
+    if (!landsBesideSlot(oldPartials, n, slotToReplace, comboPartial)) {
+      throw new IllegalArgumentException(
+          "sparse partial key " + comboPartial + " would not land beside slot " + slotToReplace + " (partial "
+              + oldPartials[slotToReplace] + ") — a sibling sorts between the two halves of the replaced child");
     }
 
     // Build the virtual-wide (n+1) partials/children arrays sorted ascending by partial. The

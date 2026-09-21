@@ -1,0 +1,61 @@
+# Development generator stability
+./gradlew --console=plain :sirix-query:bitemporalGenerate -Pbitemporal.args="development /var/tmp/sirix-bitemporal/generator-check-1"
+./gradlew --console=plain :sirix-query:bitemporalGenerate -Pbitemporal.args="development /var/tmp/sirix-bitemporal/generator-check-2"
+cmp /var/tmp/sirix-bitemporal/generator-check-1/events.jsonl /var/tmp/sirix-bitemporal/generator-check-2/events.jsonl
+
+# Development load, independent oracle, reopen/query and exact comparison
+./gradlew --console=plain :sirix-query:bitemporalSirixLoad -Pbitemporal.args="development /var/tmp/sirix-bitemporal/generator-check-1/events.jsonl /var/tmp/sirix-bitemporal/dev-check/sirix"
+python3 bundles/sirix-query/bench/bitemporal/oracle.py --tier development --events /var/tmp/sirix-bitemporal/generator-check-1/events.jsonl --out /var/tmp/sirix-bitemporal/dev-check/oracle-results --cross-check-intervals
+bundles/sirix-query/bench/bitemporal/setup-xtdb.sh
+bundles/sirix-query/bench/bitemporal/run-xtdb.sh load development /var/tmp/sirix-bitemporal/generator-check-1/events.jsonl /var/tmp/sirix-bitemporal/dev-check/xtdb
+./gradlew --console=plain :sirix-query:bitemporalSirixRun -Pbitemporal.args="/var/tmp/sirix-bitemporal/dev-check/sirix /var/tmp/sirix-bitemporal/dev-check/sirix-results"
+bundles/sirix-query/bench/bitemporal/run-xtdb.sh run /var/tmp/sirix-bitemporal/dev-check/xtdb /var/tmp/sirix-bitemporal/dev-check/xtdb-results
+python3 bundles/sirix-query/bench/bitemporal/compare-results.py --oracle /var/tmp/sirix-bitemporal/dev-check/oracle-results --sirix /var/tmp/sirix-bitemporal/dev-check/sirix-results --xtdb /var/tmp/sirix-bitemporal/dev-check/xtdb-results --out /var/tmp/sirix-bitemporal/dev-check/exactness.json
+
+# T25k input and failing Sirix load (kept verbatim under /var/tmp)
+/usr/bin/time -v -o /var/tmp/sirix-bitemporal/t25k/logs/generate.time ./gradlew --console=plain :sirix-query:bitemporalGenerate -Pbitemporal.args="t25k /var/tmp/sirix-bitemporal/t25k/input"
+/usr/bin/time -v -o /var/tmp/sirix-bitemporal/t25k/logs/sirix-load.time ./gradlew --console=plain :sirix-query:bitemporalSirixLoad -Pbitemporal.args="t25k /var/tmp/sirix-bitemporal/t25k/input/events.jsonl /var/tmp/sirix-bitemporal/t25k/sirix"
+
+# T25k independent oracle and XTDB load/reopen/query
+/usr/bin/time -v -o /var/tmp/sirix-bitemporal/t25k/logs/oracle.time python3 bundles/sirix-query/bench/bitemporal/oracle.py --tier t25k --events /var/tmp/sirix-bitemporal/t25k/input/events.jsonl --out /var/tmp/sirix-bitemporal/t25k/oracle
+/usr/bin/time -v -o /var/tmp/sirix-bitemporal/t25k/logs/xtdb-load.time bundles/sirix-query/bench/bitemporal/run-xtdb.sh load t25k /var/tmp/sirix-bitemporal/t25k/input/events.jsonl /var/tmp/sirix-bitemporal/t25k/xtdb
+/usr/bin/time -v -o /var/tmp/sirix-bitemporal/t25k/logs/xtdb-run.time bundles/sirix-query/bench/bitemporal/run-xtdb.sh run /var/tmp/sirix-bitemporal/t25k/xtdb /var/tmp/sirix-bitemporal/t25k/xtdb-results
+for query in {1..12}; do cmp -- "/var/tmp/sirix-bitemporal/t25k/oracle/q${query}.tsv" "/var/tmp/sirix-bitemporal/t25k/xtdb-results/q${query}.tsv"; done
+
+# T25k Sirix rerun after the generic HOT prefix repair, then literal three-way proof
+/usr/bin/time -v -o /var/tmp/sirix-bitemporal/t25k-hotfix/logs/sirix-load.time ./gradlew --console=plain :sirix-query:bitemporalSirixLoad -Pbitemporal.args="t25k /var/tmp/sirix-bitemporal/t25k/input/events.jsonl /var/tmp/sirix-bitemporal/t25k-hotfix/sirix"
+/usr/bin/time -v -o /var/tmp/sirix-bitemporal/t25k-hotfix/logs/sirix-run.time ./gradlew --console=plain :sirix-query:bitemporalSirixRun -Pbitemporal.args="/var/tmp/sirix-bitemporal/t25k-hotfix/sirix /var/tmp/sirix-bitemporal/t25k-hotfix/sirix-results"
+python3 bundles/sirix-query/bench/bitemporal/compare-results.py --oracle /var/tmp/sirix-bitemporal/t25k/oracle --sirix /var/tmp/sirix-bitemporal/t25k-hotfix/sirix-results --xtdb /var/tmp/sirix-bitemporal/t25k/xtdb-results --out /var/tmp/sirix-bitemporal/t25k-hotfix/exactness.json
+sha256sum /var/tmp/sirix-bitemporal/t25k-hotfix/exactness.json /var/tmp/sirix-bitemporal/t25k/logs/sirix-load.log
+
+# T100k deterministic generation, independent oracle and current-main Sirix load attempt
+/usr/bin/time -v -o /var/tmp/sirix-bitemporal/t100k/logs/generate.time ./gradlew --console=plain :sirix-query:bitemporalGenerate -Pbitemporal.args="t100k /var/tmp/sirix-bitemporal/t100k/input"
+./gradlew --console=plain :sirix-query:bitemporalGenerate -Pbitemporal.args="t100k /var/tmp/sirix-bitemporal/t100k-input-check"
+cmp /var/tmp/sirix-bitemporal/t100k/input/events.jsonl /var/tmp/sirix-bitemporal/t100k-input-check/events.jsonl
+/usr/bin/time -v -o /var/tmp/sirix-bitemporal/t100k/logs/oracle.time python3 bundles/sirix-query/bench/bitemporal/oracle.py --tier t100k --events /var/tmp/sirix-bitemporal/t100k/input/events.jsonl --out /var/tmp/sirix-bitemporal/t100k/oracle
+/usr/bin/time -v -o /var/tmp/sirix-bitemporal/t100k/logs/sirix-load.time ./gradlew --console=plain :sirix-query:bitemporalSirixLoad -Pbitemporal.args="t100k /var/tmp/sirix-bitemporal/t100k/input/events.jsonl /var/tmp/sirix-bitemporal/t100k/sirix"
+sha256sum /var/tmp/sirix-bitemporal/t100k/input/events.jsonl /var/tmp/sirix-bitemporal/t100k/oracle/manifest.json /var/tmp/sirix-bitemporal/t100k/logs/sirix-load.log
+
+# First post-HOT-repair load inherited default-on update-diff sidecars and was stopped after diagnosis
+SIDECAR_ATTEMPT=/var/tmp/sirix-bitemporal/t100k-hot-44fc2f4afe01
+/usr/bin/time -v -o "$SIDECAR_ATTEMPT/logs/sirix-load.time" ./gradlew --console=plain :sirix-query:bitemporalSirixLoad "-Pbitemporal.args=t100k $SIDECAR_ATTEMPT/input/events.jsonl $SIDECAR_ATTEMPT/sirix"
+
+# T100k rerun after disabling unused update-diff sidecars; input and oracle remained unchanged
+BASE=/var/tmp/sirix-bitemporal/t100k-hot-44fc2f4afe01-nodiffs
+/usr/bin/time -v -o "$BASE/logs/generate.time" ./gradlew --console=plain :sirix-query:bitemporalGenerate "-Pbitemporal.args=t100k $BASE/input"
+/usr/bin/time -v -o "$BASE/logs/oracle.time" python3 bundles/sirix-query/bench/bitemporal/oracle.py --tier t100k --events "$BASE/input/events.jsonl" --out "$BASE/oracle"
+/usr/bin/time -v -o "$BASE/logs/sirix-load.time" ./gradlew --console=plain :sirix-query:bitemporalSirixLoad "-Pbitemporal.args=t100k $BASE/input/events.jsonl $BASE/sirix"
+
+# The first XTDB load attempt failed after E19; its log and store were not reused
+/usr/bin/time -v -o "$BASE/logs/xtdb-load.time" bundles/sirix-query/bench/bitemporal/run-xtdb.sh load t100k "$BASE/input/events.jsonl" "$BASE/xtdb"
+sha256sum "$BASE/logs/xtdb-load.log"
+
+# One authorized XTDB retry, using a fresh store, then its reopen/query pass
+RETRY=/var/tmp/sirix-bitemporal/t100k-hot-44fc2f4afe01-nodiffs-xtdb-retry1
+/usr/bin/time -v -o "$RETRY/logs/xtdb-load.time" bundles/sirix-query/bench/bitemporal/run-xtdb.sh load t100k "$BASE/input/events.jsonl" "$RETRY/xtdb"
+/usr/bin/time -v -o "$RETRY/logs/xtdb-run.time" bundles/sirix-query/bench/bitemporal/run-xtdb.sh run "$RETRY/xtdb" "$RETRY/xtdb-results"
+
+# Reopen the already-loaded Sirix store exactly once, then prove all twelve answers three ways
+/usr/bin/time -v -o "$BASE/logs/sirix-run.time" ./gradlew --console=plain :sirix-query:bitemporalSirixRun "-Pbitemporal.args=$BASE/sirix $BASE/sirix-results"
+python3 bundles/sirix-query/bench/bitemporal/compare-results.py --oracle "$BASE/oracle" --sirix "$BASE/sirix-results" --xtdb "$RETRY/xtdb-results" --out "$RETRY/exactness.json"
+sha256sum "$RETRY/exactness.json" "$BASE/sirix-results/manifest.json" "$RETRY/xtdb-results/manifest.json" "$BASE/logs/xtdb-load.log"
