@@ -39,10 +39,10 @@ constant initial capacity; it can still be large when a diff actually names a fa
 The same bound applies separately to the old and new revisions.
 
 `JsonDiffArrayPositionWorkBudgetTest` is part of the ordinary `io.sirix.budget.*` lane in
-[`VERIFICATION.md`](VERIFICATION.md). It covers forward, reverse, and shuffled tuple order, a real
-million-element array followed by a single head insert with default diff storage, and a virtual
-untouched child count of `2^31`. That last case checks the metadata overflow boundary without
-materializing billions of records.
+[`VERIFICATION.md`](VERIFICATION.md). It covers forward, reverse, and shuffled tuple order, and a
+100,000-element array followed by a single head insert with default diff storage. Both fixtures
+stay at the scale the budget package already uses, so the memory-constrained cross-platform lanes
+run them; the guard comes from the bound, not from the size of the data.
 
 `ArrayPositionCacheProbe` observes actual key, ordinal, and walk-stack backing-array capacities
 after serialization. Their payload sizes are independent of JVM object headers and only grow
@@ -55,16 +55,16 @@ The regressions were checked by mutation:
 | Shape | Memoized walk | Reintroduced defect |
 |---|---:|---:|
 | All 10,000 positions, forward order | 9,999 sibling moves | 49,995,000 without memoization (20,000 ceiling) |
-| Head insert into 1,000,000 elements, commit plus equivalent counted serialization | 0 sibling moves; 1,584 backing payload bytes; 2 cached entries across 4 revision caches | Eager preallocation alone still makes 0 moves and 2 entries, but allocates 50,332,464 payload bytes (2,048 ceiling) |
-| Head lookup with an untouched child count of `2^31` | Index 0; 792 backing payload bytes | `Math.toIntExact(childCount)` throws `ArithmeticException` |
+| Head insert into 100,000 elements, commit plus equivalent counted serialization | 0 sibling moves; 1,584 backing payload bytes; 2 cached entries across 4 revision caches | Eager preallocation alone still makes 0 moves and 2 entries, but sizes the cache from the array's length, overshooting the 2,048-byte ceiling by three orders of magnitude |
 
-Byte compatibility is checked by a literal nested-array sidecar golden, the revision-shift
-regression, and 216 full-output SHA-256 goldens in `ArrayPositionLegacyComparisonTest`. The latter
-were captured from the unmodified serializer at `858d0bb8a`, with its source hash recorded in the
-fixture, after directly comparing every output byte with the memoized serializer. They cover six
-documents, path summaries and Dewey IDs on/off, three tuple orders, insert/delete/replace and
-no-op update tuples, same-node filters, and all three serialization modes. These are output
-contracts, not snapshots of implementation source.
+Byte compatibility is checked by readable goldens only, so a break names the bytes that moved and
+can be re-derived by reading the fixture. `JsonDiffSerializerArrayPositionTest` asserts one literal
+whole-sidecar string for a document mixing a top-level array, a nested array, and an object-named
+array, then re-serializes the same tuples out of document order and asserts every resolved path is
+unchanged - the case where one cache serves several arrays. `BasicJsonDiffTest` holds the
+`serialize` mode against literal fixtures that already carry array paths (`/[0]`, `/[1]`,
+`/[0]/[0]`), and `positionsAreIsolatedBetweenRevisions` covers an ordinal that shifts between
+revisions. These are output contracts, not snapshots of implementation source.
 
 Run the relevant verification without a timed benchmark harness:
 

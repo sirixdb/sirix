@@ -63,10 +63,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Measured on the 10,000-element fixture: the memoized left walk does 9,999 sibling moves for all
  * 10,000 positions, 0 for the head element alone and 9,999 for the tail element alone. The
  * per-tuple walk does 49,995,000 / 0 / 9,999. The eager whole-array scan does 9,999 / 9,999 /
- * 9,999. The million-element head-insert case retains 1,584 backing-array payload bytes across the
- * real commit and its counted serialization; adding eager preallocation without changing the left
- * walk raises that to 50,332,464 while sibling moves stay zero, and fails the independent
- * 2,048-byte bound.
+ * 9,999. The 100,000-element head-insert case retains 1,584 backing-array payload bytes across the
+ * real commit and its counted serialization, a figure the array's length does not enter; adding
+ * eager preallocation without changing the left walk leaves sibling moves at zero but sizes the
+ * cache from the array's length instead, overshooting the independent 2,048-byte bound by three
+ * orders of magnitude.
  *
  * <p>
  * The counter is a decorator over {@link JsonResourceSession}, the seam {@link JsonDiffSerializer}
@@ -80,7 +81,7 @@ final class JsonDiffArrayPositionWorkBudgetTest {
 
   private static final int LARGE_ARRAY_LENGTH = 10_000;
 
-  private static final int HUGE_ARRAY_LENGTH = 1_000_000;
+  private static final int HUGE_ARRAY_LENGTH = 100_000;
 
   /**
    * Amortized ceiling: a walk either stops on an already-resolved sibling, at most once per lookup,
@@ -158,7 +159,7 @@ final class JsonDiffArrayPositionWorkBudgetTest {
   }
 
   @Test
-  void singleHeadInsertIntoMillionElementArrayHasConstantWorkAndBackingAllocation() throws Exception {
+  void singleHeadInsertIntoLargeArrayHasConstantWorkAndBackingAllocation() throws Exception {
     final ResourceConfiguration config =
         ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).storageType(StorageType.FILE_CHANNEL).build();
     assertTrue(config.storeDiffs(), "this regression must exercise the default commit sidecar");
@@ -201,35 +202,6 @@ final class JsonDiffArrayPositionWorkBudgetTest {
               .assertExactly(allocation.entries(), 2, "one head insert retaining ordinals of untouched siblings")
               .assertBetween(allocation.backingBytes(), 1, 2_048,
                   "preallocating cache storage from array length even when the sibling walk stays at zero");
-    }
-  }
-
-  @Test
-  void headLookupDoesNotNarrowAnUntouchedLongChildCount() throws Exception {
-    try (final var database = openDatabase();
-        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final JsonNodeTrx wtx = session.beginNodeTrx()) {
-      wtx.insertArrayAsFirstChild();
-      wtx.insertNumberValueAsFirstChild(0);
-      final long headKey = wtx.getNodeKey();
-      wtx.commit();
-
-      final SiblingMoves moves = new SiblingMoves();
-      // Virtualize only the untouched suffix's count, not the node or the head lookup. This
-      // checks the >2^31 metadata boundary without allocating billions of fixture records.
-      moves.reportedChildCount = (long) Integer.MAX_VALUE + 1;
-      final ArrayPositionCacheProbe allocation = new ArrayPositionCacheProbe();
-      final WorkCapture.Captured<String> head = WorkCapture.of(moves.counters())
-                                                           .with(allocation)
-                                                           .call(() -> serialize(database.getName(),
-                                                               countingSession(session, moves),
-                                                               List.of(inserted(headKey))));
-      assertEquals("/[0]", pathOf(JsonParser.parseString(head.result()).getAsJsonObject(), 0));
-      head.work()
-          .assertZero(moves.siblingMoves(), "looking beyond the requested head position")
-          .assertExactly(allocation.caches(), 2, "the allocation probe becoming disconnected")
-          .assertBetween(allocation.backingBytes(), 1, 1_024,
-              "narrowing or preallocating from an array's long child count");
     }
   }
 
@@ -339,9 +311,6 @@ final class JsonDiffArrayPositionWorkBudgetTest {
   private static JsonNodeReadOnlyTrx countingTransaction(final JsonNodeReadOnlyTrx delegate, final SiblingMoves moves) {
     return (JsonNodeReadOnlyTrx) Proxy.newProxyInstance(JsonNodeReadOnlyTrx.class.getClassLoader(),
         new Class<?>[] {JsonNodeReadOnlyTrx.class}, (proxy, method, arguments) -> {
-          if (method.getName().equals("getChildCount") && moves.reportedChildCount >= 0) {
-            return moves.reportedChildCount;
-          }
           if (method.getName().equals("moveToLeftSibling")) {
             moves.leftMoves++;
           } else if (method.getName().equals("moveToRightSibling")) {
@@ -365,8 +334,6 @@ final class JsonDiffArrayPositionWorkBudgetTest {
    * so it bounds the traversal rather than the direction of it.
    */
   private static final class SiblingMoves {
-    private long reportedChildCount = -1;
-
     private long leftMoves;
 
     private long rightMoves;

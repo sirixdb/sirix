@@ -75,6 +75,15 @@ final class JsonDiffSerializerArrayPositionTest {
           + "\"operation-count\":3,\"operations-sha256\":"
           + "\"67c86d9b0a761e2183a7318f10e871a68bc0c6e771b0e7ed623e02082c001e78\"}";
       assertEquals(expected, actual);
+
+      final List<DiffTuple> reordered =
+          List.of(inserted(namedArrayNumberKey), inserted(outerNumberKey), inserted(nestedNumberKey));
+      final JsonObject document =
+          JsonParser.parseString(new JsonDiffSerializer(database.getName(), session, 1, 1, reordered).serializeSidecar())
+                    .getAsJsonObject();
+      assertEquals("/[2]/items/[1]", pathOf(document, 0));
+      assertEquals("/[0]", pathOf(document, 1));
+      assertEquals("/[1]/[1]", pathOf(document, 2));
     }
   }
 
@@ -131,6 +140,15 @@ final class JsonDiffSerializerArrayPositionTest {
                   .get("path")
                   .getAsString());
     }
+  }
+
+  private static String pathOf(final JsonObject document, final int diffIndex) {
+    return document.getAsJsonArray("diffs")
+                   .get(diffIndex)
+                   .getAsJsonObject()
+                   .getAsJsonObject("insert")
+                   .get("path")
+                   .getAsString();
   }
 
   private static DiffTuple inserted(final long nodeKey) {
