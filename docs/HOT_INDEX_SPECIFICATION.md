@@ -1102,7 +1102,18 @@ or above a spine node (d*). Cases, in order:
    partial-key collision try, in order, `subInsertAt` into the affected child if it keeps I8
    (`:3366-3395`), a leaf-pair splice, an opposite-frontier wrap; strand and malformation guards before
    publishing (`:4117-4182`).
-2. β ∈ D(d*), d* full: `branchFullNodeAtExistingBit` (`:4708-4803`).
+2. β ∈ D(d*), d* full: `branchFullNodeAtExistingBit` (`:4708-4803`). Its MSB split hands K's half back
+   either compressed or, on a 1:31 split, bare — as d*'s *own* child reference. A bare *leaf* child is
+   no compound frontier and declines to the complete frontier; a bare *indirect* child is folded into,
+   but only with two rules a compressed half does not need. It is folded into only when it has room
+   (`getNumChildren() < MAX_NODE_ENTRIES`; a compressed half always has room, a lone child was sized by
+   its own inserts), otherwise the fold is declined and counted by `FULL_EXISTING_BIT_LONE_HALF_FULL`.
+   And the folded page is published under a **fresh** `PageReference`, around which the split's BiNode
+   is rebuilt before `integrate` — never by re-pointing the half's reference, which already names the
+   unfolded child in the transaction log, where `registerFreshPage` stops: a page merely
+   swizzled onto it is seen by a reader following the swizzle but never logged, so the writer and the
+   commit keep the unfolded child and K is lost with the trie well-formed. Folds into a lone indirect
+   half are counted by `FULL_EXISTING_BIT_LONE_HALF_FOLD`.
 3. β ∉ D, d* full, all children affected: wrap the node and the new leaf under a BiNode and integrate
    (`:4202-4254`).
 4. β ∉ D, d* full, some children affected: `splitIndirectWithEntry` and integrate (`:4256`, `:4602-4630`).
@@ -1469,8 +1480,12 @@ manager's record-page budget (§4.1); there is no HOT-specific property for them
 | `sirix.hot.mergeDiag` | fragment-merge and carry-forward `LongAdder` counters, including `completeDumpsWalkedPast` which must stay 0; **on in the sirix-core and sirix-query test JVMs**, where the work-budget tests also read their sum as "HOT leaves loaded" | `set/VersioningType.java:1215-1225` |
 
 Always-on counters (public `AtomicLong`s): `STRUCTURAL_VALIDATION_FAILURE` ("Must stay zero"),
+`STRUCTURAL_PUT_NOT_READABLE` (also "must stay zero": a structural put whose key the route the
+transaction log resolves does not produce — raised by the same post-publication route walk, on its
+key terminus, which only the outermost dispatch and a publishing leaf consolidation ask for),
 `STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED`, `DIRECTION_ONE_SUBINSERT`, `DIRECTION_ONE_FALLBACK`,
-`BRANCH_COMPLETE_FRONTIER` and the per-(invariant, handler) tally
+`BRANCH_COMPLETE_FRONTIER`, `FULL_EXISTING_BIT_LONE_HALF_FOLD` and
+`FULL_EXISTING_BIT_LONE_HALF_FULL` (§4.5.4 case 2) and the per-(invariant, handler) tally
 (`hot/AbstractHOTIndexWriter.java:3472-3502`, `:4937-4958`, `:5006-5021`).
 `HOTIncrementalInsert` carries its own (`hot/HOTIncrementalInsert.java:38-64`):
 `SPLIT_SEGMENT_REF_CARRIES` and `SPLIT_SEGMENT_REFS_ROUTED` for side maps re-homed by a split,

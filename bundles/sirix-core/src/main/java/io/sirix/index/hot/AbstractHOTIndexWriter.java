@@ -1977,7 +1977,7 @@ public abstract class AbstractHOTIndexWriter<K> {
 
     // Factored merge-vs-branch dispatch — re-used by {@link #subInsertAt} on a C2 re-descend
     // (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §4.1).
-    dispatchInsert(navResult, keyBuf, keyLen, upsertValue, valueLen);
+    dispatchInsert(navResult, keyBuf, keyLen, upsertValue, valueLen, true);
 
     if (localize && i8Before == null) {
       i8ProbeReport("dispatch(" + (i8ProbeMerge
@@ -2003,83 +2003,17 @@ public abstract class AbstractHOTIndexWriter<K> {
       final long[] consCntBefore = localize
           ? i8ProbeSnapshot()
           : null;
-      consolidateLeafParent(consolidationRoute);
+      final boolean consolidationPublished = consolidateLeafParent(consolidationRoute);
       if (localize && consBefore == null) {
         i8ProbeReport("consolidate", keyBuf, keyLen, consCntBefore);
       }
-    }
-    if (structuralValidationScope != null) {
-      requireStructuralPutReadable(keyBuf, keyLen);
+      if (consolidationPublished && VALIDATE_STRUCTURAL_MUTATIONS) {
+        // Consolidation published a fresh parent after the dispatch's own walk, so the route the log
+        // resolves is a different one. The key has to be readable on it too.
+        validatePublishedStructuralPath(keyBuf, keyLen, true);
+      }
     }
     return true;
-  }
-
-  /**
-   * Structural puts whose key was not readable on the route the transaction log resolves. Must stay
-   * zero.
-   */
-  public static final AtomicLong STRUCTURAL_PUT_NOT_READABLE = new AtomicLong();
-
-  /**
-   * Read-your-write for a put that spliced the trie: the key has to be in the leaf that the route the
-   * transaction log resolves ends in — the route the next writer descent and the commit both take.
-   *
-   * <p>
-   * {@link #validatePublishedStructuralPath} proves that route well-formed and ending in a live leaf;
-   * it does not ask whether the leaf holds the key. A fresh page published where the registration
-   * walk does not look satisfies every structural invariant and still loses the key: the log keeps
-   * the page without it, the trie the commit writes is well-formed, and nothing but the missing
-   * answer ever shows. No detector over the trie can see that, because nothing in the trie is wrong.
-   * Only the writer knows the key was just put, so only it can ask.
-   * </p>
-   *
-   * <p>
-   * Asked once per outermost structural put, never inside a sub-insert: a sub-insert places the key
-   * below a split half its caller has yet to integrate, so the route from the root need not be final
-   * before the outermost dispatch returns. A put that spliced nothing wrote into the leaf its own
-   * descent copied into the log and is not asked: its callers test {@link #structuralValidationScope}
-   * themselves, so the ordinary put pays one null check and never enters this method. One descent and
-   * one leaf probe, no allocation; it never repairs — a miss poisons the transaction.
-   * </p>
-   */
-  private void requireStructuralPutReadable(final byte[] keyBuf, final int keyLen) {
-    if (!VALIDATE_STRUCTURAL_MUTATIONS) {
-      return;
-    }
-    try {
-      PageReference cur = rootReference;
-      for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
-        final Page page = resolveHOTPageForTraversal(cur);
-        if (page instanceof HOTLeafPage leaf) {
-          if (leaf.findEntry(keyBuf, keyLen) < 0) {
-            STRUCTURAL_PUT_NOT_READABLE.incrementAndGet();
-            throw new IllegalStateException("HOT structural put is not readable on its logged route: leaf "
-                + leaf.getPageKey() + " at depth " + depth + " does not hold the key (handler=" + lastDispatchHandler
-                + ", key=" + HexFormat.of().formatHex(keyBuf, 0, keyLen) + ')');
-          }
-          return;
-        }
-        if (!(page instanceof HOTIndirectPage indirect)) {
-          throw new IllegalStateException("HOT structural put cannot resolve its logged route at depth " + depth
-              + " (refKey=" + cur.getKey() + ", logKey=" + cur.getLogKey() + ')');
-        }
-        final int childIndex = indirect.findChildIndex(keyBuf, keyLen);
-        if (childIndex < 0 || childIndex >= indirect.getNumChildren()) {
-          throw new IllegalStateException("HOT structural put has no child on its logged route at depth " + depth
-              + " of indirect page " + indirect.getPageKey() + " (childIndex=" + childIndex + ')');
-        }
-        cur = indirect.getChildReference(childIndex);
-        if (cur == null) {
-          throw new IllegalStateException("HOT structural put found a null child " + childIndex + " at depth " + depth
-              + " of indirect page " + indirect.getPageKey());
-        }
-      }
-      throw new IllegalStateException("HOT structural put's logged route exceeds the maximum depth of " + MAX_PATH_DEPTH);
-    } catch (final RuntimeException | Error failure) {
-      // The splice is published. A key the log cannot produce must be impossible to catch-and-commit.
-      markTransactionRollbackOnly(failure);
-      throw failure;
-    }
   }
 
   /**
@@ -2133,10 +2067,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         throw new IllegalStateException("HOT posting-list overflow fallback could not tombstone leaf "
             + writableLeaf.getPageKey() + ", slot " + writableIndex);
       }
-      dispatchInsert(navResult, keyBuf, keyLen, exactReplacement, exactReplacement.length);
-      if (structuralValidationScope != null) {
-        requireStructuralPutReadable(keyBuf, keyLen);
-      }
+      dispatchInsert(navResult, keyBuf, keyLen, exactReplacement, exactReplacement.length, true);
       return true;
     } catch (final RuntimeException | Error failure) {
       // This includes stable slot corruption discovered by the read-only preflight. Never allow a
@@ -2322,9 +2253,13 @@ public abstract class AbstractHOTIndexWriter<K> {
    * merge and branch via the merge-vs-branch bound (Â§1.2 of the port plan), invoke the corresponding
    * handler. Factored out so {@link #subInsertAt} can re-use it on a C2 re-descend
    * ({@code docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md} Â§4.1).
+   *
+   * @param outermost {@code true} for the mutation driver's own dispatch, {@code false} for the one
+   *        {@link #subInsertAt} runs underneath a caller that has yet to integrate its split half.
+   *        Only the outermost dispatch may ask the post-publication walk for its key terminus.
    */
   private void dispatchInsert(final LeafNavigationResult navResult, final byte[] keyBuf, final int keyLen,
-      final byte[] valueBuf, final int valueLen) {
+      final byte[] valueBuf, final int valueLen, final boolean outermost) {
     final int pathDepth = navResult.pathDepth();
     final HOTIndirectPage[] pathNodes = navResult.pathNodes();
     HOTIncrementalInsert.analyzeDescentInto(pathNodes, navResult.pathChildIndices(), pathDepth, navResult.leaf(),
@@ -2369,7 +2304,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (structurallyChanged && VALIDATE_STRUCTURAL_MUTATIONS) {
       final byte[] exactStructuralKey = requireNonNull(structuralKey, "structuralKey");
       validatePublishedStructuralScope(structuralValidationScope, exactStructuralKey);
-      validatePublishedStructuralPath(exactStructuralKey);
+      validatePublishedStructuralPath(exactStructuralKey, exactStructuralKey.length,
+          outermost && structuralValidationScope != null);
     }
   }
 
@@ -2511,7 +2447,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         new LeafNavigationResult(modifiedLeaf, currentRef, Arrays.copyOf(subPathNodes, subPathDepth),
             Arrays.copyOf(subPathRefs, subPathDepth), Arrays.copyOf(subPathChildIndices, subPathDepth), subPathDepth);
 
-    dispatchInsert(subNav, keyBuf, keyLen, valueBuf, valueLen);
+    dispatchInsert(subNav, keyBuf, keyLen, valueBuf, valueLen, false);
     return true;
   }
 
@@ -5058,11 +4994,13 @@ public abstract class AbstractHOTIndexWriter<K> {
    * batch. The pure consolidation primitive preserves the parent's height, key set, and range, so no
    * ancestor rewrite is required.
    * </p>
+   *
+   * @return {@code true} iff a changed parent was published and registered
    */
-  private void consolidateLeafParent(final LeafNavigationResult route) {
+  private boolean consolidateLeafParent(final LeafNavigationResult route) {
     final int pathDepth = route.pathDepth();
     if (pathDepth == 0) {
-      return;
+      return false;
     }
     final int parentDepth = pathDepth - 1;
     final PageReference parentRef = route.pathRefs()[parentDepth];
@@ -5092,7 +5030,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET,
           storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator, orphanedLeaves);
       if (consolidated == parent) {
-        return;
+        return false;
       }
       freshConsolidated = consolidated;
       parentRef.setPage(consolidated);
@@ -5101,6 +5039,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       storageEngineWriter.getLog()
                          .releaseOrphanedHOTLeaves(indexScope(), parentRef, orphanedLeaves,
                              TransactionIntentLog.RELEASE_SITE_CONSOLIDATE);
+      return true;
     } catch (final RuntimeException | Error failure) {
       // Consolidation runs only after the primary dispatch has already mutated the index. Even a
       // failure before this maintenance pass publishes its parent therefore leaves a transaction
@@ -5153,10 +5092,39 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong STRUCTURAL_VALIDATION_FAILURE = new AtomicLong();
 
   /**
-   * Validate the current key route after publication. This method never repairs: every structural
-   * candidate must have been proved before publication, so a violation poisons the transaction.
+   * Structural puts whose key was not readable on the route the transaction log resolves. Must stay
+   * zero.
    */
-  private void validatePublishedStructuralPath(byte[] keySlice) {
+  public static final AtomicLong STRUCTURAL_PUT_NOT_READABLE = new AtomicLong();
+
+  /**
+   * Validate the current key route after publication — the route the transaction log resolves, which
+   * the next writer descent and the commit both take. This method never repairs: every structural
+   * candidate must have been proved before publication, so a violation poisons the transaction.
+   *
+   * <p>
+   * The walk proves every node on that route well-formed and the route ending in a live leaf. With
+   * {@code keyMustBeInLeaf} it also asks the terminal leaf for the key — read-your-write for a put
+   * that spliced the trie. A fresh page published where the registration walk does not look satisfies
+   * every structural invariant and still loses the key: the log keeps the page without it, the trie
+   * the commit writes is well-formed, and nothing but the missing answer ever shows. No detector over
+   * the trie can see that, because nothing in the trie is wrong. Only the writer knows the key was
+   * just put, so only it can ask.
+   * </p>
+   *
+   * <p>
+   * The key terminus is asked after any {@link #registerFreshSubtree} of the outermost mutation —
+   * the dispatch's own splice and the periodic leaf consolidation alike — and never inside the
+   * dispatch {@link #subInsertAt} runs: a sub-insert places the key below a split half its caller has
+   * yet to integrate, so the route from the root need not be final there. A put that spliced nothing
+   * never reaches this walk at all. One leaf probe on top of a walk that already runs, no allocation.
+   * </p>
+   *
+   * @param keyBuf buffer holding the key of the mutation that published
+   * @param keyLen number of valid key bytes in {@code keyBuf}
+   * @param keyMustBeInLeaf whether the terminal leaf must hold the key
+   */
+  private void validatePublishedStructuralPath(final byte[] keyBuf, final int keyLen, final boolean keyMustBeInLeaf) {
     try {
       PageReference cur = rootReference;
       if (cur == null) {
@@ -5164,7 +5132,13 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
         final Page page = resolveHOTPageForTraversal(cur);
-        if (page instanceof HOTLeafPage) {
+        if (page instanceof HOTLeafPage leaf) {
+          if (keyMustBeInLeaf && leaf.findEntry(keyBuf, keyLen) < 0) {
+            STRUCTURAL_PUT_NOT_READABLE.incrementAndGet();
+            throw new IllegalStateException("HOT structural put is not readable on its logged route: leaf "
+                + leaf.getPageKey() + " at depth " + depth + " does not hold the key (handler=" + lastDispatchHandler
+                + ", key=" + HexFormat.of().formatHex(keyBuf, 0, keyLen) + ')');
+          }
           return; // the one valid terminus: the current route reached a live leaf
         }
         if (!(page instanceof HOTIndirectPage indirect)) {
@@ -5177,7 +5151,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           throw new IllegalStateException(
               "HOT published structural path is malformed at page " + indirect.getPageKey());
         }
-        final int childIndex = indirect.findChildIndex(keySlice);
+        final int childIndex = indirect.findChildIndex(keyBuf, keyLen);
         if (childIndex < 0 || childIndex >= indirect.getNumChildren()) {
           throw new IllegalStateException("HOT structural path validation has no valid child at depth " + depth
               + " for indirect page " + indirect.getPageKey() + " (childIndex=" + childIndex + ')');
