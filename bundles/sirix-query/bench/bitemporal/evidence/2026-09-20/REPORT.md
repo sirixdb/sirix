@@ -4,8 +4,9 @@
 
 This is implementation and exactness evidence, not a timed head-to-head. No score, ranking or
 performance winner is claimed. The target T100k pilot completed after two generic HOT repairs; the
-later repair used by this run is commit `44fc2f4afe0194972a1899c315de1fe70b9a3da1`. Sirix runs on
-JDK 25 and XTDB 2.1.0 on JDK 21.
+engine build came from the HOT-fix branch at commit
+`44fc2f4afe0194972a1899c315de1fe70b9a3da1`, not from `main` at
+`858d0bb8a5a055db902a22e402c7eda9fcc264cd`. Sirix runs on JDK 25 and XTDB 2.1.0 on JDK 21.
 
 The initial 1.85-GiB combined planning cap was superseded before target results by an approved
 6-GiB cap per engine, 12-GiB total campaign cap and 20-GiB free-space floor. The adapters enforce
