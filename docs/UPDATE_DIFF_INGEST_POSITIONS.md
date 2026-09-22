@@ -35,8 +35,16 @@ The streaming shredders share `JsonNodeTrxImpl.adaptForInsert`. That linkage pat
 already binds the parent and increments its child count. For a bulk append under
 an array, the updated count minus one is the exact ordinal. Capture piggybacks on
 this existing work, without another cursor move, input pass, or persisted field.
-The primitive node-key-to-int map is allocated lazily and holds only the current
-commit's known appends, including nested arrays and fused named arrays.
+The primitive node-key-to-int map holds only the current commit's known appends,
+including nested arrays and fused named arrays. It is allocated lazily but not
+incrementally: the first captured append pays a default fastutil table in full,
+the same 396 payload bytes [`JSON_UPDATE_DIFFS.md`](JSON_UPDATE_DIFFS.md) records
+for the fallback cache. It doubles from there, at 12 payload bytes a slot, so a
+commit appending `N` elements ends at the next power of two at or above
+`N / 0.75` - between about 16 and 32 bytes an element, depending where the last
+doubling fell. The head-insert budget records 3,145,740 bytes for 100,000 appends
+when the capture gate is removed. One commit's batch bounds that, never the
+resource, because nothing survives the commit.
 
 The serializer reads hints only for the new revision. Missing hints use the
 existing memoized structural resolver, whose bounds and revision-isolation

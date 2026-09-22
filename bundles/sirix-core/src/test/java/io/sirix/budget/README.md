@@ -17,7 +17,9 @@ Performance regressions are guarded in two layers, and this is only the first.
 
 1. **Work budgets (this package).** They run in the ordinary suites on every CI machine, are exact
    on any hardware, and say which path grew. They can only see a regression that changes the
-   *amount of counted work*.
+   *amount of counted work*. A fixture kept here purely as a recorded measurement may carry
+   `@Tag("heavy")`, which drops it from the cross-platform lanes only; the bound it guards must
+   also be guarded by a lane-scale fixture that runs everywhere.
 2. **A timed baseline harness** (working name `sirix-perf-baseline-harness`), run on one known
    machine under the benchmark campaign's measurement protocol, against recorded baselines:
    ClickBench's 43 queries, the 100M JSONBench numbers, and later the bitemporal benchmark. It is

@@ -62,8 +62,8 @@ resolves no array position at all, and the append-across-commits shape the hint 
 2,048-element regression in the ordinary lane, plus the larger measurement fixture behind
 `@Tag("heavy")`, which `-PexcludeHeavyTests` drops. The head-insert case additionally bounds the
 hint map its own bootstrap load may allocate, which is zero because that revision writes no
-sidecar. All fixtures stay at the scale the budget package already uses, so the memory-constrained
-cross-platform lanes run them; the guard comes from the bound, not from the size of the data. The
+sidecar. Every fixture the memory-constrained cross-platform lanes still run stays at the scale
+the budget package already uses; the guard comes from the bound, not from the size of the data. The
 head-insert case resolves a second, non-head tuple through the same counting session afterwards, so
 its zero move count is proven to be no work rather than a decorator that has fallen off the
 serializer's cursor route.
