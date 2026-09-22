@@ -79,6 +79,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * it, and each stabbing query is compared with a scan of the records, at the latest revision and at
  * the one before the corrections.
  * </p>
+ *
+ * <p>
+ * Runs in about 8 to 11 seconds on a development machine, so it belongs in the default lane; a suite
+ * that grows past 60 seconds belongs behind {@code @Tag("heavy")}, which the advisory cross-platform
+ * CI lanes exclude ({@code bundles/sirix-core/build.gradle}).
+ * </p>
  */
 final class JsonValidTimeIndexSharedIntervalCorrectionTest {
 

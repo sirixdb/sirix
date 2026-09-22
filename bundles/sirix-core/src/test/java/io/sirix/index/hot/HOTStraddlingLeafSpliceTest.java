@@ -58,6 +58,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * written out as {@code 900_xxx} belongs to a record appended after the shared ones: past every
  * loaded record, so its posting opens a chunk of its own.
  * </p>
+ *
+ * <p>
+ * All three scenarios together run in about 2 to 4 seconds on a development machine, so they belong
+ * in the default lane; a suite that grows past 60 seconds belongs behind {@code @Tag("heavy")}, which
+ * the advisory cross-platform CI lanes exclude ({@code bundles/sirix-core/build.gradle}).
+ * </p>
  */
 final class HOTStraddlingLeafSpliceTest {
 

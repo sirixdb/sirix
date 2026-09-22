@@ -64,10 +64,19 @@ public final class HOTIncrementalInsert {
   public static final AtomicLong CONSOLIDATION_PAIR_DID_NOT_FIT = new AtomicLong();
 
   /**
-   * Diagnostic: folds {@link #canMergeBiNodeAtExistingDiscBit} declined because a sibling's partial
-   * sorts between the split child's slot and the partial its other half would take. Counts that
-   * placement refusal alone — not a C2 collision and not the unexpected straddle orientation. A test
-   * that means to exercise the refusal must assert this counter moved.
+   * Diagnostic: the placement condition of {@link #canMergeBiNodeAtExistingDiscBit} found false — a
+   * sibling's partial sorts between the split child's slot and the partial its other half would take.
+   * Counts that refusal alone, not a C2 collision and not the unexpected straddle orientation.
+   *
+   * <p>
+   * It does <em>not</em> count attempted folds. The predicate is also called speculatively, at every
+   * spine level of {@code AbstractHOTIndexWriter.canIntegrateBiNodeCleanly}'s pre-check walk —
+   * including levels the cascade would never reach, and from callers that then take an entirely
+   * different arm — so a movement proves only that the condition was false somewhere the walk looked.
+   * A test that means to prove a fold was really attempted and declined must pin
+   * {@code AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK} as well, which is incremented only at
+   * the decline site (as {@code HOTDeclinedOverflowFrontierRouteTest} does), or call the predicate
+   * directly (as {@code HOTExistingBitFoldPlacementTest} does).
    */
   public static final AtomicLong EXISTING_BIT_FOLD_NOT_ADJACENT = new AtomicLong();
 
@@ -414,19 +423,6 @@ public final class HOTIncrementalInsert {
   }
 
   /**
-   * {@code compressEntries} for one half of an indirect split: drop every discriminative bit that is
-   * constant across {@code halfChildren} (it no longer branches), re-pack the surviving bits into
-   * MSB-first partial keys, and assemble a fresh compound node. A half of a single child is the bare
-   * child reference — Binna's 1:31 caveat ({@code
-   * HOTSingleThreaded.hpp:524-528}): a lone entry is pulled up, never wrapped.
-   *
-   * @param halfChildren the half's child references, in ascending partial-key order
-   * @param halfPartials the half's stored partials (parallel to {@code halfChildren}), encoded
-   *        against the parent's full {@code discBits}
-   * @param discBits the parent node's discriminative bits, ascending absolute positions
-   * @return the assembled half (a fresh swizzled compound node, or the lone child reference)
-   */
-  /**
    * The most significant discriminative bit {@link #compressHalf} keeps for the children
    * {@code [from, to)} of a node being split: the first bit whose column varies across them, which
    * becomes that half's own MSB. {@code -1} for a lone child — it is pulled up bare and gets no node.
@@ -454,6 +450,19 @@ public final class HOTIncrementalInsert {
     return -1;
   }
 
+  /**
+   * {@code compressEntries} for one half of an indirect split: drop every discriminative bit that is
+   * constant across {@code halfChildren} (it no longer branches), re-pack the surviving bits into
+   * MSB-first partial keys, and assemble a fresh compound node. A half of a single child is the bare
+   * child reference — Binna's 1:31 caveat ({@code
+   * HOTSingleThreaded.hpp:524-528}): a lone entry is pulled up, never wrapped.
+   *
+   * @param halfChildren the half's child references, in ascending partial-key order
+   * @param halfPartials the half's stored partials (parallel to {@code halfChildren}), encoded
+   *        against the parent's full {@code discBits}
+   * @param discBits the parent node's discriminative bits, ascending absolute positions
+   * @return the assembled half (a fresh swizzled compound node, or the lone child reference)
+   */
   private static PageReference compressHalf(final PageReference[] halfChildren, final int[] halfPartials,
       final int[] discBits, final int revision, final LongSupplier pageKeyAllocator) {
     final int n = halfChildren.length;
