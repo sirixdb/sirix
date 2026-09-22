@@ -4080,7 +4080,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     final byte[] keySlice = exactKeyForStructuralMutation(keyBuf, keyLen);
     final HOTIncrementalInsert.BiNode biNode =
         HOTIncrementalInsert.splitLeafPage(leaf, keySlice, valueSlice, revision, indexType, pageKeyAllocator);
-    boolean integrating = false;
     try {
       ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
 
@@ -4104,7 +4103,6 @@ public abstract class AbstractHOTIndexWriter<K> {
       } else if (outcome != OffPathOverflow.FRONTIER) {
         // Plan §12 Stage 3b: an exception escaping integrate after the clean preflight is a real
         // bug. integrate allocates first and re-points exactly one spine reference as its final step.
-        integrating = true;
         final HOTIncrementalInsert.IntegrationResult result =
             HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
                 navResult.pathChildIndices(), navResult.pathDepth(), biNode, revision, pageKeyAllocator);
@@ -4117,13 +4115,10 @@ public abstract class AbstractHOTIndexWriter<K> {
       // this attempt owns. Retire them and start over from the frontier, which places K itself.
       discardFreshBiNode(biNode);
     } catch (final RuntimeException | Error failure) {
-      if (integrating) {
-        // Published or not, K's document node is written while its index entry is not: a transaction
-        // that commits from here holds a document with no posting. Every failure before integrate
-        // touched nothing and leaves the transaction usable, as it always did. The pre-check above is
-        // believed to make the unpublished half of this unreachable; no test reaches it.
-        markTransactionRollbackOnly(failure);
-      }
+      // Published or not, K's document node is written while its index entry is not: a transaction
+      // that commits from here holds a document with no posting. The pre-checks above are believed to
+      // make a failure inside integrate unreachable; no test reaches one.
+      markTransactionRollbackOnly(failure);
       closeFreshBiNode(biNode, failure);
       throw failure;
     }
@@ -4780,41 +4775,6 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Branch insert into a <em>full</em> compound node at an <em>existing</em> discriminative bit —
-   * Binna's {@code betaIsDiscBit + full d*} case
-   * ({@code docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md} §4.1). The case decomposes into
-   * already-verified primitives:
-   * <ol>
-   * <li>{@link HOTIncrementalInsert#splitIndirect} the full node at its {@code node.MSB} into a
-   * {@code BiNode} of two not-full halves.</li>
-   * <li>K routes (by {@code node.MSB}) into one half.</li>
-   * <li>In that half, dispatch on whether {@code beta} survived {@code compressHalf} (the crux the
-   * prior attempts missed):
-   * <ul>
-   * <li>{@code beta} survived (still a disc bit of the half) →
-   * {@link HOTIncrementalInsert#addChildAtCombination} (still {@code betaIsDiscBit} for the half —
-   * Q1-verified routing-correct).</li>
-   * <li>{@code beta} dropped (constant across the half) → {@code beta} is a genuinely new disc bit
-   * for the half → {@link HOTIncrementalInsert#addEntryWithInsertInfo} (the existing multi-affected
-   * branch primitive).</li>
-   * </ul>
-   * </li>
-   * <li>{@link HOTIncrementalInsert#integrate} the {@code BiNode} at {@code insertDepth} — the
-   * standard capacity cascade.</li>
-   * </ol>
-   *
-   * <p>
-   * {@code BetaIsDiscBitRoutingProbe} Q4 verified 74/74 cases route strictly correctly, including
-   * 40-byte MultiMask {@code widespan} keys. The prior 7 decomposition attempts failed by using
-   * {@code addChildAtCombination} unconditionally — the β-survival dispatch is mandatory.
-   *
-   * <p>
-   * C1 (1:31 lone-child half) and C2 ({@code comboPartial} collision) return {@code false} before
-   * publication so the shared complete-frontier primitive handles them.
-   *
-   * @return {@code true} iff the key was inserted incrementally
-   */
-  /**
    * Pre-check whether {@link HOTIncrementalInsert#integrate}'s cascade — starting at
    * {@code currentDepth} with a BiNode on {@code biNodeBeta} — will fold cleanly, or whether any
    * level requires an un-mergeable cross-level-overlap fold (which would otherwise throw out of
@@ -4934,6 +4894,41 @@ public abstract class AbstractHOTIndexWriter<K> {
     return true;
   }
 
+  /**
+   * Branch insert into a <em>full</em> compound node at an <em>existing</em> discriminative bit —
+   * Binna's {@code betaIsDiscBit + full d*} case
+   * ({@code docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md} §4.1). The case decomposes into
+   * already-verified primitives:
+   * <ol>
+   * <li>{@link HOTIncrementalInsert#splitIndirect} the full node at its {@code node.MSB} into a
+   * {@code BiNode} of two not-full halves.</li>
+   * <li>K routes (by {@code node.MSB}) into one half.</li>
+   * <li>In that half, dispatch on whether {@code beta} survived {@code compressHalf} (the crux the
+   * prior attempts missed):
+   * <ul>
+   * <li>{@code beta} survived (still a disc bit of the half) →
+   * {@link HOTIncrementalInsert#addChildAtCombination} (still {@code betaIsDiscBit} for the half —
+   * Q1-verified routing-correct).</li>
+   * <li>{@code beta} dropped (constant across the half) → {@code beta} is a genuinely new disc bit
+   * for the half → {@link HOTIncrementalInsert#addEntryWithInsertInfo} (the existing multi-affected
+   * branch primitive).</li>
+   * </ul>
+   * </li>
+   * <li>{@link HOTIncrementalInsert#integrate} the {@code BiNode} at {@code insertDepth} — the
+   * standard capacity cascade.</li>
+   * </ol>
+   *
+   * <p>
+   * {@code BetaIsDiscBitRoutingProbe} Q4 verified 74/74 cases route strictly correctly, including
+   * 40-byte MultiMask {@code widespan} keys. The prior 7 decomposition attempts failed by using
+   * {@code addChildAtCombination} unconditionally — the β-survival dispatch is mandatory.
+   *
+   * <p>
+   * C1 (1:31 lone-child half) and C2 ({@code comboPartial} collision) return {@code false} before
+   * publication so the shared complete-frontier primitive handles them.
+   *
+   * @return {@code true} iff the key was inserted incrementally
+   */
   private boolean branchFullNodeAtExistingBit(LeafNavigationResult navResult, HOTIndirectPage node, int insertDepth,
       int beta, int betaValue, byte[] keySlice, byte[] valueSlice) {
     final int revision = storageEngineWriter.getRevisionNumber();
@@ -5932,6 +5927,13 @@ public abstract class AbstractHOTIndexWriter<K> {
       final int rightFrom = dropped
           ? insertionPoint + 1
           : insertionPoint;
+      if (dropped && insertionPoint == 0 && rightFrom == leaf.getEntryCount()) {
+        // Both halves would be null and the join would silently replace the whole boundary subtree
+        // with the key's fresh one-entry leaf, dropping every other key it held.
+        throw new IllegalStateException(
+            "HOT incremental frontier would empty boundary leaf " + leaf.getPageKey() + " of all "
+                + leaf.getEntryCount() + " entries");
+      }
       if (!dropped) {
         // Sharing the source whole is only sound while every one of its entries survives.
         if (insertionPoint == 0) {

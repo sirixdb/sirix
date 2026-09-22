@@ -1212,16 +1212,16 @@ more significant bit, which only relaxes what those children must satisfy. It is
 is a lone child before the insertion and a pair after it, nor for the inserted child itself — and
 both arise exactly when β is N's own MSB, the shape left unguarded above.
 
-Exactness, as defence in depth. The rule is that a transaction is poisoned where an index write may
-have been half done, and never where nothing was touched. On the merge path that boundary is the
-entry to `integrate`, not its return: a failure from there on is marked rollback-only at both
-entries, published or not, because K's document node is already written while its index entry is not
-and a transaction that commits from there holds a document with no posting. Every failure *before*
-`integrate` on this path touched nothing and leaves the transaction usable, as it always did.
+Exactness, as defence in depth. Every failure of the merge path's split arm — before, inside or
+after `integrate`, at either entry to the integration — is marked rollback-only, published or not,
+as it always was: K's document node is already written while its index entry is not, and a
+transaction that commits from there holds a document with no posting. The routing added above takes
+no exception to that. A split the handler could not construct, an overflow handed to the
+complete-frontier splice and a fault while the halves are retired all end at the same marking.
 
-The half of that boundary which is new — a failure inside `integrate` before it re-points its single
-spine reference — is **defence in depth for a case believed unreachable, not a case known to occur**.
-The two pre-checks above are what make it unreachable, and no test exercises it because none can be
+A failure inside `integrate`, before it re-points its single spine reference, is covered by that same
+marking as **defence in depth for a case believed unreachable, not a case known to occur**. The two
+pre-checks above are what make it unreachable, and no test exercises it because none can be
 constructed while they hold. Nothing here was observed; it is the cost of not having to re-derive the
 argument the next time this path is touched.
 
@@ -1326,20 +1326,20 @@ or above a spine node (d*). Cases, in order:
   `MutationTraversalRefusal` and the transaction becomes rollback-only
   (`hot/AbstractHOTIndexWriter.java:166-170`, `:499-594`, `:680-694`).
 - **The rollback-only rule, in one sentence: a transaction is poisoned where an index write may have
-  been half done, never where nothing was touched.** Every post-publication failure calls
-  `markTransactionRollbackOnly`. On the merge path the boundary sits one step earlier, at the entry
-  to `integrate` rather than at its return (`handleOffPathOverflowFullN`, `mergeIntoLeaf`'s
-  integrate arm and `spliceOverflowThroughFrontier`): from there on the key's document node is
-  written while its index entry is not, so a caller that caught the failure and committed would hold
-  a document with no posting. Failures *before* that — loading the path's children, building the
-  split, a handler that restored what it staged — touched nothing and leave the transaction usable,
-  exactly as they always did.
+  been half done.** Every post-publication failure calls `markTransactionRollbackOnly`. On the merge
+  path's split arm the marking is unconditional, and always was: `mergeIntoLeaf`,
+  `handleOffPathOverflowFullN` and `spliceOverflowThroughFrontier` poison any failure they catch,
+  before, inside or after `integrate`, because by then the key's document node is written while its
+  index entry is not, so a caller that caught the failure and committed would hold a document with no
+  posting. The routing added in §4.5.3 takes no exception to that: a split the handler could not
+  construct, an overflow handed to the complete-frontier splice and a fault while the halves are
+  retired are marked like any other failure of that arm.
 
-  The widened half of that boundary — a failure *inside* `integrate`, before it re-points its single
-  spine reference — is **defence in depth for a case believed unreachable**, not a case known to
-  occur. Both merge entries are pre-checked (§4.5.3), which is what makes it unreachable; no test
-  exercises it, because none can be constructed while the pre-checks hold. A reader must not take it
-  as evidence that something was observed.
+  A failure *inside* `integrate`, before it re-points its single spine reference, is covered by that
+  same marking as **defence in depth for a case believed unreachable**, not a case known to occur.
+  Both merge entries are pre-checked (§4.5.3), which is what makes it unreachable; no test exercises
+  it, because none can be constructed while the pre-checks hold. A reader must not take it as
+  evidence that something was observed.
 
   Whether the final `IllegalStateException` of the complete-frontier splice poisons the transaction on
   the branch path is unclear: `doMutation`'s insert arm has no catch that does it (§7).

@@ -166,14 +166,14 @@ All notable changes to SirixDB are documented in this file.
   of their own, which touches no block. The same question on the other branch-path decomposition of
   a full node, and a cascade whose split bit is the node's own most significant bit, were considered
   and left unguarded: no test enters the one or reaches the other, so a guard there could not be
-  shown to fire; both are stated as known limits in the specification. One rule now governs when a failed index write poisons the
-  transaction: it is poisoned where the write may have been half done, and never where nothing was
-  touched. On the merge path that boundary moved one step earlier, from the return of the integration
-  to its entry, because from there on the key's document node is written while its index entry is
-  not — that covers the routed overflow above and a failure inside the integration itself, which the
-  two pre-checks are believed to make unreachable and which no test exercises. Everything before the
-  integration — loading path children, building the split — touched nothing and leaves the
-  transaction usable, exactly as before. The 100,000-record valid-time correction stream the
+  shown to fire; both are stated as known limits in the specification. A failed index write on the
+  merge path's split arm poisons the transaction exactly as it always did — before, inside or after
+  the integration — because the key's document node is already written there while its index entry is
+  not, so a caller that caught the failure and committed would hold a document with no posting. The
+  new routing takes no exception to that rule: the overflow handed to the complete-frontier splice,
+  a split the handler could not construct, a fault while the halves are retired and a failure inside
+  the integration itself are all covered by it. The two pre-checks are believed to make a failure
+  inside the integration unreachable, and no test exercises one. The 100,000-record valid-time correction stream the
   regression test replays (25 publications, 1,080,574 index-writer operations) never starts a
   merge-path capacity cascade, so both entries are covered by constructed scenarios instead, each of
   which fails without its own pre-check; the trie-condition reason is decided by the same predicate
