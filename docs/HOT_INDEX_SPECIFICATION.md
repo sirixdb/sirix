@@ -1074,9 +1074,15 @@ PCRs (`idx/cas/CASIndex.java:599-605`).
    `IndexType.PROJECTION` by its constructor); every other `setPageReference` call on a HOT leaf
    copies or re-homes an existing reference. The posting indexes — **PATH, CAS, NAME and VALIDTIME**
    — therefore never carry one, `segmentRefCount()` is zero on their leaves, and the re-homing
-   returns immediately, so the valid-time index this change was made for cannot reach this shape. It
-   is not a regression in outcome: before this change the same input folded and published a
-   mis-ordered node. Carrying the dropped entry's reference onto `K`'s fresh leaf is filed as its
+   returns immediately, so the valid-time index this change was made for cannot reach this shape.
+   What the base did differs per entry, and neither committed anything wrong. For the fold declined
+   at `L`'s own parent, the base already failed closed without publishing: `integrate` reached the
+   same fold and `mergeBiNodeAtExistingDiscBit` refused it with `IllegalArgumentException`,
+   `mergeIntoLeaf` marked the transaction rollback-only, and the load stopped at that insert — the
+   outcome the route replaces for every index but the one that owns a side reference. For the
+   cascade the trie-condition pre-check now declines, the base completed the insert and published an
+   I11-breaking half latently, so the load stopped only later; there the insert now stops where it
+   used to succeed. Carrying the dropped entry's reference onto `K`'s fresh leaf is filed as its
    own task.
 
 #### 4.5.3 `integrate`: propagating a BiNode
@@ -1368,9 +1374,14 @@ or above a spine node (d*). Cases, in order:
   handler's both end in the same `spliceOverflowThroughFrontier`, so the projection-index exposure is
   the union of the two, not one alone. Only PROJECTION reaches it — side references originate in
   `ProjectionIndexHOTStorage.putSegmentPage` alone, so PATH, CAS, NAME and VALIDTIME leaves have
-  `segmentRefCount() == 0` and the re-homing returns before it can refuse. Not a regression in
-  outcome: before this change the same input folded and published a mis-ordered node. No test
-  constructs it; carrying the reference onto `K`'s fresh leaf is a separate task.
+  `segmentRefCount() == 0` and the re-homing returns before it can refuse. What the base did differs
+  per entry, and neither committed anything wrong: for the fold declined at `L`'s own parent it
+  already failed closed without publishing — `mergeBiNodeAtExistingDiscBit` refused the same fold
+  out of `integrate` and the transaction was marked rollback-only, so the load stopped at that
+  insert; for the cascade the trie-condition pre-check now declines it completed the insert and
+  published an I11-breaking half latently, so the load stopped only later, and there this refusal
+  moves the stop forward to the insert. No test constructs it; carrying the reference onto `K`'s
+  fresh leaf is a separate task.
 
 #### 4.5.7 Complexity (derived from the code, not measured)
 

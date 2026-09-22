@@ -149,8 +149,13 @@ All notable changes to SirixDB are documented in this file.
   publication rather than orphaning a segment page and the load stops. Only a projection index can
   reach that — side references are attached to a HOT leaf by `ProjectionIndexHOTStorage` alone, so
   path, CAS, name and valid-time leaves never carry one — every entry to that route can, not just the
-  declined fold, and it is not a regression in outcome, since the same input previously folded and
-  published a mis-ordered node. Carrying the dropped entry's reference onto the key's fresh leaf is a
+  declined fold. What the two entries did before differs, and neither committed anything wrong: a
+  fold declined at the leaf's own parent already failed closed without publishing, because the
+  cascade reached the same refusal and the transaction was marked rollback-only, so the load stopped
+  at that insert exactly as it stops now; a cascade the trie-condition pre-check now declines instead
+  completed the insert and published a half that broke the condition latently, so the load stopped
+  only later. For that second entry a projection index with a dropped side reference now stops at the
+  insert rather than later. Carrying the dropped entry's reference onto the key's fresh leaf is a
   separate task. Further into the same load, splitting a full node published a half that broke the
   trie condition (I11) against its own child: a half keeps only the bits that still vary within it, so
   a child that sat safely below the node's most significant bit can sit above the half's. Only the

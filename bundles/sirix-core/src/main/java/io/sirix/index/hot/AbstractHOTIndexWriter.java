@@ -186,6 +186,9 @@ public abstract class AbstractHOTIndexWriter<K> {
   private static volatile @Nullable Runnable twoLeafMigrationAfterPublicationTestHook;
   private static volatile @Nullable Consumer<HOTIndirectPage> twoLeafMigrationAfterReattachTestHook;
 
+  /** Package-private deterministic fault seam for the merge path's pre-integrate rollback rule. */
+  private static volatile @Nullable Runnable mergeOverflowBeforeIntegrateTestHook;
+
   protected final StorageEngineWriter storageEngineWriter;
   protected final IndexType indexType;
   protected final int indexNumber;
@@ -4091,6 +4094,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (outcome == OffPathOverflow.HANDLED) {
         return keySlice;
       }
+      if (outcome == OffPathOverflow.INTEGRATE) {
+        final Runnable beforeIntegrateTestHook = mergeOverflowBeforeIntegrateTestHook;
+        if (beforeIntegrateTestHook != null) {
+          beforeIntegrateTestHook.run();
+        }
+      }
       if (outcome != OffPathOverflow.FRONTIER && integrateWouldFoldIntoParent(navResult, biNode)
           && !canIntegrateBiNodeCleanly(navResult.pathNodes(), navResult.pathChildIndices(), navResult.pathDepth(),
               biNode.discriminativeBitIndex())) {
@@ -6883,6 +6892,10 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   static void setTwoLeafMigrationAfterPublicationTestHook(final @Nullable Runnable hook) {
     twoLeafMigrationAfterPublicationTestHook = hook;
+  }
+
+  static void setMergeOverflowBeforeIntegrateTestHook(final @Nullable Runnable hook) {
+    mergeOverflowBeforeIntegrateTestHook = hook;
   }
 
   static void setTwoLeafMigrationAfterReattachTestHook(final @Nullable Consumer<HOTIndirectPage> hook) {
