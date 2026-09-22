@@ -4165,14 +4165,14 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private byte[] spliceOverflowThroughFrontier(final LeafNavigationResult navResult, final HOTLeafPage leaf,
       final byte[] keySlice, final byte[] valueSlice) {
-    final int existingSlot = leaf.findEntry(keySlice);
-    final StructuralSplitKey keyMode = existingSlot >= 0
-        ? StructuralSplitKey.PRESENT_AND_DROPPED
-        : StructuralSplitKey.ABSENT;
-    final byte[] frontierValue = existingSlot < 0 || indexType == IndexType.PROJECTION
-        ? valueSlice
-        : HOTIncrementalInsert.mergeIndexValues(leaf.copyStoredValue(existingSlot), valueSlice);
     try {
+      final int existingSlot = leaf.findEntry(keySlice);
+      final StructuralSplitKey keyMode = existingSlot >= 0
+          ? StructuralSplitKey.PRESENT_AND_DROPPED
+          : StructuralSplitKey.ABSENT;
+      final byte[] frontierValue = existingSlot < 0 || indexType == IndexType.PROJECTION
+          ? valueSlice
+          : HOTIncrementalInsert.mergeIndexValues(leaf.copyStoredValue(existingSlot), valueSlice);
       spliceCompleteFrontierIncrementally(navResult, navResult.pathDepth() - 1, keySlice, frontierValue, keyMode);
     } catch (final RuntimeException | Error failure) {
       markTransactionRollbackOnly(failure);
@@ -5936,13 +5936,6 @@ public abstract class AbstractHOTIndexWriter<K> {
       final int rightFrom = dropped
           ? insertionPoint + 1
           : insertionPoint;
-      if (dropped && insertionPoint == 0 && rightFrom == leaf.getEntryCount()) {
-        // Both halves would be null and the join would silently replace the whole boundary subtree
-        // with the key's fresh one-entry leaf, dropping every other key it held.
-        throw new IllegalStateException(
-            "HOT incremental frontier would empty boundary leaf " + leaf.getPageKey() + " of all "
-                + leaf.getEntryCount() + " entries");
-      }
       if (!dropped) {
         // Sharing the source whole is only sound while every one of its entries survives.
         if (insertionPoint == 0) {
