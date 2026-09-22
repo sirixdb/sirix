@@ -152,6 +152,26 @@ All notable changes to SirixDB are documented in this file.
   when a half would break the condition. Results, on-disk format, revision visibility, write
   granularity and the validation itself are unchanged. Specified in
   `docs/HOT_INDEX_SPECIFICATION.md` §4.5.3–§4.5.4 and §4.5.6.
+- **A HOT structural insert could lose a key with every invariant intact** — when a full node's most
+  significant bit splits it 1:31, the new key's half comes back bare, as the node's *own* child
+  reference. Folding the key into that half published the fold by re-pointing that reference, and it
+  already names the unfolded child in the transaction log, where registration stops at any reference
+  that carries an identity: the folded page was never logged. The writer, which resolves the log
+  first, and the commit both kept the unfolded child, so the key was absent from the revision that
+  was committed while the trie stayed well-formed. No invariant, validator or detector over the trie
+  can see that, because nothing in the trie is wrong; in a valid-time index it shows only as a record
+  answered over part of its span, by the store that kept its other endpoint. The folded page is now
+  published under a fresh `PageReference`, with the split's BiNode rebuilt around it, so registration
+  reaches it and the commit carries it. A fold into such a half is also declined when the half is
+  already at `MAX_NODE_ENTRIES` — a half the split compressed always has room, a lone child sized by
+  its own inserts need not — and the complete structural frontier places the key instead, where the
+  fold previously assembled a 33-child node and failed the put with `MultiNode must have 1-32
+  children`. As defense in depth, a structural put now re-reads its own key on the route the
+  transaction log resolves; a route that does not produce it throws and marks the transaction
+  rollback-only (`STRUCTURAL_PUT_NOT_READABLE`), so a publication the log cannot carry fails at the
+  put instead of answering wrongly later. On-disk format, revision visibility and write granularity
+  are unchanged; answers change only where a key was previously lost. Specified in
+  `docs/HOT_INDEX_SPECIFICATION.md` §4.5.4 case 2 and §4.8.
 
 ## [1.0.0-beta7] — 2026-07-15
 

@@ -1977,7 +1977,7 @@ public abstract class AbstractHOTIndexWriter<K> {
 
     // Factored merge-vs-branch dispatch — re-used by {@link #subInsertAt} on a C2 re-descend
     // (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §4.1).
-    dispatchInsert(navResult, keyBuf, keyLen, upsertValue, valueLen);
+    dispatchInsert(navResult, keyBuf, keyLen, upsertValue, valueLen, true);
 
     if (localize && i8Before == null) {
       i8ProbeReport("dispatch(" + (i8ProbeMerge
@@ -2003,9 +2003,14 @@ public abstract class AbstractHOTIndexWriter<K> {
       final long[] consCntBefore = localize
           ? i8ProbeSnapshot()
           : null;
-      consolidateLeafParent(consolidationRoute);
+      final boolean consolidationPublished = consolidateLeafParent(consolidationRoute);
       if (localize && consBefore == null) {
         i8ProbeReport("consolidate", keyBuf, keyLen, consCntBefore);
+      }
+      if (consolidationPublished && VALIDATE_STRUCTURAL_MUTATIONS) {
+        // Consolidation published a fresh parent after the dispatch's own walk, so the route the log
+        // resolves is a different one. The key has to be readable on it too.
+        validatePublishedStructuralPath(keyBuf, keyLen, true);
       }
     }
     return true;
@@ -2062,7 +2067,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         throw new IllegalStateException("HOT posting-list overflow fallback could not tombstone leaf "
             + writableLeaf.getPageKey() + ", slot " + writableIndex);
       }
-      dispatchInsert(navResult, keyBuf, keyLen, exactReplacement, exactReplacement.length);
+      dispatchInsert(navResult, keyBuf, keyLen, exactReplacement, exactReplacement.length, true);
       return true;
     } catch (final RuntimeException | Error failure) {
       // This includes stable slot corruption discovered by the read-only preflight. Never allow a
@@ -2248,9 +2253,13 @@ public abstract class AbstractHOTIndexWriter<K> {
    * merge and branch via the merge-vs-branch bound (Â§1.2 of the port plan), invoke the corresponding
    * handler. Factored out so {@link #subInsertAt} can re-use it on a C2 re-descend
    * ({@code docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md} Â§4.1).
+   *
+   * @param outermost {@code true} for the mutation driver's own dispatch, {@code false} for the one
+   *        {@link #subInsertAt} runs underneath a caller that has yet to integrate its split half.
+   *        Only the outermost dispatch may ask the post-publication walk for its key terminus.
    */
   private void dispatchInsert(final LeafNavigationResult navResult, final byte[] keyBuf, final int keyLen,
-      final byte[] valueBuf, final int valueLen) {
+      final byte[] valueBuf, final int valueLen, final boolean outermost) {
     final int pathDepth = navResult.pathDepth();
     final HOTIndirectPage[] pathNodes = navResult.pathNodes();
     HOTIncrementalInsert.analyzeDescentInto(pathNodes, navResult.pathChildIndices(), pathDepth, navResult.leaf(),
@@ -2295,7 +2304,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (structurallyChanged && VALIDATE_STRUCTURAL_MUTATIONS) {
       final byte[] exactStructuralKey = requireNonNull(structuralKey, "structuralKey");
       validatePublishedStructuralScope(structuralValidationScope, exactStructuralKey);
-      validatePublishedStructuralPath(exactStructuralKey);
+      validatePublishedStructuralPath(exactStructuralKey, exactStructuralKey.length,
+          outermost && structuralValidationScope != null);
     }
   }
 
@@ -2437,7 +2447,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         new LeafNavigationResult(modifiedLeaf, currentRef, Arrays.copyOf(subPathNodes, subPathDepth),
             Arrays.copyOf(subPathRefs, subPathDepth), Arrays.copyOf(subPathChildIndices, subPathDepth), subPathDepth);
 
-    dispatchInsert(subNav, keyBuf, keyLen, valueBuf, valueLen);
+    dispatchInsert(subNav, keyBuf, keyLen, valueBuf, valueLen, false);
     return true;
   }
 
@@ -4725,6 +4735,19 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION = new AtomicLong();
 
   /**
+   * Full-node decompositions that folded {@code K} into a 1:31 split's lone <em>indirect</em> child —
+   * the half that is the node's own child reference rather than one the split compressed, and so the
+   * one fold whose result must not be published by re-pointing the half's reference.
+   */
+  public static final AtomicLong FULL_EXISTING_BIT_LONE_HALF_FOLD = new AtomicLong();
+
+  /**
+   * Full-node decompositions declined because {@code K}'s half was a lone indirect child with no room
+   * left: a compressed half always has room, the node's own child need not.
+   */
+  public static final AtomicLong FULL_EXISTING_BIT_LONE_HALF_FULL = new AtomicLong();
+
+  /**
    * Whether splitting {@code node} at its most significant bit leaves each half satisfying the trie
    * condition against its own children (I11: an indirect child's MSB is strictly less significant
    * than its parent's).
@@ -4791,7 +4814,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
     putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
-    boolean published = false;
     try {
       ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
 
@@ -4805,11 +4827,48 @@ public abstract class AbstractHOTIndexWriter<K> {
           ? split.right()
           : split.left();
       if (!(halfRef.getPage() instanceof HOTIndirectPage half)) {
-        // C1 — K's half is a lone child (1:31 split, the half is the bare child reference).
+        // C1 — K's half is a lone leaf child (1:31 split, the half is the bare child reference).
         // The half is not a compound frontier; let the shared complete-frontier arm place K.
         keyLeaf.close();
         return false;
       }
+      // C13 — a lone indirect child comes back bare too: K's half is then the node's own child, not
+      // a half this split compressed. The fold below differs for the two in whether the half is
+      // known to have room and in which reference may carry the folded page.
+      final boolean halfIsNodesOwnChild = halfRef == node.getChildReference(kMsbBit
+          ? node.getNumChildren() - 1
+          : 0);
+      return foldIntoSplitHalf(navResult, node, insertDepth, split, half, kMsbBit, halfIsNodesOwnChild, beta, betaValue,
+          keySlice, valueSlice, keyLeaf, revision);
+    } catch (final RuntimeException | Error failure) {
+      // The fold owns the leaf once it is entered, so this is an outer ownership catch.
+      closeSpeculativeLeafIfOpen(keyLeaf, failure);
+      throw failure;
+    }
+  }
+
+  /**
+   * Fold {@code K}'s leaf into the split half it routes into, then publish the rebuilt split — steps
+   * 3 and 4 of {@link #branchFullNodeAtExistingBit}. The dispatch is on whether {@code beta} survived
+   * {@code compressHalf} as a discriminative bit of the half, which decides the fold primitive.
+   *
+   * <p>
+   * Owns {@code keyLeaf}: every arm either publishes it or retires it before returning.
+   * </p>
+   *
+   * @param halfIsNodesOwnChild whether the split handed the half back bare, as {@code node}'s own
+   *        child reference, rather than compressed (C13)
+   * @return {@code true} iff the key was inserted incrementally
+   */
+  private boolean foldIntoSplitHalf(final LeafNavigationResult navResult, final HOTIndirectPage node,
+      final int insertDepth, final HOTIncrementalInsert.BiNode split, final HOTIndirectPage half, final boolean kMsbBit,
+      final boolean halfIsNodesOwnChild, final int beta, final int betaValue, final byte[] keySlice,
+      final byte[] valueSlice, final HOTLeafPage keyLeaf, final int revision) {
+    try {
+      // C13 room: a compressed half holds at most MAX_NODE_ENTRIES - 1 children, so a fold always
+      // fits; a lone child was sized by its own inserts and may be full. A C2 collision adds no child
+      // and needs no room, so each fold asks for itself.
+      final boolean halfIsFull = half.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES;
 
       // 3. In the half: dispatch on whether beta survived compressHalf.
       final int[] halfDiscBits = HOTIncrementalInsert.discriminativeBits(half);
@@ -4837,11 +4896,17 @@ public abstract class AbstractHOTIndexWriter<K> {
           return directionOneIntoSplitHalf(navResult, node, insertDepth, split, half, kMsbBit, childIdx, keySlice,
               valueSlice, revision);
         }
+        if (halfIsFull) {
+          return declineFoldIntoFullHalf(keyLeaf);
+        }
         foldedHalf = HOTIncrementalInsert.addChildAtCombination(half, comboPartial, keyLeafRef, half.getHeight(),
             revision, pageKeyAllocator);
       } else {
         // beta was dropped from the half (constant across it) — beta is genuinely new to the
         // half; addEntryWithInsertInfo folds it as a new disc bit.
+        if (halfIsFull) {
+          return declineFoldIntoFullHalf(keyLeaf);
+        }
         foldedHalf = HOTIncrementalInsert.addEntryWithInsertInfo(half, beta, betaValue, halfInfo.firstAffected(),
             halfInfo.affectedCount(), halfInfo.subtreePrefix(), keyLeafRef, half.getHeight(), revision,
             pageKeyAllocator);
@@ -4863,22 +4928,59 @@ public abstract class AbstractHOTIndexWriter<K> {
         BRANCH_COMPLETE_FRONTIER.incrementAndGet();
         return false; // I8-unsafe combo-add -> complete structural frontier
       }
-      halfRef.setPage(foldedHalf);
-
-      // 4. Integrate the split BiNode at insertDepth — the standard capacity cascade.
-      final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
-          buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, split, revision, pageKeyAllocator);
-      published = true;
-      lastDispatchHandler = "h:combo-site2-fold";
-      registerFreshSubtree(result.touchedRef());
+      publishFoldedSplit(navResult, insertDepth, split, foldedHalf, kMsbBit, halfIsNodesOwnChild, revision);
       return true;
     } catch (final RuntimeException | Error failure) {
-      if (published) {
-        markTransactionRollbackOnly(failure);
-      }
       closeSpeculativeLeaf(keyLeaf, failure);
       throw failure;
     }
+  }
+
+  /**
+   * Publish {@code foldedHalf} and integrate the rebuilt split at {@code insertDepth} — the standard
+   * capacity cascade.
+   *
+   * <p>
+   * The folded half goes out under a reference of its own, as {@code foldIntoHalf}'s does. The
+   * reference the split handed back is this dispatch's own only when the split compressed the half; a
+   * lone child comes back as the node's own reference, which already names the unfolded child in the
+   * transaction log or on disk. {@code registerFreshPage} stops at such a reference, so a page merely
+   * swizzled onto it is seen by a reader following the swizzle but is never logged: the writer, which
+   * resolves the log first, and the commit would both keep the unfolded child, and {@code K}'s leaf
+   * would be lost.
+   * </p>
+   */
+  private void publishFoldedSplit(final LeafNavigationResult navResult, final int insertDepth,
+      final HOTIncrementalInsert.BiNode split, final HOTIndirectPage foldedHalf, final boolean kMsbBit,
+      final boolean halfIsNodesOwnChild, final int revision) {
+    final PageReference foldedRef = swizzle(foldedHalf);
+    final HOTIncrementalInsert.BiNode foldedSplit = kMsbBit
+        ? new HOTIncrementalInsert.BiNode(split.discriminativeBitIndex(), split.height(), split.left(), foldedRef)
+        : new HOTIncrementalInsert.BiNode(split.discriminativeBitIndex(), split.height(), foldedRef, split.right());
+
+    // 4. Integrate the split BiNode at insertDepth — the standard capacity cascade.
+    final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
+        buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, foldedSplit, revision, pageKeyAllocator);
+    try {
+      lastDispatchHandler = "h:combo-site2-fold";
+      registerFreshSubtree(result.touchedRef());
+    } catch (final RuntimeException | Error failure) {
+      // integrate has published; the mutation can no longer fall back to another handler.
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+    if (halfIsNodesOwnChild) {
+      FULL_EXISTING_BIT_LONE_HALF_FOLD.incrementAndGet();
+    }
+  }
+
+  /**
+   * Decline a fold into a half with no room for {@code K}'s leaf; the complete frontier places it.
+   */
+  private static boolean declineFoldIntoFullHalf(final HOTLeafPage keyLeaf) {
+    keyLeaf.close();
+    FULL_EXISTING_BIT_LONE_HALF_FULL.incrementAndGet();
+    return false;
   }
 
   /** Complete a full-node C2 collision by descending into the selected child of the split half. */
@@ -4938,11 +5040,13 @@ public abstract class AbstractHOTIndexWriter<K> {
    * batch. The pure consolidation primitive preserves the parent's height, key set, and range, so no
    * ancestor rewrite is required.
    * </p>
+   *
+   * @return {@code true} iff a changed parent was published and registered
    */
-  private void consolidateLeafParent(final LeafNavigationResult route) {
+  private boolean consolidateLeafParent(final LeafNavigationResult route) {
     final int pathDepth = route.pathDepth();
     if (pathDepth == 0) {
-      return;
+      return false;
     }
     final int parentDepth = pathDepth - 1;
     final PageReference parentRef = route.pathRefs()[parentDepth];
@@ -4972,7 +5076,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET,
           storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator, orphanedLeaves);
       if (consolidated == parent) {
-        return;
+        return false;
       }
       freshConsolidated = consolidated;
       parentRef.setPage(consolidated);
@@ -4981,6 +5085,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       storageEngineWriter.getLog()
                          .releaseOrphanedHOTLeaves(indexScope(), parentRef, orphanedLeaves,
                              TransactionIntentLog.RELEASE_SITE_CONSOLIDATE);
+      return true;
     } catch (final RuntimeException | Error failure) {
       // Consolidation runs only after the primary dispatch has already mutated the index. Even a
       // failure before this maintenance pass publishes its parent therefore leaves a transaction
@@ -5033,10 +5138,41 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong STRUCTURAL_VALIDATION_FAILURE = new AtomicLong();
 
   /**
-   * Validate the current key route after publication. This method never repairs: every structural
-   * candidate must have been proved before publication, so a violation poisons the transaction.
+   * Structural puts whose key was not readable on the route the transaction log resolves. Must stay
+   * zero.
    */
-  private void validatePublishedStructuralPath(byte[] keySlice) {
+  public static final AtomicLong STRUCTURAL_PUT_NOT_READABLE = new AtomicLong();
+
+  /**
+   * Validate the current key route after publication — the route the transaction log resolves, which
+   * the next writer descent and the commit both take. This method never repairs: every structural
+   * candidate must have been proved before publication, so a violation poisons the transaction.
+   *
+   * <p>
+   * The walk proves every node on that route well-formed and the route ending in a live leaf. With
+   * {@code keyMustBeInLeaf} it also asks the terminal leaf for the key — read-your-write for a put
+   * that spliced the trie. A fresh page published where the registration walk does not look satisfies
+   * every structural invariant and still loses the key: the log keeps the page without it, the trie
+   * the commit writes is well-formed, and nothing but the missing answer ever shows. No detector over
+   * the trie can see that, because nothing in the trie is wrong. Only the writer knows the key was
+   * just put, so only it can ask.
+   * </p>
+   *
+   * <p>
+   * The key terminus is asked after any {@link #registerFreshSubtree} of the outermost mutation — the
+   * dispatch's own splice and the periodic leaf consolidation alike — and never inside the dispatch
+   * {@link #subInsertAt} runs: a sub-insert places the key below a split half its caller has yet to
+   * integrate, so the route from the root need not be final there. A put that spliced nothing reaches
+   * this walk only when its own periodic consolidation published a fresh parent — at most once per
+   * {@code CONSOLIDATION_INTERVAL} puts. One leaf probe on top of a walk that already runs, no
+   * allocation.
+   * </p>
+   *
+   * @param keyBuf buffer holding the key of the mutation that published
+   * @param keyLen number of valid key bytes in {@code keyBuf}
+   * @param keyMustBeInLeaf whether the terminal leaf must hold the key
+   */
+  private void validatePublishedStructuralPath(final byte[] keyBuf, final int keyLen, final boolean keyMustBeInLeaf) {
     try {
       PageReference cur = rootReference;
       if (cur == null) {
@@ -5044,7 +5180,13 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
         final Page page = resolveHOTPageForTraversal(cur);
-        if (page instanceof HOTLeafPage) {
+        if (page instanceof HOTLeafPage leaf) {
+          if (keyMustBeInLeaf && leaf.findEntry(keyBuf, keyLen) < 0) {
+            STRUCTURAL_PUT_NOT_READABLE.incrementAndGet();
+            throw new IllegalStateException("HOT structural put is not readable on its logged route: leaf "
+                + leaf.getPageKey() + " at depth " + depth + " does not hold the key (handler=" + lastDispatchHandler
+                + ", key=" + HexFormat.of().formatHex(keyBuf, 0, keyLen) + ')');
+          }
           return; // the one valid terminus: the current route reached a live leaf
         }
         if (!(page instanceof HOTIndirectPage indirect)) {
@@ -5057,7 +5199,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           throw new IllegalStateException(
               "HOT published structural path is malformed at page " + indirect.getPageKey());
         }
-        final int childIndex = indirect.findChildIndex(keySlice);
+        final int childIndex = indirect.findChildIndex(keyBuf, keyLen);
         if (childIndex < 0 || childIndex >= indirect.getNumChildren()) {
           throw new IllegalStateException("HOT structural path validation has no valid child at depth " + depth
               + " for indirect page " + indirect.getPageKey() + " (childIndex=" + childIndex + ')');
