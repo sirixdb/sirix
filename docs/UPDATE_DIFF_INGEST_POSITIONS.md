@@ -39,9 +39,10 @@ The primitive node-key-to-int map is allocated lazily and holds only the current
 commit's known appends, including nested arrays and fused named arrays.
 
 The serializer reads hints only for the new revision. Missing hints use the
-existing memoized structural resolver; a left walk can also stop on a hinted
-sibling. The ingest map is never modified by serialization. Old-revision deletion
-positions always come from the old tree.
+existing memoized structural resolver, whose bounds and revision-isolation
+contract [`JSON_UPDATE_DIFFS.md`](JSON_UPDATE_DIFFS.md) owns; a left walk can
+also stop on a hinted sibling. The ingest map is never modified by
+serialization. Old-revision deletion positions always come from the old tree.
 
 Inserting before a sibling, removing a subtree, or moving a subtree discards all
 hints in constant time. Subsequent bulk appends may capture fresh positions. Commit

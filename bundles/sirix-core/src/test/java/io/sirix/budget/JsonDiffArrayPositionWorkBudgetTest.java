@@ -118,9 +118,9 @@ final class JsonDiffArrayPositionWorkBudgetTest {
   }
 
   /**
-   * On the unmodified baseline, 10k/20k elements in 1k batches required 54,990/209,980
-   * sibling moves versus 9,999/19,999 for one commit. Hints reduce the append replays to zero;
-   * the real commit must also allocate no fallback cache. The baseline replay is the byte oracle.
+   * On the unmodified baseline, 10k/20k elements in 1k batches required 54,990/209,980 sibling moves
+   * versus 9,999/19,999 for one commit. Hints reduce the append replays to zero; the real commit must
+   * also allocate no fallback cache. The baseline replay is the byte oracle.
    */
   @Test
   @Tag("heavy")
@@ -139,9 +139,10 @@ final class JsonDiffArrayPositionWorkBudgetTest {
 
   @Test
   void unhintedTailStopsAtIngestedLeftSibling() throws Exception {
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-        .storageType(StorageType.FILE_CHANNEL).build();
-    try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.insertArrayAsFirstChild();
@@ -156,30 +157,34 @@ final class JsonDiffArrayPositionWorkBudgetTest {
       final var diffs = IngestArrayPositionProbe.pendingDiffs(wtx, false);
       final ArrayPositionCacheProbe allocation = new ArrayPositionCacheProbe();
       final var commit = WorkCapture.of().with(allocation).call(wtx::commit);
-      commit.work().assertExactly(allocation.caches(), 2, "commit cache observer disconnected")
-          .assertExactly(allocation.entries(), 1, "unhinted tail must stop at the known left sibling");
+      commit.work()
+            .assertExactly(allocation.caches(), 2, "commit cache observer disconnected")
+            .assertExactly(allocation.entries(), 1, "unhinted tail must stop at the known left sibling");
       final SiblingMoves moves = new SiblingMoves();
-      final String fast = new JsonDiffSerializer(database.getName(), countingSession(session, moves), 1, 2,
-          diffs).serializeSidecar(hints);
+      final String fast =
+          new JsonDiffSerializer(database.getName(), countingSession(session, moves), 1, 2, diffs).serializeSidecar(
+              hints);
       final String baseline = new JsonDiffSerializer(database.getName(), session, 1, 2, diffs).serializeSidecar();
       assertEquals(baseline, fast);
       assertEquals(1, moves.leftMoves + moves.rightMoves, "one real move also proves the counter is live");
-      assertArrayEquals(Files.readAllBytes(config.getResource()
-          .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-          .resolve("diffFromRev1toRev2.json")), fast.getBytes(StandardCharsets.UTF_8));
+      assertArrayEquals(
+          Files.readAllBytes(config.getResource()
+                                   .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                   .resolve("diffFromRev1toRev2.json")),
+          fast.getBytes(StandardCharsets.UTF_8));
     }
   }
 
   private static void incrementalAppend(final int length, final int batchSize) throws Exception {
     JsonTestHelper.deleteEverything();
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-        .storageType(StorageType.FILE_CHANNEL).build();
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).storageType(StorageType.FILE_CHANNEL).build();
     assertTrue(config.storeDiffs());
     final SiblingMoves moves = new SiblingMoves();
     final SiblingMoves fastMoves = new SiblingMoves();
     final long started = System.nanoTime();
-    try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(
-        JsonTestHelper.PATHS.PATH1.getFile(), config);
+    try (
+        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.insertArrayAsFirstChild();
@@ -189,35 +194,37 @@ final class JsonDiffArrayPositionWorkBudgetTest {
       final JsonResourceSession fastCounted = countingSession(session, fastMoves);
       for (int start = 0; start < length; start += batchSize) {
         assertTrue(wtx.moveTo(arrayKey));
-        wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(largeArray(batchSize)),
-            JsonNodeTrx.Commit.NO, JsonNodeTrx.CheckParentNode.YES, JsonNodeTrx.SkipRootToken.YES);
+        wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(largeArray(batchSize)), JsonNodeTrx.Commit.NO,
+            JsonNodeTrx.CheckParentNode.YES, JsonNodeTrx.SkipRootToken.YES);
         final int revision = wtx.getRevisionNumber();
         final var knownPositions = IngestArrayPositionProbe.snapshot(wtx);
         assertEquals(batchSize, knownPositions.size(), "hints must cover only this commit's appends");
         final ArrayPositionCacheProbe allocation = new ArrayPositionCacheProbe();
         final var committedWork = WorkCapture.of().with(allocation).call(wtx::commit);
         assertTrue(IngestArrayPositionProbe.snapshot(wtx).isEmpty(), "commit must drop ingest hints");
-        final byte[] committed = Files.readAllBytes(config.getResource()
-            .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-            .resolve("diffFromRev" + (revision - 1) + "toRev" + revision + ".json"));
-        final JsonObject document = JsonParser.parseString(new String(committed, StandardCharsets.UTF_8))
-            .getAsJsonObject();
+        final byte[] committed =
+            Files.readAllBytes(config.getResource()
+                                     .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                     .resolve("diffFromRev" + (revision - 1) + "toRev" + revision + ".json"));
+        final JsonObject document =
+            JsonParser.parseString(new String(committed, StandardCharsets.UTF_8)).getAsJsonObject();
         final List<DiffTuple> diffs = new ArrayList<>();
         for (final var entry : document.getAsJsonArray("diffs")) {
           diffs.add(inserted(entry.getAsJsonObject().getAsJsonObject("insert").get("nodeKey").getAsLong()));
         }
         assertFalse(diffs.isEmpty());
-        final String replay = new JsonDiffSerializer(database.getName(), counted, revision - 1, revision,
-            diffs).serializeSidecar();
+        final String replay =
+            new JsonDiffSerializer(database.getName(), counted, revision - 1, revision, diffs).serializeSidecar();
         assertArrayEquals(committed, replay.getBytes(StandardCharsets.UTF_8));
-        final var fastReplay = WorkCapture.of(fastMoves.counters()).call(() ->
-            new JsonDiffSerializer(database.getName(), fastCounted, revision - 1, revision,
-                diffs).serializeSidecar(knownPositions));
+        final var fastReplay = WorkCapture.of(fastMoves.counters())
+                                          .call(() -> new JsonDiffSerializer(database.getName(), fastCounted,
+                                              revision - 1, revision, diffs).serializeSidecar(knownPositions));
         assertArrayEquals(committed, fastReplay.result().getBytes(StandardCharsets.UTF_8));
         fastReplay.work().assertZero(fastMoves.siblingMoves(), "append diff rewalking earlier committed prefixes");
-        committedWork.work().assertExactly(allocation.caches(), 2, "real commit not observed")
-            .assertZero(allocation.entries(), "real commit failed to consume ingest hints")
-            .assertZero(allocation.backingBytes(), "append commit walked an already-known prefix");
+        committedWork.work()
+                     .assertExactly(allocation.caches(), 2, "real commit not observed")
+                     .assertZero(allocation.entries(), "real commit failed to consume ingest hints")
+                     .assertZero(allocation.backingBytes(), "append commit walked an already-known prefix");
         assertTrue(wtx.moveTo(arrayKey));
         assertEquals(start + batchSize, wtx.getChildCount());
       }
@@ -233,9 +240,9 @@ final class JsonDiffArrayPositionWorkBudgetTest {
     assertEquals(batchSize * commits * (commits + 1) / 2 - commits, moves.leftMoves + moves.rightMoves,
         "the baseline is also the non-vacuity check on the counted cursor seam");
     assertEquals(0, fastMoves.leftMoves + fastMoves.rightMoves, "append diffs must not walk previous commits");
-    System.out.printf("APPEND-MEASUREMENT length=%d batch=%d commits=%d baselineMoves=%d fastMoves=%d runtimeSeconds=%.3f%n",
-        length, batchSize, length / batchSize, moves.leftMoves + moves.rightMoves,
-        fastMoves.leftMoves + fastMoves.rightMoves,
+    System.out.printf(
+        "APPEND-MEASUREMENT length=%d batch=%d commits=%d baselineMoves=%d fastMoves=%d runtimeSeconds=%.3f%n", length,
+        batchSize, length / batchSize, moves.leftMoves + moves.rightMoves, fastMoves.leftMoves + fastMoves.rightMoves,
         (System.nanoTime() - started) / 1_000_000_000.0);
   }
 
@@ -305,11 +312,11 @@ final class JsonDiffArrayPositionWorkBudgetTest {
             JsonNodeTrx.Commit.NO);
         return IngestArrayPositionProbe.snapshot(wtx).size();
       });
-      load.work().assertZero(ingestHintBytes,
-          "a fresh resource's first commit sizing an ingest-ordinal map from the loaded array, for a sidecar "
-              + "that revision never writes");
-      assertEquals(0, load.result().intValue(),
-          "the bootstrap revision has no predecessor, so it learns no ordinals");
+      load.work()
+          .assertZero(ingestHintBytes,
+              "a fresh resource's first commit sizing an ingest-ordinal map from the loaded array, for a sidecar "
+                  + "that revision never writes");
+      assertEquals(0, load.result().intValue(), "the bootstrap revision has no predecessor, so it learns no ordinals");
       wtx.commit();
       assertTrue(wtx.moveToDocumentRoot());
       assertTrue(wtx.moveToFirstChild());

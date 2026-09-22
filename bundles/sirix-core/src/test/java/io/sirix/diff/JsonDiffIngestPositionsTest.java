@@ -48,7 +48,9 @@ final class JsonDiffIngestPositionsTest {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
       final ResourceConfiguration config = config().useDeweyIDs(deweyIDs).build();
-      try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
           final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array;
         try (final JsonNodeTrx seed = session.beginNodeTrx()) {
@@ -64,7 +66,8 @@ final class JsonDiffIngestPositionsTest {
           final long appendedTail = wtx.getNodeKey();
           assertTrue(wtx.moveTo(array));
           switch (edit) {
-            case NONE -> { }
+            case NONE -> {
+            }
             case HEAD -> wtx.insertNumberValueAsFirstChild(-1);
             case MIDDLE -> {
               assertTrue(wtx.moveToFirstChild());
@@ -108,7 +111,8 @@ final class JsonDiffIngestPositionsTest {
   @Test
   void jacksonAppendIntoFusedArrayAndRollbackRevertReleaseHints() throws Exception {
     final ResourceConfiguration config = config().build();
-    try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
+    try (
+        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rows\":[0]}"), JsonNodeTrx.Commit.NO);
@@ -146,7 +150,8 @@ final class JsonDiffIngestPositionsTest {
   @Test
   void intermediateCommitsRetainOnlyTheCurrentBatch() throws Exception {
     final ResourceConfiguration config = config().build();
-    try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
+    try (
+        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final JsonNodeTrx wtx = session.beginNodeTrx(5)) {
       wtx.insertArrayAsFirstChild();
@@ -162,7 +167,8 @@ final class JsonDiffIngestPositionsTest {
   @Test
   void failedPreCommitRetainsValidHintsForRetry() throws Exception {
     final ResourceConfiguration config = config().build();
-    try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
+    try (
+        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.insertArrayAsFirstChild();
@@ -186,9 +192,11 @@ final class JsonDiffIngestPositionsTest {
   @EnumSource(Fallback.class)
   void unavailableOrdinalsOrUnusedDiffsAllocateNoHints(final Fallback fallback) throws Exception {
     final ResourceConfiguration config = config().storeChildCount(fallback != Fallback.NO_CHILD_COUNTS)
-        .buildPathSummary(fallback != Fallback.NO_PATH_SUMMARY)
-        .storeDiffs(fallback != Fallback.NO_DIFF_STORAGE).build();
-    try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
+                                                 .buildPathSummary(fallback != Fallback.NO_PATH_SUMMARY)
+                                                 .storeDiffs(fallback != Fallback.NO_DIFF_STORAGE)
+                                                 .build();
+    try (
+        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.insertArrayAsFirstChild();
@@ -223,14 +231,17 @@ final class JsonDiffIngestPositionsTest {
     wtx.commit();
     assertTrue(IngestArrayPositionProbe.snapshot(wtx).isEmpty());
     final byte[] committed;
-    try (final var sidecars = Files.list(config.getResource()
-        .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath()))) {
-      committed = Files.readAllBytes(sidecars
-          .filter(path -> path.getFileName().toString().endsWith("toRev" + revision + ".json"))
-          .findFirst().orElseThrow());
+    try (final var sidecars =
+        Files.list(config.getResource().resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath()))) {
+      committed = Files.readAllBytes(
+          sidecars.filter(path -> path.getFileName().toString().endsWith("toRev" + revision + ".json"))
+                  .findFirst()
+                  .orElseThrow());
     }
     final int oldRevision = JsonParser.parseString(new String(committed, StandardCharsets.UTF_8))
-        .getAsJsonObject().get("old-revision").getAsInt();
+                                      .getAsJsonObject()
+                                      .get("old-revision")
+                                      .getAsInt();
     final JsonDiffSerializer baseline = new JsonDiffSerializer(database, session, oldRevision, revision, diffs);
     assertArrayEquals(baseline.serializeSidecar().getBytes(StandardCharsets.UTF_8), committed);
     assertArrayEquals(baseline.serializeSidecar(hints).getBytes(StandardCharsets.UTF_8), committed);

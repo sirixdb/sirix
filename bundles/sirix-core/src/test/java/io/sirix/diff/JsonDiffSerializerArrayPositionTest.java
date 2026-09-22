@@ -119,8 +119,7 @@ final class JsonDiffSerializerArrayPositionTest {
       final var hints = new Long2IntOpenHashMap();
       hints.put(shiftedNodeKey, 3);
       hints.put(insertedNodeKey, 0);
-      assertEquals(serialized,
-          new JsonDiffSerializer(database.getName(), session, 1, 2, diffs).serializeSidecar(hints),
+      assertEquals(serialized, new JsonDiffSerializer(database.getName(), session, 1, 2, diffs).serializeSidecar(hints),
           "new-revision hints must never supply the old revision's deletion position");
       final JsonObject document = JsonParser.parseString(serialized).getAsJsonObject();
 

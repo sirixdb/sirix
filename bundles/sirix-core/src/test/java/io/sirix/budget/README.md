@@ -132,6 +132,9 @@ maintains, so a budget quotes the same numbers an investigation would:
   and entry counts stay small. Payload bytes exclude JVM-dependent headers; the arrays only grow
   during a serialization, so the retained payload also bounds its peak. A cache-observation floor
   makes a disconnected probe fail rather than report a vacuous zero allocation.
+  `IngestArrayPositionProbe` reads the writer's transient ingest-ordinal map the same way, but it
+  must be read **live**, inside the capture: commit releases that map, so a bound taken afterwards
+  reads zero whatever the load allocated. Pair it with a second capture that must read non-zero.
 - A counting decorator, where the path under budget already takes the thing it walks as a
   constructor argument, and adding an engine counter would put one on a cursor move. It counts only
   what the test itself hands in, so there is no global state and nothing to restore - but a decorator

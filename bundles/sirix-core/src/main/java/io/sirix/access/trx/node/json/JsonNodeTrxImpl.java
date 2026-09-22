@@ -150,8 +150,8 @@ final class JsonNodeTrxImpl extends
   private final String databaseName;
 
   /**
-   * Ordinals learned inline while a shredder appends. Never persisted: structural edits discard
-   * the whole map in O(1), and commit/rollback/revert release its backing storage.
+   * Ordinals learned inline while a shredder appends. Never persisted: structural edits discard the
+   * whole map in O(1), and commit/rollback/revert release its backing storage.
    */
   private @Nullable Long2IntOpenHashMap ingestArrayPositions;
 
@@ -159,8 +159,8 @@ final class JsonNodeTrxImpl extends
   private final boolean ingestArrayPositionsConfigured;
 
   /**
-   * Whether the revision currently being written will emit an update-diff sidecar, which is the
-   * only reader of ingest ordinals. The bootstrap revision has no predecessor to diff against, so
+   * Whether the revision currently being written will emit an update-diff sidecar, which is the only
+   * reader of ingest ordinals. The bootstrap revision has no predecessor to diff against, so
    * capturing for it would fill a map nothing reads.
    */
   private boolean captureIngestArrayPositions;

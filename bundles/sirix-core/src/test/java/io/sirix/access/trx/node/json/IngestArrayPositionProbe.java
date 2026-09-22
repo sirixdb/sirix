@@ -20,13 +20,14 @@ public final class IngestArrayPositionProbe {
 
   private static final Field VALUES = backingField("value");
 
-  private IngestArrayPositionProbe() {
-  }
+  private IngestArrayPositionProbe() {}
 
   public static Long2IntMap snapshot(final JsonNodeTrx trx) {
     try {
       final Long2IntMap positions = (Long2IntMap) POSITIONS.get(trx);
-      return positions == null ? Long2IntMaps.EMPTY_MAP : new Long2IntOpenHashMap(positions);
+      return positions == null
+          ? Long2IntMaps.EMPTY_MAP
+          : new Long2IntOpenHashMap(positions);
     } catch (final IllegalAccessException e) {
       throw new AssertionError(e);
     }
@@ -34,8 +35,8 @@ public final class IngestArrayPositionProbe {
 
   /**
    * Payload bytes of the hint map's primitive backing arrays right now, zero while no map is
-   * allocated. Read live rather than from {@link #snapshot}, whose copy has its own capacity;
-   * array headers and the map object are excluded so the figure is exact on every JVM, as in
+   * allocated. Read live rather than from {@link #snapshot}, whose copy has its own capacity; array
+   * headers and the map object are excluded so the figure is exact on every JVM, as in
    * {@link io.sirix.diff.ArrayPositionCacheProbe}.
    */
   public static long backingBytes(final JsonNodeTrx trx) {
@@ -55,7 +56,8 @@ public final class IngestArrayPositionProbe {
   public static List<DiffTuple> pendingDiffs(final JsonNodeTrx trx, final boolean ordered) {
     try {
       final Field field = AbstractNodeTrxImpl.class.getDeclaredField(ordered
-          ? "updateOperationsOrdered" : "updateOperationsUnordered");
+          ? "updateOperationsOrdered"
+          : "updateOperationsUnordered");
       field.setAccessible(true);
       final Map<?, ?> operations = (Map<?, ?>) field.get(trx);
       final List<DiffTuple> diffs = new ArrayList<>(operations.size());
