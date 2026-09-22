@@ -49,10 +49,15 @@ serialization releases the map in `finally`; writer replacement also releases it
 on rollback, revert, and intermediate commits. No hints survive into a later
 revision. Standalone edits do not produce hints.
 
-Capture is disabled without stored child counts, path summaries, or diff storage.
-Unknown positions always retain the structural fallback. The bulk page assembler
-for fresh resources does not use this cursor linkage path; this optimization
-targets streaming append ingestion, where the measured residual occurs.
+Capture is disabled without stored child counts, path summaries, or diff storage,
+and on any revision that emits no sidecar. The bootstrap revision of a fresh
+resource has no predecessor to diff against, so the default whole-document load
+learns no ordinals at all; the gate mirrors the serializer's own condition and is
+refreshed wherever the writer is replaced, so the revision number is never read on
+an append. Unknown positions always retain the structural fallback. The bulk page
+assembler for fresh resources does not use this cursor linkage path; this
+optimization targets streaming append ingestion, where the measured residual
+occurs.
 
 ## Verification
 
@@ -66,8 +71,11 @@ sibling move to the preceding ingested element.
 Mutation proof: replacing the hinted serialization entry point with the no-hint
 path fails the 2,048-element regression on its first batch: 127 sibling moves
 against a zero budget. Independently, the real commit reports 128 fallback cache
-entries and 4,388 backing bytes against zero. The source was restored and rebuilt
-before the successful validation run.
+entries and 4,388 backing bytes against zero. Dropping the predecessor-revision
+half of the capture gate fails the 100,000-element head-insert budget on its load,
+observed while the transaction still holds the map: `ingestHintBackingBytes` reads
+3,145,740 against a zero budget, and the map holds one entry per loaded element.
+The source was restored and rebuilt before the successful validation run.
 
 `JsonDiffIngestPositionsTest` captures the actual pending tuples and compares each
 real sidecar with the unchanged no-hint serializer. Cases cover nested and fused

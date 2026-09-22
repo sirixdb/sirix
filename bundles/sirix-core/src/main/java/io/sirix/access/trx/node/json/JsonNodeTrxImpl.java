@@ -155,7 +155,15 @@ final class JsonNodeTrxImpl extends
    */
   private @Nullable Long2IntOpenHashMap ingestArrayPositions;
 
-  private final boolean captureIngestArrayPositions;
+  /** Whether the resource configuration can produce and consume ingest ordinals at all. */
+  private final boolean ingestArrayPositionsConfigured;
+
+  /**
+   * Whether the revision currently being written will emit an update-diff sidecar, which is the
+   * only reader of ingest ordinals. The bootstrap revision has no predecessor to diff against, so
+   * capturing for it would fill a map nothing reads.
+   */
+  private boolean captureIngestArrayPositions;
 
   /**
    * Json DeweyID manager.
@@ -297,7 +305,9 @@ final class JsonNodeTrxImpl extends
 
     hashFunction = resourceSession.getResourceConfig().nodeHashFunction;
     storeChildCount = resourceSession.getResourceConfig().storeChildCount();
-    captureIngestArrayPositions = storeChildCount && buildPathSummary && resourceSession.getResourceConfig().storeDiffs();
+    ingestArrayPositionsConfigured =
+        storeChildCount && buildPathSummary && resourceSession.getResourceConfig().storeDiffs();
+    refreshIngestArrayPositionCapture();
 
     // Only auto commit by node modifications if it is more than 0.
     this.isAutoCommitting = isAutoCommitting;
@@ -4336,6 +4346,15 @@ final class JsonNodeTrxImpl extends
   // end of remove operation
   // ////////////////////////////////////////////////////////////
 
+  /**
+   * Refreshes the per-revision half of the ingest-ordinal gate against the revision the transaction
+   * is about to write, which is the {@code revisionNumber}
+   * {@link #serializeUpdateDiffsWithIngestPositions} will see.
+   */
+  private void refreshIngestArrayPositionCapture() {
+    captureIngestArrayPositions = ingestArrayPositionsConfigured && nodeReadOnlyTrx.getRevisionNumber() - 1 > 0;
+  }
+
   @Override
   protected void serializeUpdateDiffs(final int revisionNumber) {
     try {
@@ -4418,6 +4437,7 @@ final class JsonNodeTrxImpl extends
   protected JsonNodeFactory reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter) {
     // Writer replacement also covers rollback, revert, and intermediate async commits.
     ingestArrayPositions = null;
+    refreshIngestArrayPositionCapture();
     final var factory = new JsonNodeFactoryImpl(hashFunction, storageEngineWriter);
     wireWriteSingletonBinder(factory, storageEngineWriter);
     return factory;

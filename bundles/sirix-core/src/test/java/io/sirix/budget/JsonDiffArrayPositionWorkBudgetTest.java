@@ -73,6 +73,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
  * orders of magnitude.
  *
  * <p>
+ * That same case loads its array into the resource's bootstrap revision, which has no predecessor
+ * to diff against and therefore writes no sidecar. Learning ingest ordinals there would build one
+ * map entry per loaded element for a reader that never runs, so the load's own hint allocation is
+ * budgeted at zero payload bytes, read while the transaction still holds the map. Capturing
+ * unconditionally reports 3,145,740 bytes and 100,000 entries against that zero.
+ *
+ * <p>
  * The counter is a decorator over {@link JsonResourceSession}, the seam {@link JsonDiffSerializer}
  * already takes as a constructor argument, so it needs no engine counter and nothing global to
  * restore - hence a plain {@link WorkCounter} rather than a {@link WorkProbe}. The separate
@@ -292,8 +299,17 @@ final class JsonDiffArrayPositionWorkBudgetTest {
         final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final JsonNodeTrx wtx = session.beginNodeTrx()) {
-      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(largeArray(HUGE_ARRAY_LENGTH)),
-          JsonNodeTrx.Commit.NO);
+      final WorkCounter ingestHintBytes = ingestHintBackingBytes(wtx);
+      final WorkCapture.Captured<Integer> load = WorkCapture.of(ingestHintBytes).call(() -> {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(largeArray(HUGE_ARRAY_LENGTH)),
+            JsonNodeTrx.Commit.NO);
+        return IngestArrayPositionProbe.snapshot(wtx).size();
+      });
+      load.work().assertZero(ingestHintBytes,
+          "a fresh resource's first commit sizing an ingest-ordinal map from the loaded array, for a sidecar "
+              + "that revision never writes");
+      assertEquals(0, load.result().intValue(),
+          "the bootstrap revision has no predecessor, so it learns no ordinals");
       wtx.commit();
       assertTrue(wtx.moveToDocumentRoot());
       assertTrue(wtx.moveToFirstChild());
@@ -340,6 +356,18 @@ final class JsonDiffArrayPositionWorkBudgetTest {
              .assertExactly(moves.siblingMoves(), 1,
                  "the counting session dropping off the serializer's cursor route, which would leave the "
                      + "head insert's zero above reading as no instrument rather than as no work");
+
+      assertTrue(wtx.moveToDocumentRoot());
+      assertTrue(wtx.moveToFirstChild());
+      final WorkReport appended = WorkCapture.of(ingestHintBytes)
+                                             .run(() -> wtx.insertSubtreeAsLastChild(
+                                                 JsonShredder.createStringReader("[1,2,3]"), JsonNodeTrx.Commit.NO,
+                                                 JsonNodeTrx.CheckParentNode.YES, JsonNodeTrx.SkipRootToken.YES));
+      assertEquals(3, IngestArrayPositionProbe.snapshot(wtx).size());
+      appended.assertAtLeast(ingestHintBytes, 1,
+          "a revision that does emit a sidecar learning no ordinals, which would leave the load's zero above "
+              + "reading as a dead counter rather than as no allocation");
+      wtx.rollback();
     }
   }
 
@@ -455,6 +483,16 @@ final class JsonDiffArrayPositionWorkBudgetTest {
       json.append(index);
     }
     return json.append(']').toString();
+  }
+
+  /**
+   * Reads the transaction's transient ingest-ordinal map while it still holds one. Commit drops the
+   * map, so a capture that closes after the commit would read zero whatever the load allocated.
+   */
+  private static WorkCounter ingestHintBackingBytes(final JsonNodeTrx wtx) {
+    return WorkCounter.alwaysOn("ingestHintBackingBytes",
+        "one allocated payload byte in the transaction's transient ingest-ordinal map",
+        () -> IngestArrayPositionProbe.backingBytes(wtx));
   }
 
   private static DiffTuple inserted(final long nodeKey) {

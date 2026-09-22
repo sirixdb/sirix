@@ -16,6 +16,10 @@ import java.util.Map;
 public final class IngestArrayPositionProbe {
   private static final Field POSITIONS = positionsField();
 
+  private static final Field KEYS = backingField("key");
+
+  private static final Field VALUES = backingField("value");
+
   private IngestArrayPositionProbe() {
   }
 
@@ -23,6 +27,25 @@ public final class IngestArrayPositionProbe {
     try {
       final Long2IntMap positions = (Long2IntMap) POSITIONS.get(trx);
       return positions == null ? Long2IntMaps.EMPTY_MAP : new Long2IntOpenHashMap(positions);
+    } catch (final IllegalAccessException e) {
+      throw new AssertionError(e);
+    }
+  }
+
+  /**
+   * Payload bytes of the hint map's primitive backing arrays right now, zero while no map is
+   * allocated. Read live rather than from {@link #snapshot}, whose copy has its own capacity;
+   * array headers and the map object are excluded so the figure is exact on every JVM, as in
+   * {@link io.sirix.diff.ArrayPositionCacheProbe}.
+   */
+  public static long backingBytes(final JsonNodeTrx trx) {
+    try {
+      final Long2IntOpenHashMap positions = (Long2IntOpenHashMap) POSITIONS.get(trx);
+      if (positions == null) {
+        return 0L;
+      }
+      return (long) ((long[]) KEYS.get(positions)).length * Long.BYTES
+          + (long) ((int[]) VALUES.get(positions)).length * Integer.BYTES;
     } catch (final IllegalAccessException e) {
       throw new AssertionError(e);
     }
@@ -48,6 +71,16 @@ public final class IngestArrayPositionProbe {
   private static Field positionsField() {
     try {
       final Field field = JsonNodeTrxImpl.class.getDeclaredField("ingestArrayPositions");
+      field.setAccessible(true);
+      return field;
+    } catch (final ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
+
+  private static Field backingField(final String name) {
+    try {
+      final Field field = Long2IntOpenHashMap.class.getDeclaredField(name);
       field.setAccessible(true);
       return field;
     } catch (final ReflectiveOperationException e) {
