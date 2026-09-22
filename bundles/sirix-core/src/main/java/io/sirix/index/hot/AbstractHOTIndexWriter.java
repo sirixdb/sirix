@@ -3514,8 +3514,8 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Leaf overflows {@link #handleOffPathOverflow} discharged through the complete structural frontier
    * because L's parent is full and the cascade its split would start — the trie condition of either
-   * half, or a level above N that cannot fold — is refused by the same pre-check.
-   * Counted where it says no, before {@link #handleOffPathOverflowFullN} builds anything.
+   * half, or a level above N that cannot fold — is refused by the same pre-check. Counted where it
+   * says no, before {@link #handleOffPathOverflowFullN} builds anything.
    */
   public static final AtomicLong MERGE_OVERFLOW_ROUTED_FROM_FULL_PARENT = new AtomicLong();
 
@@ -3826,9 +3826,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Reports {@link OffPathOverflow#INTEGRATE} before publication when β is not in D(N), L's β-column
    * is already 1, a precondition is uncertain, or the fold is declined because {@code comboPartial}
    * has no free position beside L's slot — the caller's standard integrate still applies, and its
-   * cascade pre-check asks the same placement question of N as its first level, so a declined fold
-   * is refused there again before integrate can reach it. Reports {@link OffPathOverflow#FRONTIER}
-   * only when N is full and the cascade its own split would start is refused by that pre-check.
+   * cascade pre-check asks the same placement question of N as its first level, so a declined fold is
+   * refused there again before integrate can reach it. Reports {@link OffPathOverflow#FRONTIER} only
+   * when N is full and the cascade its own split would start is refused by that pre-check.
    *
    * @return how the caller must discharge the split
    */

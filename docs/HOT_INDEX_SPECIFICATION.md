@@ -1339,7 +1339,10 @@ or above a spine node (d*). Cases, in order:
   index entry is not, so a caller that caught the failure and committed would hold a document with no
   posting. The routing added in §4.5.3 takes no exception to that: a split the handler could not
   construct, an overflow handed to the complete-frontier splice and a fault while the halves are
-  retired are marked like any other failure of that arm.
+  retired are marked like any other failure of that arm. `HOTMergeOverflowPreIntegrateRollbackTest`
+  pins the half of the rule a marking gated on reaching `integrate` would leave open: a fault
+  injected at the writer's `mergeOverflowBeforeIntegrateTestHook` seam, with nothing published,
+  still has to leave the transaction unable to commit until a rollback.
 
   A failure *inside* `integrate`, before it re-points its single spine reference, is covered by that
   same marking as **defence in depth for a case believed unreachable**, not a case known to occur.
@@ -1634,7 +1637,7 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Primitives | `HOTLeafPageSplitFaithfulTest` (3), `HOTIndirectPageSplitFaithfulTest` (15), `HOTDescentAnalysisTest` (4), `HOTIntegrateTest` (4) | MSDB leaf split into complete R(S) halves; `splitIndirect`/`addEntry` on canonical tries; β and d*; `integrate` including cascade to a new root |
 | Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTInvariantValidatorChecksTest` (6) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; validator: I4, I11, leaf-insert precondition |
 | Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `page/HOTCompleteDumpMergeTest` (5), `page/HOTLeafPageCowTest` (15), `page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
-| Writer mechanics | `HOTRebuildFootprintTest` (25), `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8) |
+| Writer mechanics | `HOTRebuildFootprintTest` (25), `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6) |
 | Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
 | Reader | `HOTTrieReaderPextSeekTest` (5), `HOTRangeScanOrderTest` (2) | PEXT seek against an unsigned-lex oracle after cold reopen; each key in range exactly once, ascending |
 | Index builds | `index/JsonCASIndexBuildTest`, `JsonPathAndNameIndexBuildTest`, `JsonIndexDropRecreateVersioningTest` | `STRUCTURAL_VALIDATION_FAILURE` stays zero during real index builds (`JsonCASIndexBuildTest.java:170-176`) |
@@ -1774,7 +1777,7 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
 The verdicts below record stale line references in the sibling documents; the same holds for **this**
 specification, whose `File.java:line` citations are equally hand-copied and age with every commit to
 the cited file. Several are already wrong (the §6.2 counter tally's
-`AbstractHOTIndexWriter.java:4937-4958` now lands on `declineFoldIntoFullHalf`; §4.5.1 cites
+`AbstractHOTIndexWriter.java:4937-4958` now lands on `branchFullNodeAtExistingBit`; §4.5.1 cites
 `dispatchInsert` at `:2252-2301`) — resolve any citation by the symbol it names, not by the line.
 
 | Document | Covers | Verdict on the merged tree |

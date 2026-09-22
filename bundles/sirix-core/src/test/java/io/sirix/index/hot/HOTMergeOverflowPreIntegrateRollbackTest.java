@@ -101,8 +101,8 @@ final class HOTMergeOverflowPreIntegrateRollbackTest {
             "the scenario must reach one merge-path overflow that takes the integrate arm; without one it "
                 + "covers no pre-integrate window and its shape must be re-tuned");
 
-        final SirixIOException nextWriteFailure = assertThrows(SirixIOException.class,
-            () -> writer.indexNodeKey(key(MAX_PUTS + 1L), SHAPE_NODE_KEY));
+        final SirixIOException nextWriteFailure =
+            assertThrows(SirixIOException.class, () -> writer.indexNodeKey(key(MAX_PUTS + 1L), SHAPE_NODE_KEY));
         assertSame(sentinel, nextWriteFailure.getCause(),
             "the next write through the same HOT writer must report the latched pre-integrate cause");
 
@@ -125,7 +125,9 @@ final class HOTMergeOverflowPreIntegrateRollbackTest {
     }
   }
 
-  /** One pattern in key byte 1 — the serializer sign-flips the fork node — with a running endpoint. */
+  /**
+   * One pattern in key byte 1 — the serializer sign-flips the fork node — with a running endpoint.
+   */
   private static ValidTimeKey key(final long endpoint) {
     return new ValidTimeKey(ValidTimeKey.STORE_UPPER, (0x20L << 56) ^ Long.MIN_VALUE, endpoint);
   }

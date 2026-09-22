@@ -77,8 +77,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * Runs in about 7 to 8 seconds on a development machine, so it belongs in the default lane; a suite
- * that grows past 60 seconds belongs behind {@code @Tag("heavy")}, which the advisory cross-platform
- * CI lanes exclude ({@code bundles/sirix-core/build.gradle}).
+ * that grows past 60 seconds belongs behind {@code @Tag("heavy")}, which the advisory
+ * cross-platform CI lanes exclude ({@code bundles/sirix-core/build.gradle}).
  * </p>
  */
 final class HOTValidTimeCorrectionStreamTest {

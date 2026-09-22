@@ -81,9 +81,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </p>
  *
  * <p>
- * Runs in about 8 to 11 seconds on a development machine, so it belongs in the default lane; a suite
- * that grows past 60 seconds belongs behind {@code @Tag("heavy")}, which the advisory cross-platform
- * CI lanes exclude ({@code bundles/sirix-core/build.gradle}).
+ * Runs in about 8 to 11 seconds on a development machine, so it belongs in the default lane; a
+ * suite that grows past 60 seconds belongs behind {@code @Tag("heavy")}, which the advisory
+ * cross-platform CI lanes exclude ({@code bundles/sirix-core/build.gradle}).
  * </p>
  */
 final class JsonValidTimeIndexSharedIntervalCorrectionTest {

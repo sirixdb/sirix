@@ -46,8 +46,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * parent that would fold rather than nest, the standard capacity cascade reaches the very same
  * fold, so there is no second placement: without a fallback the insert — and with it the whole load
  * — stops. The cascade pre-check of the integrate arm asks that placement question of the parent as
- * its first level and routes the overflow through the complete structural frontier, which splits the
- * parent's subtree immediately before the key and gives the key its own leaf.
+ * its first level and routes the overflow through the complete structural frontier, which splits
+ * the parent's subtree immediately before the key and gives the key its own leaf.
  * </p>
  *
  * <p>
@@ -59,8 +59,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * integrate arm when the split bit is fresh to the node's mask, and from the full-parent handler
  * when it is not. Both entries pre-check the cascade and route it the same way; without their
  * pre-check each scenario ends in the refusal the fold primitives raise. Each asserts that the
- * decline and the routing were really reached, on the counter of the entry it claims, so a change in
- * leaf geometry cannot let them pass without exercising anything.
+ * decline and the routing were really reached, on the counter of the entry it claims, so a change
+ * in leaf geometry cannot let them pass without exercising anything.
  * </p>
  */
 final class HOTDeclinedOverflowFrontierRouteTest {
@@ -122,7 +122,8 @@ final class HOTDeclinedOverflowFrontierRouteTest {
       // The straddling leaf fills up; the put that overflows it splits at the off-path bit and the
       // fold that would follow is the one no position accepts.
       int puts = 0;
-      while (AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM.get() == routedBefore && puts < MAX_SHAPE_PUTS) {
+      while (AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM.get() == routedBefore
+          && puts < MAX_SHAPE_PUTS) {
         load.put(0x20, SHAPE_NODE_KEY);
         puts++;
       }
@@ -266,8 +267,8 @@ final class HOTDeclinedOverflowFrontierRouteTest {
     }
 
     /**
-     * Grow one posting until the cascade pre-check of one entry routes an overflow, or the family
-     * runs out.
+     * Grow one posting until the cascade pre-check of one entry routes an overflow, or the family runs
+     * out.
      */
     private void growPostingUntilCascadeRouted(final long endpoint, final int from, final AtomicLong routed,
         final long cascadesBefore) {
@@ -285,7 +286,8 @@ final class HOTDeclinedOverflowFrontierRouteTest {
       buildStraddlingLeaf();
       final long routedBefore = AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM.get();
       int puts = 0;
-      while (AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM.get() == routedBefore && puts < MAX_SHAPE_PUTS) {
+      while (AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM.get() == routedBefore
+          && puts < MAX_SHAPE_PUTS) {
         put(0x20, SHAPE_NODE_KEY);
         puts++;
       }

@@ -61,8 +61,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * All three scenarios together run in about 2 to 4 seconds on a development machine, so they belong
- * in the default lane; a suite that grows past 60 seconds belongs behind {@code @Tag("heavy")}, which
- * the advisory cross-platform CI lanes exclude ({@code bundles/sirix-core/build.gradle}).
+ * in the default lane; a suite that grows past 60 seconds belongs behind {@code @Tag("heavy")},
+ * which the advisory cross-platform CI lanes exclude ({@code bundles/sirix-core/build.gradle}).
  * </p>
  */
 final class HOTStraddlingLeafSpliceTest {
