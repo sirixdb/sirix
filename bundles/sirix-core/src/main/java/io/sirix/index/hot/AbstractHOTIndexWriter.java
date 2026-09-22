@@ -3820,7 +3820,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * applicable): slot-replace L → L₀ in L's slot (β-column-0 partial unchanged) and add L₁ at
    * {@code comboPartial = L.partial | β-bit} via {@link HOTIncrementalInsert#addChildAtCombination}.
    * β is NOT added as a new disc bit (it was already one); the structure is invariant-clean by Stage
-   * 0's off-path-straddle canonicity finding.
+   * 0's off-path-straddle canonicity finding. This method decides only whether the fold applies;
+   * {@link #handleOffPathOverflowSpareSlot} publishes it when N has a free entry and
+   * {@link #handleOffPathOverflowFullN} when it does not.
    *
    * <p>
    * Reports {@link OffPathOverflow#INTEGRATE} before publication when β is not in D(N), L's β-column
@@ -3896,7 +3898,28 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       return handleOffPathOverflowFullN(navResult, biNode, slotOfL, comboPartial);
     }
+    return handleOffPathOverflowSpareSlot(navResult, biNode, slotOfL, comboPartial);
+  }
 
+  /**
+   * The not-full counterpart of {@link #handleOffPathOverflowFullN}, publishing the fold
+   * {@link #handleOffPathOverflow} accepted. N has a free entry, so L₀ slot-replaces L in place on
+   * the CoW'd N (the partial at {@code slotOfL} is unchanged -- it still carries β-column-0, which
+   * matches L₀'s β=0 keys) and L₁ is added at {@code comboPartial} via
+   * {@link HOTIncrementalInsert#addChildAtCombination}, whose result replaces N in the spine.
+   *
+   * <p>
+   * N is staged with L₀ between the two steps, so every construction failure restores L's original
+   * reference before it escapes -- including the C2 case, where {@code comboPartial} turns out to
+   * have a physical owner and the caller keeps both halves and its standard integrate. Only a failure
+   * after the spine reference is re-pointed marks the transaction rollback-only.
+   *
+   * @return how the caller must discharge the split
+   */
+  private OffPathOverflow handleOffPathOverflowSpareSlot(LeafNavigationResult navResult,
+      HOTIncrementalInsert.BiNode biNode, int slotOfL, int comboPartial) {
+    final int pathDepth = navResult.pathDepth();
+    final HOTIndirectPage parentN = navResult.pathNodes()[pathDepth - 1];
     // Step 1: slot-replace L → L₀ in N's children array (in-place on the CoW'd N).
     // The partial at slotOfL is unchanged -- it still has β-column-0, which matches
     // L₀'s β=0 keys. The follow-on addChildAtCombination snapshots the mutated children.
@@ -4068,7 +4091,25 @@ public abstract class AbstractHOTIndexWriter<K> {
         : leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen))) {
       return null;
     }
-    // Genuine overflow: split the leaf page at its key-set MSDB and integrate the BiNode.
+    // Genuine overflow: L must split, and the split must be discharged structurally.
+    return splitLeafAndDischargeOverflow(navResult, leaf, keyBuf, keyLen, valueBuf, valueLen, projectionValue);
+  }
+
+  /**
+   * The overflow tail of {@link #mergeIntoLeaf}: the entry fits neither the bucket nor the compacted
+   * bucket. Splits L at msdb(L ∪ {K}) and discharges the resulting
+   * {@link HOTIncrementalInsert.BiNode} -- through {@link #handleOffPathOverflow} when β is already a
+   * discriminative bit of L's parent, through {@link HOTIncrementalInsert#integrate} otherwise, and
+   * through {@link #spliceOverflowThroughFrontier} when either route's cascade is refused while
+   * nothing is published yet.
+   *
+   * @return the exact key slice the caller reports as the structural mutation's key
+   * @throws SirixIOException when L can neither store the entry nor split -- a single value exceeds
+   *         page capacity
+   */
+  private byte[] splitLeafAndDischargeOverflow(final LeafNavigationResult navResult, final HOTLeafPage leaf,
+      final byte[] keyBuf, final int keyLen, final byte[] valueBuf, final int valueLen,
+      final byte @Nullable [] projectionValue) {
     if (!leaf.canSplit()) {
       throw new SirixIOException(
           "HOT leaf page cannot store the entry and cannot split — a " + "single value exceeds page capacity. index="
