@@ -96,6 +96,7 @@ import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
@@ -147,6 +148,22 @@ final class JsonNodeTrxImpl extends
    * A factory that creates new {@link StorageEngineWriter} instances.
    */
   private final String databaseName;
+
+  /**
+   * Ordinals learned inline while a shredder appends. Never persisted: structural edits discard the
+   * whole map in O(1), and commit/rollback/revert release its backing storage.
+   */
+  private @Nullable Long2IntOpenHashMap ingestArrayPositions;
+
+  /** Whether the resource configuration can produce and consume ingest ordinals at all. */
+  private final boolean ingestArrayPositionsConfigured;
+
+  /**
+   * Whether the revision currently being written will emit an update-diff sidecar, which is the only
+   * reader of ingest ordinals. The bootstrap revision has no predecessor to diff against, so
+   * capturing for it would fill a map nothing reads.
+   */
+  private boolean captureIngestArrayPositions;
 
   /**
    * Json DeweyID manager.
@@ -288,6 +305,9 @@ final class JsonNodeTrxImpl extends
 
     hashFunction = resourceSession.getResourceConfig().nodeHashFunction;
     storeChildCount = resourceSession.getResourceConfig().storeChildCount();
+    ingestArrayPositionsConfigured =
+        storeChildCount && buildPathSummary && resourceSession.getResourceConfig().storeDiffs();
+    refreshIngestArrayPositionCapture();
 
     // Only auto commit by node modifications if it is more than 0.
     this.isAutoCommitting = isAutoCommitting;
@@ -3137,6 +3157,7 @@ final class JsonNodeTrxImpl extends
    * @param pos determines if it has to be inserted as a first child or a right sibling
    */
   private void adaptForMove(final StructNode fromNode, final StructNode toNode, final MovePosition pos) {
+    ingestArrayPositions = null;
     assert fromNode != null;
     assert toNode != null;
     assert pos != null;
@@ -4204,6 +4225,12 @@ final class JsonNodeTrxImpl extends
     final boolean hasLeft = leftSibKey != Fixed.NULL_NODE_KEY.getStandardProperty();
     final boolean hasRight = rightSibKey != Fixed.NULL_NODE_KEY.getStandardProperty();
 
+    // Inserting before a sibling can shift previously captured ordinals (including ancestors of
+    // nested diffs). Dropping all hints avoids suffix renumbering and keeps arbitrary edits exact.
+    if (hasRight) {
+      ingestArrayPositions = null;
+    }
+
     // Phase 1: Update parent — childCount + firstChild/lastChild if no siblings.
     // Complete all parent modifications BEFORE acquiring any sibling singletons.
     final StructNode parent = storageEngineWriter.prepareRecordForModificationDocument(parentKey);
@@ -4212,6 +4239,19 @@ final class JsonNodeTrxImpl extends
         : -1;
     if (storeChildCount) {
       parent.incrementChildCount();
+    }
+    if (captureIngestArrayPositions && !hasRight && nodeHashing.isBulkInsert()
+        && (parent.getKind() == NodeKind.ARRAY || parent.getKind() == NodeKind.OBJECT_NAMED_ARRAY)) {
+      // The parent is already bound for linkage maintenance; its running count is the append's
+      // ordinal. No cursor navigation, input prepass, or persisted per-node index is needed.
+      final long position = parent.getChildCount() - 1;
+      if (position >= 0 && position <= Integer.MAX_VALUE) {
+        if (ingestArrayPositions == null) {
+          ingestArrayPositions = new Long2IntOpenHashMap();
+          ingestArrayPositions.defaultReturnValue(-1);
+        }
+        ingestArrayPositions.put(structNodeKey, (int) position);
+      }
     }
     if (!hasLeft) {
       parent.setFirstChildKey(structNodeKey);
@@ -4251,6 +4291,7 @@ final class JsonNodeTrxImpl extends
    * @throws SirixException if anything weird happens
    */
   private void adaptForRemove(final StructNode oldNode) {
+    ingestArrayPositions = null;
     assert oldNode != null;
     markStructuralMutation();
     // Capture all needed values from oldNode before any prepareRecordForModification calls.
@@ -4305,8 +4346,25 @@ final class JsonNodeTrxImpl extends
   // end of remove operation
   // ////////////////////////////////////////////////////////////
 
+  /**
+   * Refreshes the per-revision half of the ingest-ordinal gate against the revision the transaction
+   * is about to write, which is the {@code revisionNumber}
+   * {@link #serializeUpdateDiffsWithIngestPositions} will see.
+   */
+  private void refreshIngestArrayPositionCapture() {
+    captureIngestArrayPositions = ingestArrayPositionsConfigured && nodeReadOnlyTrx.getRevisionNumber() - 1 > 0;
+  }
+
   @Override
   protected void serializeUpdateDiffs(final int revisionNumber) {
+    try {
+      serializeUpdateDiffsWithIngestPositions(revisionNumber);
+    } finally {
+      ingestArrayPositions = null;
+    }
+  }
+
+  private void serializeUpdateDiffsWithIngestPositions(final int revisionNumber) {
     if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
       // Determine the old revision number for the diff:
       // - After bulk insert with auto-commit, use the pre-bulk-insert revision
@@ -4319,7 +4377,9 @@ final class JsonNodeTrxImpl extends
           oldRevisionNumber, revisionNumber, storeDeweyIDs()
               ? updateOperationsOrdered.values()
               : updateOperationsUnordered.values());
-      final var jsonDiff = diffSerializer.serializeSidecar();
+      final var jsonDiff = ingestArrayPositions == null
+          ? diffSerializer.serializeSidecar()
+          : diffSerializer.serializeSidecar(ingestArrayPositions);
 
       // Use the same old revision number for the file name as for the diff content
       final Path diff = resourceSession.getResourceConfig()
@@ -4375,6 +4435,9 @@ final class JsonNodeTrxImpl extends
 
   @Override
   protected JsonNodeFactory reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter) {
+    // Writer replacement also covers rollback, revert, and intermediate async commits.
+    ingestArrayPositions = null;
+    refreshIngestArrayPositionCapture();
     final var factory = new JsonNodeFactoryImpl(hashFunction, storageEngineWriter);
     wireWriteSingletonBinder(factory, storageEngineWriter);
     return factory;

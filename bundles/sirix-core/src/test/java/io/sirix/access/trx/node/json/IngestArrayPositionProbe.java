@@ -1,0 +1,92 @@
+package io.sirix.access.trx.node.json;
+
+import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.access.trx.node.AbstractNodeTrxImpl;
+import io.sirix.diff.DiffTuple;
+import it.unimi.dsi.fastutil.longs.Long2IntMap;
+import it.unimi.dsi.fastutil.longs.Long2IntMaps;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+/** Reads transient transaction state without exposing the hints through the public writer API. */
+public final class IngestArrayPositionProbe {
+  private static final Field POSITIONS = positionsField();
+
+  private static final Field KEYS = backingField("key");
+
+  private static final Field VALUES = backingField("value");
+
+  private IngestArrayPositionProbe() {}
+
+  public static Long2IntMap snapshot(final JsonNodeTrx trx) {
+    try {
+      final Long2IntMap positions = (Long2IntMap) POSITIONS.get(trx);
+      return positions == null
+          ? Long2IntMaps.EMPTY_MAP
+          : new Long2IntOpenHashMap(positions);
+    } catch (final IllegalAccessException e) {
+      throw new AssertionError(e);
+    }
+  }
+
+  /**
+   * Payload bytes of the hint map's primitive backing arrays right now, zero while no map is
+   * allocated. Read live rather than from {@link #snapshot}, whose copy has its own capacity; array
+   * headers and the map object are excluded so the figure is exact on every JVM, as in
+   * {@link io.sirix.diff.ArrayPositionCacheProbe}.
+   */
+  public static long backingBytes(final JsonNodeTrx trx) {
+    try {
+      final Long2IntOpenHashMap positions = (Long2IntOpenHashMap) POSITIONS.get(trx);
+      if (positions == null) {
+        return 0L;
+      }
+      return (long) ((long[]) KEYS.get(positions)).length * Long.BYTES
+          + (long) ((int[]) VALUES.get(positions)).length * Integer.BYTES;
+    } catch (final IllegalAccessException e) {
+      throw new AssertionError(e);
+    }
+  }
+
+  /** Captures the actual pending tuples, including stale tuples that serialization must skip. */
+  public static List<DiffTuple> pendingDiffs(final JsonNodeTrx trx, final boolean ordered) {
+    try {
+      final Field field = AbstractNodeTrxImpl.class.getDeclaredField(ordered
+          ? "updateOperationsOrdered"
+          : "updateOperationsUnordered");
+      field.setAccessible(true);
+      final Map<?, ?> operations = (Map<?, ?>) field.get(trx);
+      final List<DiffTuple> diffs = new ArrayList<>(operations.size());
+      for (final Object value : operations.values()) {
+        diffs.add((DiffTuple) value);
+      }
+      return diffs;
+    } catch (final ReflectiveOperationException e) {
+      throw new AssertionError(e);
+    }
+  }
+
+  private static Field positionsField() {
+    try {
+      final Field field = JsonNodeTrxImpl.class.getDeclaredField("ingestArrayPositions");
+      field.setAccessible(true);
+      return field;
+    } catch (final ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
+
+  private static Field backingField(final String name) {
+    try {
+      final Field field = Long2IntOpenHashMap.class.getDeclaredField(name);
+      field.setAccessible(true);
+      return field;
+    } catch (final ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
+}

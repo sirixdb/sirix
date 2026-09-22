@@ -12,6 +12,7 @@ import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
 
@@ -50,15 +51,25 @@ public final class JsonDiffSerializer {
   }
 
   public String serialize(boolean emitFromDiffAlgorithm) {
-    return serialize(emitFromDiffAlgorithm, false);
+    return serialize(emitFromDiffAlgorithm, false, null);
   }
 
   /** Serialize the compact internal per-revision sidecar, including integrity metadata. */
   public String serializeSidecar() {
-    return serialize(false, true);
+    return serialize(false, true, null);
   }
 
-  private String serialize(final boolean emitFromDiffAlgorithm, final boolean includeIntegrityMetadata) {
+  /**
+   * Serializes with transient ordinals captured while ingesting the new revision. The caller must
+   * discard hints after any edit that can shift them. They must describe {@code newRevisionNumber},
+   * remain unchanged during this call, and are never used for the old revision or retained here.
+   */
+  public String serializeSidecar(final Long2IntMap knownNewArrayPositions) {
+    return serialize(false, true, Objects.requireNonNull(knownNewArrayPositions));
+  }
+
+  private String serialize(final boolean emitFromDiffAlgorithm, final boolean includeIntegrityMetadata,
+      final @Nullable Long2IntMap knownNewArrayPositions) {
     final var resourceName = resourceSession.getResourceConfig().getName();
 
     final JsonObject json = createMetaInfo(databaseName, resourceName, oldRevisionNumber, newRevisionNumber);
@@ -74,8 +85,8 @@ public final class JsonDiffSerializer {
 
     try (final var oldRtx = resourceSession.beginNodeReadOnlyTrx(oldRevisionNumber);
         final var newRtx = resourceSession.beginNodeReadOnlyTrx(newRevisionNumber)) {
-      final var oldArrayPositions = new ArrayPositionCache();
-      final var newArrayPositions = new ArrayPositionCache();
+      final var oldArrayPositions = new ArrayPositionCache(null);
+      final var newArrayPositions = new ArrayPositionCache(knownNewArrayPositions);
 
       if (emitFromDiffAlgorithm) {
         diffs.removeIf(diffTuple -> diffTuple.getDiff() == DiffFactory.DiffType.SAME
@@ -503,8 +514,9 @@ public final class JsonDiffSerializer {
    * rather than the array's length.
    *
    * <p>
-   * Node keys are unique within a revision, so one key has one ordinal; the two caches are
-   * method-local and become unreachable when {@code serialize} returns.
+   * Node keys are unique within a revision, so one key has one ordinal; the two fallback caches are
+   * method-local and become unreachable when {@code serialize} returns. The new revision may also
+   * borrow valid ingest positions for this call, avoiding the walk and fallback allocation entirely.
    */
   private static final class ArrayPositionCache {
 
@@ -517,6 +529,13 @@ public final class JsonDiffSerializer {
      * at all.
      */
     private @Nullable Long2IntOpenHashMap positionsByNodeKey;
+
+    /** Read-only, commit-scoped hints; the fallback cache never modifies the ingest map. */
+    private final @Nullable Long2IntMap knownPositions;
+
+    private ArrayPositionCache(final @Nullable Long2IntMap knownPositions) {
+      this.knownPositions = knownPositions;
+    }
 
     /** Reused across lookups; holds the keys of one walk, nearest sibling last. */
     private final LongArrayList walkedNodeKeys = new LongArrayList();
@@ -531,6 +550,12 @@ public final class JsonDiffSerializer {
 
       final long originalNodeKey = rtx.getNodeKey();
       Long2IntOpenHashMap positions = positionsByNodeKey;
+      if (knownPositions != null) {
+        final int knownPosition = knownPositions.getOrDefault(originalNodeKey, UNKNOWN_POSITION);
+        if (knownPosition >= 0) {
+          return knownPosition;
+        }
+      }
       if (positions == null) {
         positions = new Long2IntOpenHashMap();
         positions.defaultReturnValue(UNKNOWN_POSITION);
@@ -551,6 +576,9 @@ public final class JsonDiffSerializer {
           rtx.moveToLeftSibling();
           anchorNodeKey = rtx.getNodeKey();
           anchorPosition = positions.get(anchorNodeKey);
+          if (anchorPosition < 0 && knownPositions != null) {
+            anchorPosition = knownPositions.getOrDefault(anchorNodeKey, UNKNOWN_POSITION);
+          }
           if (anchorPosition >= 0) {
             break;
           }

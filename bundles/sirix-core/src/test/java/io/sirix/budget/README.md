@@ -17,7 +17,9 @@ Performance regressions are guarded in two layers, and this is only the first.
 
 1. **Work budgets (this package).** They run in the ordinary suites on every CI machine, are exact
    on any hardware, and say which path grew. They can only see a regression that changes the
-   *amount of counted work*.
+   *amount of counted work*. A fixture kept here purely as a recorded measurement may carry
+   `@Tag("heavy")`, which drops it from the cross-platform lanes only; the bound it guards must
+   also be guarded by a lane-scale fixture that runs everywhere.
 2. **A timed baseline harness** (working name `sirix-perf-baseline-harness`), run on one known
    machine under the benchmark campaign's measurement protocol, against recorded baselines:
    ClickBench's 43 queries, the 100M JSONBench numbers, and later the bitemporal benchmark. It is
@@ -73,7 +75,7 @@ failure table and tells the reader where the work went.
 | | grouped top-K, range holding a row without the aggregate | the view walks the range twice before declining, **or** declines ranges of the same view whose rows all carry a value |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
-| `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, which is quadratic per array, **or** a single head insert traverses or preallocates cache storage for an untouched array suffix |
+| `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, a head insert touches an untouched suffix, **or** streaming append commits rewalk previously committed prefixes instead of consuming transient ingest positions (measurement: `docs/UPDATE_DIFF_INGEST_POSITIONS.md`) |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
 
 Every one of these was checked **by mutation**: the defect it guards was put back, the test was seen
@@ -132,6 +134,9 @@ maintains, so a budget quotes the same numbers an investigation would:
   and entry counts stay small. Payload bytes exclude JVM-dependent headers; the arrays only grow
   during a serialization, so the retained payload also bounds its peak. A cache-observation floor
   makes a disconnected probe fail rather than report a vacuous zero allocation.
+  `IngestArrayPositionProbe` reads the writer's transient ingest-ordinal map the same way, but it
+  must be read **live**, inside the capture: commit releases that map, so a bound taken afterwards
+  reads zero whatever the load allocated. Pair it with a second capture that must read non-zero.
 - A counting decorator, where the path under budget already takes the thing it walks as a
   constructor argument, and adding an engine counter would put one on a cursor move. It counts only
   what the test itself hands in, so there is no global state and nothing to restore - but a decorator

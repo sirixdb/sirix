@@ -3,7 +3,12 @@
 `JsonDiffSerializer` resolves array positions by memoizing a left-sibling walk. A lookup stops at
 the first child or a cached sibling and assigns ordinals while unwinding the visited node keys.
 The cache key is a node key in one read-only revision; it never depends on a path, field, or value.
-This changes traversal work, not the path syntax, operation order, payload, or integrity metadata.
+A commit may additionally hand the *new* revision the ordinals a shredder already learned while
+appending, through `serializeSidecar(Long2IntMap)`: a hinted lookup then walks nothing, and every
+other lookup still takes the walk described here.
+[`UPDATE_DIFF_INGEST_POSITIONS.md`](UPDATE_DIFF_INGEST_POSITIONS.md) owns that fast path, its
+capture gate, and its measurement. This changes traversal work, not the path syntax, operation
+order, payload, or integrity metadata.
 
 ## Revision stability and lifetime
 
@@ -19,10 +24,13 @@ writer. On the pipelined path, page serialization and registration of the pendin
 precede diff serialization; the successor writer is re-instantiated afterward. The diff therefore
 does not inspect sibling links while a writer is still inserting or removing nodes in that epoch.
 An insert or removal in a later revision can shift a surviving node's ordinal, which is why the
-old and new caches must never be shared. `positionsAreIsolatedBetweenRevisions` guards that case.
+old and new caches must never be shared. `positionsAreIsolatedBetweenRevisions` guards that case,
+and that hints offered for the new revision never supply an old-revision deletion position.
 
 The caches are local to one serialization and become unreachable when it returns (the production
 test observer is absent). A long-lived transaction cannot accumulate caches from past commits.
+Hints are borrowed read-only for one call and are never retained or modified here; the writing
+transaction owns their lifetime.
 
 ## Work and memory bounds
 
@@ -30,7 +38,9 @@ For one array, let `K` be one plus the largest requested index and `M` the numbe
 The walk takes at most `K - 1 + M` sibling steps: a newly encountered node is memoized once, and a
 lookup may take one final step onto a cached anchor. A single lookup takes no more steps than its
 own index. No child count is narrowed to `int`, and an untouched suffix is neither traversed nor
-used to size an allocation. The serialized ordinal retains the previous `int` arithmetic.
+used to size an allocation. The serialized ordinal retains the previous `int` arithmetic. Hints
+only lower these bounds: a hinted lookup takes no step, an uncached walk may also stop on a hinted
+sibling, and a serialization whose every position is hinted allocates no cache backing storage.
 
 Across a revision, the primitive map retains the union of the touched prefixes, not each prefix
 once per tuple. The reused primitive walk stack retains capacity for the longest uncached walk.
@@ -47,12 +57,16 @@ A revision whose cache is never asked for an ordinal costs nothing on the defaul
 
 `JsonDiffArrayPositionWorkBudgetTest` is part of the ordinary `io.sirix.budget.*` lane in
 [`VERIFICATION.md`](VERIFICATION.md). It covers forward, reverse, and shuffled tuple order, a
-100,000-element array followed by a single head insert with default diff storage, and a diff that
-resolves no array position at all. Both fixtures stay at the scale the budget package already uses,
-so the memory-constrained cross-platform lanes run them; the guard comes from the bound, not from
-the size of the data. The head-insert case resolves a second, non-head tuple through the same
-counting session afterwards, so its zero move count is proven to be no work rather than a decorator
-that has fallen off the serializer's cursor route.
+100,000-element array followed by a single head insert with default diff storage, a diff that
+resolves no array position at all, and the append-across-commits shape the hint path exists for: a
+2,048-element regression in the ordinary lane, plus the larger measurement fixture behind
+`@Tag("heavy")`, which `-PexcludeHeavyTests` drops. The head-insert case additionally bounds the
+hint map its own bootstrap load may allocate, which is zero because that revision writes no
+sidecar. Every fixture the memory-constrained cross-platform lanes still run stays at the scale
+the budget package already uses; the guard comes from the bound, not from the size of the data. The
+head-insert case resolves a second, non-head tuple through the same counting session afterwards, so
+its zero move count is proven to be no work rather than a decorator that has fallen off the
+serializer's cursor route.
 
 `ArrayPositionCacheProbe` observes actual key, ordinal, and walk-stack backing-array capacities
 after serialization. Their payload sizes are independent of JVM object headers and only grow
@@ -106,7 +120,10 @@ creation/upload handlers. This is source verification, not a count of deployed r
 The costly resolver is specifically JSON: both commit paths check `storeDiffs()` before invoking
 `serializeUpdateDiffs`; `JsonNodeTrxImpl` writes the sidecar for eligible non-bulk commits from
 revision 2 onward. Array-position resolution additionally requires a path summary and an array
-step in an emitted path. `storeDiffs(false)` disables commit-sidecar generation;
-`buildPathSummary(false)` leaves diff storage enabled but skips path resolution. Dewey IDs select
+step in an emitted path. The hint fast path is offered to those same resources and additionally
+requires stored child counts (`storeChildCount`, also `true` by default); wherever one of the three
+flags is off, or the revision emits no sidecar, the walk above is the only resolver.
+`storeDiffs(false)` disables commit-sidecar generation; `buildPathSummary(false)` leaves diff
+storage enabled but skips path resolution. Dewey IDs select
 the tuple collection and add metadata without disabling path resolution. XML shares the builder's
 flag default, but `XmlNodeTrxImpl.serializeUpdateDiffs` is empty and never runs this JSON resolver.
