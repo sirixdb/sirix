@@ -73,7 +73,7 @@ failure table and tells the reader where the work went.
 | | grouped top-K, range holding a row without the aggregate | the view walks the range twice before declining, **or** declines ranges of the same view whose rows all carry a value |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
-| `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, which is quadratic per array, **or** a single head insert traverses or preallocates cache storage for an untouched array suffix |
+| `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, a head insert touches an untouched suffix, **or** streaming append commits rewalk previously committed prefixes instead of consuming transient ingest positions (measurement: `docs/UPDATE_DIFF_INGEST_POSITIONS.md`) |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
 
 Every one of these was checked **by mutation**: the defect it guards was put back, the test was seen

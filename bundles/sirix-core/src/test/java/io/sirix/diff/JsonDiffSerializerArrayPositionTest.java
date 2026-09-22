@@ -7,6 +7,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.service.json.shredder.JsonShredder;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -115,6 +116,12 @@ final class JsonDiffSerializerArrayPositionTest {
       final List<DiffTuple> diffs =
           List.of(deleted(shiftedNodeKey), inserted(insertedNodeKey), updated(shiftedNodeKey));
       final String serialized = new JsonDiffSerializer(database.getName(), session, 1, 2, diffs).serializeSidecar();
+      final var hints = new Long2IntOpenHashMap();
+      hints.put(shiftedNodeKey, 3);
+      hints.put(insertedNodeKey, 0);
+      assertEquals(serialized,
+          new JsonDiffSerializer(database.getName(), session, 1, 2, diffs).serializeSidecar(hints),
+          "new-revision hints must never supply the old revision's deletion position");
       final JsonObject document = JsonParser.parseString(serialized).getAsJsonObject();
 
       assertEquals("/[2]",
