@@ -90,6 +90,74 @@ final class HOTSplitHalfTrieConditionTest {
     }
   }
 
+  /**
+   * The mask of the node whose slot is folded at its own most significant bit: bit 0 ({@code 0x80}),
+   * bit 2 ({@code 0x20}) and bit 4 ({@code 0x08}).
+   */
+  private static final int[] FOLD_NODE_BITS = {0, 2, 4};
+
+  private static final int[] FOLD_NODE_PARTIALS = {0b000, 0b110, 0b111};
+
+  /** The bit the two siblings above the split branch on internally — well below the node's mask. */
+  private static final int SIBLING_BIT = 5;
+
+  /**
+   * The writer does not decline this shape: no test reaches it through the public writer, so a
+   * decline in {@code canIntegrateBiNodeCleanly} could not be shown to fire and was not shipped. This
+   * test pins the primitive fact a future guard rests on ({@code docs/HOT_INDEX_SPECIFICATION.md}
+   * §4.5.3).
+   */
+  @Test
+  @DisplayName("folding at the node's own MSB puts the inserted child in the half the node's children do not describe")
+  void foldAtTheNodesOwnMsbLandsInTheUnmeasuredHalf() {
+    final AtomicLong allocator = new AtomicLong(1);
+    final List<HOTLeafPage> leaves = new ArrayList<>(8);
+    try {
+      // The slot's child holds keys on both sides of the node's MSB, so splitting it yields a BiNode
+      // on that very bit whose halves branch on bit 1 — all the trie condition asks of them.
+      final HOTIndirectPage straddling =
+          HOTBulkBuilder.assembleIndirect(new int[] {0, 1}, new int[] {0b00, 0b01, 0b10, 0b11},
+              new PageReference[] {swizzle(leaf(allocator, leaves, 0x00)), swizzle(leaf(allocator, leaves, 0x40)),
+                  swizzle(leaf(allocator, leaves, 0x80)), swizzle(leaf(allocator, leaves, 0xc0))},
+              1, 1, allocator::getAndIncrement);
+      final HOTIndirectPage upper = HOTIndirectPage.createBiNode(allocator.getAndIncrement(), 1, SIBLING_BIT,
+          swizzle(leaf(allocator, leaves, 0xa0)), swizzle(leaf(allocator, leaves, 0xa4)), 1);
+      final HOTIndirectPage top = HOTIndirectPage.createBiNode(allocator.getAndIncrement(), 1, SIBLING_BIT,
+          swizzle(leaf(allocator, leaves, 0xa8)), swizzle(leaf(allocator, leaves, 0xac)), 1);
+      final HOTIndirectPage node = HOTBulkBuilder.assembleIndirect(FOLD_NODE_BITS, FOLD_NODE_PARTIALS,
+          new PageReference[] {swizzle(straddling), swizzle(upper), swizzle(top)}, 2, 1, allocator::getAndIncrement);
+
+      final int upperHalfMsb = HOTIncrementalInsert.mostSignificantLiveBit(FOLD_NODE_BITS, FOLD_NODE_PARTIALS, 1, 3);
+      assertEquals(4, upperHalfMsb, "over the node's own children bit 4 is all the upper half keeps");
+      assertTrue(upper.getMostSignificantBitIndex() > upperHalfMsb && top.getMostSignificantBitIndex() > upperHalfMsb,
+          "measured against that, every child of the upper half satisfies the trie condition");
+
+      final HOTIncrementalInsert.BiNode split =
+          HOTIncrementalInsert.splitIndirect(straddling, 2, allocator::getAndIncrement);
+      assertEquals(node.getMostSignificantBitIndex(), split.discriminativeBitIndex(),
+          "the fold bit is the node's own most significant bit");
+      final HOTIncrementalInsert.BiNode folded = HOTIncrementalInsert.splitIndirectWithSlotReplaceAndInsertion(node, 0,
+          split.left(), 0b100, split.right(), 2, allocator::getAndIncrement);
+
+      // The straddle partial joins the upper half, where it makes a column the node's own children
+      // held constant vary again: the half's MSB moves up, past the inserted child's own.
+      final HOTIndirectPage upperHalf = (HOTIndirectPage) folded.right().getPage();
+      assertEquals(2, upperHalf.getMostSignificantBitIndex(),
+          "the published half keeps a more significant bit than the node's children describe");
+      final HOTIndirectPage insertedChild = (HOTIndirectPage) split.right().getPage();
+      assertTrue(insertedChild.getMostSignificantBitIndex() > split.discriminativeBitIndex(),
+          "all the inserted child is known to satisfy is the fold bit");
+      assertTrue(insertedChild.getMostSignificantBitIndex() <= upperHalf.getMostSignificantBitIndex(),
+          "against the half it breaks the trie condition: nothing in the node's own children decides that");
+    } finally {
+      for (final HOTLeafPage leaf : leaves) {
+        if (!leaf.isClosed()) {
+          leaf.close();
+        }
+      }
+    }
+  }
+
   private static HOTLeafPage leaf(final AtomicLong allocator, final List<HOTLeafPage> leaves, final int key) {
     final HOTLeafPage leaf = new HOTLeafPage(allocator.getAndIncrement(), 1, IndexType.VALIDTIME);
     leaves.add(leaf);

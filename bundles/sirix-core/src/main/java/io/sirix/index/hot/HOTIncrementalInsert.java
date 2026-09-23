@@ -64,10 +64,19 @@ public final class HOTIncrementalInsert {
   public static final AtomicLong CONSOLIDATION_PAIR_DID_NOT_FIT = new AtomicLong();
 
   /**
-   * Diagnostic: folds {@link #canMergeBiNodeAtExistingDiscBit} declined because a sibling's partial
-   * sorts between the split child's slot and the partial its other half would take. Counts that
-   * placement refusal alone — not a C2 collision and not the unexpected straddle orientation. A test
-   * that means to exercise the refusal must assert this counter moved.
+   * Diagnostic: the placement condition of {@link #canMergeBiNodeAtExistingDiscBit} found false — a
+   * sibling's partial sorts between the split child's slot and the partial its other half would take.
+   * Counts that refusal alone, not a C2 collision and not the unexpected straddle orientation.
+   *
+   * <p>
+   * It does <em>not</em> count attempted folds. The predicate is also called speculatively, at every
+   * spine level of {@code AbstractHOTIndexWriter.canIntegrateBiNodeCleanly}'s pre-check walk —
+   * including levels the cascade would never reach, and from callers that then take an entirely
+   * different arm — so a movement proves only that the condition was false somewhere the walk looked.
+   * A test that means to prove a fold was really attempted and declined must pin
+   * {@code AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK} as well, which is incremented only at
+   * the decline site (as {@code HOTDeclinedOverflowFrontierRouteTest} does), or call the predicate
+   * directly (as {@code HOTExistingBitFoldPlacementTest} does).
    */
   public static final AtomicLong EXISTING_BIT_FOLD_NOT_ADJACENT = new AtomicLong();
 
@@ -414,19 +423,6 @@ public final class HOTIncrementalInsert {
   }
 
   /**
-   * {@code compressEntries} for one half of an indirect split: drop every discriminative bit that is
-   * constant across {@code halfChildren} (it no longer branches), re-pack the surviving bits into
-   * MSB-first partial keys, and assemble a fresh compound node. A half of a single child is the bare
-   * child reference — Binna's 1:31 caveat ({@code
-   * HOTSingleThreaded.hpp:524-528}): a lone entry is pulled up, never wrapped.
-   *
-   * @param halfChildren the half's child references, in ascending partial-key order
-   * @param halfPartials the half's stored partials (parallel to {@code halfChildren}), encoded
-   *        against the parent's full {@code discBits}
-   * @param discBits the parent node's discriminative bits, ascending absolute positions
-   * @return the assembled half (a fresh swizzled compound node, or the lone child reference)
-   */
-  /**
    * The most significant discriminative bit {@link #compressHalf} keeps for the children
    * {@code [from, to)} of a node being split: the first bit whose column varies across them, which
    * becomes that half's own MSB. {@code -1} for a lone child — it is pulled up bare and gets no node.
@@ -454,6 +450,19 @@ public final class HOTIncrementalInsert {
     return -1;
   }
 
+  /**
+   * {@code compressEntries} for one half of an indirect split: drop every discriminative bit that is
+   * constant across {@code halfChildren} (it no longer branches), re-pack the surviving bits into
+   * MSB-first partial keys, and assemble a fresh compound node. A half of a single child is the bare
+   * child reference — Binna's 1:31 caveat ({@code
+   * HOTSingleThreaded.hpp:524-528}): a lone entry is pulled up, never wrapped.
+   *
+   * @param halfChildren the half's child references, in ascending partial-key order
+   * @param halfPartials the half's stored partials (parallel to {@code halfChildren}), encoded
+   *        against the parent's full {@code discBits}
+   * @param discBits the parent node's discriminative bits, ascending absolute positions
+   * @return the assembled half (a fresh swizzled compound node, or the lone child reference)
+   */
   private static PageReference compressHalf(final PageReference[] halfChildren, final int[] halfPartials,
       final int[] discBits, final int revision, final LongSupplier pageKeyAllocator) {
     final int n = halfChildren.length;
@@ -1243,39 +1252,6 @@ public final class HOTIncrementalInsert {
   }
 
   /**
-   * Integrate-time analog of {@link #addEntry} for the case where {@code biNode.β} is already a
-   * discriminative bit of {@code node} — Sirix's multi-value-leaf adaptation produces this
-   * cross-level mask overlap when ancestors accumulate disc bits via {@code addEntry}'s zero-fill
-   * convention. In a canonical Binna HOT this cannot happen (Theorem II(d)); in Sirix it does, and is
-   * the structural cost paid by adapting HOT to disk-page-sized leaves.
-   *
-   * <p>
-   * Operation: {@code node}'s slot at {@code affectedChildIndex} encoded the original (pre-split)
-   * child with β-value {@code v = bit-at-column-c(oldPartial)}. After splitting the original child at
-   * β, one half ({@code canonicalHalf}) matches {@code v} and replaces the slot's child reference;
-   * the other half ({@code straddleHalf}) was off-path-straddled at the slot — it now gets its own
-   * slot at partial {@code oldPartial XOR β-column-bit}. Net effect: one slot replaced, one new slot
-   * inserted. Mask unchanged.
-   *
-   * <p>
-   * <b>Precondition.</b> {@code node.getNumChildren() + 1 ≤ MAX_NODE_ENTRIES} (= not full);
-   * {@code β ∈ discriminativeBits(node)}; the flipped-column partial must not collide with any other
-   * existing slot (C2 collision) and must land beside the affected slot ({@link #landsBesideSlot}).
-   *
-   * <p>
-   * <b>Purity.</b> Returns a fresh compound node; never mutates {@code node} or the biNode.
-   *
-   * @param node the not-full compound node to integrate into
-   * @param biNode the split result to fold in
-   * @param affectedChildIndex the slot of {@code node} whose child {@code biNode} split
-   * @param revision the revision stamped onto the created page
-   * @param pageKeyAllocator supplier of a fresh persistent page key
-   * @return a fresh compound node with one more child; mask unchanged
-   * @throws IllegalArgumentException if β is not in {@code node}'s mask, or the flipped-column
-   *         partial collides with an existing slot's partial or would not land beside the affected
-   *         slot
-   */
-  /**
    * Read-only predicate: would {@link #mergeBiNodeAtExistingDiscBit} (not-full case) or
    * {@link #splitIndirectWithSlotReplaceAndInsertion} (full case) succeed for a BiNode whose β is
    * already a discriminative bit of {@code node} at slot {@code affectedChildIndex}?
@@ -1346,6 +1322,39 @@ public final class HOTIncrementalInsert {
     return slot == 0 || partials[slot - 1] <= insertedPartial;
   }
 
+  /**
+   * Integrate-time analog of {@link #addEntry} for the case where {@code biNode.β} is already a
+   * discriminative bit of {@code node} — Sirix's multi-value-leaf adaptation produces this
+   * cross-level mask overlap when ancestors accumulate disc bits via {@code addEntry}'s zero-fill
+   * convention. In a canonical Binna HOT this cannot happen (Theorem II(d)); in Sirix it does, and is
+   * the structural cost paid by adapting HOT to disk-page-sized leaves.
+   *
+   * <p>
+   * Operation: {@code node}'s slot at {@code affectedChildIndex} encoded the original (pre-split)
+   * child with β-value {@code v = bit-at-column-c(oldPartial)}. After splitting the original child at
+   * β, one half ({@code canonicalHalf}) matches {@code v} and replaces the slot's child reference;
+   * the other half ({@code straddleHalf}) was off-path-straddled at the slot — it now gets its own
+   * slot at partial {@code oldPartial XOR β-column-bit}. Net effect: one slot replaced, one new slot
+   * inserted. Mask unchanged.
+   *
+   * <p>
+   * <b>Precondition.</b> {@code node.getNumChildren() + 1 ≤ MAX_NODE_ENTRIES} (= not full);
+   * {@code β ∈ discriminativeBits(node)}; the flipped-column partial must not collide with any other
+   * existing slot (C2 collision) and must land beside the affected slot ({@link #landsBesideSlot}).
+   *
+   * <p>
+   * <b>Purity.</b> Returns a fresh compound node; never mutates {@code node} or the biNode.
+   *
+   * @param node the not-full compound node to integrate into
+   * @param biNode the split result to fold in
+   * @param affectedChildIndex the slot of {@code node} whose child {@code biNode} split
+   * @param revision the revision stamped onto the created page
+   * @param pageKeyAllocator supplier of a fresh persistent page key
+   * @return a fresh compound node with one more child; mask unchanged
+   * @throws IllegalArgumentException if β is not in {@code node}'s mask, or the flipped-column
+   *         partial collides with an existing slot's partial or would not land beside the affected
+   *         slot
+   */
   public static HOTIndirectPage mergeBiNodeAtExistingDiscBit(final HOTIndirectPage node, final BiNode biNode,
       final int affectedChildIndex, final int revision, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
