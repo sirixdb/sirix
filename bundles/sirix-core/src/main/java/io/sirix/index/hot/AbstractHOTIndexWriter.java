@@ -3358,6 +3358,97 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Leaf pairs delegated to the complete frontier because {@code K}, as the paired slot's new
+   * extreme, would sort outside a neighbour boundary at some level of the spine.
+   */
+  public static final AtomicLong PAIR_LEAF_SPINE_ORDER_DELEGATED = new AtomicLong();
+
+  /**
+   * Whether pairing {@code K} with the descended leaf keeps the ordered-range invariants (I8/I12) on
+   * the whole spine. The pair keeps the leaf's slot, so {@code K} becomes that slot's new minimum
+   * ({@code betaValue == 0}) or maximum ({@code betaValue == 1}); at every ancestor whose route slot
+   * is the first (respectively last) child, the change reaches that ancestor's own extreme, so the
+   * neighbour boundary has to hold there too — the dual of {@link #isDirectionOneI8Safe}'s first-key
+   * propagation, on the side the pair moves. The walk stops at the first level whose slot has a
+   * neighbour on that side, since the extreme change goes no further.
+   */
+  private boolean pairKeepsSpineOrder(final LeafNavigationResult navResult, final int betaValue,
+      final byte[] keySlice) {
+    return extremeKeepsSpineOrder(navResult, navResult.pathDepth() - 1, betaValue, keySlice);
+  }
+
+  /**
+   * Branch inserts delegated to the complete frontier because {@code K}, as the new extreme of the
+   * route subtree a branch handler would place it in, would sort outside a neighbour boundary at some
+   * level of the spine above that subtree.
+   */
+  public static final AtomicLong BRANCH_SPINE_ORDER_DELEGATED = new AtomicLong();
+
+  /**
+   * Whether placing {@code K} anywhere inside the route's subtree at {@code placementDepth} keeps the
+   * ordered-range invariants (I8/I12) on the spine above it. A key inside that subtree's current key
+   * range changes no extreme, so nothing above it can break. Below its first key or above its last
+   * key, {@code K} becomes the subtree's new extreme — and, wherever that subtree's slot is the first
+   * (respectively last) child of its node, the containing subtree's extreme too, all the way up — so
+   * the neighbour boundary on that side has to hold at every level the change reaches. Subset routing
+   * brought {@code K} to this subtree, and subset routing does not imply lexicographic position: a
+   * zero column of a sparse partial claims nothing, so a sibling's range can lie between the
+   * subtree's keys and {@code K}. Every branch handler proves the node it rebuilds well-formed
+   * ({@link #nodeStructurallyMalformed}); this is the proof for the ancestors, which only ever see
+   * the subtree through its extremes.
+   *
+   * @param placementDepth depth of the route subtree that receives {@code K} ({@code pathDepth} for
+   *        the descended leaf itself)
+   */
+  private boolean keyKeepsSpineOrder(final LeafNavigationResult navResult, final int placementDepth,
+      final byte[] keySlice) {
+    if (placementDepth <= 0) {
+      return true; // the whole index: no spine above it
+    }
+    final PageReference placement = placementDepth < navResult.pathDepth()
+        ? navResult.pathRefs()[placementDepth]
+        : navResult.leafRef();
+    final byte[] first = firstKeyOfSubtree(placement);
+    final byte[] last = lastKeyOfSubtree(placement);
+    if (first == null || last == null) {
+      return false; // defensive: an unresolvable subtree cannot be proved safe
+    }
+    if (Arrays.compareUnsigned(keySlice, first) < 0) {
+      return extremeKeepsSpineOrder(navResult, placementDepth - 1, 0, keySlice);
+    }
+    if (Arrays.compareUnsigned(keySlice, last) > 0) {
+      return extremeKeepsSpineOrder(navResult, placementDepth - 1, 1, keySlice);
+    }
+    return true; // K lies inside the subtree's range: no extreme on the spine changes
+  }
+
+  /**
+   * The spine walk shared by {@link #pairKeepsSpineOrder} and {@link #keyKeepsSpineOrder}: from
+   * {@code fromDepth} upward, {@code K} is the route slot's new minimum ({@code side == 0}) or
+   * maximum ({@code side == 1}). The walk stops at the first level whose slot has a neighbour on that
+   * side, since the extreme change goes no further.
+   */
+  private boolean extremeKeepsSpineOrder(final LeafNavigationResult navResult, final int fromDepth, final int side,
+      final byte[] keySlice) {
+    final HOTIndirectPage[] pathNodes = navResult.pathNodes();
+    final int[] childSlots = navResult.pathChildIndices();
+    for (int depth = fromDepth; depth >= 0; depth--) {
+      final HOTIndirectPage node = pathNodes[depth];
+      final int slot = childSlots[depth];
+      if (side == 0) {
+        if (slot > 0) {
+          final byte[] previousLast = lastKeyOfSubtree(node.getChildReference(slot - 1));
+          return previousLast != null && Arrays.compareUnsigned(previousLast, keySlice) < 0;
+        }
+      } else if (slot + 1 < node.getNumChildren()) {
+        final byte[] nextFirst = firstKeyOfSubtree(node.getChildReference(slot + 1));
+        return nextFirst != null && Arrays.compareUnsigned(keySlice, nextFirst) < 0;
+      }
+    }
+    return true; // K becomes the index's own extreme on that side
+  }
+
+  /**
    * I8 (children-sorted-by-firstkey) safety predicate for sub-inserting {@code K} into the
    * {@code affected} subtree at {@code insertDepth}. Direction 1 sub-insert
    * ({@code docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md} §11) is routing-correct by the descent
@@ -4281,6 +4372,14 @@ public abstract class AbstractHOTIndexWriter<K> {
     final HOTIndirectPage node = pathNodes[insertDepth];
     final HOTIncrementalInsert.InsertInfo info =
         HOTIncrementalInsert.getInsertInformation(node, affectedChildIndex, beta);
+    // Every handler below places K inside d*'s subtree: as a new child of d* (combination, fold),
+    // under a BiNode at d*'s slot (wrap, split), or deeper. Where K would become that subtree's new
+    // extreme and sort outside a neighbour boundary on the spine above d*, no local rebuild can
+    // publish a well-formed trie: delegate to the complete frontier before any candidate is built.
+    if (!keyKeepsSpineOrder(navResult, insertDepth, keySlice)) {
+      BRANCH_SPINE_ORDER_DELEGATED.incrementAndGet();
+      return false; // K sorts outside a boundary d*'s subtree would move: complete frontier
+    }
     // beta colliding with an existing discriminative bit of d* means the approximate descent
     // misrouted the key across that bit (Binna's addEntry with DiscriminativeBitsRepresentation.insert
     // a no-op). The key branches off the affected subtree — which is one-sided on beta, since
@@ -4335,7 +4434,8 @@ public abstract class AbstractHOTIndexWriter<K> {
           // ancestor's mask. Pre-check via isDirectionOneI8Safe; if safe, sub-insert; else
           // try the bounded incremental frontier primitives below.
           comboLeaf.close();
-          if (isDirectionOneI8Safe(navResult, insertDepth, affectedChildIndex, keySlice)) {
+          if (isDirectionOneI8Safe(navResult, insertDepth, affectedChildIndex, keySlice)
+              && keyKeepsSpineOrder(navResult, insertDepth + 1, keySlice)) {
             lastDispatchHandler = "h:d1-subinsert";
             DIRECTION_ONE_SUBINSERT.incrementAndGet();
             return subInsertAt(node.getChildReference(affectedChildIndex), keySlice, keySlice.length, valueSlice,
@@ -4455,7 +4555,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       final int betaColAtChild = Arrays.binarySearch(childDiscBits, beta);
       if (betaColAtChild >= 0) {
         // beta already a disc bit of the boundary child — apply the betaIsDiscBit handling
-        // one level down (docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md §4.2).
+        // one level down (docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md §4.2). K lands inside
+        // the boundary child's subtree either way, so the spine above it must keep its order.
+        if (!keyKeepsSpineOrder(navResult, insertDepth + 1, keySlice)) {
+          BRANCH_SPINE_ORDER_DELEGATED.incrementAndGet();
+          return false; // K sorts outside a boundary the child's subtree would move: complete frontier
+        }
         if (child.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
           // Full boundary child + betaIsDiscBit — re-use Stage 1's full-d* decomposition,
           // anchored at insertDepth+1.
@@ -4486,7 +4591,8 @@ public abstract class AbstractHOTIndexWriter<K> {
           // affected slot if I8-safe (the routing tautology holds at depth+1 just as at d*),
           // otherwise try the bounded incremental frontier primitives below.
           comboLeaf.close();
-          if (isDirectionOneI8Safe(navResult, insertDepth + 1, childEntryIndex, keySlice)) {
+          if (isDirectionOneI8Safe(navResult, insertDepth + 1, childEntryIndex, keySlice)
+              && keyKeepsSpineOrder(navResult, insertDepth + 2, keySlice)) {
             lastDispatchHandler = "h:d1-subinsert";
             DIRECTION_ONE_SUBINSERT.incrementAndGet();
             return subInsertAt(child.getChildReference(childEntryIndex), keySlice, keySlice.length, valueSlice,
@@ -4587,27 +4693,17 @@ public abstract class AbstractHOTIndexWriter<K> {
           return false;
         }
         // Direction-1-dual pre-guard: the pair keeps the leaf's slot, so K becomes the slot's new
-        // minimum (betaValue == 0) or maximum (betaValue == 1). Subset routing brought K here, but
-        // subset routing does not imply lex position — if K falls outside the slot's boundary with
-        // its neighbour, the pairing would break I8/I12 (the shape the impossibility analysis
+        // minimum (betaValue == 0) or maximum (betaValue == 1) — and, wherever that slot is the
+        // first or last child of its node, the containing subtree's new extreme as well, all the
+        // way up the spine. Subset routing brought K here, but subset routing does not imply lex
+        // position — if K falls outside the boundary with the neighbour at any level the extreme
+        // change reaches, the pairing would break I8/I12 (the shape the impossibility analysis
         // proves no narrow primitive fixes). Detect it before splicing and delegate to the complete
         // frontier instead of publishing a violation.
-        if (pathDepth > 0) {
-          final HOTIndirectPage pairParent = pathNodes[pathDepth - 1];
-          final int leafSlot = childSlots[pathDepth - 1];
-          if (betaValue == 0 && leafSlot > 0) {
-            final byte[] prevLast = lastKeyOfSubtree(pairParent.getChildReference(leafSlot - 1));
-            if (prevLast != null && Arrays.compareUnsigned(prevLast, keySlice) >= 0) {
-              keyLeaf.close();
-              return false; // K sorts at or below the previous sibling: complete frontier
-            }
-          } else if (betaValue == 1 && leafSlot + 1 < pairParent.getNumChildren()) {
-            final byte[] nextFirst = firstKeyOfSubtree(pairParent.getChildReference(leafSlot + 1));
-            if (nextFirst != null && Arrays.compareUnsigned(keySlice, nextFirst) >= 0) {
-              keyLeaf.close();
-              return false; // K sorts at or above the next sibling: complete frontier
-            }
-          }
+        if (!pairKeepsSpineOrder(navResult, betaValue, keySlice)) {
+          keyLeaf.close();
+          PAIR_LEAF_SPINE_ORDER_DELEGATED.incrementAndGet();
+          return false; // K sorts outside a slot boundary the pair would move: complete frontier
         }
         // A height-1 parent fold keeps the old leaf's logical identity live under the rebuilt parent;
         // a copied PageReference satisfies integrate's no-wrapper-alias precondition without minting
@@ -4673,6 +4769,13 @@ public abstract class AbstractHOTIndexWriter<K> {
         // discriminative bit of that child, so K joins it as a new partition root.
         final int childDepth = insertDepth + 1;
         final HOTIndirectPage child = pathNodes[childDepth];
+        // K joins the boundary node's subtree (as a partition root or under its BiNode wrap) and
+        // becomes its new extreme: the boundary with d*'s neighbouring slots, and above, must hold.
+        if (!keyKeepsSpineOrder(navResult, childDepth, keySlice)) {
+          keyLeaf.close();
+          BRANCH_SPINE_ORDER_DELEGATED.incrementAndGet();
+          return false; // K sorts outside a boundary the child's subtree would move: complete frontier
+        }
         if (child.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
           boolean published = false;
           try {
@@ -6039,10 +6142,10 @@ public abstract class AbstractHOTIndexWriter<K> {
     PageReference left = null;
     PageReference right = null;
     try {
-      left = HOTIncrementalInsert.compressChildSliceReplacing(indirect, 0, target + 1, target, childSplit.left(),
-          revision, pageKeyAllocator);
-      right = HOTIncrementalInsert.compressChildSliceReplacing(indirect, target, childCount, target, childSplit.right(),
-          revision, pageKeyAllocator);
+      left = compressChildSliceKeepingTrieCondition(indirect, 0, target + 1, target, childSplit.left(), revision,
+          replacedLeafRefs);
+      right = compressChildSliceKeepingTrieCondition(indirect, target, childCount, target, childSplit.right(), revision,
+          replacedLeafRefs);
       return new StructuralKeySplit(left, right);
     } catch (final RuntimeException | Error failure) {
       closeUnregisteredFreshSubtree(left, failure);
@@ -6051,6 +6154,107 @@ public abstract class AbstractHOTIndexWriter<K> {
       closeUnregisteredFreshSubtree(childSplit.right(), failure);
       throw failure;
     }
+  }
+
+  /**
+   * Halves of a persistent split that had to be built as canonical blocks because the plain slice
+   * compression would have put a less significant root bit above a child which still discriminates on
+   * a more significant one.
+   */
+  public static final AtomicLong FRONTIER_SPLIT_HALF_RECANONICALIZED = new AtomicLong();
+
+  /**
+   * {@link HOTIncrementalInsert#compressChildSliceReplacing} with the trie condition (I11) kept.
+   *
+   * <p>
+   * A slice keeps only the columns which vary across its retained sparse partials. A sparse partial
+   * says nothing about the bits an indirect child discriminates on below its own path: a child left
+   * by a Direction-1 sub-insert legitimately straddles a column its parent uses only for other
+   * branches (a zero column claims nothing), and a slice which drops every column above that child's
+   * MSB then puts a less significant root bit above it. Every frontier candidate over such a half is
+   * rightly declined as malformed, at every level of the spine, since each level splits the same
+   * boundary child at the same point — the complete-frontier splice then has nowhere left to go.
+   * </p>
+   *
+   * <p>
+   * The block over the slice's ordered key ranges is what the frontier join already builds around
+   * {@code K}: it branches on the true bits of the extremes and persistently splits a part at the bit
+   * it straddles. Applied only when the plain compression would break the trie condition, so every
+   * other split keeps its exact reference-only cost.
+   * </p>
+   */
+  private @Nullable PageReference compressChildSliceKeepingTrieCondition(final HOTIndirectPage node,
+      final int fromInclusive, final int toExclusive, final int replacedChildIndex,
+      final @Nullable PageReference replacement, final int revision, final List<PageReference> replacedLeafRefs) {
+    if (sliceKeepsTrieCondition(node, fromInclusive, toExclusive, replacedChildIndex, replacement)) {
+      return HOTIncrementalInsert.compressChildSliceReplacing(node, fromInclusive, toExclusive, replacedChildIndex,
+          replacement, revision, pageKeyAllocator);
+    }
+    final List<FrontierPart> parts = new ArrayList<>(toExclusive - fromInclusive);
+    try {
+      for (int slot = fromInclusive; slot < toExclusive; slot++) {
+        final PageReference child = slot == replacedChildIndex
+            ? replacement
+            : node.getChildReference(slot);
+        if (child != null) {
+          parts.add(frontierPart(child));
+        }
+      }
+    } catch (final RuntimeException | Error failure) {
+      closeUnregisteredFreshSubtree(replacement, failure);
+      throw failure;
+    }
+    final PageReference block = joinOrderedParts(parts, revision, replacedLeafRefs);
+    if (block == null) {
+      // The join retired its fresh inputs, the replacement among them; nothing is left to compress.
+      throw new IllegalStateException(
+          "HOT persistent key split could not build a canonical block over a half whose child straddles a dropped column");
+    }
+    FRONTIER_SPLIT_HALF_RECANONICALIZED.incrementAndGet();
+    return block;
+  }
+
+  /**
+   * Whether the plain compression of the slice {@code [fromInclusive, toExclusive)} of {@code node},
+   * with the child at {@code replacedChildIndex} replaced (or, for {@code null}, removed), keeps the
+   * trie condition against every retained indirect child: the slice's own MSB — the most significant
+   * column varying across the retained partials — must be more significant than each child's MSB.
+   */
+  private boolean sliceKeepsTrieCondition(final HOTIndirectPage node, final int fromInclusive, final int toExclusive,
+      final int replacedChildIndex, final @Nullable PageReference replacement) {
+    final int[] discBits = HOTIncrementalInsert.discriminativeBits(node);
+    final int[] partials = node.getPartialKeysRef();
+    final int columns = discBits.length;
+    int sliceMsb = -1;
+    for (int column = 0; column < columns && sliceMsb < 0; column++) {
+      final int weight = 1 << (columns - 1 - column);
+      int first = -1;
+      for (int slot = fromInclusive; slot < toExclusive; slot++) {
+        if (slot == replacedChildIndex && replacement == null) {
+          continue;
+        }
+        final int value = partials[slot] & weight;
+        if (first < 0) {
+          first = value;
+        } else if (value != first) {
+          sliceMsb = discBits[column];
+          break;
+        }
+      }
+    }
+    if (sliceMsb < 0) {
+      return true; // a lone child is pulled up bare, without a node of its own
+    }
+    for (int slot = fromInclusive; slot < toExclusive; slot++) {
+      final PageReference child = slot == replacedChildIndex
+          ? replacement
+          : node.getChildReference(slot);
+      if (child != null && resolveHOTPageForTraversal(child) instanceof HOTIndirectPage indirect
+          && indirect.getMostSignificantBitIndex() >= 0 && indirect.getMostSignificantBitIndex() <= sliceMsb) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Copy one non-empty contiguous range out of a leaf without changing any value bytes. */
@@ -6159,13 +6363,33 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (right != null) {
         parts.add(frontierPart(right));
       }
+    } catch (final RuntimeException | Error failure) {
+      for (final FrontierPart part : parts) {
+        closeUnregisteredFreshSubtree(part.ref, failure);
+      }
+      throw failure;
+    }
+    return joinOrderedParts(parts, revision, replacedLeafRefs);
+  }
+
+  /**
+   * Join ordered, pairwise disjoint parts into one canonical HOT block — the Patricia trie over their
+   * key ranges flattened into a single node, splitting a part wherever a bit of the block cuts
+   * through it ({@link #assignFrontierPaths}). A single part is returned as it is.
+   *
+   * @return the block, or {@code null} when no block could be built — every fresh part is then
+   *         retired and the caller only declines
+   */
+  private @Nullable PageReference joinOrderedParts(final List<FrontierPart> parts, final int revision,
+      final List<PageReference> replacedLeafRefs) {
+    try {
       for (int i = 1; i < parts.size(); i++) {
         if (Arrays.compareUnsigned(parts.get(i - 1).last, parts.get(i).first) >= 0) {
           throw new IllegalStateException("HOT incremental frontier inputs overlap at ordered child " + i);
         }
       }
       if (parts.size() == 1) {
-        return keyRef;
+        return parts.get(0).ref;
       }
 
       final int[] blockBits = new int[HOTIndirectPage.MAX_NODE_ENTRIES];
