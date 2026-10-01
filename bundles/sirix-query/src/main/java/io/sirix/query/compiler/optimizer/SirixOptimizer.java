@@ -83,6 +83,10 @@ public class SirixOptimizer extends TopDownOptimizer {
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
     this.planCache = planCache;
+    // Before Brackit's join recognition (after its predicate split and pull-up): prefer an
+    // equality key and keep single-side predicates on their own side. Brackit's stages are private
+    // classes, so the slot is found by name; without join detection there is nothing to prefer.
+    insertStageBefore("JoinRecognition", new JoinKeyPreferenceStage());
     // 0. Debug only: dumps the incoming AST under -Dsirix.debug.ast=true, no-op otherwise.
     getStages().add(new AstDumpStage("incoming"));
     // 0b. count(E[]) / count(for $x in E[] return $x) -> the Sirix stored-array size accessor. Runs
@@ -136,6 +140,20 @@ public class SirixOptimizer extends TopDownOptimizer {
     // applying that decision is cheap. Keeping it mandatory is what makes index selection
     // independent of the optimizer budget.
     getStages().add(new IndexMatching(jsonItemStore));
+  }
+
+  /**
+   * Insert a stage directly before the first stage whose class is named {@code stageSimpleName}; a
+   * no-op when no such stage is in the pipeline.
+   */
+  private void insertStageBefore(final String stageSimpleName, final Stage stage) {
+    final var stages = getStages();
+    for (int i = 0; i < stages.size(); i++) {
+      if (stages.get(i).getClass().getSimpleName().equals(stageSimpleName)) {
+        stages.add(i, stage);
+        return;
+      }
+    }
   }
 
   @Override
