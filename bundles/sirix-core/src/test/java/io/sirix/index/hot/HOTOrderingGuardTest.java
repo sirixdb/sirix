@@ -44,10 +44,12 @@ import static org.mockito.Mockito.when;
  *
  * <p>
  * The pair and multi-child insertions failed on unmodified main in {@code h:pair-leaf} and
- * {@code h:fold-multi}, respectively, with a malformed published path. The full-frontier fixture
- * directly drives the writer's structural candidate builder: main declined its otherwise valid
- * candidate because slice compression put bit 4 above a child branching on bit 3 (I11). It does not
- * claim that an ordinary insertion exhausts every frontier candidate for that small trie.
+ * {@code h:fold-multi}, respectively, with a malformed published path. The full-frontier fixtures
+ * drive the writer's structural candidate builder and its strand handler directly, one candidate or
+ * one discharge at a time: main declined an otherwise valid candidate because slice compression put
+ * bit 4 above a child branching on bit 3 (I11), aborted outright where a half had no canonical
+ * block at all, and published a leaf slot stretched across its neighbour. They do not claim an
+ * ordinary insertion reaches each of those candidates for these small tries.
  * </p>
  */
 final class HOTOrderingGuardTest {
@@ -166,6 +168,81 @@ final class HOTOrderingGuardTest {
   }
 
   @Test
+  void aHalfWithNoCanonicalBlockMustDeclineTheCandidate() throws Exception {
+    try (final Fixture fixture = new Fixture()) {
+      // Two children straddle a bit of their parent's mask, as a Direction-1 sub-insert leaves them.
+      // Splitting before 0x7F keeps 31 of the 32 children, which drops the slice's most significant
+      // column and leaves bit 1 above the first straddler: the half has to be recanonicalized. Its
+      // join splits that straddler, reaching the 32-part fan-out, and then needs the second one too,
+      // so no canonical block exists for this half.
+      final PageReference[] children = new PageReference[32];
+      final int[] partials = new int[32];
+      for (int slot = 0; slot < 20; slot++) {
+        children[slot] = fixture.leaf(slot);
+        partials[slot] = slot;
+      }
+      children[20] = fixture.node(new int[] {1}, new int[] {0, 1}, fixture.leaf(0x3E), fixture.leaf(0x40));
+      partials[20] = 0x3E;
+      for (int slot = 21; slot < 28; slot++) {
+        children[slot] = fixture.leaf(0x41 + slot - 21);
+        partials[slot] = 0x41 + slot - 21;
+      }
+      children[28] = fixture.node(new int[] {2}, new int[] {0, 1}, fixture.leaf(0x5E), fixture.leaf(0x60));
+      partials[28] = 0x5E;
+      children[29] = fixture.leaf(0x61);
+      partials[29] = 0x61;
+      children[30] = fixture.leaf(0x7E);
+      partials[30] = 0x7E;
+      children[31] = fixture.leaf(0x80);
+      partials[31] = 0x80;
+      final PageReference source = fixture.node(new int[] {0, 1, 2, 3, 4, 5, 6, 7}, partials, children);
+      fixture.install(fixture.node(new int[] {0}, new int[] {0, 1}, source, fixture.leaf(0xC0)));
+
+      final long recanonicalized = AbstractHOTIndexWriter.FRONTIER_SPLIT_HALF_RECANONICALIZED.get();
+      final Method splice = Arrays.stream(AbstractHOTIndexWriter.class.getDeclaredMethods())
+                                  .filter(method -> method.getName().equals("trySpliceCompleteFrontier"))
+                                  .findFirst()
+                                  .orElseThrow();
+      splice.setAccessible(true);
+      final Constructor<?> frontierConstructor =
+          splice.getParameterTypes()[3].getDeclaredConstructor(int.class, int.class);
+      frontierConstructor.setAccessible(true);
+      final Object absent = Arrays.stream(splice.getParameterTypes()[6].getEnumConstants())
+                                  .filter(value -> value.toString().equals("ABSENT"))
+                                  .findFirst()
+                                  .orElseThrow();
+      final LeafNavigationResult route = fixture.writer.prepareLeafOfTree(fixture.root, key(0x7F), 1);
+      final Method loadChildren =
+          AbstractHOTIndexWriter.class.getDeclaredMethod("ensureNodeChildrenLoaded", HOTIndirectPage.class);
+      loadChildren.setAccessible(true);
+      loadChildren.invoke(fixture.writer, route.pathNodes()[0]);
+      try {
+        assertEquals(false,
+            splice.invoke(fixture.writer, route, route.pathNodes()[0], 0, frontierConstructor.newInstance(0, 1),
+                key(0x7F), key(0x7F), absent),
+            "a half with no canonical block must reject the candidate, not abort the insert");
+      } catch (final InvocationTargetException failure) {
+        throw new AssertionError("the candidate must be declined, never aborted", failure.getCause());
+      }
+
+      // The declined candidate leaves the source trie and the straddler's own leaves untouched, so
+      // spliceCompleteFrontierIncrementally can go on to the wider frontier and the higher levels.
+      assertEquals(recanonicalized, AbstractHOTIndexWriter.FRONTIER_SPLIT_HALF_RECANONICALIZED.get(),
+          "a half that never produced a block must not be counted as recanonicalized");
+      final HOTIndirectPage straddler = assertInstanceOf(HOTIndirectPage.class, fixture.page(children[20]));
+      assertEquals(2, straddler.getNumChildren());
+      for (int slot = 0; slot < 2; slot++) {
+        final HOTLeafPage leaf = assertInstanceOf(HOTLeafPage.class, fixture.page(straddler.getChildReference(slot)));
+        assertFalse(leaf.isClosed(), "a shared leaf of a declined straddle split must stay owned by the trie");
+        assertArrayEquals(key(slot == 0
+            ? 0x3E
+            : 0x40), leaf.getFirstKey());
+      }
+      assertEquals(32, assertInstanceOf(HOTIndirectPage.class, fixture.page(source)).getNumChildren());
+    }
+  }
+
+  @Test
   void pairGuardChecksAncestorMaximumAndAcceptsAnIndexExtreme() throws Exception {
     try (final Fixture fixture = new Fixture()) {
       final PageReference child = fixture.node(new int[] {1, 4}, new int[] {0, 1, 2}, fixture.leaf(0x00),
@@ -179,6 +256,27 @@ final class HOTOrderingGuardTest {
       assertFalse(fixture.guard("pairKeepsSpineOrder", route, 1, 0x60), "the leaf's parent has no next sibling slot");
       final LeafNavigationResult last = fixture.writer.prepareLeafOfTree(fixture.root, key(0x80), 1);
       assertTrue(fixture.guard("pairKeepsSpineOrder", last, 1, 0xff));
+    }
+  }
+
+  @Test
+  void strandDischargeMustNotMoveTheLeafSlotPastItsNeighbour() throws Exception {
+    try (final Fixture fixture = new Fixture()) {
+      // Bit 6 tells the two leaves apart, so 0x4C routes to the first one (a zero column claims
+      // nothing) although it sorts after the second one's 0x4A.
+      final PageReference child =
+          fixture.node(new int[] {6}, new int[] {0, 1}, fixture.leaf(0x48, 0x49), fixture.leaf(0x4A));
+      fixture.install(fixture.node(new int[] {0}, new int[] {0, 1}, child, fixture.leaf(0x80)));
+      fixture.assertKeys(0x48, 0x49, 0x4A, 0x80);
+      final Method discharge = AbstractHOTIndexWriter.class.getDeclaredMethod("strandDischargeSplitIntegrate",
+          LeafNavigationResult.class, byte[].class, byte[].class);
+      discharge.setAccessible(true);
+
+      // The handler keeps the descended leaf's slot, so 0x4C would stretch it across the next
+      // sibling's whole range — an integrate cascade that folds cleanly and still breaks I12.
+      assertEquals(false, discharge.invoke(fixture.writer, fixture.writer.prepareLeafOfTree(fixture.root, key(0x4C), 1),
+          key(0x4C), key(0x4C)), "a strand discharge that moves the leaf slot past its neighbour must decline");
+      fixture.assertKeys(0x48, 0x49, 0x4A, 0x80);
     }
   }
 

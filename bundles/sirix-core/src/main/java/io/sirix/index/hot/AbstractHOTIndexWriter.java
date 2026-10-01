@@ -3358,12 +3358,6 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Leaf pairs delegated to the complete frontier because {@code K}, as the paired slot's new
-   * extreme, would sort outside a neighbour boundary at some level of the spine.
-   */
-  public static final AtomicLong PAIR_LEAF_SPINE_ORDER_DELEGATED = new AtomicLong();
-
-  /**
    * Whether pairing {@code K} with the descended leaf keeps the ordered-range invariants (I8/I12) on
    * the whole spine. The pair keeps the leaf's slot, so {@code K} becomes that slot's new minimum
    * ({@code betaValue == 0}) or maximum ({@code betaValue == 1}); at every ancestor whose route slot
@@ -4702,7 +4696,6 @@ public abstract class AbstractHOTIndexWriter<K> {
         // frontier instead of publishing a violation.
         if (!pairKeepsSpineOrder(navResult, betaValue, keySlice)) {
           keyLeaf.close();
-          PAIR_LEAF_SPINE_ORDER_DELEGATED.incrementAndGet();
           return false; // K sorts outside a slot boundary the pair would move: complete frontier
         }
         // A height-1 parent fold keeps the old leaf's logical identity live under the rebuilt parent;
@@ -5570,6 +5563,14 @@ public abstract class AbstractHOTIndexWriter<K> {
     final byte[] unionMax = Arrays.compareUnsigned(keySlice, leafLast) > 0
         ? keySlice
         : leafLast;
+    // The BiNode takes the leaf's own slot, so the slot's range becomes [unionMin, unionMax]: where K
+    // is the new extreme, so is it for every containing subtree whose slot sits first (respectively
+    // last) in its node. Subset routing brought K to this leaf and does not imply lex position, so the
+    // boundary with the neighbour has to hold at every level the change reaches — the same proof the
+    // pair handler needs for the same slot, here for both of this handler's entry points.
+    if (!keyKeepsSpineOrder(navResult, navResult.pathDepth(), keySlice)) {
+      return false; // K sorts outside a boundary the leaf's slot would move: complete frontier
+    }
     final int unionMsdb = HOTBulkBuilder.msdb(unionMin, unionMax);
     if (!canIntegrateBiNodeCleanly(navResult.pathNodes(), navResult.pathChildIndices(), navResult.pathDepth(),
         unionMsdb)) {
@@ -5942,6 +5943,9 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
 
       split = splitSubtreeBeforeKey(sourceRef, keySlice, keyMode, replacedLeafRefs, 0);
+      if (split == null) {
+        return false; // no canonical split over this frontier; the split retired its own inputs
+      }
       final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
       putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
       keyRef = swizzle(keyLeaf);
@@ -6054,8 +6058,12 @@ public abstract class AbstractHOTIndexWriter<K> {
    * of the key itself is the caller's to state ({@link StructuralSplitKey}): a key being inserted is
    * absent, a bit boundary ({@link #firstKeyOnOneSide}) may coincide with a stored key, and a key
    * whose own entry the caller replaces is dropped out of the boundary leaf here.
+   *
+   * @return the two halves, or {@code null} when a half has no canonical block — every fresh page is
+   *         then retired and the caller only declines, exactly as for a frontier join that cannot
+   *         build its block
    */
-  private StructuralKeySplit splitSubtreeBeforeKey(final PageReference sourceRef, final byte[] keySlice,
+  private @Nullable StructuralKeySplit splitSubtreeBeforeKey(final PageReference sourceRef, final byte[] keySlice,
       final StructuralSplitKey keyMode, final List<PageReference> replacedLeafRefs, final int depth) {
     if (depth > MAX_PATH_DEPTH) {
       throw new IllegalStateException("HOT persistent key split exceeded " + MAX_PATH_DEPTH + " levels");
@@ -6139,13 +6147,33 @@ public abstract class AbstractHOTIndexWriter<K> {
     final int revision = storageEngineWriter.getRevisionNumber();
     final StructuralKeySplit childSplit =
         splitSubtreeBeforeKey(indirect.getChildReference(target), keySlice, keyMode, replacedLeafRefs, depth + 1);
+    if (childSplit == null) {
+      return null; // a deeper half has no canonical block; the decline carries up unchanged
+    }
     PageReference left = null;
     PageReference right = null;
     try {
-      left = compressChildSliceKeepingTrieCondition(indirect, 0, target + 1, target, childSplit.left(), revision,
-          replacedLeafRefs);
-      right = compressChildSliceKeepingTrieCondition(indirect, target, childCount, target, childSplit.right(), revision,
-          replacedLeafRefs);
+      final boolean leftIsPlain = sliceKeepsTrieCondition(indirect, 0, target + 1, target, childSplit.left());
+      left = leftIsPlain
+          ? HOTIncrementalInsert.compressChildSliceReplacing(indirect, 0, target + 1, target, childSplit.left(),
+              revision, pageKeyAllocator)
+          : recanonicalizeChildSlice(indirect, 0, target + 1, target, childSplit.left(), revision, replacedLeafRefs);
+      if (!leftIsPlain && left == null) {
+        // The join retired every fresh part of that slice, childSplit.left() among them. The other
+        // side is untouched and nothing else holds it, so it is retired here before declining.
+        discardUnpublishedStructuralCandidateOrThrow(childSplit.right());
+        return null;
+      }
+      final boolean rightIsPlain = sliceKeepsTrieCondition(indirect, target, childCount, target, childSplit.right());
+      right = rightIsPlain
+          ? HOTIncrementalInsert.compressChildSliceReplacing(indirect, target, childCount, target, childSplit.right(),
+              revision, pageKeyAllocator)
+          : recanonicalizeChildSlice(indirect, target, childCount, target, childSplit.right(), revision,
+              replacedLeafRefs);
+      if (!rightIsPlain && right == null) {
+        discardUnpublishedStructuralCandidateOrThrow(left);
+        return null;
+      }
       return new StructuralKeySplit(left, right);
     } catch (final RuntimeException | Error failure) {
       closeUnregisteredFreshSubtree(left, failure);
@@ -6164,7 +6192,8 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong FRONTIER_SPLIT_HALF_RECANONICALIZED = new AtomicLong();
 
   /**
-   * {@link HOTIncrementalInsert#compressChildSliceReplacing} with the trie condition (I11) kept.
+   * {@link HOTIncrementalInsert#compressChildSliceReplacing} redone as a canonical block, for the
+   * slices the plain compression would strip of the trie condition (I11).
    *
    * <p>
    * A slice keeps only the columns which vary across its retained sparse partials. A sparse partial
@@ -6173,23 +6202,23 @@ public abstract class AbstractHOTIndexWriter<K> {
    * branches (a zero column claims nothing), and a slice which drops every column above that child's
    * MSB then puts a less significant root bit above it. Every frontier candidate over such a half is
    * rightly declined as malformed, at every level of the spine, since each level splits the same
-   * boundary child at the same point — the complete-frontier splice then has nowhere left to go.
+   * boundary child at the same point — the complete-frontier splice would then have nowhere left to
+   * go.
    * </p>
    *
    * <p>
    * The block over the slice's ordered key ranges is what the frontier join already builds around
    * {@code K}: it branches on the true bits of the extremes and persistently splits a part at the bit
-   * it straddles. Applied only when the plain compression would break the trie condition, so every
-   * other split keeps its exact reference-only cost.
+   * it straddles. Applied only where {@link #sliceKeepsTrieCondition} fails, so every other split
+   * keeps its exact reference-only cost.
    * </p>
+   *
+   * @return the block, or {@code null} when the join could build none — every fresh part is then
+   *         retired, this slice's replacement among them, and the split only declines
    */
-  private @Nullable PageReference compressChildSliceKeepingTrieCondition(final HOTIndirectPage node,
-      final int fromInclusive, final int toExclusive, final int replacedChildIndex,
-      final @Nullable PageReference replacement, final int revision, final List<PageReference> replacedLeafRefs) {
-    if (sliceKeepsTrieCondition(node, fromInclusive, toExclusive, replacedChildIndex, replacement)) {
-      return HOTIncrementalInsert.compressChildSliceReplacing(node, fromInclusive, toExclusive, replacedChildIndex,
-          replacement, revision, pageKeyAllocator);
-    }
+  private @Nullable PageReference recanonicalizeChildSlice(final HOTIndirectPage node, final int fromInclusive,
+      final int toExclusive, final int replacedChildIndex, final @Nullable PageReference replacement,
+      final int revision, final List<PageReference> replacedLeafRefs) {
     final List<FrontierPart> parts = new ArrayList<>(toExclusive - fromInclusive);
     try {
       for (int slot = fromInclusive; slot < toExclusive; slot++) {
@@ -6205,12 +6234,9 @@ public abstract class AbstractHOTIndexWriter<K> {
       throw failure;
     }
     final PageReference block = joinOrderedParts(parts, revision, replacedLeafRefs);
-    if (block == null) {
-      // The join retired its fresh inputs, the replacement among them; nothing is left to compress.
-      throw new IllegalStateException(
-          "HOT persistent key split could not build a canonical block over a half whose child straddles a dropped column");
+    if (block != null) {
+      FRONTIER_SPLIT_HALF_RECANONICALIZED.incrementAndGet();
     }
-    FRONTIER_SPLIT_HALF_RECANONICALIZED.incrementAndGet();
     return block;
   }
 
@@ -6462,7 +6488,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * through. {@code onePath} holds the bits on which the whole range already sits on the 1-side.
    *
    * @return the number of branching bits recorded in {@code blockBits}, or {@code -1} when the range
-   *         cannot be one block — it would exceed a node's fan-out, or a part does not split
+   *         cannot be one block — it would exceed a node's fan-out, or a part does not split, or
+   *         splitting it declines
    */
   private int assignFrontierPaths(final List<FrontierPart> parts, final int lo, final int hi, final int[] blockBits,
       final int blockBitCount, final int[] onePath, final List<PageReference> replacedLeafRefs) {
@@ -6484,6 +6511,11 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       final StructuralKeySplit halves = splitSubtreeBeforeKey(transition.ref, firstKeyOnOneSide(transition.first, bit),
           StructuralSplitKey.MAY_BE_PRESENT, replacedLeafRefs, 0);
+      if (halves == null) {
+        // The straddle split declined and retired its own fresh pages; the part it was to replace
+        // stays in the list, so the caller retires it with the rest.
+        return -1;
+      }
       if (halves.left() == null || halves.right() == null) {
         // The extremes disagree on the bit yet no key sits on one side: the part is not ordered.
         // The surviving half stays owned by the list so the caller retires it.
