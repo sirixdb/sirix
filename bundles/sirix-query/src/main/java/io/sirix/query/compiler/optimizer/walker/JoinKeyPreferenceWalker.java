@@ -27,8 +27,8 @@ import java.util.List;
  * This walker runs between those two and rewrites each chain of selections directly below a binding
  * into
  * <ol>
- * <li>the selections that reference only this binding (or nothing bound in the pipeline) — Brackit
- * copies them into the join's right input, so they filter the build side before the join;</li>
+ * <li>the selections that reference no earlier binding — Brackit copies them into the join's right
+ * input, so they filter the build side before the join;</li>
  * <li>the equality nearest the head of the chain whose two sides reference this binding and only
  * earlier bindings, respectively — the join key. That is the first eligible equality
  * {@code JoinRewriter} itself reaches, so whenever its own choice is already such an equality the
@@ -49,15 +49,8 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
   private static final int EQUALITY = 1;
   private static final int RESIDUAL = 2;
 
-  private int rewrites;
-
   public JoinKeyPreferenceWalker(final StaticContext sctx) {
     super(sctx);
-  }
-
-  /** Number of selection chains this walk reordered. */
-  public int rewrites() {
-    return rewrites;
   }
 
   @Override
@@ -118,7 +111,6 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
       next = selection;
     }
     node.replaceChild(node.getChildCount() - 1, next);
-    rewrites++;
     snapshot();
     refreshScopes(node, true);
     return node;
@@ -127,8 +119,17 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
   /**
    * {@link #EQUALITY} mirrors {@code JoinRewriter}'s eligibility for an equality keyed on this
    * binding: a comparison whose one side references only this binding and whose other side references
-   * only earlier bindings, both sides non-static. {@link #RIGHT_ONLY}: every pipeline reference is to
-   * this binding (or there is none). Everything else is {@link #RESIDUAL}.
+   * only earlier bindings, both sides non-static. {@link #RIGHT_ONLY}: the predicate references no
+   * earlier binding, so it filters this binding's input on its own. Everything else is
+   * {@link #RESIDUAL}.
+   *
+   * <p>
+   * Only an earlier pipeline binding compares less than {@code bind}. The scopes {@code ScopeWalker}
+   * opens inside a predicate — a quantified binding, a filter's {@code fs:dot}, a nested FLWOR — are
+   * descendants of {@code bind} and compare greater, so it is the sign of {@code Scope.compareTo},
+   * not inequality with {@code bind}, that separates a foreign binding from the predicate's own
+   * scopes.
+   * </p>
    */
   private int classify(final AST predicate, final Scope bind) {
     final VarRef refs = findVarRefs(predicate);
@@ -136,14 +137,14 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
       return RIGHT_ONLY;
     }
     final Scope[] scopes = sortScopes(refs);
-    boolean usesOther = false;
+    boolean usesEarlier = false;
     for (final Scope scope : scopes) {
-      if (scope != bind) {
-        usesOther = true;
+      if (scope.compareTo(bind) < 0) {
+        usesEarlier = true;
         break;
       }
     }
-    if (!usesOther) {
+    if (!usesEarlier) {
       return RIGHT_ONLY;
     }
     if (predicate.getType() != XQ.ComparisonExpr || predicate.getChildCount() != 3) {
@@ -167,8 +168,9 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
   private static final int SIDE_OTHER = 3;
 
   /**
-   * Which bindings one comparison side references: only this one, only earlier ones, or anything
-   * else.
+   * Which pipeline bindings one comparison side references: only this one, only earlier ones, or a
+   * mix. A scope opened inside the predicate itself is a descendant of {@code bind} and so belongs to
+   * this binding's side.
    */
   private int side(final AST expression, final Scope bind) {
     final VarRef refs = findVarRefs(expression);
@@ -178,12 +180,10 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
     boolean thisBinding = false;
     boolean earlier = false;
     for (final Scope scope : sortScopes(refs)) {
-      if (scope == bind) {
-        thisBinding = true;
-      } else if (scope.compareTo(bind) < 0) {
+      if (scope.compareTo(bind) < 0) {
         earlier = true;
       } else {
-        return SIDE_OTHER;
+        thisBinding = true;
       }
     }
     if (thisBinding && !earlier) {

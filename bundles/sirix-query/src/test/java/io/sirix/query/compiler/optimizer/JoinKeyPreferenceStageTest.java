@@ -3,6 +3,8 @@ package io.sirix.query.compiler.optimizer;
 import io.brackit.query.Query;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
+import io.brackit.query.compiler.optimizer.DefaultOptimizer;
+import io.brackit.query.compiler.optimizer.Stage;
 import io.sirix.JsonTestHelper;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -39,9 +41,9 @@ final class JoinKeyPreferenceStageTest {
           + "{\"id\":3,\"pid\":10,\"cost\":9,\"region\":\"us\",\"vf\":\"2024-06-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"},"
           + "{\"id\":4,\"pid\":30,\"cost\":2,\"region\":\"eu\",\"vf\":\"2023-01-01T00:00:00Z\",\"vt\":\"2024-02-01T00:00:00Z\"}]";
   private static final String PRODUCTS =
-      "[{\"id\":10,\"category\":\"a\",\"retail\":20,\"region\":\"eu\",\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-08-01T00:00:00Z\"},"
-          + "{\"id\":20,\"category\":\"b\",\"retail\":30,\"region\":\"eu\",\"vf\":\"2024-04-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"},"
-          + "{\"id\":10,\"category\":\"c\",\"retail\":25,\"region\":\"us\",\"vf\":\"2024-08-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}]";
+      "[{\"id\":10,\"category\":\"a\",\"retail\":20,\"region\":\"eu\",\"items\":[1,9],\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-08-01T00:00:00Z\"},"
+          + "{\"id\":20,\"category\":\"b\",\"retail\":30,\"region\":\"eu\",\"items\":[2,3],\"vf\":\"2024-04-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"},"
+          + "{\"id\":10,\"category\":\"c\",\"retail\":25,\"region\":\"us\",\"items\":[4,8],\"vf\":\"2024-08-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}]";
   private static final String PROLOG = "declare variable $L := xs:dateTime('2024-02-15T00:00:00Z');"
       + "declare variable $U := xs:dateTime('2024-10-15T00:00:00Z');" + "declare variable $C := " + CONTRACTS + ";"
       + "declare variable $P := " + PRODUCTS + ";";
@@ -75,6 +77,17 @@ final class JoinKeyPreferenceStageTest {
   /** Q12's anti-join shape: one equality inside {@code empty(for … where … return …)}. */
   private static final String ANTI_JOIN = PROLOG + "for $c in $C[]"
       + " where empty(for $p in $P[] where $p.id eq $c.pid return $p) order by $c.id return $c.id";
+  /**
+   * A conjunct that references only the right binding but opens its own scope for the quantified
+   * variable, so it must still filter the build side rather than follow the join.
+   */
+  private static final String QUANTIFIED_RIGHT_ONLY =
+      PROLOG + "for $c in $C[] for $p in $P[]" + " where (some $i in $p.items[] satisfies $i gt 5) and $c.pid eq $p.id"
+          + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
+  /** An equality whose right side opens its own scope; Brackit keys on it, so the rule must too. */
+  private static final String NESTED_SCOPE_EQUALITY = PROLOG + "for $c in $C[] for $p in $P[]"
+      + " where $c.cost eq max(for $i in $p.items[] return $i) and $c.pid eq $p.id"
+      + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
   private static final String NESTED_FOR =
       PROLOG + "for $c in $C[] for $p in $P[]" + " where $c.pid eq $p.id and $c.cost lt $p.retail"
           + " return count(for $q in $P[] where $q.id eq $p.id and $q.retail ge $c.cost return $q)";
@@ -156,6 +169,46 @@ final class JoinKeyPreferenceStageTest {
     final Plan plan = assertKeptKey(COMPOSITE_REGION_LAST);
     assertEquals("c.pid", deref(end(plan.joins.get(0).getChild(0))), "the equality at the chain head");
     assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":2,\"p\":\"b\"} {\"c\":3,\"p\":\"c\"}", plan.answer.trim());
+  }
+
+  @Test
+  @DisplayName("a conjunct that opens its own scope still filters the build side")
+  void quantifiedRightOnlyConjunctStaysOnTheBuildSide() throws IOException {
+    final Plan plan = plan(QUANTIFIED_RIGHT_ONLY);
+    final Plan without = planWithoutRule(QUANTIFIED_RIGHT_ONLY);
+    final AST join = plan.joins.get(0);
+    assertEquals("c.pid", deref(end(join.getChild(0))), "left join key");
+    assertEquals(selectionsBelow(without.joins.get(0).getChild(1)), selectionsBelow(join.getChild(1)),
+        "the quantified conjunct filters the build side, exactly as without the rule");
+    assertEquals(0, selectionsBelow(join.getChild(3)), "it is not demoted to a post-join filter");
+    assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":1,\"p\":\"c\"} {\"c\":3,\"p\":\"a\"} {\"c\":3,\"p\":\"c\"}",
+        plan.answer.trim());
+    assertEquals(without.answer, plan.answer, "answers are byte-identical");
+  }
+
+  @Test
+  @DisplayName("an equality whose side opens its own scope keeps the key Brackit picked")
+  void nestedScopeEqualityKeepsTheRuleOffKey() throws IOException {
+    final Plan plan = assertKeptKey(NESTED_SCOPE_EQUALITY);
+    assertEquals("{\"c\":3,\"p\":\"a\"}", plan.answer.trim());
+  }
+
+  @Test
+  @DisplayName("the stage is installed directly before Brackit's join recognition")
+  void theStageIsInstalledBeforeJoinRecognition() {
+    assertTrue(DefaultOptimizer.JOIN_DETECTION, "Brackit join detection is on by default");
+    final List<Stage> stages = new SirixOptimizer(null, null, null).getStages();
+    int preference = -1;
+    int joinRecognition = -1;
+    for (int i = 0; i < stages.size(); i++) {
+      if (stages.get(i) instanceof JoinKeyPreferenceStage) {
+        preference = i;
+      } else if ("JoinRecognition".equals(stages.get(i).getClass().getSimpleName())) {
+        joinRecognition = i;
+      }
+    }
+    assertTrue(joinRecognition >= 0, "Brackit still names its join-recognition stage JoinRecognition");
+    assertEquals(joinRecognition - 1, preference, "the join-key preference stage runs directly before it");
   }
 
   @Test
