@@ -8,10 +8,9 @@ import io.sirix.query.compiler.optimizer.walker.JoinKeyPreferenceWalker;
 /**
  * Optimizer stage that runs {@link JoinKeyPreferenceWalker} between Brackit's predicate reordering
  * and its join recognition: the join is keyed on an equality (a hash join) rather than on whichever
- * general comparison the reversed selection order happens to present first, and every single-side
- * predicate of the right input filters the build side before the join. Generic — it applies to
- * every FLWOR with a join-capable where clause — and answers are unchanged, since it only reorders
- * selections and merges the residual ones into one conjunction.
+ * general comparison the pulled-up selection chain happens to head, and every single-side predicate
+ * of the right input filters the build side before the join. Generic — it applies to every FLWOR
+ * with a join-capable where clause — and answers are unchanged, since it only reorders selections.
  *
  * <p>
  * {@code -Dsirix.optimizer.joinKeyPreference=false} disables the stage (read when the optimizer is

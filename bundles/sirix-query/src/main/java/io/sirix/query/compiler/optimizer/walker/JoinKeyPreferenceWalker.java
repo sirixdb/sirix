@@ -6,7 +6,6 @@ import io.brackit.query.compiler.optimizer.walker.topdown.ScopeWalker;
 import io.brackit.query.module.StaticContext;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -15,12 +14,13 @@ import java.util.List;
  *
  * <p>
  * Brackit's {@code SelectPullup} lifts every selection whose innermost dependency is the binding to
- * directly below that binding, one on top of the other, which reverses their textual order; its
- * top-down {@code JoinRewriter} then turns the <em>first</em> join-capable comparison it meets into
- * the join condition. For {@code where $c.pid eq
- * $p.id and ... and xs:dateTime($p.vf) lt xs:dateTime($c.vt)} that is the trailing inequality: a
- * general-comparison join that emits close to the cross product and evaluates the equality per
- * pair.
+ * directly below that binding, one on top of the other, so the resulting chain no longer follows
+ * the textual order of the where clause; its top-down {@code JoinRewriter} then turns the
+ * <em>first</em> join-capable comparison in that chain into the join condition. For
+ * {@code where $c.pid eq $p.id
+ * and ... and xs:dateTime($p.vf) lt xs:dateTime($c.vt)} the head of the chain is the trailing
+ * inequality: a general-comparison join that emits close to the cross product and evaluates the
+ * equality per pair.
  * </p>
  *
  * <p>
@@ -29,11 +29,14 @@ import java.util.List;
  * <ol>
  * <li>the selections that reference only this binding (or nothing bound in the pipeline) — Brackit
  * copies them into the join's right input, so they filter the build side before the join;</li>
- * <li>the equality the query wrote first whose two sides reference this binding and only earlier
- * bindings, respectively — the join key;</li>
- * <li>one selection over the conjunction of every remaining predicate (other equalities,
- * inequalities, mixed predicates) — it follows the join as a residual filter; as a conjunction it
- * is not a candidate for the rewriter.</li>
+ * <li>the equality nearest the head of the chain whose two sides reference this binding and only
+ * earlier bindings, respectively — the join key. That is the first eligible equality
+ * {@code JoinRewriter} itself reaches, so whenever its own choice is already such an equality the
+ * key is left exactly as it was: the rule only ever re-keys away from a non-equality, never from
+ * one equality to another;</li>
+ * <li>every remaining predicate (other equalities, inequalities, mixed predicates) in its chain
+ * order — they follow the join as residual filters, which Brackit's {@code PredicateMerge} then
+ * collapses into one conjunction.</li>
  * </ol>
  * Selections referencing only earlier bindings were already lifted above this binding by
  * {@code SelectPullup}. A chain without an eligible equality is left untouched, so inequality-only
@@ -89,12 +92,11 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
       switch (classify(selection.getChild(0), bind)) {
         case RIGHT_ONLY -> rightOnly.add(selection);
         case EQUALITY -> {
-          // SelectPullup stacked the lifted selections in reverse query order, so the last eligible
-          // equality in the chain is the first one the query wrote.
-          if (key != null) {
-            residual.add(key);
+          if (key == null) {
+            key = selection;
+          } else {
+            residual.add(selection);
           }
-          key = selection;
         }
         default -> residual.add(selection);
       }
@@ -102,29 +104,12 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
     if (key == null) {
       return node;
     }
-    Collections.reverse(residual); // back to query order for the residual conjunction
-    // Already in the preferred order: right-only selections, the key, then at most one residual.
-    final int keyIndex = chain.indexOf(key);
-    if (keyIndex == rightOnly.size() && residual.size() <= 1 && chain.subList(0, keyIndex).equals(rightOnly)) {
-      return node;
-    }
-    final List<AST> order = new ArrayList<>(rightOnly.size() + 2);
+    final List<AST> order = new ArrayList<>(chain.size());
     order.addAll(rightOnly);
     order.add(key);
-    if (residual.size() == 1) {
-      order.add(residual.get(0));
-    } else if (residual.size() > 1) {
-      AST conjunction = residual.get(0).getChild(0);
-      for (int i = 1; i < residual.size(); i++) {
-        final AST and = new AST(XQ.AndExpr);
-        and.addChild(conjunction);
-        and.addChild(residual.get(i).getChild(0));
-        conjunction = and;
-      }
-      final AST merged = new AST(XQ.Selection);
-      merged.addChild(conjunction);
-      merged.addChild(downstream);
-      order.add(merged);
+    order.addAll(residual);
+    if (order.equals(chain)) {
+      return node;
     }
     AST next = downstream;
     for (int i = order.size() - 1; i >= 0; i--) {

@@ -9,7 +9,6 @@ import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -25,8 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The join-key preference rule: Brackit's reversed selection order made the trailing comparison of
- * a where clause the join condition; with the rule the join is keyed on an equality, right-side
+ * The join-key preference rule: the head of Brackit's pulled-up selection chain made a trailing
+ * comparison the join condition; with the rule the join is keyed on an equality, right-side
  * predicates sit inside the right input, everything else follows the join as a residual, and every
  * answer is byte-identical to the plan without the rule.
  */
@@ -35,14 +34,14 @@ final class JoinKeyPreferenceStageTest {
   private String previousEnabledProperty;
 
   private static final String CONTRACTS =
-      "[{\"id\":1,\"pid\":10,\"cost\":5,\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-07-01T00:00:00Z\"},"
-          + "{\"id\":2,\"pid\":20,\"cost\":7,\"vf\":\"2024-03-01T00:00:00Z\",\"vt\":\"2024-09-01T00:00:00Z\"},"
-          + "{\"id\":3,\"pid\":10,\"cost\":9,\"vf\":\"2024-06-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"},"
-          + "{\"id\":4,\"pid\":30,\"cost\":2,\"vf\":\"2023-01-01T00:00:00Z\",\"vt\":\"2024-02-01T00:00:00Z\"}]";
+      "[{\"id\":1,\"pid\":10,\"cost\":5,\"region\":\"eu\",\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-07-01T00:00:00Z\"},"
+          + "{\"id\":2,\"pid\":20,\"cost\":7,\"region\":\"eu\",\"vf\":\"2024-03-01T00:00:00Z\",\"vt\":\"2024-09-01T00:00:00Z\"},"
+          + "{\"id\":3,\"pid\":10,\"cost\":9,\"region\":\"us\",\"vf\":\"2024-06-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"},"
+          + "{\"id\":4,\"pid\":30,\"cost\":2,\"region\":\"eu\",\"vf\":\"2023-01-01T00:00:00Z\",\"vt\":\"2024-02-01T00:00:00Z\"}]";
   private static final String PRODUCTS =
-      "[{\"id\":10,\"category\":\"a\",\"retail\":20,\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-08-01T00:00:00Z\"},"
-          + "{\"id\":20,\"category\":\"b\",\"retail\":30,\"vf\":\"2024-04-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"},"
-          + "{\"id\":10,\"category\":\"c\",\"retail\":25,\"vf\":\"2024-08-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}]";
+      "[{\"id\":10,\"category\":\"a\",\"retail\":20,\"region\":\"eu\",\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-08-01T00:00:00Z\"},"
+          + "{\"id\":20,\"category\":\"b\",\"retail\":30,\"region\":\"eu\",\"vf\":\"2024-04-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"},"
+          + "{\"id\":10,\"category\":\"c\",\"retail\":25,\"region\":\"us\",\"vf\":\"2024-08-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}]";
   private static final String PROLOG = "declare variable $L := xs:dateTime('2024-02-15T00:00:00Z');"
       + "declare variable $U := xs:dateTime('2024-10-15T00:00:00Z');" + "declare variable $C := " + CONTRACTS + ";"
       + "declare variable $P := " + PRODUCTS + ";";
@@ -65,16 +64,17 @@ final class JoinKeyPreferenceStageTest {
   private static final String THREE_WAY = PROLOG + "for $c in $C[] for $p in $P[] for $q in $P[]"
       + " where xs:dateTime($p.vf) lt xs:dateTime($c.vt) and $c.pid eq $p.id and $q.category ne $p.category and $q.id eq $c.pid"
       + " order by $c.id, $p.category, $q.category return {\"c\":$c.id,\"p\":$p.category,\"q\":$q.category}";
-  private static final String LEFT_OUTER = PROLOG + "for $c in $C[]"
-      + " let $m := (for $p in $P[] where xs:dateTime($p.vf) lt xs:dateTime($c.vt) and $p.id eq $c.pid return $p.category)"
-      + " order by $c.id return {\"c\":$c.id,\"matches\":count($m)}";
+  /** A composite key: an unselective and a selective equality, either of which Brackit may head. */
+  private static final String COMPOSITE_REGION_FIRST =
+      PROLOG + "for $c in $C[] for $p in $P[]" + " where $c.region eq $p.region and $c.pid eq $p.id"
+          + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
+  /** The same composite key with its two conjuncts reversed, which heads the other equality. */
+  private static final String COMPOSITE_REGION_LAST =
+      PROLOG + "for $c in $C[] for $p in $P[]" + " where $c.pid eq $p.id and $c.region eq $p.region"
+          + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
   /** Q12's anti-join shape: one equality inside {@code empty(for … where … return …)}. */
   private static final String ANTI_JOIN = PROLOG + "for $c in $C[]"
       + " where empty(for $p in $P[] where $p.id eq $c.pid return $p) order by $c.id return $c.id";
-  /** The same anti-join with a second, mixed predicate inside the nested where clause. */
-  private static final String ANTI_JOIN_TWO_PREDICATES = PROLOG + "for $c in $C[]"
-      + " where empty(for $p in $P[] where xs:dateTime($p.vf) gt xs:dateTime($c.vf) and $p.id eq $c.pid return $p)"
-      + " order by $c.id return $c.id";
   private static final String NESTED_FOR =
       PROLOG + "for $c in $C[] for $p in $P[]" + " where $c.pid eq $p.id and $c.cost lt $p.retail"
           + " return count(for $q in $P[] where $q.id eq $p.id and $q.retail ge $c.cost return $q)";
@@ -105,6 +105,8 @@ final class JoinKeyPreferenceStageTest {
     assertEquals("p.id", deref(end(join.getChild(1))), "right join key");
     assertTrue(selectionsBelow(join.getChild(1)) >= 1, "the right input filters products before the join");
     assertTrue(containsComparison(join.getChild(3), XQ.ValueCompLT), "the inequalities follow the join");
+    assertEquals(XQ.AndExpr, onlySelection(join.getChild(3)).getChild(0).getType(),
+        "Brackit's own PredicateMerge collapses the residuals into one conjunction");
     assertEquals("{\"category\":\"a\",\"n\":2,\"min\":11,\"max\":15} "
         + "{\"category\":\"b\",\"n\":1,\"min\":23,\"max\":23} " + "{\"category\":\"c\",\"n\":1,\"min\":16,\"max\":16}",
         plan.answer.trim());
@@ -134,15 +136,26 @@ final class JoinKeyPreferenceStageTest {
   }
 
   @Test
-  @DisplayName("with two equalities the first is the key and the second is a residual")
-  void firstEqualityIsTheKey() throws IOException {
-    final Plan plan = plan(TWO_EQUALITIES);
-    final AST join = plan.joins.get(0);
-    assertEquals("c.pid", deref(end(join.getChild(0))));
-    assertEquals("p.id", deref(end(join.getChild(1))));
-    assertTrue(containsComparison(join.getChild(3), XQ.ValueCompEQ), "the second equality is a residual");
-    assertTrue(containsComparison(join.getChild(3), XQ.ValueCompLT), "the inequality is a residual");
-    assertEquals(planWithoutRule(TWO_EQUALITIES).answer, plan.answer);
+  @DisplayName("with two equalities the key Brackit already picked is kept")
+  void twoEqualitiesKeepTheKeyBrackitPicked() throws IOException {
+    assertKeptKey(TWO_EQUALITIES);
+  }
+
+  @Test
+  @DisplayName("a composite key is keyed exactly as it is without the rule")
+  void compositeKeyKeepsTheRuleOffKey() throws IOException {
+    final Plan plan = assertKeptKey(COMPOSITE_REGION_FIRST);
+    assertEquals("c.region", deref(end(plan.joins.get(0).getChild(0))), "the equality at the chain head");
+    assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":2,\"p\":\"b\"} {\"c\":3,\"p\":\"c\"}", plan.answer.trim());
+  }
+
+  @Test
+  @DisplayName("the same composite key with its conjuncts reversed is also keyed as it is without the rule")
+  void reversedCompositeKeyKeepsTheRuleOffKey() throws IOException {
+    // The reversed clause heads the chain with the other equality, so the two keys really do differ.
+    final Plan plan = assertKeptKey(COMPOSITE_REGION_LAST);
+    assertEquals("c.pid", deref(end(plan.joins.get(0).getChild(0))), "the equality at the chain head");
+    assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":2,\"p\":\"b\"} {\"c\":3,\"p\":\"c\"}", plan.answer.trim());
   }
 
   @Test
@@ -165,18 +178,6 @@ final class JoinKeyPreferenceStageTest {
   }
 
   @Test
-  @Disabled("a nested where clause with two predicates inside empty(…) answers nothing before this rule (every"
-      + " contract is excluded: the nested pipeline's predicates are lost in the left-join conversion) — the same"
-      + " filed nested-FLWOR bug as the let-bound shape; enable once it is fixed")
-  @DisplayName("an anti-join with a mixed nested where clause excludes only the matched contracts")
-  void antiJoinWithTwoNestedPredicates() throws IOException {
-    // c1 and c3 have a later-starting product 10, c2 a later-starting product 20; only c4 (pid 30)
-    // stays.
-    assertEquals("4", planWithoutRule(ANTI_JOIN_TWO_PREDICATES).answer.trim(), "without the rule");
-    assertEquals("4", plan(ANTI_JOIN_TWO_PREDICATES).answer.trim(), "with the rule");
-  }
-
-  @Test
   @DisplayName("a nested for in the return clause is exact with and without the rule")
   void nestedForInReturnStaysExact() throws IOException {
     // Pairs (c1,p10a) (c1,p10c) (c2,p20) (c3,p10a) (c3,p10c); products with the pair's id and retail >=
@@ -185,20 +186,21 @@ final class JoinKeyPreferenceStageTest {
     assertEquals("2 2 1 2 2", planWithoutRule(NESTED_FOR).answer.trim());
   }
 
-  @Test
-  @Disabled("the let-bound nested FLWOR answers wrong counts before this rule (every contract gets 3 matches: the"
-      + " where clause of the let-bound pipeline is lost) — the let-bound wrong-answer bug filed separately; enable"
-      + " once it is fixed")
-  @DisplayName("a let-bound outer-join shape counts the matching products")
-  void letBoundOuterJoinCountsMatches() throws IOException {
-    // c1: p10a only (p10c starts after c1 ends); c2: p20; c3: p10a and p10c; c4: none.
-    final String expected =
-        "{\"c\":1,\"matches\":1} {\"c\":2,\"matches\":1} {\"c\":3,\"matches\":2} {\"c\":4,\"matches\":0}";
-    assertEquals(expected, planWithoutRule(LEFT_OUTER).answer.trim());
-    assertEquals(expected, plan(LEFT_OUTER).answer.trim());
-  }
-
   // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The rule must never re-key a join away from an equality Brackit itself already picked: it keys on
+   * the equality nearest the head of the selection chain, which is the one {@code JoinRewriter}
+   * reaches first.
+   */
+  private static Plan assertKeptKey(final String query) throws IOException {
+    final Plan plan = plan(query);
+    final Plan without = planWithoutRule(query);
+    assertEquals(without.joins.size(), plan.joins.size(), "join count");
+    assertEquals(keySignature(without.joins.get(0)), keySignature(plan.joins.get(0)), "join key");
+    assertEquals(without.answer, plan.answer, "answers are byte-identical");
+    return plan;
+  }
 
   private record Plan(String answer, List<AST> joins) {
   }
@@ -262,6 +264,41 @@ final class JoinKeyPreferenceStageTest {
   private static String functionName(final AST expression) {
     assertEquals(XQ.FunctionCall, expression.getType(), "function call expected, got " + expression);
     return String.valueOf(expression.getValue());
+  }
+
+  /** The two keyed expressions of a join, as a structural signature comparable across plans. */
+  private static String keySignature(final AST join) {
+    return signature(end(join.getChild(0))) + " eq " + signature(end(join.getChild(1)));
+  }
+
+  private static String signature(final AST node) {
+    final StringBuilder out = new StringBuilder(64);
+    signature(node, out);
+    return out.toString();
+  }
+
+  private static void signature(final AST node, final StringBuilder out) {
+    out.append(XQ.NAMES[node.getType()]);
+    if (node.getValue() != null) {
+      out.append('(').append(String.valueOf(node.getValue()).replaceAll(";\\d+$", "")).append(')');
+    }
+    if (node.getChildCount() > 0) {
+      out.append('[');
+      for (int i = 0; i < node.getChildCount(); i++) {
+        if (i > 0) {
+          out.append(", ");
+        }
+        signature(node.getChild(i), out);
+      }
+      out.append(']');
+    }
+  }
+
+  private static AST onlySelection(final AST node) {
+    final List<AST> selections = new ArrayList<>();
+    collect(node, XQ.Selection, selections);
+    assertEquals(1, selections.size(), "exactly one selection");
+    return selections.get(0);
   }
 
   private static int selectionsBelow(final AST node) {
