@@ -1,0 +1,27 @@
+import io.brackit.query.Query;
+import io.sirix.query.SirixCompileChain;
+import io.sirix.query.bench.clickbench.ClickBenchQueries;
+import io.sirix.query.json.BasicJsonDBStore;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+public final class ClickBenchPlanProbe {
+  public static void main(String[] args) throws Exception {
+    Path out = Path.of(args[0]);
+    Files.createDirectories(out);
+    try (var store = BasicJsonDBStore.newBuilder().location(out.resolve("store")).build();
+         var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      int plans = 0;
+      for (var query : ClickBenchQueries.all()) {
+        for (int variant = 0; variant < query.variants().size(); variant++) {
+          new Query(chain, ClickBenchQueries.wrap("clickbench-plan", "hits", query.jsoniq(variant)));
+          var plan = new StringBuilder();
+          Q12Probe.dump(chain.getOptimizedAST(), 0, plan);
+          Files.writeString(out.resolve("q" + query.index() + "v" + variant + ".plan.txt"), plan);
+          plans++;
+        }
+      }
+      System.out.println("COMPILED_PLANS=" + plans);
+    }
+  }
+}

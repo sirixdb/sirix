@@ -1,0 +1,26 @@
+{
+  "sirix-query": {
+    "suites": 248,
+    "tests": 1774,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5,
+    "scope": "Full sirix-query:test plus spotlessCheck"
+  },
+  "sirix-core": {
+    "suites": 3,
+    "tests": 25,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "scope": "io.sirix.budget.*; io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest"
+  },
+  "membership_work_mutation": {
+    "enabled_inner_visits": 128,
+    "disabled_inner_visits": 24640,
+    "outer_rows": 256,
+    "inner_rows": 128,
+    "disabled_test_failed_as_expected": true
+  },
+  "brackit_sha256": "7da6e0d4508c0032aac882da2b4a750cf9adf87f96475ae7f011cfa7b92d7508"
+}

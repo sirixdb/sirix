@@ -38,6 +38,8 @@ import io.sirix.exception.SirixException;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
+import io.sirix.query.compiler.expression.MembershipIndexExpr;
+import io.sirix.query.compiler.expression.MembershipProbeExpr;
 import io.sirix.query.compiler.expression.VectorizedPipelineExpr;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
@@ -58,6 +60,7 @@ import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.compiler.translator.TopDownTranslator;
 import io.brackit.query.module.Namespaces;
 import io.sirix.query.compiler.optimizer.ComputedAggregateDetectionStage;
+import io.sirix.query.compiler.optimizer.HashMembershipStage;
 import io.sirix.query.scan.SirixExecutorProvider;
 import io.brackit.query.expr.Accessor;
 import io.brackit.query.jdm.Axis;
@@ -119,7 +122,12 @@ public class SirixTranslator extends TopDownTranslator {
   }
 
   protected Expr anyExpr(AST node) throws QueryException {
-    if (node.getType() == XQExt.IndexExpr) {
+    if (node.getType() == XQExt.MembershipIndexExpr) {
+      return new MembershipIndexExpr(expr(node.getChild(0), true), (QNm) node.getProperty(HashMembershipStage.FIELD));
+    } else if (node.getType() == XQExt.MembershipProbeExpr) {
+      return new MembershipProbeExpr(expr(node.getChild(0), true), expr(node.getChild(1), true),
+          node.checkProperty(HashMembershipStage.ANTI), expr(node.getChild(2), true));
+    } else if (node.getType() == XQExt.IndexExpr) {
       return indexExpr(node);
     } else if (node.getType() == XQExt.VectorizedPipelineExpr) {
       return new VectorizedPipelineExpr(node.getProperties());
