@@ -196,6 +196,18 @@ The optimizer is a **pipeline** of 10 stages. Each stage implements the `Stage` 
   10    IndexMatching              Actually rewrite the AST to use specific indexes
 ```
 
+### One Sirix Stage Runs Before These Ten
+
+`JoinKeyPreferenceStage` is not appended after Brackit's stages like the ten above; it is inserted
+into Brackit's own stage list directly before its `JoinRecognition`, because it has to order the
+selection chain below a binding *before* Brackit picks the join condition. The join is then keyed on
+an eligible equality — a hash join — instead of on whichever comparison happens to head that chain,
+and the predicates that reference no earlier binding filter the join's build side. It is installed
+only when Brackit's join detection is on and `-Dsirix.optimizer.joinKeyPreference` is not `false`;
+a missing `JoinRecognition` anchor fails optimizer construction rather than silently dropping the
+stage. The javadoc of `JoinKeyPreferenceWalker` owns which equalities qualify, which predicates move
+where, and how the move changes which rows a predicate sees.
+
 ### Why This Order?
 
 The ordering is deliberate:

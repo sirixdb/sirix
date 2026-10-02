@@ -104,9 +104,9 @@ final class JoinKeyPreferenceStageTest {
       + " where $m eq $c.pid and $m lt 25 order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
   /**
    * An equality whose one operand mixes two later bindings ({@code $p.retail - $q.b}) while the other
-   * references only the earliest: {@code JoinRewriter} keys on it by building the mixed operand on the
-   * build input, so the rule must leave that key alone rather than re-key onto {@code $q.id eq $c.id}
-   * and enumerate the probe side's cross product.
+   * references only the earliest: {@code JoinRewriter} keys on it by building the mixed operand on
+   * the build input, so the rule must leave that key alone rather than re-key onto
+   * {@code $q.id eq $c.id} and enumerate the probe side's cross product.
    *
    * <p>
    * The assertions read the plan after the whole optimizer, not after {@code JoinRecognition}:
@@ -116,8 +116,7 @@ final class JoinKeyPreferenceStageTest {
    * </p>
    */
   private static final String MIXED_SIDE_EQUALITY_THREE_BINDINGS =
-      PROLOG + "for $c in $C[] for $p in $P[] for $q in $Q[]"
-          + " where $c.cost eq $p.retail - $q.b and $q.id eq $c.id"
+      PROLOG + "for $c in $C[] for $p in $P[] for $q in $Q[]" + " where $c.cost eq $p.retail - $q.b and $q.id eq $c.id"
           + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
 
   /**
@@ -146,9 +145,9 @@ final class JoinKeyPreferenceStageTest {
    * {@code $c.pid eq $p.id} instead and the query answers. There is deliberately no rule-off
    * comparison — that plan is the Brackit failure this change neither causes nor owes a fix.
    */
-  private static final String PROBE_SIDE_MIXED_EQUALITY_AT_HEAD = PROLOG + "for $c in $C[] for $p in $P[]"
-      + " where $c.cost + $p.retail eq $p.retail + 5 and $c.pid eq $p.id"
-      + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
+  private static final String PROBE_SIDE_MIXED_EQUALITY_AT_HEAD =
+      PROLOG + "for $c in $C[] for $p in $P[]" + " where $c.cost + $p.retail eq $p.retail + 5 and $c.pid eq $p.id"
+          + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
   /**
    * An equality whose build operand begins at a scope the predicate opens itself, so the binding
    * {@code JoinRewriter} would root the right input at is a descendant of the selection rather than
@@ -351,9 +350,8 @@ final class JoinKeyPreferenceStageTest {
   void pushedBuildSideConjunctRunsOnNonJoiningRows() throws IOException {
     assertEquals("{\"c\":10,\"p\":10}", planWithoutRule(RAISING_BUILD_SIDE_CONJUNCT).answer.trim(),
         "without the rule the cast follows the join, so it only ever sees the joined pair");
-    final QueryException raised =
-        assertThrows(QueryException.class, () -> plan(RAISING_BUILD_SIDE_CONJUNCT),
-            "with the rule the cast filters the build side, where the non-joining row reaches it");
+    final QueryException raised = assertThrows(QueryException.class, () -> plan(RAISING_BUILD_SIDE_CONJUNCT),
+        "with the rule the cast filters the build side, where the non-joining row reaches it");
     assertEquals(ErrorCode.ERR_INVALID_VALUE_FOR_CAST, raised.getCode(),
         "the documented exposure is a dynamic error, not a wrong answer");
   }
@@ -412,8 +410,9 @@ final class JoinKeyPreferenceStageTest {
         assertTrue(JoinKeyPreferenceStage.enabled(), "still on for '" + on + "'");
       }
       System.setProperty(JoinKeyPreferenceStage.ENABLED_PROPERTY, "yes");
-      assertTrue(new SirixOptimizer(null, null, null).getStages().stream()
-          .anyMatch(JoinKeyPreferenceStage.class::isInstance), "the stage stays installed for a non-false value");
+      assertTrue(
+          new SirixOptimizer(null, null, null).getStages().stream().anyMatch(JoinKeyPreferenceStage.class::isInstance),
+          "the stage stays installed for a non-false value");
     } finally {
       System.clearProperty(JoinKeyPreferenceStage.ENABLED_PROPERTY);
     }
@@ -423,8 +422,8 @@ final class JoinKeyPreferenceStageTest {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * A chain the rule must not touch: same join key, and every selection still on the same side of
-   * the join, so nothing is hoisted into the right input to be rebuilt per enclosing tuple.
+   * A chain the rule must not touch: same join key, and every selection still on the same side of the
+   * join, so nothing is hoisted into the right input to be rebuilt per enclosing tuple.
    */
   private static void assertUnchangedPlan(final String query) throws IOException {
     final Plan plan = plan(query);

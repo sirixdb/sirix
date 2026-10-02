@@ -32,16 +32,16 @@ import java.util.List;
  * build side is drained in full, so a predicate hoisted here is evaluated on rows that never join,
  * and one that raises a dynamic error on such a row now raises it for the whole query;</li>
  * <li>the equality nearest the head of the chain that {@code JoinRewriter} would key on and whose
- * plan compiles — the join key. The test is {@code JoinRewriter}'s own, so this is the very equality
- * it would reach first, and whenever its own choice already qualifies the key is left exactly as it
- * was: the rule re-keys only away from a non-equality, or away from an equality whose plan does not
- * compile, never from one qualifying equality to another. A
- * mixed operand is welcome on the build side, as in {@code $c.k eq $p.a + $q.b}, which
- * {@code JoinRewriter} evaluates on the build input — re-keying off it would enumerate the probe
- * side's cross product instead. On the probe side it is not: that operand is compiled above the
- * build binding, where it cannot read it. Either way an equality that does not qualify stays a
- * residual rather than being hoisted, since hoisting it would only copy it into the join's right
- * input to be re-evaluated for every tuple of the enclosing binding;</li>
+ * plan compiles — the join key. The test is {@code JoinRewriter}'s own, so this is the very
+ * equality it would reach first, and whenever its own choice already qualifies the key is left
+ * exactly as it was: the rule re-keys only away from a non-equality, or away from an equality whose
+ * plan does not compile, never from one qualifying equality to another. A mixed operand is welcome
+ * on the build side, as in {@code $c.k eq $p.a + $q.b}, which {@code JoinRewriter} evaluates on the
+ * build input — re-keying off it would enumerate the probe side's cross product instead. On the
+ * probe side it is not: that operand is compiled above the build binding, where it cannot read it.
+ * Either way an equality that does not qualify stays a residual rather than being hoisted, since
+ * hoisting it would only copy it into the join's right input to be re-evaluated for every tuple of
+ * the enclosing binding;</li>
  * <li>every remaining predicate (other equalities, inequalities, mixed predicates) in its chain
  * order — they follow the join as residual filters, which Brackit's {@code PredicateMerge} then
  * collapses into one conjunction.</li>
@@ -136,24 +136,23 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
 
   /**
    * {@link #EQUALITY} is an equality this walker may move to the head of the chain. It applies
-   * {@code JoinRewriter}'s own admission test, so the key is the very predicate
-   * {@code JoinRewriter} would key on: both operands non-static; the operand reaching the later
-   * binding builds, the written order kept when both reach the same one; the probe operand must
-   * begin at a strictly earlier binding than the build operand; and the build operand's first
-   * binding must enclose the selection in this pipeline. The orientation step is why admission
-   * depends on the written order.
+   * {@code JoinRewriter}'s own admission test, so the key is the very predicate {@code JoinRewriter}
+   * would key on: both operands non-static; the operand reaching the later binding builds, the
+   * written order kept when both reach the same one; the probe operand must begin at a strictly
+   * earlier binding than the build operand; and the build operand's first binding must enclose the
+   * selection in this pipeline. The orientation step is why admission depends on the written order.
    *
    * <p>
-   * Admission alone is not enough. {@code convertToJoin} compiles the probe operand into a left
-   * input rooted above the build binding without checking that it can be evaluated there, so an
-   * equality whose probe operand also reads the build binding — {@code $c.cost + $p.retail eq
-   * $p.retail + 5}, whose operands tie on {@code $p} and so keep their written order — yields a
-   * left input where {@code $p} is unbound and no plan at all. Every pipeline binding the probe
-   * operand reads must therefore precede the build root. Declining to promote such an equality never
-   * makes a working plan worse: below the head it stays the residual it already was, and at the head
-   * — where {@code JoinRewriter} would otherwise key on it and emit that unresolvable left input —
-   * the rule keys on a later qualifying equality instead, so a plan that does not compile is
-   * replaced by one that does.
+   * Admission alone is not enough. {@code convertToJoin} compiles the probe operand into a left input
+   * rooted above the build binding without checking that it can be evaluated there, so an equality
+   * whose probe operand also reads the build binding — {@code $c.cost + $p.retail eq
+   * $p.retail + 5}, whose operands tie on {@code $p} and so keep their written order — yields a left
+   * input where {@code $p} is unbound and no plan at all. Every pipeline binding the probe operand
+   * reads must therefore precede the build root. Declining to promote such an equality never makes a
+   * working plan worse: below the head it stays the residual it already was, and at the head — where
+   * {@code JoinRewriter} would otherwise key on it and emit that unresolvable left input — the rule
+   * keys on a later qualifying equality instead, so a plan that does not compile is replaced by one
+   * that does.
    * </p>
    *
    * <p>
@@ -226,10 +225,10 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
   }
 
   /**
-   * Whether every pipeline binding the probe operand reads is bound above {@code buildRoot}, the
-   * root of the join's right input. The scopes a predicate opens itself sort after {@code bind} and
-   * need no pipeline binding, so the latest scope at or above {@code bind} is the one that has to
-   * precede {@code buildRoot}; an operand reading only its own scopes imposes nothing.
+   * Whether every pipeline binding the probe operand reads is bound above {@code buildRoot}, the root
+   * of the join's right input. The scopes a predicate opens itself sort after {@code bind} and need
+   * no pipeline binding, so the latest scope at or above {@code bind} is the one that has to precede
+   * {@code buildRoot}; an operand reading only its own scopes imposes nothing.
    */
   private static boolean probeBoundAbove(final Scope[] probe, final Scope bind, final Scope buildRoot) {
     for (int i = probe.length - 1; i >= 0; i--) {
@@ -244,9 +243,9 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
   /**
    * Whether {@code buildRoot} binds above {@code selection} in this pipeline, which is where
    * {@code JoinRewriter} roots the join's right input. It walks the same ancestors and stops at the
-   * same clause boundaries, so a scope the predicate opens itself — a descendant, never an ancestor
-   * — and one cut off by a {@code GroupBy}, {@code OrderBy} or {@code Count} both fail here exactly
-   * as they make {@code JoinRewriter} leave the selection alone.
+   * same clause boundaries, so a scope the predicate opens itself — a descendant, never an ancestor —
+   * and one cut off by a {@code GroupBy}, {@code OrderBy} or {@code Count} both fail here exactly as
+   * they make {@code JoinRewriter} leave the selection alone.
    */
   private static boolean buildRootEncloses(final AST selection, final Scope buildRoot) {
     final AST root = buildRoot.getNode();
