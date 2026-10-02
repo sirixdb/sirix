@@ -5,28 +5,33 @@ import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.module.StaticContext;
+import io.brackit.query.util.Cmp;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.compiler.optimizer.walker.json.JoinDecompositionWalker;
 
 /**
  * Index-aware join decomposition stage (Rules 5 and 6).
  *
- * <p>This stage runs after CostBasedStage (which annotates AST nodes with
- * index preference hints) and JqgmRewriteStage (which fuses adjacent joins
- * via Rule 1). It applies:</p>
+ * <p>
+ * This stage runs after CostBasedStage (which annotates AST nodes with index preference hints) and
+ * JqgmRewriteStage (which fuses adjacent joins via Rule 1). It applies:
+ * </p>
  * <ul>
- *   <li><b>Rule 5</b>: Swaps join children so the indexed side drives
- *       the join (child 0 = probe/driving side)</li>
- *   <li><b>Rule 6</b>: Creates an intersection join when both sides
- *       have different indexes — both sides keep {@code PREFER_INDEX=true}</li>
+ * <li><b>Rule 5</b>: Swaps join children so the indexed side drives the join (child 0 =
+ * probe/driving side)</li>
+ * <li><b>Rule 6</b>: Creates an intersection join when both sides have different indexes — both
+ * sides keep {@code PREFER_INDEX=true}</li>
  * </ul>
  *
- * <p>Two-phase approach: Phase 1 walks the AST to annotate decomposition
- * metadata (via {@link JoinDecompositionWalker}). Phase 2 reads those
- * annotations and restructures the AST. This avoids mutating the tree
- * during the walker traversal.</p>
+ * <p>
+ * Two-phase approach: Phase 1 walks the AST to annotate decomposition metadata (via
+ * {@link JoinDecompositionWalker}). Phase 2 reads those annotations and restructures the AST. This
+ * avoids mutating the tree during the walker traversal.
+ * </p>
  *
- * <p>Based on Weiner et al. Section 4.3, adapted for JSON/JSONiq.</p>
+ * <p>
+ * Based on Weiner et al. Section 4.3, adapted for JSON/JSONiq.
+ * </p>
  */
 public final class IndexDecompositionStage implements Stage {
 
@@ -48,8 +53,8 @@ public final class IndexDecompositionStage implements Stage {
   }
 
   /**
-   * Post-order walk: restructure joins annotated with decomposition metadata.
-   * Post-order ensures nested joins are processed before their parents.
+   * Post-order walk: restructure joins annotated with decomposition metadata. Post-order ensures
+   * nested joins are processed before their parents.
    */
   private static void restructureAnnotatedJoins(AST node) {
     if (node == null) {
@@ -83,9 +88,10 @@ public final class IndexDecompositionStage implements Stage {
   /**
    * Rule 5: Swap join children so the indexed side is child 0 (driving side).
    *
-   * <p>The indexed side should drive the join because the index scan
-   * produces a smaller intermediate result, reducing the number of
-   * probe lookups on the non-indexed side.</p>
+   * <p>
+   * The indexed side should drive the join because the index scan produces a smaller intermediate
+   * result, reducing the number of probe lookups on the non-indexed side.
+   * </p>
    */
   private static void applyRule5(AST join) {
     if (join.getChildCount() < 2) {
@@ -106,6 +112,10 @@ public final class IndexDecompositionStage implements Stage {
       final AST rightInput = join.getChild(1);
       join.replaceChild(0, rightInput);
       join.replaceChild(1, leftInput);
+      // Reversing the operands must preserve the original comparison (a < b becomes b > a).
+      if (join.getProperty(CostProperties.CMP) instanceof Cmp cmp) {
+        join.setProperty(CostProperties.CMP, cmp.swap());
+      }
     }
 
     // Ensure PREFER_INDEX=true on the indexed subtree (child 0 after potential swap)
@@ -117,10 +127,11 @@ public final class IndexDecompositionStage implements Stage {
   /**
    * Rule 6: Create an intersection join when both sides have different indexes.
    *
-   * <p>Both input subtrees are index-scannable. We ensure both sides
-   * have {@code PREFER_INDEX=true} so that downstream index matching
-   * rewrites both to index scans. The join then becomes an intersection
-   * of two index result sets.</p>
+   * <p>
+   * Both input subtrees are index-scannable. We ensure both sides have {@code PREFER_INDEX=true} so
+   * that downstream index matching rewrites both to index scans. The join then becomes an
+   * intersection of two index result sets.
+   * </p>
    */
   private static void applyRule6(AST join) {
     if (join.getChildCount() < 2) {
@@ -138,8 +149,7 @@ public final class IndexDecompositionStage implements Stage {
   }
 
   /**
-   * Check if a subtree contains a node with the specified INDEX_ID
-   * and PREFER_INDEX=true.
+   * Check if a subtree contains a node with the specified INDEX_ID and PREFER_INDEX=true.
    */
   private static boolean hasIndexAnnotation(AST node, int targetIndexId, int maxDepth) {
     if (node == null || maxDepth <= 0) {
@@ -162,9 +172,8 @@ public final class IndexDecompositionStage implements Stage {
   }
 
   /**
-   * Set PREFER_INDEX=true on the first node in the subtree that has
-   * index annotations (INDEX_ID set), ensuring CostDrivenRoutingStage
-   * keeps the index gate open for this subtree.
+   * Set PREFER_INDEX=true on the first node in the subtree that has index annotations (INDEX_ID set),
+   * ensuring CostDrivenRoutingStage keeps the index gate open for this subtree.
    */
   private static void propagatePreferIndex(AST node, int maxDepth) {
     if (node == null || maxDepth <= 0) {
