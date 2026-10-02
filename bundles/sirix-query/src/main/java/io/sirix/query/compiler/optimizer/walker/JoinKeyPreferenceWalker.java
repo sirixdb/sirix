@@ -32,7 +32,8 @@ import java.util.List;
  * <li>the equality nearest the head of the chain that {@code JoinRewriter} would key on and whose
  * plan compiles — the join key. The test is {@code JoinRewriter}'s own, so this is the very equality
  * it would reach first, and whenever its own choice already qualifies the key is left exactly as it
- * was: the rule only ever re-keys away from a non-equality, never from one equality to another. A
+ * was: the rule re-keys only away from a non-equality, or away from an equality whose plan does not
+ * compile, never from one qualifying equality to another. A
  * mixed operand is welcome on the build side, as in {@code $c.k eq $p.a + $q.b}, which
  * {@code JoinRewriter} evaluates on the build input — re-keying off it would enumerate the probe
  * side's cross product instead. On the probe side it is not: that operand is compiled above the
@@ -136,8 +137,11 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
    * equality whose probe operand also reads the build binding — {@code $c.cost + $p.retail eq
    * $p.retail + 5}, whose operands tie on {@code $p} and so keep their written order — yields a
    * left input where {@code $p} is unbound and no plan at all. Every pipeline binding the probe
-   * operand reads must therefore precede the build root; today's key is reached either way, so
-   * declining to promote such an equality only ever leaves the plan as it is.
+   * operand reads must therefore precede the build root. Declining to promote such an equality never
+   * makes a working plan worse: below the head it stays the residual it already was, and at the head
+   * — where {@code JoinRewriter} would otherwise key on it and emit that unresolvable left input —
+   * the rule keys on a later qualifying equality instead, so a plan that does not compile is
+   * replaced by one that does.
    * </p>
    *
    * <p>

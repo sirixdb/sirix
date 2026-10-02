@@ -104,6 +104,13 @@ final class JoinKeyPreferenceStageTest {
    * references only the earliest: {@code JoinRewriter} keys on it by building the mixed operand on the
    * build input, so the rule must leave that key alone rather than re-key onto {@code $q.id eq $c.id}
    * and enumerate the probe side's cross product.
+   *
+   * <p>
+   * The assertions read the plan after the whole optimizer, not after {@code JoinRecognition}:
+   * {@code CostBasedJoinReorder} puts the smaller relation on the build side, and here the
+   * {@code $c.cost} side is the smaller one, so it ends up on child 1 and the mixed operand on child
+   * 0 — the reverse of {@code MIXED}, whose two sides are estimated equal and so are left alone.
+   * </p>
    */
   private static final String MIXED_SIDE_EQUALITY_THREE_BINDINGS =
       PROLOG + "for $c in $C[] for $p in $P[] for $q in $Q[]"
@@ -128,6 +135,16 @@ final class JoinKeyPreferenceStageTest {
    */
   private static final String PROBE_SIDE_MIXED_EQUALITY = PROLOG + "for $c in $C[] for $p in $P[]"
       + " where xs:dateTime($p.vf) lt xs:dateTime($c.vt) and $c.cost + $p.retail eq $p.retail + 5"
+      + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
+  /**
+   * The same probe-side mixed equality in HEAD position, with a qualifying equality behind it. This
+   * is the one shape where declining to promote changes the plan: {@code JoinRewriter} would key on
+   * the head and emit a left input that cannot resolve {@code $p}, so the rule keys on
+   * {@code $c.pid eq $p.id} instead and the query answers. There is deliberately no rule-off
+   * comparison — that plan is the Brackit failure this change neither causes nor owes a fix.
+   */
+  private static final String PROBE_SIDE_MIXED_EQUALITY_AT_HEAD = PROLOG + "for $c in $C[] for $p in $P[]"
+      + " where $c.cost + $p.retail eq $p.retail + 5 and $c.pid eq $p.id"
       + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
   /**
    * An equality whose build operand begins at a scope the predicate opens itself, so the binding
@@ -339,6 +356,16 @@ final class JoinKeyPreferenceStageTest {
   void probeSideMixedEqualityIsLeftAlone() throws IOException {
     assertUnchangedPlan(PROBE_SIDE_MIXED_EQUALITY);
     assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":1,\"p\":\"b\"}", plan(PROBE_SIDE_MIXED_EQUALITY).answer.trim());
+  }
+
+  @Test
+  @DisplayName("a rejected equality at the chain head is re-keyed onto the equality behind it")
+  void probeSideMixedEqualityAtHeadIsRekeyedOntoTheEqualityBehindIt() throws IOException {
+    final Plan plan = plan(PROBE_SIDE_MIXED_EQUALITY_AT_HEAD);
+    assertEquals(1, plan.joins.size(), "one join");
+    assertEquals("c.pid", deref(end(plan.joins.get(0).getChild(0))), "keyed on the equality behind the head");
+    assertEquals("p.id", deref(end(plan.joins.get(0).getChild(1))), "build side of that key");
+    assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":1,\"p\":\"c\"}", plan.answer.trim());
   }
 
   @Test
