@@ -1,6 +1,8 @@
 package io.sirix.query.compiler.optimizer;
 
+import io.brackit.query.ErrorCode;
 import io.brackit.query.Query;
+import io.brackit.query.QueryException;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.DefaultOptimizer;
@@ -24,6 +26,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -154,6 +157,15 @@ final class JoinKeyPreferenceStageTest {
   private static final String PREDICATE_LOCAL_SCOPE_EQUALITY = PROLOG + "for $c in $C[] for $p in $P[]"
       + " where $c.cost lt $p.retail and $c.cost + $p.retail eq count(for $i in (1 to 30) return $i)"
       + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
+
+  /**
+   * The finding's example for the documented error exposure: the {@code id:99} product never joins,
+   * but its {@code w} is not castable. Hoisting the cast to the build side makes it run on that row.
+   */
+  private static final String RAISING_BUILD_SIDE_CONJUNCT = "declare variable $C := [{\"pid\":10}];"
+      + "declare variable $P := [{\"id\":10,\"w\":\"5\"},{\"id\":99,\"w\":\"oops\"}];"
+      + "for $c in $C[] for $p in $P[] where $c.pid eq $p.id and xs:integer($p.w) gt 0"
+      + " return {\"c\":$c.pid,\"p\":$p.id}";
 
   @BeforeEach
   void setUp() {
@@ -332,6 +344,18 @@ final class JoinKeyPreferenceStageTest {
         "the mixed operand stays one side of the key");
     assertEquals("c.cost", deref(end(plan.joins.get(0).getChild(1))), "and the earliest binding the other");
     assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":2,\"p\":\"b\"} {\"c\":3,\"p\":\"a\"}", plan.answer.trim());
+  }
+
+  @Test
+  @DisplayName("a conjunct pushed to the build side is evaluated on rows that never join")
+  void pushedBuildSideConjunctRunsOnNonJoiningRows() throws IOException {
+    assertEquals("{\"c\":10,\"p\":10}", planWithoutRule(RAISING_BUILD_SIDE_CONJUNCT).answer.trim(),
+        "without the rule the cast follows the join, so it only ever sees the joined pair");
+    final QueryException raised =
+        assertThrows(QueryException.class, () -> plan(RAISING_BUILD_SIDE_CONJUNCT),
+            "with the rule the cast filters the build side, where the non-joining row reaches it");
+    assertEquals(ErrorCode.ERR_INVALID_VALUE_FOR_CAST, raised.getCode(),
+        "the documented exposure is a dynamic error, not a wrong answer");
   }
 
   @Test

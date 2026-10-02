@@ -11,9 +11,11 @@ import io.sirix.query.compiler.optimizer.walker.JoinKeyPreferenceWalker;
  * equality, the join is keyed on it (a hash join) rather than on whichever general comparison the
  * chain happens to head, and every single-side predicate of the right input filters the build side
  * before the join. Generic — it applies to every {@code for}- and {@code let}-bound chain with a
- * join-capable where clause — while a chain whose key is already an equality, and one with no
- * eligible equality at all, keep the key Brackit gives them. Answers are unchanged, since it only
- * reorders selections.
+ * join-capable where clause — while a chain whose key is already a qualifying equality, and one
+ * with no eligible equality at all, keep the key Brackit gives them. Reordering selections yields
+ * the same result set, but not the same dynamic errors: a conjunct pushed to the build side is
+ * evaluated on rows that never join, so it can raise there, and one that moves behind the join sees
+ * only joined pairs. See {@link JoinKeyPreferenceWalker} for which equalities qualify.
  *
  * <p>
  * {@code -Dsirix.optimizer.joinKeyPreference=false} disables the rule: {@link SirixOptimizer} then

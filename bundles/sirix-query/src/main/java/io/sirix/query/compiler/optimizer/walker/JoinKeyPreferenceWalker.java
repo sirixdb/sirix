@@ -28,7 +28,9 @@ import java.util.List;
  * into
  * <ol>
  * <li>the selections that reference no earlier binding — Brackit copies them into the join's right
- * input, so they filter the build side before the join;</li>
+ * input, so they filter the build side before the join. That widens what such a predicate sees: the
+ * build side is drained in full, so a predicate hoisted here is evaluated on rows that never join,
+ * and one that raises a dynamic error on such a row now raises it for the whole query;</li>
  * <li>the equality nearest the head of the chain that {@code JoinRewriter} would key on and whose
  * plan compiles — the join key. The test is {@code JoinRewriter}'s own, so this is the very equality
  * it would reach first, and whenever its own choice already qualifies the key is left exactly as it
@@ -46,7 +48,17 @@ import java.util.List;
  * </ol>
  * Selections referencing only earlier bindings were already lifted above this binding by
  * {@code SelectPullup}. A chain without an eligible equality is left untouched, so inequality-only
- * joins keep their current plan. Selections are filters, so reordering them changes no answer.
+ * joins keep their current plan.
+ * </p>
+ *
+ * <p>
+ * Selections are filters, so reordering them yields the same result set. It does not preserve
+ * dynamic errors: each moved predicate is evaluated over a different set of rows. A single-side
+ * conjunct hoisted to the build side (1) sees rows that never join and can raise where the query
+ * used to answer; a predicate demoted to the residual (3) sees only joined pairs and can stop
+ * raising where the query used to fail. XQuery leaves the evaluation order of where-clause
+ * conjuncts to the implementation, so either outcome is permitted, and Brackit already exposes the
+ * first one whenever {@code SelectPullup} happens to leave a single-side conjunct above the key.
  * </p>
  */
 public final class JoinKeyPreferenceWalker extends ScopeWalker {
