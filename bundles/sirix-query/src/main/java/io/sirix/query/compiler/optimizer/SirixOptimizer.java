@@ -11,6 +11,7 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
+import io.brackit.query.compiler.optimizer.DefaultOptimizer;
 import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.compiler.optimizer.TopDownOptimizer;
 import io.brackit.query.module.StaticContext;
@@ -83,6 +84,13 @@ public class SirixOptimizer extends TopDownOptimizer {
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
     this.planCache = planCache;
+    // Before Brackit's join recognition (after its predicate split and pull-up): prefer an
+    // equality key and keep single-side predicates on their own side. Brackit's stages are private
+    // classes, so the slot is found by name; without join detection there is nothing to prefer, and
+    // a rule switched off demands no anchor either.
+    if (DefaultOptimizer.JOIN_DETECTION && JoinKeyPreferenceStage.enabled()) {
+      insertStageBefore("JoinRecognition", new JoinKeyPreferenceStage());
+    }
     // 0. Debug only: dumps the incoming AST under -Dsirix.debug.ast=true, no-op otherwise.
     getStages().add(new AstDumpStage("incoming"));
     // 0b. count(E[]) / count(for $x in E[] return $x) -> the Sirix stored-array size accessor. Runs
@@ -136,6 +144,26 @@ public class SirixOptimizer extends TopDownOptimizer {
     // applying that decision is cheap. Keeping it mandatory is what makes index selection
     // independent of the optimizer budget.
     getStages().add(new IndexMatching(jsonItemStore));
+  }
+
+  /**
+   * Insert a stage directly before the first stage whose class is named {@code stageSimpleName}.
+   *
+   * @param stageSimpleName simple class name of the Brackit stage to anchor on
+   * @param stage the stage to insert before it
+   * @throws IllegalStateException if the pipeline holds no such stage, so that an anchor renamed by a
+   *         Brackit upgrade fails the build instead of dropping {@code stage} unnoticed
+   */
+  private void insertStageBefore(final String stageSimpleName, final Stage stage) {
+    final var stages = getStages();
+    for (int i = 0; i < stages.size(); i++) {
+      if (stages.get(i).getClass().getSimpleName().equals(stageSimpleName)) {
+        stages.add(i, stage);
+        return;
+      }
+    }
+    throw new IllegalStateException("No Brackit optimizer stage named '" + stageSimpleName + "' to anchor "
+        + stage.getClass().getSimpleName() + " on; the Brackit pipeline changed and the anchor needs updating.");
   }
 
   @Override

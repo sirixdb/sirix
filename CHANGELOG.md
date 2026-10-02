@@ -87,6 +87,21 @@ All notable changes to SirixDB are documented in this file.
 
 ### Changed
 
+- **A join whose where clause mixes an equality with a general comparison is keyed on the
+  equality.** Brackit's predicate pull-up stacks the selections below a binding in an order that no
+  longer follows the where clause, and its join recognition keys the join on whichever join-capable
+  comparison heads that chain — for `where $c.pid eq $p.id and xs:dateTime($p.vf) lt
+  xs:dateTime($c.vt)` the trailing inequality, a general-comparison join that emits close to the
+  cross product. `JoinKeyPreferenceStage`, installed directly before Brackit's join recognition,
+  reorders such a chain so the key is the equality that recognition would reach first and whose plan
+  compiles (a hash join), and so every predicate referencing no earlier binding filters the join's
+  build side. It applies to every `for`- and `let`-bound chain; a chain whose key is already a
+  qualifying equality, and one with no eligible equality at all, keep the plan they had. The result
+  set is unchanged, the dynamic errors are not: a conjunct pushed to the build side is evaluated on
+  rows that never join and can raise there, and one moved behind the join sees only joined pairs —
+  XQuery leaves the evaluation order of where-clause conjuncts to the implementation.
+  `-Dsirix.optimizer.joinKeyPreference=false` leaves the stage out of the pipeline. The javadoc of
+  `JoinKeyPreferenceWalker` states which equalities qualify.
 - **Wide projection string columns serve through windowed leaf loads** instead of whole-column
   eager materialization. A projection whose worst-case resident size exceeds
   `-Dsirix.projection.eagerMaterializeBytes` (default: the smaller of half the projection cache
