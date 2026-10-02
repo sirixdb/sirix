@@ -37,7 +37,10 @@ The admission rule requires:
   an empty expression cannot be reduced to existence of an equality match.
 
 Hashing uses a primitive long set for 64-bit integral keys and a string set for codepoint string
-value equality, including its untypedAtomic/anyURI promotions. Missing keys do not match;
+value equality, including its untypedAtomic/anyURI promotions. A JSON `null` key joins neither set
+and sets one flag instead, because value equality on null is total: `null eq null` holds, `null eq`
+any other atomic is false, and neither raises an error. A null therefore stays on the hash route
+rather than reverting the whole query to the per-row nested plan. Missing keys do not match;
 inner duplicates do not multiply rows; outer order and duplicates are preserved. Other types,
 mixed domains, unsupported probe types, and speculative extraction errors use the original
 compiled predicate. In particular, floating/decimal promotion is not approximated with a lossy
@@ -64,7 +67,9 @@ execution of one compiled query. It also counts consumed inner items and iterato
 For 128 inner keys and 256 outer items, the enabled rule visits exactly 128 inner items and closes
 one build iterator. Disabling it produces the same answer but visits 24,640 inner items:
 `128 * 129 / 2 + 128 * 128`. The counter assertion was run with the rule disabled and failed on
-that count. There is no wall-clock assertion.
+that count. The same bound is asserted for an inner side whose keys include one `"id": null`
+record, which pins the null key to the hash route rather than the fallback. There is no wall-clock
+assertion.
 
 ## SH1 evidence (2026-10-01/02)
 

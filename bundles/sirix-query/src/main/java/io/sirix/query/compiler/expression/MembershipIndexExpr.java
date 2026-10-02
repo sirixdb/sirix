@@ -6,6 +6,7 @@ import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.LonNumeric;
+import io.brackit.query.atomic.Null;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.AbstractItem;
 import io.brackit.query.jdm.Expr;
@@ -79,7 +80,7 @@ public final class MembershipIndexExpr implements Expr {
         return 0;
       }
       final Item item = probe.evaluateToItem(ctx, tuple);
-      if (item == null || snapshot.longs == null && snapshot.strings == null) {
+      if (item == null) {
         return 0;
       }
       final Atomic key;
@@ -87,6 +88,12 @@ public final class MembershipIndexExpr implements Expr {
         key = item.atomize();
       } catch (final QueryException exception) {
         return -1;
+      }
+      if (key instanceof Null) {
+        // Value equality on null is total: null eq null holds, null eq any other atomic is false.
+        return snapshot.hasNull
+            ? 1
+            : 0;
       }
       if (snapshot.longs != null && key instanceof LonNumeric number) {
         return snapshot.longs.contains(number.longValue())
@@ -100,7 +107,9 @@ public final class MembershipIndexExpr implements Expr {
       }
       // Numeric promotion is pairwise (and not transitive for float/double). Preserve the value
       // comparison instead of coercing all keys to a lossy common representation for hashing.
-      return -1;
+      return snapshot.longs == null && snapshot.strings == null
+          ? 0
+          : -1;
     }
 
     private synchronized Keys initialize(final QueryContext ctx) {
@@ -126,6 +135,7 @@ public final class MembershipIndexExpr implements Expr {
       LongOpenHashSet longs = null;
       ObjectOpenHashSet<String> strings = null;
       boolean hasRows = false;
+      boolean hasNull = false;
       try (final Iter iter = input.iterate()) {
         Item row;
         while ((row = iter.next()) != null) {
@@ -135,7 +145,11 @@ public final class MembershipIndexExpr implements Expr {
             continue;
           }
           final Atomic atomic = value.atomize();
-          if (atomic instanceof LonNumeric number && strings == null) {
+          if (atomic instanceof Null) {
+            // A null key never compares equal to a typed one, so it stays out of both sets and
+            // cannot force a mixed domain.
+            hasNull = true;
+          } else if (atomic instanceof LonNumeric number && strings == null) {
             if (longs == null) {
               longs = new LongOpenHashSet();
             }
@@ -150,7 +164,7 @@ public final class MembershipIndexExpr implements Expr {
           }
         }
       }
-      return new Keys(longs, strings, hasRows, false);
+      return new Keys(longs, strings, hasRows, hasNull, false);
     }
 
     private Item key(final Item row) {
@@ -187,8 +201,9 @@ public final class MembershipIndexExpr implements Expr {
     }
   }
 
-  private record Keys(LongOpenHashSet longs, ObjectOpenHashSet<String> strings, boolean hasRows, boolean fallback) {
-    private static final Keys FALLBACK = new Keys(null, null, false, true);
-    private static final Keys EMPTY = new Keys(null, null, false, false);
+  private record Keys(LongOpenHashSet longs, ObjectOpenHashSet<String> strings, boolean hasRows, boolean hasNull,
+      boolean fallback) {
+    private static final Keys FALLBACK = new Keys(null, null, false, false, true);
+    private static final Keys EMPTY = new Keys(null, null, false, false, false);
   }
 }

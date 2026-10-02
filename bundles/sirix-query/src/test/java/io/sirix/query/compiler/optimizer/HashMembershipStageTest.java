@@ -3,10 +3,13 @@ package io.sirix.query.compiler.optimizer;
 import io.brackit.query.Query;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.Null;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.LazySequence;
 import io.sirix.query.SirixCompileChain;
@@ -119,6 +122,65 @@ final class HashMembershipStageTest {
     assertOptimized("2024-01-01",
         "let $inner := (xs:date('2024-01-01'))" + " for $a in (xs:date('2024-01-01'),xs:date('2024-01-02'))"
             + " where some $b in $inner satisfies $b eq $a return $a");
+  }
+
+  @Test
+  void nullKeysMatchNullKeysAndNothingElse() throws Exception {
+    assertOptimized("hit", "let $inner := (1, null, 2) for $a in (null)"
+        + " where exists(for $b in $inner where $b eq $a return $b) return 'hit'");
+    assertOptimized("", "let $inner := (1, 2) for $a in (null)"
+        + " where exists(for $b in $inner where $b eq $a return $b) return 'hit'");
+    assertOptimized("miss", "let $inner := (1, 2) for $a in (null)"
+        + " where empty(for $b in $inner where $b eq $a return $b) return 'miss'");
+    assertOptimized("a", "let $inner := ('b', null) for $a in ('a','b',null)"
+        + " where empty(for $b in $inner where $b eq $a return $b) return $a");
+    assertOptimized("1 2", "let $inner := (null, null) for $a in (1,2)"
+        + " where empty(for $b in $inner where $b eq $a return $b) return $a");
+  }
+
+  @Test
+  void explicitAndAbsentNullFieldsFollowTheValueComparison() throws Exception {
+    final String rows = """
+        declare variable $o := [{"id":1,"pid":10},{"id":2,"pid":null},{"id":3,"pid":20},{"id":4}];
+        declare variable $i := [{"id":10},{"id":null},{}];
+        """;
+    assertOptimized("3 4",
+        rows + "for $a in $o[] where empty(" + "for $b in $i[] where $b.id eq $a.pid return $b.id) return $a.id");
+    assertOptimized("1 2",
+        rows + "for $a in $o[] where exists(" + "for $b in $i[] where $b.id eq $a.pid return $b.id) return $a.id");
+  }
+
+  @Test
+  void aNullInnerKeyKeepsTheHashRouteAndItsWorkBound() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingSequence inner = new CountingSequence(128, new QNm("id"), true);
+      context.bind(new QNm("inner"), inner);
+      final Query query = new Query(chain, "declare variable $inner external;"
+          + " count(for $a in 1 to 256 where empty(for $b in $inner where $b.id eq $a return $b.id) return $a)");
+      assertEquals("128", answer(query, context));
+      assertEquals(129, inner.visited, "a null inner key must not revert to the per-row nested plan");
+      assertEquals(1, inner.closed);
+    }
+  }
+
+  @Test
+  void aNullProbeKeyKeepsTheHashRouteAndItsWorkBound() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingSequence inner = new CountingSequence(128, new QNm("id"), true);
+      context.bind(new QNm("inner"), inner);
+      final Query query = new Query(chain,
+          "declare variable $inner external;"
+              + " declare variable $outer := [{\"pid\":null},{\"pid\":null},{\"pid\":null},{\"pid\":null}];"
+              + " count(for $a in $outer[] where empty(for $b in $inner where $b.id eq $a.pid return $b.id)"
+              + " return $a)");
+      assertEquals("0", answer(query, context));
+      assertEquals(129, inner.visited, "a null probe key must not revert to the per-row nested plan");
+      assertEquals(1, inner.closed);
+    }
   }
 
   @Test
@@ -251,12 +313,24 @@ final class HashMembershipStageTest {
   }
 
   private static final class CountingSequence extends LazySequence {
-    private final int size;
+    private final int total;
+    private final boolean trailingNull;
+    private final QNm[] names;
     private int visited;
     private int closed;
 
     private CountingSequence(final int size) {
-      this.size = size;
+      this(size, null, false);
+    }
+
+    private CountingSequence(final int size, final QNm field, final boolean trailingNull) {
+      this.total = trailingNull
+          ? size + 1
+          : size;
+      this.trailingNull = trailingNull;
+      this.names = field == null
+          ? null
+          : new QNm[] {field};
     }
 
     @Override
@@ -266,11 +340,17 @@ final class HashMembershipStageTest {
 
         @Override
         public Item next() {
-          if (position == size) {
+          if (position == total) {
             return null;
           }
           visited++;
-          return new Int32(++position);
+          position++;
+          final Item key = trailingNull && position == total
+              ? Null.INSTANCE
+              : new Int32(position);
+          return names == null
+              ? key
+              : new ArrayObject(names, new Sequence[] {key});
         }
 
         @Override
