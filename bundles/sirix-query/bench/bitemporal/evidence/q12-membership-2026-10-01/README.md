@@ -3,6 +3,10 @@
 See [the implementation note](../../../../../../docs/QUERY_MEMBERSHIP_OPTIMIZATION.md) for the
 admission rule, semantic boundaries, measurement method, and results.
 
+Everything in this directory was recorded on commit `79042b96a` and describes that commit only,
+including the source hashes in `measurements.json` and the suite counts in `validation.json`.
+Changes made after it are listed in the addendum of the implementation note.
+
 - `Q12Probe.java.txt`: exact runner used for the recorded SH1 measurements. It canonicalizes the
   answer and checks byte equality with the independent oracle before printing a timing.
 - `BitemporalSchema.java.txt`: harness-only scale extension for the existing t50k and t250k inputs.

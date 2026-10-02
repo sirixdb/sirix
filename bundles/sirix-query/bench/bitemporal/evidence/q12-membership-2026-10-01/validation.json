@@ -1,4 +1,19 @@
 {
+  "measured_commit": "79042b96a0d6203e1e524ce4274684fd46a54f92",
+  "measured_commit_note": "Every count below was recorded on measured_commit and describes that commit only. It predates the null-key fix, so it does not cover the membership tests added after it; see addendum_after_measured_commit.",
+  "addendum_after_measured_commit": {
+    "change": "JSON null inner/probe keys stay on the hash route via one hasNull flag on the Keys record instead of returning Keys.FALLBACK.",
+    "covered_by": [
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#nullKeysMatchNullKeysAndNothingElse",
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#explicitAndAbsentNullFieldsFollowTheValueComparison",
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#aNullInnerKeyKeepsTheHashRouteAndItsWorkBound",
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#aNullProbeKeyKeepsTheHashRouteAndItsWorkBound",
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#aNullOnlyBuildSideKeepsTheHashRouteAndItsWorkBound",
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#outerKeyErrorsAreNotSwallowedWhenNoTypedKeysWereBuilt"
+    ],
+    "authoritative_run": "This pipeline's test step, not the campaign counts below.",
+    "timings_unaffected": "The SH1 Q12 keys are contract ids with no null among them, so the recorded route and order-of-growth conclusion are unchanged by the fix."
+  },
   "sirix-query": {
     "suites": 248,
     "tests": 1774,

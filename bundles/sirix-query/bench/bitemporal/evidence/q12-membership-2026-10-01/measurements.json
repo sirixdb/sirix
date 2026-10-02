@@ -1,5 +1,7 @@
 {
   "baseline_commit": "8aa9f0d9e4c481832c8121a6d091a17ed9b796f1",
+  "measured_commit": "79042b96a0d6203e1e524ce4274684fd46a54f92",
+  "measured_commit_note": "Every timing, hash and count in this file was recorded on measured_commit. candidate_sources_sha256 pins that commit's sources, not HEAD: MembershipIndexExpr.java changed after it (null-key fix), so its entry no longer matches HEAD by design. The other five still match. See the addendum in docs/QUERY_MEMBERSHIP_OPTIMIZATION.md.",
   "date": "2026-10-01/02 Europe/Berlin",
   "jvm": "Oracle GraalVM Java 25.0.3; -Xms512m -Xmx6g -XX:MaxDirectMemorySize=1g",
   "batching": "unmodified kit, one commit per publication",

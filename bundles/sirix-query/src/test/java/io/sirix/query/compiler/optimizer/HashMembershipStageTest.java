@@ -136,6 +136,10 @@ final class HashMembershipStageTest {
         + " where empty(for $b in $inner where $b eq $a return $b) return $a");
     assertOptimized("1 2", "let $inner := (null, null) for $a in (1,2)"
         + " where empty(for $b in $inner where $b eq $a return $b) return $a");
+    assertOptimized("hit", "let $inner := (null) for $a in (null)"
+        + " where exists(for $b in $inner where $b eq $a return $b) return 'hit'");
+    assertOptimized("", "let $inner := (null) for $a in (null)"
+        + " where empty(for $b in $inner where $b eq $a return $b) return 'miss'");
   }
 
   @Test
@@ -155,7 +159,7 @@ final class HashMembershipStageTest {
     try (final BasicJsonDBStore store = store();
         final SirixCompileChain chain = chain(store);
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
-      final CountingSequence inner = new CountingSequence(128, new QNm("id"), true);
+      final CountingSequence inner = new CountingSequence(128, 1, new QNm("id"));
       context.bind(new QNm("inner"), inner);
       final Query query = new Query(chain, "declare variable $inner external;"
           + " count(for $a in 1 to 256 where empty(for $b in $inner where $b.id eq $a return $b.id) return $a)");
@@ -170,7 +174,7 @@ final class HashMembershipStageTest {
     try (final BasicJsonDBStore store = store();
         final SirixCompileChain chain = chain(store);
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
-      final CountingSequence inner = new CountingSequence(128, new QNm("id"), true);
+      final CountingSequence inner = new CountingSequence(128, 1, new QNm("id"));
       context.bind(new QNm("inner"), inner);
       final Query query = new Query(chain,
           "declare variable $inner external;"
@@ -179,6 +183,23 @@ final class HashMembershipStageTest {
               + " return $a)");
       assertEquals("0", answer(query, context));
       assertEquals(129, inner.visited, "a null probe key must not revert to the per-row nested plan");
+      assertEquals(1, inner.closed);
+    }
+  }
+
+  @Test
+  void aNullOnlyBuildSideKeepsTheHashRouteAndItsWorkBound() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingSequence inner = new CountingSequence(0, 128, new QNm("id"));
+      context.bind(new QNm("inner"), inner);
+      final Query query = new Query(chain, "declare variable $inner external;"
+          + " declare variable $outer := [{\"id\":1,\"pid\":null},{\"id\":2,\"pid\":7},"
+          + "{\"id\":3,\"pid\":null},{\"id\":4}];"
+          + " for $a in $outer[] where empty(for $b in $inner where $b.id eq $a.pid return $b.id)" + " return $a.id");
+      assertEquals("2 4", answer(query, context));
+      assertEquals(128, inner.visited, "a build side of only null keys must stay on the hash route");
       assertEquals(1, inner.closed);
     }
   }
@@ -229,6 +250,17 @@ final class HashMembershipStageTest {
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
       final Query query = new Query(chain,
           "let $inner := ({'id':(1,2)}) for $a in (1)" + " where some $b in $inner satisfies $b.id eq $a return $a");
+      assertThrows(QueryException.class, () -> answer(query, context));
+    }
+  }
+
+  @Test
+  void outerKeyErrorsAreNotSwallowedWhenNoTypedKeysWereBuilt() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final Query query = new Query(chain, "let $inner := ({'x':1}) for $a in ({'id':(1,2)})"
+          + " where exists(for $b in $inner where $b.id eq $a.id return $b.id) return 'hit'");
       assertThrows(QueryException.class, () -> answer(query, context));
     }
   }
@@ -313,21 +345,19 @@ final class HashMembershipStageTest {
   }
 
   private static final class CountingSequence extends LazySequence {
+    private final int typed;
     private final int total;
-    private final boolean trailingNull;
     private final QNm[] names;
     private int visited;
     private int closed;
 
     private CountingSequence(final int size) {
-      this(size, null, false);
+      this(size, 0, null);
     }
 
-    private CountingSequence(final int size, final QNm field, final boolean trailingNull) {
-      this.total = trailingNull
-          ? size + 1
-          : size;
-      this.trailingNull = trailingNull;
+    private CountingSequence(final int typed, final int nulls, final QNm field) {
+      this.typed = typed;
+      this.total = typed + nulls;
       this.names = field == null
           ? null
           : new QNm[] {field};
@@ -345,7 +375,7 @@ final class HashMembershipStageTest {
           }
           visited++;
           position++;
-          final Item key = trailingNull && position == total
+          final Item key = position > typed
               ? Null.INSTANCE
               : new Int32(position);
           return names == null

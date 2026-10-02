@@ -86,37 +86,47 @@ final class QueryPlanSerializerTest {
   @Test
   @DisplayName("Resolve XQExt types correctly (not UNKNOWN)")
   void resolveXQExtTypes() {
-    assertEquals("IndexExpr",
-        QueryPlanSerializer.resolveTypeName(XQExt.IndexExpr));
-    assertEquals("VectorizedPipelineExpr",
-        QueryPlanSerializer.resolveTypeName(XQExt.VectorizedPipelineExpr));
-    assertEquals("MultiStepExpr",
-        QueryPlanSerializer.resolveTypeName(XQExt.MultiStepExpr));
-    assertEquals("ParentExpr",
-        QueryPlanSerializer.resolveTypeName(XQExt.ParentExpr));
+    assertEquals("IndexExpr", QueryPlanSerializer.resolveTypeName(XQExt.IndexExpr));
+    assertEquals("VectorizedPipelineExpr", QueryPlanSerializer.resolveTypeName(XQExt.VectorizedPipelineExpr));
+    assertEquals("MultiStepExpr", QueryPlanSerializer.resolveTypeName(XQExt.MultiStepExpr));
+    assertEquals("ParentExpr", QueryPlanSerializer.resolveTypeName(XQExt.ParentExpr));
+    assertEquals("MembershipIndexExpr", QueryPlanSerializer.resolveTypeName(XQExt.MembershipIndexExpr));
+    assertEquals("MembershipProbeExpr", QueryPlanSerializer.resolveTypeName(XQExt.MembershipProbeExpr));
+    for (int i = 0; i < XQExt.NAMES.length; i++) {
+      assertEquals(XQExt.NAMES[i], QueryPlanSerializer.resolveTypeName(XQExt.MultiStepExpr + i),
+          "every type allocated by XQExt must resolve to its declared name");
+    }
+  }
+
+  @Test
+  @DisplayName("Serialize membership plan nodes with their operator names")
+  void serializeMembershipNodes() {
+    final var index = new AST(XQExt.MembershipIndexExpr, "MembershipIndexExpr");
+    index.addChild(new AST(XQExt.MembershipProbeExpr, "MembershipProbeExpr"));
+
+    final String json = QueryPlanSerializer.serialize(index);
+
+    assertTrue(json.contains("\"operator\": \"MembershipIndexExpr\""), json);
+    assertTrue(json.contains("\"operator\": \"MembershipProbeExpr\""), json);
+    assertFalse(json.contains("Unknown("), json);
   }
 
   @Test
   @DisplayName("Standard XQ types resolve correctly")
   void resolveStandardTypes() {
-    assertEquals("ForBind",
-        QueryPlanSerializer.resolveTypeName(XQ.ForBind));
-    assertEquals("Selection",
-        QueryPlanSerializer.resolveTypeName(XQ.Selection));
-    assertEquals("Join",
-        QueryPlanSerializer.resolveTypeName(XQ.Join));
+    assertEquals("ForBind", QueryPlanSerializer.resolveTypeName(XQ.ForBind));
+    assertEquals("Selection", QueryPlanSerializer.resolveTypeName(XQ.Selection));
+    assertEquals("Join", QueryPlanSerializer.resolveTypeName(XQ.Join));
   }
 
   @Test
   @DisplayName("Serialize VectorizedPipelineExpr with predicates")
   void serializeVectorized() {
-    final var node = new AST(XQExt.VectorizedPipelineExpr,
-        XQExt.toName(XQExt.VectorizedPipelineExpr));
+    final var node = new AST(XQExt.VectorizedPipelineExpr, XQExt.toName(XQExt.VectorizedPipelineExpr));
     node.setProperty(VectorizedRoutingStage.VECTORIZED_ROUTE, "columnar");
-    node.setProperty(VectorizedRoutingStage.VECTORIZED_PREDICATES, List.of(
-        new VectorizedPredicate("price", ComparisonOperator.GT, 50L, ColumnType.INT64),
-        new VectorizedPredicate("category", ComparisonOperator.EQ, "books", ColumnType.STRING)
-    ));
+    node.setProperty(VectorizedRoutingStage.VECTORIZED_PREDICATES,
+        List.of(new VectorizedPredicate("price", ComparisonOperator.GT, 50L, ColumnType.INT64),
+            new VectorizedPredicate("category", ComparisonOperator.EQ, "books", ColumnType.STRING)));
     node.setProperty("databaseName", "mydb");
     node.setProperty("resourceName", "myres");
 

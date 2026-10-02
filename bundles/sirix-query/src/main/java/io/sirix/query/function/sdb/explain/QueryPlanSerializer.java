@@ -15,12 +15,13 @@ import java.util.List;
 /**
  * Serializes an optimized AST into a structured, human-readable JSON query plan.
  *
- * <p>Unlike {@link AST#toJSON()}, this serializer:
+ * <p>
+ * Unlike {@link AST#toJSON()}, this serializer:
  * <ul>
- *   <li>Resolves SirixDB's custom AST types ({@link XQExt}) instead of outputting "UNKNOWN"</li>
- *   <li>Groups cost-based properties into logical sections (cost, index, join, vectorized)</li>
- *   <li>Adds human-readable summary lines for quick plan inspection</li>
- *   <li>Pretty-prints with indentation for readability</li>
+ * <li>Resolves SirixDB's custom AST types ({@link XQExt}) instead of outputting "UNKNOWN"</li>
+ * <li>Groups cost-based properties into logical sections (cost, index, join, vectorized)</li>
+ * <li>Adds human-readable summary lines for quick plan inspection</li>
+ * <li>Pretty-prints with indentation for readability</li>
  * </ul>
  */
 public final class QueryPlanSerializer {
@@ -47,7 +48,7 @@ public final class QueryPlanSerializer {
   /**
    * Serialize both parsed and optimized ASTs to a JSON object with two fields.
    *
-   * @param parsed    the parsed AST (before optimization)
+   * @param parsed the parsed AST (before optimization)
    * @param optimized the optimized AST (after optimization)
    * @return JSON string with "parsed" and "optimized" fields
    */
@@ -78,7 +79,7 @@ public final class QueryPlanSerializer {
    * Serialize the optimized plan together with all candidate plans from the Mesh.
    *
    * @param optimized the optimized AST
-   * @param mesh      the Mesh containing equivalence classes with plan alternatives
+   * @param mesh the Mesh containing equivalence classes with plan alternatives
    * @return JSON string with "chosenPlan" and "candidates" fields
    */
   public static String serializeWithCandidates(AST optimized, Mesh mesh) {
@@ -201,8 +202,7 @@ public final class QueryPlanSerializer {
     }
 
     // Fusion section
-    if (node.getProperty(CostProperties.JOIN_FUSED) != null
-        || node.getProperty(CostProperties.FUSED_COUNT) != null) {
+    if (node.getProperty(CostProperties.JOIN_FUSED) != null || node.getProperty(CostProperties.FUSED_COUNT) != null) {
       sb.append(",\n");
       serializeFusionSection(node, sb, d);
     }
@@ -251,14 +251,10 @@ public final class QueryPlanSerializer {
     boolean first = true;
     first = emitIfPresent(sb, depth + 1, first, "estimatedCardinality",
         node.getProperty(CostProperties.ESTIMATED_CARDINALITY));
-    first = emitIfPresent(sb, depth + 1, first, "pathCardinality",
-        node.getProperty(CostProperties.PATH_CARDINALITY));
-    first = emitIfPresent(sb, depth + 1, first, "totalNodeCount",
-        node.getProperty(CostProperties.TOTAL_NODE_COUNT));
-    first = emitIfPresent(sb, depth + 1, first, "indexScanCost",
-        node.getProperty(CostProperties.INDEX_SCAN_COST));
-    emitIfPresent(sb, depth + 1, first, "seqScanCost",
-        node.getProperty(CostProperties.SEQ_SCAN_COST));
+    first = emitIfPresent(sb, depth + 1, first, "pathCardinality", node.getProperty(CostProperties.PATH_CARDINALITY));
+    first = emitIfPresent(sb, depth + 1, first, "totalNodeCount", node.getProperty(CostProperties.TOTAL_NODE_COUNT));
+    first = emitIfPresent(sb, depth + 1, first, "indexScanCost", node.getProperty(CostProperties.INDEX_SCAN_COST));
+    emitIfPresent(sb, depth + 1, first, "seqScanCost", node.getProperty(CostProperties.SEQ_SCAN_COST));
     sb.append('\n');
     indent(sb, depth);
     sb.append('}');
@@ -267,8 +263,7 @@ public final class QueryPlanSerializer {
   // --- Index section ---
 
   private static boolean hasIndexProperties(AST node) {
-    return node.getProperty(CostProperties.PREFER_INDEX) != null
-        || node.getProperty(CostProperties.INDEX_ID) != null
+    return node.getProperty(CostProperties.PREFER_INDEX) != null || node.getProperty(CostProperties.INDEX_ID) != null
         || node.getProperty(CostProperties.INDEX_GATE_CLOSED) != null;
   }
 
@@ -276,14 +271,10 @@ public final class QueryPlanSerializer {
     indent(sb, depth);
     sb.append("\"index\": {\n");
     boolean first = true;
-    first = emitIfPresent(sb, depth + 1, first, "preferIndex",
-        node.getProperty(CostProperties.PREFER_INDEX));
-    first = emitIfPresent(sb, depth + 1, first, "indexId",
-        node.getProperty(CostProperties.INDEX_ID));
-    first = emitIfPresent(sb, depth + 1, first, "indexType",
-        node.getProperty(CostProperties.INDEX_TYPE));
-    emitIfPresent(sb, depth + 1, first, "gateClosed",
-        node.getProperty(CostProperties.INDEX_GATE_CLOSED));
+    first = emitIfPresent(sb, depth + 1, first, "preferIndex", node.getProperty(CostProperties.PREFER_INDEX));
+    first = emitIfPresent(sb, depth + 1, first, "indexId", node.getProperty(CostProperties.INDEX_ID));
+    first = emitIfPresent(sb, depth + 1, first, "indexType", node.getProperty(CostProperties.INDEX_TYPE));
+    emitIfPresent(sb, depth + 1, first, "gateClosed", node.getProperty(CostProperties.INDEX_GATE_CLOSED));
     sb.append('\n');
     indent(sb, depth);
     sb.append('}');
@@ -300,16 +291,11 @@ public final class QueryPlanSerializer {
     indent(sb, depth);
     sb.append("\"join\": {\n");
     boolean first = true;
-    first = emitIfPresent(sb, depth + 1, first, "reordered",
-        node.getProperty(CostProperties.JOIN_REORDERED));
-    first = emitIfPresent(sb, depth + 1, first, "leftCardinality",
-        node.getProperty(CostProperties.JOIN_LEFT_CARD));
-    first = emitIfPresent(sb, depth + 1, first, "rightCardinality",
-        node.getProperty(CostProperties.JOIN_RIGHT_CARD));
-    first = emitIfPresent(sb, depth + 1, first, "cost",
-        node.getProperty(CostProperties.JOIN_COST));
-    emitIfPresent(sb, depth + 1, first, "swapped",
-        node.getProperty(CostProperties.JOIN_SWAPPED));
+    first = emitIfPresent(sb, depth + 1, first, "reordered", node.getProperty(CostProperties.JOIN_REORDERED));
+    first = emitIfPresent(sb, depth + 1, first, "leftCardinality", node.getProperty(CostProperties.JOIN_LEFT_CARD));
+    first = emitIfPresent(sb, depth + 1, first, "rightCardinality", node.getProperty(CostProperties.JOIN_RIGHT_CARD));
+    first = emitIfPresent(sb, depth + 1, first, "cost", node.getProperty(CostProperties.JOIN_COST));
+    emitIfPresent(sb, depth + 1, first, "swapped", node.getProperty(CostProperties.JOIN_SWAPPED));
     sb.append('\n');
     indent(sb, depth);
     sb.append('}');
@@ -327,8 +313,7 @@ public final class QueryPlanSerializer {
     indent(sb, depth);
     sb.append("\"vectorized\": {\n");
     boolean first = true;
-    first = emitIfPresent(sb, depth + 1, first, "route",
-        node.getProperty(VectorizedRoutingStage.VECTORIZED_ROUTE));
+    first = emitIfPresent(sb, depth + 1, first, "route", node.getProperty(VectorizedRoutingStage.VECTORIZED_ROUTE));
 
     final Object predicatesObj = node.getProperty(VectorizedRoutingStage.VECTORIZED_PREDICATES);
     if (predicatesObj instanceof List<?> predicatesList && !predicatesList.isEmpty()) {
@@ -344,11 +329,15 @@ public final class QueryPlanSerializer {
         final Object item = predicatesList.get(i);
         if (item instanceof VectorizedPredicate pred) {
           indent(sb, depth + 2);
-          sb.append("{\"field\": \"").append(escapeJson(pred.fieldName()))
-              .append("\", \"op\": \"").append(pred.op())
-              .append("\", \"constant\": ").append(jsonValue(pred.constant()))
-              .append(", \"type\": \"").append(pred.type())
-              .append("\"}");
+          sb.append("{\"field\": \"")
+            .append(escapeJson(pred.fieldName()))
+            .append("\", \"op\": \"")
+            .append(pred.op())
+            .append("\", \"constant\": ")
+            .append(jsonValue(pred.constant()))
+            .append(", \"type\": \"")
+            .append(pred.type())
+            .append("\"}");
         }
       }
       sb.append('\n');
@@ -358,10 +347,8 @@ public final class QueryPlanSerializer {
     }
 
     // Database/resource context (on VectorizedPipelineExpr nodes)
-    first = emitIfPresent(sb, depth + 1, first, "databaseName",
-        node.getProperty("databaseName"));
-    emitIfPresent(sb, depth + 1, first, "resourceName",
-        node.getProperty("resourceName"));
+    first = emitIfPresent(sb, depth + 1, first, "databaseName", node.getProperty("databaseName"));
+    emitIfPresent(sb, depth + 1, first, "resourceName", node.getProperty("resourceName"));
 
     sb.append('\n');
     indent(sb, depth);
@@ -374,16 +361,12 @@ public final class QueryPlanSerializer {
     indent(sb, depth);
     sb.append("\"decomposition\": {\n");
     boolean first = true;
-    first = emitIfPresent(sb, depth + 1, first, "applicable",
-        node.getProperty(CostProperties.DECOMPOSITION_APPLICABLE));
-    first = emitIfPresent(sb, depth + 1, first, "type",
-        node.getProperty(CostProperties.DECOMPOSITION_TYPE));
-    first = emitIfPresent(sb, depth + 1, first, "rule5",
-        node.getProperty(CostProperties.DECOMPOSITION_RULE_5));
-    first = emitIfPresent(sb, depth + 1, first, "rule6",
-        node.getProperty(CostProperties.DECOMPOSITION_RULE_6));
-    emitIfPresent(sb, depth + 1, first, "intersect",
-        node.getProperty(CostProperties.DECOMPOSITION_INTERSECT));
+    first =
+        emitIfPresent(sb, depth + 1, first, "applicable", node.getProperty(CostProperties.DECOMPOSITION_APPLICABLE));
+    first = emitIfPresent(sb, depth + 1, first, "type", node.getProperty(CostProperties.DECOMPOSITION_TYPE));
+    first = emitIfPresent(sb, depth + 1, first, "rule5", node.getProperty(CostProperties.DECOMPOSITION_RULE_5));
+    first = emitIfPresent(sb, depth + 1, first, "rule6", node.getProperty(CostProperties.DECOMPOSITION_RULE_6));
+    emitIfPresent(sb, depth + 1, first, "intersect", node.getProperty(CostProperties.DECOMPOSITION_INTERSECT));
     sb.append('\n');
     indent(sb, depth);
     sb.append('}');
@@ -395,16 +378,11 @@ public final class QueryPlanSerializer {
     indent(sb, depth);
     sb.append("\"fusion\": {\n");
     boolean first = true;
-    first = emitIfPresent(sb, depth + 1, first, "joinFused",
-        node.getProperty(CostProperties.JOIN_FUSED));
-    first = emitIfPresent(sb, depth + 1, first, "groupId",
-        node.getProperty(CostProperties.JOIN_FUSION_GROUP_ID));
-    first = emitIfPresent(sb, depth + 1, first, "predicateCount",
-        node.getProperty(CostProperties.FUSED_COUNT));
-    first = emitIfPresent(sb, depth + 1, first, "operator",
-        node.getProperty(CostProperties.FUSED_OPERATOR));
-    emitIfPresent(sb, depth + 1, first, "fieldName",
-        node.getProperty(CostProperties.FUSED_FIELD_NAME));
+    first = emitIfPresent(sb, depth + 1, first, "joinFused", node.getProperty(CostProperties.JOIN_FUSED));
+    first = emitIfPresent(sb, depth + 1, first, "groupId", node.getProperty(CostProperties.JOIN_FUSION_GROUP_ID));
+    first = emitIfPresent(sb, depth + 1, first, "predicateCount", node.getProperty(CostProperties.FUSED_COUNT));
+    first = emitIfPresent(sb, depth + 1, first, "operator", node.getProperty(CostProperties.FUSED_OPERATOR));
+    emitIfPresent(sb, depth + 1, first, "fieldName", node.getProperty(CostProperties.FUSED_FIELD_NAME));
     sb.append('\n');
     indent(sb, depth);
     sb.append('}');
@@ -488,12 +466,8 @@ public final class QueryPlanSerializer {
 
   static String resolveTypeName(int type) {
     // Check XQExt range first (SirixDB custom types)
-    if (type >= XQExt.MultiStepExpr && type <= XQExt.VectorizedPipelineExpr) {
-      try {
-        return (String) XQExt.toName(type);
-      } catch (ArrayIndexOutOfBoundsException e) {
-        // fall through
-      }
+    if (type >= XQExt.MultiStepExpr && type < XQExt.MultiStepExpr + XQExt.NAMES.length) {
+      return (String) XQExt.toName(type);
     }
     // Standard Brackit types
     if (type >= 0 && type < XQ.NAMES.length) {
@@ -503,11 +477,10 @@ public final class QueryPlanSerializer {
   }
 
   /**
-   * Emit a property field if the value is non-null. Returns false if a field was emitted
-   * (so the next call knows to prepend a comma).
+   * Emit a property field if the value is non-null. Returns false if a field was emitted (so the next
+   * call knows to prepend a comma).
    */
-  private static boolean emitIfPresent(StringBuilder sb, int depth, boolean first,
-      String key, Object value) {
+  private static boolean emitIfPresent(StringBuilder sb, int depth, boolean first, String key, Object value) {
     if (value == null) {
       return first;
     }

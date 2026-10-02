@@ -71,7 +71,12 @@ that count. The same bound is asserted for an inner side whose keys include one 
 record, which pins the null key to the hash route rather than the fallback. There is no wall-clock
 assertion.
 
-## SH1 evidence (2026-10-01/02)
+## SH1 evidence (2026-10-01/02, measured on commit `79042b96a`)
+
+Every number in this section — timings, suite counts, and the source hashes in
+`measurements.json` — was measured on commit `79042b96a` and describes that commit only. Later
+commits on this branch are deliberately not re-measured here; the addendum below records what
+changed after it and what covers it instead.
 
 Baseline: Sirix main `8aa9f0d9e`, Oracle GraalVM Java 25.0.3, local Brackit
 `1.0-alpha10-SNAPSHOT`. The kit's original query texts, inputs, independent TSV oracles,
@@ -115,3 +120,30 @@ the full query test JVM and optional t250k loader were killed in the same event.
 recorded 1,026 tests with no assertion failures, including all 16 membership tests. Heavy work
 was subsequently admitted through the shared two-slot limiter and the full suite passed on retry.
 The t250k retry uses a fresh store; the partial original store contributes no measurements.
+
+## Addendum: changes after commit `79042b96a`
+
+The campaign section above is a closed record of `79042b96a`. Two changes landed after it, so its
+suite counts (`1,774 tests`, `16 membership tests`) and the `MembershipIndexExpr.java` entry in
+`candidate_sources_sha256` describe that commit, not HEAD. They were deliberately left as recorded
+rather than re-written without a new measured run.
+
+A JSON `null` key no longer returns `Keys.FALLBACK`. It sets one `hasNull` flag on the `Keys`
+record and a null probe key is answered from that flag, so a single null no longer reverts the
+whole query to the per-row nested plan. Covered by `HashMembershipStageTest`:
+`nullKeysMatchNullKeysAndNothingElse`, `explicitAndAbsentNullFieldsFollowTheValueComparison`,
+`aNullInnerKeyKeepsTheHashRouteAndItsWorkBound`, `aNullProbeKeyKeepsTheHashRouteAndItsWorkBound`,
+and `aNullOnlyBuildSideKeepsTheHashRouteAndItsWorkBound`. The last three assert the inner-visit
+work bound, so they fail if the route reverts to the fallback. The same change moved the
+"no typed keys" decision after the probe key is atomized, so an error the unoptimized plan raises
+is delegated rather than answered as a non-match; `outerKeyErrorsAreNotSwallowedWhenNoTypedKeysWereBuilt`
+pins that, verified against the plan the rule disables.
+
+`QueryPlanSerializer.resolveTypeName` now bounds the XQExt range against `XQExt.NAMES.length`
+instead of a hardcoded last type, so `sdb:explain` names the two membership operators instead of
+emitting `Unknown(276)`/`Unknown(277)`. Covered by `QueryPlanSerializerTest.resolveXQExtTypes` and
+`serializeMembershipNodes`.
+
+The recorded Q12 timings are unaffected by both: the SH1 keys are contract ids with no null among
+them, and plan-tree naming is diagnostic output. The authoritative suite result for HEAD is this
+branch's test step, not the counts above.
