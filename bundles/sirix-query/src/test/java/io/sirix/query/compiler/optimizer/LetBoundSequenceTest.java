@@ -173,11 +173,13 @@ final class LetBoundSequenceTest {
                     context);
       }
       // The one selected contract has v=2. Products 1, 2 and 3 exercise below, equal and above.
-      final String plain = "for $c in " + contractsSource + " for $p in " + productsSource + suffix;
-      final Cmp reversedCmp = Cmp.valueOf(reversed);
-      assertJoinInputsSwapped(store, plain, reversedCmp);
-      assertAnswer(store, expected, plain);
-      assertJoinInputsSwapped(store, hoisted, reversedCmp);
+      // SirixOptimizer registers JoinReorderStage before IndexDecompositionStage, so Rule 5 sees the
+      // post-reorder inputs. Only the hoisted shape reaches the swap: its let-bound products
+      // sequence is the left input, leaving the indexed contracts side in child(1), which Rule 5
+      // moves to the driving position while reversing the comparison. The plain shape already has
+      // contracts in child(0), so Rule 5 keeps the comparison Brackit normalised it to.
+      assertAnswer(store, expected, "for $c in " + contractsSource + " for $p in " + productsSource + suffix);
+      assertJoinInputsSwapped(store, hoisted, Cmp.valueOf(reversed));
       assertAnswer(store, expected, hoisted, BRACKIT_TABLE_JOIN_FIX_REQUIRED);
     }
   }
@@ -212,10 +214,10 @@ final class LetBoundSequenceTest {
 
   private static void assertJoinInputsSwapped(final BasicJsonDBStore store, final String query, final Cmp reversed) {
     final QueryPlan plan = QueryPlan.explain(query, store, null);
-    assertTrue(plan.isDecompositionRestructured(),
-        "The CAS index on contracts must put the indexed side in child(1) so Rule 5 restructures: " + query);
+    assertTrue(plan.isDecompositionRestructured(), "Rule 5 must restructure this join: " + query);
     assertEquals(reversed, plan.joinComparison(),
-        "Rule 5 exchanged the join inputs, so the comparison must be reversed: " + query);
+        "Rule 5 moved the indexed contracts input from child(1) to the driving position, so the"
+            + " comparison must be reversed: " + query);
   }
 
   private static void assertAnswer(final BasicJsonDBStore store, final String expected, final String query,
