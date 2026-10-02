@@ -35,7 +35,9 @@ import java.util.List;
  * is left exactly as it was: the rule only ever re-keys away from a non-equality, never from one
  * equality to another. That includes an equality with a mixed-side operand, as in
  * {@code $c.k eq $p.a + $q.b}, which {@code JoinRewriter} keys on by building the mixed side on the
- * build input — re-keying off it would enumerate the probe side's cross product instead;</li>
+ * build input — re-keying off it would enumerate the probe side's cross product instead. An equality
+ * it would <em>not</em> key on stays a residual: hoisting it above the key would only copy it into
+ * the join's right input, where it is re-evaluated for every tuple of the enclosing binding;</li>
  * <li>every remaining predicate (other equalities, inequalities, mixed predicates) in its chain
  * order — they follow the join as residual filters, which Brackit's {@code PredicateMerge} then
  * collapses into one conjunction.</li>
@@ -84,7 +86,7 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
     final List<AST> residual = new ArrayList<>(chain.size());
     AST key = null;
     for (final AST selection : chain) {
-      switch (classify(selection.getChild(0), bind)) {
+      switch (classify(selection, bind)) {
         case RIGHT_ONLY -> rightOnly.add(selection);
         case EQUALITY -> {
           if (key == null) {
@@ -119,11 +121,13 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
   }
 
   /**
-   * {@link #EQUALITY} mirrors {@code JoinRewriter}'s eligibility for an equality it can key on: both
-   * sides non-static, and one side referencing a strictly earlier binding than the other. That is
-   * what its scope split tests — it orients the two operands so the one reaching the later binding
-   * builds, then requires the other to begin earlier — so every equality it would key on, including
-   * one whose single operand mixes bindings, lands here rather than in {@link #RESIDUAL}.
+   * {@link #EQUALITY} applies {@code JoinRewriter}'s own admission test, so the key this walker
+   * moves to the head is the very predicate {@code JoinRewriter} would key on: both operands
+   * non-static; the operand reaching the later binding builds, the written order kept when both
+   * reach the same one; the probe operand must begin at a strictly earlier binding than the build
+   * operand; and the build operand's first binding must enclose the selection in this pipeline. The
+   * orientation step is why admission depends on the written order — {@code $p.retail eq $c.cost +
+   * $p.discount} is rejected where the same equality written the other way round is keyed on.
    * {@link #RIGHT_ONLY}: the predicate references no earlier binding, so it filters this binding's
    * input on its own. Everything else is {@link #RESIDUAL}.
    *
@@ -135,7 +139,8 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
    * scopes.
    * </p>
    */
-  private int classify(final AST predicate, final Scope bind) {
+  private int classify(final AST selection, final Scope bind) {
+    final AST predicate = selection.getChild(0);
     final VarRef refs = findVarRefs(predicate);
     if (refs == null) {
       return RIGHT_ONLY;
@@ -158,21 +163,28 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
     if (comparison != XQ.GeneralCompEQ && comparison != XQ.ValueCompEQ) {
       return RESIDUAL;
     }
-    final Scope left = earliestBinding(predicate.getChild(1));
-    final Scope right = earliestBinding(predicate.getChild(2));
-    if (left == null || right == null) {
+    final Scope[] written = operandScopes(predicate.getChild(1));
+    final Scope[] other = operandScopes(predicate.getChild(2));
+    if (written == null || other == null) {
       return RESIDUAL;
     }
-    return left.compareTo(right) == 0
-        ? RESIDUAL
-        : EQUALITY;
+    final boolean swap = other[other.length - 1].compareTo(written[written.length - 1]) < 0;
+    final Scope[] probe = swap
+        ? other
+        : written;
+    final Scope[] build = swap
+        ? written
+        : other;
+    return probe[0].compareTo(build[0]) < 0 && buildRootEncloses(selection, build[0])
+        ? EQUALITY
+        : RESIDUAL;
   }
 
   /**
-   * The earliest pipeline binding one comparison side references, or {@code null} when the side is
-   * static — {@code JoinRewriter} does not join on a static side.
+   * The pipeline scopes one comparison operand references, earliest first, or {@code null} when the
+   * operand is static — {@code JoinRewriter} does not join on a static operand.
    */
-  private Scope earliestBinding(final AST expression) {
+  private Scope[] operandScopes(final AST expression) {
     final VarRef refs = findVarRefs(expression);
     if (refs == null) {
       return null;
@@ -180,6 +192,27 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
     final Scope[] scopes = sortScopes(refs);
     return scopes.length == 0
         ? null
-        : scopes[0];
+        : scopes;
+  }
+
+  /**
+   * Whether {@code buildRoot} binds above {@code selection} in this pipeline, which is where
+   * {@code JoinRewriter} roots the join's right input. It walks the same ancestors and stops at the
+   * same clause boundaries, so a scope the predicate opens itself — a descendant, never an ancestor
+   * — and one cut off by a {@code GroupBy}, {@code OrderBy} or {@code Count} both fail here exactly
+   * as they make {@code JoinRewriter} leave the selection alone.
+   */
+  private static boolean buildRootEncloses(final AST selection, final Scope buildRoot) {
+    final AST root = buildRoot.getNode();
+    for (AST parent = selection.getParent(); parent != null; parent = parent.getParent()) {
+      final int type = parent.getType();
+      if (type == XQ.Start || type == XQ.GroupBy || type == XQ.OrderBy || type == XQ.Count) {
+        return false;
+      }
+      if (parent == root) {
+        return true;
+      }
+    }
+    return false;
   }
 }

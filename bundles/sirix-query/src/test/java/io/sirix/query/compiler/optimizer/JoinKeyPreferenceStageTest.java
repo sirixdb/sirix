@@ -42,9 +42,9 @@ final class JoinKeyPreferenceStageTest {
           + "{\"id\":3,\"pid\":10,\"cost\":9,\"region\":\"us\",\"vf\":\"2024-06-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"},"
           + "{\"id\":4,\"pid\":30,\"cost\":2,\"region\":\"eu\",\"vf\":\"2023-01-01T00:00:00Z\",\"vt\":\"2024-02-01T00:00:00Z\"}]";
   private static final String PRODUCTS =
-      "[{\"id\":10,\"category\":\"a\",\"retail\":20,\"region\":\"eu\",\"items\":[1,9],\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-08-01T00:00:00Z\"},"
-          + "{\"id\":20,\"category\":\"b\",\"retail\":30,\"region\":\"eu\",\"items\":[2,3],\"vf\":\"2024-04-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"},"
-          + "{\"id\":10,\"category\":\"c\",\"retail\":25,\"region\":\"us\",\"items\":[4,8],\"vf\":\"2024-08-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}]";
+      "[{\"id\":10,\"category\":\"a\",\"retail\":20,\"discount\":15,\"region\":\"eu\",\"items\":[1,9],\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-08-01T00:00:00Z\"},"
+          + "{\"id\":20,\"category\":\"b\",\"retail\":30,\"discount\":23,\"region\":\"eu\",\"items\":[2,3],\"vf\":\"2024-04-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"},"
+          + "{\"id\":10,\"category\":\"c\",\"retail\":25,\"discount\":16,\"region\":\"us\",\"items\":[4,8],\"vf\":\"2024-08-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}]";
   private static final String OFFSETS = "[{\"id\":1,\"b\":15},{\"id\":2,\"b\":23},{\"id\":3,\"b\":11}]";
   private static final String PROLOG = "declare variable $L := xs:dateTime('2024-02-15T00:00:00Z');"
       + "declare variable $U := xs:dateTime('2024-10-15T00:00:00Z');" + "declare variable $C := " + CONTRACTS + ";"
@@ -109,6 +109,25 @@ final class JoinKeyPreferenceStageTest {
       PROLOG + "for $c in $C[] for $p in $P[] for $q in $Q[]"
           + " where $c.cost eq $p.retail - $q.b and $q.id eq $c.id"
           + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
+
+  /**
+   * An equality {@code JoinRewriter} cannot key on, because its operands reach the same latest
+   * binding and the written probe operand begins later: {@code sortScopes} gives {@code [p]} against
+   * {@code [c, p]}, the maxima tie so no orientation swap happens, and {@code p >= c} exhausts the
+   * probe side. Hoisting it above the inequality would only copy it into the join's right input,
+   * which then references {@code $c} and rebuilds the whole product side per contract.
+   */
+  private static final String UNKEYABLE_MIXED_SIDE_EQUALITY = PROLOG + "for $c in $C[] for $p in $P[]"
+      + " where xs:dateTime($p.vf) lt xs:dateTime($c.vt) and $p.retail eq $c.cost + $p.discount"
+      + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
+  /**
+   * An equality whose build operand begins at a scope the predicate opens itself, so the binding
+   * {@code JoinRewriter} would root the right input at is a descendant of the selection rather than
+   * an ancestor and it leaves the selection alone.
+   */
+  private static final String PREDICATE_LOCAL_SCOPE_EQUALITY = PROLOG + "for $c in $C[] for $p in $P[]"
+      + " where $c.cost lt $p.retail and $c.cost + $p.retail eq count(for $i in (1 to 30) return $i)"
+      + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
 
   @BeforeEach
   void setUp() {
@@ -298,7 +317,63 @@ final class JoinKeyPreferenceStageTest {
     assertEquals("2 2 1 2 2", planWithoutRule(NESTED_FOR).answer.trim());
   }
 
+  @Test
+  @DisplayName("an equality JoinRewriter cannot key on is left where it is, not hoisted")
+  void unkeyableMixedSideEqualityIsLeftAlone() throws IOException {
+    assertUnchangedPlan(UNKEYABLE_MIXED_SIDE_EQUALITY);
+    assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":2,\"p\":\"b\"} {\"c\":3,\"p\":\"c\"}",
+        plan(UNKEYABLE_MIXED_SIDE_EQUALITY).answer.trim());
+  }
+
+  @Test
+  @DisplayName("an equality rooted at a predicate-local scope is left where it is, not hoisted")
+  void predicateLocalScopeEqualityIsLeftAlone() throws IOException {
+    assertUnchangedPlan(PREDICATE_LOCAL_SCOPE_EQUALITY);
+    assertEquals("{\"c\":1,\"p\":\"c\"}", plan(PREDICATE_LOCAL_SCOPE_EQUALITY).answer.trim());
+  }
+
+  @Test
+  @DisplayName("only an explicit false switches the rule off")
+  void onlyAnExplicitFalseSwitchesTheRuleOff() {
+    try {
+      for (final String off : new String[] {"false", "FALSE", " false "}) {
+        System.setProperty(JoinKeyPreferenceStage.ENABLED_PROPERTY, off);
+        assertFalse(JoinKeyPreferenceStage.enabled(), "switched off by '" + off + "'");
+      }
+      for (final String on : new String[] {"true", "TRUE", "1", "yes", "on", ""}) {
+        System.setProperty(JoinKeyPreferenceStage.ENABLED_PROPERTY, on);
+        assertTrue(JoinKeyPreferenceStage.enabled(), "still on for '" + on + "'");
+      }
+      System.setProperty(JoinKeyPreferenceStage.ENABLED_PROPERTY, "yes");
+      assertTrue(new SirixOptimizer(null, null, null).getStages().stream()
+          .anyMatch(JoinKeyPreferenceStage.class::isInstance), "the stage stays installed for a non-false value");
+    } finally {
+      System.clearProperty(JoinKeyPreferenceStage.ENABLED_PROPERTY);
+    }
+    assertTrue(JoinKeyPreferenceStage.enabled(), "on by default");
+  }
+
   // ---------------------------------------------------------------------------------------------
+
+  /**
+   * A chain the rule must not touch: same join key, and every selection still on the same side of
+   * the join, so nothing is hoisted into the right input to be rebuilt per enclosing tuple.
+   */
+  private static void assertUnchangedPlan(final String query) throws IOException {
+    final Plan plan = plan(query);
+    final Plan without = planWithoutRule(query);
+    assertEquals(without.joins.size(), plan.joins.size(), "join count");
+    for (int i = 0; i < plan.joins.size(); i++) {
+      final AST join = plan.joins.get(i);
+      final AST joinWithout = without.joins.get(i);
+      assertEquals(keySignature(joinWithout), keySignature(join), "join key");
+      assertEquals(selectionsBelow(joinWithout.getChild(1)), selectionsBelow(join.getChild(1)),
+          "selections in the join's right input");
+      assertEquals(selectionsBelow(joinWithout.getChild(3)), selectionsBelow(join.getChild(3)),
+          "selections following the join");
+    }
+    assertEquals(without.answer, plan.answer, "answers are byte-identical");
+  }
 
   /**
    * The rule must never re-key a join away from any equality Brackit itself already picked: it keys

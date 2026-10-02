@@ -28,7 +28,7 @@ public final class JoinKeyPreferenceStage implements Stage {
 
   /** Whether the rule is switched on. The sole gate: a disabled rule is never installed at all. */
   public static boolean enabled() {
-    return Boolean.parseBoolean(System.getProperty(ENABLED_PROPERTY, "true"));
+    return !"false".equalsIgnoreCase(System.getProperty(ENABLED_PROPERTY, "true").trim());
   }
 
   @Override
