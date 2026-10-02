@@ -4097,6 +4097,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       } catch (final IOException e) {
         throw new SirixIOException("Index definitions couldn't be fsync'd!", e);
       }
+
+      // The session answers the next writer's catalogue lookup from this report instead of listing
+      // the directory, so it has to learn of the file here, where it is created.
+      storageEngineReader.resourceSession.recordSerializedIndexCatalogueRevision(revision);
     }
   }
 
