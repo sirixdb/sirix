@@ -116,8 +116,12 @@ final class JoinKeyPreferenceStageTest {
     final AST join = plan.joins.get(0);
     assertEquals("c.pid", deref(end(join.getChild(0))), "left join key");
     assertEquals("p.id", deref(end(join.getChild(1))), "right join key");
-    assertTrue(selectionsBelow(join.getChild(1)) >= 1, "the right input filters products before the join");
-    assertTrue(containsComparison(join.getChild(3), XQ.ValueCompLT), "the inequalities follow the join");
+    assertEquals(2, comparisonsBelow(join.getChild(1), XQ.ValueCompLT),
+        "both $p-only window predicates filter the build side before the join");
+    assertEquals(XQ.AndExpr, onlySelection(join.getChild(1)).getChild(0).getType(),
+        "Brackit's own PredicateMerge collapses them into one conjunction");
+    assertEquals(2, comparisonsBelow(join.getChild(3), XQ.ValueCompLT),
+        "only the two interval inequalities, which reference both bindings, follow the join");
     assertEquals(XQ.AndExpr, onlySelection(join.getChild(3)).getChild(0).getType(),
         "Brackit's own PredicateMerge collapses the residuals into one conjunction");
     assertEquals("{\"category\":\"a\",\"n\":2,\"min\":11,\"max\":15} "
@@ -360,14 +364,15 @@ final class JoinKeyPreferenceStageTest {
     return selections.size();
   }
 
-  private static boolean containsComparison(final AST node, final int comparisonType) {
+  private static int comparisonsBelow(final AST node, final int comparisonType) {
     final List<AST> comparisons = new ArrayList<>();
     collect(node, XQ.ComparisonExpr, comparisons);
+    int count = 0;
     for (final AST comparison : comparisons) {
       if (comparison.getChild(0).getType() == comparisonType) {
-        return true;
+        count++;
       }
     }
-    return false;
+    return count;
   }
 }
