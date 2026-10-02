@@ -32,6 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Answers.RETURNS_DEEP_STUBS;
 import static org.mockito.ArgumentMatchers.any;
@@ -170,33 +172,9 @@ final class HOTOrderingGuardTest {
   @Test
   void aHalfWithNoCanonicalBlockMustDeclineTheCandidate() throws Exception {
     try (final Fixture fixture = new Fixture()) {
-      // Two children straddle a bit of their parent's mask, as a Direction-1 sub-insert leaves them.
-      // Splitting before 0x7F keeps 31 of the 32 children, which drops the slice's most significant
-      // column and leaves bit 1 above the first straddler: the half has to be recanonicalized. Its
-      // join splits that straddler, reaching the 32-part fan-out, and then needs the second one too,
-      // so no canonical block exists for this half.
-      final PageReference[] children = new PageReference[32];
-      final int[] partials = new int[32];
-      for (int slot = 0; slot < 20; slot++) {
-        children[slot] = fixture.leaf(slot);
-        partials[slot] = slot;
-      }
-      children[20] = fixture.node(new int[] {1}, new int[] {0, 1}, fixture.leaf(0x3E), fixture.leaf(0x40));
-      partials[20] = 0x3E;
-      for (int slot = 21; slot < 28; slot++) {
-        children[slot] = fixture.leaf(0x41 + slot - 21);
-        partials[slot] = 0x41 + slot - 21;
-      }
-      children[28] = fixture.node(new int[] {2}, new int[] {0, 1}, fixture.leaf(0x5E), fixture.leaf(0x60));
-      partials[28] = 0x5E;
-      children[29] = fixture.leaf(0x61);
-      partials[29] = 0x61;
-      children[30] = fixture.leaf(0x7E);
-      partials[30] = 0x7E;
-      children[31] = fixture.leaf(0x80);
-      partials[31] = 0x80;
-      final PageReference source = fixture.node(new int[] {0, 1, 2, 3, 4, 5, 6, 7}, partials, children);
-      fixture.install(fixture.node(new int[] {0}, new int[] {0, 1}, source, fixture.leaf(0xC0)));
+      final PageReference source = installFrontierWithoutACanonicalHalf(fixture);
+      final PageReference straddlerRef =
+          assertInstanceOf(HOTIndirectPage.class, fixture.page(source)).getChildReference(20);
 
       final long recanonicalized = AbstractHOTIndexWriter.FRONTIER_SPLIT_HALF_RECANONICALIZED.get();
       final Method splice = Arrays.stream(AbstractHOTIndexWriter.class.getDeclaredMethods())
@@ -229,7 +207,7 @@ final class HOTOrderingGuardTest {
       // spliceCompleteFrontierIncrementally can go on to the wider frontier and the higher levels.
       assertEquals(recanonicalized, AbstractHOTIndexWriter.FRONTIER_SPLIT_HALF_RECANONICALIZED.get(),
           "a half that never produced a block must not be counted as recanonicalized");
-      final HOTIndirectPage straddler = assertInstanceOf(HOTIndirectPage.class, fixture.page(children[20]));
+      final HOTIndirectPage straddler = assertInstanceOf(HOTIndirectPage.class, fixture.page(straddlerRef));
       assertEquals(2, straddler.getNumChildren());
       for (int slot = 0; slot < 2; slot++) {
         final HOTLeafPage leaf = assertInstanceOf(HOTLeafPage.class, fixture.page(straddler.getChildReference(slot)));
@@ -240,6 +218,94 @@ final class HOTOrderingGuardTest {
       }
       assertEquals(32, assertInstanceOf(HOTIndirectPage.class, fixture.page(source)).getNumChildren());
     }
+  }
+
+  @Test
+  void aDeclinedRecanonicalizationMustStayInsideTheRetryLoop() throws Exception {
+    try (final Fixture fixture = new Fixture()) {
+      final PageReference source = installFrontierWithoutACanonicalHalf(fixture);
+      final long declined = AbstractHOTIndexWriter.FRONTIER_SPLIT_HALF_DECLINED.get();
+      final long spliced = AbstractHOTIndexWriter.COMPLETE_STRUCTURAL_FRONTIER_SPLICE.get();
+      final Method splice = Arrays.stream(AbstractHOTIndexWriter.class.getDeclaredMethods())
+                                  .filter(method -> method.getName().equals("spliceCompleteFrontierIncrementally"))
+                                  .findFirst()
+                                  .orElseThrow();
+      splice.setAccessible(true);
+      final Object absent = Arrays.stream(splice.getParameterTypes()[4].getEnumConstants())
+                                 .filter(value -> value.toString().equals("ABSENT"))
+                                 .findFirst()
+                                 .orElseThrow();
+      final LeafNavigationResult route = fixture.writer.prepareLeafOfTree(fixture.root, key(0x7F), 1);
+
+      // The decline hands control back to the retry loop instead of aborting from inside the split:
+      // the loop attempts the minimal frontier and then the whole bounded block at that level, and
+      // only when no frontier can build a clean candidate does it refuse with its own error.
+      final InvocationTargetException refusal = assertThrows(InvocationTargetException.class,
+          () -> splice.invoke(fixture.writer, route, 0, key(0x7F), key(0x7F), absent));
+      final Throwable cause = refusal.getCause();
+      assertInstanceOf(IllegalStateException.class, cause);
+      assertTrue(cause.getMessage().startsWith("HOT could not construct an invariant-clean incremental frontier"),
+          () -> "the loop must exhaust every frontier before refusing, got: " + cause);
+      assertTrue(AbstractHOTIndexWriter.FRONTIER_SPLIT_HALF_DECLINED.get() >= declined + 2,
+          "both frontier attempts at that level must reach the declining half");
+      assertEquals(spliced, AbstractHOTIndexWriter.COMPLETE_STRUCTURAL_FRONTIER_SPLICE.get(),
+          "no candidate may be published while every frontier declines");
+
+      // Nothing the declined attempts built survives, and every key the trie held is still in place.
+      final HOTIndirectPage sourceNode = assertInstanceOf(HOTIndirectPage.class, fixture.page(source));
+      assertEquals(32, sourceNode.getNumChildren());
+      final HOTIndirectPage root = assertInstanceOf(HOTIndirectPage.class, fixture.page(fixture.root));
+      assertEquals(2, root.getNumChildren());
+      assertEquals(sourceNode, fixture.page(root.getChildReference(0)));
+      for (int slot = 0; slot < 32; slot++) {
+        final Page child = fixture.page(sourceNode.getChildReference(slot));
+        if (child instanceof HOTLeafPage leaf) {
+          assertFalse(leaf.isClosed(), "a leaf the trie still owns must survive every declined attempt");
+        } else {
+          final HOTIndirectPage straddler = assertInstanceOf(HOTIndirectPage.class, child);
+          for (int inner = 0; inner < straddler.getNumChildren(); inner++) {
+            final HOTLeafPage leaf =
+                assertInstanceOf(HOTLeafPage.class, fixture.page(straddler.getChildReference(inner)));
+            assertFalse(leaf.isClosed(), "a straddler's leaves must survive every declined straddle split");
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * A frontier source for which no half has a canonical block: two of its 32 children straddle a bit
+   * of its own mask, as a Direction-1 sub-insert leaves them. Splitting before {@code 0x7F} keeps 31
+   * of the 32 children, which drops the slice's most significant column and leaves bit 1 above the
+   * first straddler, so that half has to be recanonicalized; its join splits that straddler, reaching
+   * the 32-part fan-out, and then needs the second one too.
+   *
+   * @return the 32-child source, installed as the first child of a two-child root
+   */
+  private static PageReference installFrontierWithoutACanonicalHalf(final Fixture fixture) {
+    final PageReference[] children = new PageReference[32];
+    final int[] partials = new int[32];
+    for (int slot = 0; slot < 20; slot++) {
+      children[slot] = fixture.leaf(slot);
+      partials[slot] = slot;
+    }
+    children[20] = fixture.node(new int[] {1}, new int[] {0, 1}, fixture.leaf(0x3E), fixture.leaf(0x40));
+    partials[20] = 0x3E;
+    for (int slot = 21; slot < 28; slot++) {
+      children[slot] = fixture.leaf(0x41 + slot - 21);
+      partials[slot] = 0x41 + slot - 21;
+    }
+    children[28] = fixture.node(new int[] {2}, new int[] {0, 1}, fixture.leaf(0x5E), fixture.leaf(0x60));
+    partials[28] = 0x5E;
+    children[29] = fixture.leaf(0x61);
+    partials[29] = 0x61;
+    children[30] = fixture.leaf(0x7E);
+    partials[30] = 0x7E;
+    children[31] = fixture.leaf(0x80);
+    partials[31] = 0x80;
+    final PageReference source = fixture.node(new int[] {0, 1, 2, 3, 4, 5, 6, 7}, partials, children);
+    fixture.install(fixture.node(new int[] {0}, new int[] {0, 1}, source, fixture.leaf(0xC0)));
+    return source;
   }
 
   @Test
@@ -311,8 +377,126 @@ final class HOTOrderingGuardTest {
     }
   }
 
+  @Test
+  void aSplitHalfPlacementMustKeepBothExtremesOfItsSlot() throws Exception {
+    try (final Fixture fixture = new Fixture()) {
+      final PageReference child = fixture.node(new int[] {2, 4}, new int[] {0, 1, 2}, fixture.leaf(0x40),
+          fixture.leaf(0x48), fixture.leaf(0x60));
+      fixture.install(
+          fixture.node(new int[] {0, 1}, new int[] {0, 1, 2}, fixture.leaf(0x20), child, fixture.leaf(0x80)));
+      fixture.assertKeys(0x20, 0x40, 0x48, 0x60, 0x80);
+      final LeafNavigationResult route = fixture.writer.prepareLeafOfTree(fixture.root, key(0x48), 1);
+      final HOTIndirectPage half = route.pathNodes()[1];
+
+      // The sub-insert target is the half's middle slot, so both its neighbours end the propagation.
+      assertTrue(fixture.splitHalfGuard(route, 1, half, false, 1, 0x48), "inside the target subtree's range");
+      assertTrue(fixture.splitHalfGuard(route, 1, half, false, 1, 0x44));
+      assertFalse(fixture.splitHalfGuard(route, 1, half, false, 1, 0x40), "the new minimum reaches its neighbour");
+      assertTrue(fixture.splitHalfGuard(route, 1, half, false, 1, 0x50));
+      assertFalse(fixture.splitHalfGuard(route, 1, half, false, 1, 0x60), "the new maximum reaches its neighbour");
+
+      // The half's last slot: its maximum is the upper half's, hence the split subtree's, so the
+      // boundary with d*'s own next sibling decides.
+      assertTrue(fixture.splitHalfGuard(route, 1, half, true, 2, 0x70));
+      assertFalse(fixture.splitHalfGuard(route, 1, half, true, 2, 0x80), "the ancestor's next sibling starts there");
+      assertTrue(fixture.splitHalfGuard(route, 1, half, false, 2, 0x80), "the upper half still carries the maximum");
+
+      // The mirror on the minimum side, which the lower half carries.
+      assertTrue(fixture.splitHalfGuard(route, 1, half, false, 0, 0x30));
+      assertFalse(fixture.splitHalfGuard(route, 1, half, false, 0, 0x20), "the ancestor's previous sibling ends there");
+      assertTrue(fixture.splitHalfGuard(route, 1, half, true, 0, 0x10), "the lower half still carries the minimum");
+    }
+  }
+
+  @Test
+  void aFullNodeSplitMustKeepTheKeyOnItsOwnHalf() throws Exception {
+    try (final Fixture fixture = new Fixture()) {
+      final PageReference child = fixture.node(new int[] {2, 4}, new int[] {0, 1, 2}, fixture.leaf(0x40),
+          fixture.leaf(0x48), fixture.leaf(0x60));
+      final PageReference rootRef =
+          fixture.node(new int[] {0, 1}, new int[] {0, 1, 2}, fixture.leaf(0x20), child, fixture.leaf(0x80));
+      fixture.install(rootRef);
+      fixture.assertKeys(0x20, 0x40, 0x48, 0x60, 0x80);
+      final HOTIndirectPage inner = assertInstanceOf(HOTIndirectPage.class, fixture.page(child));
+      final HOTIndirectPage root = assertInstanceOf(HOTIndirectPage.class, fixture.page(rootRef));
+
+      // inner splits at bit 2 into [0x40, 0x48] and [0x60]; root at bit 0 into [0x20, 0x60] and [0x80].
+      assertTrue(fixture.halvesKeepKeyApart(inner, true, 0x50));
+      assertFalse(fixture.halvesKeepKeyApart(inner, true, 0x44), "the lower half already holds that range");
+      assertTrue(fixture.halvesKeepKeyApart(inner, false, 0x50));
+      assertFalse(fixture.halvesKeepKeyApart(inner, false, 0x70), "the upper half already holds that range");
+      assertTrue(fixture.halvesKeepKeyApart(root, true, 0x70));
+      assertFalse(fixture.halvesKeepKeyApart(root, true, 0x50));
+      assertTrue(fixture.halvesKeepKeyApart(root, false, 0x70));
+      assertFalse(fixture.halvesKeepKeyApart(root, false, 0x90));
+    }
+  }
+
+  @Test
+  void aSliceMsbMustBeFoundInTheSignBitColumnToo() throws Exception {
+    try (final Fixture fixture = new Fixture()) {
+      // 32 discriminative bits make column 0 weigh 1 << 31, so its extracted value is negative. The
+      // gap at bit 1 leaves room for a child whose own MSB sits above every other column.
+      final int[] bits = new int[32];
+      for (int column = 1; column < 32; column++) {
+        bits[column] = column + 1;
+      }
+      final PageReference lowStraddler = fixture.node(new int[] {1}, new int[] {0, 1},
+          fixture.wideLeaf(0x20000000), fixture.wideLeaf(0x60000000));
+      final PageReference highStraddler = fixture.node(new int[] {1}, new int[] {0, 1},
+          fixture.wideLeaf(0xA0000000), fixture.wideLeaf(0xE0000000));
+      final PageReference lowest = fixture.wideLeaf(0x00000000);
+      final PageReference signBitChild = fixture.wideLeaf(0x80000000);
+      final PageReference nodeRef = fixture.node(bits, new int[] {0x00000000, 0x40000000, 0x80000000, 0xC0000000},
+          lowest, lowStraddler, signBitChild, highStraddler);
+      final HOTIndirectPage node = assertInstanceOf(HOTIndirectPage.class, fixture.page(nodeRef));
+      assertEquals(0, node.getMostSignificantBitIndex(), "the sign-bit column is the node's own MSB");
+
+      // The whole slice varies in the sign-bit column alone, which is more significant than either
+      // straddler's bit 1: the plain compression keeps the trie condition.
+      assertTrue(fixture.sliceKeepsTrieCondition(node, 0, 4, 0, lowest));
+      // Dropping that column leaves bit 2 above the straddler's bit 1, and a slice whose first
+      // retained partial has the sign bit set still finds its true column.
+      assertFalse(fixture.sliceKeepsTrieCondition(node, 0, 2, 0, lowest));
+      assertFalse(fixture.sliceKeepsTrieCondition(node, 2, 4, 2, signBitChild));
+      // Removing the only child that sets the sign-bit column drops it from the slice as well.
+      assertTrue(fixture.sliceKeepsTrieCondition(node, 0, 3, 0, lowest));
+      assertFalse(fixture.sliceKeepsTrieCondition(node, 0, 3, 2, null));
+    }
+  }
+
+  @Test
+  void anUnorderedSliceMustDeclineInsteadOfAbortingTheSplit() throws Exception {
+    try (final Fixture fixture = new Fixture()) {
+      // The join's inputs are the node's own children here, so their ranges are an assumption about
+      // stored data. Both ways of breaking it must decline, never throw out of the split.
+      final PageReference interleaved = fixture.leaf(0x40, 0x60);
+      final PageReference inside = fixture.leaf(0x50);
+      final PageReference overlapping =
+          fixture.node(new int[] {0}, new int[] {0, 1}, interleaved, inside);
+      assertNull(fixture.recanonicalizeChildSlice(
+          assertInstanceOf(HOTIndirectPage.class, fixture.page(overlapping)), 0, 2, 0, interleaved));
+
+      final PageReference empty = fixture.leaf();
+      final PageReference populated = fixture.leaf(0x50);
+      final PageReference unresolvable = fixture.node(new int[] {0}, new int[] {0, 1}, empty, populated);
+      assertNull(fixture.recanonicalizeChildSlice(
+          assertInstanceOf(HOTIndirectPage.class, fixture.page(unresolvable)), 0, 2, 0, empty));
+
+      for (final PageReference reference : List.of(interleaved, inside, empty, populated)) {
+        assertFalse(assertInstanceOf(HOTLeafPage.class, fixture.page(reference)).isClosed(),
+            "a declining slice must not retire a leaf the trie still owns");
+      }
+    }
+  }
+
   private static byte[] key(final int value) {
     return new byte[] {(byte) value};
+  }
+
+  /** A four-byte key, so a node can carry the full 32 discriminative bits a partial key holds. */
+  private static byte[] wideKey(final int value) {
+    return new byte[] {(byte) (value >>> 24), (byte) (value >>> 16), (byte) (value >>> 8), (byte) value};
   }
 
   private static final class Fixture implements AutoCloseable {
@@ -340,6 +524,14 @@ final class HOTOrderingGuardTest {
       final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.PATH);
       for (final int value : keys) {
         assertTrue(leaf.put(key(value), key(value)));
+      }
+      return register(leaf);
+    }
+
+    private PageReference wideLeaf(final int... keys) {
+      final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.PATH);
+      for (final int value : keys) {
+        assertTrue(leaf.put(wideKey(value), wideKey(value)));
       }
       return register(leaf);
     }
@@ -395,6 +587,45 @@ final class HOTOrderingGuardTest {
           AbstractHOTIndexWriter.class.getDeclaredMethod(name, LeafNavigationResult.class, int.class, byte[].class);
       method.setAccessible(true);
       return (boolean) method.invoke(writer, route, placement, key(value));
+    }
+
+    private boolean splitHalfGuard(final LeafNavigationResult route, final int insertDepth,
+        final HOTIndirectPage half, final boolean rightHalf, final int affectedIdx, final int value)
+        throws ReflectiveOperationException {
+      final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("isSplitHalfDirectionOneSafe",
+          LeafNavigationResult.class, int.class, HOTIndirectPage.class, boolean.class, int.class, byte[].class);
+      method.setAccessible(true);
+      return (boolean) method.invoke(writer, route, insertDepth, half, rightHalf, affectedIdx, key(value));
+    }
+
+    private boolean halvesKeepKeyApart(final HOTIndirectPage node, final boolean keyJoinsUpperHalf, final int value)
+        throws ReflectiveOperationException {
+      final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("splitHalvesKeepKeyApart",
+          HOTIndirectPage.class, boolean.class, byte[].class);
+      method.setAccessible(true);
+      return (boolean) method.invoke(writer, node, keyJoinsUpperHalf, key(value));
+    }
+
+    private boolean sliceKeepsTrieCondition(final HOTIndirectPage node, final int fromInclusive,
+        final int toExclusive, final int replacedChildIndex, final PageReference replacement)
+        throws ReflectiveOperationException {
+      final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("sliceKeepsTrieCondition",
+          HOTIndirectPage.class, int.class, int.class, int.class, PageReference.class);
+      method.setAccessible(true);
+      return (boolean) method.invoke(writer, node, fromInclusive, toExclusive, replacedChildIndex, replacement);
+    }
+
+    private Object recanonicalizeChildSlice(final HOTIndirectPage node, final int fromInclusive,
+        final int toExclusive, final int replacedChildIndex, final PageReference replacement) throws Exception {
+      final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("recanonicalizeChildSlice",
+          HOTIndirectPage.class, int.class, int.class, int.class, PageReference.class, int.class, List.class);
+      method.setAccessible(true);
+      try {
+        return method.invoke(writer, node, fromInclusive, toExclusive, replacedChildIndex, replacement, 2,
+            new ArrayList<PageReference>());
+      } catch (final InvocationTargetException failure) {
+        throw new AssertionError("an unorderable slice must be declined, never aborted", failure.getCause());
+      }
     }
 
     private void collect(final PageReference reference, final List<Integer> actual) {

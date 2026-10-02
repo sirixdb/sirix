@@ -3515,52 +3515,64 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Direction-1 ordering guard for a child of one freshly compressed half produced by
+   * Ordering guard for a sub-insert into a child of one freshly compressed half produced by
    * {@link HOTIncrementalInsert#splitIndirect}. The half is not on {@code navResult}'s original
-   * spine, so the regular guard cannot describe the first-key propagation. This method checks the new
-   * boundary inside the half, the boundary between both split halves, and—only when the changed half
-   * is the left half and its first slot changed—the original ancestors above {@code d*}.
+   * spine, so {@link #keyKeepsSpineOrder} cannot describe the propagation. {@code K} inside the
+   * target subtree's range changes no extreme; below its first or above its last key it becomes that
+   * subtree's new minimum or maximum, and wherever the subtree's slot is the half's first
+   * (respectively last) child, the half's own extreme and then the split subtree's — so both sides
+   * need the boundary on that side at every level the change reaches.
+   *
+   * <p>
+   * <b>Precondition.</b> {@link #splitHalvesKeepKeyApart} has already proved the boundary between the
+   * two halves for {@code K}, so only the half it joins is examined here.
+   * </p>
    */
   private boolean isSplitHalfDirectionOneSafe(final LeafNavigationResult navResult, final int insertDepth,
-      final HOTIncrementalInsert.BiNode split, final HOTIndirectPage half, final boolean rightHalf,
-      final int affectedIdx, final byte[] keySlice) {
-    final byte[] affectedFirstKey = firstKeyOfSubtree(half.getChildReference(affectedIdx));
-    if (affectedFirstKey == null) {
-      return false;
+      final HOTIndirectPage half, final boolean rightHalf, final int affectedIdx, final byte[] keySlice) {
+    final PageReference affected = half.getChildReference(affectedIdx);
+    final byte[] affectedFirstKey = firstKeyOfSubtree(affected);
+    final byte[] affectedLastKey = lastKeyOfSubtree(affected);
+    if (affectedFirstKey == null || affectedLastKey == null) {
+      return false; // defensive: an unresolvable subtree cannot be proved safe
     }
-    if (Arrays.compareUnsigned(keySlice, affectedFirstKey) >= 0) {
-      return true; // K cannot change any subtree minimum.
+    if (Arrays.compareUnsigned(keySlice, affectedFirstKey) < 0) {
+      return splitHalfExtremeKeepsOrder(navResult, insertDepth, half, rightHalf, affectedIdx, 0, keySlice);
     }
-    if (!isRangeStartSafeAtSlot(half, affectedIdx, keySlice)) {
-      return false;
+    if (Arrays.compareUnsigned(keySlice, affectedLastKey) > 0) {
+      return splitHalfExtremeKeepsOrder(navResult, insertDepth, half, rightHalf, affectedIdx, 1, keySlice);
     }
-    if (affectedIdx != 0) {
-      return true; // The half's own first key is unchanged.
-    }
+    return true; // K lies inside the target subtree's range: no extreme changes
+  }
 
-    if (rightHalf) {
-      final byte[] leftLastKey = lastKeyOfSubtree(split.left());
-      return leftLastKey != null && Arrays.compareUnsigned(leftLastKey, keySlice) < 0;
-    }
-
-    final byte[] rightFirstKey = firstKeyOfSubtree(split.right());
-    if (rightFirstKey == null || Arrays.compareUnsigned(keySlice, rightFirstKey) >= 0) {
-      return false;
-    }
-
-    // K is the split subtree's new first key. Propagate the boundary check through the original
-    // spine until the first non-leftmost slot, exactly as for the ordinary Direction-1 path.
-    final HOTIndirectPage[] pathNodes = navResult.pathNodes();
-    final int[] childSlots = navResult.pathChildIndices();
-    int currentSlot = 0;
-    for (int depth = insertDepth - 1; depth >= 0 && currentSlot == 0; depth--) {
-      final int parentSlot = childSlots[depth];
-      if (!isRangeStartSafeAtSlot(pathNodes[depth], parentSlot, keySlice)) {
-        return false;
+  /**
+   * One side of {@link #isSplitHalfDirectionOneSafe}: {@code K} becomes the new minimum
+   * ({@code side == 0}) or maximum ({@code side == 1}) of the half's slot {@code affectedIdx}. A
+   * neighbour of that slot on that side ends the propagation; without one the half's own extreme
+   * moves, which reaches the original spine above {@code d*} only through the half that carries the
+   * split subtree's extreme on that side.
+   */
+  private boolean splitHalfExtremeKeepsOrder(final LeafNavigationResult navResult, final int insertDepth,
+      final HOTIndirectPage half, final boolean rightHalf, final int affectedIdx, final int side,
+      final byte[] keySlice) {
+    if (side == 0) {
+      if (affectedIdx > 0) {
+        final byte[] previousLast = lastKeyOfSubtree(half.getChildReference(affectedIdx - 1));
+        return previousLast != null && Arrays.compareUnsigned(previousLast, keySlice) < 0;
       }
-      currentSlot = parentSlot;
+      if (rightHalf) {
+        return true; // the lower half still carries the split subtree's minimum
+      }
+    } else {
+      if (affectedIdx + 1 < half.getNumChildren()) {
+        final byte[] nextFirst = firstKeyOfSubtree(half.getChildReference(affectedIdx + 1));
+        return nextFirst != null && Arrays.compareUnsigned(keySlice, nextFirst) < 0;
+      }
+      if (!rightHalf) {
+        return true; // the upper half still carries the split subtree's maximum
+      }
     }
-    return true;
+    return extremeKeepsSpineOrder(navResult, insertDepth - 1, side, keySlice);
   }
 
   /**
@@ -4898,6 +4910,13 @@ public abstract class AbstractHOTIndexWriter<K> {
         node.getMostSignificantBitIndex())) {
       return false;
     }
+    // The entry is folded into the half holding its affected subtree; the other half is published
+    // untouched beside it, so the boundary between the two has to hold for K as well.
+    if (!splitHalvesKeepKeyApart(node, info.firstAffected() >= HOTIncrementalInsert.indirectSplitPoint(node),
+        keySlice)) {
+      BRANCH_SPINE_ORDER_DELEGATED.incrementAndGet();
+      return false; // K sorts into the half it does not join: complete frontier
+    }
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
     putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
     boolean published = false;
@@ -5041,6 +5060,32 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Whether {@code K}, folded into the half of {@code node}'s MSB partition which takes it, stays on
+   * its own side of the boundary between the two halves. The halves go out as one {@code BiNode} on
+   * {@code node.MSB}, so their key ranges must stay disjoint: the lower half's last key below
+   * {@code K} when {@code K} joins the upper half, {@code K} below the upper half's first key when it
+   * joins the lower one. Neither half is on {@code navResult}'s spine and the fold only ever rebuilds
+   * the half it joins, so no other guard compares {@code K} against the other one. Asked before
+   * anything is allocated, so declining orphans nothing.
+   *
+   * @param keyJoinsUpperHalf whether {@code K} goes into the half holding the children whose partial
+   *        has {@code node.MSB} set
+   */
+  private boolean splitHalvesKeepKeyApart(final HOTIndirectPage node, final boolean keyJoinsUpperHalf,
+      final byte[] keySlice) {
+    final int splitPoint = HOTIncrementalInsert.indirectSplitPoint(node);
+    if (splitPoint <= 0 || splitPoint >= node.getNumChildren()) {
+      return true; // node.MSB does not partition these children: the split has no boundary to cross
+    }
+    if (keyJoinsUpperHalf) {
+      final byte[] lowerLast = lastKeyOfSubtree(node.getChildReference(splitPoint - 1));
+      return lowerLast != null && Arrays.compareUnsigned(lowerLast, keySlice) < 0;
+    }
+    final byte[] upperFirst = firstKeyOfSubtree(node.getChildReference(splitPoint));
+    return upperFirst != null && Arrays.compareUnsigned(keySlice, upperFirst) < 0;
+  }
+
+  /**
    * Branch insert into a <em>full</em> compound node at an <em>existing</em> discriminative bit —
    * Binna's {@code betaIsDiscBit + full d*} case
    * ({@code docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md} §4.1). The case decomposes into
@@ -5090,6 +5135,13 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (!splitKeepsTrieCondition(node)) {
       FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.incrementAndGet();
       return false;
+    }
+    // Every arm below rebuilds only the half K routes into — the fold, and the C2 continuation that
+    // sub-inserts into one of its children. The other half is published untouched beside it, and no
+    // guard on K's half can see the boundary between the two.
+    if (!splitHalvesKeepKeyApart(node, HOTBulkBuilder.bitAt(keySlice, node.getMostSignificantBitIndex()), keySlice)) {
+      BRANCH_SPINE_ORDER_DELEGATED.incrementAndGet();
+      return false; // K sorts into the half it does not join: complete frontier
     }
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
     putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
@@ -5172,8 +5224,8 @@ public abstract class AbstractHOTIndexWriter<K> {
           // parent pages from their (now updated) child references. This is page-local structural
           // maintenance—not entry collection or a subtree rebuild.
           keyLeaf.close();
-          return directionOneIntoSplitHalf(navResult, node, insertDepth, split, half, kMsbBit, childIdx, keySlice,
-              valueSlice, revision);
+          return directionOneIntoSplitHalf(navResult, node, insertDepth, half, kMsbBit, childIdx, keySlice, valueSlice,
+              revision);
         }
         if (halfIsFull) {
           return declineFoldIntoFullHalf(keyLeaf);
@@ -5264,10 +5316,9 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /** Complete a full-node C2 collision by descending into the selected child of the split half. */
   private boolean directionOneIntoSplitHalf(final LeafNavigationResult navResult, final HOTIndirectPage originalNode,
-      final int insertDepth, final HOTIncrementalInsert.BiNode split, final HOTIndirectPage half,
-      final boolean rightHalf, final int affectedIdx, final byte[] keySlice, final byte[] valueSlice,
-      final int revision) {
-    if (!isSplitHalfDirectionOneSafe(navResult, insertDepth, split, half, rightHalf, affectedIdx, keySlice)) {
+      final int insertDepth, final HOTIndirectPage half, final boolean rightHalf, final int affectedIdx,
+      final byte[] keySlice, final byte[] valueSlice, final int revision) {
+    if (!isSplitHalfDirectionOneSafe(navResult, insertDepth, half, rightHalf, affectedIdx, keySlice)) {
       DIRECTION_ONE_FALLBACK.incrementAndGet();
       return false;
     }
@@ -6192,6 +6243,13 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong FRONTIER_SPLIT_HALF_RECANONICALIZED = new AtomicLong();
 
   /**
+   * Persistent split halves for which no canonical block exists at all, so the candidate over them is
+   * declined and {@link #spliceCompleteFrontierIncrementally} goes on to the wider frontier and the
+   * higher spine levels.
+   */
+  public static final AtomicLong FRONTIER_SPLIT_HALF_DECLINED = new AtomicLong();
+
+  /**
    * {@link HOTIncrementalInsert#compressChildSliceReplacing} redone as a canonical block, for the
    * slices the plain compression would strip of the trie condition (I11).
    *
@@ -6213,28 +6271,51 @@ public abstract class AbstractHOTIndexWriter<K> {
    * keeps its exact reference-only cost.
    * </p>
    *
-   * @return the block, or {@code null} when the join could build none — every fresh part is then
-   *         retired, this slice's replacement among them, and the split only declines
+   * <p>
+   * The join's inputs are the node's own live children, so its precondition — resolvable extremes
+   * spanning strictly ascending, disjoint ranges (I12) — is a property of stored data here, not of a
+   * split this method built. It is the very invariant the writer's guards defend, so a slice which
+   * does not have it is declined like a join that cannot build its block, never aborted.
+   * </p>
+   *
+   * @return the block, or {@code null} when none could be built over this slice — every fresh part is
+   *         then retired, this slice's replacement among them, and the split only declines
    */
   private @Nullable PageReference recanonicalizeChildSlice(final HOTIndirectPage node, final int fromInclusive,
       final int toExclusive, final int replacedChildIndex, final @Nullable PageReference replacement,
       final int revision, final List<PageReference> replacedLeafRefs) {
     final List<FrontierPart> parts = new ArrayList<>(toExclusive - fromInclusive);
+    boolean ordered = true;
     try {
-      for (int slot = fromInclusive; slot < toExclusive; slot++) {
+      for (int slot = fromInclusive; slot < toExclusive && ordered; slot++) {
         final PageReference child = slot == replacedChildIndex
             ? replacement
             : node.getChildReference(slot);
-        if (child != null) {
-          parts.add(frontierPart(child));
+        if (child == null) {
+          continue;
+        }
+        final byte[] first = firstKeyOfSubtree(child);
+        final byte[] last = lastKeyOfSubtree(child);
+        ordered = first != null && last != null && Arrays.compareUnsigned(first, last) <= 0
+            && (parts.isEmpty() || Arrays.compareUnsigned(parts.get(parts.size() - 1).last, first) < 0);
+        if (ordered) {
+          parts.add(new FrontierPart(child, first, last));
         }
       }
     } catch (final RuntimeException | Error failure) {
       closeUnregisteredFreshSubtree(replacement, failure);
       throw failure;
     }
+    if (!ordered) {
+      discardFrontierParts(parts);
+      discardUnpublishedStructuralCandidateOrThrow(replacement);
+      FRONTIER_SPLIT_HALF_DECLINED.incrementAndGet();
+      return null;
+    }
     final PageReference block = joinOrderedParts(parts, revision, replacedLeafRefs);
-    if (block != null) {
+    if (block == null) {
+      FRONTIER_SPLIT_HALF_DECLINED.incrementAndGet();
+    } else {
       FRONTIER_SPLIT_HALF_RECANONICALIZED.incrementAndGet();
     }
     return block;
@@ -6250,23 +6331,20 @@ public abstract class AbstractHOTIndexWriter<K> {
       final int replacedChildIndex, final @Nullable PageReference replacement) {
     final int[] discBits = HOTIncrementalInsert.discriminativeBits(node);
     final int[] partials = node.getPartialKeysRef();
-    final int columns = discBits.length;
-    int sliceMsb = -1;
-    for (int column = 0; column < columns && sliceMsb < 0; column++) {
-      final int weight = 1 << (columns - 1 - column);
-      int first = -1;
+    // The replacement inherits the removed child's partial, so a retained slot keeps its column
+    // values and the compression sees exactly this range; only a removal compacts the partials.
+    final int sliceMsb;
+    if (replacement != null) {
+      sliceMsb = HOTIncrementalInsert.mostSignificantLiveBit(discBits, partials, fromInclusive, toExclusive);
+    } else {
+      final int[] retained = new int[toExclusive - fromInclusive - 1];
+      int target = 0;
       for (int slot = fromInclusive; slot < toExclusive; slot++) {
-        if (slot == replacedChildIndex && replacement == null) {
-          continue;
-        }
-        final int value = partials[slot] & weight;
-        if (first < 0) {
-          first = value;
-        } else if (value != first) {
-          sliceMsb = discBits[column];
-          break;
+        if (slot != replacedChildIndex) {
+          retained[target++] = partials[slot];
         }
       }
+      sliceMsb = HOTIncrementalInsert.mostSignificantLiveBit(discBits, retained, 0, target);
     }
     if (sliceMsb < 0) {
       return true; // a lone child is pulled up bare, without a node of its own

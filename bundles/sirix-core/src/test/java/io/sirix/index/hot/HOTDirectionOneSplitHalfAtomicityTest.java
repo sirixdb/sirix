@@ -48,8 +48,8 @@ final class HOTDirectionOneSplitHalfAtomicityTest {
     final HOTIndirectPage leftHalf = (HOTIndirectPage) split.left().getPage();
 
     try {
-      assertTrue(fixture.writer.directionOneForTest(shape.route, shape.originalNode, split, leftHalf, shape.insertedKey,
-          value(0x51)));
+      assertTrue(
+          fixture.writer.directionOneForTest(shape.route, shape.originalNode, leftHalf, shape.insertedKey, value(0x51)));
 
       Page root = fixture.resolve(shape.rootRef);
       assertEquals(34, countEntries(root, fixture));
@@ -82,7 +82,7 @@ final class HOTDirectionOneSplitHalfAtomicityTest {
     try {
       final IllegalArgumentException failure =
           assertThrows(IllegalArgumentException.class, () -> fixture.writer.directionOneForTest(shape.route,
-              shape.originalNode, split, leftHalf, shape.insertedKey, value(0x51)));
+              shape.originalNode, leftHalf, shape.insertedKey, value(0x51)));
 
       assertSame(sentinel, failure);
       assertSame(shape.originalNode, shape.rootRef.getPage(),
@@ -291,15 +291,13 @@ final class HOTDirectionOneSplitHalfAtomicityTest {
     }
 
     private boolean directionOneForTest(final AbstractHOTIndexWriter.LeafNavigationResult route,
-        final HOTIndirectPage originalNode, final HOTIncrementalInsert.BiNode split, final HOTIndirectPage half,
-        final byte[] key, final byte[] value) {
+        final HOTIndirectPage originalNode, final HOTIndirectPage half, final byte[] key, final byte[] value) {
       try {
         final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("directionOneIntoSplitHalf",
             AbstractHOTIndexWriter.LeafNavigationResult.class, HOTIndirectPage.class, int.class,
-            HOTIncrementalInsert.BiNode.class, HOTIndirectPage.class, boolean.class, int.class, byte[].class,
-            byte[].class, int.class);
+            HOTIndirectPage.class, boolean.class, int.class, byte[].class, byte[].class, int.class);
         method.setAccessible(true);
-        return (boolean) method.invoke(this, route, originalNode, 0, split, half, false, 10, key, value, 2);
+        return (boolean) method.invoke(this, route, originalNode, 0, half, false, 10, key, value, 2);
       } catch (final InvocationTargetException invocationFailure) {
         final Throwable cause = invocationFailure.getCause();
         if (cause instanceof RuntimeException runtimeFailure) {
