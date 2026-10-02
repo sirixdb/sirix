@@ -2183,7 +2183,7 @@ public final class HOTIncrementalInsert {
    * has {@code node.MSB} set. {@link #splitIndirect} partitions the children there; the capacity
    * cascade needs the same point to locate the affected child's half.
    */
-  private static int indirectSplitPoint(final HOTIndirectPage node) {
+  static int indirectSplitPoint(final HOTIndirectPage node) {
     final int[] discBits = discriminativeBits(node);
     final int[] partials = node.getPartialKeysRef();
     final int topWeight = 1 << (discBits.length - 1);
