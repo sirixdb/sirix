@@ -8,6 +8,7 @@ import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.LonNumeric;
 import io.brackit.query.atomic.Null;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.compiler.translator.Reference;
 import io.brackit.query.expr.DeclVariable;
 import io.brackit.query.jdm.AbstractItem;
 import io.brackit.query.jdm.Expr;
@@ -22,6 +23,7 @@ import io.brackit.query.util.ExprUtil;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 
+import java.lang.ref.SoftReference;
 import java.util.Objects;
 
 /**
@@ -34,28 +36,46 @@ import java.util.Objects;
  * every slot it carries, and the lookup is not a serializable JDM item.
  *
  * <p>
- * One build per enclosing binding is kept instead by memoizing on the scope variable: its value is
- * the same object for every row of the outer {@code for} and a different object once an enclosing
- * binding moves on. The memo holds one entry, so concurrent block-pipeline workers sitting on
- * different enclosing bindings rebuild rather than share; each worker always receives the lookup
- * built from its own binding.
+ * One build per enclosing binding is kept instead by memoizing on the inner relation's binding,
+ * read at its source rather than through a reference to it. A local binding is read straight out of
+ * its tuple slot, because {@link io.brackit.query.expr.BoundVariable} re-wraps any non-item slot
+ * value in a fresh {@code TypedSequence} that no identity comparison could ever match; a
+ * module-level variable is read from the query context for the same reason. Both are the same
+ * object for every row of the outer {@code for} and a different object once an enclosing binding
+ * moves on.
+ *
+ * <p>
+ * The memo holds one entry and holds it softly, so a finished evaluation's key set does not stay
+ * pinned by the compiled expression and concurrent block-pipeline workers sitting on different
+ * enclosing bindings rebuild rather than share. Correctness never depends on a hit: every caller
+ * receives a lookup built from its own binding.
  */
-public final class MembershipIndexExpr implements Expr {
+public final class MembershipIndexExpr implements Expr, Reference {
   private final Expr source;
-  private final Expr scope;
+  private final Expr declaredScope;
   private final QNm declared;
   private final QNm field;
-  private volatile Lookup cached;
+  private int slot = -1;
+  private volatile SoftReference<Lookup> cached;
 
   public MembershipIndexExpr(final Expr source, final Expr scope, final QNm field) {
     this.source = Objects.requireNonNull(source);
-    this.scope = Objects.requireNonNull(scope);
+    this.field = field;
     // The translator already resolved whether the scope variable is module-level or a local
     // binding, so ask it rather than re-deciding from the name, which a local may shadow.
-    this.declared = scope instanceof DeclVariable variable
-        ? variable.getName()
-        : null;
-    this.field = field;
+    if (Objects.requireNonNull(scope) instanceof DeclVariable variable) {
+      this.declaredScope = scope;
+      this.declared = variable.getName();
+    } else {
+      this.declaredScope = null;
+      this.declared = null;
+    }
+  }
+
+  /** Receives the scope variable's tuple slot; the translator registers this expression for it. */
+  @Override
+  public void setPos(final int pos) {
+    this.slot = pos;
   }
 
   @Override
@@ -63,31 +83,36 @@ public final class MembershipIndexExpr implements Expr {
     // Reading the scope variable is a slot or context access; the source and its keys are not
     // evaluated until an outer row actually probes.
     final Sequence binding = binding(ctx, tuple);
-    final Lookup snapshot = cached;
+    final Lookup snapshot = memoized();
     return snapshot != null && snapshot.binding == binding
         ? snapshot
         : refresh(tuple, binding);
   }
 
+  private Lookup memoized() {
+    final SoftReference<Lookup> reference = cached;
+    return reference == null
+        ? null
+        : reference.get();
+  }
+
   private Sequence binding(final QueryContext ctx, final Tuple tuple) {
     if (declared == null) {
-      return scope.evaluate(ctx, tuple);
+      return tuple.get(slot);
     }
-    // A declared variable holds one value for the whole evaluation, but a reference to it re-wraps
-    // any non-item value in a fresh TypedSequence. Compare the bound value, which does not move.
     if (!ctx.isBound(declared)) {
-      scope.evaluate(ctx, tuple);
+      declaredScope.evaluate(ctx, tuple);
     }
     return ctx.resolve(declared);
   }
 
   private synchronized Lookup refresh(final Tuple tuple, final Sequence binding) {
-    final Lookup snapshot = cached;
+    final Lookup snapshot = memoized();
     if (snapshot != null && snapshot.binding == binding) {
       return snapshot;
     }
     final Lookup fresh = new Lookup(binding, source, field, tuple);
-    cached = fresh;
+    cached = new SoftReference<>(fresh);
     return fresh;
   }
 
@@ -111,7 +136,7 @@ public final class MembershipIndexExpr implements Expr {
     private final Sequence binding;
     private final Expr source;
     private final QNm field;
-    private final Tuple origin;
+    private Tuple origin;
     private volatile Keys keys;
 
     private Lookup(final Sequence binding, final Expr source, final QNm field, final Tuple origin) {
@@ -177,6 +202,9 @@ public final class MembershipIndexExpr implements Expr {
           // The original expression decides whether that error is reachable.
           keys = Keys.FALLBACK;
         }
+        // The tuple is only an evaluation context for the source; holding it would pin one outer
+        // row, and with it a database transaction, for as long as the lookup lives.
+        origin = null;
       }
       return keys;
     }

@@ -8,7 +8,12 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
+import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.json.Array;
+import io.brackit.query.jdm.json.Object;
+import io.brackit.query.jsonitem.object.AbstractObject;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.LazySequence;
@@ -22,11 +27,13 @@ import org.junit.jupiter.api.parallel.Isolated;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Hand-computed answers for single-equality nested semi/anti-joins, plus a deterministic work
@@ -281,6 +288,57 @@ final class HashMembershipStageTest {
   }
 
   @Test
+  void aSpillingOrderByAfterAnAntiJoinCompletes() throws Exception {
+    // Brackit sizes the sort budget as Runtime.maxMemory()/4 with no property override, so this
+    // only runs under a focused small-heap invocation; see docs/QUERY_MEMBERSHIP_OPTIMIZATION.md.
+    final long budget = Runtime.getRuntime().maxMemory() / 4;
+    assumeTrue(budget <= 128L * 1024 * 1024,
+        "needs -PtestHeapMin=128m -PtestHeapMax=256m so Runtime.maxMemory()/4 is reachable");
+    final int rows = 1700;
+    // TupleSerializer.estimateSize charges 4 + 2*length per string slot, so pad each surviving row
+    // past the budget while the real Latin-1 payload stays about half of that.
+    final int pad = (int) (budget / rows) + 4096;
+    final String text = "declare variable $pad external;" + " let $inner := (1,2) for $a in 1 to " + rows
+        + " where empty(for $b in $inner where $b eq $a return $b)"
+        + " let $row := concat($pad, string($a)) order by $a descending return $a";
+    final StringBuilder expected = new StringBuilder();
+    for (int value = rows; value >= 3; value--) {
+      expected.append(expected.isEmpty()
+          ? ""
+          : " ").append(value);
+    }
+
+    // The sort really spills: TupleSort creates its run files in java.io.tmpdir, so a directory it
+    // cannot write to turns the spill, and only the spill, into a failure.
+    final Path blocked = Files.createDirectories(directory.resolve("blocked-sort"));
+    assertTrue(blocked.toFile().setWritable(false), "the sort directory must be made non-writable");
+    final String tmpdir = System.getProperty("java.io.tmpdir");
+    System.setProperty("java.io.tmpdir", blocked.toString());
+    try {
+      assertThrows(Exception.class, () -> orderBySpill(text, pad, null), "the sort did not spill");
+    } finally {
+      System.setProperty("java.io.tmpdir", tmpdir);
+      blocked.toFile().setWritable(true);
+    }
+
+    orderBySpill(text, pad, expected.toString());
+  }
+
+  private void orderBySpill(final String text, final int pad, final String expected) throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      context.bind(new QNm("pad"), new Str("x".repeat(pad)));
+      final Query query = new Query(chain, text);
+      final String answer = answer(query, context);
+      if (expected != null) {
+        assertEquals(expected, answer);
+        assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
+      }
+    }
+  }
+
+  @Test
   void anOrderByAfterAnAntiJoinCompletesAndKeepsTheRoute() throws Exception {
     assertOptimized("5 4 3", "let $inner := (1,2) for $a in (3,5,4)"
         + " where empty(for $b in $inner where $b eq $a return $b)" + " order by $a descending return $a");
@@ -345,6 +403,50 @@ final class HashMembershipStageTest {
       assertEquals("64", answer(query, context));
       assertEquals(64, second.visited, "a compiled query never reuses a prior evaluation's data");
       assertEquals(1, second.closed);
+    }
+  }
+
+  @Test
+  void aLocallyLetBoundInnerRelationIsBuiltOnce() throws Exception {
+    // A local let slot holding a multi-item sequence is re-wrapped in a fresh TypedSequence on
+    // every reference, so a memo keyed on the reference's value would rebuild per outer row.
+    assertOneInnerBuild("declare variable $src external;" + " count(let $inner := $src for $a in 1 to 256"
+        + " where empty(for $b in $inner where $b eq $a return $b) return $a)", "128");
+  }
+
+  @Test
+  void aQ12StyleLocalSourceIsBuiltOnce() throws Exception {
+    // Q12 binds its inner relation with `let $new := local:slice(...)`: a local let over a user
+    // function call. Brackit materializes such a let, so re-iterating it no longer touches the
+    // bound sequence; counting key reads on the records themselves survives that and is what
+    // actually distinguishes one build from one build per outer row.
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final QNm id = new QNm("id");
+      final CountingRecords inner = new CountingRecords(128, id);
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain,
+          "declare variable $src external;" + " declare function local:slice($s) { $s };"
+              + " count(let $new := local:slice($src) for $a in 1 to 256"
+              + " where empty(for $b in $new where $b.id eq $a return $b.id) return $a)");
+      assertEquals("128", answer(query, context));
+      assertEquals(128, inner.keyReads, "the inner keys are hashed once, not once per outer row");
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
+    }
+  }
+
+  private void assertOneInnerBuild(final String text, final String expected) throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingSequence inner = new CountingSequence(128);
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain, text);
+      assertEquals(expected, answer(query, context));
+      assertEquals(128, inner.visited, "the inner relation is read once, not once per outer row");
+      assertEquals(1, inner.closed, "exactly one build iterator is opened and closed");
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
     }
   }
 
@@ -418,6 +520,122 @@ final class HashMembershipStageTest {
       }
     }
     return false;
+  }
+
+  /** Records whose key-field reads are counted, so rebuilds stay visible after materialization. */
+  private static final class CountingRecords extends LazySequence {
+    private final int size;
+    private final QNm field;
+    private int keyReads;
+
+    private CountingRecords(final int size, final QNm field) {
+      this.size = size;
+      this.field = field;
+    }
+
+    @Override
+    public Iter iterate() {
+      return new BaseIter() {
+        private int position;
+
+        @Override
+        public Item next() {
+          if (position == size) {
+            return null;
+          }
+          return new CountingRecord(new Int32(++position));
+        }
+
+        @Override
+        public void close() {}
+      };
+    }
+
+    private final class CountingRecord extends AbstractObject {
+      private final ArrayObject delegate;
+
+      private CountingRecord(final Item value) {
+        this.delegate = new ArrayObject(new QNm[] {field}, new Sequence[] {value});
+      }
+
+      @Override
+      public Sequence get(final QNm name) {
+        if (field.equals(name)) {
+          keyReads++;
+        }
+        return delegate.get(name);
+      }
+
+      @Override
+      public Sequence value(final IntNumeric index) {
+        return delegate.value(index);
+      }
+
+      @Override
+      public Sequence value(final int index) {
+        return delegate.value(index);
+      }
+
+      @Override
+      public Array names() {
+        return delegate.names();
+      }
+
+      @Override
+      public Array values() {
+        return delegate.values();
+      }
+
+      @Override
+      public QNm name(final IntNumeric index) {
+        return delegate.name(index);
+      }
+
+      @Override
+      public QNm name(final int index) {
+        return delegate.name(index);
+      }
+
+      @Override
+      public IntNumeric length() {
+        return delegate.length();
+      }
+
+      @Override
+      public int len() {
+        return delegate.len();
+      }
+
+      @Override
+      public Object replace(final QNm name, final Sequence value) {
+        return delegate.replace(name, value);
+      }
+
+      @Override
+      public Object rename(final QNm name, final QNm renamed) {
+        return delegate.rename(name, renamed);
+      }
+
+      @Override
+      public Object insert(final QNm name, final Sequence value) {
+        return delegate.insert(name, value);
+      }
+
+      @Override
+      public Object remove(final QNm name) {
+        return delegate.remove(name);
+      }
+
+      @Override
+      public Object remove(final IntNumeric index) {
+        return delegate.remove(index);
+      }
+
+      @Override
+      public Object remove(final int index) {
+        return delegate.remove(index);
+      }
+    }
   }
 
   private static final class CountingSequence extends LazySequence {

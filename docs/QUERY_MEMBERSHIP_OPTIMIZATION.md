@@ -32,16 +32,28 @@ not implemented yet.` Nesting the lookup inside the probe removes the slot, so n
 tuples reaching `group by`, `order by` or the block `GroupBy` differs from the unoptimized plan.
 
 One build per enclosing binding is kept without a slot by memoizing on the *scope variable* — the
-independent variable the inner source reads, which the admission rule already requires. Its value
-is the same object for every row of the outer `for` and a different object once an enclosing
-binding moves on, so identity on that one slot read decides reuse. Identity is the only sound key
-here: `$inner[]` allocates a fresh unboxing sequence on every evaluation, so keying on the source
-itself would rebuild per outer row. Reuse therefore happens only when the bound object is the same
-object, which cannot differ in content. Enclosing bindings and subsequent executions get fresh
-lookups; the memo holds one entry, so concurrent block-pipeline workers sitting on different
-enclosing bindings rebuild instead of sharing, and each worker is always handed the lookup built
-from its own binding. The memo lives on the compiled expression, which `PlanCache` never holds —
-it caches ASTs and hands out deep copies — so its lifetime is the caller's `Query` object.
+independent variable the inner source reads, which the admission rule already requires. The memo is
+keyed on that variable's **binding**, not on the value a reference to it returns, and that
+distinction is the whole correctness of the scheme: `BoundVariable.evaluate` runs
+`TypedSequence.toTypedSequence`, which allocates a fresh wrapper for every value that is not a
+single `Item`, so a memo keyed on a reference's result never hits for a multi-item inner relation
+and rebuilds the hash set for every outer row. Q12's `let $new := local:slice(...)` is exactly that
+shape. The binding is therefore read at its source: a local `let`/`for` binding straight out of its
+tuple slot (the translator registers the lookup as a `Reference` on that binding, so it receives the
+same slot position every other reference gets), and a module-level variable from the query context.
+Both are the same object for every row of the outer `for` and a different object once an enclosing
+binding moves on. Note the asymmetry a slot read fixes: a `for` slot holds a single `Item` and was
+always stable, while a `let` slot holding a sequence was not.
+
+`$inner[]` still may not be the key — it allocates a fresh unboxing sequence per evaluation — which
+is why the key is the base variable the admission rule pins down rather than the source expression.
+Reuse happens only when the bound object is the same object, which cannot differ in content, so a
+hit is always sound and a miss only costs a rebuild. Enclosing bindings and subsequent executions
+get fresh lookups; the memo holds one entry, so concurrent block-pipeline workers sitting on
+different enclosing bindings rebuild instead of sharing, and each worker is always handed the lookup
+built from its own binding. The memo holds that entry **softly**, and the lookup drops the tuple it
+was built from as soon as its keys exist, so a finished evaluation's key set and the outer row's
+database items are collectable rather than pinned for the lifetime of the caller's `Query`.
 Initialization publishes immutable sets safely to parallel readers; ordinary probes do not
 synchronize.
 
@@ -80,12 +92,24 @@ this fallback from silently acquiring another equality implementation.
 `HashMembershipStageTest` checks hand-computed semi/anti-join answers, missing and empty keys,
 inner/outer duplicates, numeric precision and promotion, string promotion, nulls, date keys,
 cardinality/type errors, grouping, enclosing scopes, and repeated execution of one compiled query.
-It also counts consumed inner items and iterator closes, and runs an anti-join feeding a `group by`
-forced to spill with `-Dio.brackit.query.groupby.memory_budget=1`, which is the configurable spill
-trigger. `order by` and the block `GroupBy` size their spill budget from a fraction of the heap
-rather than a property, so they cannot be driven to spill inside the test JVM; they share the same
-`TupleSerializer`, and the slot-shape assertion in `theLookupNeverOccupiesAPipelineTupleSlot`
-covers them by pinning the property that makes all three safe.
+It also counts consumed inner items, iterator closes and key reads, pins one build for a locally
+let-bound and a Q12-style function-call-bound inner relation, and forces both spilling operators:
+
+- `group by`, with `-Dio.brackit.query.groupby.memory_budget=1`, its configurable spill trigger.
+- `order by`, which has no such property and sizes its budget as `Runtime.maxMemory()/4`, so
+  `aSpillingOrderByAfterAnAntiJoinCompletes` runs only under a focused small-heap invocation:
+  `./gradlew -PtestHeapMin=128m -PtestHeapMax=256m :sirix-query:test --tests
+  io.sirix.query.compiler.optimizer.HashMembershipStageTest`. It proves the spill is real rather than
+  assumed by pointing `java.io.tmpdir` at a non-writable directory, where only a spill can fail
+  (`TupleSort` creates its run files there), and then asserts the exact descending answer and route
+  admission against a writable one. Against the superseded let-bound plan it fails with
+  `bit:BIDY0005`, which is reachable only from `TupleSerializer` inside `TupleSort.writeRun` — so
+  that failure is itself proof that the sort spilled. It is skipped, not silently passed, at the
+  suite's normal heap.
+
+The block `GroupBy` shares the same `TupleSerializer`; the slot-shape assertion in
+`theLookupNeverOccupiesAPipelineTupleSlot` covers it by pinning the property that makes all three
+safe.
 
 For 128 inner keys and 256 outer items, the enabled rule visits exactly 128 inner items and closes
 one build iterator. Disabling it produces the same answer but visits 24,640 inner items:
@@ -176,18 +200,49 @@ and `theLookupNeverOccupiesAPipelineTupleSlot`. All three of the first, second a
 pre-fix plan — the two spilling ones with the `bit:BIDY0005` serialization error, the fourth because
 one variable was still bound to a lookup.
 
-The first two changes do not affect the recorded Q12 timings: the SH1 keys are contract ids with no
-null among them, and plan-tree naming is diagnostic output. **The third one changes the plan tree, so
-the recorded Q12 timings and the `t100k-after.plan.txt` / `t250k-after.plan.txt` trees no longer
-describe HEAD's plan and must be re-measured before the done-bar claim is re-asserted.** The
-generated `LetBind sirix:membership0` is gone and the lookup now sits inside the `Selection`. The
-re-measurement was not performed in the review round that made the change: the t100k inputs, oracles
-and store live at caller-owned scratch paths that this evidence record deliberately does not pin
-down, and generating and loading the tier with one commit per publication is a multi-hour campaign.
-What is known without it: the route still performs one build per enclosing binding, Q12's source is a
-local `let` whose slot read is identity-stable, and the per-row cost changed from one tuple slot read
-to one slot read plus one reference comparison — so the order-of-growth conclusion is expected to
-hold, and the work-bound tests still pin linear inner-input visits. The absolute seconds at HEAD are
-unverified.
+The memo key was then corrected. Nesting the lookup in the probe meant re-deriving "one build per
+enclosing binding" by hand, and the first attempt keyed the memo on what a *reference* to the scope
+variable returned. `BoundVariable.evaluate` runs `TypedSequence.toTypedSequence`, which allocates a
+fresh wrapper for every value that is not a single `Item` — so for a locally let-bound multi-item
+inner relation the memo never hit and the hash set was rebuilt for **every outer row**. That is
+Q12's own shape (`let $new := local:slice(...)`), so the rule's entire purpose was defeated for the
+query it exists for, while every work-counting test stayed green because all of them bound the inner
+relation as `declare variable ... external`, which takes the context path that already worked.
+Keying on the raw binding — the tuple slot for a local, the context value for a module-level
+variable — fixes it. `aLocallyLetBoundInnerRelationIsBuiltOnce` and `aQ12StyleLocalSourceIsBuiltOnce`
+pin both shapes and both fail before the fix at 32,768 inner reads for 256 outer rows. The second of
+those counts key reads on the records rather than sequence iterations, because Brackit materializes a
+`let` over a function call and a counting sequence can no longer see the rebuilds through it.
+
+The lookup also no longer pins a finished evaluation's state: it drops the tuple it was built from as
+soon as its keys exist, and the memo holds its single entry softly, so the key set and the outer
+row's database items are collectable instead of being retained for the lifetime of the caller's
+`Query`.
+
+### Re-measured done bar (2026-10-02, t100k)
+
+The plan tree changed, so the campaign timings above do not describe this state and are preserved
+only as history — `t100k-after.plan.txt` / `t250k-after.plan.txt` still show the superseded
+`LetBind sirix:membership0`. Q12 was re-measured at t100k on the fixed source state, against a store
+freshly loaded with `BitemporalSirixLoadMain t100k` from the unmodified kit event stream with one
+commit per publication and no batching override (load: 77.324 s):
+
+| Q12 at t100k | seconds | rows | oracle |
+|---|---:|---:|---|
+| baseline `8aa9f0d9e` (historical) | 1069.754587 | 4 | exact |
+| superseded let-bound plan `79042b96a` (historical) | 8.443716 | 4 | exact |
+| **this state, fresh process** | **5.840684** | 4 | exact |
+| **this state, repeat** | **5.364762** | 4 | exact |
+
+Both runs are byte-identical to the independent oracle `q12.tsv`, and their answer hash
+`b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068` is the same answer the baseline
+and the superseded plan produced — so the rewrite is answer-preserving across all three plans. That
+is a 183x and 199x reduction against the baseline, and Q12 is far below XTDB 2.1's 2,360 s at this
+tier, so the intent's done bar for Q12 is met. The optimized plan is `t100k-after-memofix.plan.txt`:
+the lookup sits inside the `Selection`'s probe with `GroupBy` and `OrderBy` downstream and no
+membership variable anywhere. Source hashes for the measured state are in `measurements.json` under
+`remeasured_t100k_after_memo_fix`. These are shared-machine single-process measurements supporting
+the order-of-growth and done-bar conclusion rather than small percentage comparisons; only Q12 at
+t100k was re-run and no baseline rerun was requested.
 
 The authoritative suite result for HEAD is this branch's test step, not the counts above.

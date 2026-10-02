@@ -58,6 +58,7 @@ import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.compiler.translator.PipelineStrategy;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.compiler.translator.TopDownTranslator;
+import io.brackit.query.expr.DeclVariable;
 import io.brackit.query.module.Namespaces;
 import io.sirix.query.compiler.optimizer.ComputedAggregateDetectionStage;
 import io.sirix.query.compiler.optimizer.HashMembershipStage;
@@ -123,8 +124,16 @@ public class SirixTranslator extends TopDownTranslator {
 
   protected Expr anyExpr(AST node) throws QueryException {
     if (node.getType() == XQExt.MembershipIndexExpr) {
-      return new MembershipIndexExpr(expr(node.getChild(0), true), expr(node.getChild(1), true),
+      final AST scopeNode = node.getChild(1);
+      final Expr scope = expr(scopeNode, true);
+      final MembershipIndexExpr index = new MembershipIndexExpr(expr(node.getChild(0), true), scope,
           (QNm) node.getProperty(HashMembershipStage.FIELD));
+      if (!(scope instanceof DeclVariable)) {
+        // A local binding is memoized on its raw tuple slot, so the lookup needs the same slot
+        // position the binding hands to every other reference of itself.
+        table.resolve((QNm) scopeNode.getValue(), index);
+      }
+      return index;
     } else if (node.getType() == XQExt.MembershipProbeExpr) {
       return new MembershipProbeExpr(expr(node.getChild(0), true), expr(node.getChild(1), true),
           node.checkProperty(HashMembershipStage.ANTI), expr(node.getChild(2), true));

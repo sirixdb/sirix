@@ -21,7 +21,8 @@ import io.sirix.query.compiler.XQExt;
  * The lookup is nested inside the probe, not hoisted into a {@code let} binding. A bound lookup
  * would occupy a pipeline tuple slot, and a spilling {@code group by} or {@code order by}
  * serializes every slot it carries. The probe keeps one build per enclosing binding by memoizing on
- * the independent source variable instead.
+ * the independent source variable instead, read at its binding rather than through a reference to
+ * it, since a reference re-wraps a multi-item value on every read.
  *
  * <p>
  * The deliberately small admission rule requires an independent variable (optionally unboxed) as
