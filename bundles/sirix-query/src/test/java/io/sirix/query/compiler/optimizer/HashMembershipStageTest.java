@@ -26,11 +26,13 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
 import java.io.PrintWriter;
+import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -194,7 +196,8 @@ final class HashMembershipStageTest {
               + " return $a)");
       assertEquals("0", answer(query, context));
       assertEquals(129, inner.visited, "a null probe key must not revert to the per-row nested plan");
-      assertEquals(0, inner.closed, "the matching null key is the last row, so the scan stops before the end");
+      assertEquals(1, inner.closed, "the scan closes its iterator before the probe returns");
+      assertEquals(inner.opened, inner.closed, "every inner iterator opened is closed");
     }
   }
 
@@ -312,16 +315,30 @@ final class HashMembershipStageTest {
     // cannot write to turns the spill, and only the spill, into a failure.
     final Path blocked = Files.createDirectories(directory.resolve("blocked-sort"));
     assertTrue(blocked.toFile().setWritable(false), "the sort directory must be made non-writable");
+    // Root bypasses the permission bit, so it is the environment that gets skipped, not the engine.
+    assumeTrue(!Files.isWritable(blocked), "the sort directory is still writable; running as root?");
     final String tmpdir = System.getProperty("java.io.tmpdir");
     System.setProperty("java.io.tmpdir", blocked.toString());
     try {
-      assertThrows(Exception.class, () -> orderBySpill(text, pad, null), "the sort did not spill");
+      // TupleSort.writeRun wraps the failing File.createTempFile as a QueryException over an
+      // IOException, so only a real spill can produce this; any other failure is not a spill.
+      final QueryException spill =
+          assertThrows(QueryException.class, () -> orderBySpill(text, pad, null), "the sort did not spill");
+      assertInstanceOf(IOException.class, rootCause(spill), "the failure did not come from the sort run file");
     } finally {
       System.setProperty("java.io.tmpdir", tmpdir);
       blocked.toFile().setWritable(true);
     }
 
     orderBySpill(text, pad, expected.toString());
+  }
+
+  private static Throwable rootCause(final Throwable throwable) {
+    Throwable cause = throwable;
+    while (cause.getCause() != null && cause.getCause() != cause) {
+      cause = cause.getCause();
+    }
+    return cause;
   }
 
   private void orderBySpill(final String text, final int pad, final String expected) throws Exception {
@@ -392,7 +409,7 @@ final class HashMembershipStageTest {
         final SirixCompileChain chain = chain(store);
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
       final Query query = new Query(chain, "declare variable $inner external;"
-          + " count(for $a in 1 to 256 where exists(for $b in $inner where $b eq $a return $b) return $a)");
+          + " count(for $a in 1 to 256 where empty(for $b in $inner where $b eq $a return $b) return $a)");
       final CountingSequence first = new CountingSequence(128);
       context.bind(new QNm("inner"), first);
       assertEquals("128", answer(query, context));
@@ -400,9 +417,10 @@ final class HashMembershipStageTest {
       assertEquals(1, first.closed, "the build iterator closes immediately");
       final CountingSequence second = new CountingSequence(64);
       context.bind(new QNm("inner"), second);
-      assertEquals("64", answer(query, context));
+      assertEquals("192", answer(query, context));
       assertEquals(64, second.visited, "a compiled query never reuses a prior evaluation's data");
       assertEquals(1, second.closed);
+      assertEquals(first.opened + second.opened, first.closed + second.closed, "no iterator is left open");
     }
   }
 
@@ -424,22 +442,46 @@ final class HashMembershipStageTest {
   }
 
   @Test
-  void mixedHitAndMissProbesReadTheInnerSideAtMostOnce() throws Exception {
-    // Inner keys are 1..8. Probing 3 indexes rows 1..3 and stops; 9 exhausts the rest and completes
-    // the set; 1, 8, 42 and 5 are then answered from it. Eight inner reads serve six probes.
+  void mixedHitAndMissSemiProbesNeverReadMoreThanTheOriginalPlan() throws Exception {
+    // Inner keys are 1..8. The route reads rows 1..3 for the first probe, stops at its match and
+    // gives the partial keys up rather than parking the scan, so the later probes delegate and pay
+    // the original plan's scan-until-match: 8 + 1 + 8 + 8 + 5. Both totals are 33.
+    final String text = "declare variable $src external;" + " let $h := $src for $a in (3, 9, 1, 8, 42, 5)"
+        + " where exists(for $b in $h where $b eq $a return $b) return $a";
+    final CountingSequence withRule = new CountingSequence(8);
+    assertEquals("3 1 8 5", semiJoinAnswer(text, withRule, true));
+    final CountingSequence withoutRule = new CountingSequence(8);
+    assertEquals("3 1 8 5", semiJoinAnswer(text, withoutRule, false));
+    assertEquals(33, withoutRule.visited, "the original plan scans until each probe's match");
+    assertEquals(33, withRule.visited, "the route reads no more of the inner side than that");
+  }
+
+  @Test
+  void anEarlyExitingSemiJoinClosesItsInnerIterator() throws Exception {
+    // The leak this pins: a probe that answers from its first match used to leave the scan parked on
+    // an open iterator with no later path closing it. Brackit's own fn:exists closes its iterator on
+    // every path, so the route must too.
     try (final BasicJsonDBStore store = store();
         final SirixCompileChain chain = chain(store);
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
-      final CountingSequence inner = new CountingSequence(8);
+      final CountingSequence inner = new CountingSequence(1_000_000);
       context.bind(new QNm("src"), inner);
-      final Query query =
-          new Query(chain, "declare variable $src external;" + " let $h := $src for $a in (3, 9, 1, 8, 42, 5)"
-              + " where exists(for $b in $h where $b eq $a return $b) return $a");
-      assertEquals("3 1 8 5", answer(query, context));
-      assertEquals(8, inner.visited, "the inner side is read once in total, not once per probe");
-      assertEquals(1, inner.closed, "the single scan closes when it reaches the end");
+      final Query query = new Query(chain, "declare variable $src external;" + " let $h := $src for $a in (1)"
+          + " where exists(for $b in $h where $b eq $a return $b) return $a");
+      assertEquals("1", answer(query, context));
+      assertEquals(1, inner.visited, "the scan stops at the first matching key");
+      assertEquals(1, inner.opened, "one inner iterator is opened");
+      assertEquals(1, inner.closed, "and it is closed before the probe returns, not left parked");
       assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
     }
+  }
+
+  @Test
+  void aLocalLetMemoAnswersTwoDifferentInputsCorrectly() throws Exception {
+    // Two evaluations of one local let, each with a different multi-item inner relation: the memo is
+    // keyed on the binding, so neither evaluation may answer from the other's keys.
+    assertOptimized("3 1", "for $i in (1,2) let $inner := ($i, $i + 1)"
+        + " for $a in (1,2,3) where empty(for $b in $inner where $b eq $a return $b) return $a");
   }
 
   @Test
@@ -515,6 +557,24 @@ final class HashMembershipStageTest {
     assertUnchanged("1 2", "for $a in ([1],[2]) where some $b in $a[] satisfies $b eq $a[0] return $a[0]");
     assertUnchanged("1 2 3 4 5 6", "declare function local:empty($x) {true()};" + ROWS
         + "for $a in $outer[] where local:empty(for $b in $inner[] where $b.id eq $a.pid return $b) return $a.id");
+  }
+
+  private String semiJoinAnswer(final String text, final CountingSequence inner, final boolean enabled)
+      throws Exception {
+    if (!enabled) {
+      System.setProperty(HashMembershipStage.ENABLED_PROPERTY, "false");
+    }
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain, text);
+      final String answer = answer(query, context);
+      assertEquals(enabled, containsProbe(chain.getOptimizedAST()), "membership route admission");
+      return answer;
+    } finally {
+      System.clearProperty(HashMembershipStage.ENABLED_PROPERTY);
+    }
   }
 
   private void assertOptimized(final String expected, final String text) throws Exception {
@@ -697,6 +757,7 @@ final class HashMembershipStageTest {
     private final int total;
     private final QNm[] names;
     private int visited;
+    private int opened;
     private int closed;
 
     private CountingSequence(final int size) {
@@ -713,6 +774,7 @@ final class HashMembershipStageTest {
 
     @Override
     public Iter iterate() {
+      opened++;
       return new BaseIter() {
         private int position;
 

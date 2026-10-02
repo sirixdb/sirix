@@ -25,7 +25,7 @@ public final class MembershipProbeExpr implements Expr {
   @Override
   public Bool evaluate(final QueryContext ctx, final Tuple tuple) {
     final Lookup lookup = (Lookup) index.evaluateToItem(ctx, tuple);
-    final int result = lookup.probe(ctx, tuple, key);
+    final int result = lookup.probe(ctx, tuple, key, anti);
     if (result < 0) {
       return (Bool) fallback.evaluateToItem(ctx, tuple);
     }

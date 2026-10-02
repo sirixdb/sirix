@@ -23,18 +23,27 @@ The Sirix stage runs before Brackit's pipelining. It replaces the predicate with
 probe that owns an opaque lookup object as a nested child expression. No outer rows means no source
 read.
 
-The key set is filled **incrementally**, not drained up front, so the route is never more inner work
-than the plan it replaces. A probe answers from the keys indexed so far; on a miss it resumes the
-inner scan exactly where the previous probe stopped and ends either at its own key or at the end of
-the inner side, which marks the set complete and closes the scan. Two properties follow. A semi-join
-keeps the early exit the unoptimized plan has — with the rule off, `TableJoin` hashes the one outer
-key and streams the inner side, and `fn:exists` stops at the first match, so `exists(...)` over a
-million inner rows visits one row; draining the relation first would have visited all of them. And no
-direction, the anti-join included, reads the inner relation more than once per enclosing binding,
-because the scan only ever moves forward. A probe whose key the completed set does not contain, and
-whose domain cannot be compared with it, still delegates to the original predicate. The scan is
-closed when it reaches the end; a probe that answers from an early match leaves it paused, exactly as
-an early-exiting `exists` leaves the unoptimized plan's cursor.
+The inner side is read **lazily** — nothing until an outer row probes — and its iterator is opened and
+closed inside the probe that needs it. It is never parked between probes, and that is a correctness
+requirement, not tidiness: Brackit's `fn:empty`/`fn:exists` (both `EmptySequence.execute`) call
+`Iter.close()` on the normal path *and* from a catch-all handler, so the plan this route replaces
+releases the inner cursor the moment it answers. A parked iterator would release a Sirix stream or
+transaction later than that, and `Expr` has no teardown hook to release it at — an earlier revision of
+this note claimed the pause matched Brackit's behaviour, which was simply wrong.
+
+That fixes the shape of each direction. An **anti-join** reads the relation through to the end in the
+first probe that needs it: `empty` has to see every row anyway, so this is the single pass it already
+owed, and the completed key set then answers every later probe without touching the source. A
+**semi-join** stops at its own key, because one match answers the predicate — the early exit the
+unoptimized plan has, where `TableJoin` hashes the one outer key and streams the inner side and
+`fn:exists` stops at the first match, so `exists(...)` over a million inner rows visits one row where
+draining first would have visited all of them. Having stopped, it gives the partial keys up rather
+than parking the scan: later probes delegate to the original predicate and pay exactly the
+scan-until-match it would have performed. So neither direction reads more of the inner relation than
+the plan it replaces, which is the property that matters; for a mixed semi-join workload the route no
+longer gets a single shared pass, and that is the price of closing the iterator on every path. A probe
+whose key the completed set does not contain, and whose domain cannot be compared with it, still
+delegates to the original predicate.
 
 The lookup occupies **no pipeline tuple slot**. That is a hard requirement, not a preference: a
 spilling `group by` or `order by` serializes every slot of every tuple it carries, Brackit's
@@ -67,8 +76,9 @@ different enclosing bindings rebuild instead of sharing, and each worker is alwa
 built from its own binding. The memo holds that entry **softly**, and the lookup drops the tuple it
 was built from as soon as its keys exist, so a finished evaluation's key set and the outer row's
 database items are collectable rather than pinned for the lifetime of the caller's `Query`.
-Initialization publishes immutable sets safely to parallel readers; ordinary probes do not
-synchronize.
+A probe against a completed set reads it without taking the monitor — the volatile `complete` flag
+publishes the sets — while a probe that still has to read the inner side holds it, so one scan is
+shared rather than raced.
 
 The admission rule requires:
 
@@ -124,9 +134,13 @@ The block `GroupBy` shares the same `TupleSerializer`; the slot-shape assertion 
 `theLookupNeverOccupiesAPipelineTupleSlot` covers it by pinning the property that makes all three
 safe.
 
-For 128 inner keys and 256 outer items, the enabled rule visits exactly 128 inner items and closes
-one build iterator. Disabling it produces the same answer but visits 24,640 inner items:
-`128 * 129 / 2 + 128 * 128`. The counter assertion was run with the rule disabled and failed on
+For 128 inner keys and 256 outer items of the **anti-join** shape, the enabled rule visits exactly 128
+inner items and closes one build iterator. Disabling it produces the same answer but visits 24,640
+inner items: `128 * 129 / 2 + 128 * 128`. The work bound is stated on the anti-join because that is
+the direction that owns a shared pass; a semi-join that matches on its first probe hands the
+remaining outer rows back to the original predicate by design, so it carries the
+never-worse-than-original bound instead, asserted by running the same query with the rule on and off
+and comparing both counters. The counter assertion was run with the rule disabled and failed on
 that count. The same bound is asserted for an inner side whose keys include one `"id": null`
 record, which pins the null key to the hash route rather than the fallback. There is no wall-clock
 assertion.

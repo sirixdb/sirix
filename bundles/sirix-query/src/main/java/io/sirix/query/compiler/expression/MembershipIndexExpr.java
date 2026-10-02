@@ -51,11 +51,20 @@ import java.util.Objects;
  * receives a lookup built from its own binding.
  *
  * <p>
- * The key set is filled incrementally rather than drained up front. A probe answers from the keys
- * indexed so far and otherwise resumes the inner scan where the previous probe stopped, ending at
- * its own key or at the end of the inner side. A semi-join therefore keeps the early exit the
- * unoptimized plan has — one matching row can answer {@code exists} without reading the rest — and
- * no direction, the anti-join included, reads the inner relation more than once per binding.
+ * The inner side is read lazily — nothing until an outer row probes — and the iterator is opened
+ * and closed inside the probe that needs it, never parked between probes. Brackit's own
+ * {@code fn:empty}/{@code fn:exists} close their iterator on every path, including their exception
+ * handler, so a route that parked one would release a cursor later than the plan it replaces, and
+ * {@link io.brackit.query.jdm.Expr} offers no teardown hook to release it at.
+ *
+ * <p>
+ * An anti-join therefore reads the relation through to the end in that one probe: {@code empty}
+ * needs every row anyway, and the complete key set then answers every later probe without touching
+ * the source. A semi-join instead stops at its own key, because one match answers the predicate —
+ * the early exit the unoptimized plan has — and gives the partial keys up rather than parking the
+ * scan, so later probes delegate to the original predicate and pay exactly the scan-until-match it
+ * would have performed. Neither direction reads more of the inner relation than the plan it
+ * replaces.
  */
 public final class MembershipIndexExpr implements Expr, Reference {
   private final Expr source;
@@ -144,13 +153,12 @@ public final class MembershipIndexExpr implements Expr, Reference {
     private final Expr source;
     private final QNm field;
     private Tuple origin;
-    private Iter iter;
     private LongOpenHashSet longs;
     private ObjectOpenHashSet<String> strings;
     private boolean hasNull;
-    private volatile boolean rows;
+    private boolean rows;
     private volatile boolean complete;
-    private volatile boolean fallback;
+    private volatile boolean delegate;
 
     private Lookup(final Sequence binding, final Expr source, final QNm field, final Tuple origin) {
       this.binding = binding;
@@ -160,63 +168,109 @@ public final class MembershipIndexExpr implements Expr, Reference {
     }
 
     /** Returns 1 for a match, 0 for no match, or -1 when the original predicate must decide. */
-    int probe(final QueryContext ctx, final Tuple tuple, final Expr probe) {
-      if (fallback) {
-        return -1;
-      }
-      if (!rows) {
-        start(ctx);
-        if (fallback) {
-          return -1;
-        }
-        // An empty inner relation never evaluates the comparison, so the outer key stays unread.
-        if (!rows) {
-          return 0;
-        }
-      }
-      final Item item = probe.evaluateToItem(ctx, tuple);
-      if (item == null) {
-        return 0;
-      }
-      final Atomic key;
-      try {
-        key = item.atomize();
-      } catch (final QueryException exception) {
+    int probe(final QueryContext ctx, final Tuple tuple, final Expr probe, final boolean anti) {
+      if (delegate) {
         return -1;
       }
       // Once the inner side is exhausted the sets are final, and the volatile read of complete
       // publishes them, so the common case answers without taking the monitor.
       return complete
-          ? found(key)
-              ? 1
-              : absent(key)
-          : search(ctx, key);
+          ? decide(ctx, tuple, probe)
+          : scan(ctx, tuple, probe, anti);
     }
 
-    private synchronized void start(final QueryContext ctx) {
-      while (!rows && !complete && !fallback) {
-        advance(ctx);
+    private int decide(final QueryContext ctx, final Tuple tuple, final Expr probe) {
+      if (!rows) {
+        return 0;
       }
+      final Atomic key;
+      try {
+        key = outerKey(ctx, tuple, probe);
+      } catch (final QueryException exception) {
+        return -1;
+      }
+      if (key == null) {
+        return 0;
+      }
+      return found(key)
+          ? 1
+          : absent(key);
     }
 
     /**
-     * Answers from the keys indexed so far, then resumes the inner scan where the last probe left it,
-     * stopping at this key or at the end of the inner side. Over all probes of one binding the inner
-     * relation is therefore read at most once.
+     * Reads the inner side within this one call and closes the iterator before returning on every path,
+     * so no lookup ever owns a parked iterator. An anti-join reads the relation through to the end,
+     * which is the single pass {@code empty} needs anyway and leaves the keys reusable by every later
+     * probe. A semi-join stops at its own key, because that answers the predicate, and gives the
+     * partial keys up rather than parking the scan: later probes delegate to the original predicate,
+     * whose cost for them is the same scan-until-match the unoptimized plan performs.
      */
-    private synchronized int search(final QueryContext ctx, final Atomic key) {
-      while (true) {
-        if (found(key)) {
-          return 1;
+    private synchronized int scan(final QueryContext ctx, final Tuple tuple, final Expr probe, final boolean anti) {
+      if (delegate) {
+        return -1;
+      }
+      if (complete) {
+        return decide(ctx, tuple, probe);
+      }
+      Iter iter = null;
+      try {
+        final Sequence input = source.evaluate(ctx, origin);
+        if (input == null) {
+          complete = true;
+          return 0;
         }
-        if (fallback) {
+        iter = input.iterate();
+        Item row = iter.next();
+        // An empty inner relation never evaluates the comparison, so the outer key stays unread.
+        if (row == null) {
+          complete = true;
+          return 0;
+        }
+        rows = true;
+        index(row);
+        final Atomic key = outerKey(ctx, tuple, probe);
+        final boolean stopAtMatch = !anti && key != null;
+        while (!delegate) {
+          if (stopAtMatch && found(key)) {
+            delegate = true;
+            return 1;
+          }
+          row = iter.next();
+          if (row == null) {
+            complete = true;
+            break;
+          }
+          index(row);
+        }
+        if (delegate) {
           return -1;
         }
-        if (complete) {
-          return absent(key);
+        if (key == null) {
+          return 0;
         }
-        advance(ctx);
+        return found(key)
+            ? 1
+            : absent(key);
+      } catch (final QueryException exception) {
+        // Speculative key extraction may encounter an error that an earlier match would have
+        // hidden. The original expression decides whether that error is reachable.
+        delegate = true;
+        return -1;
+      } finally {
+        if (iter != null) {
+          iter.close();
+        }
+        // The tuple is only an evaluation context for the source; holding it would pin one outer
+        // row, and with it a database transaction, for as long as the lookup lives.
+        origin = null;
       }
+    }
+
+    private Atomic outerKey(final QueryContext ctx, final Tuple tuple, final Expr probe) {
+      final Item item = probe.evaluateToItem(ctx, tuple);
+      return item == null
+          ? null
+          : item.atomize();
     }
 
     private boolean found(final Atomic key) {
@@ -243,35 +297,6 @@ public final class MembershipIndexExpr implements Expr, Reference {
       return -1;
     }
 
-    private void advance(final QueryContext ctx) {
-      try {
-        if (iter == null) {
-          final Sequence input = source.evaluate(ctx, origin);
-          // The tuple is only an evaluation context for the source; holding it would pin one outer
-          // row, and with it a database transaction, for as long as the lookup lives.
-          origin = null;
-          if (input == null) {
-            complete = true;
-            return;
-          }
-          iter = input.iterate();
-        }
-        final Item row = iter.next();
-        if (row == null) {
-          release();
-          complete = true;
-          return;
-        }
-        rows = true;
-        index(row);
-      } catch (final QueryException exception) {
-        // Speculative key extraction may encounter an error that an earlier match would have
-        // hidden. The original expression decides whether that error is reachable.
-        release();
-        fallback = true;
-      }
-    }
-
     private void index(final Item row) {
       final Item value = key(row);
       if (value == null) {
@@ -293,16 +318,7 @@ public final class MembershipIndexExpr implements Expr, Reference {
         }
         strings.add(atomic.stringValue());
       } else {
-        release();
-        fallback = true;
-      }
-    }
-
-    private void release() {
-      origin = null;
-      if (iter != null) {
-        iter.close();
-        iter = null;
+        delegate = true;
       }
     }
 
