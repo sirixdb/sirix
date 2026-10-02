@@ -4912,8 +4912,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     // The entry is folded into the half holding its affected subtree; the other half is published
     // untouched beside it, so the boundary between the two has to hold for K as well.
-    if (!splitHalvesKeepKeyApart(node, info.firstAffected() >= HOTIncrementalInsert.indirectSplitPoint(node),
-        keySlice)) {
+    final int splitPoint = HOTIncrementalInsert.indirectSplitPoint(node);
+    if (!splitHalvesKeepKeyApart(node, splitPoint, info.firstAffected() >= splitPoint, keySlice)) {
       BRANCH_SPINE_ORDER_DELEGATED.incrementAndGet();
       return false; // K sorts into the half it does not join: complete frontier
     }
@@ -4981,7 +4981,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       // the far half is on K's route when K's leaf half joins it, where validatePublishedStructuralPath
       // fails closed; otherwise only the bounded scope validation sees it
       // (docs/HOT_INDEX_SPECIFICATION.md §4.5.3).
-      if (!splitKeepsTrieCondition(parent)) {
+      if (!splitKeepsTrieCondition(parent, HOTIncrementalInsert.indirectSplitPoint(parent))) {
         return false; // the cascade would publish a half whose own children contradict it (I11)
       }
       beta = parent.getMostSignificantBitIndex(); // parent full → split → cascade with parent.MSB
@@ -5029,35 +5029,20 @@ public abstract class AbstractHOTIndexWriter<K> {
    * <p>
    * Costs one page resolution per child and reads no key.
    * </p>
+   *
+   * @param splitPoint the first child whose partial has {@code node.MSB} set, as
+   *        {@link HOTIncrementalInsert#splitIndirect} cuts
    */
-  private boolean splitKeepsTrieCondition(final HOTIndirectPage node) {
+  private boolean splitKeepsTrieCondition(final HOTIndirectPage node, final int splitPoint) {
     final int[] discBits = HOTIncrementalInsert.discriminativeBits(node);
     final int[] partials = node.getPartialKeysRef();
     final int childCount = node.getNumChildren();
-    // The first child with the node's MSB set begins the upper half, exactly as splitIndirect cuts.
-    final int topWeight = 1 << (discBits.length - 1);
-    int splitPoint = 0;
-    while (splitPoint < childCount && (partials[splitPoint] & topWeight) == 0) {
-      splitPoint++;
-    }
-    return halfKeepsTrieCondition(node, discBits, partials, 0, splitPoint)
-        && halfKeepsTrieCondition(node, discBits, partials, splitPoint, childCount);
+    return sliceKeepsTrieCondition(node, discBits, partials, 0, splitPoint, UNCHANGED_SLICE, null)
+        && sliceKeepsTrieCondition(node, discBits, partials, splitPoint, childCount, UNCHANGED_SLICE, null);
   }
 
-  private boolean halfKeepsTrieCondition(final HOTIndirectPage node, final int[] discBits, final int[] partials,
-      final int from, final int to) {
-    final int halfMsb = HOTIncrementalInsert.mostSignificantLiveBit(discBits, partials, from, to);
-    if (halfMsb < 0) {
-      return true; // a lone child hangs directly under the split's BiNode, as it hung under the node
-    }
-    for (int slot = from; slot < to; slot++) {
-      if (resolveHOTPageForTraversal(node.getChildReference(slot)) instanceof HOTIndirectPage child
-          && child.getMostSignificantBitIndex() <= halfMsb) {
-        return false;
-      }
-    }
-    return true;
-  }
+  /** The replaced-child slot of a slice no replacement touches: every child is the node's own. */
+  private static final int UNCHANGED_SLICE = -1;
 
   /**
    * Whether {@code K}, folded into the half of {@code node}'s MSB partition which takes it, stays on
@@ -5068,12 +5053,13 @@ public abstract class AbstractHOTIndexWriter<K> {
    * the half it joins, so no other guard compares {@code K} against the other one. Asked before
    * anything is allocated, so declining orphans nothing.
    *
+   * @param splitPoint the first child whose partial has {@code node.MSB} set, as
+   *        {@link HOTIncrementalInsert#splitIndirect} cuts
    * @param keyJoinsUpperHalf whether {@code K} goes into the half holding the children whose partial
    *        has {@code node.MSB} set
    */
-  private boolean splitHalvesKeepKeyApart(final HOTIndirectPage node, final boolean keyJoinsUpperHalf,
-      final byte[] keySlice) {
-    final int splitPoint = HOTIncrementalInsert.indirectSplitPoint(node);
+  private boolean splitHalvesKeepKeyApart(final HOTIndirectPage node, final int splitPoint,
+      final boolean keyJoinsUpperHalf, final byte[] keySlice) {
     if (splitPoint <= 0 || splitPoint >= node.getNumChildren()) {
       return true; // node.MSB does not partition these children: the split has no boundary to cross
     }
@@ -5132,14 +5118,16 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Both halves of the split are published below, but only K's half is checked there and lies on
     // K's route: a sibling half that breaks the trie condition would go out unseen. Decided before
     // K's leaf is allocated, so the fallback never orphans it.
-    if (!splitKeepsTrieCondition(node)) {
+    final int splitPoint = HOTIncrementalInsert.indirectSplitPoint(node);
+    if (!splitKeepsTrieCondition(node, splitPoint)) {
       FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.incrementAndGet();
       return false;
     }
     // Every arm below rebuilds only the half K routes into — the fold, and the C2 continuation that
     // sub-inserts into one of its children. The other half is published untouched beside it, and no
     // guard on K's half can see the boundary between the two.
-    if (!splitHalvesKeepKeyApart(node, HOTBulkBuilder.bitAt(keySlice, node.getMostSignificantBitIndex()), keySlice)) {
+    if (!splitHalvesKeepKeyApart(node, splitPoint, HOTBulkBuilder.bitAt(keySlice, node.getMostSignificantBitIndex()),
+        keySlice)) {
       BRANCH_SPINE_ORDER_DELEGATED.incrementAndGet();
       return false; // K sorts into the half it does not join: complete frontier
     }
@@ -6204,7 +6192,10 @@ public abstract class AbstractHOTIndexWriter<K> {
     PageReference left = null;
     PageReference right = null;
     try {
-      final boolean leftIsPlain = sliceKeepsTrieCondition(indirect, 0, target + 1, target, childSplit.left());
+      final int[] discBits = HOTIncrementalInsert.discriminativeBits(indirect);
+      final int[] partials = indirect.getPartialKeysRef();
+      final boolean leftIsPlain =
+          sliceKeepsTrieCondition(indirect, discBits, partials, 0, target + 1, target, childSplit.left());
       left = leftIsPlain
           ? HOTIncrementalInsert.compressChildSliceReplacing(indirect, 0, target + 1, target, childSplit.left(),
               revision, pageKeyAllocator)
@@ -6215,7 +6206,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         discardUnpublishedStructuralCandidateOrThrow(childSplit.right());
         return null;
       }
-      final boolean rightIsPlain = sliceKeepsTrieCondition(indirect, target, childCount, target, childSplit.right());
+      final boolean rightIsPlain =
+          sliceKeepsTrieCondition(indirect, discBits, partials, target, childCount, target, childSplit.right());
       right = rightIsPlain
           ? HOTIncrementalInsert.compressChildSliceReplacing(indirect, target, childCount, target, childSplit.right(),
               revision, pageKeyAllocator)
@@ -6322,21 +6314,27 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Whether the plain compression of the slice {@code [fromInclusive, toExclusive)} of {@code node},
-   * with the child at {@code replacedChildIndex} replaced (or, for {@code null}, removed), keeps the
-   * trie condition against every retained indirect child: the slice's own MSB — the most significant
-   * column varying across the retained partials — must be more significant than each child's MSB.
+   * The one I11 rule for a compressed slice {@code [fromInclusive, toExclusive)} of {@code node}: the
+   * slice's own MSB — the most significant column varying across the partials it retains — must be
+   * more significant than the MSB of every indirect child it keeps, since the slice becomes those
+   * children's parent. Both halves of a full-node split ({@link #splitKeepsTrieCondition}) and both
+   * slices of a persistent key split ask it; {@code discBits} and {@code partials} are the caller's
+   * already-resolved pair, so asking twice for one node resolves them once.
+   *
+   * <p>
+   * {@code replacedChildIndex} is {@link #UNCHANGED_SLICE} for a half no replacement touches, the
+   * replaced slot when {@code replacement} takes its place — inheriting its partial, so the columns
+   * are unchanged — and the removed slot when {@code replacement} is {@code null}, the one case whose
+   * partials compact.
+   * </p>
    */
-  private boolean sliceKeepsTrieCondition(final HOTIndirectPage node, final int fromInclusive, final int toExclusive,
-      final int replacedChildIndex, final @Nullable PageReference replacement) {
-    final int[] discBits = HOTIncrementalInsert.discriminativeBits(node);
-    final int[] partials = node.getPartialKeysRef();
-    // The replacement inherits the removed child's partial, so a retained slot keeps its column
-    // values and the compression sees exactly this range; only a removal compacts the partials.
+  private boolean sliceKeepsTrieCondition(final HOTIndirectPage node, final int[] discBits, final int[] partials,
+      final int fromInclusive, final int toExclusive, final int replacedChildIndex,
+      final @Nullable PageReference replacement) {
+    final boolean removed =
+        replacement == null && replacedChildIndex >= fromInclusive && replacedChildIndex < toExclusive;
     final int sliceMsb;
-    if (replacement != null) {
-      sliceMsb = HOTIncrementalInsert.mostSignificantLiveBit(discBits, partials, fromInclusive, toExclusive);
-    } else {
+    if (removed) {
       final int[] retained = new int[toExclusive - fromInclusive - 1];
       int target = 0;
       for (int slot = fromInclusive; slot < toExclusive; slot++) {
@@ -6345,6 +6343,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         }
       }
       sliceMsb = HOTIncrementalInsert.mostSignificantLiveBit(discBits, retained, 0, target);
+    } else {
+      sliceMsb = HOTIncrementalInsert.mostSignificantLiveBit(discBits, partials, fromInclusive, toExclusive);
     }
     if (sliceMsb < 0) {
       return true; // a lone child is pulled up bare, without a node of its own
@@ -6354,7 +6354,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           ? replacement
           : node.getChildReference(slot);
       if (child != null && resolveHOTPageForTraversal(child) instanceof HOTIndirectPage indirect
-          && indirect.getMostSignificantBitIndex() >= 0 && indirect.getMostSignificantBitIndex() <= sliceMsb) {
+          && indirect.getMostSignificantBitIndex() <= sliceMsb) {
         return false;
       }
     }

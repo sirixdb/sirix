@@ -443,6 +443,13 @@ final class HOTOrderingGuardTest {
       assertTrue(fixture.sliceKeepsTrieCondition(node, 0, 3, 0, lowest));
       assertFalse(fixture.sliceKeepsTrieCondition(node, 0, 3, 2, null));
 
+      // The same rule decides a half no replacement touches, which is how the full-node split asks
+      // it: that slice keeps every partial, so it must answer as the replaced-in-place form does.
+      assertTrue(fixture.sliceKeepsTrieCondition(node, 0, 4, -1, null));
+      assertFalse(fixture.sliceKeepsTrieCondition(node, 0, 2, -1, null));
+      // Splitting at the sign-bit column leaves the lower half's MSB at bit 2, above its straddler.
+      assertFalse(fixture.splitKeepsTrieCondition(node));
+
       // The sign-bit column is the one a running "not yet seen" sentinel of -1 cannot tell from a
       // real value, and only a slice whose FIRST retained partial sets it can expose that: every
       // later slot re-enters the sentinel arm, so the column is reported constant however it
@@ -598,18 +605,39 @@ final class HOTOrderingGuardTest {
     private boolean halvesKeepKeyApart(final HOTIndirectPage node, final boolean keyJoinsUpperHalf, final int value)
         throws ReflectiveOperationException {
       final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("splitHalvesKeepKeyApart",
-          HOTIndirectPage.class, boolean.class, byte[].class);
+          HOTIndirectPage.class, int.class, boolean.class, byte[].class);
       method.setAccessible(true);
-      return (boolean) method.invoke(writer, node, keyJoinsUpperHalf, key(value));
+      return (boolean) method.invoke(writer, node, splitPointOf(node), keyJoinsUpperHalf, key(value));
+    }
+
+    /** The split point the production callers derive once and hand to the boundary check. */
+    private static int splitPointOf(final HOTIndirectPage node) throws ReflectiveOperationException {
+      final Method method = HOTIncrementalInsert.class.getDeclaredMethod("indirectSplitPoint", HOTIndirectPage.class);
+      method.setAccessible(true);
+      return (int) method.invoke(null, node);
+    }
+
+    private boolean splitKeepsTrieCondition(final HOTIndirectPage node) throws ReflectiveOperationException {
+      final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("splitKeepsTrieCondition",
+          HOTIndirectPage.class, int.class);
+      method.setAccessible(true);
+      return (boolean) method.invoke(writer, node, splitPointOf(node));
     }
 
     private boolean sliceKeepsTrieCondition(final HOTIndirectPage node, final int fromInclusive,
         final int toExclusive, final int replacedChildIndex, final PageReference replacement)
         throws ReflectiveOperationException {
       final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("sliceKeepsTrieCondition",
-          HOTIndirectPage.class, int.class, int.class, int.class, PageReference.class);
+          HOTIndirectPage.class, int[].class, int[].class, int.class, int.class, int.class, PageReference.class);
       method.setAccessible(true);
-      return (boolean) method.invoke(writer, node, fromInclusive, toExclusive, replacedChildIndex, replacement);
+      return (boolean) method.invoke(writer, node, discriminativeBitsOf(node), node.getPartialKeysRef(), fromInclusive,
+          toExclusive, replacedChildIndex, replacement);
+    }
+
+    private static int[] discriminativeBitsOf(final HOTIndirectPage node) throws ReflectiveOperationException {
+      final Method method = HOTIncrementalInsert.class.getDeclaredMethod("discriminativeBits", HOTIndirectPage.class);
+      method.setAccessible(true);
+      return (int[]) method.invoke(null, node);
     }
 
     private Object recanonicalizeChildSlice(final HOTIndirectPage node, final int fromInclusive,
