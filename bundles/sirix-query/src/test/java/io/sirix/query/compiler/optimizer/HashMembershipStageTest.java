@@ -37,6 +37,8 @@ final class HashMembershipStageTest {
   @TempDir
   Path directory;
 
+  private static final String GROUP_BY_BUDGET_PROPERTY = "io.brackit.query.groupby.memory_budget";
+
   private static final String ROWS = """
       declare variable $outer := [{"id":1,"pid":10},{"id":2,"pid":20},
         {"id":3,"pid":10},{"id":4,"pid":30},{"id":5},{"id":6,"pid":30}];
@@ -239,11 +241,67 @@ final class HashMembershipStageTest {
   }
 
   @Test
-  void generatedBindingCannotShadowAUserVariable() throws Exception {
+  void aNamespacedGlobalIsUnaffectedByTheRewrite() throws Exception {
     assertOptimized("42",
         "declare namespace x = 'https://sirix.io/optimizer/internal';"
             + " declare variable $x:membership0 := 42; let $inner := (1) for $a in (1,2)"
             + " where fn:not(fn:exists(for $b in $inner where $b eq $a return $b)) return $x:membership0");
+  }
+
+  @Test
+  void aSpillingGroupByAfterAnAntiJoinCompletes() throws Exception {
+    // The lookup is not a serializable JDM item, so a tuple slot holding it would kill the query
+    // here: SpillableGroupBy writes every slot of every tuple it partitions.
+    System.setProperty(GROUP_BY_BUDGET_PROPERTY, "1");
+    try {
+      assertOptimized("3 4 5",
+          "let $inner := (1,2) for $a in (1,2,3,4,5)" + " where empty(for $b in $inner where $b eq $a return $b)"
+              + " let $key := $a group by $key order by $key return $key");
+    } finally {
+      System.clearProperty(GROUP_BY_BUDGET_PROPERTY);
+    }
+  }
+
+  @Test
+  void aSpillingGroupByKeepsExactCountsForManyGroups() throws Exception {
+    System.setProperty(GROUP_BY_BUDGET_PROPERTY, "1");
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final Query query = new Query(chain,
+          "let $inner := (1 to 64) for $a in 1 to 256" + " where empty(for $b in $inner where $b eq $a return $b)"
+              + " let $key := $a mod 8 group by $key let $n := count($a) return $n");
+      // 192 surviving rows (65..256) spread over the eight residue classes: 65..256 contains 24
+      // members of each residue modulo 8.
+      assertEquals("24 24 24 24 24 24 24 24", answer(query, context));
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
+    } finally {
+      System.clearProperty(GROUP_BY_BUDGET_PROPERTY);
+    }
+  }
+
+  @Test
+  void anOrderByAfterAnAntiJoinCompletesAndKeepsTheRoute() throws Exception {
+    assertOptimized("5 4 3", "let $inner := (1,2) for $a in (3,5,4)"
+        + " where empty(for $b in $inner where $b eq $a return $b)" + " order by $a descending return $a");
+  }
+
+  @Test
+  void theLookupNeverOccupiesAPipelineTupleSlot() throws Exception {
+    // Guards the order by and block GroupBy spill paths too: their budget is a fraction of the
+    // heap rather than a property, so they cannot be forced to spill in this JVM. Every one of
+    // them serializes whole tuples, so the lookup staying out of every slot is the invariant.
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final Query query = new Query(chain,
+          "let $inner := (10,20) for $a in (10,20,30,30,40)" + " where empty(for $b in $inner where $b eq $a return $b)"
+              + " let $key := $a group by $key order by $key return count($a)");
+      assertEquals("2 1", answer(query, context));
+      final AST optimized = chain.getOptimizedAST();
+      assertTrue(containsProbe(optimized), "membership route admission");
+      assertEquals(0, boundLookups(optimized), "no variable may be bound to a membership lookup");
+    }
   }
 
   @Test
@@ -335,6 +393,19 @@ final class HashMembershipStageTest {
       query.serialize(context, writer);
     }
     return out.toString().trim();
+  }
+
+  /** Counts membership lookups reachable anywhere other than as their own probe's child. */
+  private static int boundLookups(final AST node) {
+    int count = 0;
+    for (int i = 0; i < node.getChildCount(); i++) {
+      final AST child = node.getChild(i);
+      if (child.getType() == XQExt.MembershipIndexExpr && node.getType() != XQExt.MembershipProbeExpr) {
+        count++;
+      }
+      count += boundLookups(child);
+    }
+    return count;
   }
 
   private static boolean containsProbe(final AST node) {

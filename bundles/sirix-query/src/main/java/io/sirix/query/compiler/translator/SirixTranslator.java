@@ -123,7 +123,8 @@ public class SirixTranslator extends TopDownTranslator {
 
   protected Expr anyExpr(AST node) throws QueryException {
     if (node.getType() == XQExt.MembershipIndexExpr) {
-      return new MembershipIndexExpr(expr(node.getChild(0), true), (QNm) node.getProperty(HashMembershipStage.FIELD));
+      return new MembershipIndexExpr(expr(node.getChild(0), true), expr(node.getChild(1), true),
+          (QNm) node.getProperty(HashMembershipStage.FIELD));
     } else if (node.getType() == XQExt.MembershipProbeExpr) {
       return new MembershipProbeExpr(expr(node.getChild(0), true), expr(node.getChild(1), true),
           node.checkProperty(HashMembershipStage.ANTI), expr(node.getChild(2), true));

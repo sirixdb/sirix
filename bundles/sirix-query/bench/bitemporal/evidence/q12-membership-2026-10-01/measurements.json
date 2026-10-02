@@ -1,7 +1,7 @@
 {
   "baseline_commit": "8aa9f0d9e4c481832c8121a6d091a17ed9b796f1",
   "measured_commit": "79042b96a0d6203e1e524ce4274684fd46a54f92",
-  "measured_commit_note": "Every timing, hash and count in this file was recorded on measured_commit. candidate_sources_sha256 pins that commit's sources, not HEAD: MembershipIndexExpr.java changed after it (null-key fix), so its entry no longer matches HEAD by design. The other five still match. See the addendum in docs/QUERY_MEMBERSHIP_OPTIMIZATION.md.",
+  "measured_commit_note": "Every timing, hash and count in this file was recorded on measured_commit. candidate_sources_sha256 pins that commit's sources, not HEAD: MembershipIndexExpr.java, HashMembershipStage.java and SirixTranslator.java all changed after it, so their entries no longer match HEAD by design. The timings additionally no longer describe HEAD's PLAN: the lookup is no longer bound by a generated let clause, so the recorded t100k/t250k after-plan trees are stale and Q12 must be re-measured before the done-bar claim is re-asserted. See the addendum in docs/QUERY_MEMBERSHIP_OPTIMIZATION.md.",
   "date": "2026-10-01/02 Europe/Berlin",
   "jvm": "Oracle GraalVM Java 25.0.3; -Xms512m -Xmx6g -XX:MaxDirectMemorySize=1g",
   "batching": "unmodified kit, one commit per publication",

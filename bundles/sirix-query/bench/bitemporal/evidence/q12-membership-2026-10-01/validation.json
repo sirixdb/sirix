@@ -12,7 +12,18 @@
       "io.sirix.query.compiler.optimizer.HashMembershipStageTest#outerKeyErrorsAreNotSwallowedWhenNoTypedKeysWereBuilt"
     ],
     "authoritative_run": "This pipeline's test step, not the campaign counts below.",
-    "timings_unaffected": "The SH1 Q12 keys are contract ids with no null among them, so the recorded route and order-of-growth conclusion are unchanged by the fix."
+    "plan_shape_change": {
+      "change": "The lookup is no longer bound by a generated let clause; it is nested inside the probe, so it occupies no pipeline tuple slot. A spilling group by serialized that slot and failed the query with bit:BIDY0005.",
+      "covered_by": [
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#aSpillingGroupByAfterAnAntiJoinCompletes",
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#aSpillingGroupByKeepsExactCountsForManyGroups",
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#anOrderByAfterAnAntiJoinCompletesAndKeepsTheRoute",
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#theLookupNeverOccupiesAPipelineTupleSlot"
+      ],
+      "timings_affected": "YES. The recorded Q12 seconds and the t100k/t250k after-plan trees describe the superseded plan. Q12 must be re-measured at t100k before the done-bar claim is re-asserted; that re-measurement was NOT performed in this round (tier inputs, oracles and store live at caller-owned scratch paths this record does not pin down).",
+      "expected_but_unverified": "One build per enclosing binding is retained and the work-bound tests still pin linear inner-input visits, so the order-of-growth conclusion is expected to hold. Absolute seconds at HEAD are unverified."
+    },
+    "timings_unaffected_by_the_null_key_fix": "The SH1 Q12 keys are contract ids with no null among them, so the null-key fix alone leaves the recorded route and order-of-growth conclusion unchanged. See plan_shape_change for the later change that does invalidate the recorded seconds."
   },
   "sirix-query": {
     "suites": 248,

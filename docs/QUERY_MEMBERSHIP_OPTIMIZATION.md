@@ -19,13 +19,31 @@ inside the predicate's nested pipeline. Each outer row creates a new cursor. On 
 cost reordering hashes the one outer key and scans the inner relation until a match. The total
 inner input visits therefore grow quadratically even though the plan contains a hash join.
 
-The Sirix stage runs before Brackit's pipelining. It inserts a private let binding immediately
-before the outer `for`, and replaces the predicate with a membership probe. The binding creates
-an opaque lookup object; the first probe builds its hash set. No outer rows means no source read.
-The generated variable cannot collide with user variables. The lookup belongs to the enclosing
-tuple, not the compiled query, plan cache, thread, or database session. Enclosing bindings and
-subsequent executions get fresh lookups. Initialization publishes immutable sets safely to
-parallel readers; ordinary probes do not synchronize. Build iterators close immediately.
+The Sirix stage runs before Brackit's pipelining. It replaces the predicate with a membership
+probe that owns an opaque lookup object as a nested child expression; the first probe builds its
+hash set. No outer rows means no source read. Build iterators close immediately.
+
+The lookup occupies **no pipeline tuple slot**. That is a hard requirement, not a preference: a
+spilling `group by` or `order by` serializes every slot of every tuple it carries, Brackit's
+`TupleSerializer` writes only its own atomic types, and the lookup is not one of them. An earlier
+revision hoisted the lookup into a generated `let` binding before the outer `for`; a `group by`
+that spilled then failed the whole query with `bit:BIDY0005: Serialization of item type 'item()'
+not implemented yet.` Nesting the lookup inside the probe removes the slot, so nothing about the
+tuples reaching `group by`, `order by` or the block `GroupBy` differs from the unoptimized plan.
+
+One build per enclosing binding is kept without a slot by memoizing on the *scope variable* — the
+independent variable the inner source reads, which the admission rule already requires. Its value
+is the same object for every row of the outer `for` and a different object once an enclosing
+binding moves on, so identity on that one slot read decides reuse. Identity is the only sound key
+here: `$inner[]` allocates a fresh unboxing sequence on every evaluation, so keying on the source
+itself would rebuild per outer row. Reuse therefore happens only when the bound object is the same
+object, which cannot differ in content. Enclosing bindings and subsequent executions get fresh
+lookups; the memo holds one entry, so concurrent block-pipeline workers sitting on different
+enclosing bindings rebuild instead of sharing, and each worker is always handed the lookup built
+from its own binding. The memo lives on the compiled expression, which `PlanCache` never holds —
+it caches ASTs and hands out deep copies — so its lifetime is the caller's `Query` object.
+Initialization publishes immutable sets safely to parallel readers; ordinary probes do not
+synchronize.
 
 The admission rule requires:
 
@@ -61,8 +79,13 @@ this fallback from silently acquiring another equality implementation.
 
 `HashMembershipStageTest` checks hand-computed semi/anti-join answers, missing and empty keys,
 inner/outer duplicates, numeric precision and promotion, string promotion, nulls, date keys,
-cardinality/type errors, grouping, generated-name collisions, enclosing scopes, and repeated
-execution of one compiled query. It also counts consumed inner items and iterator closes.
+cardinality/type errors, grouping, enclosing scopes, and repeated execution of one compiled query.
+It also counts consumed inner items and iterator closes, and runs an anti-join feeding a `group by`
+forced to spill with `-Dio.brackit.query.groupby.memory_budget=1`, which is the configurable spill
+trigger. `order by` and the block `GroupBy` size their spill budget from a fraction of the heap
+rather than a property, so they cannot be driven to spill inside the test JVM; they share the same
+`TupleSerializer`, and the slot-shape assertion in `theLookupNeverOccupiesAPipelineTupleSlot`
+covers them by pinning the property that makes all three safe.
 
 For 128 inner keys and 256 outer items, the enabled rule visits exactly 128 inner items and closes
 one build iterator. Disabling it produces the same answer but visits 24,640 inner items:
@@ -123,10 +146,11 @@ The t250k retry uses a fresh store; the partial original store contributes no me
 
 ## Addendum: changes after commit `79042b96a`
 
-The campaign section above is a closed record of `79042b96a`. Two changes landed after it, so its
-suite counts (`1,774 tests`, `16 membership tests`) and the `MembershipIndexExpr.java` entry in
-`candidate_sources_sha256` describe that commit, not HEAD. They were deliberately left as recorded
-rather than re-written without a new measured run.
+The campaign section above is a closed record of `79042b96a`. Three changes landed after it, so its
+suite counts (`1,774 tests`, `16 membership tests`) and the `MembershipIndexExpr.java`,
+`HashMembershipStage.java` and `SirixTranslator.java` entries in `candidate_sources_sha256` describe
+that commit, not HEAD. They were deliberately left as recorded rather than re-written without a new
+measured run.
 
 A JSON `null` key no longer returns `Keys.FALLBACK`. It sets one `hasNull` flag on the `Keys`
 record and a null probe key is answered from that flag, so a single null no longer reverts the
@@ -144,6 +168,26 @@ instead of a hardcoded last type, so `sdb:explain` names the two membership oper
 emitting `Unknown(276)`/`Unknown(277)`. Covered by `QueryPlanSerializerTest.resolveXQExtTypes` and
 `serializeMembershipNodes`.
 
-The recorded Q12 timings are unaffected by both: the SH1 keys are contract ids with no null among
-them, and plan-tree naming is diagnostic output. The authoritative suite result for HEAD is this
-branch's test step, not the counts above.
+The lookup moved out of the pipeline tuple into the probe, because a spilling `group by` serializes
+every slot it carries and killed the query outright — see *Plan and invariants* above for the
+mechanism. Covered by `aSpillingGroupByAfterAnAntiJoinCompletes`,
+`aSpillingGroupByKeepsExactCountsForManyGroups`, `anOrderByAfterAnAntiJoinCompletesAndKeepsTheRoute`
+and `theLookupNeverOccupiesAPipelineTupleSlot`. All three of the first, second and fourth fail on the
+pre-fix plan — the two spilling ones with the `bit:BIDY0005` serialization error, the fourth because
+one variable was still bound to a lookup.
+
+The first two changes do not affect the recorded Q12 timings: the SH1 keys are contract ids with no
+null among them, and plan-tree naming is diagnostic output. **The third one changes the plan tree, so
+the recorded Q12 timings and the `t100k-after.plan.txt` / `t250k-after.plan.txt` trees no longer
+describe HEAD's plan and must be re-measured before the done-bar claim is re-asserted.** The
+generated `LetBind sirix:membership0` is gone and the lookup now sits inside the `Selection`. The
+re-measurement was not performed in the review round that made the change: the t100k inputs, oracles
+and store live at caller-owned scratch paths that this evidence record deliberately does not pin
+down, and generating and loading the tier with one commit per publication is a multi-hour campaign.
+What is known without it: the route still performs one build per enclosing binding, Q12's source is a
+local `let` whose slot read is identity-stable, and the per-row cost changed from one tuple slot read
+to one slot read plus one reference comparison — so the order-of-growth conclusion is expected to
+hold, and the work-bound tests still pin linear inner-input visits. The absolute seconds at HEAD are
+unverified.
+
+The authoritative suite result for HEAD is this branch's test step, not the counts above.

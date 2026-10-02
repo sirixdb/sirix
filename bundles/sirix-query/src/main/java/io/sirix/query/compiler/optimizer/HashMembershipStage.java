@@ -8,17 +8,20 @@ import io.brackit.query.module.Namespaces;
 import io.brackit.query.module.StaticContext;
 import io.sirix.query.compiler.XQExt;
 
-import java.util.HashSet;
-import java.util.Set;
-
 /**
  * Hoists single-equality semi/anti-join membership out of an outer iteration.
  *
  * <p>
  * Brackit recognizes the equality inside {@code empty(for ...)} as a join, but the join's cursor is
  * recreated for every outer row. Even a hash join there performs quadratic work. This stage runs
- * before pipelining and binds an evaluation-local, lazily built lookup before the outer
- * {@code for}. The original selection retains the outer order and multiplicity.
+ * before pipelining and replaces the predicate with a probe over an evaluation-local, lazily built
+ * lookup. The original selection retains the outer order and multiplicity.
+ *
+ * <p>
+ * The lookup is nested inside the probe, not hoisted into a {@code let} binding. A bound lookup
+ * would occupy a pipeline tuple slot, and a spilling {@code group by} or {@code order by}
+ * serializes every slot it carries. The probe keeps one build per enclosing binding by memoizing on
+ * the independent source variable instead.
  *
  * <p>
  * The deliberately small admission rule requires an independent variable (optionally unboxed) as
@@ -31,30 +34,18 @@ public final class HashMembershipStage implements Stage {
   public static final String ENABLED_PROPERTY = "sirix.optimizer.hashMembership";
   public static final String FIELD = "sirix.membership.field";
   public static final String ANTI = "sirix.membership.anti";
-  private static final String INTERNAL_NS = "https://sirix.io/optimizer/internal";
 
   @Override
   public AST rewrite(final StaticContext sctx, final AST ast) {
     if (!"false".equalsIgnoreCase(System.getProperty(ENABLED_PROPERTY))) {
-      final Set<QNm> names = new HashSet<>();
-      collectNames(ast, names);
-      walk(ast, names);
+      walk(ast);
     }
     return ast;
   }
 
-  private static void collectNames(final AST node, final Set<QNm> names) {
-    if (node.getValue() instanceof QNm name) {
-      names.add(name);
-    }
+  private static void walk(final AST node) {
     for (int i = 0; i < node.getChildCount(); i++) {
-      collectNames(node.getChild(i), names);
-    }
-  }
-
-  private static void walk(final AST node, final Set<QNm> names) {
-    for (int i = 0; i < node.getChildCount(); i++) {
-      walk(node.getChild(i), names);
+      walk(node.getChild(i));
     }
     if (node.getType() != XQ.FlowrExpr) {
       return;
@@ -70,25 +61,13 @@ public final class HashMembershipStage implements Stage {
       if (match == null) {
         continue;
       }
-      QNm indexName;
-      int suffix = 0;
-      do {
-        indexName = new QNm(INTERNAL_NS, "sirix", "membership" + suffix++);
-      } while (!names.add(indexName));
-
-      final AST binding = new AST(XQ.TypedVariableBinding);
-      binding.addChild(new AST(XQ.Variable, indexName));
       final AST index = new AST(XQExt.MembershipIndexExpr, "MembershipIndexExpr");
       index.addChild(match.source.copyTree());
+      index.addChild(match.scope.copyTree());
       index.setProperty(FIELD, match.field);
-      final AST let = new AST(XQ.LetClause);
-      let.addChild(binding);
-      let.addChild(index);
-      node.insertChild(i, let);
-      i++;
 
       final AST probe = new AST(XQExt.MembershipProbeExpr, "MembershipProbeExpr");
-      probe.addChild(new AST(XQ.VariableRef, indexName));
+      probe.addChild(index);
       probe.addChild(match.outerKey.copyTree());
       probe.addChild(where.getChild(0).copyTree());
       probe.setProperty(ANTI, match.anti);
@@ -139,17 +118,18 @@ public final class HashMembershipStage implements Stage {
   private static Membership equality(final AST source, final AST condition, final QNm innerName, final QNm outerName,
       final boolean anti) {
     final AST comparison = unwrap(condition);
-    if (!independentSource(source, outerName) || comparison.getType() != XQ.ComparisonExpr
-        || comparison.getChildCount() != 3 || comparison.getChild(0).getType() != XQ.ValueCompEQ) {
+    final AST scope = scope(source, outerName);
+    if (scope == null || comparison.getType() != XQ.ComparisonExpr || comparison.getChildCount() != 3
+        || comparison.getChild(0).getType() != XQ.ValueCompEQ) {
       return null;
     }
     final AST left = unwrap(comparison.getChild(1));
     final AST right = unwrap(comparison.getChild(2));
     if (isKey(left, innerName) && isKey(right, outerName)) {
-      return new Membership(source, field(left), right, anti);
+      return new Membership(source, scope, field(left), right, anti);
     }
     if (isKey(right, innerName) && isKey(left, outerName)) {
-      return new Membership(source, field(right), left, anti);
+      return new Membership(source, scope, field(right), left, anti);
     }
     return null;
   }
@@ -165,13 +145,19 @@ public final class HashMembershipStage implements Stage {
             : null;
   }
 
-  private static boolean independentSource(final AST source, final QNm outerName) {
+  /**
+   * The independent variable the source reads. It is the lookup's scope: its value is identical for
+   * every row of the outer {@code for}, and changes exactly when an enclosing binding changes.
+   */
+  private static AST scope(final AST source, final QNm outerName) {
     AST base = unwrap(source);
     if (base.getType() == XQ.ArrayAccess && base.getChildCount() == 2 && base.getChild(1).getType() == XQ.SequenceExpr
         && base.getChild(1).getChildCount() == 0) {
       base = unwrap(base.getChild(0));
     }
-    return base.getType() == XQ.VariableRef && !outerName.equals(base.getValue());
+    return base.getType() == XQ.VariableRef && !outerName.equals(base.getValue())
+        ? base
+        : null;
   }
 
   private static boolean isKey(final AST key, final QNm name) {
@@ -213,6 +199,6 @@ public final class HashMembershipStage implements Stage {
         || Namespaces.DEFAULT_FN_NSURI.equals(namespace);
   }
 
-  private record Membership(AST source, QNm field, AST outerKey, boolean anti) {
+  private record Membership(AST source, AST scope, QNm field, AST outerKey, boolean anti) {
   }
 }
