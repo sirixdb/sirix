@@ -48,8 +48,8 @@ final class HOTDirectionOneSplitHalfAtomicityTest {
     final HOTIndirectPage leftHalf = (HOTIndirectPage) split.left().getPage();
 
     try {
-      assertTrue(
-          fixture.writer.directionOneForTest(shape.route, shape.originalNode, leftHalf, shape.insertedKey, value(0x51)));
+      assertTrue(fixture.writer.directionOneForTest(shape.route, shape.originalNode, leftHalf, shape.insertedKey,
+          value(0x51)));
 
       Page root = fixture.resolve(shape.rootRef);
       assertEquals(34, countEntries(root, fixture));
@@ -294,8 +294,8 @@ final class HOTDirectionOneSplitHalfAtomicityTest {
         final HOTIndirectPage originalNode, final HOTIndirectPage half, final byte[] key, final byte[] value) {
       try {
         final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("directionOneIntoSplitHalf",
-            AbstractHOTIndexWriter.LeafNavigationResult.class, HOTIndirectPage.class, int.class,
-            HOTIndirectPage.class, boolean.class, int.class, byte[].class, byte[].class, int.class);
+            AbstractHOTIndexWriter.LeafNavigationResult.class, HOTIndirectPage.class, int.class, HOTIndirectPage.class,
+            boolean.class, int.class, byte[].class, byte[].class, int.class);
         method.setAccessible(true);
         return (boolean) method.invoke(this, route, originalNode, 0, half, false, 10, key, value, 2);
       } catch (final InvocationTargetException invocationFailure) {

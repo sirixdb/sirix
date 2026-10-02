@@ -213,16 +213,15 @@ final class HOTOrderingGuardTest {
   /**
    * The decline keeps the retry loop in control of the refusal, which is the whole of what it buys
    * here: no wider or higher frontier can publish after it, because the dead end belongs to the
-   * boundary child and the boundary key, not to the frontier's width.
-   * {@code splitSubtreeBeforeKey} always descends through {@link
-   * AbstractHOTIndexWriter#lexicographicBoundaryChild}, so every wider frontier reaches the same
-   * child and splits it at the same point; and where a wider frontier would avoid that child, the
-   * join around {@code K} straddles the compressed source at the same bit and re-derives the very
-   * same column-dropped slice over it. The fan-out dead end itself needs 31 parts in one slice,
-   * which only the full width of a 32-child node supplies — a narrower frontier has strictly fewer
-   * parts, so it cannot dead-end where a wider one succeeds. A successful retry after <em>this</em>
-   * decline is therefore not constructible; the retry legs it does enable are the ones the other
-   * candidate checks reject ({@code freshStructuralPagesMalformed}, {@code
+   * boundary child and the boundary key, not to the frontier's width. {@code splitSubtreeBeforeKey}
+   * always descends through {@link AbstractHOTIndexWriter#lexicographicBoundaryChild}, so every wider
+   * frontier reaches the same child and splits it at the same point; and where a wider frontier would
+   * avoid that child, the join around {@code K} straddles the compressed source at the same bit and
+   * re-derives the very same column-dropped slice over it. The fan-out dead end itself needs 31 parts
+   * in one slice, which only the full width of a 32-child node supplies — a narrower frontier has
+   * strictly fewer parts, so it cannot dead-end where a wider one succeeds. A successful retry after
+   * <em>this</em> decline is therefore not constructible; the retry legs it does enable are the ones
+   * the other candidate checks reject ({@code freshStructuralPagesMalformed}, {@code
    * canPropagateIncrementalSplice}), which are pre-existing and unchanged.
    */
   @Test
@@ -251,8 +250,8 @@ final class HOTOrderingGuardTest {
 
   /** The keys {@link #installFrontierWithoutACanonicalHalf} stores, in order. */
   private static final int[] FRONTIER_WITHOUT_A_CANONICAL_HALF_KEYS =
-      {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11,
-          0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1E, 0x3E, 0x3F, 0x7F, 0xC0};
+      {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12,
+          0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1E, 0x3E, 0x3F, 0x7F, 0xC0};
 
   /**
    * A valid trie for which no half of the frontier before {@code 0x80} has a canonical block. Its
@@ -421,10 +420,10 @@ final class HOTOrderingGuardTest {
       for (int column = 1; column < 32; column++) {
         bits[column] = column + 1;
       }
-      final PageReference lowStraddler = fixture.node(new int[] {1}, new int[] {0, 1},
-          fixture.wideLeaf(0x20000000), fixture.wideLeaf(0x60000000));
-      final PageReference highStraddler = fixture.node(new int[] {1}, new int[] {0, 1},
-          fixture.wideLeaf(0xA0000000), fixture.wideLeaf(0xE0000000));
+      final PageReference lowStraddler =
+          fixture.node(new int[] {1}, new int[] {0, 1}, fixture.wideLeaf(0x20000000), fixture.wideLeaf(0x60000000));
+      final PageReference highStraddler =
+          fixture.node(new int[] {1}, new int[] {0, 1}, fixture.wideLeaf(0xA0000000), fixture.wideLeaf(0xE0000000));
       final PageReference lowest = fixture.wideLeaf(0x00000000);
       final PageReference signBitChild = fixture.wideLeaf(0x80000000);
       final PageReference nodeRef = fixture.node(bits, new int[] {0x00000000, 0x40000000, 0x80000000, 0xC0000000},
@@ -456,12 +455,11 @@ final class HOTOrderingGuardTest {
       // varies. I7 (partials strictly ascending unsigned) makes that unreachable on a well-formed
       // node, so the decision is pinned here on a node whose partials descend deliberately — the
       // predicate reads columns and child MSBs, and must not borrow another node's ordering.
-      final PageReference signBitRoot = fixture.node(new int[] {0}, new int[] {0, 1},
-          fixture.wideLeaf(0x00000000), fixture.wideLeaf(0x80000000));
-      final PageReference descending = fixture.node(bits, new int[] {0x80000000, 0x00000000}, signBitRoot,
-          fixture.wideLeaf(0x40000000));
-      assertEquals(0,
-          assertInstanceOf(HOTIndirectPage.class, fixture.page(signBitRoot)).getMostSignificantBitIndex());
+      final PageReference signBitRoot =
+          fixture.node(new int[] {0}, new int[] {0, 1}, fixture.wideLeaf(0x00000000), fixture.wideLeaf(0x80000000));
+      final PageReference descending =
+          fixture.node(bits, new int[] {0x80000000, 0x00000000}, signBitRoot, fixture.wideLeaf(0x40000000));
+      assertEquals(0, assertInstanceOf(HOTIndirectPage.class, fixture.page(signBitRoot)).getMostSignificantBitIndex());
       assertFalse(
           fixture.sliceKeepsTrieCondition(assertInstanceOf(HOTIndirectPage.class, fixture.page(descending)), 0, 2, 0,
               signBitRoot),
@@ -476,16 +474,15 @@ final class HOTOrderingGuardTest {
       // stored data. Both ways of breaking it must decline, never throw out of the split.
       final PageReference interleaved = fixture.leaf(0x40, 0x60);
       final PageReference inside = fixture.leaf(0x50);
-      final PageReference overlapping =
-          fixture.node(new int[] {0}, new int[] {0, 1}, interleaved, inside);
-      assertNull(fixture.recanonicalizeChildSlice(
-          assertInstanceOf(HOTIndirectPage.class, fixture.page(overlapping)), 0, 2, 0, interleaved));
+      final PageReference overlapping = fixture.node(new int[] {0}, new int[] {0, 1}, interleaved, inside);
+      assertNull(fixture.recanonicalizeChildSlice(assertInstanceOf(HOTIndirectPage.class, fixture.page(overlapping)), 0,
+          2, 0, interleaved));
 
       final PageReference empty = fixture.leaf();
       final PageReference populated = fixture.leaf(0x50);
       final PageReference unresolvable = fixture.node(new int[] {0}, new int[] {0, 1}, empty, populated);
-      assertNull(fixture.recanonicalizeChildSlice(
-          assertInstanceOf(HOTIndirectPage.class, fixture.page(unresolvable)), 0, 2, 0, empty));
+      assertNull(fixture.recanonicalizeChildSlice(assertInstanceOf(HOTIndirectPage.class, fixture.page(unresolvable)),
+          0, 2, 0, empty));
 
       for (final PageReference reference : List.of(interleaved, inside, empty, populated)) {
         assertFalse(assertInstanceOf(HOTLeafPage.class, fixture.page(reference)).isClosed(),
@@ -593,9 +590,8 @@ final class HOTOrderingGuardTest {
       return (boolean) method.invoke(writer, route, placement, key(value));
     }
 
-    private boolean splitHalfGuard(final LeafNavigationResult route, final int insertDepth,
-        final HOTIndirectPage half, final boolean rightHalf, final int affectedIdx, final int value)
-        throws ReflectiveOperationException {
+    private boolean splitHalfGuard(final LeafNavigationResult route, final int insertDepth, final HOTIndirectPage half,
+        final boolean rightHalf, final int affectedIdx, final int value) throws ReflectiveOperationException {
       final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("isSplitHalfDirectionOneSafe",
           LeafNavigationResult.class, int.class, HOTIndirectPage.class, boolean.class, int.class, byte[].class);
       method.setAccessible(true);
@@ -618,15 +614,14 @@ final class HOTOrderingGuardTest {
     }
 
     private boolean splitKeepsTrieCondition(final HOTIndirectPage node) throws ReflectiveOperationException {
-      final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("splitKeepsTrieCondition",
-          HOTIndirectPage.class, int.class);
+      final Method method =
+          AbstractHOTIndexWriter.class.getDeclaredMethod("splitKeepsTrieCondition", HOTIndirectPage.class, int.class);
       method.setAccessible(true);
       return (boolean) method.invoke(writer, node, splitPointOf(node));
     }
 
-    private boolean sliceKeepsTrieCondition(final HOTIndirectPage node, final int fromInclusive,
-        final int toExclusive, final int replacedChildIndex, final PageReference replacement)
-        throws ReflectiveOperationException {
+    private boolean sliceKeepsTrieCondition(final HOTIndirectPage node, final int fromInclusive, final int toExclusive,
+        final int replacedChildIndex, final PageReference replacement) throws ReflectiveOperationException {
       final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("sliceKeepsTrieCondition",
           HOTIndirectPage.class, int[].class, int[].class, int.class, int.class, int.class, PageReference.class);
       method.setAccessible(true);
@@ -640,8 +635,8 @@ final class HOTOrderingGuardTest {
       return (int[]) method.invoke(null, node);
     }
 
-    private Object recanonicalizeChildSlice(final HOTIndirectPage node, final int fromInclusive,
-        final int toExclusive, final int replacedChildIndex, final PageReference replacement) throws Exception {
+    private Object recanonicalizeChildSlice(final HOTIndirectPage node, final int fromInclusive, final int toExclusive,
+        final int replacedChildIndex, final PageReference replacement) throws Exception {
       final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("recanonicalizeChildSlice",
           HOTIndirectPage.class, int.class, int.class, int.class, PageReference.class, int.class, List.class);
       method.setAccessible(true);

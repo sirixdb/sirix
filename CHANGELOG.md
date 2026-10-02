@@ -188,8 +188,34 @@ All notable changes to SirixDB are documented in this file.
   condition. That break sits on the key's own route, so the published-structure validation catches
   it, the transaction is poisoned and the load stops with nothing wrong committed; the 100,000-record
   stream takes the arm four times without reaching it, no test constructs it, and closing it is a
-  separate task. Results, on-disk format, revision visibility, write granularity and the validation
-  itself are unchanged. Specified in `docs/HOT_INDEX_SPECIFICATION.md` §4.5.2–§4.5.4, §4.5.6 and
+  separate task. The same wrong assumption about routing held at three further placements, all found
+  by the SH1 bitemporal benchmark on the experimental sorted-encoded-chunks prototype. A branch
+  handler placed the key inside the subtree the sparse-partial descent chose, and the pair-leaf
+  handler kept the descended leaf's slot while the key became that slot's new maximum — in both
+  cases moving an extreme past a neighbour no handler had compared it against, since each handler
+  proves only the node it rebuilds well-formed and an ancestor sees that subtree solely through its
+  extremes. The benchmark's one-operation-per-commit load stopped at commit 121,582 on the branch
+  placement with `HOT published structural path is malformed`, raised by the writer's own route
+  validation, so again nothing wrong was committed. Every branch placement, the pair handler, the
+  strand discharge and a sub-insert into a freshly compressed split half now prove that the key
+  keeps the spine's order on the side its extreme moves, before anything is allocated, and hand the
+  insert to the complete-frontier splice when it does not; a companion check proves the key stays on
+  its own side of the boundary a full node's two halves become, at both branch decompositions of a
+  full node, since only the half the key joins is examined afterwards. Third, the splice's own
+  persistent split compressed each boundary slice plainly, and a compressed slice keeps only the
+  columns that vary within it, so it could drop a column above a child's own most significant bit
+  and break the trie condition (I11) against that child: the candidate was rejected as malformed
+  although a canonical block over the very same children existed, and because every level of the
+  retry splits the same boundary child at the same point, the whole splice could decline and the
+  insert fail. Such a slice is now rebuilt as a canonical block over its ordered children, and a
+  slice for which no block exists at all declines the candidate and retires every page it built, so
+  the rebuild can never abort an insert: the splice goes on to the wider frontier and the higher
+  levels exactly as it does for any other declined candidate. All three defects are reachable in
+  this writer by construction and each regression fixture fails without its own guard, but the key
+  streams that exposed them were captured on a prototype whose leaf layouts have not landed, so no
+  production key stream is known to reach them. Results, on-disk format, revision visibility, write
+  granularity and the validation itself are unchanged; answers change only where an insert
+  previously failed. Specified in `docs/HOT_INDEX_SPECIFICATION.md` §4.5.2–§4.5.4, §4.5.6 and
   §4.5.7.
 - **A HOT structural insert could lose a key with every invariant intact** — when a full node's most
   significant bit splits it 1:31, the new key's half comes back bare, as the node's *own* child
