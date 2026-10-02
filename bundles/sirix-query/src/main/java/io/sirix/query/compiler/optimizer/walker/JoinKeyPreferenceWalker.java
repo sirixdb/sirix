@@ -9,8 +9,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Orders the selection chain below a {@code for}/{@code let} binding so that Brackit's join
- * recognition keys the join on an equality and keeps every other predicate where it costs least.
+ * Orders the selection chain below a {@code for} binding so that Brackit's join recognition keys the
+ * join on an equality and keeps every other predicate where it costs least.
  *
  * <p>
  * Brackit's {@code SelectPullup} lifts every selection whose innermost dependency is the binding to
@@ -30,17 +30,21 @@ import java.util.List;
  * <li>the selections that reference no earlier binding — Brackit copies them into the join's right
  * input, so they filter the build side before the join;</li>
  * <li>the equality nearest the head of the chain whose two sides reference this binding and only
- * earlier bindings, respectively — the join key. That is the first eligible equality
- * {@code JoinRewriter} itself reaches, so whenever its own choice is already such an equality the
- * key is left exactly as it was: the rule only ever re-keys away from a non-equality, never from
- * one equality to another;</li>
+ * earlier bindings, respectively — the join key. That is the first equality of this separated-sides
+ * class {@code JoinRewriter} itself reaches, so whenever its own choice already belongs to the class
+ * the key is left exactly as it was. An equality whose one side mixes this binding with an earlier
+ * one, as in {@code $c.qty * $p.price eq $p.total}, does not belong to the class:
+ * {@code JoinRewriter} would key on such a comparison, this rule makes it a residual and keys on a
+ * separated equality instead. Nothing is lost by that — keying on it puts a key expression
+ * referencing this binding on the probe side, which Brackit's own plan then cannot resolve;</li>
  * <li>every remaining predicate (other equalities, inequalities, mixed predicates) in its chain
  * order — they follow the join as residual filters, which Brackit's {@code PredicateMerge} then
  * collapses into one conjunction.</li>
  * </ol>
  * Selections referencing only earlier bindings were already lifted above this binding by
  * {@code SelectPullup}. A chain without an eligible equality is left untouched, so inequality-only
- * joins keep their current plan. Selections are filters, so reordering them changes no answer.
+ * joins keep their current plan, and so does every {@code let}-bound chain. Selections are filters,
+ * so reordering them changes no answer.
  * </p>
  */
 public final class JoinKeyPreferenceWalker extends ScopeWalker {
@@ -55,8 +59,7 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
 
   @Override
   protected AST visit(final AST node) {
-    final int type = node.getType();
-    if (type != XQ.ForBind && type != XQ.LetBind) {
+    if (node.getType() != XQ.ForBind) {
       return node;
     }
     final AST first = node.getLastChild();

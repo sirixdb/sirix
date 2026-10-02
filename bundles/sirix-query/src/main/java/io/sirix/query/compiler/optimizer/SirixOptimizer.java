@@ -86,8 +86,9 @@ public class SirixOptimizer extends TopDownOptimizer {
     this.planCache = planCache;
     // Before Brackit's join recognition (after its predicate split and pull-up): prefer an
     // equality key and keep single-side predicates on their own side. Brackit's stages are private
-    // classes, so the slot is found by name; without join detection there is nothing to prefer.
-    if (DefaultOptimizer.JOIN_DETECTION) {
+    // classes, so the slot is found by name; without join detection there is nothing to prefer, and
+    // a rule switched off demands no anchor either.
+    if (DefaultOptimizer.JOIN_DETECTION && JoinKeyPreferenceStage.enabled()) {
       insertStageBefore("JoinRecognition", new JoinKeyPreferenceStage());
     }
     // 0. Debug only: dumps the incoming AST under -Dsirix.debug.ast=true, no-op otherwise.

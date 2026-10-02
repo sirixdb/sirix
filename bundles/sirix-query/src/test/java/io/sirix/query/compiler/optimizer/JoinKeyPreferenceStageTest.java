@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -91,6 +92,24 @@ final class JoinKeyPreferenceStageTest {
   private static final String NESTED_FOR =
       PROLOG + "for $c in $C[] for $p in $P[]" + " where $c.pid eq $p.id and $c.cost lt $p.retail"
           + " return count(for $q in $P[] where $q.id eq $p.id and $q.retail ge $c.cost return $q)";
+  /**
+   * A two-selection chain under a {@code let} binding, headed by an equality the rule would key on
+   * with a right-only conjunct behind it — so ordering it would move both. The rule must leave every
+   * {@code let}-bound chain to Brackit.
+   */
+  private static final String LET_BOUND_CHAIN = PROLOG + "for $c in $C[] for $p in $P[] let $m := $p.id"
+      + " where $m eq $c.pid and $m lt 25 order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
+  /**
+   * An equality whose one side mixes both bindings ({@code $c.cost + $p.retail}) while the other
+   * references only the right one: the single shape where the rule re-keys from one equality to
+   * another, because a mixed-side operand is outside the separated-sides class it keys on. There is
+   * no rule-off comparison for this query: Brackit keys on the mixed-side equality, which puts a
+   * {@code $p} key expression on the probe side, and its plan then fails to resolve {@code $p} at
+   * all (bit:BIDY0001) — a Brackit defect this change neither causes nor fixes.
+   */
+  private static final String MIXED_SIDE_EQUALITY = PROLOG + "for $c in $C[] for $p in $P[]"
+      + " where $c.cost + $p.retail eq $p.retail + 5 and $c.pid eq $p.id"
+      + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
 
   @BeforeEach
   void setUp() {
@@ -216,6 +235,19 @@ final class JoinKeyPreferenceStageTest {
   }
 
   @Test
+  @DisplayName("the off switch keeps the stage, and so its anchor requirement, out of the pipeline")
+  void theOffSwitchInstallsNoStage() {
+    System.setProperty(JoinKeyPreferenceStage.ENABLED_PROPERTY, "false");
+    try {
+      for (final Stage stage : new SirixOptimizer(null, null, null).getStages()) {
+        assertFalse(stage instanceof JoinKeyPreferenceStage, "no join-key preference stage is installed");
+      }
+    } finally {
+      System.clearProperty(JoinKeyPreferenceStage.ENABLED_PROPERTY);
+    }
+  }
+
+  @Test
   @DisplayName("a three-way join is keyed on equalities at every level and exact")
   void threeWayJoinIsKeyedOnEqualities() throws IOException {
     final Plan plan = plan(THREE_WAY);
@@ -235,6 +267,32 @@ final class JoinKeyPreferenceStageTest {
   }
 
   @Test
+  @DisplayName("a let-bound selection chain is planned exactly as Brackit plans it")
+  void letBoundChainIsLeftToBrackit() throws IOException {
+    final Plan plan = plan(LET_BOUND_CHAIN);
+    final Plan without = planWithoutRule(LET_BOUND_CHAIN);
+    assertEquals(signature(without.ast), signature(plan.ast), "the whole optimized plan is unchanged by the rule");
+    assertEquals(without.answer, plan.answer, "answers are byte-identical");
+    assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":1,\"p\":\"c\"} {\"c\":2,\"p\":\"b\"} {\"c\":3,\"p\":\"a\"} "
+        + "{\"c\":3,\"p\":\"c\"}", plan.answer.trim());
+  }
+
+  @Test
+  @DisplayName("an equality with one mixed-side operand becomes a residual, not the join key")
+  void mixedSideEqualityIsRekeyedOntoTheSeparatedEquality() throws IOException {
+    final Plan plan = plan(MIXED_SIDE_EQUALITY);
+    assertEquals(1, plan.joins.size(), "one join");
+    final AST join = plan.joins.get(0);
+    assertEquals("c.pid", deref(end(join.getChild(0))), "left join key");
+    assertEquals("p.id", deref(end(join.getChild(1))), "right join key");
+    assertEquals(1, comparisonsBelow(join.getChild(3), XQ.ValueCompEQ),
+        "the mixed-side equality follows the join as a residual");
+    assertEquals(XQ.ArithmeticExpr, onlySelection(join.getChild(3)).getChild(0).getChild(1).getType(),
+        "its mixed-side operand is the arithmetic expression Brackit would have keyed on");
+    assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":1,\"p\":\"c\"}", plan.answer.trim());
+  }
+
+  @Test
   @DisplayName("a nested for in the return clause is exact with and without the rule")
   void nestedForInReturnStaysExact() throws IOException {
     // Pairs (c1,p10a) (c1,p10c) (c2,p20) (c3,p10a) (c3,p10c); products with the pair's id and retail >=
@@ -246,9 +304,10 @@ final class JoinKeyPreferenceStageTest {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * The rule must never re-key a join away from an equality Brackit itself already picked: it keys on
-   * the equality nearest the head of the selection chain, which is the one {@code JoinRewriter}
-   * reaches first.
+   * The rule must never re-key a join away from a separated-sides equality Brackit itself already
+   * picked: it keys on the equality nearest the head of the selection chain, which is the one
+   * {@code JoinRewriter} reaches first. An equality with a mixed-side operand is not in that class
+   * and is re-keyed; {@code mixedSideEqualityIsRekeyedOntoTheSeparatedEquality} pins that case.
    */
   private static Plan assertKeptKey(final String query) throws IOException {
     final Plan plan = plan(query);
@@ -259,7 +318,7 @@ final class JoinKeyPreferenceStageTest {
     return plan;
   }
 
-  private record Plan(String answer, List<AST> joins) {
+  private record Plan(String answer, AST ast, List<AST> joins) {
   }
 
   private static Plan plan(final String query) throws IOException {
@@ -290,7 +349,7 @@ final class JoinKeyPreferenceStageTest {
       assertNotNull(optimized, "optimized AST");
       final List<AST> joins = new ArrayList<>();
       collect(optimized, XQ.Join, joins);
-      return new Plan(out.toString(StandardCharsets.UTF_8), joins);
+      return new Plan(out.toString(StandardCharsets.UTF_8), optimized, joins);
     }
   }
 
