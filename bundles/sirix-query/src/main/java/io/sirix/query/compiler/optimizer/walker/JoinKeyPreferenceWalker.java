@@ -9,8 +9,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Orders the selection chain below a {@code for} binding so that Brackit's join recognition keys the
- * join on an equality and keeps every other predicate where it costs least.
+ * Orders the selection chain below a {@code for} or {@code let} binding so that Brackit's join
+ * recognition keys the join on an equality and keeps every other predicate where it costs least.
  *
  * <p>
  * Brackit's {@code SelectPullup} lifts every selection whose innermost dependency is the binding to
@@ -29,22 +29,20 @@ import java.util.List;
  * <ol>
  * <li>the selections that reference no earlier binding — Brackit copies them into the join's right
  * input, so they filter the build side before the join;</li>
- * <li>the equality nearest the head of the chain whose two sides reference this binding and only
- * earlier bindings, respectively — the join key. That is the first equality of this separated-sides
- * class {@code JoinRewriter} itself reaches, so whenever its own choice already belongs to the class
- * the key is left exactly as it was. An equality whose one side mixes this binding with an earlier
- * one, as in {@code $c.qty * $p.price eq $p.total}, does not belong to the class:
- * {@code JoinRewriter} would key on such a comparison, this rule makes it a residual and keys on a
- * separated equality instead. Nothing is lost by that — keying on it puts a key expression
- * referencing this binding on the probe side, which Brackit's own plan then cannot resolve;</li>
+ * <li>the equality nearest the head of the chain that {@code JoinRewriter} would accept as a join
+ * condition — the join key. Acceptance is the test {@code JoinRewriter} itself applies, so this is
+ * the very equality it would reach first, and whenever its own choice is already an equality the key
+ * is left exactly as it was: the rule only ever re-keys away from a non-equality, never from one
+ * equality to another. That includes an equality with a mixed-side operand, as in
+ * {@code $c.k eq $p.a + $q.b}, which {@code JoinRewriter} keys on by building the mixed side on the
+ * build input — re-keying off it would enumerate the probe side's cross product instead;</li>
  * <li>every remaining predicate (other equalities, inequalities, mixed predicates) in its chain
  * order — they follow the join as residual filters, which Brackit's {@code PredicateMerge} then
  * collapses into one conjunction.</li>
  * </ol>
  * Selections referencing only earlier bindings were already lifted above this binding by
  * {@code SelectPullup}. A chain without an eligible equality is left untouched, so inequality-only
- * joins keep their current plan, and so does every {@code let}-bound chain. Selections are filters,
- * so reordering them changes no answer.
+ * joins keep their current plan. Selections are filters, so reordering them changes no answer.
  * </p>
  */
 public final class JoinKeyPreferenceWalker extends ScopeWalker {
@@ -59,7 +57,8 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
 
   @Override
   protected AST visit(final AST node) {
-    if (node.getType() != XQ.ForBind) {
+    final int type = node.getType();
+    if (type != XQ.ForBind && type != XQ.LetBind) {
       return node;
     }
     final AST first = node.getLastChild();
@@ -120,11 +119,13 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
   }
 
   /**
-   * {@link #EQUALITY} mirrors {@code JoinRewriter}'s eligibility for an equality keyed on this
-   * binding: a comparison whose one side references only this binding and whose other side references
-   * only earlier bindings, both sides non-static. {@link #RIGHT_ONLY}: the predicate references no
-   * earlier binding, so it filters this binding's input on its own. Everything else is
-   * {@link #RESIDUAL}.
+   * {@link #EQUALITY} mirrors {@code JoinRewriter}'s eligibility for an equality it can key on: both
+   * sides non-static, and one side referencing a strictly earlier binding than the other. That is
+   * what its scope split tests — it orients the two operands so the one reaching the later binding
+   * builds, then requires the other to begin earlier — so every equality it would key on, including
+   * one whose single operand mixes bindings, lands here rather than in {@link #RESIDUAL}.
+   * {@link #RIGHT_ONLY}: the predicate references no earlier binding, so it filters this binding's
+   * input on its own. Everything else is {@link #RESIDUAL}.
    *
    * <p>
    * Only an earlier pipeline binding compares less than {@code bind}. The scopes {@code ScopeWalker}
@@ -157,44 +158,28 @@ public final class JoinKeyPreferenceWalker extends ScopeWalker {
     if (comparison != XQ.GeneralCompEQ && comparison != XQ.ValueCompEQ) {
       return RESIDUAL;
     }
-    final int left = side(predicate.getChild(1), bind);
-    final int right = side(predicate.getChild(2), bind);
-    final boolean separated =
-        (left == SIDE_THIS && right == SIDE_EARLIER) || (left == SIDE_EARLIER && right == SIDE_THIS);
-    return separated
-        ? EQUALITY
-        : RESIDUAL;
+    final Scope left = earliestBinding(predicate.getChild(1));
+    final Scope right = earliestBinding(predicate.getChild(2));
+    if (left == null || right == null) {
+      return RESIDUAL;
+    }
+    return left.compareTo(right) == 0
+        ? RESIDUAL
+        : EQUALITY;
   }
 
-  private static final int SIDE_THIS = 1;
-  private static final int SIDE_EARLIER = 2;
-  private static final int SIDE_OTHER = 3;
-
   /**
-   * Which pipeline bindings one comparison side references: only this one, only earlier ones, or a
-   * mix. A scope opened inside the predicate itself is a descendant of {@code bind} and so belongs to
-   * this binding's side.
+   * The earliest pipeline binding one comparison side references, or {@code null} when the side is
+   * static — {@code JoinRewriter} does not join on a static side.
    */
-  private int side(final AST expression, final Scope bind) {
+  private Scope earliestBinding(final AST expression) {
     final VarRef refs = findVarRefs(expression);
     if (refs == null) {
-      return SIDE_OTHER; // static side: JoinRewriter does not join on it
+      return null;
     }
-    boolean thisBinding = false;
-    boolean earlier = false;
-    for (final Scope scope : sortScopes(refs)) {
-      if (scope.compareTo(bind) < 0) {
-        earlier = true;
-      } else {
-        thisBinding = true;
-      }
-    }
-    if (thisBinding && !earlier) {
-      return SIDE_THIS;
-    }
-    if (earlier && !thisBinding) {
-      return SIDE_EARLIER;
-    }
-    return SIDE_OTHER;
+    final Scope[] scopes = sortScopes(refs);
+    return scopes.length == 0
+        ? null
+        : scopes[0];
   }
 }

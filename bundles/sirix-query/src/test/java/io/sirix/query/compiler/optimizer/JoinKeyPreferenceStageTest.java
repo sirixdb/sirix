@@ -45,9 +45,10 @@ final class JoinKeyPreferenceStageTest {
       "[{\"id\":10,\"category\":\"a\",\"retail\":20,\"region\":\"eu\",\"items\":[1,9],\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-08-01T00:00:00Z\"},"
           + "{\"id\":20,\"category\":\"b\",\"retail\":30,\"region\":\"eu\",\"items\":[2,3],\"vf\":\"2024-04-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"},"
           + "{\"id\":10,\"category\":\"c\",\"retail\":25,\"region\":\"us\",\"items\":[4,8],\"vf\":\"2024-08-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}]";
+  private static final String OFFSETS = "[{\"id\":1,\"b\":15},{\"id\":2,\"b\":23},{\"id\":3,\"b\":11}]";
   private static final String PROLOG = "declare variable $L := xs:dateTime('2024-02-15T00:00:00Z');"
       + "declare variable $U := xs:dateTime('2024-10-15T00:00:00Z');" + "declare variable $C := " + CONTRACTS + ";"
-      + "declare variable $P := " + PRODUCTS + ";";
+      + "declare variable $P := " + PRODUCTS + ";" + "declare variable $Q := " + OFFSETS + ";";
 
   /** Q10's shape: equality first, window predicates on both sides, two interval inequalities last. */
   private static final String MIXED = PROLOG + "for $c in $C[] for $p in $P[]"
@@ -93,23 +94,21 @@ final class JoinKeyPreferenceStageTest {
       PROLOG + "for $c in $C[] for $p in $P[]" + " where $c.pid eq $p.id and $c.cost lt $p.retail"
           + " return count(for $q in $P[] where $q.id eq $p.id and $q.retail ge $c.cost return $q)";
   /**
-   * A two-selection chain under a {@code let} binding, headed by an equality the rule would key on
-   * with a right-only conjunct behind it — so ordering it would move both. The rule must leave every
-   * {@code let}-bound chain to Brackit.
+   * A {@code let}-bound chain whose head is already the equality, with a right-only conjunct behind
+   * it: the key must stay put while the single-side conjunct moves to the build side.
    */
-  private static final String LET_BOUND_CHAIN = PROLOG + "for $c in $C[] for $p in $P[] let $m := $p.id"
+  private static final String LET_BOUND_EQUALITY_HEAD = PROLOG + "for $c in $C[] for $p in $P[] let $m := $p.id"
       + " where $m eq $c.pid and $m lt 25 order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
   /**
-   * An equality whose one side mixes both bindings ({@code $c.cost + $p.retail}) while the other
-   * references only the right one: the single shape where the rule re-keys from one equality to
-   * another, because a mixed-side operand is outside the separated-sides class it keys on. There is
-   * no rule-off comparison for this query: Brackit keys on the mixed-side equality, which puts a
-   * {@code $p} key expression on the probe side, and its plan then fails to resolve {@code $p} at
-   * all (bit:BIDY0001) — a Brackit defect this change neither causes nor fixes.
+   * An equality whose one operand mixes two later bindings ({@code $p.retail - $q.b}) while the other
+   * references only the earliest: {@code JoinRewriter} keys on it by building the mixed operand on the
+   * build input, so the rule must leave that key alone rather than re-key onto {@code $q.id eq $c.id}
+   * and enumerate the probe side's cross product.
    */
-  private static final String MIXED_SIDE_EQUALITY = PROLOG + "for $c in $C[] for $p in $P[]"
-      + " where $c.cost + $p.retail eq $p.retail + 5 and $c.pid eq $p.id"
-      + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
+  private static final String MIXED_SIDE_EQUALITY_THREE_BINDINGS =
+      PROLOG + "for $c in $C[] for $p in $P[] for $q in $Q[]"
+          + " where $c.cost eq $p.retail - $q.b and $q.id eq $c.id"
+          + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
 
   @BeforeEach
   void setUp() {
@@ -267,29 +266,27 @@ final class JoinKeyPreferenceStageTest {
   }
 
   @Test
-  @DisplayName("a let-bound selection chain is planned exactly as Brackit plans it")
-  void letBoundChainIsLeftToBrackit() throws IOException {
-    final Plan plan = plan(LET_BOUND_CHAIN);
-    final Plan without = planWithoutRule(LET_BOUND_CHAIN);
-    assertEquals(signature(without.ast), signature(plan.ast), "the whole optimized plan is unchanged by the rule");
-    assertEquals(without.answer, plan.answer, "answers are byte-identical");
+  @DisplayName("a let-bound chain keeps its equality key and pushes its single-side conjunct")
+  void letBoundEqualityHeadKeepsItsKey() throws IOException {
+    final Plan plan = assertKeptKey(LET_BOUND_EQUALITY_HEAD);
+    final AST join = plan.joins.get(0);
+    assertEquals(1, selectionsBelow(join.getChild(1)), "the single-side conjunct filters the build side");
+    assertEquals(0, selectionsBelow(join.getChild(3)), "it is not left behind as a post-join filter");
+    final AST joinWithout = planWithoutRule(LET_BOUND_EQUALITY_HEAD).joins.get(0);
+    assertEquals(0, selectionsBelow(joinWithout.getChild(1)), "without the rule the build side is unfiltered");
+    assertEquals(1, selectionsBelow(joinWithout.getChild(3)), "the conjunct follows the join instead");
     assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":1,\"p\":\"c\"} {\"c\":2,\"p\":\"b\"} {\"c\":3,\"p\":\"a\"} "
         + "{\"c\":3,\"p\":\"c\"}", plan.answer.trim());
   }
 
   @Test
-  @DisplayName("an equality with one mixed-side operand becomes a residual, not the join key")
-  void mixedSideEqualityIsRekeyedOntoTheSeparatedEquality() throws IOException {
-    final Plan plan = plan(MIXED_SIDE_EQUALITY);
-    assertEquals(1, plan.joins.size(), "one join");
-    final AST join = plan.joins.get(0);
-    assertEquals("c.pid", deref(end(join.getChild(0))), "left join key");
-    assertEquals("p.id", deref(end(join.getChild(1))), "right join key");
-    assertEquals(1, comparisonsBelow(join.getChild(3), XQ.ValueCompEQ),
-        "the mixed-side equality follows the join as a residual");
-    assertEquals(XQ.ArithmeticExpr, onlySelection(join.getChild(3)).getChild(0).getChild(1).getType(),
-        "its mixed-side operand is the arithmetic expression Brackit would have keyed on");
-    assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":1,\"p\":\"c\"}", plan.answer.trim());
+  @DisplayName("a mixed-side equality spanning two later bindings keeps the key Brackit picked")
+  void mixedSideEqualityOverThreeBindingsKeepsTheRuleOffKey() throws IOException {
+    final Plan plan = assertKeptKey(MIXED_SIDE_EQUALITY_THREE_BINDINGS);
+    assertEquals(XQ.ArithmeticExpr, end(plan.joins.get(0).getChild(0)).getType(),
+        "the mixed operand stays one side of the key");
+    assertEquals("c.cost", deref(end(plan.joins.get(0).getChild(1))), "and the earliest binding the other");
+    assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":2,\"p\":\"b\"} {\"c\":3,\"p\":\"a\"}", plan.answer.trim());
   }
 
   @Test
@@ -304,10 +301,9 @@ final class JoinKeyPreferenceStageTest {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * The rule must never re-key a join away from a separated-sides equality Brackit itself already
-   * picked: it keys on the equality nearest the head of the selection chain, which is the one
-   * {@code JoinRewriter} reaches first. An equality with a mixed-side operand is not in that class
-   * and is re-keyed; {@code mixedSideEqualityIsRekeyedOntoTheSeparatedEquality} pins that case.
+   * The rule must never re-key a join away from any equality Brackit itself already picked: it keys
+   * on the equality nearest the head of the selection chain, which is the one {@code JoinRewriter}
+   * reaches first — a mixed-side operand included.
    */
   private static Plan assertKeptKey(final String query) throws IOException {
     final Plan plan = plan(query);
@@ -318,7 +314,7 @@ final class JoinKeyPreferenceStageTest {
     return plan;
   }
 
-  private record Plan(String answer, AST ast, List<AST> joins) {
+  private record Plan(String answer, List<AST> joins) {
   }
 
   private static Plan plan(final String query) throws IOException {
@@ -349,7 +345,7 @@ final class JoinKeyPreferenceStageTest {
       assertNotNull(optimized, "optimized AST");
       final List<AST> joins = new ArrayList<>();
       collect(optimized, XQ.Join, joins);
-      return new Plan(out.toString(StandardCharsets.UTF_8), optimized, joins);
+      return new Plan(out.toString(StandardCharsets.UTF_8), joins);
     }
   }
 
