@@ -20,11 +20,27 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * Hand-computed answers for repeated array iteration and correlated nested FLWORs. The nested joins
  * exercise Brackit's TableJoin with a wider right input than left input: changing the driving side
  * must not change the join key, tuple layout, or result.
+ *
+ * <p>
+ * Every answer asserted with {@link #BRACKIT_TABLE_JOIN_FIX_REQUIRED}, namely the two correlated
+ * nested-FLWOR shapes and the hoisted stored join, is only reachable with the Brackit TableJoin fix
+ * from <a href="https://github.com/sirixdb/brackit/pull/119">sirixdb/brackit#119</a>. Sirix
+ * resolves {@code io.sirix:brackit:1.0-alpha10-SNAPSHOT} from {@code mavenLocal()} before Sonatype,
+ * so a failure of those assertions on a developer machine almost always means a stale local Brackit
+ * install in {@code ~/.m2}; reinstall Brackit master locally to refresh it. The expected answers
+ * are hand-computed from the fixtures below and must never be adjusted to match observed output.
+ * </p>
  */
 final class LetBoundSequenceTest {
 
   @TempDir
   Path directory;
+
+  private static final String BRACKIT_TABLE_JOIN_FIX_REQUIRED =
+      "This answer requires the Brackit TableJoin fix from https://github.com/sirixdb/brackit/pull/119. "
+          + "A failure here almost always means a stale io.sirix:brackit:1.0-alpha10-SNAPSHOT install in "
+          + "~/.m2, which mavenLocal() resolves before Sonatype; reinstall Brackit master locally to "
+          + "refresh it. The expected answer is hand-computed and must not be changed. Query: ";
 
   private static final String CONTRACTS =
       "[{\"id\":1,\"pid\":10,\"cost\":5,\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-07-01T00:00:00Z\"},"
@@ -68,9 +84,10 @@ final class LetBoundSequenceTest {
       // c1: p10a; c2: p20; c3: p10a and p10c; c4: no product 30.
       final String expected =
           "{\"c\":1,\"matches\":1} {\"c\":2,\"matches\":1}" + " {\"c\":3,\"matches\":2} {\"c\":4,\"matches\":0}";
-      assertAnswer(store, expected, prolog(store, stored) + "for $c in $C[]"
+      final String query = prolog(store, stored) + "for $c in $C[]"
           + " let $m := (for $p in $P[] where xs:dateTime($p.vf) lt xs:dateTime($c.vt) and $p.id eq $c.pid return $p.category)"
-          + " order by $c.id return {\"c\":$c.id,\"matches\":count($m)}");
+          + " order by $c.id return {\"c\":$c.id,\"matches\":count($m)}";
+      assertAnswer(store, expected, query, BRACKIT_TABLE_JOIN_FIX_REQUIRED);
     }
   }
 
@@ -79,9 +96,10 @@ final class LetBoundSequenceTest {
   void antiJoinWithTwoPredicatesExcludesOnlyMatchedContracts(final boolean stored) {
     try (final BasicJsonDBStore store = newStore()) {
       // c1 and c3 have later-starting product 10, c2 has later-starting product 20; c4 alone survives.
-      assertAnswer(store, "4", prolog(store, stored) + "for $c in $C[]"
+      final String query = prolog(store, stored) + "for $c in $C[]"
           + " where empty(for $p in $P[] where xs:dateTime($p.vf) gt xs:dateTime($c.vf) and $p.id eq $c.pid return $p)"
-          + " order by $c.id return $c.id");
+          + " order by $c.id return $c.id";
+      assertAnswer(store, "4", query, BRACKIT_TABLE_JOIN_FIX_REQUIRED);
     }
   }
 
@@ -132,7 +150,7 @@ final class LetBoundSequenceTest {
       final String productsSource = "jn:open('products','data',current-dateTime())[]";
       final String hoisted =
           "let $products := " + productsSource + " for $c in " + contractsSource + " for $p in $products" + suffix;
-      assertAnswer(store, expected, hoisted);
+      assertAnswer(store, expected, hoisted, BRACKIT_TABLE_JOIN_FIX_REQUIRED);
 
       try (final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
           final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -143,7 +161,7 @@ final class LetBoundSequenceTest {
       }
       // The one selected contract has v=2. Products 1, 2 and 3 exercise below, equal and above.
       assertAnswer(store, expected, "for $c in " + contractsSource + " for $p in " + productsSource + suffix);
-      assertAnswer(store, expected, hoisted);
+      assertAnswer(store, expected, hoisted, BRACKIT_TABLE_JOIN_FIX_REQUIRED);
     }
   }
 
@@ -168,13 +186,18 @@ final class LetBoundSequenceTest {
   }
 
   private static void assertAnswer(final BasicJsonDBStore store, final String expected, final String query) {
+    assertAnswer(store, expected, query, "");
+  }
+
+  private static void assertAnswer(final BasicJsonDBStore store, final String expected, final String query,
+      final String hint) {
     final StringWriter out = new StringWriter();
     try (final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
         final PrintWriter writer = new PrintWriter(out)) {
       new Query(chain, query).serialize(context, writer);
       writer.flush();
-      assertEquals(expected, out.toString().trim(), query);
+      assertEquals(expected, out.toString().trim(), hint + query);
     }
   }
 }
