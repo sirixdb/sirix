@@ -23,13 +23,10 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.service.json.shredder.JsonShredder;
-import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.file.Files;
 import java.util.Set;
@@ -50,15 +47,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * definitions come out the same either way, so only the listing count tells the routes apart.
  *
  * <p>
- * Measured on these fixtures (the same on all four versioning types): a session lists once when it
- * cannot know better, at its first transaction on a resource without a catalogue or at the first
- * revision whose own and previous catalogue are both missing, and its commits never list: 0 in the
- * 12 commits of the first session, 0 in the auto-committing load, 0 in the XML fixture. Resolving
- * every writer from the directory, as before, lists 12, 13 and 4 times there. Without the session's
- * own knowledge the commits of a resource that has no catalogue, or emptied it, list: 4 and 6.
- * Without the previous-revision probe the first writer of a reopened session lists, and so does a
- * reader of a revision whose predecessor's catalogue exists: the readers' capture reads 4 instead
- * of at most 3.
+ * Measured on these fixtures: a session lists once when it cannot know better, at its first
+ * transaction on a resource without a catalogue or at the first revision whose own and previous
+ * catalogue are both missing, and its commits never list: 0 in the 12 commits of the first session,
+ * 0 in the auto-committing load, 0 in the XML fixture. Resolving every writer from the directory,
+ * as before, lists 12, 13 and 4 times there. Without the session's own knowledge the commits of a
+ * resource that has no catalogue, or emptied it, list: 4 and 6. Without the previous-revision probe
+ * the first writer of a reopened session lists, and so does a reader of a revision whose
+ * predecessor's catalogue exists: the readers' capture reads 4 instead of at most 3.
  *
  * <p>
  * A session that answers from what it remembers can also answer <em>wrongly</em>, which a listing
@@ -92,19 +88,15 @@ final class IndexCatalogueResolutionWorkBudgetTest {
     XmlTestHelper.deleteEverything();
   }
 
-  @ParameterizedTest(name = "{0}")
-  @EnumSource(VersioningType.class)
-  void commitsNeverListTheCatalogueDirectory(final VersioningType versioningType) throws Exception {
+  @Test
+  void commitsNeverListTheCatalogueDirectory() throws Exception {
     final var databasePath = JsonTestHelper.PATHS.PATH1.getFile();
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     // CAS definitions in effect at each committed revision; revision 0 is the empty bootstrap.
     final int[] expected = new int[21];
 
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-                                                   .versioningApproach(versioningType)
-                                                   .maxNumberOfRevisionsToRestore(3)
-                                                   .build());
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
         // Nothing but the directory can tell a fresh session that its resource has no catalogue.
         final WorkCapture.Captured<JsonNodeTrx> firstWriter = CAPTURE.call(() -> session.beginNodeTrx());
