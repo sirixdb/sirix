@@ -1,6 +1,8 @@
 package io.sirix.query.function.sdb.explain;
 
 import io.brackit.query.compiler.AST;
+import io.brackit.query.compiler.XQ;
+import io.brackit.query.util.Cmp;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
@@ -11,34 +13,38 @@ import io.sirix.query.node.XmlDBStore;
 /**
  * Programmatic API for query plan inspection.
  *
- * <p>Compiles a query through the full SirixDB optimizer pipeline and exposes
- * the resulting AST with all cost annotations. Designed for plan verification
- * tests and tooling integration.</p>
+ * <p>
+ * Compiles a query through the full SirixDB optimizer pipeline and exposes the resulting AST with
+ * all cost annotations. Designed for plan verification tests and tooling integration.
+ * </p>
  *
- * <p>Usage:
+ * <p>
+ * Usage:
+ * 
  * <pre>{@code
- * QueryPlan plan = QueryPlan.explain(
- *     "for $x in jn:doc('db','res')[][] where $x.price > 50 return $x",
- *     jsonStore, xmlStore);
+ * QueryPlan plan =
+ *     QueryPlan.explain("for $x in jn:doc('db','res')[][] where $x.price > 50 return $x", jsonStore, xmlStore);
  * assertTrue(plan.usesIndex());
  * assertEquals("columnar", plan.vectorizedRoute());
  * System.out.println(plan.toJSON());
  * }</pre>
  *
  * @param optimizedAST the optimized AST after all 10 optimizer stages
- * @param parsedAST    the parsed AST before optimization (null if not requested)
- * @param mesh         the Mesh containing plan alternatives (null if not available)
+ * @param parsedAST the parsed AST before optimization (null if not requested)
+ * @param mesh the Mesh containing plan alternatives (null if not available)
  */
 public record QueryPlan(AST optimizedAST, AST parsedAST, Mesh mesh) {
 
   /**
    * Compile a query through the full optimizer pipeline and return the plan.
    *
-   * <p>The provided stores are borrowed (not closed). The caller retains ownership.</p>
+   * <p>
+   * The provided stores are borrowed (not closed). The caller retains ownership.
+   * </p>
    *
-   * @param query     the JSONiq query string
+   * @param query the JSONiq query string
    * @param jsonStore the JSON database store
-   * @param xmlStore  the XML node store (may be null)
+   * @param xmlStore the XML node store (may be null)
    * @return the query plan
    */
   public static QueryPlan explain(String query, JsonDBStore jsonStore, XmlDBStore xmlStore) {
@@ -74,7 +80,9 @@ public record QueryPlan(AST optimizedAST, AST parsedAST, Mesh mesh) {
    * Get Brackit's raw JSON serialization of the optimized AST (includes all properties).
    */
   public String toRawJSON() {
-    return optimizedAST != null ? optimizedAST.toJSON() : "null";
+    return optimizedAST != null
+        ? optimizedAST.toJSON()
+        : "null";
   }
 
   /**
@@ -92,10 +100,12 @@ public record QueryPlan(AST optimizedAST, AST parsedAST, Mesh mesh) {
   /**
    * Check if the optimizer actually rewrote the plan to use an index.
    *
-   * <p>Detects {@code IndexExpr} AST nodes created by IndexMatching
-   * (JsonCASStep/JsonPathStep/JsonObjectKeyNameStep). This is the ground truth
-   * of index usage — the cost model's {@code PREFER_INDEX} hint may or may not
-   * result in an actual rewrite depending on whether a matching index exists.</p>
+   * <p>
+   * Detects {@code IndexExpr} AST nodes created by IndexMatching
+   * (JsonCASStep/JsonPathStep/JsonObjectKeyNameStep). This is the ground truth of index usage — the
+   * cost model's {@code PREFER_INDEX} hint may or may not result in an actual rewrite depending on
+   * whether a matching index exists.
+   * </p>
    */
   public boolean usesIndex() {
     return searchNodeType(optimizedAST, XQExt.IndexExpr, 20);
@@ -104,9 +114,11 @@ public record QueryPlan(AST optimizedAST, AST parsedAST, Mesh mesh) {
   /**
    * Check if the cost model prefers an index scan over sequential scan.
    *
-   * <p>This reflects the cost model's recommendation, which may differ from
-   * actual index usage. For example, the cost model may prefer an index but
-   * no matching CAS/PATH index exists for the specific predicate pattern.</p>
+   * <p>
+   * This reflects the cost model's recommendation, which may differ from actual index usage. For
+   * example, the cost model may prefer an index but no matching CAS/PATH index exists for the
+   * specific predicate pattern.
+   * </p>
    */
   public boolean prefersIndex() {
     return searchProperty(optimizedAST, CostProperties.PREFER_INDEX, Boolean.TRUE, 20);
@@ -115,7 +127,9 @@ public record QueryPlan(AST optimizedAST, AST parsedAST, Mesh mesh) {
   /**
    * Get the index type used in the plan, or null if no index is used.
    *
-   * <p>Extracts from {@code IndexExpr} nodes created by IndexMatching.</p>
+   * <p>
+   * Extracts from {@code IndexExpr} nodes created by IndexMatching.
+   * </p>
    */
   public String indexType() {
     if (optimizedAST == null) {
@@ -151,8 +165,10 @@ public record QueryPlan(AST optimizedAST, AST parsedAST, Mesh mesh) {
   /**
    * Check if the plan contains an intersection join (Rule 6 decomposition).
    *
-   * <p>An intersection join is created when both sides of a join have different
-   * indexes. Both sides become index scans and the join intersects their results.</p>
+   * <p>
+   * An intersection join is created when both sides of a join have different indexes. Both sides
+   * become index scans and the join intersects their results.
+   * </p>
    */
   public boolean isIntersectionJoin() {
     return searchProperty(optimizedAST, CostProperties.INTERSECTION_JOIN, Boolean.TRUE, 20);
@@ -163,6 +179,34 @@ public record QueryPlan(AST optimizedAST, AST parsedAST, Mesh mesh) {
    */
   public boolean isDecompositionRestructured() {
     return searchProperty(optimizedAST, CostProperties.DECOMPOSITION_RESTRUCTURED, Boolean.TRUE, 20);
+  }
+
+  /**
+   * Get the comparison operator of the first join in the plan, or null when no join carries one.
+   *
+   * <p>
+   * The operator is relative to the join's operand order: child 0 supplies the left operand and child
+   * 1 the right. A stage that exchanges the two inputs must therefore reverse it.
+   * </p>
+   */
+  public Cmp joinComparison() {
+    return findJoinComparison(optimizedAST, 20);
+  }
+
+  private static Cmp findJoinComparison(AST node, int maxDepth) {
+    if (node == null || maxDepth <= 0) {
+      return null;
+    }
+    if (node.getType() == XQ.Join && node.getProperty(CostProperties.CMP) instanceof Cmp cmp) {
+      return cmp;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      final Cmp found = findJoinComparison(node.getChild(i), maxDepth - 1);
+      if (found != null) {
+        return found;
+      }
+    }
+    return null;
   }
 
   private static boolean searchProperty(AST node, String key, Object expectedValue, int maxDepth) {

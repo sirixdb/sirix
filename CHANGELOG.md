@@ -252,6 +252,15 @@ All notable changes to SirixDB are documented in this file.
   put instead of answering wrongly later. On-disk format, revision visibility and write granularity
   are unchanged; answers change only where a key was previously lost. Specified in
   `docs/HOT_INDEX_SPECIFICATION.md` §4.5.4 case 2 and §4.8.
+- **A join swapped so its indexed side drives it kept the old comparison direction** — Rule 5 of
+  index decomposition (`IndexDecompositionStage.applyRule5`) exchanges a join's two inputs so the
+  indexed side becomes the driving side, but a join's comparison is stated relative to the operand
+  order: child 0 supplies the left operand. Exchanging the inputs alone left the comparison pointing
+  the old way, so the join evaluated the mirrored predicate (`b lt a` where the query asked for
+  `a lt b`) and silently answered with the wrong rows; equality joins were unaffected. The swap now
+  reverses the comparison together with the inputs. The operand-order invariant is specified in the
+  Rule 5 section of `docs/cost-based-optimizer-design.md`, and `QueryPlan.joinComparison()` exposes
+  the operator so plan tests can assert it.
 
 ## [1.0.0-beta7] — 2026-07-15
 

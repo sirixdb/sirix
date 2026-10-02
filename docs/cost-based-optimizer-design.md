@@ -440,16 +440,9 @@ Sometimes a join has one side that can use an index and another side that can't.
 
 **Optimization**: Swap the join inputs so the indexed side (`products`) is the **driving side** (child 0). In a nested-loop or hash join, the driving side is scanned first, and its results probe the other side. When the driving side is small (thanks to the index filter), fewer probes are needed.
 
-**Implementation** (`IndexDecompositionStage.applyRule5()`):
-```java
-if (!leftHasIndex) {
-    // Index is on the right — swap so indexed side drives
-    final AST leftInput = join.getChild(0);
-    final AST rightInput = join.getChild(1);
-    join.replaceChild(0, rightInput);
-    join.replaceChild(1, leftInput);
-}
-```
+**Implementation**: `IndexDecompositionStage.applyRule5()` — when the index sits on child 1, the two inputs are exchanged.
+
+**Operand-order invariant**: a join's comparison (`CostProperties.CMP`) is stated relative to the operand order — child 0 supplies the left operand, child 1 the right. Every stage that exchanges the inputs must therefore reverse the comparison (`a lt b` becomes `b gt a`). Leaving it untouched evaluates the mirrored predicate (`b lt a` where the query asked for `a lt b`), so an inequality join silently returns wrong rows. `QueryPlan.joinComparison()` exposes the operator so plan tests can assert it.
 
 ### Rule 6: Intersection Join
 
@@ -691,7 +684,7 @@ sdb:explain('for $x in jn:doc("db","res")[] where $x.price > 50 return $x', true
 sdb:explain('for $x in jn:doc("db","res")[] where $x.price > 50 return $x', 'candidates')
 ```
 
-### For Developers: QueryPlan API (`QueryPlan.java`, 233 lines)
+### For Developers: QueryPlan API (`QueryPlan.java`, 277 lines)
 
 ```java
 QueryPlan plan = QueryPlan.explain(query, jsonStore, xmlStore);
@@ -703,6 +696,7 @@ plan.indexType()                   // "CAS", "PATH", "NAME", or null
 plan.estimatedCardinality()        // How many rows does the optimizer expect?
 plan.isIntersectionJoin()          // Was Rule 6 applied?
 plan.isDecompositionRestructured() // Were Rules 5 or 6 applied?
+plan.joinComparison()              // The first join's comparison, relative to its operand order
 plan.isJoinReordered()             // Was DPhyp/GOO join reordering applied?
 plan.hasClosedGate()               // Did the cost model close the index gate?
 plan.vectorizedRoute()             // "columnar" if SIMD routing applied
