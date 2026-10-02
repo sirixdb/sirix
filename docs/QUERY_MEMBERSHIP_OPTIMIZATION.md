@@ -20,8 +20,21 @@ cost reordering hashes the one outer key and scans the inner relation until a ma
 inner input visits therefore grow quadratically even though the plan contains a hash join.
 
 The Sirix stage runs before Brackit's pipelining. It replaces the predicate with a membership
-probe that owns an opaque lookup object as a nested child expression; the first probe builds its
-hash set. No outer rows means no source read. Build iterators close immediately.
+probe that owns an opaque lookup object as a nested child expression. No outer rows means no source
+read.
+
+The key set is filled **incrementally**, not drained up front, so the route is never more inner work
+than the plan it replaces. A probe answers from the keys indexed so far; on a miss it resumes the
+inner scan exactly where the previous probe stopped and ends either at its own key or at the end of
+the inner side, which marks the set complete and closes the scan. Two properties follow. A semi-join
+keeps the early exit the unoptimized plan has — with the rule off, `TableJoin` hashes the one outer
+key and streams the inner side, and `fn:exists` stops at the first match, so `exists(...)` over a
+million inner rows visits one row; draining the relation first would have visited all of them. And no
+direction, the anti-join included, reads the inner relation more than once per enclosing binding,
+because the scan only ever moves forward. A probe whose key the completed set does not contain, and
+whose domain cannot be compared with it, still delegates to the original predicate. The scan is
+closed when it reaches the end; a probe that answers from an early match leaves it paused, exactly as
+an early-exiting `exists` leaves the unoptimized plan's cursor.
 
 The lookup occupies **no pipeline tuple slot**. That is a hard requirement, not a preference: a
 spilling `group by` or `order by` serializes every slot of every tuple it carries, Brackit's

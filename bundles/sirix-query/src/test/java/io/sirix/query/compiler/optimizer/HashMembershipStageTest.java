@@ -194,7 +194,7 @@ final class HashMembershipStageTest {
               + " return $a)");
       assertEquals("0", answer(query, context));
       assertEquals(129, inner.visited, "a null probe key must not revert to the per-row nested plan");
-      assertEquals(1, inner.closed);
+      assertEquals(0, inner.closed, "the matching null key is the last row, so the scan stops before the end");
     }
   }
 
@@ -403,6 +403,60 @@ final class HashMembershipStageTest {
       assertEquals("64", answer(query, context));
       assertEquals(64, second.visited, "a compiled query never reuses a prior evaluation's data");
       assertEquals(1, second.closed);
+    }
+  }
+
+  @Test
+  void aSemiJoinProbeStopsAtTheFirstMatchingInnerKey() throws Exception {
+    // Without the incremental build this drains all 1,000,000 rows into a hash set before the first
+    // probe can answer, where the unoptimized plan streams the inner side and stops at the match.
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingSequence inner = new CountingSequence(1_000_000);
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain, "declare variable $src external;" + " let $h := $src for $a in (1)"
+          + " where exists(for $b in $h where $b eq $a return $b) return $a");
+      assertEquals("1", answer(query, context));
+      assertEquals(1, inner.visited, "the scan stops at the first matching key");
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
+    }
+  }
+
+  @Test
+  void mixedHitAndMissProbesReadTheInnerSideAtMostOnce() throws Exception {
+    // Inner keys are 1..8. Probing 3 indexes rows 1..3 and stops; 9 exhausts the rest and completes
+    // the set; 1, 8, 42 and 5 are then answered from it. Eight inner reads serve six probes.
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingSequence inner = new CountingSequence(8);
+      context.bind(new QNm("src"), inner);
+      final Query query =
+          new Query(chain, "declare variable $src external;" + " let $h := $src for $a in (3, 9, 1, 8, 42, 5)"
+              + " where exists(for $b in $h where $b eq $a return $b) return $a");
+      assertEquals("3 1 8 5", answer(query, context));
+      assertEquals(8, inner.visited, "the inner side is read once in total, not once per probe");
+      assertEquals(1, inner.closed, "the single scan closes when it reaches the end");
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
+    }
+  }
+
+  @Test
+  void anAntiJoinStillReadsTheInnerSideExactlyOnce() throws Exception {
+    // The mirror of the semi-join case: `empty` cannot answer until a probe exhausts the inner
+    // side, and once one has, every later probe is served from the completed set.
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingSequence inner = new CountingSequence(8);
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain, "declare variable $src external;" + " let $h := $src for $a in (3, 9, 1, 42)"
+          + " where empty(for $b in $h where $b eq $a return $b) return $a");
+      assertEquals("9 42", answer(query, context));
+      assertEquals(8, inner.visited, "one pass over the inner side serves every probe");
+      assertEquals(1, inner.closed);
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
     }
   }
 

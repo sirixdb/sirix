@@ -49,6 +49,13 @@ import java.util.Objects;
  * pinned by the compiled expression and concurrent block-pipeline workers sitting on different
  * enclosing bindings rebuild rather than share. Correctness never depends on a hit: every caller
  * receives a lookup built from its own binding.
+ *
+ * <p>
+ * The key set is filled incrementally rather than drained up front. A probe answers from the keys
+ * indexed so far and otherwise resumes the inner scan where the previous probe stopped, ending at
+ * its own key or at the end of the inner side. A semi-join therefore keeps the early exit the
+ * unoptimized plan has — one matching row can answer {@code exists} without reading the rest — and
+ * no direction, the anti-join included, reads the inner relation more than once per binding.
  */
 public final class MembershipIndexExpr implements Expr, Reference {
   private final Expr source;
@@ -137,7 +144,13 @@ public final class MembershipIndexExpr implements Expr, Reference {
     private final Expr source;
     private final QNm field;
     private Tuple origin;
-    private volatile Keys keys;
+    private Iter iter;
+    private LongOpenHashSet longs;
+    private ObjectOpenHashSet<String> strings;
+    private boolean hasNull;
+    private volatile boolean rows;
+    private volatile boolean complete;
+    private volatile boolean fallback;
 
     private Lookup(final Sequence binding, final Expr source, final QNm field, final Tuple origin) {
       this.binding = binding;
@@ -148,15 +161,18 @@ public final class MembershipIndexExpr implements Expr, Reference {
 
     /** Returns 1 for a match, 0 for no match, or -1 when the original predicate must decide. */
     int probe(final QueryContext ctx, final Tuple tuple, final Expr probe) {
-      Keys snapshot = keys;
-      if (snapshot == null) {
-        snapshot = initialize(ctx);
-      }
-      if (snapshot.fallback) {
+      if (fallback) {
         return -1;
       }
-      if (!snapshot.hasRows) {
-        return 0;
+      if (!rows) {
+        start(ctx);
+        if (fallback) {
+          return -1;
+        }
+        // An empty inner relation never evaluates the comparison, so the outer key stays unread.
+        if (!rows) {
+          return 0;
+        }
       }
       final Item item = probe.evaluateToItem(ctx, tuple);
       if (item == null) {
@@ -168,85 +184,126 @@ public final class MembershipIndexExpr implements Expr, Reference {
       } catch (final QueryException exception) {
         return -1;
       }
+      // Once the inner side is exhausted the sets are final, and the volatile read of complete
+      // publishes them, so the common case answers without taking the monitor.
+      return complete
+          ? found(key)
+              ? 1
+              : absent(key)
+          : search(ctx, key);
+    }
+
+    private synchronized void start(final QueryContext ctx) {
+      while (!rows && !complete && !fallback) {
+        advance(ctx);
+      }
+    }
+
+    /**
+     * Answers from the keys indexed so far, then resumes the inner scan where the last probe left it,
+     * stopping at this key or at the end of the inner side. Over all probes of one binding the inner
+     * relation is therefore read at most once.
+     */
+    private synchronized int search(final QueryContext ctx, final Atomic key) {
+      while (true) {
+        if (found(key)) {
+          return 1;
+        }
+        if (fallback) {
+          return -1;
+        }
+        if (complete) {
+          return absent(key);
+        }
+        advance(ctx);
+      }
+    }
+
+    private boolean found(final Atomic key) {
       if (key instanceof Null) {
         // Value equality on null is total: null eq null holds, null eq any other atomic is false.
-        return snapshot.hasNull
-            ? 1
-            : 0;
+        return hasNull;
       }
-      if (snapshot.longs != null && key instanceof LonNumeric number) {
-        return snapshot.longs.contains(number.longValue())
-            ? 1
-            : 0;
+      if (longs != null && key instanceof LonNumeric number) {
+        return longs.contains(number.longValue());
       }
-      if (snapshot.strings != null && stringKey(key)) {
-        return snapshot.strings.contains(key.stringValue())
-            ? 1
-            : 0;
+      return strings != null && stringKey(key) && strings.contains(key.stringValue());
+    }
+
+    /** The verdict for a key the exhausted inner side does not contain. */
+    private int absent(final Atomic key) {
+      if (longs == null && strings == null || key instanceof Null) {
+        return 0;
+      }
+      if (longs != null && key instanceof LonNumeric || strings != null && stringKey(key)) {
+        return 0;
       }
       // Numeric promotion is pairwise (and not transitive for float/double). Preserve the value
       // comparison instead of coercing all keys to a lossy common representation for hashing.
-      return snapshot.longs == null && snapshot.strings == null
-          ? 0
-          : -1;
+      return -1;
     }
 
-    private synchronized Keys initialize(final QueryContext ctx) {
-      if (keys == null) {
-        // Publish immutable-after-build sets. The same let binding can be shared by parallel
-        // pipeline workers; only first use synchronizes, ordinary probes perform one volatile read.
-        try {
-          keys = build(ctx);
-        } catch (final QueryException exception) {
-          // Speculative key extraction may encounter an error after an earlier matching row.
-          // The original expression decides whether that error is reachable.
-          keys = Keys.FALLBACK;
+    private void advance(final QueryContext ctx) {
+      try {
+        if (iter == null) {
+          final Sequence input = source.evaluate(ctx, origin);
+          // The tuple is only an evaluation context for the source; holding it would pin one outer
+          // row, and with it a database transaction, for as long as the lookup lives.
+          origin = null;
+          if (input == null) {
+            complete = true;
+            return;
+          }
+          iter = input.iterate();
         }
-        // The tuple is only an evaluation context for the source; holding it would pin one outer
-        // row, and with it a database transaction, for as long as the lookup lives.
-        origin = null;
+        final Item row = iter.next();
+        if (row == null) {
+          release();
+          complete = true;
+          return;
+        }
+        rows = true;
+        index(row);
+      } catch (final QueryException exception) {
+        // Speculative key extraction may encounter an error that an earlier match would have
+        // hidden. The original expression decides whether that error is reachable.
+        release();
+        fallback = true;
       }
-      return keys;
     }
 
-    private Keys build(final QueryContext ctx) {
-      final Sequence input = source.evaluate(ctx, origin);
-      if (input == null) {
-        return Keys.EMPTY;
+    private void index(final Item row) {
+      final Item value = key(row);
+      if (value == null) {
+        return;
       }
-      LongOpenHashSet longs = null;
-      ObjectOpenHashSet<String> strings = null;
-      boolean hasRows = false;
-      boolean hasNull = false;
-      try (final Iter iter = input.iterate()) {
-        Item row;
-        while ((row = iter.next()) != null) {
-          hasRows = true;
-          final Item value = key(row);
-          if (value == null) {
-            continue;
-          }
-          final Atomic atomic = value.atomize();
-          if (atomic instanceof Null) {
-            // A null key never compares equal to a typed one, so it stays out of both sets and
-            // cannot force a mixed domain.
-            hasNull = true;
-          } else if (atomic instanceof LonNumeric number && strings == null) {
-            if (longs == null) {
-              longs = new LongOpenHashSet();
-            }
-            longs.add(number.longValue());
-          } else if (stringKey(atomic) && longs == null) {
-            if (strings == null) {
-              strings = new ObjectOpenHashSet<>();
-            }
-            strings.add(atomic.stringValue());
-          } else {
-            return Keys.FALLBACK;
-          }
+      final Atomic atomic = value.atomize();
+      if (atomic instanceof Null) {
+        // A null key never compares equal to a typed one, so it stays out of both sets and
+        // cannot force a mixed domain.
+        hasNull = true;
+      } else if (atomic instanceof LonNumeric number && strings == null) {
+        if (longs == null) {
+          longs = new LongOpenHashSet();
         }
+        longs.add(number.longValue());
+      } else if (stringKey(atomic) && longs == null) {
+        if (strings == null) {
+          strings = new ObjectOpenHashSet<>();
+        }
+        strings.add(atomic.stringValue());
+      } else {
+        release();
+        fallback = true;
       }
-      return new Keys(longs, strings, hasRows, hasNull, false);
+    }
+
+    private void release() {
+      origin = null;
+      if (iter != null) {
+        iter.close();
+        iter = null;
+      }
     }
 
     private Item key(final Item row) {
@@ -281,11 +338,5 @@ public final class MembershipIndexExpr implements Expr, Reference {
     public boolean booleanValue() {
       throw new QueryException(ErrorCode.BIT_DYN_RT_ILLEGAL_STATE_ERROR, "Internal membership lookup cannot escape");
     }
-  }
-
-  private record Keys(LongOpenHashSet longs, ObjectOpenHashSet<String> strings, boolean hasRows, boolean hasNull,
-      boolean fallback) {
-    private static final Keys FALLBACK = new Keys(null, null, false, false, true);
-    private static final Keys EMPTY = new Keys(null, null, false, false, false);
   }
 }
