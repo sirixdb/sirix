@@ -26,6 +26,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Hand-computed answers for single-equality nested semi/anti-joins, plus a deterministic work
@@ -75,6 +76,7 @@ final class HashMembershipStageTest {
           + " where exists(for $b in $inner where $b eq $a return $b) return $a");
       assertEquals("", answer(query, context));
       assertEquals(0, source.visited);
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
     }
   }
 
@@ -212,6 +214,7 @@ final class HashMembershipStageTest {
       final Query query = new Query(chain,
           "let $inner := (1) for $a in ('one')" + " where some $b in $inner satisfies $b eq $a return $a");
       assertThrows(QueryException.class, () -> answer(query, context));
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
     }
   }
 
@@ -251,6 +254,7 @@ final class HashMembershipStageTest {
       final Query query = new Query(chain,
           "let $inner := ({'id':(1,2)}) for $a in (1)" + " where some $b in $inner satisfies $b.id eq $a return $a");
       assertThrows(QueryException.class, () -> answer(query, context));
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
     }
   }
 
@@ -262,6 +266,7 @@ final class HashMembershipStageTest {
       final Query query = new Query(chain, "let $inner := ({'x':1}) for $a in ({'id':(1,2)})"
           + " where exists(for $b in $inner where $b.id eq $a.id return $b.id) return 'hit'");
       assertThrows(QueryException.class, () -> answer(query, context));
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
     }
   }
 
