@@ -121,6 +121,15 @@ final class JoinKeyPreferenceStageTest {
       + " where xs:dateTime($p.vf) lt xs:dateTime($c.vt) and $p.retail eq $c.cost + $p.discount"
       + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
   /**
+   * The same tie written the other way round, so the mixed operand lands on the PROBE side.
+   * {@code JoinRewriter} admits this one and compiles {@code $c.cost + $p.retail} into a left input
+   * rooted above {@code ForBind($p)}, where {@code $p} is unbound — promoting it would replace a
+   * query that answers today with a plan that does not compile at all.
+   */
+  private static final String PROBE_SIDE_MIXED_EQUALITY = PROLOG + "for $c in $C[] for $p in $P[]"
+      + " where xs:dateTime($p.vf) lt xs:dateTime($c.vt) and $c.cost + $p.retail eq $p.retail + 5"
+      + " order by $c.id, $p.category return {\"c\":$c.id,\"p\":$p.category}";
+  /**
    * An equality whose build operand begins at a scope the predicate opens itself, so the binding
    * {@code JoinRewriter} would root the right input at is a descendant of the selection rather than
    * an ancestor and it leaves the selection alone.
@@ -323,6 +332,13 @@ final class JoinKeyPreferenceStageTest {
     assertUnchangedPlan(UNKEYABLE_MIXED_SIDE_EQUALITY);
     assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":2,\"p\":\"b\"} {\"c\":3,\"p\":\"c\"}",
         plan(UNKEYABLE_MIXED_SIDE_EQUALITY).answer.trim());
+  }
+
+  @Test
+  @DisplayName("an equality whose probe operand reads the build binding is left where it is")
+  void probeSideMixedEqualityIsLeftAlone() throws IOException {
+    assertUnchangedPlan(PROBE_SIDE_MIXED_EQUALITY);
+    assertEquals("{\"c\":1,\"p\":\"a\"} {\"c\":1,\"p\":\"b\"}", plan(PROBE_SIDE_MIXED_EQUALITY).answer.trim());
   }
 
   @Test
