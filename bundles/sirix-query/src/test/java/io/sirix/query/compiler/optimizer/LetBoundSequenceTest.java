@@ -1,8 +1,10 @@
 package io.sirix.query.compiler.optimizer;
 
 import io.brackit.query.Query;
+import io.brackit.query.util.Cmp;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.query.function.sdb.explain.QueryPlan;
 import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -15,6 +17,7 @@ import java.io.StringWriter;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Hand-computed answers for repeated array iteration and correlated nested FLWORs. The nested joins
@@ -41,6 +44,8 @@ final class LetBoundSequenceTest {
           + "A failure here almost always means a stale io.sirix:brackit:1.0-alpha10-SNAPSHOT install in "
           + "~/.m2, which mavenLocal() resolves before Sonatype; reinstall Brackit master locally to "
           + "refresh it. The expected answer is hand-computed and must not be changed. Query: ";
+
+  private static final String PRODUCT_VALUES = "[{\"v\":1},{\"v\":2},{\"v\":3}]";
 
   private static final String CONTRACTS =
       "[{\"id\":1,\"pid\":10,\"cost\":5,\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-07-01T00:00:00Z\"},"
@@ -126,14 +131,22 @@ final class LetBoundSequenceTest {
   @ParameterizedTest(name = "comparison={0}")
   @CsvSource(value = {"lt|[2,1]", "le|[2,1] [2,2]", "gt|[2,3]", "ge|[2,2] [2,3]", "eq|[2,2]", "<|[2,1]",
       "<=|[2,1] [2,2]", ">|[2,3]", ">=|[2,2] [2,3]", "=|[2,2]"}, delimiter = '|')
-  void indexedJoinPreservesComparisonWhenProductsAreHoisted(final String comparison, final String expected) {
-    final String products = "[{\"v\":1},{\"v\":2},{\"v\":3}]";
-    final String suffix = " where $c.id eq 2 and $p.v " + comparison + " $c.v order by $c.id,$p.v return [$c.id,$p.v]";
+  void hoistedProductsPreserveEveryComparisonSpelling(final String comparison, final String expected) {
     try (final BasicJsonDBStore store = newStore()) {
       assertAnswer(store, expected,
-          "let $products := " + products + "[] for $c in [{\"id\":1,\"v\":1},{\"id\":2,\"v\":2},{\"id\":3,\"v\":3}][]"
-              + " for $p in $products" + suffix);
+          "let $products := " + PRODUCT_VALUES
+              + "[] for $c in [{\"id\":1,\"v\":1},{\"id\":2,\"v\":2},{\"id\":3,\"v\":3}][]" + " for $p in $products"
+              + comparisonSuffix(comparison));
+    }
+  }
 
+  @ParameterizedTest(name = "comparison={0}")
+  @CsvSource(value = {"lt|gt|[2,1]", "le|ge|[2,1] [2,2]", "gt|lt|[2,3]", "ge|le|[2,2] [2,3]", "eq|eq|[2,2]"},
+      delimiter = '|')
+  void indexedJoinPreservesComparisonWhenProductsAreHoisted(final String comparison, final String reversed,
+      final String expected) {
+    final String suffix = comparisonSuffix(comparison);
+    try (final BasicJsonDBStore store = newStore()) {
       // Enough nodes for the cost model to prefer the CAS index. A tiny stored fixture masks the
       // bug by choosing a scan and never performing the index-driven join-input swap.
       final StringBuilder contracts = new StringBuilder(6_000).append('[');
@@ -145,7 +158,7 @@ final class LetBoundSequenceTest {
       }
       contracts.append(']');
       store.create("contracts", "data", contracts.toString());
-      store.create("products", "data", products);
+      store.create("products", "data", PRODUCT_VALUES);
       final String contractsSource = "jn:open('contracts','data',current-dateTime())[]";
       final String productsSource = "jn:open('products','data',current-dateTime())[]";
       final String hoisted =
@@ -160,9 +173,17 @@ final class LetBoundSequenceTest {
                     context);
       }
       // The one selected contract has v=2. Products 1, 2 and 3 exercise below, equal and above.
-      assertAnswer(store, expected, "for $c in " + contractsSource + " for $p in " + productsSource + suffix);
+      final String plain = "for $c in " + contractsSource + " for $p in " + productsSource + suffix;
+      final Cmp reversedCmp = Cmp.valueOf(reversed);
+      assertJoinInputsSwapped(store, plain, reversedCmp);
+      assertAnswer(store, expected, plain);
+      assertJoinInputsSwapped(store, hoisted, reversedCmp);
       assertAnswer(store, expected, hoisted, BRACKIT_TABLE_JOIN_FIX_REQUIRED);
     }
+  }
+
+  private static String comparisonSuffix(final String comparison) {
+    return " where $c.id eq 2 and $p.v " + comparison + " $c.v order by $c.id,$p.v return [$c.id,$p.v]";
   }
 
   private BasicJsonDBStore newStore() {
@@ -187,6 +208,14 @@ final class LetBoundSequenceTest {
 
   private static void assertAnswer(final BasicJsonDBStore store, final String expected, final String query) {
     assertAnswer(store, expected, query, "");
+  }
+
+  private static void assertJoinInputsSwapped(final BasicJsonDBStore store, final String query, final Cmp reversed) {
+    final QueryPlan plan = QueryPlan.explain(query, store, null);
+    assertTrue(plan.isDecompositionRestructured(),
+        "The CAS index on contracts must put the indexed side in child(1) so Rule 5 restructures: " + query);
+    assertEquals(reversed, plan.joinComparison(),
+        "Rule 5 exchanged the join inputs, so the comparison must be reversed: " + query);
   }
 
   private static void assertAnswer(final BasicJsonDBStore store, final String expected, final String query,
