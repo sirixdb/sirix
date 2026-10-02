@@ -6000,9 +6000,7 @@ public abstract class AbstractHOTIndexWriter<K> {
             frontier.toExclusive(), replacementRef, revision, pageKeyAllocator);
       }
       candidatePage = candidateRef.getPage();
-      if (candidatePage == null || freshStructuralPagesMalformed(candidateRef, 0)
-          || !routedDescentContains(candidateRef, keySlice)
-          || !canPropagateIncrementalSplice(navResult, nodeDepth, candidateRef)) {
+      if (!frontierCandidatePublishable(navResult, nodeDepth, candidateRef, candidatePage, keySlice)) {
         discardUnpublishedStructuralCandidateOrThrow(candidateRef);
         return false;
       }
@@ -6044,6 +6042,19 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /** Completed insertions discharged by the persistent complete-frontier primitive. */
   public static final AtomicLong COMPLETE_STRUCTURAL_FRONTIER_SPLICE = new AtomicLong();
+
+  /**
+   * Every precondition a complete-frontier candidate must meet before it replaces the spine node: it
+   * has a page, its freshly allocated pages are well formed, the key routes to it under a real
+   * descent, and the splice can still propagate up the spine. Checked in that order, so a candidate
+   * without a page is never walked.
+   */
+  private boolean frontierCandidatePublishable(final LeafNavigationResult navResult, final int nodeDepth,
+      final PageReference candidateRef, final @Nullable Page candidatePage, final byte[] keySlice) {
+    return candidatePage != null && !freshStructuralPagesMalformed(candidateRef, 0)
+        && routedDescentContains(candidateRef, keySlice)
+        && canPropagateIncrementalSplice(navResult, nodeDepth, candidateRef);
+  }
 
   /**
    * Start with the smallest complete flattened-BiNode range containing both K's sparse-routing slot
@@ -6504,41 +6515,11 @@ public abstract class AbstractHOTIndexWriter<K> {
         return null;
       }
 
-      final int partCount = parts.size();
-      final PageReference[] children = new PageReference[partCount];
-      int maxChildHeight = 0;
-      for (int i = 0; i < partCount; i++) {
-        children[i] = parts.get(i).ref;
-        maxChildHeight = Math.max(maxChildHeight, structuralHeight(children[i]));
-      }
-      final HOTIndirectPage block;
-      if (partCount == 2) {
-        block = HOTIndirectPage.createBiNode(pageKeyAllocator.getAsLong(), revision, blockBits[0], children[0],
-            children[1], maxChildHeight + 1);
-      } else {
-        // A bit can branch on both sides of a more significant one; the mask holds it once.
-        Arrays.sort(blockBits, 0, blockBitCount);
-        int maskSize = 0;
-        for (int i = 0; i < blockBitCount; i++) {
-          if (maskSize == 0 || blockBits[maskSize - 1] != blockBits[i]) {
-            blockBits[maskSize++] = blockBits[i];
-          }
-        }
-        final int[] discBits = Arrays.copyOf(blockBits, maskSize);
-        final int[] partials = new int[partCount];
-        for (int i = 0; i < partCount; i++) {
-          int partial = 0;
-          for (final int oneBit : parts.get(i).oneBits) {
-            partial |= 1 << (maskSize - 1 - Arrays.binarySearch(discBits, oneBit));
-          }
-          partials[i] = partial;
-        }
-        block = HOTBulkBuilder.assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision,
-            pageKeyAllocator);
-      }
+      final HOTIndirectPage block = assembleFrontierBlock(parts, blockBits, blockBitCount, revision);
       // By construction every key of a part routes to it. That rests on the parts being ordered and
       // their extremes true; probing the extremes on the assembled node declines a block whose
       // premises do not hold instead of publishing it.
+      final int partCount = parts.size();
       for (int i = 0; i < partCount; i++) {
         final FrontierPart part = parts.get(i);
         if (block.findChildIndex(part.first) != i || block.findChildIndex(part.last) != i) {
@@ -6554,6 +6535,47 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       throw failure;
     }
+  }
+
+  /**
+   * Assemble the flattened block over {@code parts} from the canonical branching bits
+   * {@link #assignFrontierPaths} handed back. Two parts are a BiNode on the single bit between them;
+   * more are a sparse node over the deduplicated mask, each part's partial key built from the bits it
+   * takes the one-side of. {@code blockBits[0..blockBitCount)} is scratch: it is sorted and
+   * deduplicated in place, so the caller must not read it afterwards.
+   */
+  private HOTIndirectPage assembleFrontierBlock(final List<FrontierPart> parts, final int[] blockBits,
+      final int blockBitCount, final int revision) {
+    final int partCount = parts.size();
+    final PageReference[] children = new PageReference[partCount];
+    int maxChildHeight = 0;
+    for (int i = 0; i < partCount; i++) {
+      children[i] = parts.get(i).ref;
+      maxChildHeight = Math.max(maxChildHeight, structuralHeight(children[i]));
+    }
+    if (partCount == 2) {
+      return HOTIndirectPage.createBiNode(pageKeyAllocator.getAsLong(), revision, blockBits[0], children[0],
+          children[1], maxChildHeight + 1);
+    }
+    // A bit can branch on both sides of a more significant one; the mask holds it once.
+    Arrays.sort(blockBits, 0, blockBitCount);
+    int maskSize = 0;
+    for (int i = 0; i < blockBitCount; i++) {
+      if (maskSize == 0 || blockBits[maskSize - 1] != blockBits[i]) {
+        blockBits[maskSize++] = blockBits[i];
+      }
+    }
+    final int[] discBits = Arrays.copyOf(blockBits, maskSize);
+    final int[] partials = new int[partCount];
+    for (int i = 0; i < partCount; i++) {
+      int partial = 0;
+      for (final int oneBit : parts.get(i).oneBits) {
+        partial |= 1 << (maskSize - 1 - Arrays.binarySearch(discBits, oneBit));
+      }
+      partials[i] = partial;
+    }
+    return HOTBulkBuilder.assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision,
+        pageKeyAllocator);
   }
 
   private FrontierPart frontierPart(final PageReference ref) {
