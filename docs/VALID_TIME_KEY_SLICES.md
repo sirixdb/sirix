@@ -29,9 +29,8 @@ Timezone offsets in `xs:dateTime` arguments are preserved when converting to `In
 
 The lower and upper RI-tree stores retain their `(fork, endpoint)` keys. `stabHalfOpen` excludes an
 upper endpoint equal to the point, including at the equal fork. `startingAt` removes strict-start
-ties. `rangeIntersect` exposes overlap of a nonempty query range with strict endpoint comparisons,
-using its two boundary paths and one interior-fork scan. These probes have counted scan bounds,
-not timing assertions.
+ties. `forEachRef` enumerates every registration in one ordered-store scan, for index-wide
+consistency assertions. These probes have counted scan bounds, not timing assertions.
 
 A companion HOT tree stores revisioned postings for:
 
@@ -44,15 +43,21 @@ minus the interval index id, reserving the upper half of the physical id space. 
 to the same `ValidTimeIndexPage` and commit atomically through the transaction intent log. The order
 guard is conservative: rebuilding can reestablish orderedness after subsequent edits restore it.
 
-The catalog declares `validTimeFormat="2"`. Older valid-time index catalogs are rejected explicitly;
+The catalog declares `validTimeFormat="3"`. Older valid-time index catalogs are rejected explicitly;
 resources must be rebuilt. There is no migration or old-format compatibility path.
 
-Unverified records are unioned back into the candidates before exact verification. This matters
-when an endpoint such as `.000500Z` shares the point's millisecond: a strict integer comparison
-alone would lose that match. Membership filters nested objects entirely from index postings. Duplicate-bound records retain
-exceptional postings even when the builder's first-parseable pair is inverted, so the original
-field lookup and cast determine their answer. Exceptional residuals run after the original closed
-predicate; a strict integer tie must not suppress an original cast error.
+Every record carrying postings is registered in the interval tree, so a stab is the only candidate
+source. A duplicate-bound record whose first-parseable pair is absent or inverted is registered over
+the whole domain and marked inexact, so the original field lookup and cast determine its answer
+wherever a query could match it. Verification postings therefore flag refs the tree already yields
+and are unioned back into the candidates only for a strict endpoint at an exactly representable
+point: there a rounded endpoint such as `.000500Z` shares the point's millisecond, so the half-open
+stab can skip the record and the strict-start tie removal can drop it, while a clamped start bound
+can be dropped at the domain origin. The closed stab needs no union — the domain map is monotonic,
+so it already returns a superset — and an answer that no interval contains reads no candidate
+object at all. Membership filters nested objects entirely from index postings. Exceptional residuals
+run after the original closed predicate; a strict integer tie must not suppress an original cast
+error.
 
 ## Verification plan
 
@@ -77,15 +82,20 @@ uses a 512 MB initial/6 GB maximum test heap and a 2 GB Gradle heap.
 The new budget decorates a real transaction. Before demand and during exact-key counting it permits
 zero candidate moves, timestamp reads, and object-constructor child-pointer reads. The first `next()`
 permits one object read. Direct function counts and direct FLWOR slice counts exercise the
-query interface. A separate user-function count budget is retained but disabled pending the
-Brackit fix described below. A deliberate eager-materialization mutation must fail this budget; ordinary
-result assertions alone cannot detect it.
+query interface. A second case holds only sub-millisecond bounds, so every record carries a
+verification posting, and bounds a closed stab that no interval contains at zero candidate moves and
+zero timestamp reads, with a second capture on the same cursor that must verify every one of those
+records when the point does fall inside their intervals. A separate user-function count budget is
+retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
+mutation must fail this budget; ordinary result assertions alone cannot detect it.
 
 Correctness coverage includes exhaustive small RI-tree domains, hand-computed strict/inclusive
 answers, reversed operators, dynamic resources and correlated points, nested objects, missing and
-malformed fields, sub-millisecond endpoints, changed precision with unchanged rounded keys, moved
-array elements, and historical revisions. Existing incremental-maintenance fixtures also check the
-parent postings after each update/delete/move and after reopening historical revisions.
+malformed fields, sub-millisecond endpoints, start bounds clamped below the domain origin, duplicate
+bounds registered over the whole domain, changed precision with unchanged rounded keys, moved array
+elements, and historical revisions. Existing incremental-maintenance fixtures also check the parent
+postings after each update/delete/move and after reopening historical revisions, and that every
+verification posting belongs to a registered interval.
 
 ## Brackit dependency
 
@@ -129,6 +139,9 @@ TSVs at both tiers. Timing results are recorded only after these checks pass.
 
 
 ## Validation results (2026-10-03)
+
+These figures were recorded before the posting layout moved to `validTimeFormat="3"`, so the stores
+they used must be rebuilt; the query answers they checked are unaffected by that change.
 
 The complete core suite passed: 11,957 tests, zero failures/errors, 76 existing skips. The complete
 query suite passed: 1,818 tests, zero failures/errors, six skips (five existing skips and the explicitly

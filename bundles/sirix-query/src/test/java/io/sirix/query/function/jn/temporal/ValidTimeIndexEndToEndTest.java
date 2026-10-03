@@ -7,6 +7,7 @@ package io.sirix.query.function.jn.temporal;
 
 import io.brackit.query.Query;
 import io.brackit.query.atomic.Numeric;
+import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
@@ -20,6 +21,7 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.service.json.shredder.JsonShredder;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -179,12 +181,11 @@ public final class ValidTimeIndexEndToEndTest {
 
             // (a) The interval-index FAST PATH must be taken (a VALIDTIME index exists + is usable).
             final JsonDBItem doc = collection.getDocument(RESOURCE);
-            final ValidTimeIntervalIndex.Result fast = ValidTimeIntervalIndex.tryIndexScan(doc, t, validTimeConfig);
+            final Sequence fast = ValidTimeIntervalIndex.sequence(doc, t, validTimeConfig, false, false, null);
             assertNotNull(fast, "Interval-index fast path must be taken at t=" + t
                 + " (the index was created via jn:create-valid-time-index)");
             fastPathTaken++;
-            assertEquals(brute, idsOfItems(fast.items()),
-                "Direct interval-index result must equal brute force at t=" + t);
+            assertEquals(brute, idsOfSequence(fast), "Direct interval-index result must equal brute force at t=" + t);
             // All result items wrap the document's trx; ids are materialized, so release it now.
             doc.getTrx().close();
 
@@ -268,9 +269,9 @@ public final class ValidTimeIndexEndToEndTest {
         for (final Instant t : List.of(uFrom, Instant.parse("2021-06-01T12:00:00Z"),
             Instant.parse("2019-01-01T00:00:00Z"))) {
           final Set<Integer> brute = bruteForce(records, t);
-          final ValidTimeIntervalIndex.Result fast = ValidTimeIntervalIndex.tryIndexScan(doc, t, validTimeConfig);
+          final Sequence fast = ValidTimeIntervalIndex.sequence(doc, t, validTimeConfig, false, false, null);
           assertNotNull(fast, "interval-index fast path must be taken alongside a CAS index at t=" + t);
-          assertEquals(brute, idsOfItems(fast.items()), "interval index must be correct at t=" + t);
+          assertEquals(brute, idsOfSequence(fast), "interval index must be correct at t=" + t);
           assertEquals(brute, idsFromValidAt(chain, ctx, t), "jn:valid-at must be correct at t=" + t);
         }
 
@@ -377,29 +378,24 @@ public final class ValidTimeIndexEndToEndTest {
   private static Set<Integer> idsFromValidAt(final SirixCompileChain chain, final SirixQueryContext ctx,
       final Instant t) {
     final String query = "jn:valid-at('" + DB_NAME + "', '" + RESOURCE + "', xs:dateTime('" + t + "'))";
-    final Sequence result = new Query(chain, query).evaluate(ctx);
+    return idsOfSequence(new Query(chain, query).evaluate(ctx));
+  }
+
+  /** Drain a (possibly lazy) result sequence, reading each item's {@code id} as it is produced. */
+  private static Set<Integer> idsOfSequence(final @Nullable Sequence sequence) {
     final Set<Integer> ids = new TreeSet<>();
-    if (result == null) {
+    if (sequence == null) {
       return ids;
     }
-    final Iter iter = result.iterate();
+    final QNm id = new QNm("id");
+    final Iter iter = sequence.iterate();
     try {
       Item item;
       while ((item = iter.next()) != null) {
-        final io.brackit.query.jdm.json.Object obj = (io.brackit.query.jdm.json.Object) item;
-        ids.add(((Numeric) obj.get(new io.brackit.query.atomic.QNm("id"))).intValue());
+        ids.add(((Numeric) ((io.brackit.query.jdm.json.Object) item).get(id)).intValue());
       }
     } finally {
       iter.close();
-    }
-    return ids;
-  }
-
-  private static Set<Integer> idsOfItems(final List<JsonDBItem> items) {
-    final Set<Integer> ids = new TreeSet<>();
-    for (final JsonDBItem item : items) {
-      final io.brackit.query.jdm.json.Object obj = (io.brackit.query.jdm.json.Object) item;
-      ids.add(((Numeric) obj.get(new io.brackit.query.atomic.QNm("id"))).intValue());
     }
     return ids;
   }

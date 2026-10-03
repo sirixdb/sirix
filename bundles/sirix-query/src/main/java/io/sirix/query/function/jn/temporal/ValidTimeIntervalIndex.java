@@ -4,133 +4,34 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.json.Array;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.json.JsonIndexController;
-import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
 import io.sirix.index.interval.IntervalDomain;
-import io.sirix.index.interval.RelationalIntervalTree;
 import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
-import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBObject;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.Predicate;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 
-import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
-
 /**
- * Revision-bound valid-time key scans. Exact millisecond intervals are answered by the RI-tree;
- * persisted membership postings restrict the result to the document object or direct array members.
- * Rounded/clamped/open/ambiguous bounds use the original exact predicate. Unverified postings are
- * unioned before verification because a half-open stab may omit a rounded upper-bound tie.
+ * Revision-bound valid-time key scans. Every record carrying postings is registered in the RI-tree,
+ * so a stab is the only candidate source; persisted membership postings restrict the result to the
+ * document object or direct array members. Rounded/clamped/open/ambiguous bounds are re-checked
+ * with the original exact predicate, and only a strict endpoint unions the records needing
+ * verification, because a rounded endpoint can tie with the query millisecond.
  *
  * <p>
- * The lazy sequence resolves keys on demand and constructs only requested JSON objects. The eager
- * {@link #tryIndexScan} interface remains available for diagnostic/differential callers.
+ * The lazy sequence resolves keys on demand and constructs only requested JSON objects.
  * </p>
  */
 public final class ValidTimeIntervalIndex {
 
   private ValidTimeIntervalIndex() {}
-
-  /** The verified matching records, de-duplicated, in ascending node-key order. */
-  public static final class Result {
-    private final List<JsonDBItem> items;
-    private final long candidatesExamined;
-
-    Result(final List<JsonDBItem> items, final long candidatesExamined) {
-      this.items = items;
-      this.candidatesExamined = candidatesExamined;
-    }
-
-    public List<JsonDBItem> items() {
-      return items;
-    }
-
-    /** Number of distinct candidate object keys the stab produced before final verification. */
-    public long candidatesExamined() {
-      return candidatesExamined;
-    }
-  }
-
-  /**
-   * Try to evaluate the valid-time point-in-time predicate via the interval index.
-   *
-   * @param document the document item (anchored at the top-level array/object node)
-   * @param validTime the point in valid time to test
-   * @param validTimeConfig the resource's valid-time configuration
-   * @return a {@link Result} when a VALIDTIME interval index exists and was used, or {@code null}
-   *         when the caller should fall back to the CAS-narrowing path or linear scan
-   */
-  public static @Nullable Result tryIndexScan(final JsonDBItem document, final Instant validTime,
-      final ValidTimeConfig validTimeConfig) {
-    if (document == null || validTimeConfig == null) {
-      return null;
-    }
-
-    final JsonNodeReadOnlyTrx rtx = document.getTrx();
-    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
-    if (controller == null) {
-      return null;
-    }
-
-    final IndexDef intervalIndex = findValidTimeIndex(controller);
-    if (intervalIndex == null) {
-      return null;
-    }
-
-    final JsonDBCollection collection = document.getCollection();
-    final String validFromField = validTimeConfig.getNormalizedValidFromPath();
-    final String validToField = validTimeConfig.getNormalizedValidToPath();
-
-    final IntervalDomain domain = new IntervalDomain();
-    final RelationalIntervalTree tree =
-        ValidTimeIntervalIndexFactory.createReaderTree(rtx.getStorageEngineReader(), intervalIndex.getID(), domain);
-
-    // The node the linear scan treats as the document item: the first child of the document root.
-    final long documentItemKey = topLevelItemNodeKey(rtx);
-
-    // Stab: collect candidate OBJECT node keys whose mapped interval contains x. De-dup + keep order.
-    final LongLinkedOpenHashSet candidateObjectKeys = new LongLinkedOpenHashSet();
-    tree.stab(domain.point(validTime), candidateObjectKeys::add);
-
-    // Restrict to the scan's domain: the document item itself, or its direct array children.
-    final LongLinkedOpenHashSet inDomain = new LongLinkedOpenHashSet();
-    final var it = candidateObjectKeys.iterator();
-    while (it.hasNext()) {
-      final long objectKey = it.nextLong();
-      if (objectKey == documentItemKey || isDirectChildOf(rtx, objectKey, documentItemKey)) {
-        inDomain.add(objectKey);
-      }
-    }
-
-    final long candidatesExamined = inDomain.size();
-
-    // Verify each candidate by reading BOTH fields with the exact instant predicate; build items.
-    // Sort by node key for a deterministic order (matches ValidTimeIndexScan).
-    final long[] sortedKeys = inDomain.toLongArray();
-    Arrays.sort(sortedKeys);
-
-    final List<JsonDBItem> items = new ArrayList<>();
-    for (final long objectKey : sortedKeys) {
-      if (!rtx.moveTo(objectKey) || !rtx.isObject()) {
-        continue;
-      }
-      final JsonDBObject obj = new JsonDBObject(rtx, collection);
-      if (ValidTimeIndexScan.isValidAtTime(obj, validTime, validFromField, validToField)) {
-        items.add(obj);
-      }
-    }
-
-    return new Result(items, candidatesExamined);
-  }
 
   /** Return a lazy key-backed sequence, or null when no interval index exists at this revision. */
   public static @Nullable Sequence sequence(final JsonDBItem document, final Instant instant,
@@ -218,9 +119,13 @@ public final class ValidTimeIntervalIndex {
     if (strictStart && exactPoint) {
       tree.startingAt(point, candidates::remove);
     }
-    // A rounded end equal to the query millisecond may actually lie AFTER the query. Such
-    // records must be included before exact verification, even when the half-open stab skipped them.
-    candidates.addAll(unverified);
+    if (exactPoint && (strictStart || strictEnd)) {
+      // A rounded endpoint equal to the query millisecond may actually lie outside the query's
+      // millisecond, so a strict integer comparison can both skip such a record (half-open stab)
+      // and drop one (startingAt). The closed stab needs no union: the domain map is monotonic and
+      // every record carrying postings is registered, so it already yields a superset.
+      candidates.addAll(unverified);
+    }
     final long[] sorted = candidates.toLongArray();
     Arrays.sort(sorted);
     int matchCount = 0;
@@ -269,25 +174,5 @@ public final class ValidTimeIntervalIndex {
       }
     }
     return null;
-  }
-
-  private static boolean isDirectChildOf(final JsonNodeReadOnlyTrx rtx, final long objectKey, final long parentKey) {
-    if (!rtx.moveTo(objectKey)) {
-      return false;
-    }
-    return rtx.getParentKey() == parentKey;
-  }
-
-  /**
-   * The node key of the top-level item the callers' linear scan operates on: the first child of the
-   * document root (the top-level array or object node).
-   */
-  private static long topLevelItemNodeKey(final JsonNodeReadOnlyTrx rtx) {
-    rtx.moveToDocumentRoot();
-    if (!rtx.hasFirstChild()) {
-      return Long.MIN_VALUE;
-    }
-    rtx.moveToFirstChild();
-    return rtx.getNodeKey();
   }
 }

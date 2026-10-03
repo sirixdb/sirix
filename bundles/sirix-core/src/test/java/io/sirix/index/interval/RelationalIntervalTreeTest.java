@@ -32,7 +32,7 @@ final class RelationalIntervalTreeTest {
   }
 
   @Test
-  void everyIntervalAndBoundaryMatchesIndependentPredicatesWithinProbeBudgets() {
+  void everyHalfOpenPointMatchesTheIndependentPredicateWithinItsProbeBudget() {
     final int height = 5;
     final MemoryStore lower = new MemoryStore();
     final MemoryStore upper = new MemoryStore();
@@ -59,24 +59,11 @@ final class RelationalIntervalTreeTest {
       assertEquals(expected.size(), actual.size(), "each interval must be emitted only once");
       assertTrue(lower.scans + upper.scans <= height);
     }
-    for (int start = 0; start <= max + 1; start++) {
-      for (int end = start + 1; end <= max + 2; end++) {
-        final LongArrayList actual = new LongArrayList();
-        final LongOpenHashSet expected = new LongOpenHashSet();
-        for (int lo = 1; lo <= max; lo++) {
-          for (int hi = lo; hi <= max; hi++) {
-            if (lo < end && start < hi) {
-              expected.add(lo * 64L + hi);
-            }
-          }
-        }
-        lower.scans = upper.scans = 0;
-        tree.rangeIntersect(start, end, actual::add);
-        assertEquals(expected, new LongOpenHashSet(actual), "range " + start + ":" + end);
-        assertEquals(expected.size(), actual.size());
-        assertTrue(lower.scans + upper.scans <= 2 * height + 1);
-      }
-    }
+    final LongArrayList enumerated = new LongArrayList();
+    lower.scans = upper.scans = 0;
+    tree.forEachRef(enumerated::add);
+    assertEquals(max * (max + 1) / 2, enumerated.size(), "every registration must be enumerated exactly once");
+    assertEquals(1, lower.scans + upper.scans, "enumeration must be one ordered-store scan");
   }
 
   private static final class MemoryStore implements OrderedStore {
@@ -107,13 +94,11 @@ final class RelationalIntervalTreeTest {
     }
 
     @Override
-    public void scanForks(final long lo, final long hi, final LongConsumer out) {
+    public void forEachRef(final LongConsumer out) {
       scans++;
-      if (lo <= hi) {
-        for (final var endpoints : forks.subMap(lo, true, hi, true).values()) {
-          for (final var refs : endpoints.values()) {
-            refs.forEach(out);
-          }
+      for (final var endpoints : forks.values()) {
+        for (final var refs : endpoints.values()) {
+          refs.forEach(out);
         }
       }
     }
