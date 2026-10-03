@@ -13,7 +13,7 @@ public final class DatabasesInternals {
   }
 
   public static Map<Path, Set<Database<?>>> getOpenDatabases() {
-    return Databases.MANAGER.sessions().asMap();
+    return Databases.snapshotOpenDatabases();
   }
 
 }

@@ -33,6 +33,9 @@ import io.sirix.access.trx.node.RecordToRevisionsIndex;
 import io.sirix.access.trx.page.StorageEngineWriterFactory;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.ResourceSession;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
@@ -71,7 +74,8 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
    * @param writeLock the write lock, which ensures, that only a single read-write transaction is
    *        opened on a resource
    * @param user a user, which interacts with SirixDB, might be {@code null}
-   * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter} instances.
+   * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter}
+   *        instances.
    */
   public XmlResourceSessionImpl(final ResourceStore<XmlResourceSession> resourceStore,
       final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
@@ -80,14 +84,30 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
 
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, storageEngineWriterFactory);
 
-    rtxIndexControllers = Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE)
-        .<Integer, XmlIndexController>build().asMap();
-    wtxIndexControllers = Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE)
-        .<Integer, XmlIndexController>build().asMap();
+    rtxIndexControllers =
+        Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE).<Integer, XmlIndexController>build().asMap();
+    wtxIndexControllers =
+        Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE).<Integer, XmlIndexController>build().asMap();
+  }
+
+  private XmlResourceSessionImpl(final XmlResourceSessionImpl sharedSession,
+      final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore,
+      final User user) {
+    super(sharedSession, resourceStore, user);
+    rtxIndexControllers = sharedSession.rtxIndexControllers;
+    wtxIndexControllers = sharedSession.wtxIndexControllers;
   }
 
   @Override
-  public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader storageEngineReader, Node documentNode) {
+  protected XmlResourceSession createUserSession(
+      final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore,
+      final User user) {
+    return new XmlResourceSessionImpl(this, resourceStore, user);
+  }
+
+  @Override
+  public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader storageEngineReader,
+      Node documentNode) {
 
     return new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, storageEngineReader, (ImmutableXmlNode) documentNode);
   }
@@ -100,7 +120,8 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
         new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, storageEngineWriter, (ImmutableXmlNode) documentNode);
 
     // Node factory.
-    final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(this.getResourceConfig().nodeHashFunction, storageEngineWriter);
+    final XmlNodeFactory nodeFactory =
+        new XmlNodeFactoryImpl(this.getResourceConfig().nodeHashFunction, storageEngineWriter);
 
     // Path summary.
     final boolean buildPathSummary = getResourceConfig().withPathSummary;
