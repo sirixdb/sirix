@@ -1087,13 +1087,9 @@ public final class ProjectionIndexColumnSegmentCodec {
   }
 
   // ==================== fingerprint BLOCK ====================
-  // One contiguous blob per string column concatenating every leaf's fingerprint segment.
-  // Motivation (measured): the per-leaf fingerprint chain is ~2 KiB pages STRIDED between the fat
-  // BODY/DICT pages, so a cold chain fetch degenerates to one scattered pread per leaf and cost
-  // MORE than the pruning saved (S6 381 -> ~950 ms). As one blob the same bytes are one
-  // sequential read. The per-leaf segments remain the WRITTEN truth; the block is a derived
-  // acceleration — deleted on incremental maintenance, rebuilt by the next full build — and
-  // readers without it fall back to the chain.
+  // Contiguous fingerprints avoid strided side-page reads between large BODY/DICT payloads.
+  // Per-leaf segments remain the written truth; ProjectionBloomChunks owns the derived store's
+  // maintenance and recovery, while this codec only encodes and verifies block payloads.
 
   /** Block header: magic + version + leafCount, then (leafCount+1) int offsets, then payloads. */
   private static final int BLOOM_BLOCK_MAGIC = 0x50424C4D; // "PBLM"

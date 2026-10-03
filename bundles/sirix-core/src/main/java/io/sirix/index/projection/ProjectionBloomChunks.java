@@ -74,9 +74,9 @@ public final class ProjectionBloomChunks {
    * -Dsirix.projection.bloomFetchWindowChunks}, clamped to 1–64, default 16). Every window is one
    * ranged fetch on a fresh read transaction, so a wider window trades a few hundred KiB of
    * owner-thread scratch for proportionally fewer transaction opens per column. The open chunk's
-   * tails are NOT paginated by this: they are one window of their own ({@link #CHUNK_LEAVES}
-   * single-leaf payloads, at most ~515 KiB — less than this window of blocks), because a block-sized
-   * window would open up to 16 read transactions for one chunk.
+   * tails use one window of their own, bounded by {@link #CHUNK_LEAVES} single-leaf payloads (at most
+   * ~515 KiB). Paginating them by this block window would open multiple read transactions for one
+   * chunk whenever its referenced tail count exceeds the configured window.
    */
   static final int FETCH_WINDOW_CHUNKS =
       Math.max(1, Math.min(64, Integer.getInteger("sirix.projection.bloomFetchWindowChunks", 16)));
@@ -567,6 +567,7 @@ public final class ProjectionBloomChunks {
     return dropped;
   }
 
+  /** Only the valid prior manifest's open span owns recoverable tails; orphan slots prove nothing. */
   private static int tailScanBound(final int priorPhysical, final int chunkId) {
     return priorPhysical >= 0 && chunkId == sealedChunkCount(priorPhysical)
         ? openLeafCount(priorPhysical)
@@ -648,7 +649,7 @@ public final class ProjectionBloomChunks {
     final FetchScratch scratch = FETCH_SCRATCH.get();
     if (scratch.inUse) {
       // Re-entrant pruning is not a production shape, but correctness must not depend on it. The
-      // bounded fallback retains the same four-payload ceiling.
+      // bounded fallback retains the same block-window and open-tail ceilings.
       final FetchScratch nested = new FetchScratch();
       nested.inUse = true;
       nested.clearPayloadsAndOffsets();
@@ -707,8 +708,8 @@ public final class ProjectionBloomChunks {
 
   /**
    * Read every string column's chunk manifest from a committed projection. Corruption is deliberately
-   * local: an unreadable manifest disables the column acceleration; an unreadable chunk leaves only
-   * its 256-row-group span unpruned.
+   * local: an unreadable manifest disables the column acceleration; an unreadable sealed block leaves
+   * its span unpruned, and an unreadable tail leaves its one row group unpruned.
    */
   static ColumnEvidence @Nullable [] read(final StorageEngineReader reader, final int indexNumber,
       final byte[] columnKinds, final int rowGroupCount) {
@@ -878,10 +879,10 @@ public final class ProjectionBloomChunks {
     // slot for every column.
     //
     // priorPhysical[c] is that column's published physical high-water mark, or -1 when its manifest is
-    // missing or unparsable. Tails are only ever written at or above a published mark and a published
-    // count P satisfies P < (sealedChunkCount(P) + 1) * CHUNK_LEAVES, so a column's tails live in the
-    // ONE chunk sealedChunkCount(P) and only across its openLeafCount(P) row groups — a parsed mark
-    // bounds every tail scan exactly.
+    // missing or unparsable. Only that prior manifest establishes tail ownership: orphan slots left
+    // by recovery are not current evidence. A published count P owns tails only in chunk
+    // sealedChunkCount(P), across its openLeafCount(P) row groups, so a parsed mark bounds every
+    // recovery scan exactly; an unknown mark authorizes none.
     // This is the ONLY place a prior manifest is read in this call: the publication loop below reuses
     // these bytes, and nothing between here and a column's own publication writes that column's slot.
     final int[] priorPhysical = new int[columnKinds.length];
@@ -936,10 +937,9 @@ public final class ProjectionBloomChunks {
         final byte[][] slices = priorSlices == null
             ? new byte[leafCount][]
             : Arrays.copyOf(priorSlices, leafCount);
-        // No usable block in a chunk that can still own tails: its fingerprints live in tail blobs (a
-        // chunk this commit is completing, or a block lost to corruption). Start from them so a rewrite
-        // never loses a leaf. Outside the published open span there is no tail to find, so nothing is
-        // probed there.
+        // Without a usable block, recover only tails owned by the prior manifest's open span. Tails
+        // outside that span can survive an unknown-mark retreat and carry stale values, so adopting
+        // them could manufacture negative evidence. An unowned or missing fingerprint stays empty.
         final int tailScanTo = tailScanBound(priorPhysical[c], chunkId);
         final boolean recoverTails = priorSlices == null && tailScanTo > 0;
         if (recoverTails) {
@@ -991,15 +991,15 @@ public final class ProjectionBloomChunks {
         chunksWritten++;
       }
     }
-    // A receding high-water mark can reopen a sealed chunk. Preserve its remaining fingerprints
-    // as tails before applying the changed rows, and remove the block from the new open span.
+    // A newly activated open span must replace historical tail evidence before publication, even
+    // without a valid prior manifest. Unchanged rows take the block's slices, including absence;
+    // changed rows take their current segments below. The open span must no longer own a block.
     final int openLeaves = openLeafCount(physicalRowGroupCount);
     if (openLeaves > 0) {
       for (int c = 0; c < columnKinds.length; c++) {
         // Per column, against that column's OWN published mark: one column whose manifest is missing
         // must not stop every other column from reopening its block.
-        if (!isStringKind(columnKinds[c])
-            || (!rowGroupCountChanged && !anyLeafSelectsColumn(changedColumnsByLeaf, c))
+        if (!isStringKind(columnKinds[c]) || (!rowGroupCountChanged && !anyLeafSelectsColumn(changedColumnsByLeaf, c))
             || (priorPhysical[c] >= 0 && sealedChunkCount(priorPhysical[c]) == sealedNew
                 && openLeafCount(priorPhysical[c]) > 0)) {
           continue;
@@ -1016,7 +1016,9 @@ public final class ProjectionBloomChunks {
             continue;
           }
           final long tailSlot = tailSlotKey(c, rowGroupId);
-          final byte[] segment = slices == null ? null : slices[i];
+          final byte[] segment = slices == null
+              ? null
+              : slices[i];
           if (segment != null) {
             storage.putBlob(tailSlot, segment);
             bytesWritten += segment.length;
@@ -1174,16 +1176,17 @@ public final class ProjectionBloomChunks {
   /**
    * Work one maintenance performed. {@code tailSlotReads} counts tail slots this maintenance READ —
    * the sealed-rewrite recovery scan, each changed open row group's prior tail, the fold's scan, and
-   * the receding cleanup's presence probes. It does NOT count the tombstone loops, which descend to
-   * the same slots the recovery scan just read and so are bounded by the same range.
+   * the newly activated span's and receding cleanup's presence probes. It does NOT count the
+   * tombstone loops, which descend to the same slots the recovery scan just read and so are bounded
+   * by the same range.
    */
   record RewriteStats(int rowGroupsRead, int chunksWritten, long bytesRead, long bytesWritten, int tailSlotReads) {
   }
 
   /**
-   * Owner-confined streaming writer. Accepting a row group allocates nothing: the encoded Bloom
-   * segment references are placed into reusable 256-entry arrays. Only a persisted chunk payload and
-   * the final fixed manifests allocate.
+   * Owner-confined streaming writer. Encoded Bloom segment references are placed into reusable
+   * 256-entry arrays rather than new per-row-group reference arrays. Full-block encoding and storage
+   * allocate at flush; partial tails reuse their segments, and manifests allocate at publication.
    */
   public static final class Writer {
     private ColumnBuffer @Nullable [] columns;

@@ -166,7 +166,7 @@ grep and survive edits.
 | Order-directory slots — `ProjectionStructuralOrderDirectory.HotSlotStore.put` → `putStructuralOrderSlot` | `2^50 + nodeKey`, ONE SLOT PER RECORD | strictly ascending in a fresh build (the in-order append lane mints them) | **yes — ~95 % of all per-entry insertions, the primary target** |
 | Record locator — `ProjectionRecordLocator.put` → `putRawSlot` | `Long.MIN_VALUE \| recordKey` (sign-bit namespace) | update/move path (rebalance); low volume in a fresh build | low priority |
 | Fences — `ProjectionIndexFences` (`putBlob`) | `CHUNK_SLOT_BASE + chunkId` (2^42 namespace), `ORDER_HEADER_SLOT` | chunkId ascending, header last → append-ordered | yes |
-| Bloom chunks — `ProjectionBloomChunks` (`putBlob`) | per-column bloom block + chunk slots (2^43 namespace) | per-column ascending chunks | yes |
+| Bloom storage — `ProjectionBloomChunks` (`putBlob`) | [Bloom slot families](DISK_FORMAT.md#projection-indexes-segment--slot-layout) | per-column ascending sealed chunks, then open tails; manifests last | yes |
 | Set-summary chunks — `ProjectionSetSummaryChunks` | `slotKey(column)` (2^44 namespace) | per column | yes |
 | Metadata blob — `ProjectionIndexBuilder`, `ProjectionBulkLoad`, the change listener | slot 0 | once, strictly last | trivial |
 | PATH/CAS/NAME entries — `AbstractHOTIndexWriter.doIndex` via the family builders | serializer-specific composite keys | traversal order (not sorted; the loader sorts) | already bulk for virgin trees (`create*BulkLoader`) |

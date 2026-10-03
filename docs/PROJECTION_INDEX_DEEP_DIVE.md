@@ -173,7 +173,7 @@ flowchart TB
         L2["rowGroupId 2 — leaf 1<br/>rows 1024..2047"]
         LN["rowGroupId N — leaf N-1<br/>tail rows"]
         F["slots 2^42 + c<br/>order/fence chunks<br/>32 physical leaves each"]
-        B["slots 16 + c<br/>fingerprint blocks<br/>one Bloom-filter blob per string column"]
+        B["Bloom manifests<br/>layout: DISK_FORMAT.md"]
     end
     M -.->|"bounds every read:<br/>rowGroupCount = N"| LN
     F -.->|"per-leaf (first,last) zone map,<br/>writer-only"| LN
@@ -183,14 +183,10 @@ flowchart TB
 Each of those row groups occupies *several* HOT slots, not one: its descriptor
 at `(rowGroupId << 16) | 0` and each of its segments at
 `(rowGroupId << 16) | segmentId + 1` (§3). The `rowGroupId == 0` key space
-belongs to the store itself: the metadata blob at key 0 and, at keys
-`16 + column`, one **fingerprint block** per string(-set) column — the
-per-leaf string-dictionary fingerprints gathered into a single blob, so a
-string-equality probe rules out leaves with one sequential read instead of a
-scattered per-leaf fetch. Incremental maintenance tombstones the blocks
-before patching leaves (a stale filter would prove a fresh value "absent");
-the next full build rewrites them, and readers without one fall back to the
-per-leaf filters.
+belongs to the store itself. For the metadata and Bloom slot families, see the
+[disk-format reference](DISK_FORMAT.md#projection-indexes-segment--slot-layout);
+for fingerprint maintenance and recovery, see
+[Bloom maintenance](SEGMENT_PROJECTION_INDEXES.md#64-bloom-chunks).
 
 Each leaf carries, per column:
 

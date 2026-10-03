@@ -175,7 +175,7 @@ RevisionRootPage
                                                    slot 16+c         Bloom manifest of column c
                                                    (rg<<16)|kind     row-group descriptor and segments
                                                    2^42...           fence chunks, order header
-                                                   2^43...           Bloom chunks
+                                                   Bloom slots       see §6.4
                                                    2^44+c            set summaries
                                                    2^45...           flag summaries
                                                    2^46...           sorted view (leaves, directory,
@@ -220,11 +220,10 @@ A zero-length value is a tombstone (`:115-116`).
 | Namespace | Key | Cite |
 |---|---|---|
 | PIXM metadata | `0` | `proj/ProjectionIndexHOTStorage.java:176`, `:258`, `:507-509` |
-| Bloom manifest (PBMF) for column c | `16 + c` | `:539-549` |
+| Bloom manifests, sealed blocks and open tails | [Bloom slot layout](DISK_FORMAT.md#projection-indexes-segment--slot-layout) | `proj/ProjectionBloomChunks.java`, `proj/ProjectionIndexHOTStorage.java:bloomBlockSlotKey` |
 | Row group, `ROW_GROUP_MAJOR` (metadata version 0, default) | `(rowGroupId << 16) \| slotKind`, row groups 1..2^24 | `proj/ProjectionSlotLayout.java:12`, `:49-57`; `proj/ProjectionIndexHOTStorage.java:110` |
 | Row group, `COLUMN_MAJOR` (metadata version 1, opt-in) | `2^41 \| (slotKind << 25) \| rowGroupId` | `proj/ProjectionSlotLayout.java:14-20`, `:51`, `:58` |
 | Fence chunks; order header | `2^42 + chunkId`; `2^42 + 2^20` | `proj/ProjectionIndexFences.java:29`, `:38` |
-| Bloom fingerprint chunks | `2^43 + (c << 16) + chunkId` | `proj/ProjectionBloomChunks.java:46`, `:116-127` |
 | Set summaries | `2^44 + c` | `proj/ProjectionSetSummaryChunks.java:21`, `:339` |
 | Flag summaries; header | `2^45 + chunkId`; `+ 2^20` | `proj/ProjectionFlagSummaryChunks.java:26-27` |
 | Sorted data leaves | `2^46 + leafId`, ids 1..2^32−1 | `proj/ProjectionSortedLeafStore.java:15-16`, `:116-121` |
@@ -1020,31 +1019,29 @@ and the canonical (min, max, rows), **bound to the BODY's descriptor content has
 
 ### 6.4 Bloom chunks
 
-Per-row-group STRING_BLOOM segments (§3.6) are packed into 256-row-group **chunk blobs** so equality pruning reads
-sequentially (`proj/ProjectionBloomChunks.java:18-127`, `:140-176`; `proj/ProjectionIndexColumnSegmentCodec.java:1090-1170`):
+The [disk-format reference](DISK_FORMAT.md#projection-indexes-segment--slot-layout) owns the Bloom
+manifest, sealed-block and open-tail wire layouts and corruption boundaries. The
+[read-performance guide](PROJECTION_READ_PERFORMANCE.md#projection-execution) owns fetch windows
+and parallel pruning. Maintenance is implemented by `ProjectionBloomChunks.rewriteTouchedChunks`:
 
-| Blob | Slot | Layout |
-|---|---|---|
-| manifest "PBMF" | `16 + column` | u32 magic `0x464D4250`, u8 version 0, i32 liveRowGroupCount, i32 physicalRowGroupCount, i32 256, i32 chunkCount |
-| chunk "PBLM" | `2^43 + (column << 16) + chunkId` | u32 magic `0x50424C4D`, u8 version 0, i32 leafCount, i32 offsets[leafCount+1] (empty slice = no fingerprint, leaf kept), concatenated STRING_BLOOM segments |
-
-- The manifest is published last and is the visibility point; a missing manifest disables pruning for the column; a
-  bad chunk keeps its whole 256-leaf span.
-- Maintenance rebuilds only chunks with changed leaves (`rewriteTouchedChunks`, `:581-694`). The codec comment
-  "deleted on incremental maintenance, rebuilt by the next full build" (`ProjectionIndexColumnSegmentCodec.java:1095-1096`)
-  is stale.
-- Readers fetch `sirix.projection.bloomFetchWindowChunks` chunks per ranged fetch — **default 16**, clamped to 1..64,
-  raised from a fixed 4 in `b7d26bbb4` because "every window is one ranged fetch on a fresh read transaction, so a
-  wider window trades a few hundred KiB of owner-thread scratch for proportionally fewer transaction opens per
-  column" (`proj/ProjectionBloomChunks.java:56-63`, `:300-320`).
-- Pruning splits its chunk range over the common pool from 32 chunks up, one range per 16 chunks, bounded by the CPU
-  count, and only when the fetcher permits concurrent ranged fetches and chunk boundaries coincide with mask-word
-  boundaries (`proj/ProjectionColumnStore.java:576-604`, `:647-653`; `proj/ProjectionBloomChunks.java:289-292`).
-  Since `b7d26bbb4` the **single-literal** prune takes the same path: "One literal is the degenerate case of the
-  many-literal walk … the per-leaf probe is the same allocation-free single-literal test either way"
-  (`proj/ProjectionColumnStore.java:521-525`).
+- A changed open row group rewrites only its selected columns' tail blobs, and only if the fingerprint
+  changed. With an unchanged row-group shape, manifest reads and open-span inspection are also limited
+  to selected columns; shape changes maintain every string column.
+- A touched sealed chunk rebuilds its selected columns' blocks. A commit completing a chunk writes
+  its block directly from owned prior tails and changed row-group segments, retiring those tails in
+  the same transaction. It does not write new tails merely to delete them at the fold.
+- Recovery is per column. Only a valid prior manifest establishes ownership of tails in that column's
+  prior open span; neither sealed-rewrite nor fold recovery adopts orphan tails outside that span.
+  Unestablished ownership leaves missing fingerprints unpruned rather than trusting historical tails.
+- A newly activated open span replaces its unchanged rows' tails from the authoritative sealed block
+  and removes that block. Missing or malformed blocks and empty slices tombstone any prior tail;
+  changed row groups supply their current segments. A continuing open span preserves its untouched
+  tails. Ordinary append work stays bounded by changed chunks and the owned open span.
 - Query shapes: string EQ on STRING_DICT (never CONTAINS or ordering), same-column EQ disjunctions, any-K group
   evidence (`proj/ProjectionColumnScan.java:2071-2120`, `:2313-2322`).
+
+`ProjectionBloomChunksTest` covers folds, retreat/regrowth, missing or corrupt ownership evidence,
+cold historical reads and rollback/retry across all four versioning types at restore window 3.
 
 ### 6.5 Flag summaries and set summaries
 
@@ -1930,7 +1927,7 @@ What reading the merged code shows:
 | Document | Covers | Verdict on the merged tree |
 |---|---|---|
 | [PROJECTION_INDEXES.md](PROJECTION_INDEXES.md) | user-facing feature | mostly current; PR #1214 extended its maintenance paragraph to the sorted view and its ordered-scan exception (`:145-155`). Type limits (`:199-201`) omit timestamp/date; describes only per-leaf dictionaries (`:6`, `:10-11`); "decoded once per revision" (`:130`) — the cache is keyed by build revision; the page never mentions the `$sortColumns` argument of `jn:create-projection-index` |
-| [PROJECTION_INDEX_DEEP_DIVE.md](PROJECTION_INDEX_DEEP_DIVE.md) | layer-by-layer walk-through | **stale**: segment id stride `3c+1`/`3c+2` (`:309-310`, `:461`, `:493`) vs `4c+1..4c+4`; column cap 21 844 (`:313`, `:398`) vs 13 105; segKinds 0-2 only (`:449`); DICT modes 0/1 (`:496`); kinds 0-4 (`:197-203`); nonexistent `NOT_VALUE_EXACT` flag (`:212`); only PIXM version 0 (`:382`, `:547-549`); slot keys only `(rg<<16)\|kind`; Bloom described as one blob per column tombstoned by maintenance (`:176`, `:186-193`); fence entry 144 bytes (`:574-585`, now 244); renamed classes `ProjectionIndexLeafPage`, `ProjectionIndexSegmentCodec`, `ProjectionIndexLeafCodec`, `putEncodedLeaf`, `readAllLeaves`, `getLeaf`, `FLAG_SEGMENT_REFS` |
+| [PROJECTION_INDEX_DEEP_DIVE.md](PROJECTION_INDEX_DEEP_DIVE.md) | layer-by-layer walk-through | **stale**: segment id stride `3c+1`/`3c+2` (`:309-310`, `:461`, `:493`) vs `4c+1..4c+4`; column cap 21 844 (`:313`, `:398`) vs 13 105; segKinds 0-2 only (`:449`); DICT modes 0/1 (`:496`); kinds 0-4 (`:197-203`); nonexistent `NOT_VALUE_EXACT` flag (`:212`); only PIXM version 0 (`:382`, `:547-549`); slot keys only `(rg<<16)\|kind`; fence entry 144 bytes (`:574-585`, now 244); renamed classes `ProjectionIndexLeafPage`, `ProjectionIndexSegmentCodec`, `ProjectionIndexLeafCodec`, `putEncodedLeaf`, `readAllLeaves`, `getLeaf`, `FLAG_SEGMENT_REFS` |
 | [DISK_FORMAT.md](DISK_FORMAT.md) projection section | slot ⇔ segment layout | partly stale: "32-byte PIFO order header … ver=0" (`:450`) vs 132 bytes, version 1; fence entry 144 B (`:446-449`) vs 244 B; the slot-key diagram (`:401-406`) still shows only `(rg<<16)\|slotKind` and fence chunks; no segment-anchor section; BODY flags bits 0-1 only (`:488`); "65..255 reserved escapes" (`:490`) — 65 is ALP; `-Dsirix.projection.trieLane=true` (`:236`) is read nowhere. **Fixed by PR #1214**: PIXM versions 0 and 1 are both documented (`:421-423`), and a new *Compatibility* section (`:526-564`) records the flag-summary, numeric-proof, value-summary, version-1 set-summary, `projectionSort` and sorted-view additions, the column-major layout, and that indexes built by this code cannot be opened by the previous release |
 | [PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md) | normative maintenance contract | current except `descriptor HOT key = physicalSlot << 16` (`:161-170`), which holds only for ROW_GROUP_MAJOR |
 | [PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md](PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md), `…_HYBRID_EXPLAINED.md`, `…_WHY_NOT_SUBSLOT_SEGMENTS.md` | inline vs overflow segments | current (512 B threshold confirmed); keys described only as (rowGroupId, kind) |
@@ -1951,7 +1948,7 @@ Code comments that contradict code, relevant to this document: `core/page/Projec
 (pre-kind-5 layout); `proj/ProjectionIndexHOTStorage.java:419-421` (tail fence chunk inline) and `:446-448` ("The only storage layout there is."); `proj/ProjectionIndexRowGroupPage.java:31-67` (kinds 0-2, no label lane); `proj/ProjectionIndexByteScan.java:110-119`
 (`manualLE` default, differs under native image), `:37-38` ("zero allocs on the hot path"); `proj/SegmentDictionaryLane.java:37-46`,
 `:60-62` (seal regime, "no properties"); `proj/ProjectionRankPass.java:225` (names an unread property);
-`proj/ProjectionIndexColumnSegmentCodec.java:1095-1096` (Bloom deleted on maintenance); `core/page/SirixLZ77NativeDecoder.java:29`
+`core/page/SirixLZ77NativeDecoder.java:29`
 (`-march=native -mavx2 -flto` vs the portable build); `io/bytepipe/FFILz4Compressor.java:21` ("Falls back to lz4-java");
 `core/access/Databases.java:541-545`, `:589`, `:593` (25 % / 12.5 %).
 

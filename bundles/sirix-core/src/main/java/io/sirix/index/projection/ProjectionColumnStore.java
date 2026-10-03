@@ -493,20 +493,20 @@ public final class ProjectionColumnStore {
   private volatile byte[][] @Nullable [] bloomBytes;
 
   /**
-   * Per-column fingerprint BLOCKS (the contiguous acceleration; {@code null} per column when absent).
-   * Attached once by the catalog right after construction, before the handle escapes.
+   * Per-column manifest-backed fingerprint evidence ({@code null} per column when absent). Attached
+   * once by the catalog right after construction, before the handle escapes.
    */
   private ProjectionBloomChunks.ColumnEvidence @Nullable [] bloomBlocks;
 
-  /** Attach manifest-backed chunks loaded by the catalog. */
+  /** Attach manifest-backed fingerprint evidence loaded by the catalog. */
   public void attachBloomBlocks(final ProjectionBloomChunks.ColumnEvidence @Nullable [] blocks) {
     this.bloomBlocks = blocks;
   }
 
   /**
    * Clear {@code keep} bits for leaves whose string-column fingerprint PROVES the literal absent.
-   * Evidence order: chunk-manifest blocks, else the per-leaf chain (cached after the first fetch),
-   * else nothing — leaves without evidence stay kept.
+   * Evidence order: manifest-backed blocks and tails, else the per-leaf chain (cached after the first
+   * fetch), else nothing — leaves without evidence stay kept.
    *
    * @return number of leaves newly dropped
    */

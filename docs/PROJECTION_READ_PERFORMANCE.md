@@ -146,7 +146,14 @@ Regression coverage: `HOTProjectionEntryReadTest`, `HOTMiniPageCacheTest`, `HOTH
   missing acceleration metadata falls back, while malformed metadata is rejected. Writer-local
   queries retain their existing serial route.
 - Bloom pruning stays serial when physical chunks can write different bits in the same logical
-  output word. Parallel execution requires disjoint bitmap-word ownership.
+  output word. Parallel execution requires disjoint bitmap-word ownership and a fetcher that permits
+  concurrent ranged reads. From 32 chunks, the walk uses one range per 16 chunks, bounded by CPUs.
+  Range partitioning compares an even split with isolating the indivisible open chunk, charging one
+  page per referenced tail; inline tails need no payload fetch. It chooses isolation only when that
+  lowers the peak estimated work. Single- and many-literal probes use the same partitioning.
+  Referenced sealed blocks use the configured fetch window; referenced open tails use one separate
+  ranged fetch for the entire open chunk, independent of that window. An all-inline open chunk needs
+  no ranged fetch. `BloomOpenChunkFetchWorkBudgetTest` guards the referenced-tail fetch bound.
 - Narrow packed integers decode eight IDs from each loaded word. General widths and partial tails
   preserve the existing encoding and bounds.
 - Composite dictionary grouping reuses one bounded string-identity proof cache per worker and
@@ -188,7 +195,7 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.projection.columnDirectoryWorkers` | `32` | Column-major descriptor-walk worker ceiling, clamped to 1–64 and further limited by CPUs and one worker per 1,024 leaves. |
 | `sirix.projection.parallelWalk` | `false` | Opt in to the parallel row-group-major directory walk; the serial cursor is the default. |
 | `sirix.projection.prefetchAll` | `false` | Opt in to the background read-ahead sweep of every sliceable column on the first projection lookup. |
-| `sirix.projection.bloomFetchWindowChunks` | `16` | Bloom chunk payloads fetched per ranged read of one pruning call, clamped to 1–64. |
+| `sirix.projection.bloomFetchWindowChunks` | `16` | Referenced sealed Bloom blocks per ranged read, clamped to 1–64; open-tail batching is described above. |
 | `sirix.projection.coalesceBlobBatches` | `true` | Coalesce bare durable blob offsets after capturing verified leaf state. |
 | `sirix.projection.packedStringSlices` | `true` | Keep eligible scalar dictionary IDs packed until needed densely. |
 | `sirix.projection.constantBucketSlices` | `true` | Enable query-local numeric grouping representatives. |

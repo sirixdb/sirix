@@ -45,8 +45,8 @@ import java.util.function.LongFunction;
  * persistent units. Running it over a bulk load would still repeat touched-unit work at every
  * auto-commit window. This class instead keeps the REAL build machinery
  * ({@link ProjectionIndexBuilder} in its record-fed mode) alive for the whole load, so the leaves,
- * the global-dictionary decision, the fingerprint blocks, the fences and the metadata are produced
- * by exactly the code the post-pass build uses.
+ * the global-dictionary decision, the fingerprint evidence, the fences and the metadata are
+ * produced by exactly the code the post-pass build uses.
  *
  * <h2>Surviving the auto-commit</h2>
  *
@@ -852,7 +852,7 @@ public final class ProjectionBulkLoad {
 
   /**
    * Close the load: extract the last open record, drain the builder, persist the resource-wide
-   * dictionaries, and write the metadata, fingerprint blocks and fences through the SAME
+   * dictionaries, and write the metadata, fingerprint evidence and fences through the SAME
    * {@code finishPersist} the post-pass build uses — which is what makes the two indexes equivalent.
    *
    * <p>
