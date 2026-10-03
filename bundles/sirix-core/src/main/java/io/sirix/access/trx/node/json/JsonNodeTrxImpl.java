@@ -595,7 +595,7 @@ final class JsonNodeTrxImpl extends
         }
 
         checkAccessAndCommit();
-        beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber();
+        beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber() - 1;
         nodeHashing.setBulkInsert(true);
         // Hash/descendant-count maintenance for AUTO-COMMITTING bulk inserts comes in two
         // MUTUALLY EXCLUSIVE modes (mixing them double-counts ancestors):
@@ -612,6 +612,14 @@ final class JsonNodeTrxImpl extends
           nodeHashing.setAutoCommit(true);
         }
         final long nodeKey = getNodeKey();
+        final long siblingBoundary = skipRootJsonToken == SkipRootToken.YES
+            ? switch (insertionPosition) {
+              case AS_FIRST_CHILD -> getFirstChildKey();
+              case AS_LAST_CHILD -> getLastChildKey();
+              case AS_LEFT_SIBLING -> getLeftSiblingKey();
+              case AS_RIGHT_SIBLING -> getRightSiblingKey();
+            }
+            : Fixed.NULL_NODE_KEY.getStandardProperty();
 
         shredderExecutor.execute(skipRootJsonToken, insertionPosition);
 
@@ -627,7 +635,23 @@ final class JsonNodeTrxImpl extends
           }
         }
 
-        adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+        if (skipRootJsonToken == SkipRootToken.YES) {
+          // A skipped input root has no single inserted subtree representing all its children.
+          // Record only the new sibling roots, stopping at the pre-existing neighbor.
+          final long insertedRoot = getNodeKey();
+          final boolean walkLeft =
+              insertionPosition == InsertPosition.AS_LAST_CHILD || insertionPosition == InsertPosition.AS_LEFT_SIBLING;
+          if (insertedRoot != nodeKey && insertedRoot != siblingBoundary) {
+            do {
+              adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+            } while ((walkLeft
+                ? moveToLeftSibling()
+                : moveToRightSibling()) && getNodeKey() != siblingBoundary);
+            moveTo(insertedRoot);
+          }
+        } else {
+          adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+        }
 
         // Exactly one of the two modes runs (see the mode comment above): per-insert adaptation
         // during the shred, or one postorder repair at the end (always for non-auto-committing
