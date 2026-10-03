@@ -326,23 +326,27 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
       final OffsetDateTime now = OffsetDateTime.ofInstant(Instant.now(), ZoneId.systemDefault());
       final int offsetSeconds = now.getOffset().getTotalSeconds();
       final int magnitude = Math.abs(offsetSeconds);
-      final DTD timezone = new DTD(offsetSeconds < 0, 0, (byte) (magnitude / 3600),
-          (byte) (magnitude / 60 % 60), magnitude % 60 * 1_000_000);
+      // DTD encodes its sign separately from the hour and minute magnitudes.
+      final DTD timezone = new DTD(offsetSeconds < 0, 0, (byte) (magnitude / 3600), (byte) (magnitude / 60 % 60),
+          magnitude % 60 * 1_000_000);
       dateTime = new DateTime((short) now.getYear(), (byte) now.getMonthValue(), (byte) now.getDayOfMonth(),
-          (byte) now.getHour(), (byte) now.getMinute(), now.getSecond() * 1_000_000 + now.getNano() / 1_000,
-          timezone);
+          (byte) now.getHour(), (byte) now.getMinute(), now.getSecond() * 1_000_000 + now.getNano() / 1_000, timezone);
     }
     return dateTime;
   }
 
   @Override
   public Date getDate() {
-    return date != null ? date : (date = new Date(getDateTime()));
+    return date != null
+        ? date
+        : (date = new Date(getDateTime()));
   }
 
   @Override
   public Time getTime() {
-    return time != null ? time : (time = new Time(getDateTime()));
+    return time != null
+        ? time
+        : (time = new Time(getDateTime()));
   }
 
   @Override
