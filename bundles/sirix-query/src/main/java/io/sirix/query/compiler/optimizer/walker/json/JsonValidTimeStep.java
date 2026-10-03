@@ -4,6 +4,7 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Str;
 import io.sirix.query.function.jn.temporal.OpenBitemporal;
+import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
 import java.util.ArrayList;
 import java.util.List;
 import io.brackit.query.compiler.AST;
@@ -209,6 +210,7 @@ public final class JsonValidTimeStep extends Walker {
     // ---- All conditions met: rewrite. ----
     // New loop source: jn:scan-valid-time-index(jn:doc(DB,RES), P).
     final AST scanCall = new AST(XQ.FunctionCall, SCAN_VALID_TIME_INDEX);
+    scanCall.setProperty(ScanValidTimeIndex.DEFERRED_POINT, true);
     scanCall.addChild(docFn.copyTree());
     scanCall.addChild(upperBoundOnField.point.copyTree());
 

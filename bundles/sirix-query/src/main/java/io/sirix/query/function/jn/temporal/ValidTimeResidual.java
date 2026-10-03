@@ -13,18 +13,19 @@ import io.brackit.query.util.ExprUtil;
 import io.brackit.query.jdm.json.Object;
 
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /** The original dateTime comparison, retained for intervals the index cannot prove exactly. */
 final class ValidTimeResidual implements Predicate<Item> {
   private final StaticContext context;
   private final QueryContext queryContext;
-  private final Sequence point;
+  private final Supplier<Sequence> point;
   private final QNm field;
   private final Cmp comparison;
   private final boolean general;
   private final boolean fieldOnLeft;
 
-  ValidTimeResidual(final StaticContext context, final QueryContext queryContext, final Sequence point,
+  ValidTimeResidual(final StaticContext context, final QueryContext queryContext, final Supplier<Sequence> point,
       final String field, final boolean start, final boolean strict, final boolean general, final boolean fieldOnLeft) {
     this.context = context;
     this.queryContext = queryContext;
@@ -39,15 +40,17 @@ final class ValidTimeResidual implements Predicate<Item> {
   @Override
   public boolean test(final Item object) {
     final Bool result;
-    if (general) {
+    if (general && fieldOnLeft) {
       final Item bound = bound(object);
-      result = fieldOnLeft ? comparison.gCmpAsBool(queryContext, bound, point)
-          : comparison.gCmpAsBool(queryContext, point, bound);
+      result = comparison.gCmpAsBool(queryContext, bound, point.get());
+    } else if (general) {
+      final Sequence value = point.get();
+      result = comparison.gCmpAsBool(queryContext, value, bound(object));
     } else if (fieldOnLeft) {
       final Item bound = bound(object);
-      result = comparison.vCmpAsBool(queryContext, bound, ExprUtil.asItem(point));
+      result = comparison.vCmpAsBool(queryContext, bound, ExprUtil.asItem(point.get()));
     } else {
-      final Item value = ExprUtil.asItem(point);
+      final Item value = ExprUtil.asItem(point.get());
       result = comparison.vCmpAsBool(queryContext, value, bound(object));
     }
     return result != null && result.booleanValue();

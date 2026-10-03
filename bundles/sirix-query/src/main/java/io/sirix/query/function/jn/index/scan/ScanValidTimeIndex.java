@@ -4,11 +4,14 @@ import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.jdm.type.AnyJsonItemType;
 import io.brackit.query.jdm.type.AnyItemType;
@@ -16,6 +19,8 @@ import io.brackit.query.jdm.type.AtomicType;
 import io.brackit.query.jdm.type.Cardinality;
 import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.module.StaticContext;
+import io.brackit.query.sequence.AbstractSequence;
+import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -26,6 +31,7 @@ import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
 import io.sirix.query.json.JsonDBItem;
 
 import java.time.Instant;
+import java.util.function.Supplier;
 
 /**
  * Internal scan function over a valid-time (bitemporal) interval index. Given a document and a
@@ -55,6 +61,8 @@ public final class ScanValidTimeIndex extends AbstractFunction {
   /** Valid-time interval index scan function name. */
   public static final QNm SCAN_VALID_TIME_INDEX =
       new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "scan-valid-time-index");
+
+  public static final String DEFERRED_POINT = "VALID_TIME_DEFERRED_POINT";
 
   private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
@@ -97,19 +105,7 @@ public final class ScanValidTimeIndex extends AbstractFunction {
       final String from = ((Str) args[2]).stringValue();
       final String to = ((Str) args[3]).stringValue();
       final int mode = ((IntNumeric) args[4]).intValue();
-      if (mode < 0 || mode > 127) {
-        throw new QueryException(new QNm("Invalid valid-time comparison mode"));
-      }
-      if (args[1] instanceof DateTime point && point.getTimezone() != null
-          && from.equals(validTimeConfig.getNormalizedValidFromPath())
-          && to.equals(validTimeConfig.getNormalizedValidToPath())) {
-        final Sequence sequence = ValidTimeIntervalIndex.comparisonSequence(document, dateTimeToInstant.convert(point),
-            validTimeConfig, (mode & 1) != 0, (mode & 2) != 0);
-        if (sequence != null) {
-          return sequence;
-        }
-      }
-      return ValidTimeFilter.comparisonScanSequence(document, args[1], from, to, mode, sctx, ctx);
+      return comparisonScan(sctx, ctx, document, () -> args[1], from, to, mode);
     }
 
     final Instant validTime = dateTimeToInstant.convert((DateTime) args[1]);
@@ -122,5 +118,72 @@ public final class ScanValidTimeIndex extends AbstractFunction {
 
     // Fallback (no interval index — e.g. called directly): exact linear scan, same predicate.
     return ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig);
+  }
+
+  public static Sequence comparisonScan(final StaticContext sctx, final QueryContext ctx, final JsonDBItem document,
+      final Supplier<Sequence> point, final String from, final String to, final int mode) {
+    if (mode < 0 || mode > 127) {
+      throw new QueryException(new QNm("Invalid valid-time comparison mode"));
+    }
+    return new AbstractSequence() {
+      private Sequence selected;
+
+      private Sequence selected() {
+        if (selected == null) {
+          final ValidTimeConfig config = document.getResourceSession().getResourceConfig().getValidTimeConfig();
+          if (config != null && from.equals(config.getNormalizedValidFromPath())
+              && to.equals(config.getNormalizedValidToPath())) {
+            selected = ValidTimeIntervalIndex.comparisonSequence(document, point, config, (mode & 1) != 0,
+                (mode & 2) != 0);
+          }
+          if (selected == null) {
+            selected = ValidTimeFilter.comparisonScanSequence(document, point, from, to, mode, sctx, ctx);
+          }
+        }
+        return selected;
+      }
+
+      @Override
+      public IntNumeric size() {
+        return selected().size();
+      }
+
+      @Override
+      public boolean booleanValue() {
+        return selected().booleanValue();
+      }
+
+      @Override
+      public Item get(final IntNumeric position) {
+        return position.cmp(Int32.ONE) < 0 ? null : selected().get(position);
+      }
+
+      @Override
+      public Iter iterate() {
+        return new BaseIter() {
+          private Iter input;
+          private boolean closed;
+
+          @Override
+          public Item next() {
+            if (closed) {
+              return null;
+            }
+            if (input == null) {
+              input = selected().iterate();
+            }
+            return input.next();
+          }
+
+          @Override
+          public void close() {
+            closed = true;
+            if (input != null) {
+              input.close();
+            }
+          }
+        };
+      }
+    };
   }
 }
