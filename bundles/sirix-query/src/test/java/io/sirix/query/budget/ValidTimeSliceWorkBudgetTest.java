@@ -31,6 +31,7 @@ import org.junit.jupiter.api.parallel.Isolated;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -54,8 +55,8 @@ import static org.mockito.Mockito.withSettings;
 /** Guards against eager candidate verification/materialization, using the real transaction seam. */
 @Isolated
 final class ValidTimeSliceWorkBudgetTest {
-  private static final WorkCapture INDEX_WORK = WorkCapture.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS,
-      EngineWorkCounters.VALID_TIME_POSTING_REFS);
+  private static final WorkCapture INDEX_WORK =
+      WorkCapture.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, EngineWorkCounters.VALID_TIME_POSTING_REFS);
   @TempDir
   Path directory;
 
@@ -80,8 +81,8 @@ final class ValidTimeSliceWorkBudgetTest {
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain,
-          "let $d := jn:doc('budget','rows') let $i := jn:create-valid-time-index($d) return sdb:commit($d)")
-              .evaluate(context);
+          "let $d := jn:doc('budget','rows') let $i := jn:create-valid-time-index($d) return sdb:commit($d)").evaluate(
+              context);
       final JsonDBCollection realCollection = store.lookup("budget");
       final JsonDBItem original = realCollection.getDocument("rows");
       final int originalRevision = original.getTrx().getRevisionNumber();
@@ -118,20 +119,39 @@ final class ValidTimeSliceWorkBudgetTest {
           doReturn(cursor).when(observed).getTrx();
           doReturn(observed).when(collection).getDocument(eq("rows"), any(Instant.class));
           final String point = "xs:dateTime('2024-01-01T00:00:00Z')";
-          final String source = "jn:open-bitemporal('budget','rows',xs:dateTime('2099-01-01T00:00:00Z'),"
-              + point + ")";
+          final String source = "jn:open-bitemporal('budget','rows',xs:dateTime('2099-01-01T00:00:00Z')," + point + ")";
           for (final boolean start : new boolean[] {false, true}) {
             for (final boolean strict : new boolean[] {false, true}) {
               for (final boolean general : new boolean[] {false, true}) {
                 for (final boolean mirror : new boolean[] {false, true}) {
-                  final String bound = "xs:dateTime($x." + (start ? "vf" : "vt") + ")";
-                  final String operator = general ? (strict ? "<" : "<=") : (strict ? "lt" : "le");
-                  final String swapped = general ? (strict ? ">" : ">=") : (strict ? "gt" : "ge");
+                  final String bound = "xs:dateTime($x." + (start
+                      ? "vf"
+                      : "vt") + ")";
+                  final String operator = general
+                      ? (strict
+                          ? "<"
+                          : "<=")
+                      : (strict
+                          ? "lt"
+                          : "le");
+                  final String swapped = general
+                      ? (strict
+                          ? ">"
+                          : ">=")
+                      : (strict
+                          ? "gt"
+                          : "ge");
                   final String predicate = mirror
-                      ? (start ? point + " " + swapped + " " + bound : bound + " " + swapped + " " + point)
-                      : (start ? bound + " " + operator + " " + point : point + " " + operator + " " + bound);
+                      ? (start
+                          ? point + " " + swapped + " " + bound
+                          : bound + " " + swapped + " " + point)
+                      : (start
+                          ? bound + " " + operator + " " + point
+                          : point + " " + operator + " " + bound);
                   final String text = "for $x in " + source + " where " + predicate + " return $x";
-                  final int expected = revision == changedRevision && !start && strict ? 1 : 2;
+                  final int expected = revision == changedRevision && !start && strict
+                      ? 1
+                      : 2;
                   clearInvocations(cursor);
                   final Sequence rows = new Query(observedChain, text).execute(observedContext);
                   assertNotNull(rows);
@@ -150,7 +170,9 @@ final class ValidTimeSliceWorkBudgetTest {
                     verify(cursor, times(1)).moveTo(anyLong());
                     verify(cursor, times(1)).getFirstChildKey();
                     verify(cursor, never()).getValue();
-                    assertEquals(expected == 1 ? second : first, item.getNodeKey());
+                    assertEquals(expected == 1
+                        ? second
+                        : first, item.getNodeKey());
                   }
                 }
               }
@@ -216,8 +238,8 @@ final class ValidTimeSliceWorkBudgetTest {
           clearInvocations(cursor);
           final boolean strictStart = (mode & 1) != 0;
           final boolean strictEnd = (mode & 2) != 0;
-          final var setup = INDEX_WORK.call(() ->
-              ValidTimeIntervalIndex.sequence(observed, point, config, strictStart, strictEnd, null));
+          final var setup = INDEX_WORK.call(() -> Objects.requireNonNull(
+              ValidTimeIntervalIndex.sequence(observed, point, config, strictStart, strictEnd, null)));
           final Sequence outside = setup.result();
           assertNotNull(outside);
           assertZeroIndexWork(setup.work(), count, point, mode, "before-demand");
@@ -237,8 +259,12 @@ final class ValidTimeSliceWorkBudgetTest {
           clearInvocations(cursor);
           final var capture = INDEX_WORK.call(() -> ValidTimeIntervalIndex.keys(observed, point, strictEnd));
           assertEquals(0, capture.result().length);
-          assertZeroIndexWork(capture.work(), count, point, strictEnd ? 2 : 0, "keys");
-          assertZeroObjectReads(cursor, count, point, strictEnd ? 2 : 0, "keys");
+          assertZeroIndexWork(capture.work(), count, point, strictEnd
+              ? 2
+              : 0, "keys");
+          assertZeroObjectReads(cursor, count, point, strictEnd
+              ? 2
+              : 0, "keys");
         }
       }
 
@@ -263,8 +289,10 @@ final class ValidTimeSliceWorkBudgetTest {
           });
           assertPositiveIndexWork(positive, count);
           INDEX_WORK.run(() -> assertNotNull(inside.get(Int32.ONE)))
-              .assertZero(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, "repeat demand must reuse the candidate set")
-              .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS, "repeat demand must reuse posting evidence");
+                    .assertZero(EngineWorkCounters.VALID_TIME_INTERVAL_REFS,
+                        "repeat demand must reuse the candidate set")
+                    .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
+                        "repeat demand must reuse posting evidence");
         }
       }
 
@@ -278,8 +306,9 @@ final class ValidTimeSliceWorkBudgetTest {
           for (int mode = 0; mode < 4; mode++) {
             final String expression = bitemporalExpression(point, mode);
             clearInvocations(cursor);
-            final var capture = INDEX_WORK.call(() ->
-                ((Numeric) new Query(observedChain, "count(" + expression + ")").evaluate(observedContext)).intValue());
+            final var capture =
+                INDEX_WORK.call(() -> ((Numeric) new Query(observedChain, "count(" + expression + ")").evaluate(
+                    observedContext)).intValue());
             assertEquals(0, capture.result());
             assertZeroIndexWork(capture.work(), count, point, mode, "query-count");
             assertZeroObjectReads(cursor, count, point, mode, "query-count");
@@ -303,8 +332,8 @@ final class ValidTimeSliceWorkBudgetTest {
             clearInvocations(cursor);
             final WorkReport positive = INDEX_WORK.run(() -> {
               if (count == 64) {
-                assertEquals(count, ((Numeric) new Query(observedChain, "count(" + expression + ")")
-                    .evaluate(observedContext)).intValue());
+                assertEquals(count, ((Numeric) new Query(observedChain, "count(" + expression + ")").evaluate(
+                    observedContext)).intValue());
               } else {
                 final Sequence inside = new Query(observedChain, expression).execute(observedContext);
                 try (var iterator = inside.iterate()) {
@@ -327,36 +356,40 @@ final class ValidTimeSliceWorkBudgetTest {
       case 0 -> direct;
       case 1 -> "for $x in " + direct + " where xs:dateTime($x.vf) lt " + dateTime + " return $x";
       case 2 -> "for $x in " + direct + " where " + dateTime + " lt xs:dateTime($x.vt) return $x";
-      default -> "for $x in " + direct + " where xs:dateTime($x.vf) lt " + dateTime + " and "
-          + dateTime + " lt xs:dateTime($x.vt) return $x";
+      default -> "for $x in " + direct + " where xs:dateTime($x.vf) lt " + dateTime + " and " + dateTime
+          + " lt xs:dateTime($x.vt) return $x";
     };
   }
 
-  private static void assertZeroIndexWork(final WorkReport work, final int count, final Instant point,
-      final int mode, final String route) {
+  private static void assertZeroIndexWork(final WorkReport work, final int count, final Instant point, final int mode,
+      final String route) {
     work.assertZero(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, "an empty closed stab must emit no interval refs")
-        .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS, "an empty closed stab must not expand posting evidence");
+        .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
+            "an empty closed stab must not expand posting evidence");
     System.out.printf("valid-time empty stab records=%d point=%s mode=%d route=%s intervalRefs=%d postingRefs=%d%n",
         count, point, mode, route, work.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS),
         work.of(EngineWorkCounters.VALID_TIME_POSTING_REFS));
   }
 
   private static void assertPositiveIndexWork(final WorkReport work, final int count) {
-    work.assertAtLeast(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, count, "a nonempty stab must enumerate its candidates")
+    work.assertAtLeast(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, count,
+        "a nonempty stab must enumerate its candidates")
         .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_REFS, 2L * count,
             "one membership and one verification ref per candidate must be counted");
   }
 
-  private static void assertZeroObjectReads(final JsonNodeReadOnlyTrx cursor, final int count,
-      final Instant point, final int mode, final String route) {
+  private static void assertZeroObjectReads(final JsonNodeReadOnlyTrx cursor, final int count, final Instant point,
+      final int mode, final String route) {
     verify(cursor, never()).moveTo(anyLong());
     verify(cursor, never()).getValue();
     verify(cursor, never()).getFirstChildKey();
     for (final String method : new String[] {"moveTo", "getFirstChildKey", "getValue"}) {
-      final long calls = mockingDetails(cursor).getInvocations().stream()
-          .filter(invocation -> method.equals(invocation.getMethod().getName())).count();
-      System.out.printf("valid-time empty stab records=%d point=%s mode=%d route=%s %s=%d%n",
-          count, point, mode, route, method, calls);
+      final long calls = mockingDetails(cursor).getInvocations()
+                                               .stream()
+                                               .filter(invocation -> method.equals(invocation.getMethod().getName()))
+                                               .count();
+      System.out.printf("valid-time empty stab records=%d point=%s mode=%d route=%s %s=%d%n", count, point, mode, route,
+          method, calls);
       assertEquals(0, calls);
     }
   }
@@ -365,7 +398,10 @@ final class ValidTimeSliceWorkBudgetTest {
     final Path databasePath = directory.resolve("budget");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL).validTimePaths("vf", "vt").build());
+      database.createResource(ResourceConfiguration.newBuilder("rows")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .validTimePaths("vf", "vt")
+                                                   .build());
       try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
         writer.commit();
@@ -450,8 +486,8 @@ final class ValidTimeSliceWorkBudgetTest {
             + "xs:dateTime($x.vf) le xs:dateTime('2024-01-01T00:00:00Z') and "
             + "xs:dateTime('2024-01-01T00:00:00Z') lt xs:dateTime($x.vt) return $x";
         clearInvocations(cursor);
-        assertEquals(count, ((Numeric) new Query(observedChain, "count(" + plainSlice + ")")
-            .evaluate(observedContext)).intValue());
+        assertEquals(count,
+            ((Numeric) new Query(observedChain, "count(" + plainSlice + ")").evaluate(observedContext)).intValue());
         verify(cursor, never()).getFirstChildKey();
         verify(cursor, never()).getValue();
         clearInvocations(cursor);

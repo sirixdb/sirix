@@ -21,8 +21,8 @@ final class ValidTimeLexicalBoundTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"2025-01-01T00:00:00Z", "2025-01-01T00:00:00.000Z",
-      "2025-01-01T00:00:00+01:00", "2025-01-01T00:00:00.000-05:00"})
+  @ValueSource(strings = {"2025-01-01T00:00:00Z", "2025-01-01T00:00:00.000Z", "2025-01-01T00:00:00+01:00",
+      "2025-01-01T00:00:00.000-05:00"})
   void sharedWholeMillisecondSpellingsRemainExact(final String raw) {
     assertNotNull(ValidTimeIntervalIndexWriter.parseInstant(raw));
     assertDoesNotThrow(() -> new DateTime(raw));
