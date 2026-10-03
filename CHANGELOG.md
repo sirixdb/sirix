@@ -96,21 +96,22 @@ All notable changes to SirixDB are documented in this file.
 
 ### Changed
 
+- **A database has one owning process and shared state across local handles.** Opens take an
+  exclusive OS lock; independently closeable handles share revision and catalogue state while
+  preserving user attribution. See the [ownership and lifecycle rules](docs/operations.md#10-known-limitations-and-operational-caveats).
 - **A commit no longer lists the index-catalogue directory.** Every commit re-instantiates the
   writer, which asks for the catalogue of the revision it is about to create; that file cannot
   exist yet, so the lookup fell back to one listing of `indexes/`, which holds one catalogue file
   per revision that had definitions: work proportional to the revision count on every commit (78 %
   of a one-operation-per-commit load's commit CPU after 21,000 revisions). A resource session now
   resolves a lookup from the requested revision's own file, then from what it already knows — the
-  newest catalogue its own writers serialized or its one earlier listing found — then from the
+  newest catalogue the resource's writers serialized or an earlier listing found — then from the
   previous revision's file, and lists the directory only when none of those can answer: for a
   session's writers at most once, when the resource has no catalogue or its catalogue was emptied;
   a reader of an old revision with neither its own nor its predecessor's catalogue still lists. The
-  revision's own file comes first because nothing makes a session the only writer of its resource
-  (a second database handle on the same path, or a second process, is not refused), and a commit
-  through another handle creates exactly that file. The resolved definitions are unchanged, as is
-  the on-disk layout of `indexes/`. Guarded by the `IndexCatalogueResolutionWorkBudgetTest` work
-  budget.
+  revision's own file remains the first, exact answer whenever present. Resource sessions now share
+  their catalogue knowledge as well as their committed view. The resolved definitions and on-disk
+  layout of `indexes/` are unchanged. Guarded by the `IndexCatalogueResolutionWorkBudgetTest` work budget.
 - **Versioned HOT projection reads** resolve explicitly requested slots from guarded raw fragments,
   retain bounded resolved-slot mini pages, and promote repeated point demand to complete leaves. The
   index-metadata record, resolved by every serving decision and every commit, is read this way

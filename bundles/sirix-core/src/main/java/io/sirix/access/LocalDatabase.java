@@ -15,7 +15,6 @@ import io.sirix.api.ResourceSession;
 import io.sirix.api.Transaction;
 import io.sirix.api.TransactionManager;
 import io.sirix.cache.BufferManager;
-import io.sirix.cache.BufferManagerImpl;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
@@ -37,9 +36,10 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicReference;
+import org.jspecify.annotations.Nullable;
 
 import static java.util.Objects.requireNonNull;
 
@@ -79,16 +79,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private final DatabaseConfiguration dbConfig;
 
   /**
-   * The session management instance.
-   *
-   * <p>
-   * Instances of this class are responsible for registering themselves in the pool (in
-   * {@link #LocalDatabase(TransactionManager, DatabaseConfiguration, PathBasedPool, ResourceStore, WriteLocksRegistry, PathBasedPool)}),
-   * as well as de-registering themselves (in {@link #close()}).
-   */
-  private final PathBasedPool<Database<?>> sessions;
-
-  /**
    * The resource store to open/close resource sessions.
    */
   private final ResourceStore<T> resourceStore;
@@ -110,29 +100,27 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    *
    * @param transactionManager A manager for database transactions.
    * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
-   * @param sessions The database sessions management instance.
    * @param resourceStore The resource store used by this database.
    * @param writeLocks Manages the locks for resource sessions.
    * @param resourceSessions The pool for resource sessions.
    */
   public LocalDatabase(final TransactionManager transactionManager, final DatabaseConfiguration dbConfig,
-      final PathBasedPool<Database<?>> sessions, final ResourceStore<T> resourceStore,
-      final WriteLocksRegistry writeLocks, final PathBasedPool<ResourceSession<?, ?>> resourceSessions) {
+      final ResourceStore<T> resourceStore, final WriteLocksRegistry writeLocks,
+      final PathBasedPool<ResourceSession<?, ?>> resourceSessions) {
     this.transactionManager = transactionManager;
     this.dbConfig = requireNonNull(dbConfig);
-    this.sessions = sessions;
     this.resourceStore = resourceStore;
     this.resourceSessions = resourceSessions;
     this.writeLocks = writeLocks;
     this.resourceIDsToResourceNames = new HashMap<>();
     this.resourceNamesToResourceIDs = new HashMap<>();
-    this.sessions.putObject(dbConfig.getDatabaseFile(), this);
     this.bufferManager = Databases.getGlobalBufferManager();
   }
 
   @Override
-  public T beginResourceSession(final String resourceName) {
+  public synchronized T beginResourceSession(final String resourceName) {
     assertNotClosed();
+    requireNonNull(resourceName);
 
     final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
     final Path resourcePath = dataDir.resolve(resourceName).normalize();
@@ -165,6 +153,32 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     return resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath);
   }
 
+  /** A handle owns user sessions; the database owns their common storage and revision state. */
+  <S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> ResourceStore<S> newUserResourceStore(
+      final User user) {
+    requireNonNull(user);
+    final AtomicReference<ResourceStore<S>> storeReference = new AtomicReference<>();
+    final ResourceStore<S> store = new ResourceStoreImpl<>(resourceSessions, (config, buffers, path) -> {
+      final T shared = resourceStore.getOpenResourceSession(path);
+      // ResourceStoreImpl stores this factory without invoking it; storeReference is set before
+      // this store is returned to a handle, so every later factory invocation sees that store.
+      @SuppressWarnings({"unchecked", "NullAway"})
+      final S session = (S) ((AbstractResourceSession<?, ?>) shared).openUserSession(storeReference.get(), user);
+      return session;
+    }, session -> ((AbstractResourceSession<?, ?>) session).releaseUserSession(), this);
+    storeReference.set(store);
+    return store;
+  }
+
+  synchronized <S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> S beginUserResourceSession(
+      final String resourceName, final ResourceStore<S> userStore) {
+    final T shared = beginResourceSession(resourceName);
+    // The hidden database-owned session keeps storage warm, but is not a user of the resource.
+    // The user session registration below is atomic with respect to removeResource's guard.
+    resourceSessions.removeObject(shared.getResourcePath(), shared);
+    return userStore.beginResourceSession(shared.getResourceConfig(), bufferManager, shared.getResourcePath());
+  }
+
   @Override
   public String getName() {
     return dbConfig.getDatabaseName();
@@ -172,7 +186,13 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   @Override
   public synchronized boolean createResource(final ResourceConfiguration resourceConfig) {
+    return createResource(resourceConfig, null);
+  }
+
+  synchronized boolean createResource(final ResourceConfiguration resourceConfig,
+      final @Nullable ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> userStore) {
     assertNotClosed();
+    requireNonNull(resourceConfig);
 
     boolean returnVal = true;
     resourceConfig.setDatabaseConfiguration(dbConfig);
@@ -234,7 +254,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       ResourceConfiguration.serialize(resourceConfig);
       biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
-      returnVal = bootstrapResource(resourceConfig);
+      returnVal = bootstrapResource(resourceConfig, userStore);
     }
 
     if (!returnVal) {
@@ -264,9 +284,13 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
   }
 
-  private boolean bootstrapResource(ResourceConfiguration resConfig) {
-    try (final T resourceTrxManager = beginResourceSession(resConfig.getResource().getFileName().toString());
-        final W wtx = resourceTrxManager.beginNodeTrx(AfterCommitState.CLOSE)) {
+  private boolean bootstrapResource(final ResourceConfiguration resConfig,
+      final @Nullable ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> userStore) {
+    final String resourceName = resConfig.getResource().getFileName().toString();
+    try (final ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceTrxManager = userStore == null
+        ? beginResourceSession(resourceName)
+        : beginUserResourceSession(resourceName, userStore);
+        final NodeTrx wtx = resourceTrxManager.beginNodeTrx(AfterCommitState.CLOSE)) {
       final var useCustomCommitTimestamps = resConfig.customCommitTimestamps();
       if (useCustomCommitTimestamps) {
         wtx.commit(null, Instant.ofEpochMilli(0));
@@ -296,6 +320,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // Check that no running resource sessions are opened.
     if (this.resourceSessions.containsAnyEntry(resourceFile)) {
       throw new IllegalStateException("Open resource sessions found, must be closed first: " + resourceSessions);
+    }
+
+    final T shared = resourceStore.getOpenResourceSession(resourceFile);
+    if (shared != null) {
+      shared.close();
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.
@@ -432,22 +461,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         + "Use beginNodeTrx() on individual ResourceSession instances instead.");
   }
 
-  /**
-   * Close this database.
-   *
-   * <p>
-   * Deregistration runs in a {@code finally} because {@code isClosed} is set before any of the
-   * cleanup that can throw. Without it, one exception out of {@code resourceStore.close()} left the
-   * instance flagged closed but still registered in the session pool, and every later {@code close()}
-   * returned at the guard above without ever retrying the removal — so the entry survived for the
-   * life of the JVM. {@link Databases#removeDatabase} refuses to delete anything while a handle is
-   * registered, so that one stranded entry made the database permanently un-removable; its files then
-   * outlived the removal, and because {@link Databases#createJsonDatabase} and
-   * {@link #createResource} both no-op silently when the target already exists, whatever was created
-   * at that path next silently reused the old resource — its committed data and its persisted index
-   * definitions included. That is how a write transaction ends up rebinding index listeners for
-   * indexes its own resource never defined.
-   */
   @Override
   public synchronized void close() {
     if (isClosed) {
@@ -456,21 +469,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     logger.trace("Close local database instance.");
 
+    resourceStore.close();
+    transactionManager.close();
     isClosed = true;
-    try {
-      resourceStore.close();
-      transactionManager.close();
-    } finally {
-      // Remove from database mapping.
-      this.sessions.removeObject(dbConfig.getDatabaseFile(), this);
-
-      // Free all allocated memory if it's the last database which is closed.
-      Databases.freeAllocatedMemory();
-
-      // Remove lock file.
-      SirixFiles.recursiveRemove(
-          dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
-    }
+    Databases.freeAllocatedMemory();
   }
 
   @Override

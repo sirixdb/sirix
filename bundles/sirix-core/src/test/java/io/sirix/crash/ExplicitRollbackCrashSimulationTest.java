@@ -34,29 +34,30 @@ import static org.junit.jupiter.api.Assertions.fail;
 /**
  * Crash-simulation gate for an EXPLICIT rollback ({@code StorageEngineWriter.truncateTo}): unlike
  * crash recovery — where one uber-beacon slot still matches the truncated-to revision — a rollback
- * truncates AWAY the revision both slots advertise, so the ordering between the file truncation
- * and the dual-beacon downgrade is the whole crash-safety story. Truncating FIRST left a window in
+ * truncates AWAY the revision both slots advertise, so the ordering between the file truncation and
+ * the dual-beacon downgrade is the whole crash-safety story. Truncating FIRST left a window in
  * which a checksum-valid beacon advertised the truncated-away revision over truncated files: a
  * crash there made recovery dereference truncated offsets ("Truncated revisions record") and the
- * resource was permanently unopenable, silently resurrecting a rolled-back revision being the
- * other possible outcome.
+ * resource was permanently unopenable, silently resurrecting a rolled-back revision being the other
+ * possible outcome.
  *
- * <p>The gate records every channel write/force/truncate of a real rollback (three committed
+ * <p>
+ * The gate records every channel write/force/truncate of a real rollback (three committed
  * revisions, then {@code truncateTo(1)}) through {@link PowerLossRecordingStorage}, materializes a
  * candidate post-power-loss state for every crash instant in the rollback window (with lost and
- * torn in-flight variants, {@link CrashStateMaterializer} semantics), and verifies each state
- * cold:
+ * torn in-flight variants, {@link CrashStateMaterializer} semantics), and verifies each state cold:
  *
  * <ol>
- *   <li>the resource MUST open — never brick;</li>
- *   <li>it must sit at either the ORIGINAL revision (3 — rollback not yet effective) or the
- *       TARGET revision (1 — rollback effective): nothing in between, nothing beyond;</li>
- *   <li>every surviving revision must serialize exactly to its golden JSON;</li>
- *   <li>the resource must accept a new commit afterwards.</li>
+ * <li>the resource MUST open — never brick;</li>
+ * <li>it must sit at either the ORIGINAL revision (3 — rollback not yet effective) or the TARGET
+ * revision (1 — rollback effective): nothing in between, nothing beyond;</li>
+ * <li>every surviving revision must serialize exactly to its golden JSON;</li>
+ * <li>the resource must accept a new commit afterwards.</li>
  * </ol>
  *
- * <p>Before the beacons-first ordering fix this failed at every instant between the truncates and
- * the beacon rewrite with the exact production symptom (unopenable, "Truncated revisions record").
+ * <p>
+ * Before the beacons-first ordering fix this failed at every instant between the truncates and the
+ * beacon rewrite with the exact production symptom (unopenable, "Truncated revisions record").
  */
 public final class ExplicitRollbackCrashSimulationTest {
 
@@ -74,7 +75,7 @@ public final class ExplicitRollbackCrashSimulationTest {
 
   @Test
   public void anyCrashInstantDuringExplicitRollbackLeavesOriginalOrTargetRevision() throws Exception {
-    final Path workRoot = Files.createTempDirectory("sirix-rollback-crash-");
+    final Path workRoot = Files.createTempDirectory("sirix-rollback-crash-").toRealPath();
     try {
       // ---------------- record the rollback under the real I/O stack ----------------
       final PowerLossRecorder recorder = new PowerLossRecorder();
@@ -97,7 +98,7 @@ public final class ExplicitRollbackCrashSimulationTest {
               wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"r1\"]"), JsonNodeTrx.Commit.NO);
               wtx.commit();
             }
-            for (final String value : new String[] { "{\"r\":2}", "{\"r\":3}" }) {
+            for (final String value : new String[] {"{\"r\":2}", "{\"r\":3}"}) {
               try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
                 wtx.moveToDocumentRoot();
                 wtx.moveToFirstChild();
@@ -187,12 +188,12 @@ public final class ExplicitRollbackCrashSimulationTest {
 
   /**
    * Crash instants from the first rollback-issued op through one past the final op (the fully
-   * completed rollback), each with exhaustive lost-in-flight subsets and content-aware torn
-   * variants for in-flight writes — the dual DSYNC beacon-slot writes are the interesting ones
-   * (covers a torn primary falling back to the secondary, i.e. both slot orderings). The
-   * pre-rollback boundary op itself (the final op of the LAST COMMIT, whose loss legitimately
-   * reverts to the commit-before-last — that commit was then never acknowledged) belongs to the
-   * general power-loss gate, not to this rollback-ordering one.
+   * completed rollback), each with exhaustive lost-in-flight subsets and content-aware torn variants
+   * for in-flight writes — the dual DSYNC beacon-slot writes are the interesting ones (covers a torn
+   * primary falling back to the secondary, i.e. both slot orderings). The pre-rollback boundary op
+   * itself (the final op of the LAST COMMIT, whose loss legitimately reverts to the
+   * commit-before-last — that commit was then never acknowledged) belongs to the general power-loss
+   * gate, not to this rollback-ordering one.
    */
   private static List<RollbackCandidate> enumerateCandidates(final List<PowerLossRecorder.Op> ops,
       final long rollbackWindowStart) {
@@ -201,9 +202,8 @@ public final class ExplicitRollbackCrashSimulationTest {
       final String prefix = "i" + instant;
       final List<PowerLossRecorder.Op> inFlight = inFlightOps(ops, instant);
       final int k = inFlight.size();
-      assertTrue(k <= EXHAUSTIVE_SUBSET_LIMIT,
-          "rollback window has " + k + " in-flight ops at instant " + instant
-              + " — raise the exhaustive limit or sample: " + inFlight);
+      assertTrue(k <= EXHAUSTIVE_SUBSET_LIMIT, "rollback window has " + k + " in-flight ops at instant " + instant
+          + " — raise the exhaustive limit or sample: " + inFlight);
       for (int mask = 0; mask < (1 << k); mask++) {
         final Set<Long> applied = new HashSet<>();
         for (int bit = 0; bit < k; bit++) {
@@ -245,7 +245,10 @@ public final class ExplicitRollbackCrashSimulationTest {
     return candidates;
   }
 
-  /** Content-mutating ops issued at or before {@code crashSeq} but past their file's last completed force. */
+  /**
+   * Content-mutating ops issued at or before {@code crashSeq} but past their file's last completed
+   * force.
+   */
   private static List<PowerLossRecorder.Op> inFlightOps(final List<PowerLossRecorder.Op> ops, final long crashSeq) {
     final Map<PowerLossRecorder.TargetFile, Long> lastBarrier =
         new java.util.EnumMap<>(PowerLossRecorder.TargetFile.class);
@@ -284,7 +287,7 @@ public final class ExplicitRollbackCrashSimulationTest {
     Databases.clearGlobalCaches();
     final int mostRecent;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(stateDb);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       mostRecent = session.getMostRecentRevisionNumber();
       observedRevisions.add(mostRecent);
       if (mostRecent != ORIGINAL_REVISION && mostRecent != TARGET_REVISION) {
@@ -305,7 +308,7 @@ public final class ExplicitRollbackCrashSimulationTest {
     // The resource must accept a writer again — offsets and revision-record slots are reused.
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(stateDb);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
@@ -353,7 +356,9 @@ public final class ExplicitRollbackCrashSimulationTest {
                               .resolve(".commit");
   }
 
-  /** Drop the per-path repository entries a verified scratch state registered, keeping the JVM tidy. */
+  /**
+   * Drop the per-path repository entries a verified scratch state registered, keeping the JVM tidy.
+   */
   private static void dropPerPathRegistryEntries(final Path stateDb) {
     final Path cacheKey = dataFilePath(stateDb);
     StorageType.CACHE_REPOSITORY.remove(cacheKey);
@@ -364,7 +369,9 @@ public final class ExplicitRollbackCrashSimulationTest {
     final StringWriter out = new StringWriter();
     t.printStackTrace(new PrintWriter(out));
     final String full = out.toString();
-    return full.length() > 4000 ? full.substring(0, 4000) + "\n  ... (truncated)" : full;
+    return full.length() > 4000
+        ? full.substring(0, 4000) + "\n  ... (truncated)"
+        : full;
   }
 
   private static void copyRecursive(final Path source, final Path target) throws IOException {

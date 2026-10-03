@@ -14,22 +14,31 @@ import io.sirix.cache.BufferManager;
 import io.sirix.cache.BufferManagerImpl;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.SirixDatabaseLockException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.exception.SirixThreadedException;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.io.SuperblockValidator;
 import io.sirix.io.RevisionRecordDurability;
+import io.sirix.io.StorageType;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.SirixFiles;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 
@@ -48,6 +57,95 @@ public final class Databases {
   }
 
   private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(Databases.class));
+
+  /** One database and OS lock per real directory; guarded by the database lifecycle monitor. */
+  private static final Map<Path, OpenDatabase<?>> OPEN_DATABASES = new HashMap<>();
+  // Guarded by Databases.class; reserve removal until both lock channels close. Opening and closing
+  // a competing descriptor can release the remover's POSIX process lock, even if tryLock fails.
+  private static final Set<Path> REMOVING_DATABASES = new HashSet<>();
+
+  static final class OpenDatabase<T extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> {
+    final Path path;
+    final Database<T> database;
+    final LocalDatabase<?, ?> localDatabase;
+    final DatabaseLock lock;
+    int references;
+    boolean closing;
+
+    OpenDatabase(final Path path, final Database<T> database, final DatabaseLock lock) {
+      this.path = path;
+      this.database = database;
+      localDatabase = (LocalDatabase<?, ?>) database;
+      this.lock = lock;
+    }
+
+    Database<T> newHandle(final User user) {
+      final Database<T> handle = new DatabaseHandle<>(this, user);
+      MANAGER.sessions().putObject(path, handle);
+      references++;
+      return handle;
+    }
+  }
+
+  static void releaseDatabase(final OpenDatabase<?> owner, final Database<?> handle) {
+    // removeDatabase may already have force-closed this generation. Closing an old handle must
+    // never decrement a new owner's references or release its lock after a recreate/reopen.
+    synchronized (Databases.class) {
+      if (OPEN_DATABASES.get(owner.path) != owner || owner.references != 1 || owner.closing
+          || REMOVING_DATABASES.contains(owner.path)) {
+        if (OPEN_DATABASES.get(owner.path) == owner) {
+          owner.references--;
+        }
+        MANAGER.sessions().removeObject(owner.path, handle);
+        return;
+      }
+      owner.closing = true;
+    }
+    try {
+      owner.database.close();
+      synchronized (Databases.class) {
+        owner.lock.close();
+        OPEN_DATABASES.remove(owner.path);
+        owner.references--;
+        MANAGER.sessions().removeObject(owner.path, handle);
+      }
+    } finally {
+      synchronized (Databases.class) {
+        owner.closing = false;
+        Databases.class.notifyAll();
+      }
+    }
+  }
+
+  private static @Nullable OpenDatabase<?> awaitDatabaseClose(final Path path) {
+    assert Thread.holdsLock(Databases.class);
+    checkNotRemoving(path);
+    OpenDatabase<?> owner = OPEN_DATABASES.get(path);
+    while (owner != null && owner.closing) {
+      try {
+        Databases.class.wait();
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new SirixThreadedException(e);
+      }
+      owner = OPEN_DATABASES.get(path);
+      checkNotRemoving(path);
+    }
+    return owner;
+  }
+
+  private static void checkNotRemoving(final Path path) {
+    assert Thread.holdsLock(Databases.class);
+    if (REMOVING_DATABASES.contains(path)) {
+      throw new IllegalStateException("Database cleanup is already in progress at " + path);
+    }
+  }
+
+  static synchronized Map<Path, Set<Database<?>>> snapshotOpenDatabases() {
+    final Map<Path, Set<Database<?>>> snapshot = new HashMap<>(MANAGER.sessions().asMap().size());
+    MANAGER.sessions().asMap().forEach((path, handles) -> snapshot.put(path, Set.copyOf(handles)));
+    return Map.copyOf(snapshot);
+  }
 
   /**
    * Single global BufferManager shared across all databases and resources. This follows the
@@ -73,13 +171,12 @@ public final class Databases {
    * mint random positive ids instead and track which directory claims each id; a second directory
    * presenting an already-claimed id is re-keyed on open.
    */
-  private static final java.util.concurrent.ConcurrentHashMap<Long, Path> CLAIMED_DATABASE_IDS =
-      new java.util.concurrent.ConcurrentHashMap<>();
+  private static final ConcurrentHashMap<Long, Path> CLAIMED_DATABASE_IDS = new ConcurrentHashMap<>();
 
   private static long mintDatabaseId(final Path databaseFile) {
     long id;
     do {
-      id = java.util.concurrent.ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE);
+      id = ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE);
     } while (CLAIMED_DATABASE_IDS.putIfAbsent(id, databaseFile.toAbsolutePath().normalize()) != null);
     return id;
   }
@@ -124,6 +221,7 @@ public final class Databases {
    * @param dbConfig config which is used for the database, including storage location
    * @return true if creation is valid, false otherwise
    * @throws SirixIOException if something odd happens within the creation process.
+   * @throws SirixDatabaseLockException if another process is creating the database
    */
   public static synchronized boolean createXmlDatabase(final DatabaseConfiguration dbConfig) {
     return createTheDatabase(dbConfig.setDatabaseType(DatabaseType.XML));
@@ -136,6 +234,7 @@ public final class Databases {
    * @param dbConfig config which is used for the database, including storage location
    * @return true if creation is valid, false otherwise
    * @throws SirixIOException if something odd happens within the creation process.
+   * @throws SirixDatabaseLockException if another process is creating the database
    */
   public static synchronized boolean createJsonDatabase(final DatabaseConfiguration dbConfig) {
     return createTheDatabase(dbConfig.setDatabaseType(DatabaseType.JSON));
@@ -143,133 +242,183 @@ public final class Databases {
 
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
     requireNonNull(dbConfig);
-
     initAllocator(dbConfig.getMaxSegmentAllocationSize());
 
-    boolean returnVal = true;
-    // if file is existing, skipping
-    final var databaseFile = dbConfig.getDatabaseFile();
-    if (Files.exists(databaseFile) && !SirixFiles.isDirectoryEmpty(databaseFile)) {
-      returnVal = false;
-    } else {
-      try {
-        Files.createDirectories(databaseFile);
-      } catch (UnsupportedOperationException | IOException | SecurityException e) {
-        returnVal = false;
+    final Path databaseFile = dbConfig.getDatabaseFile();
+    try {
+      if (Files.exists(databaseFile) && hasDatabaseContents(databaseFile)) {
+        return false;
       }
-      if (returnVal) {
-        // creation of folder structure
-        for (final DatabaseConfiguration.DatabasePaths paths : DatabaseConfiguration.DatabasePaths.values()) {
-          final Path toCreate = databaseFile.resolve(paths.getFile());
-          if (paths.isFolder()) {
-            try {
-              Files.createDirectory(toCreate);
-            } catch (UnsupportedOperationException | IOException | SecurityException e) {
-              returnVal = false;
-            }
-          } else {
-            try {
-              if (!toCreate.getFileName().equals(DatabaseConfiguration.DatabasePaths.LOCK.getFile().getFileName())) {
-                Files.createFile(toCreate);
-              }
-            } catch (final IOException e) {
-              SirixFiles.recursiveRemove(databaseFile);
-              throw new SirixIOException(e);
-            }
-          }
-          if (!returnVal) {
-            break;
-          }
-        }
-      }
-
-      // Assign unique database ID if not already set
-      if (dbConfig.getDatabaseId() == 0) {
-        dbConfig.setDatabaseId(mintDatabaseId(dbConfig.getDatabaseFile()));
-      }
-
-      // serialization of the config
-      DatabaseConfiguration.serialize(dbConfig);
-
-      // if something was not correct, delete the partly created
-      // substructure
-      if (!returnVal) {
-        SirixFiles.recursiveRemove(databaseFile);
-      }
+      Files.createDirectories(databaseFile);
+    } catch (final UnsupportedOperationException | IOException | SecurityException e) {
+      return false;
     }
 
-    return returnVal;
+    final Path canonicalPath = canonicalDatabasePath(databaseFile);
+    checkNotRemoving(canonicalPath);
+    boolean success = true;
+    try (final DatabaseLock ownership = DatabaseLock.acquire(canonicalPath)) {
+      // Another creator may have published the database after our initial empty-directory check.
+      // Recheck while owning the lock before creating, serializing, or cleaning up any files.
+      if (hasDatabaseContents(canonicalPath)) {
+        return false;
+      }
+
+      for (final DatabaseConfiguration.DatabasePaths paths : DatabaseConfiguration.DatabasePaths.values()) {
+        if (paths == DatabaseConfiguration.DatabasePaths.LOCK) {
+          continue; // Acquiring ownership already created the persistent lock file.
+        }
+        final Path toCreate = canonicalPath.resolve(paths.getFile());
+        try {
+          if (paths.isFolder()) {
+            Files.createDirectory(toCreate);
+          } else {
+            Files.createFile(toCreate);
+          }
+        } catch (final UnsupportedOperationException | IOException | SecurityException e) {
+          success = false;
+          break;
+        }
+      }
+      if (!success) {
+        removeDatabaseFiles(canonicalPath);
+      } else {
+        if (dbConfig.getDatabaseId() == 0) {
+          dbConfig.setDatabaseId(mintDatabaseId(canonicalPath));
+        }
+        DatabaseConfiguration.serialize(dbConfig);
+      }
+    } catch (final IOException e) {
+      throw new SirixIOException("Could not create database at " + canonicalPath, e);
+    }
+    if (!success) {
+      removeEmptyDatabaseDirectory(canonicalPath);
+    }
+    return success;
+  }
+
+  private static boolean hasDatabaseContents(final Path path) throws IOException {
+    final Path lockPath = path.resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile());
+    try (final Stream<Path> children = Files.list(path)) {
+      return children.anyMatch(child -> !child.equals(lockPath));
+    }
   }
 
   /**
-   * Delete a database. This deletes all relevant data. All running sessions must be closed
-   * beforehand.
+   * Delete a database and all its data, force-closing its local handles first. If session or backend
+   * cleanup fails, removal stops with ownership retained so cleanup can be retried.
    *
    * @param dbFile the database at this path should be deleted
    * @throws SirixIOException if Sirix fails to delete the database
+   * @throws SirixDatabaseLockException if another process owns the database
    */
-  public static synchronized void removeDatabase(final Path dbFile) {
-    // The documented contract requires all database handles to be closed beforehand. This
-    // used to be enforced as a SILENT NO-OP: with one leaked open handle the database
-    // survived "removal", and a follow-up re-creation at the same path found the old store —
-    // e.g. a JSONiq store call then silently created its payload under a DIFFERENT resource
-    // name while queries (and the cost-based optimizer's statistics) kept reading the stale
-    // resource. Enforce the contract instead: force-close leaked handles, then remove.
-    final var openDatabases = MANAGER.sessions().asMap().get(dbFile);
-    if (openDatabases != null && !openDatabases.isEmpty()) {
-      logger.warn("removeDatabase({}): {} database handle(s) still open — force-closing before removal.", dbFile,
-          openDatabases.size());
-      for (final Database<?> database : new ArrayList<>(openDatabases)) {
-        try {
-          database.close();
-        } catch (final RuntimeException e) {
-          logger.warn("Failed to force-close an open database handle for " + dbFile, e);
+  // Throwable identity, not value equality, determines whether addSuppressed would suppress itself.
+  @SuppressWarnings("ReferenceEquality")
+  public static void removeDatabase(final Path dbFile) {
+    requireNonNull(dbFile);
+    final Path path;
+    final @Nullable OpenDatabase<?> owner;
+    final Set<Database<?>> handles;
+    final DatabaseLock lock;
+    synchronized (Databases.class) {
+      if (!Files.exists(dbFile)) {
+        return;
+      }
+      path = canonicalDatabasePath(dbFile);
+      owner = awaitDatabaseClose(path);
+      if (owner == null) {
+        handles = Set.of();
+        lock = DatabaseLock.acquire(path);
+      } else {
+        final Set<Database<?>> registered = MANAGER.sessions().asMap().get(path);
+        handles = registered == null
+            ? Set.of()
+            : Set.copyOf(registered);
+        lock = owner.lock;
+      }
+      REMOVING_DATABASES.add(path);
+    }
+    try {
+      if (owner != null) {
+        logger.warn("removeDatabase({}): {} database handle(s) still open — force-closing before removal.", path,
+            handles.size());
+        Throwable failure = null;
+        for (final Database<?> handle : handles) {
+          try {
+            handle.close();
+          } catch (final RuntimeException | Error e) {
+            if (failure == null) {
+              failure = e;
+            } else if (failure != e) {
+              failure.addSuppressed(e);
+            }
+          }
+        }
+        if (failure instanceof RuntimeException exception) {
+          throw exception;
+        }
+        if (failure instanceof Error error) {
+          throw error;
+        }
+        owner.database.close();
+      }
+      try (lock) {
+        if (DatabaseConfiguration.DatabasePaths.compareStructure(path) == 0) {
+          final DatabaseConfiguration config = DatabaseConfiguration.deserialize(path);
+          try (final Database<?> database = createLocalDatabase(config, createAdminUser())) {
+            removeResources(database);
+          }
+          final long databaseId = config.getDatabaseId();
+          clearCachesForDatabase(databaseId);
+          CLAIMED_DATABASE_IDS.remove(databaseId, path);
+        }
+        SuperblockValidator.invalidateUnder(path);
+        ProjectionIndexCatalog.invalidateUnder(path.toString());
+
+        removeDatabaseFiles(path);
+      } catch (final IOException e) {
+        throw new SirixIOException("Could not remove database at " + path, e);
+      } finally {
+        if (owner != null) {
+          synchronized (Databases.class) {
+            OPEN_DATABASES.remove(path, owner);
+          }
+        }
+      }
+      removeEmptyDatabaseDirectory(path);
+      freeAllocatedMemory();
+    } finally {
+      synchronized (Databases.class) {
+        REMOVING_DATABASES.remove(path);
+      }
+    }
+  }
+
+  private static void removeDatabaseFiles(final Path path) throws IOException {
+    Files.deleteIfExists(path.resolve(DatabaseConfiguration.DatabasePaths.CONFIG_BINARY.getFile()));
+    final Path lockPath = path.resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile());
+    try (final Stream<Path> children = Files.list(path)) {
+      for (final Path child : children.toList()) {
+        if (!child.equals(lockPath)) {
+          SirixFiles.recursiveRemove(child);
         }
       }
     }
-    // If a handle could not be closed the entry survives — keep the old guard rather than
-    // deleting files out from under a live session.
-    if (!MANAGER.sessions().containsAnyEntry(dbFile) && Files.exists(dbFile)) {
-      if (DatabaseConfiguration.DatabasePaths.compareStructure(dbFile) == 0) {
-        final var databaseConfiguration = DatabaseConfiguration.deserialize(dbFile);
-        final var databaseType = databaseConfiguration.getDatabaseType();
+    if (hasDatabaseContents(path)) {
+      throw new DirectoryNotEmptyException(path.toString());
+    }
+    Files.deleteIfExists(lockPath);
+  }
 
-        switch (databaseType) {
-          case XML -> removeXmlResources(dbFile);
-          case JSON -> removeJsonResources(dbFile);
-          default -> throw new IllegalStateException("Database type unknown!");
-        }
-      }
-
-      // CRITICAL FIX: Clear caches for this database to prevent cache pollution
-      // Without this, pages from removed databases can pollute caches and cause test failures
-      if (DatabaseConfiguration.DatabasePaths.compareStructure(dbFile) == 0) {
-        // Deserialize AGAIN: the open inside removeXml/JsonResources above may have just minted or
-        // re-keyed the persisted id (legacy/copied database) — the pre-open id would miss the
-        // cache entries written under the final one.
-        final long databaseId = DatabaseConfiguration.deserialize(dbFile).getDatabaseId();
-        if (GLOBAL_BUFFER_MANAGER != null) {
-          GLOBAL_BUFFER_MANAGER.clearCachesForDatabase(databaseId);
-        }
-        AbstractResourceSession.invalidateRevisionInfoCache(databaseId);
-        // A database recreated at this path mints a fresh id anyway, but the stale claim would map
-        // a dead id → path forever. Value-matched remove: never steal the claim of a live database
-        // at ANOTHER path that happens to persist the same id (file-copied directory).
-        CLAIMED_DATABASE_IDS.remove(databaseId, dbFile.toAbsolutePath().normalize());
-      }
-
-      SuperblockValidator.invalidateUnder(dbFile);
-
-      // Projection decode cache is keyed by resource PATH — a database
-      // recreated at this path would otherwise be served the removed
-      // database's decoded columns.
-      ProjectionIndexCatalog.invalidateUnder(dbFile.toAbsolutePath().toString());
-
-      SirixFiles.recursiveRemove(dbFile);
-
-      freeAllocatedMemory();
-    } else {
-      logger.warn("Database at {} could not be removed, because it is either not existing or still in use.", dbFile);
+  private static void removeEmptyDatabaseDirectory(final Path path) {
+    // Both lock channels must be closed before this deletion: Windows can keep the deleted .lock
+    // entry pending until then. Only delete the empty directory, never a newer generation's files.
+    try {
+      Files.deleteIfExists(path);
+    } catch (final DirectoryNotEmptyException e) {
+      return;
+    } catch (final IOException e) {
+      throw new SirixIOException("Could not remove database directory at " + path, e);
     }
   }
 
@@ -308,7 +457,7 @@ public final class Databases {
     // Path-keyed revision metadata (the RevisionFileData cache + the revision-index holders) is
     // populated at write time and survives session closes — a fresh process has neither, and a
     // warm copy completely masks out-of-band revisions-file damage from the next open.
-    io.sirix.io.StorageType.clearRevisionMetadataCaches();
+    StorageType.clearRevisionMetadataCaches();
     // Per-resource durability claims of the lazy-revision-record profile (record-durability
     // watermark, tail-log ring snapshot, write-frontier snapshot) — a warm claim would mask
     // exactly the out-of-band file damage these tests inject.
@@ -348,18 +497,6 @@ public final class Databases {
     AbstractResourceSession.invalidateRevisionInfoCache(databaseId);
   }
 
-  private static void removeJsonResources(Path dbFile) {
-    try (final Database<?> database = openJsonDatabase(dbFile)) {
-      removeResources(database);
-    }
-  }
-
-  private static void removeXmlResources(Path dbFile) {
-    try (final Database<?> database = openXmlDatabase(dbFile)) {
-      removeResources(database);
-    }
-  }
-
   private static void removeResources(Database<?> database) {
     final var resourcePaths = database.listResources();
     for (final var resourcePath : resourcePaths) {
@@ -368,14 +505,16 @@ public final class Databases {
   }
 
   /**
-   * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
-   * instance bound to the {@link File} is returned.
+   * Open an independently closeable handle to the shared database at the canonical path. One process
+   * owns the database until its last handle closes; another process's open is refused. Each handle
+   * retains its user's identity; resource sessions share storage and revision state.
    *
    * @param file determines where the database is located
    * @param user user used to open the database
    * @return {@link Database} instance.
    * @throws SirixIOException if an I/O exception occurs
    * @throws SirixUsageException if Sirix is not used properly
+   * @throws SirixDatabaseLockException if another process owns the database
    * @throws NullPointerException if {@code file} is {@code null}
    */
   public static Database<XmlResourceSession> openXmlDatabase(final Path file, final User user) {
@@ -383,14 +522,16 @@ public final class Databases {
   }
 
   /**
-   * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
-   * instance bound to the {@link File} is returned.
+   * Open an independently closeable handle to the shared database at the canonical path. One process
+   * owns the database until its last handle closes; another process's open is refused. Each handle
+   * retains its user's identity; resource sessions share storage and revision state.
    *
    * @param file determines where the database is located
    * @param user the user who interacts with the db
    * @return {@link Database} instance.
    * @throws SirixIOException if an I/O exception occurs
    * @throws SirixUsageException if Sirix is not used properly
+   * @throws SirixDatabaseLockException if another process owns the database
    * @throws NullPointerException if {@code file} is {@code null}
    */
   public static Database<JsonResourceSession> openJsonDatabase(final Path file, final User user) {
@@ -398,13 +539,14 @@ public final class Databases {
   }
 
   /**
-   * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
-   * instance bound to the {@link File} is returned.
+   * Open an independently closeable handle to the shared database at the canonical path. One process
+   * owns the database until its last handle closes; another process's open is refused.
    *
    * @param file determines where the database is located
    * @return {@link Database} instance.
    * @throws SirixIOException if an I/O exception occurs
    * @throws SirixUsageException if Sirix is not used properly
+   * @throws SirixDatabaseLockException if another process owns the database
    * @throws NullPointerException if {@code file} is {@code null}
    */
   public static Database<JsonResourceSession> openJsonDatabase(final Path file) {
@@ -421,13 +563,14 @@ public final class Databases {
   }
 
   /**
-   * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
-   * instance bound to the {@link File} is returned.
+   * Open an independently closeable handle to the shared database at the canonical path. One process
+   * owns the database until its last handle closes; another process's open is refused.
    *
    * @param file determines where the database is located
    * @return {@link Database} instance.
    * @throws SirixIOException if an I/O exception occurs
    * @throws SirixUsageException if Sirix is not used properly
+   * @throws SirixDatabaseLockException if another process owns the database
    * @throws NullPointerException if {@code file} is {@code null}
    */
   public static Database<XmlResourceSession> openXmlDatabase(final Path file) {
@@ -437,35 +580,68 @@ public final class Databases {
   private static <M extends ResourceSession<R, W>, R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> Database<M> openDatabase(
       final Path file, final User user, final DatabaseType databaseType) {
     requireNonNull(file);
+    requireNonNull(user);
     if (!Files.exists(file)) {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());
     }
-    // Parse the configuration OUTSIDE the global lock: the open wrappers used to be synchronized
-    // around the whole open, so this file read + JSON parse serialized every concurrent open. It
-    // also warms the deserialize cache, making the lock-fresh re-read below a stat + map lookup.
-    final DatabaseConfiguration parsedAheadOfLock = DatabaseConfiguration.deserialize(file);
-    if (parsedAheadOfLock == null) {
-      throw new IllegalStateException("Configuration may not be null!");
-    }
+    final Path canonicalPath = canonicalDatabasePath(file);
 
     synchronized (Databases.class) {
-      // Re-resolve under the lock (same monitor as createTheDatabase/removeDatabase): a concurrent
-      // open of the SAME path may have just minted or re-keyed the persisted id between the
-      // unlocked parse and lock acquisition — deciding from stale state would give one directory
-      // two live ids, splitting its cache key space and breaking per-database invalidation.
-      final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file);
-
-      // Assign database ID if not already set (backward compatibility)
-      if (dbConfig.getDatabaseId() == 0) {
-        dbConfig.setDatabaseId(mintDatabaseId(dbConfig.getDatabaseFile()));
-        DatabaseConfiguration.serialize(dbConfig);
-      } else {
-        claimDatabaseId(dbConfig);
+      final OpenDatabase<?> existing = awaitDatabaseClose(canonicalPath);
+      if (existing != null) {
+        checkDatabaseType(existing.database.getDatabaseConfig(), databaseType);
+        // The persisted type is checked before reusing the typed database.
+        @SuppressWarnings("unchecked")
+        final OpenDatabase<M> owner = (OpenDatabase<M>) existing;
+        return owner.newHandle(user);
       }
 
-      initAllocator(dbConfig.getMaxSegmentAllocationSize());
-      return databaseType.createDatabase(dbConfig, user);
+      // Acquire ownership before reading or rewriting configuration, recovering storage, or
+      // publishing a database. A mere .lock file is not evidence that a process still owns it.
+      final DatabaseLock lock = DatabaseLock.acquire(canonicalPath);
+      try {
+        final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(canonicalPath);
+        checkDatabaseType(dbConfig, databaseType);
+        final Database<M> database = createLocalDatabase(dbConfig, user);
+        final OpenDatabase<M> owner = new OpenDatabase<>(canonicalPath, database, lock);
+        OPEN_DATABASES.put(canonicalPath, owner);
+        return owner.newHandle(user);
+      } catch (final RuntimeException | Error e) {
+        try {
+          lock.close();
+        } catch (final RuntimeException closeFailure) {
+          e.addSuppressed(closeFailure);
+        }
+        throw e;
+      }
     }
+  }
+
+  private static Path canonicalDatabasePath(final Path path) {
+    try {
+      return path.toRealPath();
+    } catch (final IOException e) {
+      throw new SirixIOException("Could not resolve database path " + path, e);
+    }
+  }
+
+  private static void checkDatabaseType(final DatabaseConfiguration config, final DatabaseType requested) {
+    if (config.getDatabaseType() != requested) {
+      throw new SirixUsageException("Database at " + config.getDatabaseFile() + " has type " + config.getDatabaseType()
+          + "; requested " + requested);
+    }
+  }
+
+  private static <T extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> Database<T> createLocalDatabase(
+      final DatabaseConfiguration dbConfig, final User user) {
+    if (dbConfig.getDatabaseId() == 0) {
+      dbConfig.setDatabaseId(mintDatabaseId(dbConfig.getDatabaseFile()));
+      DatabaseConfiguration.serialize(dbConfig);
+    } else {
+      claimDatabaseId(dbConfig);
+    }
+    initAllocator(dbConfig.getMaxSegmentAllocationSize());
+    return dbConfig.getDatabaseType().createDatabase(dbConfig, user);
   }
 
   private static void initAllocator(long maxSegmentAllocationSize) {

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -20,74 +20,9 @@
  */
 
 /**
- * <p>
- * The access semantics is as follows:
- * </p>
- * <ul>
- * <li>There can only be a single {@link io.sirix.api.Database} instance per Database-Folder</li>
- * <li>There can be multiple {@link io.sirix.api.ResourceSession} instances per
- * {@link io.sirix.api.Database} linked uniquely to resources representing concrete
- * data-storages.</li>
- * <li>There can only be a single {@link io.sirix.api.xml.XmlNodeTrx} instance per
- * {@link io.sirix.api.ResourceSession}</li>
- * <li>There can be multiple {@link io.sirix.api.xml.XmlNodeReadOnlyTrx} instances per
- * {@link io.sirix.api.ResourceSession}.</li>
- * </ul>
- * <p>
- * Code examples:
- * </p>
- * 
- * <pre>
- * // DatabaseConfiguration denoted the configuration for a connected set of data resources.
- * final DatabaseConfiguration dbConfig = new DatabaseConfiguration(new File("/path/to/db/location"));
- * // Creation of a database. Returns true if successful, false if not (including existence of the database)
- * Database.createDatabase(dbConfig);
- * // Getting of database instance, will be a singleton for the denoted path
- * final IDatabase database = Database.openDatabase(new File("/path/to/db/location");
- * // Creation of a resource within the db. The creation includes the setting of versioning, etc. It must take place only one.
- * final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(&quot;coolResource&quot;).setRevision(ERevisioning.Differential).build();
- * database.createResource(resourceConfig);
- * // Getting access via a ISession
- * final SessionConfiguration sessionConfig = new SessionConfiguration(&quot;coolResource&quot;);
- * final ISession someSession = Session.beginSession(sessionConfig);
- *
- * final IWriteTransaction someWTX = someSession.beginWriteTransaction();
- * final IReadTransaction someRTX = someSession.beginReadTransaction();
- * final IReadTransaction someConcurrentRTX = someSession.beginReadTransaction();
- *
- * someWTX.abort();
- * someWTX.close();
- * someRTX.close();
- * someConcurrentRTX.close();
- * someSession.close();
- * database.close();
- * </pre>
- *
- * <p>
- * Best practice to safely manipulate a sirix resource within a database if everything exists:
- * </p>
- * 
- * <pre>
- *         final IDatabase database = Database.openDatabase(new File(&quot;/path/to/db/location&quot;);
- *         final ISession session = Session.beginSession(new SessionConfiguration(&quot;existingResource&quot;);
- *         final IWriteTransaction wtx = session.beginWriteTransaction();
- *         try {
- *           wtx.insertElementAsFirstChild("foo", "", "");
- *           ...
- *           wtx.commit();
- *         } catch (final AbsTTException exc) {
- *           wtx.abort();
- *           throw new RuntimeException(exc);
- *         } finally {
- *           wtx.close();
- *         }
- *         session.close(); // Might also stand in the finally...
- *         database.close();
- * </pre>
- *
- *
+ * Embedded usage examples are in {@code README.md}. Database ownership, shared-handle semantics and
+ * lifecycle requirements are documented in {@code docs/operations.md}, section 10.1.
  *
  * @author Sebastian Graf, University of Konstanz
  */
 package io.sirix.access;
-

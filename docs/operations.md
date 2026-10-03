@@ -262,31 +262,8 @@ storage allocator decisions, and ClockSweeper progress at INFO. Logger names:
 
 ## 8. Backup and restore
 
-Sirix has **no streaming or incremental backup tool**. Resource directories are
-self-contained; the operational pattern is:
-
-1. Stop the writer for the resource (close any active `NodeTrx`).
-   Read-only transactions can continue.
-2. `cp -a` or `rsync -a --inplace` the resource directory to the backup target.
-   Sirix's append-only page format means this is consistent without additional
-   coordination.
-3. Verify the backup by opening it as a read-only resource:
-   ```java
-   try (var db = Databases.openJsonDatabase(backupPath);
-        var session = db.beginResourceSession("...");
-        var rtx = session.beginNodeReadOnlyTrx()) { /* ... */ }
-   ```
-
-Restoring is a directory move/copy back; no replay is required.
-
-**Caveats:**
-
-- Hot backup (writer running) is **not** safe — the in-flight Transaction Intent
-  Log can leave the on-disk image inconsistent. Wait for `wtx.commit()` /
-  `wtx.close()` first.
-- Snapshot-based backups via filesystem snapshots (LVM, ZFS) are safe **iff** the
-  snapshot is atomic across all files of the resource. ext4 + LVM is fine; per-
-  file snapshots are not.
+See [Backup & Restore](BACKUP.md) for the backup API and CLI, online-backup
+prerequisites, cold copies, filesystem snapshots and restore verification.
 
 A point-in-time recovery is possible via Sirix's revision system: open the
 resource at the desired revision number or timestamp via
@@ -302,7 +279,7 @@ resource at the desired revision number or timestamp via
 | **Document model** | JSON, XML | one or the other per resource; no mixing |
 | **Document size** | up to 64 KiB per LZ77 block, unlimited overall | LZ77's 16-bit offset caps the back-reference window; documents larger than 64 KiB fall back to a literal-only token stream (no compression) |
 | **Page size** | 256 KiB ceiling | all in-memory page buffers use this as the practical max |
-| **Concurrency** | many concurrent readers, exactly one writer per resource, within a single JVM | the writer lock is a `Semaphore(1)` per resource path, shared process-wide; a second process is not excluded — see §10.1 |
+| **Concurrency** | one owning process per database; many concurrent readers and exactly one writer per resource | an OS file lock excludes other processes; handles at one canonical path share storage and committed state, with a `Semaphore(1)` per resource path — see §10.1 |
 | **Bitemporality** | system-time (revisions), valid-time (configurable paths via `validTimePaths`) | both queryable via `jn:all-times`, `jn:open-bitemporal`, `sdb:timestamp`, `sdb:valid-from` |
 | **Versioning strategies** | FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT | choose at resource creation; `SLIDING_SNAPSHOT` is the production default |
 | **Indexes** | name index, path index, CAS index, HOT (height-optimized trie) | configured at resource creation |
@@ -312,19 +289,34 @@ resource at the desired revision number or timestamp via
 
 ## 10. Known limitations and operational caveats
 
-1. **Single-writer-per-resource, enforced inside one JVM only.** A second
+1. **One owning process per database, one writer per resource.** Opening a
+   database acquires an exclusive OS lock with `FileChannel.tryLock()` on its
+   `.lock` file. The file is created with the database and recreated on open if
+   absent. Another process's open throws `SirixDatabaseLockException`, naming
+   the canonical database path. This applies to every open, including one used
+   only for reads; concurrent opening from separate processes is unsupported.
+   Ownership lasts until the last database handle and shared backend close
+   successfully. If session or backend cleanup fails during close or removal,
+   ownership is retained; address the failure and retry the failed close or
+   removal. The file remains after close: only a held lock excludes an opener, and the OS
+   releases it when an owner exits or crashes. Do not delete `.lock` to unlock
+   a database.
+
+   Handles opened in one JVM at the same canonical path share one database
+   backend. Their resource sessions retain each handle's user and transaction
+   lifetime while sharing storage, committed revisions and index-catalogue
+   state. New readers and writers see commits through either handle; existing
+   readers retain their pinned revision. Closing one handle closes its sessions
+   while other handles remain usable. While its close is running, that handle
+   rejects new resource creation and resource-session admission. A failed close
+   can be retried on the same handle. Removing a database force-closes its local
+   handles before deleting its files; the canonical path remains reserved until
+   the ownership channels close, preventing competing local lock acquisitions.
+   The process-wide `WriteLocksRegistry` still supplies the `Semaphore(1)` per
+   resource path. A second
    `beginNodeTrx()` on a resource with an active writer throws after a 5-second
    `tryAcquire` timeout. Plan for serialised writes; do batch ingestion in one
-   writer. The lock behind that timeout is the whole of the enforcement: a
-   `Semaphore(1)` per resource path, handed out by the process-wide
-   `WriteLocksRegistry`. Each `Databases.openDatabase` call mints a fresh database
-   handle with its own resource store, so two handles on the same path yield two
-   independent `ResourceSession`s for one resource, sharing only that semaphore;
-   and a second *process* opening the same directory is not refused at all,
-   because the database `.lock` file is declared
-   (`DatabaseConfiguration.DatabasePaths.LOCK`) but never created or checked.
-   Concurrent writers from separate handles or separate processes are therefore
-   unsupported and unsafe: use one open handle, in one process, per resource.
+   writer.
 
 2. **Brackit dependency.** Sirix depends on the released `io.sirix:brackit:1.0-alpha1`,
    so builds are reproducible from Maven Central with no local install or commit-hash

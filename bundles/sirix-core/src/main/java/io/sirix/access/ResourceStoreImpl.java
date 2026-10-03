@@ -11,6 +11,8 @@ import io.sirix.api.ResourceSession;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
+import org.jspecify.annotations.Nullable;
 
 public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     implements ResourceStore<R> {
@@ -24,17 +26,31 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
 
   private final ResourceSessionFactory<R> resourceSessionFactory;
 
+  private final @Nullable Consumer<R> sessionClosed;
+
+  private final Object lifecycleMonitor;
+
   public ResourceStoreImpl(final PathBasedPool<ResourceSession<?, ?>> allResourceSessions,
       final ResourceSessionFactory<R> resourceSessionFactory) {
+    this(allResourceSessions, resourceSessionFactory, null, null);
+  }
+
+  ResourceStoreImpl(final PathBasedPool<ResourceSession<?, ?>> allResourceSessions,
+      final ResourceSessionFactory<R> resourceSessionFactory, final @Nullable Consumer<R> sessionClosed,
+      final @Nullable Object lifecycleMonitor) {
 
     this.resourceSessions = new ConcurrentHashMap<>();
     this.allResourceSessions = allResourceSessions;
     this.resourceSessionFactory = resourceSessionFactory;
+    this.sessionClosed = sessionClosed;
+    this.lifecycleMonitor = lifecycleMonitor == null
+        ? this
+        : lifecycleMonitor;
   }
 
   @Override
-  public R beginResourceSession(final ResourceConfiguration resourceConfig,
-      final BufferManager bufferManager, final Path resourceFile) {
+  public R beginResourceSession(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
+      final Path resourceFile) {
     return this.resourceSessions.computeIfAbsent(resourceFile, k -> {
       final var resourceSession = this.resourceSessionFactory.create(resourceConfig, bufferManager, resourceFile);
       this.allResourceSessions.putObject(resourceFile, resourceSession);
@@ -59,39 +75,44 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
 
   /**
    * Close every open resource session.
-   *
-   * <p>A session that fails to close must not take the others down with it. The straightforward
-   * loop propagated the first exception, so the sessions after it stayed open and stayed
-   * registered in {@code allResourceSessions} — and since the owning database marks itself closed
-   * before calling this, nothing ever came back to finish the job. The first failure is still
-   * reported once every session has been given its turn.
    */
   @Override
+  // Throwable identity, not value equality, determines whether addSuppressed would suppress itself.
+  @SuppressWarnings("ReferenceEquality")
   public void close() {
-    RuntimeException failure = null;
+    Throwable failure = null;
     for (final Map.Entry<Path, R> entry : resourceSessions.entrySet()) {
       try {
         entry.getValue().close();
-      } catch (final RuntimeException e) {
+      } catch (final RuntimeException | Error e) {
         if (failure == null) {
           failure = e;
-        } else {
+        } else if (failure != e) {
           failure.addSuppressed(e);
         }
-      } finally {
-        allResourceSessions.removeObject(entry.getKey(), entry.getValue());
       }
     }
-    resourceSessions.clear();
-    if (failure != null) {
-      throw failure;
+    if (failure instanceof RuntimeException exception) {
+      throw exception;
+    }
+    if (failure instanceof Error error) {
+      throw error;
     }
   }
 
   @Override
   public boolean closeResourceSession(final Path resourceFile) {
-    final R session = resourceSessions.remove(resourceFile);
-    this.allResourceSessions.removeObject(resourceFile, session);
-    return session != null;
+    synchronized (lifecycleMonitor) {
+      final R session = resourceSessions.get(resourceFile);
+      if (session == null) {
+        return false;
+      }
+      if (sessionClosed != null) {
+        sessionClosed.accept(session);
+      }
+      resourceSessions.remove(resourceFile, session);
+      allResourceSessions.removeObject(resourceFile, session);
+      return true;
+    }
   }
 }

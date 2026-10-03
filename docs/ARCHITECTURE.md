@@ -1041,7 +1041,7 @@ The storage engine is deceptively simple: pages go in, pages come out. The compl
 │  mydatabase/                           ◄── Database directory               │
 │  ├── dbsetting.obj                     ◄── Database configuration (binary)  │
 │  ├── keyselector/                      ◄── Encryption key storage           │
-│  ├── .lock                             ◄── Declared, never created or read  │
+│  ├── .lock                             ◄── Persistent OS ownership lock      │
 │  └── resources/                        ◄── All resources in this database   │
 │      │                                                                      │
 │      ├── resource1/                    ◄── Resource directory               │
@@ -2008,6 +2008,21 @@ The `PageContainer` holds two views of a page during modification:
 ```
 
 ### Concurrency Model
+
+For process ownership and handle lifecycle, see the
+[operational rules](operations.md#10-known-limitations-and-operational-caveats).
+`Databases` keys its shared backends by canonical database path and acquires
+ownership before reading configuration, recovering storage or publishing a database.
+
+Within the owning JVM, independently closeable handles reference one database
+backend. Resource sessions keep each handle's `User`, transaction bookkeeping
+and reader pool while sharing storage, committed and pending revision state,
+index-controller caches and index-catalogue knowledge. `WriteLocksRegistry`
+continues to supply one writer semaphore per resource path; commits through any
+handle advance the shared view, while existing readers keep their pinned revision.
+The last user resource session closes shared storage. Backend cleanup must finish
+before the owner is deregistered and its OS lock is released; a cleanup failure
+leaves the owner registered for retry.
 
 ```mermaid
 sequenceDiagram
