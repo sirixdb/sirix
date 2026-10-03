@@ -1037,7 +1037,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * SIMD equality search on 8-bit dense partial keys. All 32 entries compared in one AVX2 op.
+   * Equality search on 8-bit dense partial keys: machine-word lanes for up to eight entries,
+   * otherwise SIMD over the full partial-key array.
    */
   private int simdEqualitySearchBytes(byte searchPK) {
     if (entryCount <= Long.BYTES) {

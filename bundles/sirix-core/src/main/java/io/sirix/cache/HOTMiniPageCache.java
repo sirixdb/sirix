@@ -14,9 +14,10 @@ import java.util.function.Predicate;
 /**
  * Buffer-manager-owned, byte-budgeted cache of immutable resolved HOT slots. Hits use the ordinary
  * page-cache guard. Admissions and invalidations use shared stripe monitors; invalidation fences
- * in-flight read-through admission so truncation cannot resurrect an answer under a reused durable offset.
- * Fences use 1,024 shared hash stripes over database, resource and durable key. Promotion normally
- * touches only one leaf; a rare collision can serialize or reject another leaf's admission.
+ * in-flight read-through admission so truncation cannot resurrect an answer under a reused durable
+ * offset. Fences use 1,024 shared hash stripes over database, resource and durable key. Promotion
+ * normally touches only one leaf; a rare collision can serialize or reject another leaf's
+ * admission.
  */
 public final class HOTMiniPageCache {
   /** Four distinct confirmed point misses justify one ordinary complete-view reconstruction. */

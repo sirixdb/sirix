@@ -246,10 +246,10 @@ final class HOTCompactFragmentReadTest {
         try (HOTLeafPage target = compact.copyForRead()) {
           assertThrows(rejection, () -> compact.splitTo(target));
           assertThrows(rejection, () -> target.splitTo(compact));
-          assertThrows(rejection, () -> compact.splitToWithInsert(target, key(18), key(18).length, value(18),
-              value(18).length));
-          assertThrows(rejection, () -> target.splitToWithInsert(compact, key(18), key(18).length, value(18),
-              value(18).length));
+          assertThrows(rejection,
+              () -> compact.splitToWithInsert(target, key(18), key(18).length, value(18), value(18).length));
+          assertThrows(rejection,
+              () -> target.splitToWithInsert(compact, key(18), key(18).length, value(18), value(18).length));
           assertArrayEquals(wire, serialize(target));
         }
         assertEquals(1, compact.getGuardCount());
@@ -265,8 +265,9 @@ final class HOTCompactFragmentReadTest {
           assertTrue(copy.slots().isNative());
           assertEquals(61, copy.size());
           for (int row = 0; row <= 60; row++) {
-            assertArrayEquals(row == 1 ? new byte[] {99} : value(row),
-                copy.copyStoredValue(copy.findEntry(key(row))));
+            assertArrayEquals(row == 1
+                ? new byte[] {99}
+                : value(row), copy.copyStoredValue(copy.findEntry(key(row))));
           }
         }
       } finally {

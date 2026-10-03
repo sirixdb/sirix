@@ -175,8 +175,8 @@ final class HOTResidencyCleanupTest {
       fragments.put(siblingKey, sibling);
       final HOTMiniPageCache miniCache = manager.getHOTMiniPageCache();
       final PageReference miniKey = key(1, 2, 7);
-      final HOTMiniPage mini = spy(HOTMiniPage.append(null, 7, 1, new byte[] {1}, -1,
-          new HOTLeafEntry(new byte[] {2}, null)));
+      final HOTMiniPage mini =
+          spy(HOTMiniPage.append(null, 7, 1, new byte[] {1}, -1, new HOTLeafEntry(new byte[] {2}, null)));
       doAnswer(invocation -> {
         invocation.callRealMethod();
         throw miniFailure;
@@ -198,7 +198,12 @@ final class HOTResidencyCleanupTest {
             default -> throw new AssertionError(scope);
           }
         });
-        assertSame(failComplete ? completeFailure : scope.equals("all") ? heapFailure : nativeFailure, thrown);
+        assertSame(failComplete
+            ? completeFailure
+            : scope.equals("all")
+                ? heapFailure
+                : nativeFailure,
+            thrown);
         assertTrue(containsFailure(thrown, heapFailure));
         assertTrue(containsFailure(thrown, miniFailure));
         assertTrue(containsFailure(thrown, nativeFailure));

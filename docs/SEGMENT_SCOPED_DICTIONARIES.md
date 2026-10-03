@@ -181,8 +181,9 @@ property a change to the commit path has to prove.
 **The gap: the anchor table is not persisted.** `SegmentDictionaryAnchors` is in-memory, and a reader
 in a later transaction needs `(segment, column) -> header key`. The lane's own anchors live in
 `ProjectionIndexMetadata.valueDictionaryHeaderKeys()` — a `long[]` indexed by COLUMN, read back through
-`ProjectionIndexHOTStorage.readBlob(reader, indexDef.getID(), 0L)` in
-`NodeStorageEngineReader.collectTrieLaneAnchors`. Segment anchors need the same thing indexed by
+`NodeStorageEngineReader.collectTrieLaneAnchors` through the
+[projection metadata slot-read path](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
+Segment anchors need the same thing indexed by
 `(segment, column)`: at 100M with 1024-leaf segments that is 10,000 x 4 longs plus their sealed counts,
 ≈ 640 KB — affordable, but a metadata format addition (permitted: no version machinery).
 

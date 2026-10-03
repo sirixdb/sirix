@@ -738,7 +738,7 @@ automatic rather than hand-tracked.
 ```mermaid
 flowchart TD
     Q["query arrives at<br/>SirixVectorizedExecutor"] --> CAT["ProjectionIndexCatalog<br/>keyed (resource, defId, buildRevision)"]
-    CAT --> META["readBlob slot 0 → PIXM<br/>shape match? stale? leafCount"]
+    CAT --> META["readMetadataBlob → PIXM<br/>shape match? stale? leafCount"]
     META -- "stale / mismatch / unsupported" --> FB["fall back to generic pipeline<br/>(negative-cache)"]
     META -- ok --> RAL["readAllLeaves:<br/>range-scan descriptors<br/>(contiguity enforced)"]
     RAL --> SEG["fetch segment pages<br/>parallel assembly ≥ 64 leaves<br/>verify byteLen + XXH3 at fill"]
@@ -1040,7 +1040,7 @@ versioning behaviours:
 
 | Storage class | What it is | How it versions |
 |---|---|---|
-| **Descriptor slots and inline segment slots** | HOT slot values: the zone-map-only `PIXD` directory at `slotKind 0` (§5.1), and every segment ≤ 512 B riding its own slot behind a discriminator byte | **Rides the algorithm (§8.3).** A slot value is a fragment-versioned unit — a non-FULL commit writes a sparse HOT fragment for touched slots; a read combines up to `revsToRestore` fragments newest-first. Small columns version as slots of their own, next to the descriptor rather than inside it. |
+| **Descriptor slots and inline segment slots** | HOT slot values: the zone-map-only `PIXD` directory at `slotKind 0` (§5.1), and every segment ≤ 512 B riding its own slot behind a discriminator byte | **Rides the algorithm (§8.3).** A slot value is a fragment-versioned unit — a non-FULL commit writes a sparse HOT fragment for touched slots; read resolution follows [Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads). Small columns version as slots of their own, next to the descriptor rather than inside it. |
 | **Referenced large segments** | any segment over 512 B: its bytes go to an `OverflowPage` (the retired `ProjectionSegmentPage`'s replacement) hung off the side map, its slot keeps only the discriminator | **No fragment versioning.** Offset identity — immutable once written, keyed by file offset, never merged; shared across revisions purely by reference, reuse decided by content hash (§6.3), independent of the algorithm. |
 | **Order/fence chunks** | explicit document links plus normal-backbone routing metadata, 32 physical row groups/chunk in an `OverflowPage` (§5.4) | **Carry-forward.** An unchanged chunk is a hash no-op; a touched commit rewrites only chunks containing changed links/fences. Hydration reads the validated document order, while maintenance lazily reads numeric routing. |
 

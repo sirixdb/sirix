@@ -112,16 +112,6 @@ public final class ProjectionIndexBenchSetup {
   }
 
   /**
-   * PERSIST the projection as a CATALOGUED definition — the production discovery path
-   * ({@code ProjectionIndexCatalog}), not the in-memory registry pool the other install here uses.
-   * This is what a cold query really faces: the handle is rebuilt from the slot-0 metadata blob plus
-   * a row-group directory walk, and each queried column's segments are read from storage on demand.
-   * Nothing is placed in the registry, and the catalog is authoritative once a definition exists, so
-   * the query path cannot silently fall back to RAM-resident leaves.
-   *
-   * @return the number of persisted row groups
-   */
-  /**
    * The JSONiq surface a user would actually call: {@code jn:create-projection-index} builds the
    * projection AND catalogues its definition, so {@code ProjectionIndexCatalog} — which is
    * authoritative once a definition exists — discovers it after re-open. Returns the query's result
@@ -163,8 +153,8 @@ public final class ProjectionIndexBenchSetup {
   /** Row-group count recorded in a persisted projection's slot-0 metadata blob, or 0. */
   public static int projectionRowGroupCount(final JsonResourceSession session, final int revision, final int defId) {
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
-      final ProjectionIndexMetadata metadata =
-          ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(rtx.getStorageEngineReader(), defId));
+      final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(
+          ProjectionIndexHOTStorage.readMetadataBlob(rtx.getStorageEngineReader(), defId));
       return metadata == null
           ? 0
           : metadata.rowGroupCount();

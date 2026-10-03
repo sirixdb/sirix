@@ -30,10 +30,9 @@ public final class EngineWorkCounters {
   // ===== HOT leaf pages =====================================================
 
   /**
-   * HOT leaf pages loaded from storage. Every such load passes through the versioned fragment merge
-   * or the requested-slot lookup exactly once, whichever of their outcomes answers it, so their sum
-   * is the number of leaves a cache-cold operation read. A {@code FULL}-versioned resource bypasses
-   * the merge and reads zero.
+   * Complete HOT leaf reconstructions plus requested-slot fragment walks. A slot walk counts once
+   * even when its raw images hit the fragment cache; complete-leaf and mini-page hits skip this work.
+   * A {@code FULL}-versioned resource bypasses the merge and contributes zero.
    */
   public static final WorkCounter HOT_LEAF_LOADS = WorkCounter.gated("hot.leafLoads",
       "one HOT leaf resolved from storage (complete reconstruction or requested-slot lookup)",
@@ -41,7 +40,9 @@ public final class EngineWorkCounters {
           + VersioningType.multiFragmentMerges() + VersioningType.pointLeafReads(),
       "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
 
-  /** Older fragments read to reconstruct those leaves: the read amplification of versioning. */
+  /**
+   * Older fragments inspected during reconstruction or slot lookup, including fragment-cache hits.
+   */
   public static final WorkCounter HOT_FRAGMENTS_WALKED =
       WorkCounter.gated("hot.fragmentsWalked", "one older HOT fragment inspected during reconstruction or slot lookup",
           () -> VersioningType.fragmentsWalked() + VersioningType.pointFragmentsWalked(), "-Dsirix.hot.mergeDiag=true",

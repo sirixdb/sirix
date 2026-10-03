@@ -66,6 +66,7 @@ final class HOTProjectionEntryReadTest {
     assertTrue(VersioningType.hotMergeDiagEnabled(),
         "Run with -Dsirix.hot.mergeDiag=true (the gradle test configuration sets it).");
   }
+
   private static final byte[] KEY = {7, 11};
   private static final byte[] VALUE = {13, 17};
   private static final long SIDE_KEY = 42;
@@ -79,8 +80,12 @@ final class HOTProjectionEntryReadTest {
       }
       final HOTLeafPage base = fixture.images.get(1L);
       base.setCompleteDump(true);
-      final byte[] value = packedLimit ? new byte[HOTMiniPage.MAX_DATA_BYTES / 2] : VALUE;
-      final int previousReads = packedLimit ? 1 : HOTMiniPageCache.POINT_PROMOTION_DISTINCT_KEYS - 1;
+      final byte[] value = packedLimit
+          ? new byte[HOTMiniPage.MAX_DATA_BYTES / 2]
+          : VALUE;
+      final int previousReads = packedLimit
+          ? 1
+          : HOTMiniPageCache.POINT_PROMOTION_DISTINCT_KEYS - 1;
       for (int i = 0; i <= previousReads; i++) {
         assertTrue(base.put(new byte[] {7, (byte) i}, value));
       }
@@ -97,12 +102,13 @@ final class HOTProjectionEntryReadTest {
         throw failure;
       }).when(failingMiniCache).discard(any(PageReference.class));
       when(fixture.buffers.getHOTMiniPageCache()).thenReturn(failingMiniCache);
-      assertSame(failure, assertThrows(Error.class, () -> fixture.storage.readHOTProjectionEntry(fixture.chain,
-          new byte[] {7, (byte) previousReads}, SIDE_KEY)));
+      assertSame(failure, assertThrows(Error.class,
+          () -> fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {7, (byte) previousReads}, SIDE_KEY)));
       final HOTLeafPage complete = assertInstanceOf(HOTLeafPage.class, fixture.chain.getPage());
       assertEquals(0, complete.getGuardCount());
       assertEquals(1, fixture.completeCache.size());
-      assertArrayEquals(value, fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {7, 0}, SIDE_KEY).value());
+      assertArrayEquals(value,
+          fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {7, 0}, SIDE_KEY).value());
       assertEquals(0, complete.getGuardCount());
       fixture.assertReleased();
     }

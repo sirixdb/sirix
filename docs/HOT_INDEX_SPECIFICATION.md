@@ -427,7 +427,9 @@ from the node's root to child `i` are set, all other bits of `D` are 0
 2. `dense = extract(key)`.
 3. `matchMask = SparsePartialKeys.search(dense)`: bit `i` is set iff `(dense & sparse[i]) == sparse[i]`.
    The storage arrays always have 32 elements so one 256-bit vector load covers all entries; byte
-   keys use one `ByteVector.SPECIES_256` compare, short keys up to two, int keys up to four
+   keys with at most eight live entries use the allocation-free machine-word lanes in
+   `ByteLaneSearch.subset`; byte-key nodes with more entries use one `ByteVector.SPECIES_256` compare,
+   short keys up to two, int keys up to four
    (`hot/SparsePartialKeys.java:79-89`, `:143-151`, `:154-308`). The scalar fallbacks are unreachable
    because the species lengths are constants (`:190`, `:232`, `:279`).
 4. `matchMask == 0` → `NOT_FOUND` (−1), which callers treat as structural corruption.
@@ -546,7 +548,7 @@ container pages; it contains no body layout for either HOT page kind. This secti
 #### 3.2.2 In-memory layout
 
 ```
-slotMemory (64 KiB off-heap frame, or an exact-size slice of a decompression buffer)
+ordinary leaf slotMemory (64 KiB off-heap frame, or an exact-size slice of a decompression buffer)
 +--------------------------------------------------------------------------------+
 | entry | entry | dead bytes | entry | ... | entry |            free              |
 +--------------------------------------------------------------------------------+
@@ -558,8 +560,9 @@ slotOffsets[0..entryCount)  ascending KEY order; heap positions are NOT monotone
 dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
 ```
 
-- Fields: `recordPageKey`, `revision`, `indexType` (final); `slotMemory`, `slotOffsets[512]`,
+- Ordinary leaf fields: `recordPageKey`, `revision`, `indexType` (final); `slotMemory`, `slotOffsets[512]`,
   `entryCount`, `usedSlotMemorySize` (`page/HOTLeafPage.java:246-257`, `:500`, `:515`).
+  Compact raw images follow the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
 - Entries are appended at `usedSlotMemorySize`; order is carried only by `slotOffsets`, which an
   insert shifts with `System.arraycopy` (`:2284-2291`).
 - **Prefix compression**: the first insert sets `commonPrefix` to the whole key (`:2056-2061`); a key
@@ -586,8 +589,9 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
 - **Updates**: a smaller or equal value is overwritten in place; a larger one is appended and the
   offset repointed; dead bytes are reclaimed only by `compact()` when an append does not fit
   (`:2450-2507`, `:2760-2791`).
-- **In-leaf search**: common-prefix check, then for 2..32 entries a lazily built PEXT index over the
-  leaf's own discriminative bits (spanning < 8 bytes, ≤ 32 bits) searched with SIMD equality and
+- **Ordinary in-leaf search**: common-prefix check, then for 2..32 entries a lazily built PEXT index
+  over the leaf's own discriminative bits (spanning < 8 bytes, ≤ 32 bits) searched with `ByteLaneSearch.equal`
+  for byte keys with at most eight entries, otherwise SIMD equality, and
   verified against the full suffix, otherwise binary search over suffixes; result is the index or
   `−(insertionPoint + 1)` (`:619-686`, `:833`, `:844-928`, `:1037-1046`).
 - **Side-reference map**: `PageReference`s to overflow pages owned by entries (used by projection
@@ -626,10 +630,12 @@ Writer `page/PageKind.java:5904-5984`; reader `:5806-5899`.
   (`page/PageKind.java:5907-5908`). A sparse image holds only the entries changed since the page was
   copied from its previous image. Fresh pages from splits and structural rewrites are full images
   with `completeDump = true` (`hot/AbstractHOTIndexWriter.java:6871-6875`; `page/HOTLeafPage.java:3010-3018`).
-- The reader always allocates `slotOffsets` with 512 elements and does not check `entryCount ≤ 512`
-  explicitly; an oversized count fails as an array bounds error (`page/PageKind.java:5827-5832`).
-- **Zero-copy**: if the input is a `MemorySegmentBytesIn` with a `DecompressionResult`, `slotMemory`
-  becomes a slice of the decompressed buffer and ownership of that buffer transfers to the page;
+- `PageKind.deserializeHOTLeaf` rejects entry counts above 512 and packed byte counts outside
+  `[0, 65536]`. Ordinary decoding reserves the full writable offset directory; compact raw decoding
+  follows the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
+- **Zero-copy ordinary decoding**: if the input is a `MemorySegmentBytesIn` with a
+  `DecompressionResult`, `slotMemory` becomes a slice of the decompressed buffer and ownership of
+  that buffer transfers to the page;
   otherwise a 64 KiB frame is allocated and the heap copied (`:5838-5871`). The first mutation of a
   zero-copy leaf promotes it into a fresh frame (`page/HOTLeafPage.java:2379-2441`).
 - There is no checksum in the body; see §3.6 for what is and is not hashed.
@@ -712,7 +718,7 @@ revision must equal its fragment key's revision, otherwise `SirixIOException`
   2. newest image has `completeDump` → return it;
   3. `result = newest.copy()`, clear `completePageRef` and dirty bits;
   4. for each older image, newest to oldest: insert every key **absent** from `result`, tombstones
-     included (first value seen wins; PROJECTION via `putOrReplace`, others via `mergeWithNodeRefs`);
+     included (first value seen wins; PROJECTION via `fillProjectionEntry`, others via `mergeWithNodeRefs`);
      failure to fit throws;
   5. **stop after an image with `completeDump`**: "A complete dump is a replacement snapshot, not
      another delta … entries moved to the right-hand leaf are absent from this page but still exist
@@ -804,26 +810,28 @@ The serialized result is sparse unless FULL, no `completePageRef`, or no dirty e
 4. **Global HOT leaf cache**, keyed by a canonical `PageReference(key, databaseId, resourceId)`:
    `getAndGuard`, swizzle onto the caller's reference, release the guard unless the caller keeps it
    (`:4410-4417`, `:3902-3921`).
-5. **Disk**: `pageReader.read(reference, resourceConfig)`. An indirect page is swizzled and returned
-   without any cache. A leaf goes through `loadHOTLeafPageWithVersioning`: FULL adopts the image;
-   otherwise the chain is loaded (§4.1.1) and combined (§3.5.2); the result is adopted into the leaf
+5. **Raw head or disk**: read-only transactions on non-shared backends first try a guarded raw head
+   and take `copyForRead()`, preserving its completeness boundary without a CoW dependency on the
+   cached source. Otherwise use `pageReader.read(reference, resourceConfig)`. An indirect page is
+   swizzled and returned without any cache. A leaf goes through `loadHOTLeafPageWithVersioning`:
+   FULL adopts the image; otherwise the chain is loaded (§4.1.1) and combined (§3.5.2);
+   the result is adopted into the leaf
    cache with `getOrLoadAndGuard`, and a losing duplicate is retired (`:3768-3894`).
 6. `SirixIOException` → null, which `HOTTrieReader` turns into
    `IllegalStateException("HOT structural corruption: ...")` (`trx/HOTTrieReader.java:544-546`, `:860-862`).
 
-Cache sizing: the HOT budget is `maxRecordPageCacheWeight / 4`; the fragment cache gets
-`min(budget/2, max(budget/4, MIN_HOT_FRAGMENT_BUDGET_BYTES))` of it (`cache/BufferManagerImpl.java:304-309`).
-Both are `ShardedPageCache`s swept by a global `ClockSweeper` that skips guarded pages
-(`cache/BufferManagerImpl.java:496-519`; `cache/ClockSweeper.java:238-250`).
+HOT cache sizing, residency and requested-slot admission are owned by
+[Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
 
 #### 4.1.1 Fragment-chain batching
 
 `loadChainFragmentsGuarded` (`trx/NodeStorageEngineReader.java:4093-4174`) reads a chain in two
 passes: a guarded probe of the fragment cache for every key, then **one**
-`Reader.read(PageReference[])` for all misses, hinted to the backend before the first read. Element 0
-(the newest image) is owned by the caller and not cached as a fragment. A backend that answers the
-batch form with null gets scalar reads (`readDurableBatch`, `:3291-3312`). This is tier B of the
-batched-reads change measured in
+`Reader.readHOTLeafFragments(PageReference[], ResourceConfiguration)` for all misses, hinted to the
+backend before the first read. Element 0 is the caller-owned newest image, possibly a private copy
+of a cached raw head; the chain loader does not adopt it into the fragment cache. A backend that
+answers the batch form with null gets scalar reads (`readDurableBatch`, `:3291-3312`). This is tier B
+of the batched-reads change measured in
 [SEGMENT_PROJECTION_INDEXES.md §8.3 and §9.4](SEGMENT_PROJECTION_INDEXES.md).
 
 Failure handling is explicit, because a partially completed batch would otherwise strand off-heap
@@ -843,6 +851,11 @@ frames or leave guards nobody releases:
 Both were added by PR #1214.
 
 ### 4.2 Point lookup
+
+Projection blob point reads use `HOTTrieReader.readProjectionEntry`; their detached results,
+read intents and fragment ownership follow
+[Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
+The ordinary leaf lookup below remains the path for posting indexes and complete-leaf traversal.
 
 #### 4.2.1 Trie level: descent
 
@@ -869,8 +882,8 @@ still validates is rethrown as corruption, not retried (`:319-322`). The returne
 unpinned memory: the caller must validate again after reading it or copy it (`:287-292`).
 
 **Complexity**: O(h) page loads with h ≤ 64 (typically 3-5 levels per the comment at `:1220`); per
-indirect node one PEXT and one ≤ 256-bit SIMD compare; per leaf O(1) SIMD compares for ≤ 32 entries,
-otherwise O(log 512) suffix comparisons; at most 64 retries.
+indirect node one PEXT and one machine-word or ≤ 256-bit SIMD compare; per ordinary leaf O(1)
+machine-word or SIMD compares for ≤ 32 entries, otherwise O(log 512) suffix comparisons; at most 64 retries.
 
 #### 4.2.2 Index level: chunk walk
 
@@ -1737,8 +1750,8 @@ unless noted.
 | `sirix.mm.prefetchBatch` / `sirix.mm.prefetchSpan` | 128 / 64 KiB | the same for the memory-mapped backend | `io/memorymapped/MMFileReader.java:248`, `:261` |
 
 The resource configuration's `VersioningType` and `maxNumberOfRevisionsToRestore` (default
-SLIDING_SNAPSHOT, 3) govern leaf chains (§3.5). Leaf and fragment cache budgets derive from the buffer
-manager's record-page budget (§4.1); there is no HOT-specific property for them.
+SLIDING_SNAPSHOT, 3) govern leaf chains (§3.5). HOT cache budgets and their controls follow
+[Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
 
 ### 6.2 Diagnostics (off by default, no effect on results)
 
@@ -1748,7 +1761,7 @@ manager's record-page budget (§4.1); there is no HOT-specific property for them
 | `hot.diag.directionOneFallback` | dump the shape when a Direction-1 fallback is taken | `:4159-4162`, `:4310-4313` |
 | `hot.diag.branchFallback` | dump a malformed combo-add candidate | `:4172-4174` |
 | `hot.localize.i8`, `hot.localize.fromRev` (0) | after each dispatch, locate the first I4/I7/I8 violation from the root and report the handler (≤ 60 reports) | `:282-286`, `:1966-1985`, `:2149-2195` |
-| `sirix.hot.mergeDiag` | fragment-merge and carry-forward `LongAdder` counters, including `completeDumpsWalkedPast` which must stay 0; **on in the sirix-core and sirix-query test JVMs**, where the work-budget tests also read their sum as "HOT leaves loaded" | `set/VersioningType.java:1215-1225` |
+| `sirix.hot.mergeDiag` | fragment-merge, requested-slot and carry-forward `LongAdder` counters, including `completeDumpsWalkedPast` which must stay 0; **on in the sirix-core and sirix-query test JVMs**; work-counter semantics are owned by [Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | `set/VersioningType.java` |
 
 Always-on counters (public `AtomicLong`s): `STRUCTURAL_VALIDATION_FAILURE` ("Must stay zero"),
 `STRUCTURAL_PUT_NOT_READABLE` (also "must stay zero"; §4.8),

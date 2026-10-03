@@ -631,12 +631,12 @@ public final class ProjectionIndexMetadata {
   }
 
   /**
-   * Parse a metadata payload; {@code null} when {@code payload} does not carry the metadata magic
-   * (e.g. a leaf payload from a metadata-less store).
+   * Parse a metadata payload; {@code null} when {@code payload} is absent or does not carry the
+   * metadata magic (e.g. a leaf payload from a metadata-less store).
    *
    * @throws IllegalStateException on a structurally corrupt metadata payload
    */
-  public static ProjectionIndexMetadata parse(final byte[] payload) {
+  public static ProjectionIndexMetadata parse(final byte @Nullable [] payload) {
     if (payload == null || payload.length < 6 || getIntLE(payload, 0) != MAGIC) {
       return null;
     }

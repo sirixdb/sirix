@@ -1296,13 +1296,15 @@ Before `739e46288`, `FileChannelReader` implemented neither `prefetch` nor `pref
 in sirix-core was a no-op; the defaults were 16 pages and 4 KiB (`reports/sirix-enterprise-iouring-ab/report.md` §2 and §7;
 `reports/sirix-batched-reads-patch/report.md:397-408`).
 
-**Write transactions lose coalescing.** `AbstractForwardingReader` forwards `prefetch`,
+**Record-page write transactions lose coalescing.** `AbstractForwardingReader` forwards `prefetch`,
 `preferredPrefetchBatch` and (since PR #1214) `returnsSharedPages`, but still not the batched `read` or
 `readRegionsOnly`, and `FileChannelWriter` (its only subclass, used as the page reader of write transactions) does
-not override them, so fragment batches on the write path remain per-page loops
+not override them, so record-page fragment batches on the write path remain per-page loops
 (`io/AbstractForwardingReader.java:26-85`; `io/filechannel/FileChannelWriter.java:76`;
 `trx/StorageEngineWriterFactory.java:125-126`). Whether this is intended was not established; it was still true when
-PR #1214 merged.
+PR #1214 merged. HOT fragment batches now explicitly forward `readHOTLeafFragments` to the
+delegate, retaining coalescing and compact decoding; see
+[Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
 
 ### 8.3 Fragment-chain batching (tier B)
 
@@ -1389,8 +1391,7 @@ that other entry points silently ignore it (`kit/README.md:245-256`).
 |---|---|---|---|---|
 | record page | `PageReference` → `KeyValueLeafPage` | budget / 2 (bytes) | global `ClockSweeper` second chance above 80 % (100 ms cycle, 10 % scan), guarded pages skipped; inline eviction above 110 % | `sirix.cache.recordPage` |
 | record page fragment | fragment offset → `KeyValueLeafPage` | budget × 3/16 | same | `sirix.cache.recordPageFragment` |
-| HOT leaf | `PageReference` → combined `HOTLeafPage` | record budget / 4 − HOT fragment share | same | derived |
-| HOT leaf fragment | `PageReference` → `HOTLeafPage` image | `min(q/2, max(q/4, 32 × 64 KiB))`, q = record budget / 4 | same | derived |
+| HOT complete leaves, raw fragments and resolved-slot mini pages | durable `PageReference` → HOT view | [Residency and budgets](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | guarded clock caches | see owner |
 | page (metadata pages) | `PageReference` → `Page` | **50 000 entries** (the byte budget passed in is ignored) | Caffeine size | `sirix.cache.page.max.entries` |
 | revision root | (db, resource, revision) → `RevisionRootPage` | 20 000 entries | Caffeine | `sirix.cache.revisionRoot.max.entries` |
 | HOT lookup | `HOTLookupKey` → node keys | 1 024..65 536 entries, budget-derived | set-associative | `sirix.hotLookupCache.maxEntries` |
@@ -2072,7 +2073,7 @@ coalescing, or is not sorted by file offset, returns the same bytes, so these ar
 (§7.3), the frame-slot allocator's `allocateCount` / `releaseCount` and the index-catalogue directory listings
 (`AbstractResourceSession.indexCatalogueDirectoryListings()`: a session resolves a transaction's catalogue from what it
 knows before it lists `indexes/`, and the listing is what grows with the revision count) are unconditional for the same
-reason. The HOT fragment-merge counters in `VersioningType` sit on the default read path and stay gated behind
+reason. The HOT fragment-merge and requested-slot counters in `VersioningType` sit on the read path and stay gated behind
 `sirix.hot.mergeDiag`, which the `sirix-core` and `sirix-query` test JVMs switch on.
 
 **Work-budget tests** assert on these counters and on the `# served:` route counters (§7.3): a load or query may not
