@@ -100,12 +100,12 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   }
 
   @Override
-  public void createStorageEnginePool() {
-    super.createStorageEnginePool();
+  public synchronized void rebuildValidTimeIndexes() {
+    final int revision = getMostRecentRevisionNumber();
     if (getResourceConfig().getValidTimeConfig() == null) {
       return;
     }
-    final JsonIndexController controller = createIndexController(getMostRecentRevisionNumber());
+    final JsonIndexController controller = createIndexController(revision);
     for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
       if (definition.needsValidTimeRebuild()) {
         try (final JsonNodeTrx writer = beginNodeTrx(AfterCommitState.CLOSE)) {

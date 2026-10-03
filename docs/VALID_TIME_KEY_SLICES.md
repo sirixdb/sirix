@@ -52,10 +52,12 @@ minus the interval index id, reserving the upper half of the physical id space. 
 to the same `ValidTimeIndexPage` and commit atomically through the transaction intent log. The order
 guard is conservative: rebuilding can reestablish orderedness after subsequent edits restore it.
 
-The catalog declares `validTimeFormat="4"`. Opening a resource with an obsolete valid-time catalog
-rebuilds its indexes from document data into fresh physical roots and commits a new revision before
-returning the session. Reopening the upgraded resource does not rebuild again. Historical revisions
-omit the obsolete index from discovery and use the ordinary exact query fallback; no old index-layout
+The catalog declares `validTimeFormat="4"`. Opening a resource never upgrades an obsolete valid-time
+catalog or adds a revision. Readers omit obsolete indexes from discovery and use the ordinary exact
+query fallback, including historical reads, optimizer discovery and VIEW-authorized REST reads.
+Write-authorized maintenance can call `JsonResourceSession.rebuildValidTimeIndexes()` to rebuild
+obsolete indexes from document data into fresh physical roots and commit a new revision before
+returning. Repeating maintenance on the upgraded resource does not rebuild again. No old index-layout
 reader is retained. Writer rebinding resolves the represented revision's catalogue before listener
 creation and rebuilds obsolete definitions when reverting to an old revision, so unchanged records
 and subsequent mutations maintain the current representation.
