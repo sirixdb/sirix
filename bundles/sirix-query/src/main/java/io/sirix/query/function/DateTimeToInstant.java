@@ -23,9 +23,6 @@ import static java.util.Objects.requireNonNull;
  */
 public class DateTimeToInstant {
 
-  /** Widest offset a {@link ZoneOffset} represents; XSD itself allows only ±14:00. */
-  private static final long MAX_OFFSET_SECONDS = 18L * 3600L;
-
   public DateTimeToInstant() {}
 
   public Instant convert(final DateTime dateTime) {
@@ -47,21 +44,20 @@ public class DateTimeToInstant {
    * @param timezone the value's timezone as a day-time duration, or {@code null} when it carries
    *        none
    * @return the matching offset, or {@link ZoneOffset#UTC} for an absent timezone
-   * @throws IllegalArgumentException if the duration is too wide to be an offset
+   * @throws IllegalArgumentException if the duration is not an xs:dateTime timezone
    */
   private static ZoneOffset offsetOf(final DTD timezone) {
     if (timezone == null) {
       return ZoneOffset.UTC;
     }
-    // Every component counts, so no part of a hand-built duration is dropped silently; a parsed
-    // timezone only ever sets hours and minutes.
-    final long magnitude = (timezone.getDays() * 24L + timezone.getHours()) * 3600L + timezone.getMinutes() * 60L
-        + timezone.getMicros() / 1_000_000L;
-    final long totalSeconds = timezone.isNegative() ? -magnitude : magnitude;
-    if (totalSeconds < -MAX_OFFSET_SECONDS || totalSeconds > MAX_OFFSET_SECONDS) {
-      throw new IllegalArgumentException("timezone is not a representable offset: " + timezone);
+    final int hours = timezone.getHours();
+    final int minutes = timezone.getMinutes();
+    if (timezone.getDays() != 0 || timezone.getMicros() != 0 || minutes < 0 || minutes > 59
+        || hours > 14 || (hours == 14 && minutes != 0)) {
+      throw new IllegalArgumentException("timezone is not an xs:dateTime offset: " + timezone);
     }
-    // ofTotalSeconds interns the common offsets, so the hot path allocates nothing here.
-    return ZoneOffset.ofTotalSeconds((int) totalSeconds);
+    return timezone.isNegative()
+        ? ZoneOffset.ofHoursMinutes(-hours, -minutes)
+        : ZoneOffset.ofHoursMinutes(hours, minutes);
   }
 }

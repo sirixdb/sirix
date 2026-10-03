@@ -5,8 +5,12 @@ import io.brackit.query.atomic.DateTime;
 import io.brackit.query.jdm.Type;
 import io.sirix.index.InstantKeyCodec;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.time.Instant;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -37,6 +41,14 @@ final class DateTimeToInstantTest {
   @Test
   void honoursASubHourOffset() {
     assertConverts("2020-06-15T17:30:00+05:30", "2020-06-15T12:00:00Z");
+    assertConverts("2020-06-15T08:30:00-03:30", "2020-06-15T12:00:00Z");
+    assertConverts("2020-06-15T11:30:00-00:30", "2020-06-15T12:00:00Z");
+  }
+
+  @Test
+  void honoursTheXsdOffsetLimits() {
+    assertConverts("2020-06-15T14:00:00+14:00", "2020-06-15T00:00:00Z");
+    assertConverts("2020-06-15T00:00:00-14:00", "2020-06-15T14:00:00Z");
   }
 
   @Test
@@ -90,12 +102,25 @@ final class DateTimeToInstantTest {
     assertSameIndexKey("2020-06-15T12:00:00");
   }
 
-  @Test
-  void rejectsAnOffsetOutsideTheRepresentableRange() {
-    final DateTime overflowing =
-        new DateTime((short) 2020, (byte) 6, (byte) 15, (byte) 12, (byte) 0, 0, new DTD(false, 400, (byte) 0,
-            (byte) 0, 0));
-    assertThrows(IllegalArgumentException.class, () -> CONVERTER.convert(overflowing));
+  @ParameterizedTest
+  @MethodSource("invalidTimezones")
+  void rejectsDurationsThatAreNotXsdTimezones(final boolean negative, final int days, final int hours,
+      final int minutes, final int micros) {
+    final DateTime invalid = new DateTime((short) 2020, (byte) 6, (byte) 15, (byte) 12, (byte) 0, 0,
+        new DTD(negative, days, (byte) hours, (byte) minutes, micros));
+    assertThrows(IllegalArgumentException.class, () -> CONVERTER.convert(invalid));
+  }
+
+  private static Stream<Arguments> invalidTimezones() {
+    return Stream.of(false, true).flatMap(negative -> Stream.of(
+        Arguments.of(negative, 1, 0, 0, 0),
+        Arguments.of(negative, 0, 15, 0, 0),
+        Arguments.of(negative, 0, 18, 0, 0),
+        Arguments.of(negative, 0, 14, 1, 0),
+        Arguments.of(negative, 0, 0, 60, 0),
+        Arguments.of(negative, 0, 0, -1, 0),
+        Arguments.of(negative, 0, 0, 0, 1),
+        Arguments.of(negative, 0, 0, 0, 1_000_000)));
   }
 
   @Test
