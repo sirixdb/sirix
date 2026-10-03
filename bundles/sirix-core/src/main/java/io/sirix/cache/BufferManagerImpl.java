@@ -590,6 +590,19 @@ public final class BufferManagerImpl implements BufferManager {
       clockSweeperThreads.add(thread);
       LOGGER.info("Started GLOBAL ClockSweeper thread for HOTLeafFragmentCache");
     }
+
+    // Start ClockSweeper for the compact (heap-resident) half of HOTLeafFragmentCache (GLOBAL)
+    {
+      final ShardedPageCache.Shard<HOTLeafPage> shard = hotLeafFragmentCache.heapImages().getShard(new PageReference());
+      final ClockSweeper sweeper =
+          new ClockSweeper(shard, hotLeafFragmentCache.heapImages(), globalEpochTracker, sweepIntervalMs, 0, 0, 0);
+      final Thread thread = new Thread(sweeper, "ClockSweeper-HOTLeafFragmentHeap-GLOBAL");
+      thread.setDaemon(true);
+      thread.start();
+      clockSweepers.add(sweeper);
+      clockSweeperThreads.add(thread);
+      LOGGER.info("Started GLOBAL ClockSweeper thread for the compact HOTLeafFragmentCache half");
+    }
     final ShardedPageCache<HOTMiniPage> miniPages = hotMiniPageCache.pages();
     if (miniPages != null) {
       final ClockSweeper sweeper = new ClockSweeper(miniPages.getShard(new PageReference()), miniPages,
@@ -751,6 +764,16 @@ public final class BufferManagerImpl implements BufferManager {
   /** Configured max weight (bytes) of the HOT-leaf-fragment cache, both residencies together. */
   public long getHOTLeafFragmentCacheMaxWeightBytes() {
     return hotLeafFragmentCache.getMaxWeightBytes();
+  }
+
+  /** Current weight (bytes) held by the fragment cache's allocator-frame images. */
+  public long getNativeHOTLeafFragmentCacheCurrentWeightBytes() {
+    return hotLeafFragmentCache.nativeImages().getCurrentWeightBytes();
+  }
+
+  /** Current retained heap (bytes) held by the fragment cache's compact decoded images. */
+  public long getHeapHOTLeafFragmentCacheCurrentWeightBytes() {
+    return hotLeafFragmentCache.heapImages().getCurrentWeightBytes();
   }
 
   /** Off-heap budget of the fragment cache's allocator-frame images, unaffected by the heap cap. */

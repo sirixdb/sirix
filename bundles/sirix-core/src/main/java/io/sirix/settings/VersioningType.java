@@ -1272,12 +1272,6 @@ public enum VersioningType {
   }
 
   /** Count a FULL page's direct storage read, which bypasses fragment combining entirely. */
-  public static void recordFullHOTLeafRead() {
-    if (HOT_MERGE_DIAG) {
-      SINGLE_FRAGMENT_READS.increment();
-    }
-  }
-
   /** Reads that actually reconstructed a page from a chain of fragments. */
   public static long multiFragmentMerges() {
     return MULTI_FRAGMENT_MERGES.sum();

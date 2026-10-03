@@ -240,10 +240,16 @@ final class HOTCompactFragmentBatchReadTest {
       try {
         assertEquals(expectedReads, reads);
         for (int i = 0; i < references.length; i++) {
-          if (ordinary[i] == null)
+          if (ordinary[i] == null) {
             assertNull(compact[i]);
-          else
-            assertArrayEquals(serialize(ordinary[i]), serialize(compact[i]));
+            continue;
+          }
+          assertArrayEquals(serialize(ordinary[i]), serialize(compact[i]));
+          // Residency, not just bytes: a compact decode copies its own array and borrows nothing of
+          // the span, so input borrowing must not decide it. Only segment support may.
+          final HOTLeafPage decoded = assertInstanceOf(HOTLeafPage.class, compact[i]);
+          assertEquals(!segments, decoded.slots().isNative(), "member " + i
+              + " residency must follow segment support alone (borrow=" + borrow + ", segments=" + segments + ')');
         }
         reads.clear();
         assertEquals(0, reader.readHOTLeafFragments(new PageReference[0], CONFIG).length);

@@ -3782,7 +3782,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
 
     if (versioningType == VersioningType.FULL) {
-      VersioningType.recordFullHOTLeafRead();
       return adoptCompleteHOTLeaf(cacheKey, handoffReference, firstPage, retainLeafGuard);
     }
 

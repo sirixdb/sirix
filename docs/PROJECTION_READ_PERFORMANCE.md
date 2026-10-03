@@ -78,9 +78,11 @@ Read intent controls cache admission:
   many slots. Writers and shared-page backends use the ordinary complete loader.
 
 Mini pages hold only bounded packed results and durable side-reference provenance. They use the
-normal guarded cache lifecycle and byte accounting. Invalidation fences in-flight admissions on the
-key's own admission stripe, so promoting one leaf to its complete image neither serialises nor
-rejects a concurrent resolution of an unrelated leaf; a bulk clear fences every stripe.
+normal guarded cache lifecycle and byte accounting. Invalidation fences in-flight admissions on one
+of 1,024 stripes, hashed from the resource and the durable key, so promoting one leaf to its complete
+image normally neither serialises nor rejects a concurrent resolution of an unrelated leaf. A hash
+collision does reject one, which costs nothing but a correct answer left uncached. A bulk clear
+fences every stripe.
 Their budget is one sixteenth of the existing complete-HOT allowance, capped at 64 MiB, taken
 from that allowance. Complete adoption discards the corresponding mini page.
 
@@ -96,10 +98,11 @@ unchanged. The compact half and the mini cache retain heap instead, are each cha
 bytes plus the page's conservative fixed per-page heap estimate, and are each bounded by
 `sirix.hotHeapCache.maxBytes` — one sixteenth of `Runtime.maxMemory()` by default, floored at one
 carry-forward window. That ceiling spends no off-heap allowance and takes none away; a heap-resident
-image holds no allocator frame, so the clock sweeper and this ceiling are what bound it. Point resolutions
+image holds no allocator frame, so what bounds it is this ceiling plus its own clock sweeper, which
+each half of the split has, rather than the allocator pressure listener. Point resolutions
 contribute to `EngineWorkCounters.HOT_LEAF_LOADS`, older point fragments contribute to
-`HOT_FRAGMENTS_WALKED`, and FULL direct reads contribute one leaf load. Existing work-budget
-bounds are unchanged.
+`HOT_FRAGMENTS_WALKED`, and a FULL-versioned resource still bypasses the merge and contributes
+nothing. Existing work-budget bounds are unchanged.
 
 Regression coverage: `HOTProjectionEntryReadTest`, `HOTMiniPageCacheTest`, `HOTHeapCacheBudgetTest`,
 `HOTCompactFragmentReadTest`, `HOTCompactFragmentBatchReadTest`,

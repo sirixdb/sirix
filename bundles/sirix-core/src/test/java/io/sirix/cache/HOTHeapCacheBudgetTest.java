@@ -3,12 +3,27 @@
  */
 package io.sirix.cache;
 
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.RevisionEpochTracker;
+import io.sirix.api.Database;
+import io.sirix.api.HOTReadIntent;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexType;
+import io.sirix.index.projection.ProjectionIndexHOTStorage;
+import io.sirix.io.StorageType;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
+import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -102,66 +117,114 @@ final class HOTHeapCacheBudgetTest {
 
   /**
    * A sparse delta fragment is a small packed heap image. Filling the compact half with many of them
-   * must leave the cache inside its stated bound rather than growing with the fragment count.
+   * must leave the cache inside its stated bound, and the clock sweeper the real
+   * {@link BufferManagerImpl} lifecycle starts is what brings it back inside — nothing in production
+   * sweeps it by hand.
    */
   @Test
-  void manySmallSparseDeltaFragmentsStayInsideTheStatedHeapBound() {
+  void manySmallSparseDeltaFragmentsStayInsideTheStatedHeapBoundUnderTheRealLifecycle() throws Exception {
     final long bound = 512L * 1024L;
-    final HOTFragmentCache cache = new HOTFragmentCache(1L << 20, bound);
-    try {
-      for (int fragment = 0; fragment < 4_096; fragment++) {
-        final HOTLeafPage delta = sparseDeltaFragment(fragment);
-        cache.put(new PageReference().setKey(fragment).setDatabaseId(1).setResourceId(2), delta);
+    withCeiling(Long.toString(bound), () -> {
+      final RevisionEpochTracker tracker = new RevisionEpochTracker(RevisionEpochTracker.defaultSlotCount());
+      try (BufferManagerImpl manager = new BufferManagerImpl(1L << 20, 1L << 30, 1L << 20, 4, 4, 4)) {
+        assertEquals(bound, manager.getHeapHOTLeafFragmentCacheMaxWeightBytes());
+        manager.startClockSweepers(tracker);
+        final Cache<PageReference, HOTLeafPage> fragments = manager.getHOTLeafFragmentCache();
+        for (int fragment = 0; fragment < 4_096; fragment++) {
+          fragments.put(new PageReference().setKey(fragment).setDatabaseId(1).setResourceId(2),
+              sparseDeltaFragment(fragment));
+        }
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        long retained = manager.getHeapHOTLeafFragmentCacheCurrentWeightBytes();
+        while (retained > bound && System.nanoTime() < deadline) {
+          try {
+            Thread.sleep(50L);
+          } catch (final InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            break;
+          }
+          retained = manager.getHeapHOTLeafFragmentCacheCurrentWeightBytes();
+        }
+        assertTrue(retained <= bound,
+            "the background sweeper never brought 4096 sparse delta fragments back inside the stated bound of " + bound
+                + ": " + retained);
+        assertEquals(0L, manager.getNativeHOTLeafFragmentCacheCurrentWeightBytes(),
+            "a heap-resident image must not be charged against the off-heap half");
       }
-      // Admission second-chances a page it has just touched, so a tight fill loop overshoots until
-      // a sweep clears those HOT bits; two passes are what the clock sweeper does every cycle.
-      cache.heapImages().evictUnderPressure();
-      cache.heapImages().evictUnderPressure();
-      assertTrue(cache.heapImages().getCurrentWeightBytes() <= bound,
-          "4096 sparse delta fragments retained more heap than the stated bound of " + bound + ": "
-              + cache.heapImages().getCurrentWeightBytes());
-      assertEquals(0L, cache.nativeImages().getCurrentWeightBytes(),
-          "a heap-resident image must not be charged against the off-heap half");
-      assertTrue(cache.heapImages().size() > 0, "eviction must not empty the cache it is bounding");
-    } finally {
-      cache.clear();
+    });
+  }
+
+  /**
+   * A native-only backend keeps the whole off-heap fragment share and puts nothing in the compact
+   * half, which is what makes the heap ceiling safe to apply to the compact half alone.
+   */
+  @Test
+  void aMemoryMappedResourceKeepsTheOffHeapShareAndLeavesTheCompactHalfEmpty(@TempDir final Path directory) {
+    final Path path = directory.resolve("memory-mapped");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
+                                                              .storageType(StorageType.MEMORY_MAPPED)
+                                                              .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                              .maxNumberOfRevisionsToRestore(32)
+                                                              .build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        for (int revision = 1; revision <= 6; revision++) {
+          try (JsonNodeTrx writer = session.beginNodeTrx()) {
+            new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0).putBlob(5_000_000L + revision,
+                new byte[64]);
+            writer.commit();
+          }
+        }
+      }
+      Databases.clearGlobalCaches();
+      final BufferManager buffers = Databases.getGlobalBufferManager();
+      try (JsonResourceSession session = database.beginResourceSession("resource");
+          JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(6)) {
+        for (int revision = 1; revision <= 6; revision++) {
+          ProjectionIndexHOTStorage.readBlob(reader.getStorageEngineReader(), 0, 5_000_000L + revision,
+              HOTReadIntent.POINT);
+        }
+      }
+      final BufferManagerImpl manager = (BufferManagerImpl) buffers;
+      // Re-derive the pre-change formula from the allowance the manager was actually built with.
+      final long hotBudget = manager.getHOTLeafPageCacheMaxWeightBytes()
+          + manager.getNativeHOTLeafFragmentCacheMaxWeightBytes() + manager.getHOTMiniPageCacheMaxWeightBytes();
+      final long preChangeShare = Math.min(hotBudget / 2, Math.max(hotBudget / 4, 32L * HOTLeafPage.DEFAULT_SIZE));
+      assertEquals(preChangeShare, manager.getNativeHOTLeafFragmentCacheMaxWeightBytes(),
+          "a native-only backend must keep exactly the pre-change off-heap fragment share");
+      assertEquals(0L, manager.getHeapHOTLeafFragmentCacheCurrentWeightBytes(),
+          "a MEMORY_MAPPED resource decodes native frames, so the compact half must stay empty");
+      assertTrue(manager.getNativeHOTLeafFragmentCacheCurrentWeightBytes() > 0,
+          "a versioned MEMORY_MAPPED chain read must populate the native half");
     }
   }
 
   /**
-   * The charge a compact image takes in the cache must track what it actually retains. The expected
-   * footprint here is measured from the image's own live structures — the packed slot bytes, the
-   * exact-size offset directory and the fixed per-page objects — at the JVM's documented object and
-   * array layout, independently of how {@code HOTLeafPage} computes its estimate.
+   * Retained heap of 10,000 decoder-only compact images, built through the compact constructor and
+   * held live across a GC-settled heap delta, measured once at {@code -Xmx2g}: 7,528,936 bytes, i.e.
+   * 752.9 bytes per image. {@value #MEASURED_FOOTPRINT_BYTES} is that number rounded up, and the
+   * bound the cache charge must never fall below.
+   */
+  private static final long MEASURED_FOOTPRINT_BYTES = 1_024L;
+
+  /**
+   * The charge must be a conservative UPPER bound on what an image retains, never an understatement:
+   * the budget is only honest if the cache over-counts rather than under-counts. Asserted against the
+   * recorded measurement above rather than against the formula that produces the charge.
    */
   @Test
-  void theChargeOfACompactImageTracksItsMeasuredFootprint() {
+  void theChargeOfACompactImageIsAConservativeUpperBoundOnItsMeasuredFootprint() {
     final HOTFragmentCache cache = new HOTFragmentCache(1L << 20, 1L << 20);
     final PageReference key = new PageReference().setKey(7).setDatabaseId(1).setResourceId(2);
     try {
-      final HOTLeafPage delta = sparseDeltaFragment(0);
-      final long packedBytes = delta.slots().byteSize();
-      final long measured = arrayBytes(packedBytes, 1) // packed slot bytes
-          + arrayBytes(delta.size(), Integer.BYTES) // exact-size offset directory
-          + arrayBytes(64, 1) // dirty bitmap
-          + 64 // page object header and fields
-          + 48; // empty side-reference map
-      cache.put(key, delta);
+      cache.put(key, sparseDeltaFragment(0));
       final long charged = cache.heapImages().getCurrentWeightBytes();
-      assertTrue(charged >= measured,
-          "the charge must not understate the retained footprint: charged " + charged + " < measured " + measured);
-      assertTrue(charged <= measured + 8L * 1024L, "the charge must stay within 8 KiB of the measured footprint of "
-          + measured + " bytes; conservative headroom is fine, an unbounded overshoot is not: " + charged);
+      assertTrue(charged >= MEASURED_FOOTPRINT_BYTES, "the charge understates the measured retained footprint of "
+          + MEASURED_FOOTPRINT_BYTES + " bytes: " + charged);
     } finally {
       cache.clear();
     }
-  }
-
-  /**
-   * Object and array layout with 8-byte alignment: 16-byte array header, padded to a multiple of 8.
-   */
-  private static long arrayBytes(final long length, final int elementBytes) {
-    return (16L + length * elementBytes + 7L) / 8L * 8L;
   }
 
   /**

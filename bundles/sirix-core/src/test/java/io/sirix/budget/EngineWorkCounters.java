@@ -30,9 +30,10 @@ public final class EngineWorkCounters {
   // ===== HOT leaf pages =====================================================
 
   /**
-   * HOT leaf pages loaded from storage. The three fragment-combining outcomes and the FULL direct
-   * read path are counted once per load; FULL contributes to the single-fragment count without
-   * performing a merge. Their sum is the number of leaves a cache-cold operation read.
+   * HOT leaf pages loaded from storage. Every such load passes through the versioned fragment merge
+   * or the requested-slot lookup exactly once, whichever of their outcomes answers it, so their sum
+   * is the number of leaves a cache-cold operation read. A {@code FULL}-versioned resource bypasses
+   * the merge and reads zero.
    */
   public static final WorkCounter HOT_LEAF_LOADS = WorkCounter.gated("hot.leafLoads",
       "one HOT leaf resolved from storage (complete reconstruction or requested-slot lookup)",
