@@ -8,14 +8,18 @@ The pass sorts a maximal conjunction once and computes each term's cost once.
 `-Dsirix.optimizer.cheapFirstConjuncts=false` disables the pass. It applies to Sirix compile chains;
 a plain Brackit compile chain retains its existing behavior.
 
-The pass proves binding sources using lexical variable identities, including prolog defaults and
-context declarations. Fresh rows opened by the final stock `BasicJsonDBStore` and literal rows
-can be filtered before exposure. Correlated opening arguments have already been evaluated to produce the current row;
-they do not become inputs to its field predicates. Custom document providers retain the original
+The pass proves binding sources using lexical variable identities, including function parameters,
+prolog defaults and context declarations. Fresh rows opened by the final stock `BasicJsonDBStore`
+and literal rows can be filtered before exposure, only within the selection's predicate branch.
+A preceding selection does not make a lazy return fresh. Correlated opening arguments have already
+been evaluated to produce the current row; they do not become inputs to its field predicates.
+Every admitted document or index read requires the stock provider, including reads in defaults,
+nested pipelines and composed row constructors. Custom document providers retain the original
 order. A row reused through an inner loop, join or grouping is treated as captured. Other
-captured inputs are admitted only when the actual tuple value is scalar. Globals are checked in
-the query context, separately from shadowing tuple bindings. Admission runs for every conjunction
-evaluation and never iterates a sequence or traverses a container. Opaque values, supplied stored
+captured inputs, including function parameters, are admitted only when the actual tuple value is
+scalar. Globals are checked in the query context, separately from shadowing tuple bindings.
+Admission runs for every conjunction evaluation and never iterates a sequence or traverses a
+container. Opaque values, supplied stored
 views and the global context item execute the original conjunction. Pure unbound defaults remain
 lazy; unsafe defaults are barriers. A cheaper false conjunct can suppress a later dynamic error,
 as permitted by XQuery predicate evaluation ordering.
@@ -26,14 +30,19 @@ membership join implementation.
 
 ## Deterministic verification
 
-The focused suite has 112 tests with hand-computed answers. It covers the twelve value/general
+The focused suite uses hand-computed answers and read counts. It covers the twelve value/general
 comparison operators; arithmetic, function/cast and nested-pipeline ordering; disjunctions,
 conditionals, castable and quantified terms; stable ties and unknown-call barriers; pure and
 side-effectful scalar/default aliases; opaque scalar, object, nested object, member, array,
 sequence and context inputs; captured aliases after root rebinding; reused query plans, shadowing,
 lazy errors and prefix consumers; externally supplied stored memos and composites exposed earlier
-in a lazy result, inner loop or join; and custom document providers returning changing fields.
+in a lazy result, inner loop or join; function parameters shadowing globals; and custom document
+providers returning changing fields through direct, nested, default and composed producers.
 Q10's executable semantic plan and its hand-computed category counts and margins are identical with the pass enabled or disabled; Q10 is a control.
+
+`BindingDependencyWorkTest` counts dependency visits on duplicated alias chains and checks exact
+answers. Exhausting the per-term proof budget makes that term a reordering barrier. The budget
+and its scope are owned by `BindingDependencies`; it does not cap total compilation time.
 
 `CheapFirstConjunctWorkBudgetTest` decorates actual stored-document field accesses. On 100 rows,
 one id matches and two timestamp conjuncts run on that survivor: 101 id evaluations (including
@@ -46,18 +55,13 @@ same answer requires at least 200 timestamp evaluations. Removing stage registra
 count field evaluations regardless of buffer-cache state. No wall-clock assertion or engine
 hot-path counter was added.
 
-The full `sirix-core` suite ran 12,109 tests (76 skipped) with zero failures. The final full
-`sirix-query` suite ran 2,006 tests (7 skipped), with exactly the two independently known
-codepoint-ordering failures below. Their repair was assigned separately; this is an explicit
-suite exception, not a clean query-suite result:
-
-- `GroupTopKDifferentialTest.stringMinAndMaxWithCollationAdversariesAndAllMissingGroup`
-- `StringPredicateDifferentialTest.supplementaryCharacterOrderingMatchesTheInterpreter`
-
-All 29 required core work-budget tests and 18 query work-budget tests passed. The final focused
-classes account for 112 passing tests. [verification.json](verification.json) records each budget
-and focused class plus the full-suite results; [budget-evidence.json](budget-evidence.json)
-records both killed mutations and the restored positive budgets.
+The initial C(1)-only implementation's full-suite, focused and work-budget results are recorded
+in [verification.json](verification.json), alongside the later admission-repair focused runs.
+The recorded full query suite has two independently known codepoint-ordering failures whose repair
+was assigned separately; their names and failure messages are in that evidence file. This is an
+explicit suite exception, not a clean query-suite result. Full suites and timing oracles were not
+rerun for the admission repairs. [budget-evidence.json](budget-evidence.json) records both killed
+mutations and the restored positive budgets from the initial implementation.
 
 SH1 was 12/12 oracle-exact at both t25k and t100k, loaded with the kit's natural batching. Every
 timing execution also compared its canonical TSV bytes with the oracle.
@@ -98,7 +102,8 @@ unchanged and is a control: its warm sample was 7.4% slower here, with no speedu
 [Raw samples](timings.csv), [setup and timing lines](timing-lines.txt), [median data](summary.json)
 and [Brackit SHA-256 digests](dependencies.json) preserve the before/after evidence. The same
 Brackit bytes were used in both measurements. These timings came from the C(1)-only implementation
-and contain no evidence from the archived let-memo branch.
+before the later admission and compiler-work repairs, and contain no evidence from the archived
+let-memo branch.
 
 ## Reproduction
 
@@ -114,9 +119,10 @@ Do not enable shell `errexit` around a bare call: the busy-slot exit code 75 mus
 Use `--no-daemon --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g` and explicit test minimum/maximum heaps
 (`-PtestHeapMin=512m -PtestHeapMax=2g` for focused tests; 6g maximum for the full suites).
 
-Run the four optimizer test classes (`CheapFirstConjunctTest`, `OpaqueConjunctTest`,
-`ScalarDependencyTest`, `ConjunctInputTest`) and `CheapFirstConjunctWorkBudgetTest`, then all
-`sirix-core` and `sirix-query` tests, including the Work budgets block in `docs/VERIFICATION.md`.
+Run the five optimizer test classes (`CheapFirstConjunctTest`, `OpaqueConjunctTest`,
+`ScalarDependencyTest`, `ConjunctInputTest`, `BindingDependencyWorkTest`) and
+`CheapFirstConjunctWorkBudgetTest`, then all `sirix-core` and `sirix-query` tests, including the
+Work budgets block in `docs/VERIFICATION.md`.
 To repeat the mutation proof, temporarily disable the optimizer's stage registration, run only the
 work-budget test, observe the 101-vs-2 failure, then restore the source and rerun.
 

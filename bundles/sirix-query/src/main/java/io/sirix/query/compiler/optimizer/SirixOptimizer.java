@@ -54,10 +54,10 @@ public class SirixOptimizer extends TopDownOptimizer {
    * <p>
    * DETERMINISM CAVEAT: unlike the wall-clock breaker, this budget does NOT cap total compile time —
    * only the exploratory join/mesh search. Cost estimation and the four index-matching walkers are
-   * each O(query) but uncapped. Final residual ordering is also uncapped (stable sorting and binding
-   * dependency proofs), so a low-join query with very many paths / predicates can still compile
-   * slowly. That is the accepted price of a deterministic plan; the wall-clock net that previously
-   * bounded such cases is intentionally gone.
+   * each O(query) but uncapped. Final residual ordering has no global cap, although each term's
+   * binding dependency proof is bounded by {@link BindingDependencies}. A low-join query with very
+   * many paths / predicates can still compile slowly. That is the accepted price of a deterministic
+   * plan; the wall-clock net that previously bounded such cases is intentionally gone.
    * </p>
    */
   private static final int MAX_JOIN_RELATIONS_FOR_REORDER = Integer.getInteger("sirix.optimizer.maxJoinRelations", 12);
@@ -311,11 +311,11 @@ public class SirixOptimizer extends TopDownOptimizer {
   }
 
   /**
-   * Add an optimization stage before the index matching stage (at the end).
+   * Add an optimization stage before the index matching stage.
    *
    * <p>
-   * This is a convenience method for adding stages that should run after all other optimizations but
-   * before index matching.
+   * This is a convenience method for adding stages that should run before index matching and the
+   * subsequent residual conjunct ordering.
    * </p>
    *
    * @param stage The optimization stage to add

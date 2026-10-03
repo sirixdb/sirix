@@ -8,7 +8,7 @@
 
 1. [What Is a Cost-Based Optimizer and Why Do We Need One?](#1-what-is-a-cost-based-optimizer-and-why-do-we-need-one)
 2. [Architecture Overview](#2-architecture-overview)
-3. [The 10-Stage Pipeline](#3-the-10-stage-pipeline)
+3. [The Cost-Based Pipeline](#3-the-cost-based-pipeline)
 4. [Stage 1: JQGM Rewrite Rules (Logical Optimization)](#4-stage-1-jqgm-rewrite-rules-logical-optimization)
 5. [Stage 2: Cost-Based Analysis](#5-stage-2-cost-based-analysis)
 6. [Stage 3: Join Reordering](#6-stage-3-join-reordering)
@@ -70,12 +70,9 @@ SirixDB is a **bitemporal database**: it stores every revision of your data immu
 - **Immutable revisions** mean statistics collected for revision 5 are **forever valid** — the data can never change. This is a major advantage over traditional databases where statistics go stale.
 - **Multiple index types** (CAS, PATH, NAME) serve different query patterns, and the optimizer must pick the right one — or decide that no index helps.
 
-### Scale of the Implementation
+### Implementation References
 
-- ~8,900 lines of optimizer code
-- ~8,300 lines of tests
-- 91 files total
-- 10 optimization stages
+- Stage registration is owned by `SirixOptimizer` (see Section 3)
 - Based on academic research from TU Kaiserslautern, VLDB, and SIGMOD
 
 ---
@@ -91,7 +88,7 @@ When you execute a query in SirixDB, it goes through three phases:
   │                     Query Compilation                       │
   │                                                             │
   │   Query String ──► Parser ──► AST ──► Optimizer ──► AST'   │
-  │                              (tree)   (10 stages)  (better  │
+  │                              (tree)    (stages)    (better  │
   │                                                     tree)   │
   └─────────────────────────────────┬───────────────────────────┘
                                     │
@@ -138,7 +135,7 @@ Each node in this tree is a Brackit `AST` object. The optimizer walks this tree,
 ### Entry Points
 
 **`SirixCompileChain`** (`SirixCompileChain.java`) is the entry point. It extends Brackit's `CompileChain` and plugs in:
-- `SirixOptimizer` (our 10-stage optimizer) via `getOptimizer()`
+- `SirixOptimizer` (our cost-based optimizer) via `getOptimizer()`
 - `SirixTranslator` (our custom translator) via `getTranslator()`
 
 ```java
@@ -175,11 +172,13 @@ This is analogous to how HTTP headers carry metadata alongside the request body 
 
 ---
 
-## 3. The 10-Stage Pipeline
+## 3. The Cost-Based Pipeline
 
-The optimizer is a **pipeline** of 10 stages. Each stage implements the `Stage` interface with a single method: `AST rewrite(StaticContext sctx, AST ast)`. The stages run sequentially, each receiving the AST from the previous stage and returning a (possibly modified) AST.
+The optimizer is a **pipeline** of stages. Each stage implements the `Stage` interface with a single method: `AST rewrite(StaticContext sctx, AST ast)`. The stages run sequentially, each receiving the AST from the previous stage and returning a (possibly modified) AST.
 
-**`SirixOptimizer`** (`SirixOptimizer.java`) assembles and runs the pipeline:
+**`SirixOptimizer`** (`SirixOptimizer.java`) assembles and runs the pipeline. Its constructor owns
+the installed stage list; the numbering below is the cost-based design outline used by this guide,
+not a count of installed stages:
 
 ```
  Stage  Class                      What It Does (One Sentence)
@@ -191,15 +190,15 @@ The optimizer is a **pipeline** of 10 stages. Each stage implements the `Stage` 
    5    MeshSelectionStage         Pick the winner from each set of alternatives
    6    IndexDecompositionStage    Restructure joins to exploit index boundaries
    7    CostDrivenRoutingStage     Tell downstream stages "don't use the index here, it's too expensive"
-   8    VectorizedDetectionStage   Detect simple scan-filter patterns that can use SIMD
-   9    VectorizedRoutingStage     Replace those patterns with SIMD operators
+   8    VectorizedDetectionStage   Disabled; vectorized execution uses Brackit's SPI
+   9    VectorizedRoutingStage     Disabled; see the registration rationale in SirixOptimizer
   10    IndexMatching              Actually rewrite the AST to use specific indexes
 ```
 
-### Sirix Stages Run Before These Ten
+### Sirix Stages Before the Cost-Based Pipeline
 
-`JoinKeyPreferenceStage` is not appended after Brackit's stages like the ten above; it is inserted
-into Brackit's own stage list directly before its `JoinRecognition`, because it has to order the
+`JoinKeyPreferenceStage` is not appended after Brackit's stages like the cost-based stages above;
+it is inserted into Brackit's own stage list directly before its `JoinRecognition`, because it has to order the
 selection chain below a binding *before* Brackit picks the join condition. The join is then keyed on
 an eligible equality — a hash join — instead of on whichever comparison happens to head that chain,
 and the predicates that reference no earlier binding filter the join's build side. It is installed
@@ -215,6 +214,12 @@ owns its membership table and inner iterator.
 [QUERY_MEMBERSHIP_OPTIMIZATION.md](QUERY_MEMBERSHIP_OPTIMIZATION.md) owns that rule, its admission
 conditions, its work bounds and its disable property.
 
+### Final Residual Predicate Ordering
+
+`CheapFirstConjunctStage` runs after index matching.
+[performance/cheap-first/README.md](performance/cheap-first/README.md) owns its admission rules,
+disable property, regression coverage and measurement protocol.
+
 ### Why This Order?
 
 The ordering is deliberate:
@@ -223,11 +228,12 @@ The ordering is deliberate:
 - **Mesh before decomposition** (Stages 4-6): The Mesh records the alternative plans. Decomposition happens after the best alternative is selected, so it only restructures the chosen plan.
 - **Routing before index matching** (Stages 7, 10): The routing stage decides which subtrees should use indexes. Index matching in Stage 10 respects those decisions via the `INDEX_GATE_CLOSED` flag.
 
-### Circuit Breaker
+### Deterministic Work Budgets
 
-The pipeline has a **50ms timeout** (configurable in `SirixOptimizer.java:29`). If the 10 stages haven't completed within 50ms, the optimizer returns the partially-optimized AST. This prevents pathological queries (e.g., 50-way joins) from blocking execution indefinitely.
-
-For context: PostgreSQL typically optimizes queries in <1ms; CockroachDB budgets ~10ms. Our 50ms budget is generous and only activates for extreme cases.
+The optimizer sheds exploratory join/mesh stages according to query shape, rather than elapsed
+time. The `MAX_JOIN_RELATIONS_FOR_REORDER` javadoc in `SirixOptimizer` owns that threshold, its
+configuration and its limits. `BindingDependencies` separately bounds each residual term's
+dependency proof. Neither budget imposes a timeout on total compilation.
 
 ---
 
@@ -492,6 +498,9 @@ Without this stage, the index matching walkers would blindly rewrite every eligi
 
 ## 10. Stages 8-9: Vectorized Execution
 
+These two Sirix stages are currently disabled; the constructor of `SirixOptimizer` explains why
+execution uses Brackit's vectorized SPI instead. The sections below describe the retained classes.
+
 ### What Is Vectorized Execution?
 
 Traditional query execution processes one row at a time: read a row, check the predicate, output if it matches, repeat. **Vectorized execution** processes rows in **batches** (e.g., 1024 at a time) using CPU SIMD instructions that operate on multiple data elements simultaneously.
@@ -515,15 +524,17 @@ Replaces eligible pipeline subtrees with `VectorizedPipelineExpr` AST nodes. The
 
 ### What Happens Here
 
-This is where the optimizer **physically rewrites the AST** to use specific indexes. All previous stages only annotated the AST with metadata; Stage 10 actually replaces AST subtrees with `IndexExpr` nodes.
+This is where the optimizer **physically rewrites the AST** to use specific indexes, replacing
+eligible subtrees with index calls or `IndexExpr` nodes.
 
-**`IndexMatching`** (inner class in `SirixOptimizer.java`) runs three walkers in priority order:
+**`IndexMatching`** (inner class in `SirixOptimizer.java`) owns walker priority and admission guards;
+its `rewrite` method is the authoritative list. Examples of the index families it matches:
 
-1. **`JsonCASStep`** (327 lines): Matches CAS (Content And Structure) indexes. These indexes store `(value, path)` pairs in a B+-tree, enabling efficient value-based lookups. Example: A CAS index on `/[]/price` of type `xs:integer` can serve `$x.price > 50`.
+1. **`JsonCASStep`**: Matches CAS (Content And Structure) indexes. These indexes store `(value, path)` pairs in a B+-tree, enabling efficient value-based lookups. Example: A CAS index on `/[]/price` of type `xs:integer` can serve `$x.price > 50`.
 
-2. **`JsonPathStep`** (75 lines): Matches PATH indexes. These indexes map paths to node keys, enabling efficient path-based access without scanning the entire document. Example: A PATH index on `/[]/item/name` can serve `$x.item.name` field access.
+2. **`JsonPathStep`**: Matches PATH indexes. These indexes map paths to node keys, enabling efficient path-based access without scanning the entire document. Example: A PATH index on `/[]/item/name` can serve `$x.item.name` field access.
 
-3. **`JsonObjectKeyNameStep`** (76 lines): Matches NAME indexes on object keys. These enable efficient `$x.fieldName` access when many objects have different key sets.
+3. **`JsonObjectKeyNameStep`**: Matches NAME indexes on object keys. These enable efficient `$x.fieldName` access when many objects have different key sets.
 
 ### The Rewrite
 
@@ -818,7 +829,7 @@ bundles/sirix-query/src/main/java/io/sirix/query/
 │   │   ├── IndexExpr.java              ← Physical operator: reads from CAS/PATH/NAME index
 │   │   └── VectorizedPipelineExpr.java ← Physical operator: SIMD batch scan-filter-project
 │   └── optimizer/
-│       ├── SirixOptimizer.java         ← Orchestrates 10-stage pipeline with 50ms circuit breaker
+│       ├── SirixOptimizer.java         ← Owns stage registration and exploratory join/mesh budget
 │       ├── PlanCache.java              ← LRU cache: queryText+schemaVersion → optimized AST
 │       ├── CardinalityTracker.java     ← Detects estimate-vs-actual drift, invalidates stale plans
 │       │
@@ -830,8 +841,8 @@ bundles/sirix-query/src/main/java/io/sirix/query/
 │       ├── MeshSelectionStage.java     ← Stage 5: Pick best plan per equivalence class
 │       ├── IndexDecompositionStage.java ← Stage 6: Rules 5-6 (join restructuring at index boundaries)
 │       ├── CostDrivenRoutingStage.java ← Stage 7: Propagate INDEX_GATE_CLOSED flags
-│       ├── VectorizedDetectionStage.java ← Stage 8: Detect SIMD-eligible pipelines
-│       ├── VectorizedRoutingStage.java ← Stage 9: Replace with VectorizedPipelineExpr
+│       ├── VectorizedDetectionStage.java ← Disabled stage 8; see SirixOptimizer
+│       ├── VectorizedRoutingStage.java ← Disabled stage 9; see SirixOptimizer
 │       │
 │       │  ── Join Ordering ──
 │       ├── join/

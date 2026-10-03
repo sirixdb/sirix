@@ -10,6 +10,8 @@ import java.util.HashSet;
 import java.util.Set;
 
 abstract class BindingDependencies extends ScopeWalker {
+  // One term shares this budget across recursive source proofs: duplicated alias inputs must not
+  // expand exponentially. Exhaustion declines the proof; BindingDependencyWorkTest counts visits.
   private static final int MAX_PROOF_WORK = 1024;
   private AST module;
   private int remainingWork;
@@ -34,8 +36,8 @@ abstract class BindingDependencies extends ScopeWalker {
     return collect(node, candidate, inputs, captured, defaults, visited);
   }
 
-  private boolean collect(final AST node, final AST candidate, final Set<QNm> inputs,
-      final Set<QNm> captured, final Set<QNm> defaults, final Set<AST> visited) {
+  private boolean collect(final AST node, final AST candidate, final Set<QNm> inputs, final Set<QNm> captured,
+      final Set<QNm> defaults, final Set<AST> visited) {
     if (remainingWork-- <= 0) {
       return false;
     }
