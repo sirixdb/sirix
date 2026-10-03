@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.util.Set;
 
 import static io.brackit.query.util.path.Path.parse;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -41,14 +42,20 @@ final class ValidTimeIndexRebuildTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"", "1", "2", "3"})
-  void openingRebuildsObsoleteRootsOnceAndRebindsMaintenance(final String format) throws Exception {
-    rebuildAndMaintain(format, false);
+  void explicitMaintenanceRebuildsObsoleteRootsOnceAndRebindsMaintenance(final String format) throws Exception {
+    rebuildAndMaintain(format, false, false);
   }
 
   @ParameterizedTest
   @ValueSource(strings = {"", "1", "2", "3"})
-  void revertingAfterOpeningUpgradeRebuildsRepresentedCatalogue(final String format) throws Exception {
-    rebuildAndMaintain(format, true);
+  void writerRebuildsObsoleteRootsOnCommitAndRebindsMaintenance(final String format) throws Exception {
+    rebuildAndMaintain(format, false, true);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "1", "2", "3"})
+  void revertingAfterExplicitUpgradeRebuildsRepresentedCatalogue(final String format) throws Exception {
+    rebuildAndMaintain(format, true, false);
   }
 
   @Test
@@ -83,7 +90,8 @@ final class ValidTimeIndexRebuildTest {
     }
   }
 
-  private void rebuildAndMaintain(final String format, final boolean revert) throws Exception {
+  private void rebuildAndMaintain(final String format, final boolean revert, final boolean upgradeOnCommit)
+      throws Exception {
     final Path databasePath = directory.resolve("database");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     final Path catalogue;
@@ -140,6 +148,31 @@ final class ValidTimeIndexRebuildTest {
     Databases.clearGlobalCaches();
     final int rebuiltId;
     try (var database = Databases.openJsonDatabase(databasePath); var session = database.beginResourceSession("rows")) {
+      final byte[] obsoleteCatalogue = Files.readAllBytes(catalogue);
+      assertEquals(oldRevision, session.getMostRecentRevisionNumber());
+      final long[] history = session.getHistoryTimestamps();
+      assertTrue(session.getRtxIndexController(oldRevision).getIndexes().getIndexDefs().isEmpty());
+      try (var reader = session.beginNodeReadOnlyTrx()) {
+        assertEquals(oldRevision, reader.getRevisionNumber());
+        assertTrue(reader.moveTo(objectKey));
+        assertTrue(reader.isObject());
+      }
+      assertEquals(oldRevision, session.getMostRecentRevisionNumber());
+      assertArrayEquals(history, session.getHistoryTimestamps());
+      assertArrayEquals(obsoleteCatalogue, Files.readAllBytes(catalogue));
+      if (upgradeOnCommit) {
+        try (var writer = session.beginNodeTrx()) {
+          assertEquals(oldRevision, session.getMostRecentRevisionNumber());
+          assertTrue(session.getRtxIndexController(oldRevision).getIndexes().getIndexDefs().isEmpty());
+          assertTrue(session.getWtxIndexController(writer.getRevisionNumber()).getIndexes().getIndexDefs().stream()
+              .noneMatch(IndexDef::needsValidTimeRebuild));
+          writer.commit();
+        }
+      } else {
+        session.rebuildValidTimeIndexes();
+      }
+      assertEquals(oldRevision + 1, session.getMostRecentRevisionNumber());
+      session.rebuildValidTimeIndexes();
       assertEquals(oldRevision + 1, session.getMostRecentRevisionNumber());
       final IndexDef rebuilt = session.getRtxIndexController(oldRevision + 1).getIndexes().getIndexDefs().iterator().next();
       assertFalse(rebuilt.needsValidTimeRebuild());
