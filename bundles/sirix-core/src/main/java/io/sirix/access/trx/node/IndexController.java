@@ -20,6 +20,7 @@ import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixRuntimeException;
+import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
@@ -292,6 +293,8 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * transaction ("Transaction is already closed!").
    */
   void clearChangeListeners();
+
+  ChangeListener[] getChangeListenerSnapshot();
 
   /**
    * Apply any change-listener maintenance deferred to commit time (currently the incremental

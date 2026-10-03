@@ -570,6 +570,11 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
+  public final ChangeListener[] getChangeListenerSnapshot() {
+    return listenerSnapshot;
+  }
+
+  @Override
   public void clearChangeListeners() {
     listeners.clear();
     primitiveListeners.clear();

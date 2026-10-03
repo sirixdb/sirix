@@ -87,6 +87,46 @@ wall-clock assertions.
 Run them through the normal `:sirix-core:test` task; the retained-listener guard is
 also part of the work-budget block in `docs/VERIFICATION.md`.
 
+## Ownership regression follow-up
+
+The original workload, full-suite and latency evidence below belongs to submitted
+`7557433ac1f786645e11759fb1b13403d02ff5ec`; it is not evidence for the review fixes.
+
+The factory now obtains its controller from the prepared revision root. A revert
+can read revision 1 while preparing revision 11, so the represented revision cannot
+identify the controller that owns catalogue persistence and listener retirement.
+The existing catalogue source and persisted formats are unchanged.
+
+The shared synchronous/pipelined successor handoff retains the controller's existing
+listener snapshot locally until rebinding succeeds. If any handoff operation fails,
+it aborts those exact listeners independently, preserving the construction failure.
+Successful intermediate epochs keep the same projection owner; the handoff adds no
+array copy, new collection, or per-commit allocation.
+
+The listener guard additionally performs sixteen indexed reverts after ten commits
+in both JSON and XML. It retains the existing two-listener bound, checks zero roots
+after close, and reopens the database to verify historical values, definitions and
+CAS lookups. Construction guards cover rollback and clean close in both synchronous
+and pipelined load modes, including two owned builds and an unrelated active owner.
+Successful intermediate-load guards finalize and read the two projected values back.
+
+Focused review verification on 2026-10-04 passed all 21 selected tests: eight
+construction/projection guards, three listener-retention guards, four catalogue
+budgets and six existing projection-lineage guards. Submitted-head factory overlays
+failed both revert guards with four listeners against the unchanged bound of two;
+submitted-head handoff overlays failed all four synchronous/pipelined rollback/close
+guards because their exact projection owners remained unfinished. The overlays
+compiled into separate directories, leaving the verified production classes intact.
+
+Results, source hashes, all attempt logs and mutation reports are recorded in
+`build/writer-retention/focused-review.json`, `focused-review.log`, `fixed-results/`
+and `mutations/`. The final command used the supplied memory gate, private Maven
+repository, two workers and 512 MiB–2 GiB test heaps. Its task-owned
+`/var/tmp/sirix-bitemporal/writer-retention-review-*` stores were deleted. The outer pipeline owns
+full-suite, all-work-budget, formatting and original-workload revalidation. The normal
+successful commit behavior and allocation count are unchanged; this review phase
+makes no new latency claim.
+
 ## Original workload verification
 
 The original SH1 per-operation byte driver completed at 2 GiB: 21,116 commits,

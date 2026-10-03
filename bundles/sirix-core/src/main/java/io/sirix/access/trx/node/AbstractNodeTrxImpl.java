@@ -16,6 +16,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
@@ -945,50 +946,67 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // Save the current cursor position. getNodeKey() reads from a Java field, always valid.
     final long currentNodeKey = nodeReadOnlyTrx.getNodeKey();
 
-    // Reset page transaction to new uber page.
-    if (pendingBaseUberPage == null) {
-      resourceSession.closeNodePageWriteTransaction(getId());
-    } else {
-      resourceSession.detachNodePageWriteTransaction(getId());
-    }
+    final ChangeListener[] retiringListeners = indexController.getChangeListenerSnapshot();
+    try {
+      // Reset page transaction to new uber page.
+      if (pendingBaseUberPage == null) {
+        resourceSession.closeNodePageWriteTransaction(getId());
+      } else {
+        resourceSession.detachNodePageWriteTransaction(getId());
+      }
 
-    final long r1 = timing
-        ? System.nanoTime()
-        : 0;
+      final long r1 = timing
+          ? System.nanoTime()
+          : 0;
 
-    storageEngineWriter = resourceSession.createPageTransaction(trxID, revNumber, revNumber,
-        InternalResourceSession.Abort.NO, true, pendingBaseUberPage);
-    nodeReadOnlyTrx.setPageReadTransaction(null);
-    nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
-    resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
+      storageEngineWriter = resourceSession.createPageTransaction(trxID, revNumber, revNumber,
+          InternalResourceSession.Abort.NO, true, pendingBaseUberPage);
+      nodeReadOnlyTrx.setPageReadTransaction(null);
+      nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
+      resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
 
-    final long r2 = timing
-        ? System.nanoTime()
-        : 0;
+      final long r2 = timing
+          ? System.nanoTime()
+          : 0;
 
-    nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
+      nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
-    final boolean isBulkInsert = nodeHashing.isBulkInsert();
-    nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
-    nodeHashing.setBulkInsert(isBulkInsert);
+      final boolean isBulkInsert = nodeHashing.isBulkInsert();
+      nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
+      nodeHashing.setBulkInsert(isBulkInsert);
 
-    updateOperationsUnordered.clear();
-    updateOperationsOrdered.clear();
+      updateOperationsUnordered.clear();
+      updateOperationsOrdered.clear();
 
-    reInstantiateIndexes(true);
+      reInstantiateIndexes(true);
 
-    // Re-read the current node from the new page transaction.
-    // FlyweightNode getters read from the page MemorySegment; after closing the old transaction,
-    // that MemorySegment is stale. Re-reading creates a fresh node from the new transaction.
-    nodeReadOnlyTrx.moveTo(currentNodeKey);
+      // Re-read the current node from the new page transaction.
+      // FlyweightNode getters read from the page MemorySegment; after closing the old transaction,
+      // that MemorySegment is stale. Re-reading creates a fresh node from the new transaction.
+      nodeReadOnlyTrx.moveTo(currentNodeKey);
 
-    final long r3 = timing
-        ? System.nanoTime()
-        : 0;
+      final long r3 = timing
+          ? System.nanoTime()
+          : 0;
 
-    if (timing) {
-      LOGGER.debug("reInstantiate: close={}ms createPageTrx={}ms rest={}ms total={}ms", ms(r1 - r0), ms(r2 - r1),
-          ms(r3 - r2), ms(r3 - r0));
+      if (timing) {
+        LOGGER.debug("reInstantiate: close={}ms createPageTrx={}ms rest={}ms total={}ms", ms(r1 - r0), ms(r2 - r1),
+            ms(r3 - r2), ms(r3 - r0));
+      }
+    } catch (final RuntimeException | Error failure) {
+      for (final ChangeListener listener : retiringListeners) {
+        try {
+          listener.transactionAborted();
+        } catch (final Throwable cleanupFailure) {
+          if (cleanupFailure != failure) {
+            try {
+              failure.addSuppressed(cleanupFailure);
+            } catch (final Throwable ignored) {
+            }
+          }
+        }
+      }
+      throw failure;
     }
   }
 

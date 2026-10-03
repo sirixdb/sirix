@@ -94,28 +94,6 @@ public final class StorageEngineWriterFactory {
     try {
       final ResourceConfiguration resourceConfig = resourceSession.getResourceConfig();
       final boolean usePathSummary = resourceConfig.withPathSummary;
-      // Use representRevision + 1 because that's the NEW revision being created.
-      // The node transaction will use trx.getRevisionNumber() which returns the new revision,
-      // so we need to use the same revision for the index controller to ensure they share state.
-      final int newRevisionNumber = representRevision + 1;
-      final IndexController<?, ?> indexController = resourceSession.getWtxIndexController(newRevisionNumber);
-
-      // The prospective-revision controller is cached and may still contain catalogue mutations from
-      // a transaction that is now rolling back. This factory is the authoritative persisted-state
-      // rebind point: start empty, then replace it with exactly lastStoredRevision's catalogue below.
-      indexController.getIndexes().reset();
-
-      // Deserialize index definitions.
-      final Path indexes = resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                      .resolve(lastStoredRevision + ".xml");
-      if (Files.exists(indexes)) {
-        try (final InputStream in = new FileInputStream(indexes.toFile())) {
-          indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
-        } catch (IOException | DocumentException | SirixException e) {
-          throw new SirixIOException("Index definitions couldn't be deserialized!", e);
-        }
-      }
-
       final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
       log = logFactory.createTrxIntentLog(bufferManager, resourceConfig);
 
@@ -135,6 +113,25 @@ public final class StorageEngineWriterFactory {
       final var tempKeyedTrieWriter = new KeyedTrieWriter();
       final RevisionRootPage newRevisionRootPage = tempKeyedTrieWriter.preparePreviousRevisionRootPage(uberPage,
           storageEngineReader, log, representRevision, lastStoredRevision);
+      final IndexController<?, ?> indexController =
+          resourceSession.getWtxIndexController(newRevisionRootPage.getRevision());
+
+      // The prospective-revision controller is cached and may still contain catalogue mutations from
+      // a transaction that is now rolling back. This factory is the authoritative persisted-state
+      // rebind point: start empty, then replace it with exactly lastStoredRevision's catalogue below.
+      indexController.getIndexes().reset();
+
+      // Deserialize index definitions.
+      final Path indexes = resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                      .resolve(lastStoredRevision + ".xml");
+      if (Files.exists(indexes)) {
+        try (final InputStream in = new FileInputStream(indexes.toFile())) {
+          indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
+        } catch (IOException | DocumentException | SirixException e) {
+          throw new SirixIOException("Index definitions couldn't be deserialized!", e);
+        }
+      }
+
       newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
       newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
       if (resourceConfig.storeNodeHistory()) {
