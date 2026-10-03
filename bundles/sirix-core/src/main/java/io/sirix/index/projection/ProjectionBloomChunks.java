@@ -567,16 +567,8 @@ public final class ProjectionBloomChunks {
     return dropped;
   }
 
-  /**
-   * How many of {@code chunkId}'s tail slots a column with published physical count
-   * {@code priorPhysical} can own: its whole span when no mark parsed ({@code priorPhysical < 0}),
-   * the published open span when this IS the chunk at that mark, and none otherwise.
-   */
-  private static int tailScanBound(final int priorPhysical, final int chunkId, final int leafCount) {
-    if (priorPhysical < 0) {
-      return leafCount;
-    }
-    return chunkId == sealedChunkCount(priorPhysical)
+  private static int tailScanBound(final int priorPhysical, final int chunkId) {
+    return priorPhysical >= 0 && chunkId == sealedChunkCount(priorPhysical)
         ? openLeafCount(priorPhysical)
         : 0;
   }
@@ -889,15 +881,14 @@ public final class ProjectionBloomChunks {
     // missing or unparsable. Tails are only ever written at or above a published mark and a published
     // count P satisfies P < (sealedChunkCount(P) + 1) * CHUNK_LEAVES, so a column's tails live in the
     // ONE chunk sealedChunkCount(P) and only across its openLeafCount(P) row groups — a parsed mark
-    // bounds every tail scan exactly. Without one there is no bound to apply, so the scan stays
-    // conservative and sweeps the whole chunk.
+    // bounds every tail scan exactly.
     // This is the ONLY place a prior manifest is read in this call: the publication loop below reuses
     // these bytes, and nothing between here and a column's own publication writes that column's slot.
     final int[] priorPhysical = new int[columnKinds.length];
     final byte[][] priorManifests = new byte[columnKinds.length][];
     Arrays.fill(priorPhysical, -1);
     for (int c = 0; c < columnKinds.length; c++) {
-      if (!isStringKind(columnKinds[c])) {
+      if (!isStringKind(columnKinds[c]) || (!rowGroupCountChanged && !anyLeafSelectsColumn(changedColumnsByLeaf, c))) {
         continue;
       }
       priorManifests[c] = storage.getBlob(ProjectionIndexHOTStorage.bloomBlockSlotKey(c));
@@ -949,7 +940,7 @@ public final class ProjectionBloomChunks {
         // chunk this commit is completing, or a block lost to corruption). Start from them so a rewrite
         // never loses a leaf. Outside the published open span there is no tail to find, so nothing is
         // probed there.
-        final int tailScanTo = tailScanBound(priorPhysical[c], chunkId, leafCount);
+        final int tailScanTo = tailScanBound(priorPhysical[c], chunkId);
         final boolean recoverTails = priorSlices == null && tailScanTo > 0;
         if (recoverTails) {
           for (int i = 0; i < tailScanTo; i++) {
@@ -1008,29 +999,40 @@ public final class ProjectionBloomChunks {
         // Per column, against that column's OWN published mark: one column whose manifest is missing
         // must not stop every other column from reopening its block.
         if (!isStringKind(columnKinds[c])
+            || (!rowGroupCountChanged && !anyLeafSelectsColumn(changedColumnsByLeaf, c))
             || (priorPhysical[c] >= 0 && sealedChunkCount(priorPhysical[c]) == sealedNew
                 && openLeafCount(priorPhysical[c]) > 0)) {
           continue;
         }
         final long chunkSlot = chunkSlotKey(c, sealedNew);
         final byte[] prior = storage.getBlob(chunkSlot);
-        if (prior == null) {
-          continue;
-        }
-        bytesRead += prior.length;
+        if (prior != null)
+          bytesRead += prior.length;
         final byte[][] slices = ProjectionIndexColumnSegmentCodec.copyBloomBlockSlices(prior, CHUNK_LEAVES);
-        if (slices != null) {
-          for (int i = 0; i < openLeaves; i++) {
-            final byte[] segment = slices[i];
-            if (segment != null) {
-              storage.putBlob(tailSlotKey(c, sealedNew * CHUNK_LEAVES + i + 1), segment);
-              bytesWritten += segment.length;
+        for (int i = 0; i < openLeaves; i++) {
+          final int rowGroupId = openFirst + i;
+          final long[] changedColumns = changedColumnsByLeaf.get((long) rowGroupId);
+          if (changedColumns != null && (rowGroupCountChanged || columnSelected(changedColumns, c))) {
+            continue;
+          }
+          final long tailSlot = tailSlotKey(c, rowGroupId);
+          final byte[] segment = slices == null ? null : slices[i];
+          if (segment != null) {
+            storage.putBlob(tailSlot, segment);
+            bytesWritten += segment.length;
+            chunksWritten++;
+          } else {
+            tailSlotReads++;
+            if (storage.getRawSlot(tailSlot) != null) {
+              storage.tombstoneBlob(tailSlot);
               chunksWritten++;
             }
           }
         }
-        storage.tombstoneBlob(chunkSlot);
-        chunksWritten++;
+        if (prior != null) {
+          storage.tombstoneBlob(chunkSlot);
+          chunksWritten++;
+        }
       }
     }
     // Open chunk: a touched row group rewrites only its own tail blob, per column, and only when the
@@ -1081,7 +1083,7 @@ public final class ProjectionBloomChunks {
       if (priorManifest != null)
         bytesRead += priorManifest.length;
       final int foldFrom = priorPhysical[c] < 0
-          ? 0
+          ? sealedNew
           : sealedChunkCount(priorPhysical[c]);
       for (int chunkId = foldFrom; chunkId < sealedNew; chunkId++) {
         final long chunkSlot = chunkSlotKey(c, chunkId);
@@ -1091,7 +1093,7 @@ public final class ProjectionBloomChunks {
           continue; // already a block (rewritten above, or built as a full chunk): never fold over it
         }
         final int firstLeaf = chunkId * CHUNK_LEAVES + 1;
-        final int tailScanTo = tailScanBound(priorPhysical[c], chunkId, CHUNK_LEAVES);
+        final int tailScanTo = tailScanBound(priorPhysical[c], chunkId);
         final byte[][] slices = new byte[CHUNK_LEAVES][];
         for (int i = 0; i < tailScanTo; i++) {
           final byte[] tail = storage.getBlob(tailSlotKey(c, firstLeaf + i));
