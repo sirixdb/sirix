@@ -216,7 +216,6 @@ public final class JsonTestHelper {
    *
    * @throws SirixException if anything went wrong
    */
-  @Ignore
   public static void deleteEverything() {
     closeEverything();
     Databases.removeDatabase(PATHS.PATH1.getFile());
@@ -228,7 +227,6 @@ public final class JsonTestHelper {
    *
    * @throws SirixException if anything went wrong
    */
-  @Ignore
   public static void closeEverything() {
     if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
       final var database = INSTANCES.remove(PATHS.PATH1.getFile());

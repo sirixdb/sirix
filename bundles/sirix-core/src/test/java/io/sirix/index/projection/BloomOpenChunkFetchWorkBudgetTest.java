@@ -22,6 +22,7 @@ import org.jspecify.annotations.Nullable;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -214,7 +215,7 @@ final class BloomOpenChunkFetchWorkBudgetTest {
       page.appendRow(row + 1L, new long[] {0L}, new boolean[] {false}, new String[] {"value-" + row},
           new boolean[] {true}, new boolean[] {false}, new boolean[] {false}, new boolean[] {false});
     }
-    return ProjectionIndexColumnSegmentCodec.encode(page.serialize());
+    return Objects.requireNonNull(ProjectionIndexColumnSegmentCodec.encode(page.serialize()));
   }
 
   private static byte[] bloomSegment(final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded) {
