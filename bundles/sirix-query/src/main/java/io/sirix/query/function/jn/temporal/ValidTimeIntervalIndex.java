@@ -104,8 +104,12 @@ public final class ValidTimeIntervalIndex {
     if (strictStart && exactPoint) {
       tree.startingAt(point, candidates::remove);
     }
-    if (exactPoint && (strictStart || strictEnd)) {
-      candidates.addAll(evidence.unverified());
+    if (exactPoint && (strictStart || strictEnd) && !evidence.unverified().isEmpty()) {
+      tree.stab(point, key -> {
+        if (evidence.unverified().contains(key)) {
+          candidates.add(key);
+        }
+      });
     }
     final long[] sorted = candidates.toLongArray();
     Arrays.sort(sorted);
