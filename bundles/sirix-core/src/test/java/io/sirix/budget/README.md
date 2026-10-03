@@ -75,6 +75,7 @@ failure table and tells the reader where the work went.
 | | grouped top-K, range holding a row without the aggregate | the view walks the range twice before declining, **or** declines ranges of the same view whose rows all carry a value |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
+| `sirix-core` `BloomOpenChunkFetchWorkBudgetTest` | Bloom prune, open chunk of referenced tails | the open chunk's tails are paginated by the sealed-block fetch window again, costing one read transaction per window instead of one for the whole chunk |
 | `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, a head insert touches an untouched suffix, **or** streaming append commits rewalk previously committed prefixes instead of consuming transient ingest positions (measurement: `docs/UPDATE_DIFF_INGEST_POSITIONS.md`) |
 | `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds about one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
@@ -143,8 +144,10 @@ maintains, so a budget quotes the same numbers an investigation would:
   constructor argument, and adding an engine counter would put one on a cursor move. It counts only
   what the test itself hands in, so there is no global state and nothing to restore - but a decorator
   reads zero when the route stops going through it, so give its bound a floor, or a second capture
-  on the same seam that must read non-zero. Today that is
-  `JsonDiffArrayPositionWorkBudgetTest`'s `JsonResourceSession` wrapper.
+  on the same seam that must read non-zero. Today those are
+  `JsonDiffArrayPositionWorkBudgetTest`'s `JsonResourceSession` wrapper and
+  `BloomOpenChunkFetchWorkBudgetTest`'s `CountingFetcher`, which decorates the segment fetcher the
+  prune already takes as an argument and carries its floor on the referenced payloads it requested.
 
 **Gated counters.** Counters on a hot path are compiled away behind a `static final` flag, so a test
 cannot switch one on for itself. The module's `test` block provides the property and the capture

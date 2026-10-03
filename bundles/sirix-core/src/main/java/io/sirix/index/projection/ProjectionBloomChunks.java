@@ -422,10 +422,9 @@ public final class ProjectionBloomChunks {
           boolean needsFetch = false;
           for (int j = 0; j < inWindow; j++) {
             final int chunkId = windowBase + j;
-            final int expectedLeaves = expectedChunkLeaves(chunkId, physicalRowGroupCount);
             if (localChunks.inlinePayload(chunkId) == null && localChunks.offset(chunkId) != Constants.NULL_ID_LONG
                 && ProjectionIndexColumnSegmentCodec.bloomBlockLengthCouldBeWellFormed(localChunks.length(chunkId),
-                    expectedLeaves)) {
+                    CHUNK_LEAVES)) {
               scratch.offsets[j] = localChunks.offset(chunkId);
               needsFetch = true;
             }
@@ -442,24 +441,23 @@ public final class ProjectionBloomChunks {
           }
           for (int j = 0; j < inWindow; j++) {
             final int chunkId = windowBase + j;
-            final int expectedLeaves = expectedChunkLeaves(chunkId, physicalRowGroupCount);
             final byte[] inline = localChunks.inlinePayload(chunkId);
             final byte[] block;
             if (inline != null) {
-              block = ProjectionIndexColumnSegmentCodec.bloomBlockIsWellFormed(inline, expectedLeaves)
+              block = ProjectionIndexColumnSegmentCodec.bloomBlockIsWellFormed(inline, CHUNK_LEAVES)
                   ? inline
                   : null;
             } else {
               final byte[] fetched = fetchSucceeded
                   ? scratch.payloads[j]
                   : null;
-              block = referencedBlockIsValid(fetched, localChunks.length(chunkId), localChunks.hash(chunkId),
-                  expectedLeaves)
+              block =
+                  referencedBlockIsValid(fetched, localChunks.length(chunkId), localChunks.hash(chunkId), CHUNK_LEAVES)
                       ? fetched
                       : null;
             }
             if (block != null) {
-              dropped += pruneBlock(block, chunkId * CHUNK_LEAVES, expectedLeaves, hashes, keeps, logicalByPhysical);
+              dropped += pruneBlock(block, chunkId * CHUNK_LEAVES, CHUNK_LEAVES, hashes, keeps, logicalByPhysical);
             }
           }
           // The payload window is not live across the next fetch. This explicit clear matters for
@@ -561,10 +559,6 @@ public final class ProjectionBloomChunks {
       }
     }
     return dropped;
-  }
-
-  private static int expectedChunkLeaves(final int chunkId, final int rowGroupCount) {
-    return Math.min(CHUNK_LEAVES, rowGroupCount - chunkId * CHUNK_LEAVES);
   }
 
   private static boolean referencedBlockIsValid(final byte @Nullable [] block, final int expectedLength,
@@ -941,6 +935,17 @@ public final class ProjectionBloomChunks {
             bytesRead += segment.length;
         }
         final byte[] block = ProjectionIndexColumnSegmentCodec.encodeBloomBlock(slices, leafCount);
+        // The tails are retired as soon as this rewrite has absorbed them, BEFORE the unchanged-block
+        // shortcut below: a chunk whose every leaf turned out to carry nothing rebuilds to a null block
+        // that equals its absent prior, and leaving its tails behind would resurrect them in the fold
+        // as a fingerprint for a leaf that no longer has one. This never writes on the unchanged-block
+        // path, because recoverTails means the prior block was absent or malformed, and a malformed one
+        // can never equal a well-formed rebuild.
+        if (recoverTails) {
+          for (int i = 0; i < leafCount; i++) {
+            storage.tombstoneBlob(tailSlotKey(c, firstLeaf + i));
+          }
+        }
         if (Arrays.equals(prior, block)) {
           continue;
         }
@@ -951,11 +956,6 @@ public final class ProjectionBloomChunks {
           bytesWritten += block.length;
         }
         chunksWritten++;
-        if (recoverTails) {
-          for (int i = 0; i < leafCount; i++) {
-            storage.tombstoneBlob(tailSlotKey(c, firstLeaf + i));
-          }
-        }
       }
     }
     // A receding high-water mark can reopen a sealed chunk. Preserve its remaining fingerprints
@@ -1192,7 +1192,7 @@ public final class ProjectionBloomChunks {
       acceptedRowGroups++;
       pendingLeaves++;
       if (pendingLeaves == CHUNK_LEAVES) {
-        flush(storage, CHUNK_LEAVES);
+        flush(storage);
       }
     }
 
@@ -1227,18 +1227,18 @@ public final class ProjectionBloomChunks {
       stringColumns = compactColumns;
     }
 
-    private void flush(final ProjectionIndexHOTStorage storage, final int leafCount) {
+    private void flush(final ProjectionIndexHOTStorage storage) {
       final ColumnBuffer[] buffers = columns;
       final int[] compactColumns = stringColumns;
       if (buffers != null && compactColumns != null) {
         for (final int c : compactColumns) {
           final ColumnBuffer buffer = buffers[c];
           final long slotKey = chunkSlotKey(c, nextChunkId);
-          final byte[] block = ProjectionIndexColumnSegmentCodec.encodeBloomBlock(buffer.segments, leafCount);
+          final byte[] block = ProjectionIndexColumnSegmentCodec.encodeBloomBlock(buffer.segments, CHUNK_LEAVES);
           if (block != null) {
             storage.putBlob(slotKey, block);
           }
-          Arrays.fill(buffer.segments, 0, leafCount, null);
+          Arrays.fill(buffer.segments, null);
         }
       }
       nextChunkId++;

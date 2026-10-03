@@ -1350,9 +1350,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   static BlobLocators collectBlobLocators(final StorageEngineReader reader, final int indexNumber,
       final long firstSlotKey, final int count) {
-    // The two callers are the <=13,104 manifest family and one <=65,536 Bloom-chunk family. Keep
-    // this generic primitive bounded at that proven ceiling so damaged metadata can never request a
-    // corpus-sized/object-sized allocation here.
+    // The callers are the <=13,104 manifest family, the <=65,536 sealed Bloom-block family and the
+    // <=255 open-chunk Bloom-tail family. Keep this generic primitive bounded at that proven ceiling
+    // so damaged metadata can never request a corpus-sized/object-sized allocation here.
     final int maxLocatorCount = ProjectionIndexHOTStorage.MAX_ROW_GROUPS / ProjectionBloomChunks.CHUNK_LEAVES;
     if (firstSlotKey < 0) {
       throw new IllegalArgumentException("blob locator range must not enter the negative record-locator namespace");

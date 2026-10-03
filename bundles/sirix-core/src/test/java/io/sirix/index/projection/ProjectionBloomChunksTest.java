@@ -1657,6 +1657,83 @@ final class ProjectionBloomChunksTest {
     }
   }
 
+  /**
+   * A chunk this commit completes in which every leaf turns out to carry no fingerprint rebuilds to a
+   * null block, which equals its absent prior — so the rewrite takes the unchanged-block shortcut.
+   * The tails it has already absorbed must still be retired. Leaving them lets the fold downstream
+   * rebuild a block out of a fingerprint whose row group is now rowless, and a probe that fingerprint
+   * rejects would then prune a leaf on evidence that no longer describes anything.
+   */
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void aCompletingChunkThatRebuildsToNoBlockStillRetiresTheTailsItAbsorbed(final VersioningType versioning)
+      throws IOException {
+    createVersionedResource(versioning);
+    final int leaves = ProjectionBloomChunks.CHUNK_LEAVES;
+    final int built = leaves + 1;
+    final int grown = 2 * leaves;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup valued = encodedRowGroup("present");
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup rowless = emptyEncodedRowGroup();
+    final long rejected = hashRejectedBy(bloomSegment(valued));
+    final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int rowGroupId = 1; rowGroupId <= built; rowGroupId++) {
+          storage.putRowGroupAsColumnSegmentSlots(rowGroupId, valued);
+          writer.append(valued, rowGroupId, storage);
+        }
+        writer.finishChunks(storage, built, COLUMN_KINDS);
+        writer.publishManifests(storage, built);
+        assertNotNull(storage.getBlob(ProjectionBloomChunks.tailSlotKey(0, leaves + 1)),
+            "the open chunk's one row group starts out as a tail blob");
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        // Every leaf of the completing chunk becomes rowless, including the one that held the only
+        // fingerprint in it, so the rebuilt block is null and matches the absent prior exactly.
+        final LongOpenHashSet changed = new LongOpenHashSet();
+        for (int rowGroupId = leaves + 1; rowGroupId <= grown; rowGroupId++) {
+          storage.putRowGroupAsColumnSegmentSlots(rowGroupId, rowless);
+          changed.add(rowGroupId);
+        }
+        ProjectionBloomChunks.rewriteTouchedChunks(storage, COLUMN_KINDS, grown, changed);
+
+        for (int rowGroupId = leaves + 1; rowGroupId <= grown; rowGroupId++) {
+          assertNull(storage.getBlob(ProjectionBloomChunks.tailSlotKey(0, rowGroupId)),
+              "row group " + rowGroupId + "'s absorbed tail must not survive the rewrite");
+        }
+        assertNull(storage.getBlob(ProjectionBloomChunks.chunkSlotKey(0, 1)),
+            "a completed chunk in which no leaf carries a fingerprint must not gain a block");
+        assertNotNull(storage.getBlob(ProjectionBloomChunks.chunkSlotKey(0, 0)),
+            "the chunk that was already sealed keeps its block");
+        wtx.commit();
+      }
+      Databases.clearGlobalCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(2)) {
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, grown);
+        assertNotNull(evidence);
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+            ProjectionIndexCatalog.columnSegmentFetcher(session, 2);
+        final long[] keepRejected = prune(evidence[0], grown, rejected, fetcher);
+        for (int leaf = 0; leaf < leaves; leaf++) {
+          assertDropped(keepRejected, leaf, "the already sealed chunk still prunes leaf " + leaf);
+        }
+        for (int leaf = leaves; leaf < grown; leaf++) {
+          assertKept(keepRejected, leaf,
+              "rowless leaf " + leaf + " carries no fingerprint, so no resurrected one may prune it");
+        }
+      }
+    } finally {
+      writer.release();
+    }
+  }
+
   private static void createVersionedResource(final VersioningType versioning) throws IOException {
     JsonTestHelper.deleteEverything();
     Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
