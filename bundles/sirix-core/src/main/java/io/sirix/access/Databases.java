@@ -16,6 +16,7 @@ import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixDatabaseLockException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.exception.SirixThreadedException;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.io.SuperblockValidator;
@@ -59,13 +60,14 @@ public final class Databases {
   /** One database and OS lock per real directory; guarded by the database lifecycle monitor. */
   private static final Map<Path, OpenDatabase<?>> OPEN_DATABASES = new HashMap<>();
 
-  static final class OpenDatabase<T extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
-      implements AutoCloseable {
+  static final class OpenDatabase<T extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> {
     final Path path;
     final Database<T> database;
     final LocalDatabase<?, ?> localDatabase;
     final DatabaseLock lock;
     int references;
+    boolean closing;
+    boolean removing;
 
     OpenDatabase(final Path path, final Database<T> database, final DatabaseLock lock) {
       this.path = path;
@@ -80,26 +82,50 @@ public final class Databases {
       references++;
       return handle;
     }
+  }
 
-    @Override
-    public void close() {
-      database.close();
-      lock.close();
+  static void releaseDatabase(final OpenDatabase<?> owner, final Database<?> handle) {
+    // removeDatabase may already have force-closed this generation. Closing an old handle must
+    // never decrement a new owner's references or release its lock after a recreate/reopen.
+    synchronized (Databases.class) {
+      if (OPEN_DATABASES.get(owner.path) != owner || owner.references != 1 || owner.closing || owner.removing) {
+        if (OPEN_DATABASES.get(owner.path) == owner) {
+          owner.references--;
+        }
+        MANAGER.sessions().removeObject(owner.path, handle);
+        return;
+      }
+      owner.closing = true;
+    }
+    try {
+      owner.database.close();
+      synchronized (Databases.class) {
+        owner.lock.close();
+        OPEN_DATABASES.remove(owner.path);
+        owner.references--;
+        MANAGER.sessions().removeObject(owner.path, handle);
+      }
+    } finally {
+      synchronized (Databases.class) {
+        owner.closing = false;
+        Databases.class.notifyAll();
+      }
     }
   }
 
-  static void releaseDatabase(final OpenDatabase<?> owner, final Database<?> handle, final boolean releaseOwnership) {
+  private static @Nullable OpenDatabase<?> awaitDatabaseClose(final Path path) {
     assert Thread.holdsLock(Databases.class);
-    // removeDatabase may already have force-closed this generation. Closing an old handle must
-    // never decrement a new owner's references or release its lock after a recreate/reopen.
-    if (OPEN_DATABASES.get(owner.path) == owner) {
-      if (owner.references == 1 && releaseOwnership) {
-        owner.close();
-        OPEN_DATABASES.remove(owner.path);
+    OpenDatabase<?> owner = OPEN_DATABASES.get(path);
+    while (owner != null && owner.closing) {
+      try {
+        Databases.class.wait();
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new SirixThreadedException(e);
       }
-      owner.references--;
+      owner = OPEN_DATABASES.get(path);
     }
-    MANAGER.sessions().removeObject(owner.path, handle);
+    return owner;
   }
 
   static synchronized Map<Path, Set<Database<?>>> snapshotOpenDatabases() {
@@ -274,22 +300,41 @@ public final class Databases {
    */
   // Throwable identity, not value equality, determines whether addSuppressed would suppress itself.
   @SuppressWarnings("ReferenceEquality")
-  public static synchronized void removeDatabase(final Path dbFile) {
+  public static void removeDatabase(final Path dbFile) {
     requireNonNull(dbFile);
-    if (!Files.exists(dbFile)) {
-      return;
+    final Path path;
+    final @Nullable OpenDatabase<?> owner;
+    final Set<Database<?>> handles;
+    final DatabaseLock lock;
+    synchronized (Databases.class) {
+      if (!Files.exists(dbFile)) {
+        return;
+      }
+      path = canonicalDatabasePath(dbFile);
+      owner = awaitDatabaseClose(path);
+      if (owner == null) {
+        handles = Set.of();
+        lock = DatabaseLock.acquire(path);
+      } else {
+        if (owner.removing) {
+          throw new IllegalStateException("Database cleanup is already in progress at " + path);
+        }
+        final Set<Database<?>> registered = MANAGER.sessions().asMap().get(path);
+        handles = registered == null
+            ? Set.of()
+            : Set.copyOf(registered);
+        lock = owner.lock;
+        owner.removing = true;
+      }
     }
-    final Path path = canonicalDatabasePath(dbFile);
-    final OpenDatabase<?> owner = OPEN_DATABASES.get(path);
-    if (owner != null) {
-      logger.warn("removeDatabase({}): {} database handle(s) still open — force-closing before removal.", path,
-          owner.references);
-      final Set<Database<?>> handles = MANAGER.sessions().asMap().get(path);
-      Throwable failure = null;
-      if (handles != null) {
-        for (final Database<?> handle : Set.copyOf(handles)) {
+    try {
+      if (owner != null) {
+        logger.warn("removeDatabase({}): {} database handle(s) still open — force-closing before removal.", path,
+            handles.size());
+        Throwable failure = null;
+        for (final Database<?> handle : handles) {
           try {
-            ((DatabaseHandle<?>) handle).close(false);
+            handle.close();
           } catch (final RuntimeException | Error e) {
             if (failure == null) {
               failure = e;
@@ -298,38 +343,43 @@ public final class Databases {
             }
           }
         }
-      }
-      if (failure instanceof RuntimeException exception) {
-        throw exception;
-      }
-      if (failure instanceof Error error) {
-        throw error;
-      }
-      owner.database.close();
-      OPEN_DATABASES.remove(path);
-    }
-    final DatabaseLock lock = owner == null
-        ? DatabaseLock.acquire(path)
-        : owner.lock;
-    try (lock) {
-      if (DatabaseConfiguration.DatabasePaths.compareStructure(path) == 0) {
-        final DatabaseConfiguration config = DatabaseConfiguration.deserialize(path);
-        try (final Database<?> database = createLocalDatabase(config, createAdminUser())) {
-          removeResources(database);
+        if (failure instanceof RuntimeException exception) {
+          throw exception;
         }
-        final long databaseId = config.getDatabaseId();
-        clearCachesForDatabase(databaseId);
-        CLAIMED_DATABASE_IDS.remove(databaseId, path);
+        if (failure instanceof Error error) {
+          throw error;
+        }
+        owner.database.close();
+        synchronized (Databases.class) {
+          OPEN_DATABASES.remove(path);
+        }
       }
-      SuperblockValidator.invalidateUnder(path);
-      ProjectionIndexCatalog.invalidateUnder(path.toString());
+      try (lock) {
+        if (DatabaseConfiguration.DatabasePaths.compareStructure(path) == 0) {
+          final DatabaseConfiguration config = DatabaseConfiguration.deserialize(path);
+          try (final Database<?> database = createLocalDatabase(config, createAdminUser())) {
+            removeResources(database);
+          }
+          final long databaseId = config.getDatabaseId();
+          clearCachesForDatabase(databaseId);
+          CLAIMED_DATABASE_IDS.remove(databaseId, path);
+        }
+        SuperblockValidator.invalidateUnder(path);
+        ProjectionIndexCatalog.invalidateUnder(path.toString());
 
-      removeDatabaseFiles(path);
-    } catch (final IOException e) {
-      throw new SirixIOException("Could not remove database at " + path, e);
+        removeDatabaseFiles(path);
+      } catch (final IOException e) {
+        throw new SirixIOException("Could not remove database at " + path, e);
+      }
+      removeEmptyDatabaseDirectory(path);
+      freeAllocatedMemory();
+    } finally {
+      if (owner != null) {
+        synchronized (Databases.class) {
+          owner.removing = false;
+        }
+      }
     }
-    removeEmptyDatabaseDirectory(path);
-    freeAllocatedMemory();
   }
 
   private static void removeDatabaseFiles(final Path path) throws IOException {
@@ -525,8 +575,11 @@ public final class Databases {
     final Path canonicalPath = canonicalDatabasePath(file);
 
     synchronized (Databases.class) {
-      final OpenDatabase<?> existing = OPEN_DATABASES.get(canonicalPath);
+      final OpenDatabase<?> existing = awaitDatabaseClose(canonicalPath);
       if (existing != null) {
+        if (existing.removing) {
+          throw new IllegalStateException("Database cleanup is already in progress at " + canonicalPath);
+        }
         checkDatabaseType(existing.database.getDatabaseConfig(), databaseType);
         // The persisted type is checked before reusing the typed database.
         @SuppressWarnings("unchecked")

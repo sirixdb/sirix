@@ -20,6 +20,7 @@ import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 
@@ -45,6 +46,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -52,6 +54,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -599,6 +602,41 @@ final class DatabaseOwnershipTest {
   }
 
   @ParameterizedTest
+  @CsvSource({"JSON,false", "JSON,true", "XML,false", "XML,true"})
+  void timedCommitHookCanOpenAnotherDatabaseDuringCleanup(final DatabaseType type, final boolean forceRemoval)
+      throws Exception {
+    final Path path = directory.resolve("timed-" + type);
+    final Path hookTarget = path.resolveSibling(path.getFileName() + "-hook-target");
+    assertTrue(createDatabase(path, type));
+    assertTrue(createDatabase(hookTarget, type));
+    final Process process = child(path, forceRemoval
+        ? "timed-remove"
+        : "timed-close");
+    try {
+      assertEquals("READY", childResult(process));
+      assertChildRefused(path);
+      process.getOutputStream().write('\n');
+      process.getOutputStream().flush();
+      assertEquals("OPEN", childResult(process));
+      assertTrue(process.waitFor(30, TimeUnit.SECONDS));
+      assertEquals(0, process.exitValue());
+      if (forceRemoval) {
+        assertFalse(Files.exists(path));
+      } else {
+        assertTrue(Files.exists(path.resolve(".lock")));
+        try (final Database<?> reopened = openDatabase(path, type);
+            final ResourceSession<?, ?> session = reopened.beginResourceSession("resource")) {
+          assertTrue(session.getMostRecentRevisionNumber() > 0);
+        }
+      }
+    } finally {
+      stopChild(process);
+      Databases.removeDatabase(path);
+      Databases.removeDatabase(hookTarget);
+    }
+  }
+
+  @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void failedCleanupRetainsWritersAndOwnershipUntilRetry(final boolean forceRemoval) throws Exception {
     final Path path = createDatabase();
@@ -743,6 +781,35 @@ final class DatabaseOwnershipTest {
         assertChildRefused(path);
         database.close();
         assertFalse(database.isOpen());
+        assertChildOpened(path);
+      } finally {
+        storeField.set(owner.localDatabase, originalStore);
+      }
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @Test
+  void failedRemovalBackendCloseRetainsOwnershipUntilRetry() throws Exception {
+    final Path path = createDatabase();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      final Field ownerField = DatabaseHandle.class.getDeclaredField("owner");
+      ownerField.setAccessible(true);
+      final Databases.OpenDatabase<?> owner = (Databases.OpenDatabase<?>) ownerField.get(database);
+      final Field storeField = LocalDatabase.class.getDeclaredField("resourceStore");
+      storeField.setAccessible(true);
+      final Object originalStore = storeField.get(owner.localDatabase);
+      final ResourceStore<?> failingStore = mock(ResourceStore.class);
+      doThrow(new IllegalStateException("injected backend cleanup failure")).doNothing().when(failingStore).close();
+      storeField.set(owner.localDatabase, failingStore);
+      try {
+        assertThrows(IllegalStateException.class, () -> Databases.removeDatabase(path));
+        assertFalse(database.isOpen());
+        assertChildRefused(path);
+        Databases.removeDatabase(path);
+        assertFalse(Files.exists(path));
+        assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
         assertChildOpened(path);
       } finally {
         storeField.set(owner.localDatabase, originalStore);
@@ -955,6 +1022,10 @@ final class DatabaseOwnershipTest {
     public static void main(final String[] args) throws Exception {
       final Path path = Path.of(args[0]);
       try {
+        if (args[1].equals("timed-close") || args[1].equals("timed-remove")) {
+          timedCleanup(path, args[1].equals("timed-remove"));
+          return;
+        }
         if (args[1].equals("lock-only")) {
           try (final DatabaseLock lock = DatabaseLock.acquire(path)) {
             System.out.println("OPEN");
@@ -993,6 +1064,90 @@ final class DatabaseOwnershipTest {
           throw e;
         }
         System.out.println("LOCKED " + e.getDatabasePath());
+      }
+    }
+
+    private static void timedCleanup(final Path path, final boolean forceRemoval) throws Exception {
+      final DatabaseType type = Databases.getDatabaseType(path);
+      final Path hookTarget = path.resolveSibling(path.getFileName() + "-hook-target");
+      final CountDownLatch hookEntered = new CountDownLatch(1);
+      final CountDownLatch allowHook = new CountDownLatch(1);
+      final AtomicBoolean firstHook = new AtomicBoolean(true);
+      final CompletableFuture<Void> hookOpened = new CompletableFuture<>();
+      final CompletableFuture<Void> cleanupFinished = new CompletableFuture<>();
+      try (final Database<?> database = openDatabase(path, type)) {
+        assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+        final ResourceSession<?, ?> session = database.beginResourceSession("resource");
+        final NodeTrx writer = session.beginNodeTrx(10, TimeUnit.MILLISECONDS);
+        writer.addPreCommitHook(unused -> {
+          if (firstHook.compareAndSet(true, false)) {
+            hookEntered.countDown();
+            try {
+              assertTrue(allowHook.await(30, TimeUnit.SECONDS));
+              try (final Database<?> other = openDatabase(hookTarget, type)) {
+                assertTrue(other.isOpen());
+              }
+              assertTrue(Objects.requireNonNull(DatabasesInternals.getOpenDatabases().get(path.toRealPath()))
+                                .contains(database));
+              if (forceRemoval) {
+                assertThrows(IllegalStateException.class, () -> {
+                  try (final Database<?> unexpected = openDatabase(path, type)) {
+                    assertTrue(unexpected.isOpen());
+                  }
+                });
+                assertThrows(IllegalStateException.class, () -> Databases.removeDatabase(path));
+              } else {
+                try (final Database<?> concurrent = openDatabase(path, type)) {
+                  assertTrue(concurrent.isOpen());
+                }
+              }
+              hookOpened.complete(null);
+            } catch (final Throwable failure) {
+              hookOpened.completeExceptionally(failure);
+              throw new IllegalStateException(failure);
+            }
+          }
+        });
+        assertTrue(hookEntered.await(30, TimeUnit.SECONDS));
+        final Field lockField = AbstractNodeTrxImpl.class.getDeclaredField("lock");
+        lockField.setAccessible(true);
+        final ReentrantLock transactionLock = (ReentrantLock) Objects.requireNonNull(lockField.get(writer));
+        final Thread closer = Thread.ofPlatform().daemon().unstarted(() -> {
+          try {
+            if (forceRemoval) {
+              Databases.removeDatabase(path);
+            } else {
+              database.close();
+            }
+            cleanupFinished.complete(null);
+          } catch (final Throwable failure) {
+            cleanupFinished.completeExceptionally(failure);
+          }
+        });
+        try {
+          closer.start();
+          final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+          while (!transactionLock.hasQueuedThread(closer) && !cleanupFinished.isDone()
+              && System.nanoTime() < deadline) {
+            Thread.sleep(1);
+          }
+          assertTrue(transactionLock.hasQueuedThread(closer));
+          System.out.println("READY");
+          System.out.flush();
+          System.in.read();
+          allowHook.countDown();
+          hookOpened.get(30, TimeUnit.SECONDS);
+          cleanupFinished.get(30, TimeUnit.SECONDS);
+          assertFalse(database.isOpen());
+          assertTrue(session.isClosed());
+          assertTrue(writer.isClosed());
+          System.out.println("OPEN");
+          System.out.flush();
+        } finally {
+          allowHook.countDown();
+          closer.join(TimeUnit.SECONDS.toMillis(30));
+          assertFalse(closer.isAlive());
+        }
       }
     }
   }
