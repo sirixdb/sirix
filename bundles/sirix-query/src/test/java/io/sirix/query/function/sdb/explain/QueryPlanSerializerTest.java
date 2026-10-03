@@ -1,8 +1,10 @@
 package io.sirix.query.function.sdb.explain;
 
 import io.brackit.query.compiler.AST;
+import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.XQ;
 import io.sirix.query.compiler.XQExt;
+import io.sirix.query.compiler.optimizer.HashMembershipStage;
 import io.sirix.query.compiler.optimizer.VectorizedRoutingStage;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.compiler.vectorized.ColumnType;
@@ -90,8 +92,7 @@ final class QueryPlanSerializerTest {
     assertEquals("VectorizedPipelineExpr", QueryPlanSerializer.resolveTypeName(XQExt.VectorizedPipelineExpr));
     assertEquals("MultiStepExpr", QueryPlanSerializer.resolveTypeName(XQExt.MultiStepExpr));
     assertEquals("ParentExpr", QueryPlanSerializer.resolveTypeName(XQExt.ParentExpr));
-    assertEquals("MembershipIndexExpr", QueryPlanSerializer.resolveTypeName(XQExt.MembershipIndexExpr));
-    assertEquals("MembershipProbeExpr", QueryPlanSerializer.resolveTypeName(XQExt.MembershipProbeExpr));
+    assertEquals("HashMembershipJoin", QueryPlanSerializer.resolveTypeName(XQExt.HashMembershipJoin));
     for (int i = 0; i < XQExt.NAMES.length; i++) {
       assertEquals(XQExt.NAMES[i], QueryPlanSerializer.resolveTypeName(XQExt.MultiStepExpr + i),
           "every type allocated by XQExt must resolve to its declared name");
@@ -101,13 +102,15 @@ final class QueryPlanSerializerTest {
   @Test
   @DisplayName("Serialize membership plan nodes with their operator names")
   void serializeMembershipNodes() {
-    final var index = new AST(XQExt.MembershipIndexExpr, "MembershipIndexExpr");
-    index.addChild(new AST(XQExt.MembershipProbeExpr, "MembershipProbeExpr"));
+    final var index = new AST(XQExt.HashMembershipJoin, "HashMembershipJoin");
+    index.setProperty(HashMembershipStage.ANTI, true);
+    index.setProperty(HashMembershipStage.FIELD, new QNm("id"));
 
     final String json = QueryPlanSerializer.serialize(index);
 
-    assertTrue(json.contains("\"operator\": \"MembershipIndexExpr\""), json);
-    assertTrue(json.contains("\"operator\": \"MembershipProbeExpr\""), json);
+    assertTrue(json.contains("\"operator\": \"HashMembershipJoin\""), json);
+    assertTrue(json.contains("\"direction\": \"anti\""), json);
+    assertTrue(json.contains("\"innerKey\": \"id\""), json);
     assertFalse(json.contains("Unknown("), json);
   }
 

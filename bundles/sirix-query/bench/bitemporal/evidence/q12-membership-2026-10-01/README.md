@@ -17,7 +17,8 @@ name) and `remeasured_t100k_after_memo_fix` are earlier re-measurements kept for
 `changed_after_this_run`, which says what they touched and whether Q12's path changed; that is the
 honest way to read these numbers, because the head moves and a block never does. The
 `t100k-after-memofix*.plan.txt` trees show the nested-probe plan every later block ran, which is
-still the current plan shape — only runtime behaviour changed after them. Changes made after the
+a historical plan shape. The physical cursor operator now uses a `HashMembershipJoin` marker and
+owns no expression memo. Its measurements and validation are recorded separately. Changes made after the
 campaign are listed in the addendum of the implementation note.
 
 - `Q12Probe.java.txt`: exact runner used for the recorded SH1 measurements. It canonicalizes the

@@ -19,77 +19,40 @@ inside the predicate's nested pipeline. Each outer row creates a new cursor. On 
 cost reordering hashes the one outer key and scans the inner relation until a match. The total
 inner input visits therefore grow quadratically even though the plan contains a hash join.
 
-The Sirix stage runs before Brackit's pipelining. It replaces the predicate with a membership
-probe that owns an opaque lookup object as a nested child expression. No outer rows means no source
-read.
+The Sirix stage runs before Brackit's pipelining. It marks the membership selection, and
+`SirixPipelineStrategy` compiles it into a physical `HashMembershipJoin` operator. The operator
+returns the original outer tuples: order, multiplicity, and node identity are preserved.
 
-The inner side is read **lazily** — nothing until an outer row probes — and its iterator is opened and
-closed inside the probe that needs it. It is never parked between probes, and that is a correctness
-requirement, not tidiness: Brackit's `fn:empty`/`fn:exists` (both `EmptySequence.execute`) call
-`Iter.close()` on the normal path *and* from a catch-all handler, so the plan this route replaces
-releases the inner cursor the moment it answers. A parked iterator would release a Sirix stream or
-transaction later than that, and `Expr` has no teardown hook to release it at — an earlier revision of
-this note claimed the pause matched Brackit's behaviour, which was simply wrong.
+Each operator cursor owns its key sets and inner iterator. A newly opened cursor starts without
+keys, even when it iterates a lazy result retained by a declared variable. No mutable execution
+state lives in the compiled expression, query context, or pipeline tuple. Closing or exhausting
+the cursor releases its table and inner iterator; failures also close both input cursors.
+An early close of a partially consumed result closes an unfinished inner scan.
 
-That fixes the shape of each direction. An **anti-join** reads the relation through to the end in the
-first probe that needs it, and the completed key set then answers every later probe without touching
-the source. A **semi-join** stops at its own key, because one match answers the predicate — the early
-exit the unoptimized plan has, where `TableJoin` hashes the one outer key and streams the inner side
-and `fn:exists` stops at the first match, so `exists(...)` over a million inner rows visits one row
-where draining first would have visited all of them. Having stopped, it gives the partial keys up
-rather than parking the scan: a later probe whose key the retained set already contains is answered
-from it — a key in the set was indexed from a real inner row, so it proves a match however little of
-the relation was read — and only a key the set does not contain goes back to the original predicate.
+The build is lazy: an empty outer input never reads the inner relation. Both semi and anti joins
+stop at a matching key. Subsequent probes use keys already read or resume that same inner scan;
+a missing key completes the scan. Supported homogeneous domains therefore require at most one
+inner pass per stable binding in the pipeline, including nested outer loops. There is no
+per-row rebuild, and a first-row match against a million-row input still reads one row.
 
-**The bound is amortised, not per probe.** At most one pass over the inner relation for the whole
-lifetime of a lookup, however many outer rows probe it. It is not a per-probe bound, and an earlier
-revision of this note claiming "neither direction reads more of the inner relation than the plan it
-replaces" was wrong: the plan this replaces also stops early. Brackit's `EmptySequence` backs both
-`fn:empty` and `fn:exists` and pulls one item before closing, so each of *its* probes reads only up
-to its own match — which is exactly why the rule-off counter below is `128 * 129 / 2 + 128 * 128` and
-not `256 * 128`. A single probe here can therefore read more than that plan's probe would: one outer
-row whose key matches the first inner row costs the original one row and costs this route the whole
-relation. The win is sharing that one pass across many outer rows, which is the shape the rule exists
-for — Q12 probes a 100k-row history from a large outer side — and stopping the anti-join at its match
-would hand that shape straight back to a per-row scan. Reading further than the original also means
-an error sitting past the original's early exit can surface here when it would not have there. A probe
-whose key the completed set does not contain, and whose domain cannot be compared with it, still
-delegates to the original predicate.
+A change of the independent inner binding closes the previous scan and discards its keys. Local
+bindings are read from their actual tuple slots, because `BoundVariable` wraps a sequence in a new
+`TypedSequence` on each reference. Declared bindings are read from the query context. These reads
+identify the active relation within a cursor; they do not retain a lookup across cursors or query
+executions. `$inner[]` uses its base binding, since the unboxing expression itself creates a new
+sequence on each evaluation.
 
-The lookup occupies **no pipeline tuple slot**. That is a hard requirement, not a preference: a
-spilling `group by` or `order by` serializes every slot of every tuple it carries, Brackit's
-`TupleSerializer` writes only its own atomic types, and the lookup is not one of them. An earlier
-revision hoisted the lookup into a generated `let` binding before the outer `for`; a `group by`
-that spilled then failed the whole query with `bit:BIDY0005: Serialization of item type 'item()'
-not implemented yet.` Nesting the lookup inside the probe removes the slot, so nothing about the
-tuples reaching `group by`, `order by` or the block `GroupBy` differs from the unoptimized plan.
+The key sets occupy no tuple slot, so a downstream spilling `group by` or `order by` can serialize
+its ordinary tuples. Pipelines containing membership joins use the sequential cursor strategy,
+including when the caller requests block execution or enables morsels. This gives the table one
+owner instead of building it independently in each worker. Pipelines without membership joins
+retain their existing parallel and vectorized routing.
 
-One build per enclosing binding is kept without a slot by memoizing on the *scope variable* — the
-independent variable the inner source reads, which the admission rule already requires. The memo is
-keyed on that variable's **binding**, not on the value a reference to it returns, and that
-distinction is the whole correctness of the scheme: `BoundVariable.evaluate` runs
-`TypedSequence.toTypedSequence`, which allocates a fresh wrapper for every value that is not a
-single `Item`, so a memo keyed on a reference's result never hits for a multi-item inner relation
-and rebuilds the hash set for every outer row. Q12's `let $new := local:slice(...)` is exactly that
-shape. The binding is therefore read at its source: a local `let`/`for` binding straight out of its
-tuple slot (the translator registers the lookup as a `Reference` on that binding, so it receives the
-same slot position every other reference gets), and a module-level variable from the query context.
-Both are the same object for every row of the outer `for` and a different object once an enclosing
-binding moves on. Note the asymmetry a slot read fixes: a `for` slot holds a single `Item` and was
-always stable, while a `let` slot holding a sequence was not.
-
-`$inner[]` still may not be the key — it allocates a fresh unboxing sequence per evaluation — which
-is why the key is the base variable the admission rule pins down rather than the source expression.
-Reuse happens only when the bound object is the same object, which cannot differ in content, so a
-hit is always sound and a miss only costs a rebuild. Enclosing bindings and subsequent executions
-get fresh lookups; the memo holds one entry, so concurrent block-pipeline workers sitting on
-different enclosing bindings rebuild instead of sharing, and each worker is always handed the lookup
-built from its own binding. The memo holds that entry **softly**, and the lookup drops the tuple it
-was built from as soon as its keys exist, so a finished evaluation's key set and the outer row's
-database items are collectable rather than pinned for the lifetime of the caller's `Query`.
-A probe against a completed set reads it without taking the monitor — the volatile `complete` flag
-publishes the sets — while a probe that still has to read the inner side holds it, so one scan is
-shared rather than raced.
+Integer keys use a primitive long set; string, untyped-atomic and URI keys use codepoint string
+keys. Null keys have their own flag and do not force the typed keys off the hash route. Unsupported
+numeric promotions, mixed comparison domains, and extraction errors use the original nested
+predicate. A retained positive key proves a match; an incomplete set never proves absence.
+No coercion to a common floating-point key is attempted. General comparisons remain unchanged.
 
 The admission rule requires:
 
@@ -141,20 +104,28 @@ let-bound and a Q12-style function-call-bound inner relation, and forces both sp
   that failure is itself proof that the sort spilled. It is skipped, not silently passed, at the
   suite's normal heap.
 
-The block `GroupBy` shares the same `TupleSerializer`; the slot-shape assertion in
-`theLookupNeverOccupiesAPipelineTupleSlot` covers it by pinning the property that makes all three
-safe.
+The tests exercise real spill paths and exact output, rather than relying on the syntax of a
+lookup expression. They also cover mutable database bindings, failed-execution retries, nested
+outer loops, interleaved evaluations, unsupported numeric early exits, and closing a partially
+consumed result.
 
-For 128 inner keys and 256 outer items of the **anti-join** shape, the enabled rule visits exactly 128
-inner items and closes one build iterator. Disabling it produces the same answer but visits 24,640
-inner items: `128 * 129 / 2 + 128 * 128`. The work bound is stated on the anti-join because that is
-the direction that owns a shared pass; a semi-join that stops at its own match answers later probes
-from the keys it retained and hands only the rest back to the original predicate, so it carries the
-never-worse-than-original bound instead, asserted by running the same query with the rule on and off
-and comparing both counters. The counter assertion was run with the rule disabled and failed on
-that count. The same bound is asserted for an inner side whose keys include one `"id": null`
-record, which pins the null key to the hash route rather than the fallback. There is no wall-clock
-assertion.
+For 128 inner keys and 256 outer items, the anti join reads 128 keys in one scan; the original
+predicate reads 24,640: `128 * 129 / 2 + 128 * 128`. A mixed-hit/miss semi join over eight inner
+keys reads eight keys overall, compared with 33 for the original predicate. These are work-count
+assertions, with no wall-clock bounds.
+
+The local Brackit snapshot has a pre-existing `Analyzer.checkCycle` NPE when compiling the retained
+declared-FLWOR regression. That query test is explicitly disabled with the reason. The same
+lifecycle is executed directly through Brackit's `DeclVariable` and `PipeExpr`: repeated iteration
+opens fresh physical join cursors, mutations of the same source object change the answer, and
+interleaved iterations cannot share keys. A query-level UDF returning the FLWOR supplies the
+nearest compilable end-to-end regression. No Brackit classes are patched.
+
+## Physical operator validation
+
+The cursor operator supersedes the expression-memo implementations measured below. Its final
+suite, work-budget and t100k measurements are recorded separately in the evidence directory;
+historical measurements must not be read as measurements of this implementation.
 
 ## SH1 evidence (2026-10-01/02, measured on commit `79042b96a`)
 
@@ -206,98 +177,16 @@ recorded 1,026 tests with no assertion failures, including all 16 membership tes
 was subsequently admitted through the shared two-slot limiter and the full suite passed on retry.
 The t250k retry uses a fresh store; the partial original store contributes no measurements.
 
-## Addendum: changes after commit `79042b96a`
+## Historical expression implementations
 
-The campaign section above is a closed record of `79042b96a`. Seven changes landed after it — the
-null key, the `sdb:explain` range, the lookup leaving the tuple slot, the memo key, the retention
-release, the probe-scoped iterator with its terminal exit, and consulting the retained keys before
-delegating — so its
-suite counts (`1,774 tests`, `16 membership tests`) and the `MembershipIndexExpr.java`,
-`HashMembershipStage.java` and `SirixTranslator.java` entries in `candidate_sources_sha256` describe
-that commit, not HEAD. They were deliberately left as recorded rather than re-written without a new
-measured run.
+Later expression-based implementations removed an opaque lookup from tuple slots to fix spilling,
+corrected raw-binding identity for local `let` sequences, and added early-exit/fallback behavior.
+Those implementations were superseded because a compiled-expression memo could retain keys across
+executions of mutable bindings. Attempts to attach the memo to execution contexts also failed for
+lazy values retained by declared variables. The physical operator above removes that machinery.
 
-A JSON `null` key no longer gives the lookup up. It sets one `hasNull` flag — on the `Lookup`
-itself; the `Keys` record this originally described no longer exists — and a null probe key is
-answered from that flag, so a single null no longer reverts the
-whole query to the per-row nested plan. Covered by `HashMembershipStageTest`:
-`nullKeysMatchNullKeysAndNothingElse`, `explicitAndAbsentNullFieldsFollowTheValueComparison`,
-`aNullInnerKeyKeepsTheHashRouteAndItsWorkBound`, `aNullProbeKeyKeepsTheHashRouteAndItsWorkBound`,
-and `aNullOnlyBuildSideKeepsTheHashRouteAndItsWorkBound`. The last three assert the inner-visit
-work bound, so they fail if the route reverts to the fallback. The same change moved the
-"no typed keys" decision after the probe key is atomized, so an error the unoptimized plan raises
-is delegated rather than answered as a non-match; `outerKeyErrorsAreNotSwallowedWhenNoTypedKeysWereBuilt`
-pins that, verified against the plan the rule disables.
-
-`QueryPlanSerializer.resolveTypeName` now bounds the XQExt range against `XQExt.NAMES.length`
-instead of a hardcoded last type, so `sdb:explain` names the two membership operators instead of
-emitting `Unknown(276)`/`Unknown(277)`. Covered by `QueryPlanSerializerTest.resolveXQExtTypes` and
-`serializeMembershipNodes`.
-
-The lookup moved out of the pipeline tuple into the probe, because a spilling `group by` serializes
-every slot it carries and killed the query outright — see *Plan and invariants* above for the
-mechanism. Covered by `aSpillingGroupByAfterAnAntiJoinCompletes`,
-`aSpillingGroupByKeepsExactCountsForManyGroups`, `anOrderByAfterAnAntiJoinCompletesAndKeepsTheRoute`
-and `theLookupNeverOccupiesAPipelineTupleSlot`. All three of the first, second and fourth fail on the
-pre-fix plan — the two spilling ones with the `bit:BIDY0005` serialization error, the fourth because
-one variable was still bound to a lookup.
-
-The memo key was then corrected. Nesting the lookup in the probe meant re-deriving "one build per
-enclosing binding" by hand, and the first attempt keyed the memo on what a *reference* to the scope
-variable returned. `BoundVariable.evaluate` runs `TypedSequence.toTypedSequence`, which allocates a
-fresh wrapper for every value that is not a single `Item` — so for a locally let-bound multi-item
-inner relation the memo never hit and the hash set was rebuilt for **every outer row**. That is
-Q12's own shape (`let $new := local:slice(...)`), so the rule's entire purpose was defeated for the
-query it exists for, while every work-counting test stayed green because all of them bound the inner
-relation as `declare variable ... external`, which takes the context path that already worked.
-Keying on the raw binding — the tuple slot for a local, the context value for a module-level
-variable — fixes it. `aLocallyLetBoundInnerRelationIsBuiltOnce` and `aQ12StyleLocalSourceIsBuiltOnce`
-pin both shapes and both fail before the fix at 32,768 inner reads for 256 outer rows. The second of
-those counts key reads on the records rather than sequence iterations, because Brackit materializes a
-`let` over a function call and a counting sequence can no longer see the rebuilds through it.
-
-The lookup also no longer pins a finished evaluation's state: it drops the tuple it was built from as
-soon as its keys exist, and the memo holds its single entry softly, so the key set and the outer
-row's database items are collectable instead of being retained for the lifetime of the caller's
-`Query`.
-
-### Re-measured done bar (t100k)
-
-Q12 has been re-measured after each change to the lookup's evaluation. Every block in
-`measurements.json` names the commit it was taken at, because the head moves and a recorded number
-does not; read `measured_at_commit` rather than a block's name. The campaign timings above describe
-`79042b96a` only and are kept as history — `t100k-after.plan.txt` / `t250k-after.plan.txt` still show
-the superseded `LetBind sirix:membership0`. The latest pair, `remeasured_t100k_at_73d6e5daf`, ran
-against a store freshly loaded with `BitemporalSirixLoadMain t100k` from the unmodified kit event
-stream with one commit per publication and no batching override:
-
-| Q12 at t100k | measured at | seconds | rows | oracle |
-|---|---|---:|---:|---|
-| baseline | `8aa9f0d9e` | 1069.754587 | 4 | exact |
-| superseded let-bound plan | `79042b96a` | 8.443716 | 4 | exact |
-| rule disabled | `73d6e5daf` | 1039.163508 | 4 | exact |
-| **rule enabled, fresh process** | `73d6e5daf` | **5.267062** | 4 | exact |
-| **rule enabled, repeat** | `73d6e5daf` | **5.532705** | 4 | exact |
-
-The rule-disabled leg is the same classes with `-Dsirix.optimizer.hashMembership=false`, the knob this
-note documents for disabling just this rule, so it is a true pair on one build rather than a comparison
-across two; it executes none of the changed code. Both enabled runs are byte-identical to the
-independent oracle `q12.tsv`, and their answer hash
-`b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068` is the same answer the baseline and
-every intermediate plan produced — so the rewrite is answer-preserving across all of them. That is a
-197x and 188x reduction against the same build with the rule off, and Q12 is three orders below
-XTDB 2.1's 2,360 s at this tier, so the intent's done bar for Q12 is met. The optimized plan is
-`t100k-after-memofix.plan.txt`: the lookup sits inside the `Selection`'s probe with `GroupBy` and
-`OrderBy` downstream and no membership variable anywhere.
-
-One commit landed after that pair: the scan's `finally` now publishes the terminal state and releases
-the outer tuple **before** closing the iterator, so a close that throws can no longer skip that
-cleanup. It is reached only when closing the inner iterator throws, which Q12 does not do, so the
-code the pair timed is the code the head runs for Q12 statement for statement; no remeasurement was
-taken for it, and `changed_after_this_run` in the block records exactly that. These are shared-machine
-single-process measurements — the machine gate reported concurrent heavy JVMs from another worktree,
-and heavy JVMs were serialized through a `flock` so no two ran at once — so they support the
-order-of-growth and done-bar conclusion rather than small percentage comparisons. Only Q12 at t100k
-was run.
-
-The authoritative suite result for HEAD is this branch's test step, not the counts above.
+The historical `remeasured_t100k_at_73d6e5daf` block records 1039.163508 s with the rule disabled,
+5.267062 s enabled, and 5.532705 s on a fresh-process repeat. Its answer hash is
+`b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068`. These are measurements of
+`73d6e5daf`, not the physical operator. Earlier source hashes, plans and validation records remain
+in the evidence directory with their original commit labels.

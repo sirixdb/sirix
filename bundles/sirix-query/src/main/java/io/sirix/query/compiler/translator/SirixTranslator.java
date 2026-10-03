@@ -38,8 +38,6 @@ import io.sirix.exception.SirixException;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
-import io.sirix.query.compiler.expression.MembershipIndexExpr;
-import io.sirix.query.compiler.expression.MembershipProbeExpr;
 import io.sirix.query.compiler.expression.VectorizedPipelineExpr;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
@@ -59,6 +57,9 @@ import io.brackit.query.compiler.translator.PipelineStrategy;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.compiler.translator.TopDownTranslator;
 import io.brackit.query.expr.DeclVariable;
+import io.brackit.query.operator.Operator;
+import io.sirix.query.compiler.operator.HashMembershipJoin;
+import io.sirix.query.compiler.operator.HashMembershipJoin.Binding;
 import io.brackit.query.module.Namespaces;
 import io.sirix.query.compiler.optimizer.ComputedAggregateDetectionStage;
 import io.sirix.query.compiler.optimizer.HashMembershipStage;
@@ -107,7 +108,7 @@ public class SirixTranslator extends TopDownTranslator {
    * @param options options map
    */
   public SirixTranslator(final Map<QNm, Str> options) {
-    super(options);
+    this(options, new SirixPipelineStrategy());
   }
 
   /**
@@ -119,24 +120,15 @@ public class SirixTranslator extends TopDownTranslator {
    * @param pipelineStrategy the pipeline strategy (sequential or block-parallel)
    */
   public SirixTranslator(final Map<QNm, Str> options, final PipelineStrategy pipelineStrategy) {
-    super(options, pipelineStrategy);
+    super(options, (node, compiler) -> SirixPipelineStrategy.hasMembershipJoin(node)
+        ? new SirixPipelineStrategy().compilePipeExpr(node, compiler)
+        : pipelineStrategy.compilePipeExpr(node, compiler));
   }
 
   protected Expr anyExpr(AST node) throws QueryException {
-    if (node.getType() == XQExt.MembershipIndexExpr) {
-      final AST scopeNode = node.getChild(1);
-      final Expr scope = expr(scopeNode, true);
-      final MembershipIndexExpr index = new MembershipIndexExpr(expr(node.getChild(0), true), scope,
-          (QNm) node.getProperty(HashMembershipStage.FIELD));
-      if (!(scope instanceof DeclVariable)) {
-        // A local binding is memoized on its raw tuple slot, so the lookup needs the same slot
-        // position the binding hands to every other reference of itself.
-        table.resolve((QNm) scopeNode.getValue(), index);
-      }
-      return index;
-    } else if (node.getType() == XQExt.MembershipProbeExpr) {
-      return new MembershipProbeExpr(expr(node.getChild(0), true), expr(node.getChild(1), true),
-          node.checkProperty(HashMembershipStage.ANTI), expr(node.getChild(2), true));
+    if (node.getType() == XQExt.HashMembershipJoin) {
+      // A marker outside a physical selection (e.g. a subsequently folded expression) remains exact.
+      return expr(node.getChild(3), true);
     } else if (node.getType() == XQExt.IndexExpr) {
       return indexExpr(node);
     } else if (node.getType() == XQExt.VectorizedPipelineExpr) {
@@ -145,6 +137,30 @@ public class SirixTranslator extends TopDownTranslator {
       return derefDescendantExpr(node);
     }
     return super.anyExpr(node);
+  }
+
+  HashMembershipJoin membershipJoin(final Operator in, final AST node) {
+    final AST scopeNode = node.getChild(1);
+    final Expr scope = expr(scopeNode, true);
+    final Binding binding = new Binding(scope);
+    if (!(scope instanceof DeclVariable)) {
+      table.resolve((QNm) scopeNode.getValue(), binding);
+    }
+    return new HashMembershipJoin(in, expr(node.getChild(0), true), binding, expr(node.getChild(2), true),
+        expr(node.getChild(3), true), (QNm) node.getProperty(HashMembershipStage.FIELD),
+        node.checkProperty(HashMembershipStage.ANTI));
+  }
+
+  int bindingCount() {
+    return table.bound().length;
+  }
+
+  Expr pipelineReturn(final AST node, final int initialBindings) {
+    final Expr result = anyExpr(node);
+    for (int count = table.bound().length - initialBindings; count > 0; count--) {
+      table.unbind();
+    }
+    return result;
   }
 
   protected Expr derefDescendantExpr(AST node) throws QueryException {

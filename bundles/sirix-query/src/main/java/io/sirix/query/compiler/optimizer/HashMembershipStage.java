@@ -9,30 +9,11 @@ import io.brackit.query.module.StaticContext;
 import io.sirix.query.compiler.XQExt;
 
 /**
- * Hoists single-equality semi/anti-join membership out of an outer iteration.
- *
- * <p>
- * Brackit recognizes the equality inside {@code empty(for ...)} as a join, but the join's cursor is
- * recreated for every outer row. Even a hash join there performs quadratic work. This stage runs
- * before pipelining and replaces the predicate with a probe over an evaluation-local lookup whose
- * key set is filled incrementally, so a semi-join still stops at its first match and the lookup
- * scans the inner relation at most once, however many outer rows probe it. A probe that the keys
- * read so far cannot decide falls back to the original predicate. The original selection retains
- * the outer order and multiplicity.
- *
- * <p>
- * The lookup is nested inside the probe, not hoisted into a {@code let} binding. A bound lookup
- * would occupy a pipeline tuple slot, and a spilling {@code group by} or {@code order by}
- * serializes every slot it carries. The probe keeps one build per enclosing binding by memoizing on
- * the independent source variable instead, read at its binding rather than through a reference to
- * it, since a reference re-wraps a multi-item value on every read.
- *
- * <p>
- * The deliberately small admission rule requires an independent variable (optionally unboxed) as
- * the inner input, direct variable/field keys, and one value equality. A returned inner item or its
- * matched key is necessarily nonempty after a match. Other return expressions, positional or typed
- * inner bindings, allowing-empty loops, general comparisons, and residual predicates retain their
- * original plans. In particular, this does not rewrite multi-predicate nested FLWORs.
+ * Recognizes independent single-value-equality semi/anti joins before FLWOR pipelining. The marker
+ * is consumed by the Sirix pipeline translator as a physical membership join; all hash state
+ * belongs to its cursor, never to a compiled expression or a tuple slot. Unsupported comparison
+ * domains are evaluated by the original predicate. General comparisons, residual predicates,
+ * typed/positional bindings and possibly empty returns keep their original plan.
  */
 public final class HashMembershipStage implements Stage {
   public static final String ENABLED_PROPERTY = "sirix.optimizer.hashMembership";
@@ -65,15 +46,12 @@ public final class HashMembershipStage implements Stage {
       if (match == null) {
         continue;
       }
-      final AST index = new AST(XQExt.MembershipIndexExpr, "MembershipIndexExpr");
-      index.addChild(match.source.copyTree());
-      index.addChild(match.scope.copyTree());
-      index.setProperty(FIELD, match.field);
-
-      final AST probe = new AST(XQExt.MembershipProbeExpr, "MembershipProbeExpr");
-      probe.addChild(index);
+      final AST probe = new AST(XQExt.HashMembershipJoin, "HashMembershipJoin");
+      probe.addChild(match.source.copyTree());
+      probe.addChild(match.scope.copyTree());
       probe.addChild(match.outerKey.copyTree());
       probe.addChild(where.getChild(0).copyTree());
+      probe.setProperty(FIELD, match.field);
       probe.setProperty(ANTI, match.anti);
       where.replaceChild(0, probe);
     }

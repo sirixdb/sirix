@@ -1,6 +1,18 @@
 package io.sirix.query.compiler.optimizer;
 
 import io.brackit.query.Query;
+import io.brackit.query.atomic.Bool;
+import io.brackit.query.expr.BoundVariable;
+import io.brackit.query.expr.DeclVariable;
+import io.brackit.query.expr.PipeExpr;
+import io.brackit.query.expr.SequenceExpr;
+import io.brackit.query.jdm.type.SequenceType;
+import io.brackit.query.operator.ForBind;
+import io.brackit.query.operator.Start;
+import io.brackit.query.operator.TupleImpl;
+import io.sirix.query.compiler.operator.HashMembershipJoin;
+import io.sirix.query.compiler.operator.HashMembershipJoin.Binding;
+import org.junit.jupiter.api.Disabled;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Null;
@@ -19,10 +31,14 @@ import io.brackit.query.jsonitem.object.AbstractObject;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.LazySequence;
+import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.JsonDBCollection;
+import io.sirix.query.json.JsonDBObject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
@@ -200,7 +216,7 @@ final class HashMembershipStageTest {
               + " return $a)");
       assertEquals("0", answer(query, context));
       assertEquals(129, inner.visited, "a null probe key must not revert to the per-row nested plan");
-      assertEquals(1, inner.closed, "the scan closes its iterator before the probe returns");
+      assertEquals(1, inner.closed, "the scan closes its iterator when the result iterator closes");
       assertEquals(inner.opened, inner.closed, "every inner iterator opened is closed");
     }
   }
@@ -366,24 +382,6 @@ final class HashMembershipStageTest {
   }
 
   @Test
-  void theLookupNeverOccupiesAPipelineTupleSlot() throws Exception {
-    // Guards the order by and block GroupBy spill paths too: their budget is a fraction of the
-    // heap rather than a property, so they cannot be forced to spill in this JVM. Every one of
-    // them serializes whole tuples, so the lookup staying out of every slot is the invariant.
-    try (final BasicJsonDBStore store = store();
-        final SirixCompileChain chain = chain(store);
-        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
-      final Query query = new Query(chain,
-          "let $inner := (10,20) for $a in (10,20,30,30,40)" + " where empty(for $b in $inner where $b eq $a return $b)"
-              + " let $key := $a group by $key order by $key return count($a)");
-      assertEquals("2 1", answer(query, context));
-      final AST optimized = chain.getOptimizedAST();
-      assertTrue(containsProbe(optimized), "membership route admission");
-      assertEquals(0, boundLookups(optimized), "no variable may be bound to a membership lookup");
-    }
-  }
-
-  @Test
   void multiItemValueKeysStillRaiseTheirCardinalityError() throws Exception {
     try (final BasicJsonDBStore store = store();
         final SirixCompileChain chain = chain(store);
@@ -448,9 +446,8 @@ final class HashMembershipStageTest {
   @Test
   void mixedHitAndMissSemiProbesNeverReadMoreThanTheOriginalPlan() throws Exception {
     // Inner keys are 1..8. Probe 3 reads rows 1..3 and stops at its match, retaining keys 1..3.
-    // Probe 1 is then answered from those keys without reading anything; 9, 8, 42 and 5 are not in
-    // them and delegate, paying the original plan's scan-until-match. Route: 3 + 8 + 0 + 8 + 8 + 5.
-    // Original: 3 + 8 + 1 + 8 + 8 + 5.
+    // Probe 9 finishes the same scan. Every later probe is answered without reading a row.
+    // Original: 3 + 8 + 1 + 8 + 8 + 5. Cursor-owned hash join: 3 + 5.
     final String text = "declare variable $src external;" + " let $h := $src for $a in (3, 9, 1, 8, 42, 5)"
         + " where exists(for $b in $h where $b eq $a return $b) return $a";
     final CountingSequence withRule = new CountingSequence(8);
@@ -458,7 +455,7 @@ final class HashMembershipStageTest {
     final CountingSequence withoutRule = new CountingSequence(8);
     assertEquals("3 1 8 5", semiJoinAnswer(text, withoutRule, false));
     assertEquals(33, withoutRule.visited, "the original plan scans until each probe's match");
-    assertEquals(32, withRule.visited, "the retained keys answer probe 1 without rescanning");
+    assertEquals(8, withRule.visited, "all probes share one resumable inner scan");
   }
 
   @Test
@@ -481,35 +478,25 @@ final class HashMembershipStageTest {
   }
 
   @Test
-  void aFailingCloseStillLeavesTheLookupTerminal() throws Exception {
-    // The close runs in the same finally that publishes the terminal state, so a close that throws
-    // must not be able to skip it. The source is referenced directly, so the memo keys on the bound
-    // object and the lookup survives the failed execution into the retry.
+  void aFailedExecutionBuildsAfreshOnRetry() throws Exception {
     try (final BasicJsonDBStore store = store();
         final SirixCompileChain chain = chain(store);
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
       final ThrowingCloseSequence inner = new ThrowingCloseSequence(64, 2);
       context.bind(new QNm("src"), inner);
       final Query query = new Query(chain, "declare variable $src external;"
-          + " for $a in (1,1,1) where empty(for $b in $src where $b eq $a return $b) return $a");
+          + " for $a in (1,65,1) where empty(for $b in $src where $b eq $a return $b) return $a");
       final Exception failure = assertThrows(Exception.class, () -> answer(query, context));
-      assertInstanceOf(IllegalStateException.class, rootCause(failure), "the close failure must propagate");
-      // Row 1 was indexed before the read failed, so key 1 is retained and all three outer rows are
-      // answered from it: a terminal lookup never re-enters the scan.
-      final int readBeforeRetry = inner.visited;
-      assertEquals(1, readBeforeRetry);
-      assertEquals("", answer(query, context));
-      assertEquals(readBeforeRetry, inner.visited, "the retry must not re-read the inner side");
-      assertEquals(1, inner.opened, "a terminal lookup opens no second scan");
+      assertInstanceOf(IllegalStateException.class, rootCause(failure));
+      assertEquals(1, inner.visited);
+      assertEquals("65", answer(query, context));
+      assertEquals(65, inner.visited, "the retry builds its own complete lookup");
+      assertEquals(2, inner.opened);
     }
   }
 
   @Test
-  void anAbruptInnerFailureLeavesTheLookupDelegating() throws Exception {
-    // The scan releases the outer tuple it evaluates the source against, so a scan that leaves
-    // without a verdict can never be resumed. An error that is not a QueryException takes exactly
-    // that exit. An array binding is an item, so the let slot keeps it unwrapped and the memo
-    // survives into the next execution, where `$h[]` still needs a tuple to evaluate the source.
+  void anAbruptArrayFailureBuildsAfreshOnRetry() throws Exception {
     try (final BasicJsonDBStore store = store();
         final SirixCompileChain chain = chain(store);
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
@@ -518,18 +505,280 @@ final class HashMembershipStageTest {
       final Query query = new Query(chain, "declare variable $src external;" + " let $h := $src for $a in (1,2,3,4,5)"
           + " where empty(for $b in $h[] where $b eq $a return $b) return $a");
       final Exception failure = assertThrows(Exception.class, () -> answer(query, context));
-      assertInstanceOf(IllegalStateException.class, rootCause(failure), "the inner error must propagate");
-      // The array is healthy from here on: inner keys 1..4, so only 5 survives the anti-join.
+      assertInstanceOf(IllegalStateException.class, rootCause(failure));
       assertEquals("5", answer(query, context));
-      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
+      assertEquals(6, inner.reads, "the failed second read, then a fresh four-key build");
+      assertTrue(containsProbe(chain.getOptimizedAST()));
     }
   }
 
   @Test
+  void aMutableDatabaseBindingIsNeverReusedAcrossExecutions() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
+        final SirixQueryContext secondContext = SirixQueryContext.createWithJsonStore(store)) {
+      final JsonDBCollection collection = store.create("membership", "record", "{\"id\":1}");
+      try (final JsonResourceSession session = collection.getDatabase().beginResourceSession("record");
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        final JsonDBObject inner = new JsonDBObject(trx, collection);
+        final QNm id = new QNm("id");
+        context.bind(new QNm("src"), inner);
+        secondContext.bind(new QNm("src"), inner);
+        final String[] predicates = {"empty(for $b in $src where $b.id eq $a return $b.id)",
+            "exists(for $b in $src where $b.id eq $a return $b.id)",
+            "not(exists(for $b in $src where $b.id eq $a return $b.id))",
+            "not(empty(for $b in $src where $b.id eq $a return $b.id))", "some $b in $src satisfies $b.id eq $a",
+            "not(some $b in $src satisfies $b.id eq $a)"};
+        final boolean[] anti = {true, false, true, false, false, true};
+        try {
+          for (int i = 0; i < predicates.length; i++) {
+            inner.replace(id, Int32.ONE);
+            final Query query = new Query(chain,
+                "declare variable $src external; for $a in (1,2) where " + predicates[i] + " return $a");
+            assertEquals(anti[i]
+                ? "2"
+                : "1", answer(query, context), predicates[i]);
+            inner.replace(id, new Int32(2));
+            assertEquals(anti[i]
+                ? "1"
+                : "2", answer(query, secondContext), predicates[i]);
+            assertEquals(anti[i]
+                ? "1"
+                : "2", answer(query, context), predicates[i]);
+          }
+        } finally {
+          trx.rollback();
+        }
+      }
+    }
+  }
+
+  @Test
+  @Disabled("Brackit Analyzer.checkCycle NPE compiling a declared FLWOR; covered through DeclVariable/PipeExpr directly")
+  void aRetainedDeclaredLazyResultStartsAFreshCursorOnEveryIteration() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingRecords inner = new CountingRecords(1, new QNm("id"));
+      final Query query =
+          new Query(chain, "declare variable $src := ({'id':1});" + " declare variable $r := (for $a in (1,2)"
+              + " where empty(for $b in $src where $b.id eq $a return $b.id) return $a); ($r, $r)");
+      // Supply the same declared value through counted records to observe each physical build.
+      context.bind(new QNm("src"), inner);
+      assertEquals("2 2", answer(query, context));
+      assertEquals(2, inner.keyReads, "each iteration of the retained lazy value builds afresh");
+      assertEquals("2 2", answer(query, context));
+      assertEquals(4, inner.keyReads);
+    }
+  }
+
+  @Test
+  void aRetainedDeclaredPipeSequenceCreatesIndependentCursors() {
+    try (final BasicJsonDBStore store = store();
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingRecords records = new CountingRecords(1, new QNm("id"));
+      final DeclVariable source = new DeclVariable(new QNm("src"), SequenceType.ITEM_SEQUENCE);
+      context.bind(source.getName(), records);
+      final BoundVariable outer = new BoundVariable(new QNm("a"), 0);
+      final ForBind loop = new ForBind(new Start(), new SequenceExpr(Int32.ONE, new Int32(2)), false);
+      final HashMembershipJoin join =
+          new HashMembershipJoin(loop, source, new Binding(source), outer, Bool.FALSE, new QNm("id"), true);
+      final DeclVariable retained = new DeclVariable(new QNm("r"), SequenceType.ITEM_SEQUENCE);
+      retained.setExpr(new PipeExpr(join, outer));
+      final Sequence result = retained.evaluate(context, TupleImpl.EMPTY_TUPLE);
+      assertEquals(List.of(new Int32(2)), items(result));
+      assertEquals(List.of(new Int32(2)), items(result));
+      assertEquals(2, records.keyReads, "each iteration opens its own cursor and builds its own table");
+      records.offset = 1;
+      assertEquals(List.of(Int32.ONE), items(retained.evaluate(context, TupleImpl.EMPTY_TUPLE)));
+      assertEquals(3, records.keyReads, "the retained result cannot carry keys from an earlier iteration");
+      try (final Iter abandoned = result.iterate()) {
+        assertEquals(Int32.ONE, abandoned.next());
+        records.offset = 0;
+        assertEquals(List.of(new Int32(2)), items(result));
+      }
+      assertEquals(5, records.keyReads);
+    }
+  }
+
+  @Test
+  void aFunctionReturningTheJoinBuildsAgainOnEachInvocation() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingRecords inner = new CountingRecords(1, new QNm("id"));
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain,
+          "declare variable $src external;" + " declare function local:filtered($s) {for $a in (1,2)"
+              + " where empty(for $b in $s where $b.id eq $a return $b.id) return $a};"
+              + " (local:filtered($src), local:filtered($src))");
+      assertEquals("2 2", answer(query, context));
+      assertEquals(2, inner.keyReads);
+      inner.offset = 1;
+      assertEquals("1 1", answer(query, context));
+      assertEquals(4, inner.keyReads);
+    }
+  }
+
+  private static List<Item> items(final Sequence sequence) {
+    final List<Item> result = new ArrayList<>();
+    try (final Iter iter = sequence.iterate()) {
+      Item item;
+      while ((item = iter.next()) != null) {
+        result.add(item);
+      }
+    }
+    return result;
+  }
+
+  @Test
+  void nestedOuterLoopsShareAnIdentityStableBinding() throws Exception {
+    assertOneInnerBuild(
+        "declare variable $src external; count(let $inner := $src" + " for $x in 1 to 8 for $a in 129 to 132"
+            + " where empty(for $b in $inner where $b eq $a return $b) return $a)",
+        "32");
+    assertOneInnerBuild("declare variable $src external; count(for $x in 1 to 8 for $a in 129 to 132"
+        + " where empty(for $b in $src where $b eq $a return $b) return $a)", "32");
+  }
+
+  @Test
+  void closingAPartiallyConsumedResultClosesItsInnerScan() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingSequence inner = new CountingSequence(1_000_000);
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain, "declare variable $src external; for $a in (1,2)"
+          + " where exists(for $b in $src where $b eq $a return $b) return $a");
+      try (final Iter result = query.execute(context).iterate()) {
+        assertEquals(Int32.ONE, result.next());
+        assertEquals(1, inner.visited);
+        assertEquals(0, inner.closed, "the live cursor owns the resumable scan");
+      }
+      assertEquals(1, inner.closed);
+      assertEquals("1 2", answer(query, context));
+      assertEquals(3, inner.visited, "a new cursor starts its own scan");
+      assertEquals(2, inner.closed);
+    }
+  }
+
+  @Test
+  void interleavedAndAbandonedExecutionsHaveIndependentLookups() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingSequence inner = new CountingSequence(64);
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain, "declare variable $src external; for $a in (65,66)"
+          + " where empty(for $b in $src where $b eq $a return $b) return $a");
+      try (final Iter first = query.execute(context).iterate(); final Iter second = query.execute(context).iterate()) {
+        assertEquals(new Int32(65), first.next());
+        assertEquals(new Int32(65), second.next());
+        assertEquals(new Int32(66), first.next());
+        assertEquals(128, inner.visited);
+      }
+      assertEquals("65 66", answer(query, context));
+      assertEquals(192, inner.visited);
+      assertEquals(3, inner.opened);
+      assertEquals(3, inner.closed);
+    }
+  }
+
+  @Test
+  void anEmptyInnerStillSuppressesOuterFieldFailures() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingRecords outer = new CountingRecords(1, new QNm("id"));
+      outer.failKeys = true;
+      context.bind(new QNm("outer"), outer);
+      context.bind(new QNm("inner"), new CountingSequence(0));
+      final Query query = new Query(chain, "declare variable $outer external; declare variable $inner external;"
+          + " for $a in $outer where empty(for $b in $inner where $b eq $a.id return $b) return 1");
+      assertEquals("1", answer(query, context));
+      context.bind(new QNm("inner"), new CountingSequence(1));
+      assertThrows(IllegalStateException.class, () -> answer(query, context));
+    }
+  }
+
+  @Test
+  void unsupportedNumericProbesKeepTheOriginalEarlyExit() throws Exception {
+    final String[] predicates = {"empty(for $b in $src where $b eq $a return $b)",
+        "exists(for $b in $src where $b eq $a return $b)", "not(exists(for $b in $src where $b eq $a return $b))",
+        "not(empty(for $b in $src where $b eq $a return $b))", "some $b in $src satisfies $b eq $a",
+        "not(some $b in $src satisfies $b eq $a)"};
+    for (final String predicate : predicates) {
+      final String text = "declare variable $src external; for $a in xs:double(1) where " + predicate + " return 1";
+      final CountingSequence original = new CountingSequence(1_000_000);
+      final String expected = semiJoinAnswer(text, original, false);
+      final CountingSequence optimized = new CountingSequence(1_000_000);
+      assertEquals(expected, semiJoinAnswer(text, optimized, true), predicate);
+      assertEquals(1, optimized.visited, predicate);
+      assertEquals(original.visited, optimized.visited, predicate);
+      assertEquals(optimized.opened, optimized.closed, predicate);
+    }
+  }
+
+  @Test
+  void arrayBindingsKeepNumericEarlyExitAndExecutionIsolation() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final FailingOnceArray inner = new FailingOnceArray(64, Integer.MAX_VALUE);
+      context.bind(new QNm("src"), inner);
+      final Query numeric = new Query(chain, "declare variable $src external; let $h := $src"
+          + " for $a in (xs:double(1),1,1) where some $b in $h[] satisfies $b eq $a return 1");
+      assertEquals("1 1 1", answer(numeric, context));
+      assertEquals(2, inner.reads);
+      final Query anti = new Query(chain, "declare variable $src external; let $h := $src"
+          + " for $a in (1,65) where empty(for $b in $h[] where $b eq $a return $b) return $a");
+      assertEquals("65", answer(anti, context));
+      assertEquals(66, inner.reads);
+      inner.replaceAt(0, new Int32(100));
+      assertEquals("1 65", answer(anti, context));
+      assertEquals(130, inner.reads);
+    }
+  }
+
+  @Test
+  void blockWorkersShareOneBuildPerExecution() throws Exception {
+    try (final BasicJsonDBStore store = store();
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createParallel(context.getNodeStore(), store)) {
+      final CountingSequence inner = new CountingSequence(64);
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain, "declare variable $src external; count(for $a in 1 to 256"
+          + " where empty(for $b in $src where $b eq $a return $b) return $a)");
+      assertEquals("192", answer(query, context));
+      assertEquals(64, inner.visited);
+      assertEquals("192", answer(query, context));
+      assertEquals(128, inner.visited);
+      assertEquals(2, inner.opened);
+      assertEquals(2, inner.closed);
+    }
+  }
+
+  @Test
+  void aSupportedProbeAfterAnUnsupportedProbeStillBuildsOnce() throws Exception {
+    final String text = "declare variable $src external; for $a in (xs:double(1),65,66,65)"
+        + " where empty(for $b in $src where $b eq $a return $b) return $a";
+    final CountingSequence inner = new CountingSequence(64);
+    assertEquals("65 66 65", semiJoinAnswer(text, inner, true));
+    assertEquals(65, inner.visited, "one promoted comparison, then one shared supported-key build");
+    assertEquals(2, inner.opened);
+    assertEquals(2, inner.closed);
+    final CountingSequence semi = new CountingSequence(64);
+    assertEquals("1 1 1", semiJoinAnswer("declare variable $src external; for $a in (xs:double(1),1,1)"
+        + " where some $b in $src satisfies $b eq $a return 1", semi, true));
+    assertEquals(2, semi.visited);
+    assertEquals(2, semi.opened);
+    assertEquals(2, semi.closed);
+  }
+
+  @Test
   void anEarlyExitingSemiJoinClosesItsInnerIterator() throws Exception {
-    // The leak this pins: a probe that answers from its first match used to leave the scan parked on
-    // an open iterator with no later path closing it. Brackit's own fn:exists closes its iterator on
-    // every path, so the route must too.
+    // A semi join may finish without exhausting its inner scan. The result iterator must close it.
     try (final BasicJsonDBStore store = store();
         final SirixCompileChain chain = chain(store);
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
@@ -540,25 +789,23 @@ final class HashMembershipStageTest {
       assertEquals("1", answer(query, context));
       assertEquals(1, inner.visited, "the scan stops at the first matching key");
       assertEquals(1, inner.opened, "one inner iterator is opened");
-      assertEquals(1, inner.closed, "and it is closed before the probe returns, not left parked");
+      assertEquals(1, inner.closed, "and it is closed when the result iterator closes");
       assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
     }
   }
 
   @Test
-  void aLocalLetMemoAnswersTwoDifferentInputsCorrectly() throws Exception {
-    // Two evaluations of one local let, each with a different multi-item inner relation: the memo is
-    // keyed on the binding, so neither evaluation may answer from the other's keys.
+  void aLocalLetBindingAnswersTwoDifferentInputsCorrectly() throws Exception {
+    // Two evaluations of one local let, each with a different multi-item inner relation:
+    // changing the binding discards the previous scope's table.
     assertOptimized("3 1", "for $i in (1,2) let $inner := ($i, $i + 1)"
         + " for $a in (1,2,3) where empty(for $b in $inner where $b eq $a return $b) return $a");
   }
 
   @Test
-  void aSingleOuterRowAntiJoinReadsMoreThanTheOriginalPlansEarlyExit() throws Exception {
-    // The acknowledged cost of the shared pass. fn:empty pulls one item and closes, so the original
-    // plan stops at inner row 1 here; the route reads all 8 to leave a reusable key set. Pinned so
-    // the trade stays visible: stopping the anti-join at its match is what would undo Q12, where the
-    // same pass is amortised over a large outer side instead of one row.
+  void aSingleOuterRowAntiJoinStopsAtItsMatch() throws Exception {
+    // Owning the inner iterator allows anti joins to stop early too: later probes resume it,
+    // and closing the result releases a scan that never needed to reach the end.
     final String text = "declare variable $src external;" + " let $h := $src for $a in (1)"
         + " where empty(for $b in $h where $b eq $a return $b) return $a";
     final CountingSequence withRule = new CountingSequence(8);
@@ -566,7 +813,7 @@ final class HashMembershipStageTest {
     final CountingSequence withoutRule = new CountingSequence(8);
     assertEquals("", semiJoinAnswer(text, withoutRule, false));
     assertEquals(1, withoutRule.visited, "the original plan stops at the first matching inner row");
-    assertEquals(8, withRule.visited, "the route reads the whole relation to leave a reusable set");
+    assertEquals(1, withRule.visited, "the cursor stops as soon as this probe matches");
   }
 
   @Test
@@ -696,21 +943,8 @@ final class HashMembershipStageTest {
     return out.toString().trim();
   }
 
-  /** Counts membership lookups reachable anywhere other than as their own probe's child. */
-  private static int boundLookups(final AST node) {
-    int count = 0;
-    for (int i = 0; i < node.getChildCount(); i++) {
-      final AST child = node.getChild(i);
-      if (child.getType() == XQExt.MembershipIndexExpr && node.getType() != XQExt.MembershipProbeExpr) {
-        count++;
-      }
-      count += boundLookups(child);
-    }
-    return count;
-  }
-
   private static boolean containsProbe(final AST node) {
-    if (node.getType() == XQExt.MembershipProbeExpr) {
+    if (node.getType() == XQExt.HashMembershipJoin) {
       return true;
     }
     for (int i = 0; i < node.getChildCount(); i++) {
@@ -726,6 +960,8 @@ final class HashMembershipStageTest {
     private final int size;
     private final QNm field;
     private int keyReads;
+    private int offset;
+    private boolean failKeys;
 
     private CountingRecords(final int size, final QNm field) {
       this.size = size;
@@ -742,7 +978,7 @@ final class HashMembershipStageTest {
           if (position == size) {
             return null;
           }
-          return new CountingRecord(new Int32(++position));
+          return new CountingRecord(new Int32(++position + offset));
         }
 
         @Override
@@ -759,6 +995,9 @@ final class HashMembershipStageTest {
 
       @Override
       public Sequence get(final QNm name) {
+        if (failKeys) {
+          throw new IllegalStateException("outer field failed");
+        }
         if (field.equals(name)) {
           keyReads++;
         }
@@ -887,6 +1126,7 @@ final class HashMembershipStageTest {
     private final Array delegate;
     private final int failAt;
     private boolean failed;
+    private int reads;
 
     private FailingOnceArray(final int size, final int failAt) {
       final List<Sequence> values = new ArrayList<>(size);
@@ -899,6 +1139,7 @@ final class HashMembershipStageTest {
 
     @Override
     public Sequence at(final int index) {
+      reads++;
       if (!failed && index == failAt - 1) {
         failed = true;
         throw new IllegalStateException("inner side failed mid-scan");

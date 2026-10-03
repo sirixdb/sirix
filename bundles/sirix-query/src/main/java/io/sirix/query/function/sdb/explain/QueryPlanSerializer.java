@@ -3,6 +3,7 @@ package io.sirix.query.function.sdb.explain;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.sirix.query.compiler.XQExt;
+import io.sirix.query.compiler.optimizer.HashMembershipStage;
 import io.sirix.query.compiler.optimizer.VectorizedRoutingStage;
 import io.sirix.query.compiler.optimizer.mesh.EquivalenceClass;
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
@@ -283,7 +284,7 @@ public final class QueryPlanSerializer {
   // --- Join section ---
 
   private static boolean hasJoinProperties(AST node) {
-    return node.getProperty(CostProperties.JOIN_REORDERED) != null
+    return node.getType() == XQExt.HashMembershipJoin || node.getProperty(CostProperties.JOIN_REORDERED) != null
         || node.getProperty(CostProperties.JOIN_COST) != null;
   }
 
@@ -291,6 +292,15 @@ public final class QueryPlanSerializer {
     indent(sb, depth);
     sb.append("\"join\": {\n");
     boolean first = true;
+    if (node.getType() == XQExt.HashMembershipJoin) {
+      first = emitIfPresent(sb, depth + 1, first, "direction", node.checkProperty(HashMembershipStage.ANTI)
+          ? "anti"
+          : "semi");
+      final Object field = node.getProperty(HashMembershipStage.FIELD);
+      first = emitIfPresent(sb, depth + 1, first, "innerKey", field == null
+          ? "item"
+          : field.toString());
+    }
     first = emitIfPresent(sb, depth + 1, first, "reordered", node.getProperty(CostProperties.JOIN_REORDERED));
     first = emitIfPresent(sb, depth + 1, first, "leftCardinality", node.getProperty(CostProperties.JOIN_LEFT_CARD));
     first = emitIfPresent(sb, depth + 1, first, "rightCardinality", node.getProperty(CostProperties.JOIN_RIGHT_CARD));
