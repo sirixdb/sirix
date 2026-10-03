@@ -8400,6 +8400,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final byte op = cp.ops[n];
       final int literalIndex = cp.strIdx[n];
       if (literalIndex >= 0) {
+        // UTF-8 replaces unpaired surrogates. Decline byte-backed predicates at this shared
+        // flat/tree boundary so fallback comparison retains the original literal.
         final String literal = cp.strLiterals[literalIndex];
         for (int i = 0; i < literal.length(); i++) {
           final char ch = literal.charAt(i);

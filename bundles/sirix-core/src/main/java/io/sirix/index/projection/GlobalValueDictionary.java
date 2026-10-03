@@ -1368,10 +1368,6 @@ public final class GlobalValueDictionary {
     }
 
     /**
-     * Compare two ids under the query engine's Unicode codepoint string collation without
-     * materialisation.
-     */
-    /**
      * Order two packed CELLS by the values they name, under the dictionary's collation.
      *
      * <p>

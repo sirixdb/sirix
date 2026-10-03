@@ -76,13 +76,12 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     // extensions and miss an equal group that is not first or last.
     // Gated on the content type, not just on the bounds: the cursor decides a range by unsigned BYTE
     // order over the serialized key, which is the value order only for the families
-    // CASKeySerializer encodes deliberately. The instant family (xs:dateTime/xs:date/xs:time) is
-    // stored as its raw lexical form, whose text order is NOT chronological order, so
-    // isByteOrderPreserving reports false for it and those queries fall through to the full scan
-    // below, which compares typed atomics via CASFilterRange#inRange.
+    // CASKeySerializer encodes deliberately. Types for which isByteOrderPreserving reports false
+    // fall through to the full scan below, which compares typed atomics via CASFilterRange#inRange.
     //
-    // NOT gated on losesInformation, and that is a deliberate reversal. The full scan below is not a
-    // more accurate answer for a lossy bound — it is the SAME answer at O(index) cost, because
+    // For losslessly encodable bounds, the cursor is not gated on losesInformation. The ordinary
+    // full scan below is not a more accurate answer for a capped or narrowed bound — it is the
+    // SAME answer at O(index) cost, because
     // CASKeySerializer#decodeAtomic rebuilds its comparison value out of the very key the cursor
     // already compared. A decimal key decodes to Dec(BigDecimal.valueOf(d)) — the same double; a
     // truncated string key decodes to the truncated string. So the scan compares narrowed values
@@ -217,12 +216,18 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     return false;
   }
 
+  // Replacement encoding would change the range. Open only the unencodable side and keep both
+  // original bounds as residuals; capped stored keys require document values to decide exactly.
   private static Iterator<NodeReferences> openStringRangeWithResidual(final StorageEngineReader storageEngineReader,
-      final HOTIndexReader<CASValue> reader, final IndexDef indexDef, final Set<Long> pcrs,
-      final @Nullable Atomic min, final @Nullable Atomic max, final boolean minInclusive, final boolean maxInclusive) {
+      final HOTIndexReader<CASValue> reader, final IndexDef indexDef, final Set<Long> pcrs, final @Nullable Atomic min,
+      final @Nullable Atomic max, final boolean minInclusive, final boolean maxInclusive) {
     final Type type = indexDef.getContentType();
-    final Atomic scanMin = hasLossyStringBound(min, type) ? null : min;
-    final Atomic scanMax = hasLossyStringBound(max, type) ? null : max;
+    final Atomic scanMin = hasLossyStringBound(min, type)
+        ? null
+        : min;
+    final Atomic scanMax = hasLossyStringBound(max, type)
+        ? null
+        : max;
     final Iterator<Map.Entry<CASValue, NodeReferences>> entries;
     if (pcrs.size() == 1 && (scanMin != null || scanMax != null)) {
       final long pcr = pcrs.iterator().next();
@@ -239,8 +244,12 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     for (final Long pcr : pcrs) {
       acceptedPCRs[i++] = pcr;
     }
-    final String minLiteral = min == null ? null : min.stringValue();
-    final String maxLiteral = max == null ? null : max.stringValue();
+    final String minLiteral = min == null
+        ? null
+        : min.stringValue();
+    final String maxLiteral = max == null
+        ? null
+        : max.stringValue();
     return new CloseForwardingIterator(entries) {
       private @Nullable NodeReferences next;
 
@@ -256,8 +265,8 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
           }
           final CASValue key = entry.getKey();
           if (CASKeySerializer.truncates(key.getAtomicValue(), type)) {
-            next = exactStringRangeMatches(storageEngineReader, entry.getValue(), minLiteral, maxLiteral,
-                minInclusive, maxInclusive);
+            next = exactStringRangeMatches(storageEngineReader, entry.getValue(), minLiteral, maxLiteral, minInclusive,
+                maxInclusive);
           } else if (inStringRange(key.getAtomicValue().stringValue(), minLiteral, maxLiteral, minInclusive,
               maxInclusive)) {
             next = entry.getValue();
@@ -283,8 +292,12 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
   private static boolean inStringRange(final String value, final @Nullable String min, final @Nullable String max,
       final boolean minInclusive, final boolean maxInclusive) {
-    final int lower = min == null ? 1 : compareCodePoints(value, min);
-    final int upper = max == null ? -1 : compareCodePoints(value, max);
+    final int lower = min == null
+        ? 1
+        : compareCodePoints(value, min);
+    final int upper = max == null
+        ? -1
+        : compareCodePoints(value, max);
     return (lower > 0 || lower == 0 && minInclusive) && (upper < 0 || upper == 0 && maxInclusive);
   }
 
@@ -297,7 +310,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     try (final StorageEngineReader separateReader = storageEngineReader instanceof StorageEngineWriter
         ? null
         : storageEngineReader.getResourceSession().createStorageEngineReader(storageEngineReader.getRevisionNumber())) {
-      final StorageEngineReader records = separateReader == null ? storageEngineReader : separateReader;
+      final StorageEngineReader records = separateReader == null
+          ? storageEngineReader
+          : separateReader;
       final LongIterator it = candidates.nodeKeyIterator();
       while (it.hasNext()) {
         final long nodeKey = it.next();
@@ -667,9 +682,13 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       }
       final SearchMode mode = filter.getMode();
       final boolean lower = mode == SearchMode.GREATER || mode == SearchMode.GREATER_OR_EQUAL;
-      return openStringRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested,
-          lower ? filter.getKey() : null, lower ? null : filter.getKey(), mode == SearchMode.GREATER_OR_EQUAL,
-          mode == SearchMode.LOWER_OR_EQUAL);
+      return openStringRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested, lower
+          ? filter.getKey()
+          : null,
+          lower
+              ? null
+              : filter.getKey(),
+          mode == SearchMode.GREATER_OR_EQUAL, mode == SearchMode.LOWER_OR_EQUAL);
     }
 
     // Gated on what the QUERY pins, not on what the INDEX spans. A seek needs one exact key, so it

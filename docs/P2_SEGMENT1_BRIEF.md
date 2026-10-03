@@ -34,8 +34,9 @@ The post-pass of §5, unchanged in shape because rank order is a global property
 1. **S1** extract per-leaf dictionary entries, validating that every value is well-formed UTF-8 and failing
    by name if not (`decodeCodePoint` throws on CESU-8 surrogates and overlongs, so a byte-order merge would
    otherwise silently rank inputs the collation refuses).
-2. **S2** k-way merge in UTF-16 order using the proven substitution `0xEE→0xFE`, `0xEF→0xFF`, which makes
-   unsigned byte order exactly `compareUtf16Range`. Use a **front-less appender** — not
+2. **S2** k-way merge under the
+   [string ordering contract](SEGMENT_PROJECTION_INDEXES.md#41-three-representations).
+   Use a **front-less appender** — not
    `flushStreamingDictionaryGeneration`, which rebuilds the very probe front this work exists to remove
    (`ProjectionIndexBuilder:1784`, `:1794`, `:1846-1881`), and a merged sorted stream has no use for it.
 3. **S3** sort `(leafId, localId, rank)` triples.
