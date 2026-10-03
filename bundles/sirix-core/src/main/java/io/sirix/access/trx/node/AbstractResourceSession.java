@@ -30,6 +30,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexType;
+import io.sirix.index.Indexes;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
@@ -329,12 +330,19 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
-  protected void initializeIndexController(final int revision, AbstractIndexController<?, ?> controller) {
-    // Deserialize index definitions.
-    // For write transactions, the revision number is the NEW revision being created,
-    // but index definitions are stored at the LAST COMMITTED revision (and only for
-    // revisions where definitions exist — resources without secondary indexes have NO
-    // files here at all).
+  protected void initializeIndexController(final int revision, final AbstractIndexController<?, ?> controller) {
+    loadIndexCatalogue(revision, controller.getIndexes());
+    controller.refreshIndexCapabilities();
+  }
+
+  @Override
+  public void restoreIndexCatalogue(final int revision, final Indexes indexes) {
+    checkArgument(revision >= 0, "revision must be >= 0!");
+    requireNonNull(indexes).reset();
+    loadIndexCatalogue(revision, indexes);
+  }
+
+  private void loadIndexCatalogue(final int revision, final Indexes indexes) {
     final Path indexesDir =
         getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
     final int catalogueRevision = resolveIndexCatalogueRevision(indexesDir, revision);
@@ -343,8 +351,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
 
     try (final InputStream in = new FileInputStream(indexesDir.resolve(catalogueRevision + ".xml").toFile())) {
-      controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
-      controller.refreshIndexCapabilities();
+      indexes.init(IndexController.deserialize(in).getFirstChild());
     } catch (IOException | DocumentException | SirixException e) {
       throw new SirixIOException("Index definitions couldn't be deserialized!", e);
     }

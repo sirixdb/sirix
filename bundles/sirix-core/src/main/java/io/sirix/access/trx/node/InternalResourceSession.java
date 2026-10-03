@@ -7,6 +7,7 @@ import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.index.Indexes;
 import io.sirix.io.Reader;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
@@ -43,6 +44,8 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
    * @throws IllegalArgumentException if {@code revision} is negative
    */
   void recordSerializedIndexCatalogueRevision(int revision);
+
+  void restoreIndexCatalogue(int revision, Indexes indexes);
 
   Path getCommitFile();
 

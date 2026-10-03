@@ -95,7 +95,8 @@ The original workload, full-suite and latency evidence below belongs to submitte
 The factory now obtains its controller from the prepared revision root. A revert
 can read revision 1 while preparing revision 11, so the represented revision cannot
 identify the controller that owns catalogue persistence and listener retirement.
-The existing catalogue source and persisted formats are unchanged.
+This prepared-revision identity is retained by the catalogue correction below;
+persisted formats remain unchanged.
 
 The shared synchronous/pipelined successor handoff retains the controller's existing
 listener snapshot locally until rebinding succeeds. If any handoff operation fails,
@@ -126,6 +127,70 @@ repository, two workers and 512 MiB–2 GiB test heaps. Its task-owned
 full-suite, all-work-budget, formatting and original-workload revalidation. The normal
 successful commit behavior and allocation count are unchanged; this review phase
 makes no new latency claim.
+
+## Inherited catalogue recovery follow-up
+
+Round 1's controller-identity correction still reset definitions before loading only
+`lastStoredRevision.xml`. An unchanged intermediate commit intentionally omits that
+file, so reverting, rolling back after successor failure, or reopening could leave
+the next writer without index maintenance listeners. The factory now restores
+through the session's existing catalogue resolver, choosing the greatest persisted
+snapshot at or below `lastStoredRevision`. Missing snapshots inherit; persisted
+empty catalogues remain authoritative. The same restore boundary resets reused
+catalogues to discard uncommitted definitions. Fresh controller initialization uses
+the shared loader without an extra reset. The resolver, its memoization, formats,
+prepared-revision controller identity and exact projection abort-owner handoff are
+unchanged.
+
+`WriterCatalogueRecoveryTest` persists indexed revision 1, triggers a count-based
+unchanged intermediate revision 2, and confirms that `2.xml` is absent. It covers
+JSON/XML revert and failed-successor rollback plus database close/reopen, each in
+synchronous and pipelined modes. It checks restored definitions, maintained CAS
+lookups, removal of obsolete postings, and historical results after reopen. Revert
+also discards an uncommitted index definition. Two additional guards preserve an
+explicit empty catalogue through an absent later snapshot, rollback of an
+uncommitted definition, revert, and reopen. Round 1's projection-owner and listener
+retention guards remain in place.
+
+Before changing production code, all twelve skipped-catalogue cases reproduced
+round 1's loss of definitions against `98507f0aa2def53bd56bf82059b781611a5ca98c`;
+the two explicit-empty guards passed. Baseline results and source hashes are retained
+in `build/writer-retention/r3/round1.json`, `round1.log`, and `round1/results/`.
+Exploratory projection fixture attempts are also retained separately; they are not
+catalogue-loss regression evidence.
+
+After the correction, the focused verification passed all 35 tests with zero
+failures or skips: fourteen new catalogue guards plus the existing twenty-one
+construction/projection, listener-retention, catalogue-budget and projection-lineage
+guards. Production classes were freshly compiled from this worktree. Results,
+command, source SHA-256 values and cleanup status are recorded in
+`build/writer-retention/r3/fixed.json`, `fixed.log`, and `fixed/results/`.
+Both baseline and fixed runs used the supplied memory-gated wrapper, private Maven
+repository, two workers and 512 MiB–2 GiB test heaps. Every task-owned
+`/var/tmp/sirix-bitemporal/writer-retention-r3-*` store was deleted. Existing work
+budgets were not changed.
+
+The outer pipeline owns broader suites, all work budgets, latest-head SH1 workload
+and latency verification, and formatting. Previous submitted-head evidence remains
+retained and does not validate this catalogue correction.
+
+## Separate XML NAME bulk-builder follow-up
+
+Building a NAME index after inserting existing XML elements (`root/value` with a
+text child) failed during round 1 fixture setup with `NullPointerException: key`.
+The concrete path is `XmlNameIndexBuilder.visit(ImmutableElement)` reading
+`node.getName()`, then `NameIndexBuilder.build` / `addPosting`, then
+`HOTBulkIndexLoader.add`, which rejects the null key. The visited element's cached
+name can be null even though the transaction can resolve its dictionary-backed
+name. A bulk NAME build must resolve and index that actual name.
+
+This production defect remains unresolved and is separate from catalogue recovery.
+The round 1 retention fixture creates its NAME index before inserting elements;
+that exercises incremental maintenance and does not demonstrate that building over
+existing elements works. The original failing log and stack are retained in
+`build/writer-retention/focused-review.log.attempt-2` and
+`fixed-results-attempt-2/`. Follow-up verification must build over existing XML
+and assert NAME lookups for those elements.
 
 ## Original workload verification
 

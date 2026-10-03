@@ -39,7 +39,6 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.cache.BufferManager;
-import io.brackit.query.jdm.DocumentException;
 import io.sirix.access.trx.node.xml.XmlResourceSessionImpl;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
@@ -47,17 +46,9 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.cache.PageContainer;
-import io.sirix.exception.SirixException;
-import io.sirix.exception.SirixIOException;
 import io.sirix.io.Writer;
 import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
-
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 /**
  * Page transaction factory.
@@ -116,21 +107,7 @@ public final class StorageEngineWriterFactory {
       final IndexController<?, ?> indexController =
           resourceSession.getWtxIndexController(newRevisionRootPage.getRevision());
 
-      // The prospective-revision controller is cached and may still contain catalogue mutations from
-      // a transaction that is now rolling back. This factory is the authoritative persisted-state
-      // rebind point: start empty, then replace it with exactly lastStoredRevision's catalogue below.
-      indexController.getIndexes().reset();
-
-      // Deserialize index definitions.
-      final Path indexes = resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                      .resolve(lastStoredRevision + ".xml");
-      if (Files.exists(indexes)) {
-        try (final InputStream in = new FileInputStream(indexes.toFile())) {
-          indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
-        } catch (IOException | DocumentException | SirixException e) {
-          throw new SirixIOException("Index definitions couldn't be deserialized!", e);
-        }
-      }
+      resourceSession.restoreIndexCatalogue(lastStoredRevision, indexController.getIndexes());
 
       newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
       newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
