@@ -240,29 +240,7 @@ final class ValidTimeCasFallbackTest {
       for (final boolean strict : List.of(false, true)) {
         for (final boolean general : List.of(false, true)) {
           for (final boolean mirror : List.of(false, true)) {
-            final boolean fieldOnLeft = field.equals("vf") != mirror;
-            final String operator = general
-                ? (strict
-                    ? "<"
-                    : "<=")
-                : (strict
-                    ? "lt"
-                    : "le");
-            final String reversed = general
-                ? (strict
-                    ? ">"
-                    : ">=")
-                : (strict
-                    ? "gt"
-                    : "ge");
-            final String bound = "xs:dateTime($x." + field + ")";
-            final String predicate = fieldOnLeft
-                ? bound + " " + (mirror
-                    ? reversed
-                    : operator) + " " + POINT
-                : POINT + " " + (mirror
-                    ? reversed
-                    : operator) + " " + bound;
+            final String predicate = comparisonPredicate(field, strict, general, mirror);
             final String rows = "for $x in " + source + " where " + predicate + " return $x";
             if (endpoint.equals("both") || endpoint.equals(field)) {
               assertCastOnSecondDemand(chain, context, rows, castError);
@@ -276,6 +254,33 @@ final class ValidTimeCasFallbackTest {
         }
       }
     }
+  }
+
+  private static String comparisonPredicate(final String field, final boolean strict, final boolean general,
+      final boolean mirror) {
+    final boolean fieldOnLeft = field.equals("vf") != mirror;
+    final String operator = general
+        ? (strict
+            ? "<"
+            : "<=")
+        : (strict
+            ? "lt"
+            : "le");
+    final String reversed = general
+        ? (strict
+            ? ">"
+            : ">=")
+        : (strict
+            ? "gt"
+            : "ge");
+    final String bound = "xs:dateTime($x." + field + ")";
+    return fieldOnLeft
+        ? bound + " " + (mirror
+            ? reversed
+            : operator) + " " + POINT
+        : POINT + " " + (mirror
+            ? reversed
+            : operator) + " " + bound;
   }
 
   private static void assertCastOnSecondDemand(final SirixCompileChain chain, final SirixQueryContext context,
