@@ -1,5 +1,7 @@
 package io.sirix.access.trx.node;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.utils.ObjectPool;
 import io.brackit.query.jdm.DocumentException;
 import io.sirix.access.DatabaseConfiguration;
@@ -129,12 +131,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * truncation drop the databaseId slice, {@code Databases.clearGlobalCaches()} (cold-process
    * simulation in tests) drops everything.
    */
-  // FULLY QUALIFIED deliberately, and it must stay that way: io.sirix.cache.Cache is imported in
-  // this file, so a single-type-import of Caffeine's Cache does not compile ("a type with the same
-  // simple name is already defined"). A review flagged this as a CLAUDE.md violation; it is the one
-  // place the rule cannot be followed without renaming one of the two types.
-  private static final com.github.benmanes.caffeine.cache.Cache<RevisionInfoKey, RevisionInfo> REVISION_INFO_CACHE =
-      com.github.benmanes.caffeine.cache.Caffeine.newBuilder().maximumSize(100_000).build();
+  private static final Cache<RevisionInfoKey, RevisionInfo> REVISION_INFO_CACHE =
+      Caffeine.newBuilder().maximumSize(100_000).build();
 
   /** Shared empty result for history-timestamp queries on resources without user revisions. */
   private static final long[] EMPTY_LONG_ARRAY = new long[0];
@@ -255,6 +253,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    */
   final User user;
 
+  /** The database-owned session that owns storage and the shared committed-revision state. */
+  private final @Nullable AbstractResourceSession<R, W> sharedSession;
+
+  /** Number of handle sessions using this database-owned session; guarded by its monitor. */
+  private int userSessionCount;
+
   /**
    * A factory that creates new {@link StorageEngineWriter} instances.
    */
@@ -302,6 +306,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     lastCommittedUberPage = new AtomicReference<>(uberPage);
     this.user = user;
+    sharedSession = null;
+    pendingRevisionRoot = new AtomicReference<>();
     pool = new AtomicReference<>();
 
     // Use GLOBAL epoch tracker (shared across all databases/resources)
@@ -316,6 +322,67 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // This follows PostgreSQL bgwriter pattern - background threads run continuously
 
     isClosed = false;
+  }
+
+  /**
+   * Create a user session with its own transactions and reader pool over the database's shared
+   * storage, write/commit locks and published revision. No storage is reopened or revision read.
+   */
+  protected AbstractResourceSession(final AbstractResourceSession<R, W> sharedSession,
+      final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore,
+      final User user) {
+    sharedSession.assertNotClosed();
+    this.sharedSession = sharedSession;
+    this.resourceStore = requireNonNull(resourceStore);
+    this.user = requireNonNull(user);
+    resourceConfig = sharedSession.resourceConfig;
+    bufferManager = sharedSession.bufferManager;
+    storage = sharedSession.storage;
+    storageEngineWriterFactory = sharedSession.storageEngineWriterFactory;
+    writeLock = sharedSession.writeLock;
+    commitLock = sharedSession.commitLock;
+    lastCommittedUberPage = sharedSession.lastCommittedUberPage;
+    pendingRevisionRoot = sharedSession.pendingRevisionRoot;
+    revisionEpochTracker = sharedSession.revisionEpochTracker;
+    trxIDCounter = sharedSession.trxIDCounter;
+    nodeTrxMap = new ConcurrentHashMap<>();
+    storageEngineReaderMap = new ConcurrentHashMap<>();
+    storageEngineWriterMap = new ConcurrentHashMap<>();
+    sharedTrxMap = new ConcurrentHashMap<>();
+    pool = new AtomicReference<>();
+    if (sharedSession.pool.get() != null) {
+      createStorageEnginePool();
+    }
+  }
+
+  public final synchronized ResourceSession<R, W> openUserSession(
+      final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore,
+      final User user) {
+    assertNotClosed();
+    requireNonNull(resourceStore);
+    requireNonNull(user);
+    userSessionCount++;
+    try {
+      return createUserSession(resourceStore, user);
+    } catch (final RuntimeException | Error e) {
+      userSessionCount--;
+      throw e;
+    }
+  }
+
+  protected ResourceSession<R, W> createUserSession(
+      final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore,
+      final User user) {
+    throw new UnsupportedOperationException("This resource session does not support user sessions");
+  }
+
+  public final synchronized void releaseUserSession() {
+    if (userSessionCount <= 0) {
+      throw new IllegalStateException("No user session is registered");
+    }
+    if (--userSessionCount == 0) {
+      close();
+    }
   }
 
   // REMOVED: ClockSweeper management moved to BufferManager (global lifecycle)
@@ -530,19 +597,19 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /** Depth-1 pipelined async commit: the pending (phase-1-complete, unhardened) revision root. */
-  private volatile PendingRevisionRoot pendingRevisionRoot;
+  private final AtomicReference<PendingRevisionRoot> pendingRevisionRoot;
 
   private record PendingRevisionRoot(int revision, RevisionRootPage rootPage) {
   }
 
   @Override
   public void putPendingRevisionRoot(final int revision, final RevisionRootPage rootPage) {
-    pendingRevisionRoot = new PendingRevisionRoot(revision, rootPage);
+    pendingRevisionRoot.set(new PendingRevisionRoot(revision, rootPage));
   }
 
   @Override
   public RevisionRootPage getPendingRevisionRoot(final int revision) {
-    final PendingRevisionRoot pending = pendingRevisionRoot;
+    final PendingRevisionRoot pending = pendingRevisionRoot.get();
     return pending != null && pending.revision() == revision
         ? pending.rootPage()
         : null;
@@ -550,9 +617,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public void clearPendingRevisionRoot(final int revision) {
-    final PendingRevisionRoot pending = pendingRevisionRoot;
+    final PendingRevisionRoot pending = pendingRevisionRoot.get();
     if (pending != null && pending.revision() == revision) {
-      pendingRevisionRoot = null;
+      pendingRevisionRoot.compareAndSet(pending, null);
     }
   }
 
@@ -1137,7 +1204,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       storageEngineWriterMap.clear();
       resourceStore.closeResourceSession(resourceConfig.getResource());
 
-      storage.close();
+      if (sharedSession == null) {
+        storage.close();
+      }
 
       if (pool.get() != null) {
         pool.get().close();

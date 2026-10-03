@@ -136,7 +136,7 @@ public final class DatabaseConfiguration {
       int existing = 0;
       for (final DatabasePaths paths : values()) {
         final Path currentFile = file.resolve(paths.getFile());
-        if (Files.exists(currentFile) && !DatabasePaths.LOCK.getFile().equals(currentFile)) {
+        if (paths != LOCK && Files.exists(currentFile)) {
           existing++;
         }
       }
@@ -366,14 +366,14 @@ public final class DatabaseConfiguration {
    * {@link #deserialize(Path)} call — a caller mutating its copy can never poison the cache.
    */
   private record ParsedConfig(Path recordedDbFile, int maxResourceID, long databaseId, DatabaseType databaseType,
-                              long maxSegmentAllocationSize, FileTime lastModifiedTime, long size) {
+      long maxSegmentAllocationSize, FileTime lastModifiedTime, long size) {
   }
 
   /**
    * Cache of parsed {@code dbsetting.obj} contents keyed by the config file's normalized absolute
-   * path. REST handlers deserialize the same file up to three times per request (open, database
-   * type lookup, handlers); a hit costs one {@code stat} instead of a full read + JSON parse.
-   * Freshness: (mtime, size) check per call, plus explicit invalidation in
+   * path. REST handlers deserialize the same file up to three times per request (open, database type
+   * lookup, handlers); a hit costs one {@code stat} instead of a full read + JSON parse. Freshness:
+   * (mtime, size) check per call, plus explicit invalidation in
    * {@link #serialize(DatabaseConfiguration)} so coarse mtime granularity can never serve a stale
    * in-JVM write.
    */
@@ -387,9 +387,9 @@ public final class DatabaseConfiguration {
    * same file outside the global open lock. On Windows a reader that opens the file mid-replace — or
    * the replace that runs while a reader still holds the old file open — fails with a transient
    * sharing violation ("The process cannot access the file because it is being used by another
-   * process"). The lock is released within microseconds, so a short bounded retry turns the race
-   * into a clean operation. POSIX has no such semantics: the first attempt always succeeds there and
-   * this retry code is never reached.
+   * process"). The lock is released within microseconds, so a short bounded retry turns the race into
+   * a clean operation. POSIX has no such semantics: the first attempt always succeeds there and this
+   * retry code is never reached.
    */
   private static final int CONFIG_IO_MAX_ATTEMPTS = 64;
 
@@ -498,8 +498,7 @@ public final class DatabaseConfiguration {
     throw lastError;
   }
 
-  private static DatabaseConfiguration deserializeOnce(final Path dbFile, final Path configFile,
-      final Path cacheKey) {
+  private static DatabaseConfiguration deserializeOnce(final Path dbFile, final Path configFile, final Path cacheKey) {
     final BasicFileAttributes attributes;
     try {
       attributes = Files.readAttributes(configFile, BasicFileAttributes.class);
@@ -525,7 +524,7 @@ public final class DatabaseConfiguration {
     // settings were actually read from.
     if (!parsed.recordedDbFile().toAbsolutePath().equals(dbFile)) {
       logger.warn("Database at {} records its location as {} (moved or copied directory) — using the actual path.",
-                  dbFile, parsed.recordedDbFile());
+          dbFile, parsed.recordedDbFile());
     }
 
     final DatabaseConfiguration config =
@@ -570,7 +569,7 @@ public final class DatabaseConfiguration {
           DatabaseType.fromString(type).orElseThrow(() -> new IllegalStateException("Type can not be unknown."));
 
       return new ParsedConfig(recordedDbFile, ID, databaseId, dbType, maxSegmentAllocationSize,
-                              attributes.lastModifiedTime(), attributes.size());
+          attributes.lastModifiedTime(), attributes.size());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

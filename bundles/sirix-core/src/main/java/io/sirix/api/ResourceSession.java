@@ -42,9 +42,10 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * <p>
- * Each resource is bound to a {@code ResourceSession}. Reader-only transactions and the single
- * read/write transaction can then be started from this instance. There can only be one write
- * transaction at a time. However, multiple read-only transactions can coexist concurrently.
+ * A resource session binds its database handle's user and transactions to shared resource state.
+ * There can only be one write transaction across all sessions of a resource. Multiple read-only
+ * transactions can coexist concurrently, and every session sees newly committed revisions while
+ * existing readers retain their pinned revision.
  * </p>
  *
  * @author Sebastian Graf, University of Konstanz

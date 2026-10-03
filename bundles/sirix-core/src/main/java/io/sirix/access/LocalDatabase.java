@@ -40,6 +40,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicReference;
+import org.jspecify.annotations.Nullable;
 
 import static java.util.Objects.requireNonNull;
 
@@ -131,8 +133,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   @Override
-  public T beginResourceSession(final String resourceName) {
+  public synchronized T beginResourceSession(final String resourceName) {
     assertNotClosed();
+    requireNonNull(resourceName);
 
     final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
     final Path resourcePath = dataDir.resolve(resourceName).normalize();
@@ -165,6 +168,37 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     return resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath);
   }
 
+  /** A handle owns user sessions; the database owns their common storage and revision state. */
+  <S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> ResourceStore<S> newUserResourceStore(
+      final User user) {
+    requireNonNull(user);
+    final AtomicReference<ResourceStore<S>> storeReference = new AtomicReference<>();
+    final ResourceStore<S> store = new ResourceStoreImpl<>(resourceSessions, (config, buffers, path) -> {
+      final T shared = resourceStore.getOpenResourceSession(path);
+      @SuppressWarnings("unchecked")
+      final S session = (S) ((AbstractResourceSession<?, ?>) shared).openUserSession(storeReference.get(), user);
+      return session;
+    }, this::releaseUserResourceSession);
+    storeReference.set(store);
+    return store;
+  }
+
+  private synchronized void releaseUserResourceSession(final Path path) {
+    final T shared = resourceStore.getOpenResourceSession(path);
+    if (shared != null) {
+      ((AbstractResourceSession<?, ?>) shared).releaseUserSession();
+    }
+  }
+
+  synchronized <S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> S beginUserResourceSession(
+      final String resourceName, final ResourceStore<S> userStore) {
+    final T shared = beginResourceSession(resourceName);
+    // The hidden database-owned session keeps storage warm, but is not a user of the resource.
+    // The user session registration below is atomic with respect to removeResource's guard.
+    resourceSessions.removeObject(shared.getResourcePath(), shared);
+    return userStore.beginResourceSession(shared.getResourceConfig(), bufferManager, shared.getResourcePath());
+  }
+
   @Override
   public String getName() {
     return dbConfig.getDatabaseName();
@@ -172,7 +206,13 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   @Override
   public synchronized boolean createResource(final ResourceConfiguration resourceConfig) {
+    return createResource(resourceConfig, null);
+  }
+
+  synchronized boolean createResource(final ResourceConfiguration resourceConfig,
+      final @Nullable ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> userStore) {
     assertNotClosed();
+    requireNonNull(resourceConfig);
 
     boolean returnVal = true;
     resourceConfig.setDatabaseConfiguration(dbConfig);
@@ -234,7 +274,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       ResourceConfiguration.serialize(resourceConfig);
       biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
-      returnVal = bootstrapResource(resourceConfig);
+      returnVal = bootstrapResource(resourceConfig, userStore);
     }
 
     if (!returnVal) {
@@ -264,9 +304,13 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
   }
 
-  private boolean bootstrapResource(ResourceConfiguration resConfig) {
-    try (final T resourceTrxManager = beginResourceSession(resConfig.getResource().getFileName().toString());
-        final W wtx = resourceTrxManager.beginNodeTrx(AfterCommitState.CLOSE)) {
+  private boolean bootstrapResource(final ResourceConfiguration resConfig,
+      final @Nullable ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> userStore) {
+    final String resourceName = resConfig.getResource().getFileName().toString();
+    try (final ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceTrxManager = userStore == null
+        ? beginResourceSession(resourceName)
+        : beginUserResourceSession(resourceName, userStore);
+        final NodeTrx wtx = resourceTrxManager.beginNodeTrx(AfterCommitState.CLOSE)) {
       final var useCustomCommitTimestamps = resConfig.customCommitTimestamps();
       if (useCustomCommitTimestamps) {
         wtx.commit(null, Instant.ofEpochMilli(0));
@@ -296,6 +340,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // Check that no running resource sessions are opened.
     if (this.resourceSessions.containsAnyEntry(resourceFile)) {
       throw new IllegalStateException("Open resource sessions found, must be closed first: " + resourceSessions);
+    }
+
+    final T shared = resourceStore.getOpenResourceSession(resourceFile);
+    if (shared != null) {
+      shared.close();
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.
@@ -467,9 +516,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       // Free all allocated memory if it's the last database which is closed.
       Databases.freeAllocatedMemory();
 
-      // Remove lock file.
-      SirixFiles.recursiveRemove(
-          dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
     }
   }
 

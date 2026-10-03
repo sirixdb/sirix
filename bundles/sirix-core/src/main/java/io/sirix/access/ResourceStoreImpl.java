@@ -11,6 +11,8 @@ import io.sirix.api.ResourceSession;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
+import org.jspecify.annotations.Nullable;
 
 public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     implements ResourceStore<R> {
@@ -24,17 +26,25 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
 
   private final ResourceSessionFactory<R> resourceSessionFactory;
 
+  private final @Nullable Consumer<Path> sessionClosed;
+
   public ResourceStoreImpl(final PathBasedPool<ResourceSession<?, ?>> allResourceSessions,
       final ResourceSessionFactory<R> resourceSessionFactory) {
+    this(allResourceSessions, resourceSessionFactory, null);
+  }
+
+  ResourceStoreImpl(final PathBasedPool<ResourceSession<?, ?>> allResourceSessions,
+      final ResourceSessionFactory<R> resourceSessionFactory, final @Nullable Consumer<Path> sessionClosed) {
 
     this.resourceSessions = new ConcurrentHashMap<>();
     this.allResourceSessions = allResourceSessions;
     this.resourceSessionFactory = resourceSessionFactory;
+    this.sessionClosed = sessionClosed;
   }
 
   @Override
-  public R beginResourceSession(final ResourceConfiguration resourceConfig,
-      final BufferManager bufferManager, final Path resourceFile) {
+  public R beginResourceSession(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
+      final Path resourceFile) {
     return this.resourceSessions.computeIfAbsent(resourceFile, k -> {
       final var resourceSession = this.resourceSessionFactory.create(resourceConfig, bufferManager, resourceFile);
       this.allResourceSessions.putObject(resourceFile, resourceSession);
@@ -60,11 +70,12 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
   /**
    * Close every open resource session.
    *
-   * <p>A session that fails to close must not take the others down with it. The straightforward
-   * loop propagated the first exception, so the sessions after it stayed open and stayed
-   * registered in {@code allResourceSessions} — and since the owning database marks itself closed
-   * before calling this, nothing ever came back to finish the job. The first failure is still
-   * reported once every session has been given its turn.
+   * <p>
+   * A session that fails to close must not take the others down with it. The straightforward loop
+   * propagated the first exception, so the sessions after it stayed open and stayed registered in
+   * {@code allResourceSessions} — and since the owning database marks itself closed before calling
+   * this, nothing ever came back to finish the job. The first failure is still reported once every
+   * session has been given its turn.
    */
   @Override
   public void close() {
@@ -92,6 +103,9 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
   public boolean closeResourceSession(final Path resourceFile) {
     final R session = resourceSessions.remove(resourceFile);
     this.allResourceSessions.removeObject(resourceFile, session);
+    if (session != null && sessionClosed != null) {
+      sessionClosed.accept(resourceFile);
+    }
     return session != null;
   }
 }
