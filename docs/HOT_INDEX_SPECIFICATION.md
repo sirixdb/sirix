@@ -1,7 +1,8 @@
 # HOT Index Specification
 
-Status: **specification of the code on `main` after PR
-[#1214](https://github.com/sirixdb/sirix/pull/1214)** (merged 2026-09-19). First written 2026-09-17
+Status: **specification based on the code on `main` after PR
+[#1214](https://github.com/sirixdb/sirix/pull/1214)** (merged 2026-09-19), with subsequent branch-split
+candidate handling reflected in §4.5.4 case 4 and regression coverage in §5.2. First written 2026-09-17
 against commit `739e46288` and revised 2026-09-20 against the merged tree, by reading the code only;
 nothing in this document was verified by running code. Where a statement could only be settled by
 execution it says so.
@@ -1133,28 +1134,23 @@ splice (§4.5.4 case 9).
 it, so a half's MSB can be far less significant than the node's. The node's children satisfied I11
 against the node; against the half they need not — where two siblings are told apart by a bit *less*
 significant than one of them branches on internally, a shape the writer's own handlers build and every
-invariant accepts until the split changes who the parent is. Such a half routes and scans correctly,
-but the structural guards reject it, so the next insert routed through it fails; and only the half `K`
-joins lies on `K`'s route, so the other is seen by no guard unless the published scope fits the
-validation budget. `splitKeepsTrieCondition` (`hot/AbstractHOTIndexWriter.java`, from
+invariant accepts until the split changes who the parent is. If published, such a half routes and
+scans correctly, but the structural guards reject it, so the next insert routed through it fails.
+Only the half `K` joins lies on `K`'s route; the post-publication path guard cannot see the other
+half, which needs scope validation within its budget. `splitKeepsTrieCondition`
+(`hot/AbstractHOTIndexWriter.java`, from
 `HOTIncrementalInsert.mostSignificantLiveBit`) asks the question before a split is built: the
 full-node decomposition of §4.5.4 case 2 (`branchFullNodeAtExistingBit`) declines on it (counted by
 `FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION`), and so does `canIntegrateBiNodeCleanly` for every full
 level the cascade above `d*` would split. Both hand the insert to the complete-frontier splice, which
-never splits the node. The other branch-path decomposition of a full node, §4.5.4 case 4
-(`branchSplitFullNode`), partitions the node at the same MSB and builds the half `K` does not join
-with the same `compressHalf`, and does **not** ask the trie-condition question: the 100,000-record
-stream reaches case 2's decline (twice) and never enters case 4 at all, nor does any test in the
-sirix-core index suites, so a guard there could not be shown to fire and was not shipped. If that half
-ever breaks the condition it goes out the way case 2's once did — off `K`'s route, seen only when the
-published scope fits the validation budget (§4.8) — and a guard belongs there together with the
-scenario that reaches it. The *ordering* question about the same unexamined half is asked at both
-sites: `splitHalvesKeepKeyApart` proves `K` on its own side of the boundary the two halves become
-(§4.5.4 cases 2 and 4), since the half `K` joins is the only one any later guard sees.
+never splits the node. The other branch-path decomposition of a full node, `branchSplitFullNode`,
+checks the constructed halves before publication; its candidate handling is specified in §4.5.4
+case 4. At both sites, `splitHalvesKeepKeyApart` separately proves `K` on its own side of the
+boundary between the halves (§4.5.4 cases 2 and 4).
 
-**The measurement is taken before the insert, and one arm re-splits after it.** Both trie-condition
-guards read the node's children as they are when the handler starts. Case 2's C2 arm then changes
-them: on a combination collision `foldIntoSplitHalf` (the fold step of
+**The measurement is taken before the insert, and one arm re-splits after it.** The
+`splitKeepsTrieCondition` pre-checks read the node's children as they are when the handler starts.
+Case 2's C2 arm then changes them: on a combination collision `foldIntoSplitHalf` (the fold step of
 `branchFullNodeAtExistingBit`) hands off to `directionOneIntoSplitHalf`, which runs a full
 sub-insert of `K` into the affected child (`subInsertAt`) and only afterwards re-splits the *same*
 node (`splitIndirect(originalNode)`) and integrates that refreshed BiNode. **That re-split is not
@@ -1196,7 +1192,7 @@ and the 100,000-record stream), so a decline could not be shown to fire and was 
 cascade ever builds such a half, it lies on `K`'s route when `K`'s leaf half joins it, and
 `validatePublishedStructuralPath` refuses it at publication — fail-closed, as §4.5.6 describes for
 the Direction-1 window; when `K`'s half stays on the slot's side, the far half is off `K`'s route and
-is seen only when the published scope fits the validation budget (§4.8), as with case 4.
+is seen only when the published scope fits the validation budget (§4.8).
 `HOTSplitHalfTrieConditionTest` pins the primitive fact a future guard rests on. The
 `IllegalArgumentException` both fold primitives raise (§4.5.3) remains the last line, not the
 mechanism: no branch path reaches them uninvited.
@@ -1315,10 +1311,16 @@ Cases, in order:
    well-formed. Folds into a lone indirect half are counted by `FULL_EXISTING_BIT_LONE_HALF_FOLD`.
 3. β ∉ D, d* full, all children affected: wrap the node and the new leaf under a BiNode and integrate
    (`:4202-4254`).
-4. β ∉ D, d* full, some children affected: `branchSplitFullNode` — `splitIndirectWithEntry` and
-   integrate. The half `K` does not join is the same plain `compressHalf` as case 2's; the boundary
-   between the two halves is proved for `K` here as it is there (`splitHalvesKeepKeyApart`), but the
-   trie-condition question is not asked: no test enters this case (§4.5.3).
+4. β ∉ D, d* full, some children affected: `branchSplitFullNode` — `splitIndirectWithEntry`
+   partitions the node at its MSB and folds `K`'s new leaf into the affected half. After the cascade
+   and inter-half boundary pre-checks, both unpublished halves are checked with
+   `freshStructuralPagesMalformed` before `integrate`. Sparse partials order subtree paths, not all
+   keys in retained multi-entry leaves: `K` can overlap a leaf's range inside its half (I8/I12), and
+   compression can violate I11 against an indirect child. The bounded checker validates fresh
+   structural pages, trusting unchanged durable and transaction-log children. If either half is
+   malformed, the writer closes the speculative key leaf, increments `BRANCH_COMPLETE_FRONTIER`
+   and returns false to use case 9 before publishing either half. Valid candidates integrate as
+   before; the rollback-only post-publication guard (§4.8) remains in force.
 5. one affected entry that is a boundary child with β ∈ D(child): cases 1-2 one level down (`:4258-4335`).
 6. one affected entry that is a leaf (leaf pair): canonical-cut guard, then — the pair keeps the
    leaf's slot, whose range becomes `[min(leaf, K), max(leaf, K)]` — the spine-order guard for the
@@ -1423,10 +1425,8 @@ Cases, in order:
   publication, the transaction is marked rollback-only and the load stops — nothing wrong is
   committed. The 100,000-record stream takes the arm four times without reaching it; no test
   constructs it and no key stream is known that does. Its own task.
-- Two full-node questions are stated but not guarded, because no test reaches them and a guard that
-  cannot be shown to fire is not evidence: the trie condition of the half `K` does not join in §4.5.4
-  case 4, and a cascade level whose split bit is the node's own MSB (§4.5.3). Adding either belongs
-  with the scenario that reaches it.
+- A cascade level whose split bit is the node's own MSB remains unguarded as described in §4.5.3;
+  adding a guard belongs with the scenario that reaches it.
 - A **PROJECTION** leaf overflowing by bytes on a key it already holds, routed through the frontier,
   drops the stale entry; when that entry owns a side reference — a segment page — the reference has no
   home in either half of the boundary leaf and the split refuses before publication
@@ -1695,6 +1695,7 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Bulk builder | `index/hot/HOTBulkBuilderTest` (7) | production `HOTBulkBuilder` against the test validator and a routing oracle: adversarial, variable-length, degenerate sizes, determinism, multi-mask, leaf count = fitting-subtree oracle (`:31-56`) |
 | Workload verification | `index/hot/HOTFormalVerificationTest` (36, `@Tag("heavy")`) | NAME/CAS workloads, adversarial fuzz, 100K height bound, multi-revision isolation, 10K-200K sweeps, each followed by `HOTInvariantValidator.assertOk()` and a `TreeMap` oracle (`:35-45`); the 1M-entry case is `@Disabled` with a manual note "Verified manually: N=1M, observedHeight=3, violations=0" (`:442-444`) |
 | Primitives | `HOTLeafPageSplitFaithfulTest` (3), `HOTIndirectPageSplitFaithfulTest` (15), `HOTDescentAnalysisTest` (4), `HOTIntegrateTest` (4) | MSDB leaf split into complete R(S) halves; `splitIndirect`/`addEntry` on canonical tries; β and d*; `integrate` including cascade to a new root |
+| Full-node branch split | `HOTBranchSplitOverlapTest` | seeds validated sparse paths and retained leaf endpoints, then reaches §4.5.4 case 4 through public writer puts in either split half under every `VersioningType`; checks rejection before publication, ordered exact physical scans, postings and structural invariants after inserts and commits, all historical revisions, and cold reopen |
 | Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTInvariantValidatorChecksTest` (6) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; validator: I4, I11, leaf-insert precondition |
 | Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `page/HOTCompleteDumpMergeTest` (5), `page/HOTLeafPageCowTest` (15), `page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
 | Writer mechanics | `HOTRebuildFootprintTest` (25), `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` (14) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |

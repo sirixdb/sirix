@@ -4924,6 +4924,14 @@ public abstract class AbstractHOTIndexWriter<K> {
       ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
       final HOTIncrementalInsert.BiNode biNode = HOTIncrementalInsert.splitIndirectWithEntry(node, info, beta,
           betaValue, swizzle(keyLeaf), revision, pageKeyAllocator);
+      // Sparse partials order subtree paths, not every key in a multi-entry leaf. Folding K into
+      // a compressed half can place it inside a retained leaf's range, or lift the half's MSB past
+      // an indirect child's. Validate the actual halves before integrate publishes either one.
+      if (freshStructuralPagesMalformed(biNode.left(), 0) || freshStructuralPagesMalformed(biNode.right(), 0)) {
+        keyLeaf.close();
+        BRANCH_COMPLETE_FRONTIER.incrementAndGet();
+        return false;
+      }
       final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
           buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, biNode, revision, pageKeyAllocator);
       published = true;
@@ -5548,7 +5556,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   /** Off-path strands discharged by the two-leaf migration ({@link #tryTwoLeafMigration}). */
   public static final AtomicLong STRAND_TWO_LEAF_MIGRATE = new AtomicLong();
   /**
-   * Branch combo-adds delegated to the complete structural-frontier primitive because the direct
+   * Branch candidates delegated to the complete structural-frontier primitive because the direct
    * candidate is structurally unsafe.
    */
   public static final AtomicLong BRANCH_COMPLETE_FRONTIER = new AtomicLong();
