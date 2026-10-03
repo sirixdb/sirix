@@ -122,7 +122,7 @@ public final class OpenBitemporal extends AbstractFunction {
     final Sequence comparisonPoint = args.length == 7 ? args[6] : null;
     final ValidTimeResidual residual = field == null
         ? null
-        : new ValidTimeResidual(sctx, ctx, comparisonPoint, field, start, strict, encodedMode > 8,
+        : new ValidTimeResidual(sctx, ctx, () -> comparisonPoint, field, start, strict, encodedMode > 8,
             ((encodedMode - 1) & 4) == 0 ? start : !start);
     final boolean indexedField = field == null || field.equals(start
         ? validTimeConfig.getNormalizedValidFromPath()

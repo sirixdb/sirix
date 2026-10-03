@@ -42,6 +42,7 @@ import io.sirix.query.compiler.expression.GuardedConjunctExpr;
 import io.sirix.query.compiler.expression.ConjunctInputs;
 import io.sirix.query.compiler.optimizer.CheapFirstConjunctStage;
 import io.sirix.query.compiler.expression.VectorizedPipelineExpr;
+import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.query.stream.node.TemporalSirixNodeStream;
@@ -51,6 +52,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.IntNumeric;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
@@ -198,6 +200,12 @@ public class SirixTranslator extends TopDownTranslator {
    */
   @Override
   protected Expr functionCall(AST node) throws QueryException {
+    if (ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(node.getValue()) && node.getChildCount() == 5
+        && node.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)) {
+      return new SirixValidTimeScanExpr(ctx, expr(node.getChild(0), true), expr(node.getChild(1), true),
+          ((Str) node.getChild(2).getValue()).stringValue(), ((Str) node.getChild(3).getValue()).stringValue(),
+          ((IntNumeric) node.getChild(4).getValue()).intValue());
+    }
     if (node.getChildCount() == 1 && node.getValue() instanceof QNm fn && node.getChild(0).getType() == XQ.PipeExpr
         && Boolean.TRUE.equals(node.getChild(0).getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG))
         && COMPUTED_AGG_FUNCS.contains(fn.getLocalName())

@@ -65,6 +65,97 @@ final class ValidTimeSliceWorkBudgetTest {
     assertSliceBudget(true);
   }
 
+  @Test
+  void reorderedBitemporalCountsRemainKeyOnlyAcrossRevisions() {
+    shredRows("""
+        [{"id":1,"vf":"2020-01-01T00:00:00Z","vt":"2030-01-01T00:00:00Z"},
+         {"id":2,"vf":"2020-01-01T00:00:00Z","vt":"2030-01-01T00:00:00Z"}]
+        """);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain,
+          "let $d := jn:doc('budget','rows') let $i := jn:create-valid-time-index($d) return sdb:commit($d)")
+              .evaluate(context);
+      final JsonDBCollection realCollection = store.lookup("budget");
+      final JsonDBItem original = realCollection.getDocument("rows");
+      final int originalRevision = original.getTrx().getRevisionNumber();
+      final var reader = original.getTrx();
+      reader.moveTo(original.getNodeKey());
+      reader.moveToFirstChild();
+      final long first = reader.getNodeKey();
+      reader.moveToLastChild();
+      reader.moveToFirstChild();
+      final long firstEnd = reader.getNodeKey();
+      reader.moveTo(first);
+      reader.moveToRightSibling();
+      final long second = reader.getNodeKey();
+      final var session = original.getResourceSession();
+      final JsonNodeTrx writer = session.getNodeTrx().orElseGet(session::beginNodeTrx);
+      writer.moveTo(original.getNodeKey());
+      writer.moveSubtreeToFirstChild(second);
+      writer.commit();
+      final int movedRevision = session.getMostRecentRevisionNumber();
+      writer.moveTo(firstEnd);
+      writer.setStringValue("2024-01-01T00:00:00Z");
+      writer.commit();
+      final int changedRevision = session.getMostRecentRevisionNumber();
+      final JsonDBCollection collection = mock(JsonDBCollection.class, delegatesTo(realCollection));
+      final JsonDBStore observedStore = mock(JsonDBStore.class, delegatesTo(store));
+      doReturn(collection).when(observedStore).lookup("budget");
+      try (var observedContext = SirixQueryContext.createWithJsonStore(observedStore);
+          var observedChain = SirixCompileChain.createWithJsonStore(observedStore)) {
+        for (final int revision : new int[] {originalRevision, movedRevision, changedRevision}) {
+          final JsonDBItem document = realCollection.getDocument("rows", revision);
+          final JsonNodeReadOnlyTrx cursor = mock(JsonNodeReadOnlyTrx.class, delegatesTo(document.getTrx()));
+          final JsonDBItem observed =
+              mock(JsonDBItem.class, withSettings().extraInterfaces(Array.class).defaultAnswer(delegatesTo(document)));
+          doReturn(cursor).when(observed).getTrx();
+          doReturn(observed).when(collection).getDocument(eq("rows"), any(Instant.class));
+          final String point = "xs:dateTime('2024-01-01T00:00:00Z')";
+          final String source = "jn:open-bitemporal('budget','rows',xs:dateTime('2099-01-01T00:00:00Z'),"
+              + point + ")";
+          for (final boolean start : new boolean[] {false, true}) {
+            for (final boolean strict : new boolean[] {false, true}) {
+              for (final boolean general : new boolean[] {false, true}) {
+                for (final boolean mirror : new boolean[] {false, true}) {
+                  final String bound = "xs:dateTime($x." + (start ? "vf" : "vt") + ")";
+                  final String operator = general ? (strict ? "<" : "<=") : (strict ? "lt" : "le");
+                  final String swapped = general ? (strict ? ">" : ">=") : (strict ? "gt" : "ge");
+                  final String predicate = mirror
+                      ? (start ? point + " " + swapped + " " + bound : bound + " " + swapped + " " + point)
+                      : (start ? bound + " " + operator + " " + point : point + " " + operator + " " + bound);
+                  final String text = "for $x in " + source + " where " + predicate + " return $x";
+                  final int expected = revision == changedRevision && !start && strict ? 1 : 2;
+                  clearInvocations(cursor);
+                  final Sequence rows = new Query(observedChain, text).execute(observedContext);
+                  assertNotNull(rows);
+                  verify(cursor, never()).getFirstChildKey();
+                  assertEquals(expected, rows.size().intValue(), text);
+                  assertEquals(expected,
+                      ((Numeric) new Query(observedChain, "count(" + text + ")").evaluate(observedContext)).intValue(),
+                      text);
+                  verify(cursor, never()).moveTo(anyLong());
+                  verify(cursor, never()).getFirstChildKey();
+                  verify(cursor, never()).getValue();
+                  clearInvocations(cursor);
+                  try (var iterator = rows.iterate()) {
+                    final JsonDBItem item = (JsonDBItem) iterator.next();
+                    assertNotNull(item);
+                    verify(cursor, times(1)).moveTo(anyLong());
+                    verify(cursor, times(1)).getFirstChildKey();
+                    verify(cursor, never()).getValue();
+                    assertEquals(expected == 1 ? second : first, item.getNodeKey());
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   /**
    * Guards the candidate-source invariant: records needing exact verification are registered in the
    * RI-tree, so a closed stab that no interval contains must not re-materialize any of them.
