@@ -2515,13 +2515,14 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Walk the leftmost path from {@code ref} to its leaf and return that leaf's first key -- the
-   * smallest key contained in the subtree rooted at {@code ref}. Bounded by tree height
-   * ({@link #MAX_PATH_DEPTH}); returns {@code null} on an empty subtree or an unresolvable descent
-   * (defensive). Used by the Direction 1 I8-safety pre-check to compare K's lex position against
-   * {@code affected}'s neighbouring siblings.
+   * The leaf holding the subtree's smallest ({@code side == 0}) or greatest ({@code side == 1}) key,
+   * by leftmost respectively rightmost descent. Returning the page rather than the key lets a caller
+   * compare that extreme in place ({@link HOTLeafPage#compareKeyWithBound}) instead of materializing
+   * it, which is what keeps the merge guard's spine walk allocation-free. Bounded by tree height
+   * ({@link #MAX_PATH_DEPTH}); {@code null} when the subtree offers no key to compare — an
+   * unresolvable reference or page, a childless node, or an empty leaf (all defensive).
    */
-  private byte @Nullable [] firstKeyOfSubtree(@Nullable PageReference ref) {
+  private @Nullable HOTLeafPage extremeLeafOfSubtree(final @Nullable PageReference ref, final int side) {
     if (ref == null) {
       return null;
     }
@@ -2532,15 +2533,16 @@ public abstract class AbstractHOTIndexWriter<K> {
         return null;
       }
       if (page instanceof HOTLeafPage leaf) {
-        if (leaf.getEntryCount() == 0) {
-          return null;
-        }
-        return leaf.getFirstKey();
+        return leaf.getEntryCount() == 0
+            ? null
+            : leaf;
       }
       if (!(page instanceof HOTIndirectPage indirect) || indirect.getNumChildren() == 0) {
         return null;
       }
-      cur = indirect.getChildReference(0);
+      cur = indirect.getChildReference(side == 0
+          ? 0
+          : indirect.getNumChildren() - 1);
       if (cur == null) {
         return null;
       }
@@ -2549,35 +2551,29 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Walk the leftmost path from {@code ref} to its leaf and return that leaf's first key -- the
+   * smallest key contained in the subtree rooted at {@code ref}. Bounded by tree height
+   * ({@link #MAX_PATH_DEPTH}); returns {@code null} on an empty subtree or an unresolvable descent
+   * (defensive). Used by the Direction 1 I8-safety pre-check to compare K's lex position against
+   * {@code affected}'s neighbouring siblings.
+   */
+  private byte @Nullable [] firstKeyOfSubtree(@Nullable PageReference ref) {
+    final HOTLeafPage leaf = extremeLeafOfSubtree(ref, 0);
+    return leaf == null
+        ? null
+        : leaf.getFirstKey();
+  }
+
+  /**
    * The last (lex-greatest) key of the subtree at {@code ref}, by rightmost descent — the true
    * maximum when the subtree is internally ordered, which is what the propagation boundary check
    * needs (a genuinely disordered subtree is the detector's to flag, not this walk's).
    */
   private byte @Nullable [] lastKeyOfSubtree(@Nullable PageReference ref) {
-    if (ref == null) {
-      return null;
-    }
-    PageReference cur = ref;
-    for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
-      final Page page = resolveHOTPageForTraversal(cur);
-      if (page == null) {
-        return null;
-      }
-      if (page instanceof HOTLeafPage leaf) {
-        final int n = leaf.getEntryCount();
-        return n == 0
-            ? null
-            : leaf.getKey(n - 1);
-      }
-      if (!(page instanceof HOTIndirectPage indirect) || indirect.getNumChildren() == 0) {
-        return null;
-      }
-      cur = indirect.getChildReference(indirect.getNumChildren() - 1);
-      if (cur == null) {
-        return null;
-      }
-    }
-    return null;
+    final HOTLeafPage leaf = extremeLeafOfSubtree(ref, 1);
+    return leaf == null
+        ? null
+        : leaf.getKey(leaf.getEntryCount() - 1);
   }
 
   /**
@@ -3470,8 +3466,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * {@link #keyKeepsSpineOrder} question for the leaf itself, asked of the serialization buffer
    * {@code keyBuf[0..keyLen)} so that the ordinary merge allocates nothing. A key present in the leaf
    * or inside its range moves no extreme and costs two comparisons against the leaf's end entries;
-   * only a key beyond one end walks the spine, and only a declined merge materializes the exact key
-   * for the structural frontier that then places it.
+   * only a key beyond one end walks the spine, which compares the neighbour's extreme on the leaf
+   * that holds it, so no array is allocated there either. Only a declined merge materializes the
+   * exact key, for the structural frontier that then places it.
    */
   private boolean mergeKeepsSpineOrder(final LeafNavigationResult navResult, final byte[] keyBuf, final int keyLen) {
     final int pathDepth = navResult.pathDepth();
@@ -3498,7 +3495,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * <p>
    * {@code K} is {@code keyBuf[0..keyLen)}, so the merge arm can ask this of the writer's
    * serialization buffer without copying a key out of it; the structural callers pass the exact key
-   * they already hold, which is the same range.
+   * they already hold, which is the same range. The neighbour's facing extreme is compared on the
+   * leaf that holds it, so the walk materializes no key either.
    * </p>
    */
   private boolean extremeKeepsSpineOrder(final LeafNavigationResult navResult, final int fromDepth, final int side,
@@ -3510,13 +3508,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       final int slot = childSlots[depth];
       if (side == 0) {
         if (slot > 0) {
-          final byte[] previousLast = lastKeyOfSubtree(node.getChildReference(slot - 1));
-          return previousLast != null
-              && Arrays.compareUnsigned(previousLast, 0, previousLast.length, keyBuf, 0, keyLen) < 0;
+          final HOTLeafPage previous = extremeLeafOfSubtree(node.getChildReference(slot - 1), 1);
+          return previous != null && previous.compareKeyWithBound(previous.getEntryCount() - 1, keyBuf, keyLen) < 0;
         }
       } else if (slot + 1 < node.getNumChildren()) {
-        final byte[] nextFirst = firstKeyOfSubtree(node.getChildReference(slot + 1));
-        return nextFirst != null && Arrays.compareUnsigned(keyBuf, 0, keyLen, nextFirst, 0, nextFirst.length) < 0;
+        final HOTLeafPage next = extremeLeafOfSubtree(node.getChildReference(slot + 1), 0);
+        return next != null && next.compareKeyWithBound(0, keyBuf, keyLen) > 0;
       }
     }
     return true; // K becomes the index's own extreme on that side
