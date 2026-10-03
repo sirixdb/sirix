@@ -1,0 +1,511 @@
+{
+  "baseline_commit": "8aa9f0d9e4c481832c8121a6d091a17ed9b796f1",
+  "measured_commit": "79042b96a0d6203e1e524ce4274684fd46a54f92",
+  "measured_commit_note": "Every timing, hash and count in the tiers block below was recorded on measured_commit and is preserved unchanged. candidate_sources_sha256 pins that commit's sources: MembershipIndexExpr.java, HashMembershipStage.java and SirixTranslator.java changed after it, so their entries no longer match HEAD by design, and the t100k/t250k after-plan trees describe the superseded let-bound plan. Q12 HAS since been re-measured at t100k on the fixed source state; see remeasured_t100k_after_memo_fix below and the addendum in docs/QUERY_MEMBERSHIP_OPTIMIZATION.md.",
+  "remeasured_t100k_after_memo_fix": {
+    "superseded_by": "remeasured_t100k_final_head. These runs were taken on the eager one-shot build; the evaluation algorithm changed twice afterwards (incremental key set, then a probe-scoped iterator with a terminal exit), and this block's SirixTranslator.java pin matches no commit on the branch. Kept for history; do not cite Q12 latency from here.",
+    "why": "The lookup moved out of the pipeline tuple slot and its memo key moved to the raw binding, so both the plan tree and the per-row work changed after measured_commit.",
+    "date": "2026-10-02 Europe/Berlin",
+    "tier": "t100k",
+    "inputs_sha256_manifest": "fe3f025b5e143e75a6ec63badef4c2d830c91d1a0067cb41ba824a6e61f42c39",
+    "store": "freshly loaded with BitemporalSirixLoadMain t100k, unmodified kit event stream, one commit per publication, no batching override",
+    "load_seconds": 77.324,
+    "query": 12,
+    "rows": 4,
+    "answer_sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+    "answer_matches_recorded_t100k_answer": true,
+    "oracle_exact": true,
+    "runs_seconds": [
+      5.840684,
+      5.364762
+    ],
+    "baseline_seconds_8aa9f0d9e": 1069.754587,
+    "reduction_vs_baseline": "183x and 199x",
+    "xtdb_2_1_t100k_seconds": 2360.0,
+    "optimized_plan": "t100k-after-memofix.plan.txt",
+    "candidate_sources_sha256": {
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/XQExt.java": "9beba081b4fa4b6701353bc743ed17d3a2124a08ef31f9d77b3dddde01f6cd4b",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/SirixOptimizer.java": "70670890a69a743c7f25daf4763e1a94a6992d2701f2666abd48c8df4e3637de",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/HashMembershipStage.java": "54a9d77ed5f24994d19343b16350f0b5e725b42823cb31c6b409148c422179af",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/translator/SirixTranslator.java": "5fe9c23178bc378107022efb99d1ac35420ae07b9a1a4b5853fb37c11e82c212",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/expression/MembershipIndexExpr.java": "dc32e3cb978c9c7c4875eace82c75ec39532a8676facf7b1ac2cc24081afb43d",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/expression/MembershipProbeExpr.java": "3932baa0afce9627e227872ddd75a8f4b3a464e707d8b21a652d1c6cacbc0a2e"
+    },
+    "caveat": "Shared machine, single-process measurements; they support the order-of-growth and done-bar conclusion rather than small percentage comparisons. Only Q12 at t100k was re-run; no baseline rerun was requested."
+  },
+  "date": "2026-10-01/02 Europe/Berlin",
+  "jvm": "Oracle GraalVM Java 25.0.3; -Xms512m -Xmx6g -XX:MaxDirectMemorySize=1g",
+  "batching": "unmodified kit, one commit per publication",
+  "timing": "cold process; compile + execute + serialize + canonicalize; oracle byte equality required before reporting",
+  "caveat": "Shared machine with other workers; not an isolated paired timing campaign.",
+  "tiers": {
+    "t25k": {
+      "inputs_sha256": {
+        "events.jsonl": "0d7a24032cf76152e1fbbb00f9972890a608c1a42470db3ab036b35d6f03c597",
+        "manifest.json": "36132dd9435d6dec0202f93108a2e7cd304283efd2ea164b9f2deec1df1fdf07"
+      },
+      "runs": {
+        "before": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "c39ee4da3a067c5705c834f047a019218baedb0e03decc4d6f55c15d0ceae519",
+            "seconds": 62.858876,
+            "oracle_exact": true
+          }
+        ],
+        "after": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "c39ee4da3a067c5705c834f047a019218baedb0e03decc4d6f55c15d0ceae519",
+            "seconds": 4.151746,
+            "oracle_exact": true
+          }
+        ],
+        "repeat": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "c39ee4da3a067c5705c834f047a019218baedb0e03decc4d6f55c15d0ceae519",
+            "seconds": 2.836406,
+            "oracle_exact": true
+          }
+        ],
+        "all-after": [
+          {
+            "query": 1,
+            "rows": 1,
+            "sha256": "06fc08666f2aedf388ef94543817f070237d2833aa93085e8efd45b9ca6c4e61",
+            "seconds": 2.592539,
+            "oracle_exact": true
+          },
+          {
+            "query": 2,
+            "rows": 1,
+            "sha256": "e4aefb74f809ae46ab3dff34181945637d468f6605a5d0fbcbd19ae833e85a0b",
+            "seconds": 0.439413,
+            "oracle_exact": true
+          },
+          {
+            "query": 3,
+            "rows": 1,
+            "sha256": "2b33db4275bb42f191ca5d8096a3be65536d2dff0d34e5b49cc33a4e553eaefd",
+            "seconds": 0.616099,
+            "oracle_exact": true
+          },
+          {
+            "query": 4,
+            "rows": 1384,
+            "sha256": "2e00fed02cfb0b4602c184748de96437f5179cdbddbcfdd5f5e61b034aee837f",
+            "seconds": 1.268784,
+            "oracle_exact": true
+          },
+          {
+            "query": 5,
+            "rows": 23,
+            "sha256": "7383cb9030cb08f76c7c48dd3ca6963467341d46ac8ff341bcde70ab1881321b",
+            "seconds": 4.456933,
+            "oracle_exact": true
+          },
+          {
+            "query": 6,
+            "rows": 100,
+            "sha256": "428c919d0848af777264e5f76e13a3610bf9139693de39bb38e912422be0999c",
+            "seconds": 4.509371,
+            "oracle_exact": true
+          },
+          {
+            "query": 7,
+            "rows": 4,
+            "sha256": "210009e6bb135fc301a525bb748bfff5fabf55b77478a6146efa36c4cbfaa3d6",
+            "seconds": 0.179028,
+            "oracle_exact": true
+          },
+          {
+            "query": 8,
+            "rows": 2000,
+            "sha256": "57d1cc3588cdb0284cb36950dbc7a1d3884c8bb49058aa35f1e7d67f010eb0f9",
+            "seconds": 0.225065,
+            "oracle_exact": true
+          },
+          {
+            "query": 9,
+            "rows": 32,
+            "sha256": "1d891dfd6e7d94a80f48de073f6d3384f8fe82e11828e57dde781ef58a0ab490",
+            "seconds": 0.247548,
+            "oracle_exact": true
+          },
+          {
+            "query": 10,
+            "rows": 16,
+            "sha256": "6625b815ba8c73ebe7831d78c4438d46d461f9354685a79098f807f511322f88",
+            "seconds": 122.634388,
+            "oracle_exact": true
+          },
+          {
+            "query": 11,
+            "rows": 240,
+            "sha256": "816cef64ffa8a2f50e4631ff46307482a3d73c86b4e59831661b1890198d4503",
+            "seconds": 10.792984,
+            "oracle_exact": true
+          },
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "c39ee4da3a067c5705c834f047a019218baedb0e03decc4d6f55c15d0ceae519",
+            "seconds": 0.359933,
+            "oracle_exact": true
+          }
+        ]
+      }
+    },
+    "t50k": {
+      "inputs_sha256": {
+        "events.jsonl": "81f226ac7e17a44a825adc06352181d8e6b39c3b86fd4ae794094a884dde23eb",
+        "manifest.json": "5e27ac7f4ba338cd1748a809f4b3b62c8e9a3ea7d429536eb0440b289711f9f9"
+      },
+      "runs": {
+        "before": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "1a4023d2073ac9e500594ecaa1902dfa99f542f673edd28f6139ed424a074b0c",
+            "seconds": 255.107601,
+            "oracle_exact": true
+          }
+        ],
+        "after": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "1a4023d2073ac9e500594ecaa1902dfa99f542f673edd28f6139ed424a074b0c",
+            "seconds": 4.770234,
+            "oracle_exact": true
+          }
+        ],
+        "repeat": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "1a4023d2073ac9e500594ecaa1902dfa99f542f673edd28f6139ed424a074b0c",
+            "seconds": 3.92118,
+            "oracle_exact": true
+          }
+        ],
+        "all-after": [
+          {
+            "query": 1,
+            "rows": 1,
+            "sha256": "06fc08666f2aedf388ef94543817f070237d2833aa93085e8efd45b9ca6c4e61",
+            "seconds": 2.927692,
+            "oracle_exact": true
+          },
+          {
+            "query": 2,
+            "rows": 1,
+            "sha256": "e4aefb74f809ae46ab3dff34181945637d468f6605a5d0fbcbd19ae833e85a0b",
+            "seconds": 0.760296,
+            "oracle_exact": true
+          },
+          {
+            "query": 3,
+            "rows": 1,
+            "sha256": "2b33db4275bb42f191ca5d8096a3be65536d2dff0d34e5b49cc33a4e553eaefd",
+            "seconds": 1.053673,
+            "oracle_exact": true
+          },
+          {
+            "query": 4,
+            "rows": 2701,
+            "sha256": "9d700c7daa42bb96dff9c0874b87fdca63dc9b6a53802627c1477def7c728f9b",
+            "seconds": 2.002585,
+            "oracle_exact": true
+          },
+          {
+            "query": 5,
+            "rows": 23,
+            "sha256": "7383cb9030cb08f76c7c48dd3ca6963467341d46ac8ff341bcde70ab1881321b",
+            "seconds": 6.820374,
+            "oracle_exact": true
+          },
+          {
+            "query": 6,
+            "rows": 100,
+            "sha256": "ed6d92f21d472f9f1481216008d5132c13fb662e7b13837d8782e732f7b69881",
+            "seconds": 10.395325,
+            "oracle_exact": true
+          },
+          {
+            "query": 7,
+            "rows": 4,
+            "sha256": "a2ce150ba129f83174e957f4d5c7f4306b1c3063a595886df4e033f8e4051a34",
+            "seconds": 0.437541,
+            "oracle_exact": true
+          },
+          {
+            "query": 8,
+            "rows": 4000,
+            "sha256": "f197ab323e1fa2f4db89609c0aa3e2481513507b08434481fd568a788cddc37e",
+            "seconds": 0.52813,
+            "oracle_exact": true
+          },
+          {
+            "query": 9,
+            "rows": 32,
+            "sha256": "d7b71a6637e1ac5b290b42d87920567763684d9c2f98485f8c01b444d4320026",
+            "seconds": 0.508483,
+            "oracle_exact": true
+          },
+          {
+            "query": 10,
+            "rows": 16,
+            "sha256": "43f0621e53e326f5d12927a43aa23db3bae37739c78f49fdbae762ce96777c09",
+            "seconds": 753.044217,
+            "oracle_exact": true
+          },
+          {
+            "query": 11,
+            "rows": 240,
+            "sha256": "64fbb39edf9ed6d1575ab217fad7cf033ac7b53846d14c05de33a1d4894ad1b2",
+            "seconds": 19.330928,
+            "oracle_exact": true
+          },
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "1a4023d2073ac9e500594ecaa1902dfa99f542f673edd28f6139ed424a074b0c",
+            "seconds": 0.515948,
+            "oracle_exact": true
+          }
+        ]
+      }
+    },
+    "t100k": {
+      "inputs_sha256": {
+        "events.jsonl": "fe3f025b5e143e75a6ec63badef4c2d830c91d1a0067cb41ba824a6e61f42c39",
+        "manifest.json": "2935e3f1633d6441c8329fde4639d8cbd7ba4ceff81c82e972ce0f37ffcb4092"
+      },
+      "runs": {
+        "before": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+            "seconds": 1069.754587,
+            "oracle_exact": true
+          }
+        ],
+        "after": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+            "seconds": 8.443716,
+            "oracle_exact": true
+          }
+        ],
+        "repeat": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+            "seconds": 7.29867,
+            "oracle_exact": true
+          }
+        ],
+        "all-after": [
+          {
+            "query": 1,
+            "rows": 1,
+            "sha256": "06fc08666f2aedf388ef94543817f070237d2833aa93085e8efd45b9ca6c4e61",
+            "seconds": 3.025952,
+            "oracle_exact": true
+          },
+          {
+            "query": 2,
+            "rows": 1,
+            "sha256": "e4aefb74f809ae46ab3dff34181945637d468f6605a5d0fbcbd19ae833e85a0b",
+            "seconds": 1.371754,
+            "oracle_exact": true
+          },
+          {
+            "query": 3,
+            "rows": 1,
+            "sha256": "2b33db4275bb42f191ca5d8096a3be65536d2dff0d34e5b49cc33a4e553eaefd",
+            "seconds": 1.406236,
+            "oracle_exact": true
+          },
+          {
+            "query": 4,
+            "rows": 5412,
+            "sha256": "daf9baae89150d4c246f8732bf70a1ab128d343c02b883918849f27a85a6c62b",
+            "seconds": 2.30053,
+            "oracle_exact": true
+          },
+          {
+            "query": 5,
+            "rows": 23,
+            "sha256": "7383cb9030cb08f76c7c48dd3ca6963467341d46ac8ff341bcde70ab1881321b",
+            "seconds": 11.923411,
+            "oracle_exact": true
+          },
+          {
+            "query": 6,
+            "rows": 100,
+            "sha256": "22f6ba0f15c1583b5100ca6a413781c35f52c9c20cb9b793ab0537cb12ca64b6",
+            "seconds": 14.280578,
+            "oracle_exact": true
+          },
+          {
+            "query": 7,
+            "rows": 4,
+            "sha256": "1c8d640043a6891baa382f84f4298f48613fb2f7af76fbf4d6c303da27ed6356",
+            "seconds": 0.60405,
+            "oracle_exact": true
+          },
+          {
+            "query": 8,
+            "rows": 8000,
+            "sha256": "92605c80f32c54b37af7d5db857799508961de2b5809df5508ae46bd73168ff9",
+            "seconds": 0.716754,
+            "oracle_exact": true
+          },
+          {
+            "query": 9,
+            "rows": 32,
+            "sha256": "71d55ebfe02a35bb0e87ce0825c7adb2d9f0972c48c574a3c7e832fb0a7f232e",
+            "seconds": 0.730942,
+            "oracle_exact": true
+          },
+          {
+            "query": 10,
+            "rows": 16,
+            "sha256": "6a224d3bdcecf4d463071429e4dd6f6590c4a404b2f0b72f43ed74dbcac619f1",
+            "seconds": 1763.120506,
+            "oracle_exact": true
+          },
+          {
+            "query": 11,
+            "rows": 240,
+            "sha256": "13f1551d4f2fe4aca176df9d65d9c22bff2089ab1d795af391ec6bcc0af2c34a",
+            "seconds": 32.545759,
+            "oracle_exact": true
+          },
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+            "seconds": 0.874612,
+            "oracle_exact": true
+          }
+        ]
+      }
+    },
+    "t250k": {
+      "inputs_sha256": {
+        "events.jsonl": "bbc1536aa6d54831d85febf70c6c772b3dbbff8400b9fc98d3ae4ae6053c6978",
+        "manifest.json": "d9b408d252c71bb0ba4ec88434d558ca11cee9a32bffa004fc1901b34249ffc3"
+      },
+      "runs": {
+        "before": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "042af812dd1b323a071a465f90ca0d267368720bc8b158714dd1559bb2835686",
+            "seconds": 5947.946397,
+            "oracle_exact": true
+          }
+        ],
+        "after": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "042af812dd1b323a071a465f90ca0d267368720bc8b158714dd1559bb2835686",
+            "seconds": 10.363926,
+            "oracle_exact": true
+          }
+        ]
+      }
+    }
+  },
+  "candidate_sources_sha256": {
+    "bundles/sirix-query/src/main/java/io/sirix/query/compiler/XQExt.java": "9beba081b4fa4b6701353bc743ed17d3a2124a08ef31f9d77b3dddde01f6cd4b",
+    "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/SirixOptimizer.java": "70670890a69a743c7f25daf4763e1a94a6992d2701f2666abd48c8df4e3637de",
+    "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/HashMembershipStage.java": "1c2405efac8d6dc1597d7445549b2891438569759a7a54f35d80f032dae80494",
+    "bundles/sirix-query/src/main/java/io/sirix/query/compiler/translator/SirixTranslator.java": "637509f052e472530eb36d4bbb34b234662f2341fa14babd878758093508a81f",
+    "bundles/sirix-query/src/main/java/io/sirix/query/compiler/expression/MembershipIndexExpr.java": "110f6b72c28ee0e9f7fdef6744cf9c010ff04eef29cd9423c587eb039e6b8148",
+    "bundles/sirix-query/src/main/java/io/sirix/query/compiler/expression/MembershipProbeExpr.java": "3932baa0afce9627e227872ddd75a8f4b3a464e707d8b21a652d1c6cacbc0a2e"
+  },
+  "query_texts_sha256": "622b16ae7038c8a3eccc4151b9bba0e585c6232a9152bfab82971ef25fd4cbd0",
+  "brackit_sha256": "7da6e0d4508c0032aac882da2b4a750cf9adf87f96475ae7f011cfa7b92d7508",
+  "remeasured_t100k_final_head": {
+    "measured_at_commit": "e24c6b8546d81bf883034c73f8e5b3edb9774b01",
+    "superseded_by": "remeasured_t100k_at_73d6e5daf. Its MembershipIndexExpr.java pin is the file as of e24c6b854; the next commit rewrote probe/scan, so this block no longer describes the branch head. The name is historical - it is not the final head.",
+    "why": "The lookup now opens and closes the inner iterator inside the probe that needs it, and every scan exit is terminal. This pair was measured on that state; the pins below are the sha256 of the worktree files it was built from.",
+    "date": "2026-10-03 Europe/Berlin",
+    "tier": "t100k",
+    "inputs_sha256_manifest": "fe3f025b5e143e75a6ec63badef4c2d830c91d1a0067cb41ba824a6e61f42c39",
+    "store": "freshly loaded with BitemporalSirixLoadMain t100k, unmodified kit event stream, one commit per publication, no batching override",
+    "load_seconds": 67.071,
+    "query": 12,
+    "rows": 4,
+    "answer_sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+    "answer_matches_recorded_t100k_answer": true,
+    "oracle_exact": true,
+    "before_seconds": [
+      987.999106
+    ],
+    "before_means": "same classes, membership rule disabled with -Dsirix.optimizer.hashMembership=false, which is the documented knob for disabling just this rule on the candidate; the rule-disabled leg executes none of the changed code.",
+    "after_seconds": [
+      5.825218,
+      6.376734
+    ],
+    "reduction_vs_rule_disabled": "170x and 155x",
+    "xtdb_2_1_t100k_seconds": 2360.0,
+    "optimized_plan": "t100k-after-memofix.plan.txt",
+    "candidate_sources_sha256": {
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/XQExt.java": "9beba081b4fa4b6701353bc743ed17d3a2124a08ef31f9d77b3dddde01f6cd4b",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/SirixOptimizer.java": "70670890a69a743c7f25daf4763e1a94a6992d2701f2666abd48c8df4e3637de",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/HashMembershipStage.java": "bed6c5045755440c8b5b71c1a98657639a9668e0f59eed3e4d05fb399927f23a",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/translator/SirixTranslator.java": "d49fb669a9fd1db93e2975cdc935778b308d698a9a2d61f017d607537fb31f11",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/expression/MembershipIndexExpr.java": "117fe38be7affe65c80c5c6982a35e189b6fc3cea58d7c16147efc98b7b9b41a",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/expression/MembershipProbeExpr.java": "c87ab143af7dc072e8b4076d3829a4ab0a43d1e4ecc2d71cf3016c600a49c7b6"
+    },
+    "caveat": "Shared machine, single-process measurements; the machine gate reported concurrent heavy JVMs from another worktree, so these support the order-of-growth and done-bar conclusion rather than small percentage comparisons. Heavy JVMs were serialized through a flock so no two ran at once. Only Q12 at t100k was run."
+  },
+  "remeasured_t100k_at_73d6e5daf": {
+    "measured_at_commit": "73d6e5dafa39a39453d0ddfb43d6e513ee3d1fd1",
+    "why": "Taken after retained membership keys began being consulted before delegating, which rewrote probe/scan. The pins below are the sha256 of the worktree files this pair was built from, verified equal to that commit.",
+    "date": "2026-10-03 Europe/Berlin",
+    "tier": "t100k",
+    "inputs_sha256_manifest": "fe3f025b5e143e75a6ec63badef4c2d830c91d1a0067cb41ba824a6e61f42c39",
+    "store": "freshly loaded with BitemporalSirixLoadMain t100k, unmodified kit event stream, one commit per publication, no batching override",
+    "query": 12,
+    "rows": 4,
+    "answer_sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+    "answer_matches_recorded_t100k_answer": true,
+    "oracle_exact": true,
+    "before_seconds": [
+      1039.163508
+    ],
+    "before_means": "same classes with -Dsirix.optimizer.hashMembership=false, the documented knob for disabling just this rule; that leg executes none of the changed code.",
+    "after_seconds": [
+      5.267062,
+      5.532705
+    ],
+    "reduction_vs_rule_disabled": "197x and 188x",
+    "xtdb_2_1_t100k_seconds": 2360.0,
+    "optimized_plan": "t100k-after-memofix.plan.txt",
+    "candidate_sources_sha256": {
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/XQExt.java": "9beba081b4fa4b6701353bc743ed17d3a2124a08ef31f9d77b3dddde01f6cd4b",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/SirixOptimizer.java": "70670890a69a743c7f25daf4763e1a94a6992d2701f2666abd48c8df4e3637de",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/HashMembershipStage.java": "bed6c5045755440c8b5b71c1a98657639a9668e0f59eed3e4d05fb399927f23a",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/translator/SirixTranslator.java": "d49fb669a9fd1db93e2975cdc935778b308d698a9a2d61f017d607537fb31f11",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/expression/MembershipIndexExpr.java": "1d845ce4cf4ae61351d4a0ece54dbe4a7a16a4bb29e31bf22518e5565e437310",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/expression/MembershipProbeExpr.java": "c87ab143af7dc072e8b4076d3829a4ab0a43d1e4ecc2d71cf3016c600a49c7b6"
+    },
+    "changed_after_this_run": "One commit followed it: the scan finally now publishes the terminal state and releases the outer tuple before closing the iterator, so a close that throws cannot skip that cleanup. MembershipIndexExpr.java is 2eabc223b3886252a3ea0a5e0eae6084e8ee0b1361a811224b752e8295837b3e there. That path is reached only when closing the inner iterator throws; Q12 closes normally, so the code this pair timed is the code the branch head runs for Q12, statement for statement. No remeasurement was taken for it.",
+    "caveat": "Shared machine, single-process measurements; the machine gate reported concurrent heavy JVMs from another worktree, and heavy JVMs were serialized through a flock so no two ran at once. They support the order-of-growth and done-bar conclusion rather than small percentage comparisons. Only Q12 at t100k was run."
+  }
+}

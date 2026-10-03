@@ -1,8 +1,10 @@
 package io.sirix.query.function.sdb.explain;
 
 import io.brackit.query.compiler.AST;
+import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.XQ;
 import io.sirix.query.compiler.XQExt;
+import io.sirix.query.compiler.optimizer.HashMembershipStage;
 import io.sirix.query.compiler.optimizer.VectorizedRoutingStage;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.compiler.vectorized.ColumnType;
@@ -86,37 +88,48 @@ final class QueryPlanSerializerTest {
   @Test
   @DisplayName("Resolve XQExt types correctly (not UNKNOWN)")
   void resolveXQExtTypes() {
-    assertEquals("IndexExpr",
-        QueryPlanSerializer.resolveTypeName(XQExt.IndexExpr));
-    assertEquals("VectorizedPipelineExpr",
-        QueryPlanSerializer.resolveTypeName(XQExt.VectorizedPipelineExpr));
-    assertEquals("MultiStepExpr",
-        QueryPlanSerializer.resolveTypeName(XQExt.MultiStepExpr));
-    assertEquals("ParentExpr",
-        QueryPlanSerializer.resolveTypeName(XQExt.ParentExpr));
+    assertEquals("IndexExpr", QueryPlanSerializer.resolveTypeName(XQExt.IndexExpr));
+    assertEquals("VectorizedPipelineExpr", QueryPlanSerializer.resolveTypeName(XQExt.VectorizedPipelineExpr));
+    assertEquals("MultiStepExpr", QueryPlanSerializer.resolveTypeName(XQExt.MultiStepExpr));
+    assertEquals("ParentExpr", QueryPlanSerializer.resolveTypeName(XQExt.ParentExpr));
+    assertEquals("HashMembershipJoin", QueryPlanSerializer.resolveTypeName(XQExt.HashMembershipJoin));
+    for (int i = 0; i < XQExt.NAMES.length; i++) {
+      assertEquals(XQExt.NAMES[i], QueryPlanSerializer.resolveTypeName(XQExt.MultiStepExpr + i),
+          "every type allocated by XQExt must resolve to its declared name");
+    }
+  }
+
+  @Test
+  @DisplayName("Serialize membership plan nodes with their operator names")
+  void serializeMembershipNodes() {
+    final var index = new AST(XQExt.HashMembershipJoin, "HashMembershipJoin");
+    index.setProperty(HashMembershipStage.ANTI, true);
+    index.setProperty(HashMembershipStage.FIELD, new QNm("id"));
+
+    final String json = QueryPlanSerializer.serialize(index);
+
+    assertTrue(json.contains("\"operator\": \"HashMembershipJoin\""), json);
+    assertTrue(json.contains("\"direction\": \"anti\""), json);
+    assertTrue(json.contains("\"innerKey\": \"id\""), json);
+    assertFalse(json.contains("Unknown("), json);
   }
 
   @Test
   @DisplayName("Standard XQ types resolve correctly")
   void resolveStandardTypes() {
-    assertEquals("ForBind",
-        QueryPlanSerializer.resolveTypeName(XQ.ForBind));
-    assertEquals("Selection",
-        QueryPlanSerializer.resolveTypeName(XQ.Selection));
-    assertEquals("Join",
-        QueryPlanSerializer.resolveTypeName(XQ.Join));
+    assertEquals("ForBind", QueryPlanSerializer.resolveTypeName(XQ.ForBind));
+    assertEquals("Selection", QueryPlanSerializer.resolveTypeName(XQ.Selection));
+    assertEquals("Join", QueryPlanSerializer.resolveTypeName(XQ.Join));
   }
 
   @Test
   @DisplayName("Serialize VectorizedPipelineExpr with predicates")
   void serializeVectorized() {
-    final var node = new AST(XQExt.VectorizedPipelineExpr,
-        XQExt.toName(XQExt.VectorizedPipelineExpr));
+    final var node = new AST(XQExt.VectorizedPipelineExpr, XQExt.toName(XQExt.VectorizedPipelineExpr));
     node.setProperty(VectorizedRoutingStage.VECTORIZED_ROUTE, "columnar");
-    node.setProperty(VectorizedRoutingStage.VECTORIZED_PREDICATES, List.of(
-        new VectorizedPredicate("price", ComparisonOperator.GT, 50L, ColumnType.INT64),
-        new VectorizedPredicate("category", ComparisonOperator.EQ, "books", ColumnType.STRING)
-    ));
+    node.setProperty(VectorizedRoutingStage.VECTORIZED_PREDICATES,
+        List.of(new VectorizedPredicate("price", ComparisonOperator.GT, 50L, ColumnType.INT64),
+            new VectorizedPredicate("category", ComparisonOperator.EQ, "books", ColumnType.STRING)));
     node.setProperty("databaseName", "mydb");
     node.setProperty("resourceName", "myres");
 

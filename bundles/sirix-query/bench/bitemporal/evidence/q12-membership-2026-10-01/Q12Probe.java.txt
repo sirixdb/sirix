@@ -1,0 +1,59 @@
+import io.brackit.query.Query;
+import io.brackit.query.compiler.AST;
+import io.brackit.query.compiler.XQ;
+import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.query.SirixCompileChain;
+import io.sirix.query.SirixQueryContext;
+import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.bench.bitemporal.BitemporalQueries;
+import io.sirix.query.bench.bitemporal.BitemporalCanonicalizer;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+public final class Q12Probe {
+  public static void main(String[] args) throws Exception {
+    Path root = Path.of(args[0]);
+    Path out = Path.of(args[1]);
+    Files.createDirectories(out);
+    try (var store = BasicJsonDBStore.newBuilder().location(root).build();
+         var context = SirixQueryContext.createWithJsonStore(store);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      if (args.length == 4 && args[3].equals("plan")) {
+        new Query(chain, BitemporalQueries.all().get(11).text());
+        StringBuilder plan = new StringBuilder();
+        dump(chain.getOptimizedAST(), 0, plan);
+        Files.writeString(out.resolve("q12.plan.txt"), plan);
+        return;
+      }
+      for (int i = 3; i < args.length; i++) {
+        int number = Integer.parseInt(args[i]);
+        var query = BitemporalQueries.all().get(number - 1);
+        long started = System.nanoTime();
+        Query compiled = new Query(chain, query.text());
+        StringWriter raw = new StringWriter();
+        try (PrintWriter writer = new PrintWriter(raw)) {
+          new StringSerializer(writer).serialize(compiled.execute(context));
+        }
+        var result = BitemporalCanonicalizer.write(query, raw.toString(), out.resolve("q" + number + ".tsv"));
+        double seconds = (System.nanoTime() - started) / 1e9;
+        Files.writeString(out.resolve("q" + number + ".raw.json"), raw.toString());
+        if (Files.mismatch(out.resolve("q" + number + ".tsv"), Path.of(args[2]).resolve("q" + number + ".tsv")) != -1) {
+          throw new AssertionError("Oracle mismatch Q" + number);
+        }
+        System.out.printf("ORACLE_EXACT q=%d rows=%d sha256=%s seconds=%.6f%n", number, result.rows(), result.sha256(), seconds);
+        if (number == 12) {
+          StringBuilder plan = new StringBuilder();
+          dump(chain.getOptimizedAST(), 0, plan);
+          Files.writeString(out.resolve("q12.plan.txt"), plan);
+        }
+      }
+    }
+  }
+  static void dump(AST node, int depth, StringBuilder plan) {
+    plan.append("  ".repeat(depth)).append(node.getType() < XQ.NAMES.length ? XQ.NAMES[node.getType()] : node.getValue()).append(" ").append(node.getValue())
+        .append(" cmp=").append(node.getProperty("cmp")).append(" leftJoin=").append(node.getProperty("leftJoin")).append('\n');
+    for (int i = 0; i < node.getChildCount(); i++) dump(node.getChild(i), depth + 1, plan);
+  }
+}

@@ -81,6 +81,8 @@ public class SirixOptimizer extends TopDownOptimizer {
     // here, on the optimizer that plans for this backend, so it scopes to THIS compile chain: a
     // plain Brackit CompileChain in the same JVM keeps the conservative behaviour.
     super(options, true);
+    // Hoist equality membership before Brackit turns the nested FLWOR into a per-row join.
+    getStages().addFirst(new HashMembershipStage());
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
     this.planCache = planCache;

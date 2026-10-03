@@ -3761,10 +3761,12 @@ The table itself is a \code{MultiTypeJoinTable} that adapts to the comparison: a
 (\code{Cmp.eq}) uses a true \code{HashJoinTable}, while an order comparison falls back to a
 \code{SortedJoinTable}, and heterogeneous key types are reconciled by the same numeric-promotion rules
 the value comparisons use, so a join key that is \code{long} on one side and \code{double} on the other
-still matches. \code{TableJoin} also supports the left-outer form; semi- and anti-joins are not a
-distinct operator but fall out of the surrounding pipeline.
+still matches. \code{TableJoin} also supports the left-outer form. Sirix's distinct
+\code{HashMembershipJoin} handles eligible semi- and anti-joins; the admission conditions and
+execution invariants are owned by \pp{docs/QUERY_MEMBERSHIP_OPTIMIZATION.md}. Other semi- and
+anti-joins retain the surrounding pipeline's plan.
 
-\dcap{The two join operators and when each is chosen}
+\dcap{The two Brackit join operators and when each is chosen}
 \begin{diagramS}
 NLJoin     nested loop, O(|L|·|R|)   re-open right per left tuple, test predicate   best when |R| tiny or non-equality
 TableJoin  hash join                 build table on the SMALLER input, probe with the larger

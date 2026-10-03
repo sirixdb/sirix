@@ -2,6 +2,12 @@ package io.sirix.query.compiler.translator;
 
 import io.brackit.query.QueryException;
 import io.brackit.query.compiler.AST;
+import io.brackit.query.compiler.XQ;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.expr.PipeExpr;
+import io.sirix.query.compiler.XQExt;
+import io.sirix.query.compiler.operator.HashMembershipJoin;
+import java.util.List;
 import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.compiler.translator.Compiler;
@@ -9,9 +15,6 @@ import io.brackit.query.expr.VectorizedGroupByExpr;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Expr;
 import io.brackit.query.operator.Operator;
-import io.brackit.query.operator.Start;
-import io.brackit.query.operator.TableJoin;
-import io.brackit.query.util.Cmp;
 import io.sirix.query.compiler.optimizer.GroupAggregateDetectionStage;
 import io.sirix.query.compiler.optimizer.RowMaterializeDetectionStage;
 import io.sirix.query.compiler.optimizer.SortedScanDetectionStage;
@@ -30,14 +33,49 @@ import io.sirix.query.scan.SirixExecutorProvider;
  */
 public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
 
+  static boolean hasMembershipJoin(final AST node) {
+    if (node.getType() == XQExt.HashMembershipJoin) {
+      return true;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      if (hasMembershipJoin(node.getChild(i))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  protected Operator select(final Operator in, final AST node, final Compiler compiler) {
+    if (node.getChild(0).getType() != XQExt.HashMembershipJoin) {
+      return super.select(in, node, compiler);
+    }
+    final HashMembershipJoin join = ((SirixTranslator) compiler).membershipJoin(in, node.getChild(0));
+    addChecks(join, (List<QNm>) node.getProperty("check"), compiler);
+    return anyOp(join, node.getLastChild(), compiler);
+  }
+
   /**
    * P5b stage 7a: consume the {@code SIRIX_GROUP_AGG_*} annotations from
-   * {@link io.sirix.query.compiler.optimizer.GroupAggregateDetectionStage}. The generic pipeline is
-   * ALWAYS compiled (via {@code super}) and rides along as the runtime fallback, so serving declines
-   * can never change an answer — only its cost.
+   * {@link GroupAggregateDetectionStage}. For pipelines without membership joins, the generic
+   * pipeline is always compiled (via {@code super}) and rides along as the runtime fallback, so
+   * serving declines can never change an answer — only its cost.
    */
   @Override
   public Expr compilePipeExpr(AST node, Compiler compiler) throws QueryException {
+    if (hasMembershipJoin(node)) {
+      // Membership tables have one cursor owner. Do not split this pipeline into morsels or
+      // block workers, each of which would otherwise build the same inner relation again.
+      final SirixTranslator translator = (SirixTranslator) compiler;
+      final int initialBindings = translator.bindingCount();
+      final Operator root = anyOp(null, node.getChild(0), compiler);
+      AST end = node.getChild(0);
+      while (end.getType() != XQ.End) {
+        end = end.getLastChild();
+      }
+      return new PipeExpr(root, translator.pipelineReturn(end.getChild(0), initialBindings));
+    }
     final Expr generic = Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST))
         ? super.compileGenericPipeExpr(node, compiler)
         : super.compilePipeExpr(node, compiler);

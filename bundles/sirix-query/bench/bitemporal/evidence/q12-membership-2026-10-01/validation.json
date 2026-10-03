@@ -1,0 +1,66 @@
+{
+  "measured_commit": "79042b96a0d6203e1e524ce4274684fd46a54f92",
+  "measured_commit_note": "Every count below was recorded on measured_commit and describes that commit only. It predates the null-key fix, so it does not cover the membership tests added after it; see addendum_after_measured_commit.",
+  "addendum_after_measured_commit": {
+    "change": "JSON null inner/probe keys stay on the hash route via one hasNull flag on the Keys record instead of returning Keys.FALLBACK.",
+    "covered_by": [
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#nullKeysMatchNullKeysAndNothingElse",
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#explicitAndAbsentNullFieldsFollowTheValueComparison",
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#aNullInnerKeyKeepsTheHashRouteAndItsWorkBound",
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#aNullProbeKeyKeepsTheHashRouteAndItsWorkBound",
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#aNullOnlyBuildSideKeepsTheHashRouteAndItsWorkBound",
+      "io.sirix.query.compiler.optimizer.HashMembershipStageTest#outerKeyErrorsAreNotSwallowedWhenNoTypedKeysWereBuilt"
+    ],
+    "authoritative_run": "This pipeline's test step, not the campaign counts below.",
+    "plan_shape_change": {
+      "change": "The lookup is no longer bound by a generated let clause; it is nested inside the probe, so it occupies no pipeline tuple slot. A spilling group by serialized that slot and failed the query with bit:BIDY0005.",
+      "covered_by": [
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#aSpillingGroupByAfterAnAntiJoinCompletes",
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#aSpillingGroupByKeepsExactCountsForManyGroups",
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#anOrderByAfterAnAntiJoinCompletesAndKeepsTheRoute",
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#aSpillingOrderByAfterAnAntiJoinCompletes",
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#theLookupNeverOccupiesAPipelineTupleSlot"
+      ],
+      "forced_order_by_spill": "aSpillingOrderByAfterAnAntiJoinCompletes needs a focused small-heap invocation because Brackit sizes the sort budget as Runtime.maxMemory()/4 with no property override: ./gradlew -PtestHeapMin=128m -PtestHeapMax=256m :sirix-query:test --tests io.sirix.query.compiler.optimizer.HashMembershipStageTest. It proves a real spill by pointing java.io.tmpdir at a non-writable directory, where only a spill can fail, and then asserts the exact descending answer and route admission with a writable one. Against the let-bound plan it fails with bit:BIDY0005 from TupleSerializer, which is reachable only from TupleSort.writeRun.",
+      "timings_affected": "YES, and the re-measurement has been redone twice since. The seconds in the tiers block and the t100k/t250k after-plan trees describe the superseded let-bound plan and are preserved as history. The current pair is remeasured_t100k_at_73d6e5daf in measurements.json: rule disabled 1039.163508 s, rule enabled 5.267062 s and 5.532705 s, all oracle-exact with the same answer hash as the baseline. Each measurement block names the commit it was taken at; the one commit that followed the latest pair touches only the failed-close cleanup path, which Q12 never enters.",
+      "superseded_by_remeasurement": "This entry previously claimed one build per enclosing binding was retained. That was FALSE for a locally let-bound inner relation, which is Q12's own shape: the memo was keyed on a reference to the scope variable, and BoundVariable re-wraps a multi-item value on every read, so the hash set was rebuilt for every outer row. Fixed by keying on the raw tuple slot; pinned by aLocallyLetBoundInnerRelationIsBuiltOnce and aQ12StyleLocalSourceIsBuiltOnce, which both fail at 32768 inner reads for 256 outer rows before the fix. Q12 at t100k has since been re-measured oracle-exact at 5.840684 s and 5.364762 s; see remeasured_t100k_after_memo_fix in measurements.json."
+    },
+    "timings_unaffected_by_the_null_key_fix": "The SH1 Q12 keys are contract ids with no null among them, so the null-key fix alone leaves the recorded route and order-of-growth conclusion unchanged. See plan_shape_change for the later change that does invalidate the recorded seconds.",
+    "lookup_lifetime": {
+      "change": "The inner iterator is opened and closed inside the probe that needs it, never parked between probes, and every exit from the scan leaves the lookup terminal - complete, or delegating to the original predicate.",
+      "why": "Brackit's fn:empty/fn:exists (EmptySequence.execute) close their iterator on every path including their exception handler, so a parked iterator would release a Sirix cursor later than the plan this route replaces, and Expr offers no teardown hook to release it at.",
+      "covered_by": [
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#anEarlyExitingSemiJoinClosesItsInnerIterator",
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#anAbruptInnerFailureLeavesTheLookupDelegating",
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#anEmptyInnerRelationIsReadOnceNotOncePerOuterRow",
+        "io.sirix.query.compiler.optimizer.HashMembershipStageTest#mixedHitAndMissSemiProbesNeverReadMoreThanTheOriginalPlan"
+      ],
+      "regression_reproduced": "anAbruptInnerFailureLeavesTheLookupDelegating fails without the terminal guard with 'NullPointerException: Cannot invoke \"io.brackit.query.Tuple.get(int)\" because \"tuple\" is null', the exact failure reported.",
+      "monitor": "The scan holds the lookup monitor while it reads the inner side, which is what makes one scan shared rather than raced; because every exit is terminal it is entered at most once per lookup, so no probe takes the monitor per row. A probe against a completed set, and a probe once the lookup delegates, take no monitor at all."
+    }
+  },
+  "sirix-query": {
+    "suites": 248,
+    "tests": 1774,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5,
+    "scope": "Full sirix-query:test plus spotlessCheck"
+  },
+  "sirix-core": {
+    "suites": 3,
+    "tests": 25,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "scope": "io.sirix.budget.*; io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest"
+  },
+  "membership_work_mutation": {
+    "enabled_inner_visits": 128,
+    "disabled_inner_visits": 24640,
+    "outer_rows": 256,
+    "inner_rows": 128,
+    "disabled_test_failed_as_expected": true
+  },
+  "brackit_sha256": "7da6e0d4508c0032aac882da2b4a750cf9adf87f96475ae7f011cfa7b92d7508"
+}

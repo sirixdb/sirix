@@ -84,6 +84,15 @@ All notable changes to SirixDB are documented in this file.
   string; each event is at least one positional read, so counting is free at that granularity. A
   batch that stops coalescing returns the same bytes, so these are the only way to tell. They are
   process-wide running totals read as a difference across an operation, never reset in place.
+- **Equality membership planning for semi/anti-joins** — a single-equality `empty(...)`,
+  `exists(...)` or `some ... satisfies ...` predicate over an independent inner relation is planned
+  as one lazily built hash lookup that every outer row probes, instead of a nested pipeline that
+  reopens the inner relation per outer row. Keys are 64-bit integers, codepoint strings or JSON
+  `null`; every other domain (floating/decimal promotion, mixed domains, NaN) keeps the original
+  compiled predicate, so value-comparison semantics are unchanged. `sdb:explain` names the physical
+  operator (`HashMembershipJoin`), and
+  `-Dsirix.optimizer.hashMembership=false` restores the previous plan for diagnostics. See
+  `docs/QUERY_MEMBERSHIP_OPTIMIZATION.md`.
 
 ### Changed
 
