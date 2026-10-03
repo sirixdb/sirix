@@ -61,11 +61,11 @@ Every record carrying postings is registered in the interval tree, so a stab is 
 source. Every duplicate-bound record is registered over
 the whole domain and marked inexact, so the original field lookup and cast determine its answer
 wherever a query could match it. Verification postings therefore flag refs the tree already yields
-and are unioned back into the candidates only for a strict endpoint at an exactly representable
-point: there a rounded endpoint such as `.000500Z` shares the point's millisecond, so the half-open
-stab can skip the record and the strict-start tie removal can drop it, while a clamped start bound
+and are rescued for a strict endpoint at an exactly representable point only when the closed stab
+also returns them: there a rounded endpoint such as `.000500Z` shares the point's millisecond, so
+the half-open stab can skip the record and the strict-start tie removal can drop it, while a clamped start bound
 can be dropped at the domain origin. The closed stab needs no union — the domain map is monotonic,
-so it already returns a superset — and an answer that no interval contains reads no candidate
+so it already returns a superset. Closed and strict stabs outside every interval read no candidate
 object at all. Membership filters nested objects entirely from index postings. Exceptional residuals
 run after the original closed predicate and only as each candidate is demanded. Iteration and
 positional access can stop before a later malformed cast; counting evaluates all candidates that
@@ -97,15 +97,18 @@ The new budget decorates a real transaction. Before demand and during exact-key 
 zero candidate moves, timestamp reads, and object-constructor child-pointer reads. The first `next()`
 permits one object read. Direct function, direct FLWOR slice and plain `jn:doc(...)[]` FLWOR counts exercise the
 query interface through the decorated cursor. A second case holds only sub-millisecond bounds, so every record carries a
-verification posting, and bounds a closed stab that no interval contains at zero candidate moves and
-zero timestamp reads and constructor reads, with a second capture on the same cursor that must verify every one of those
-records when the point does fall inside their intervals. A separate user-function count budget is
-retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
+verification posting. Closed, strict-start, strict-end, and combined strict stabs before and after
+all intervals must return zero with zero candidate moves, timestamp reads, and constructor reads.
+Direct key and sequence consumers and folded bitemporal count/first-item queries use the decorated
+cursor. Positive probes inside the intervals and at a rounded end tie must still verify the records
+on demand in every mode. A separate user-function count budget is retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
 mutation must fail this budget; ordinary result assertions alone cannot detect it.
 
 The small inexact fixture remains at 64 records. The dedicated Test phase must also execute the
 100,000-record variant and record its printed `moveTo`, `getFirstChildKey`, and `getValue` counts,
-all zero for the empty answer. It is opt-in so ordinary CI retains fixture-scale coverage:
+all zero for each empty answer before and after the intervals in every mode and query route.
+Printed modes use bit 1 for strict start and bit 2 for strict end. It is opt-in so ordinary CI retains
+fixture-scale coverage:
 
 ```bash
 SIRIX_VALID_TIME_LARGE_BUDGET=true ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx2g \
