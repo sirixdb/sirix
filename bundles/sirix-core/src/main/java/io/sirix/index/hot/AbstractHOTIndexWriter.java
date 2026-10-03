@@ -152,6 +152,16 @@ public abstract class AbstractHOTIndexWriter<K> {
   private static final int CONSOLIDATION_INTERVAL = 4096;
 
   /**
+   * Test-only override of {@link #CONSOLIDATION_INTERVAL}, read once per writer at construction;
+   * zero selects the production cadence. A bounded test can only reach the consolidation path at
+   * all by shortening the cadence, since the production one needs thousands of puts per writer.
+   */
+  private static volatile int consolidationIntervalForTesting;
+
+  /** This writer's consolidation cadence: the production constant unless a test overrode it. */
+  private final int consolidationInterval;
+
+  /**
    * The largest union a consolidation merge produces — kept below page capacity so a merged leaf has
    * room before it re-splits. {@code MAX_ENTRIES * 3/4} packs leaves toward well-filled.
    */
@@ -473,6 +483,23 @@ public abstract class AbstractHOTIndexWriter<K> {
     this.indexNumber = indexNumber;
     this.pageKeyAllocator = createPageKeyAllocator(storageEngineWriter, indexType, indexNumber);
     this.traversalPageResolver = this::resolveHOTPageForTraversal;
+    final int cadenceOverride = consolidationIntervalForTesting;
+    this.consolidationInterval = cadenceOverride > 0
+        ? cadenceOverride
+        : CONSOLIDATION_INTERVAL;
+  }
+
+  /**
+   * Override the leaf-consolidation cadence of writers created from now on; {@code 0} restores the
+   * production cadence. Tests only.
+   *
+   * @param interval puts between consolidation attempts, or {@code 0} for the production value
+   */
+  static void setConsolidationIntervalForTesting(final int interval) {
+    if (interval < 0) {
+      throw new IllegalArgumentException("consolidation interval must not be negative: " + interval);
+    }
+    consolidationIntervalForTesting = interval;
   }
 
   /**
@@ -1993,7 +2020,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // CoW'd every indirect in the index every 4,096 inserts: a deterministic O(index) latency cliff
     // on an ordinary foreground put. One HOT block has at most MAX_NODE_ENTRIES children, so this
     // attempt is O(path depth + fixed fanout), independent of total index size.
-    if (navResult.pathDepth() > 0 && ++insertsSinceConsolidation >= CONSOLIDATION_INTERVAL) {
+    if (navResult.pathDepth() > 0 && ++insertsSinceConsolidation >= consolidationInterval) {
       insertsSinceConsolidation = 0;
       // A split/fold may have replaced the pre-dispatch parent, so re-descend only after a
       // structural splice. A plain value merge leaves navResult current and avoids a second walk.
