@@ -30,6 +30,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.AdditionalAnswers.delegatesTo;
@@ -76,7 +77,7 @@ final class ValidTimeSliceWorkBudgetTest {
    * </p>
    */
   @Test
-  void aClosedStabOutsideEveryIntervalReadsNoObjectWhenEveryRecordNeedsVerification() {
+  void closedAndStrictStabsOutsideEveryIntervalReadNoObjectWhenEveryRecordNeedsVerification() {
     assertInexactEmptyStabBudget(64);
   }
 
@@ -113,37 +114,96 @@ final class ValidTimeSliceWorkBudgetTest {
           mock(JsonDBItem.class, withSettings().extraInterfaces(Array.class).defaultAnswer(delegatesTo(document)));
       doReturn(cursor).when(observed).getTrx();
 
-      final Sequence outside =
-          ValidTimeIntervalIndex.sequence(observed, Instant.parse("2019-01-01T00:00:00Z"), config, false, false, null);
-      assertNotNull(outside);
-      assertEquals(0, outside.size().intValue());
-      verify(cursor, never()).moveTo(anyLong());
-      verify(cursor, never()).getValue();
-      verify(cursor, never()).getFirstChildKey();
-
-      for (final String method : new String[] {"moveTo", "getFirstChildKey", "getValue"}) {
-        final long calls = mockingDetails(cursor).getInvocations().stream()
-            .filter(invocation -> method.equals(invocation.getMethod().getName())).count();
-        System.out.printf("valid-time empty stab records=%d %s=%d%n", count, method, calls);
-        assertEquals(0, calls);
+      final Instant[] outsidePoints = {Instant.parse("2019-01-01T00:00:00Z"), Instant.parse("2021-01-01T00:00:00Z")};
+      for (final Instant point : outsidePoints) {
+        for (int mode = 0; mode < 4; mode++) {
+          clearInvocations(cursor);
+          final Sequence outside =
+              ValidTimeIntervalIndex.sequence(observed, point, config, (mode & 1) != 0, (mode & 2) != 0, null);
+          assertNotNull(outside);
+          assertZeroObjectReads(cursor, count, point, mode, "before-demand");
+          assertEquals(0, outside.size().intValue());
+          assertNull(outside.get(Int32.ONE));
+          assertFalse(outside.booleanValue());
+          try (var iterator = outside.iterate()) {
+            assertNull(iterator.next());
+          }
+          assertZeroObjectReads(cursor, count, point, mode, "sequence");
+        }
+        for (final boolean strictEnd : new boolean[] {false, true}) {
+          clearInvocations(cursor);
+          assertEquals(0, ValidTimeIntervalIndex.keys(observed, point, strictEnd).length);
+          assertZeroObjectReads(cursor, count, point, strictEnd ? 2 : 0, "keys");
+        }
       }
 
-      // Non-vacuity: the same decorated cursor verifies every one of those records when the point
-      // does fall inside their intervals, so the zero above is a gated union and not a dead route.
-      clearInvocations(cursor);
-      final Sequence inside =
-          ValidTimeIntervalIndex.sequence(observed, Instant.parse("2020-06-01T00:00:00Z"), config, false, false, null);
-      assertNotNull(inside);
-      if (count == 64) {
-        assertEquals(count, inside.size().intValue());
-        verify(cursor, atLeast(count)).moveTo(anyLong());
-        verify(cursor, atLeast(count)).getValue();
-      } else {
-        assertNotNull(inside.get(Int32.ONE));
-        verify(cursor, atLeast(1)).moveTo(anyLong());
-        verify(cursor, atLeast(1)).getValue();
-        verify(cursor, atLeast(1)).getFirstChildKey();
+      for (final Instant point : new Instant[] {Instant.parse("2020-06-01T00:00:00Z"),
+          Instant.parse("2020-12-31T23:59:59Z")}) {
+        for (int mode = 0; mode < 4; mode++) {
+          clearInvocations(cursor);
+          final Sequence inside =
+              ValidTimeIntervalIndex.sequence(observed, point, config, (mode & 1) != 0, (mode & 2) != 0, null);
+          assertNotNull(inside);
+          if (count == 64) {
+            assertEquals(count, inside.size().intValue());
+            verify(cursor, atLeast(count)).moveTo(anyLong());
+            verify(cursor, atLeast(count)).getValue();
+          } else {
+            assertNotNull(inside.get(Int32.ONE));
+            verify(cursor, atLeast(1)).moveTo(anyLong());
+            verify(cursor, atLeast(1)).getValue();
+            verify(cursor, atLeast(1)).getFirstChildKey();
+          }
+        }
       }
+
+      final JsonDBCollection collection = mock(JsonDBCollection.class, delegatesTo(store.lookup("budget")));
+      doReturn(observed).when(collection).getDocument(eq("rows"), any(Instant.class));
+      final JsonDBStore observedStore = mock(JsonDBStore.class, delegatesTo(store));
+      doReturn(collection).when(observedStore).lookup("budget");
+      try (var observedContext = SirixQueryContext.createWithJsonStore(observedStore);
+          var observedChain = SirixCompileChain.createWithJsonStore(observedStore)) {
+        for (final Instant point : outsidePoints) {
+          final String dateTime = "xs:dateTime('" + point + "')";
+          final String direct = "jn:open-bitemporal('budget','rows',xs:dateTime('2099-01-01T00:00:00Z'),"
+              + dateTime + ")";
+          for (int mode = 0; mode < 4; mode++) {
+            final String expression = switch (mode) {
+              case 0 -> direct;
+              case 1 -> "for $x in " + direct + " where xs:dateTime($x.vf) lt " + dateTime + " return $x";
+              case 2 -> "for $x in " + direct + " where " + dateTime + " lt xs:dateTime($x.vt) return $x";
+              default -> "for $x in " + direct + " where xs:dateTime($x.vf) lt " + dateTime + " and "
+                  + dateTime + " lt xs:dateTime($x.vt) return $x";
+            };
+            clearInvocations(cursor);
+            assertEquals(0,
+                ((Numeric) new Query(observedChain, "count(" + expression + ")").evaluate(observedContext)).intValue());
+            assertZeroObjectReads(cursor, count, point, mode, "query-count");
+            clearInvocations(cursor);
+            final Sequence outside = new Query(observedChain, expression).execute(observedContext);
+            if (outside != null) {
+              try (var iterator = outside.iterate()) {
+                assertNull(iterator.next());
+              }
+            }
+            assertZeroObjectReads(cursor, count, point, mode, "query-first");
+          }
+        }
+      }
+    }
+  }
+
+  private static void assertZeroObjectReads(final JsonNodeReadOnlyTrx cursor, final int count,
+      final Instant point, final int mode, final String route) {
+    verify(cursor, never()).moveTo(anyLong());
+    verify(cursor, never()).getValue();
+    verify(cursor, never()).getFirstChildKey();
+    for (final String method : new String[] {"moveTo", "getFirstChildKey", "getValue"}) {
+      final long calls = mockingDetails(cursor).getInvocations().stream()
+          .filter(invocation -> method.equals(invocation.getMethod().getName())).count();
+      System.out.printf("valid-time empty stab records=%d point=%s mode=%d route=%s %s=%d%n",
+          count, point, mode, route, method, calls);
+      assertEquals(0, calls);
     }
   }
 
