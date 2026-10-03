@@ -5458,8 +5458,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * already placed, when nothing can decline any more. That MSDB is never more significant than the
    * MSDB of {@code K} with the child's extremes, so the arm is declined when that one is at or above
    * the half's MSB, unless the child is a leaf that is certain to take {@code K} in place
-   * ({@link #leafTakesKeyInPlace}), which introduces no bit. A leaf whose keys span the half's MSB
-   * (a straddle its zero column in the half says nothing about) is the shape that reaches this.
+   * ({@link #leafTakesKeyInPlace}), which introduces no bit. A leaf whose keys span the half's MSB (a
+   * straddle its zero column in the half says nothing about) is the shape that reaches this.
    */
   private boolean subInsertKeepsHalfTrieCondition(final HOTIndirectPage half, final int affectedIdx,
       final byte[] keySlice, final byte[] valueSlice) {

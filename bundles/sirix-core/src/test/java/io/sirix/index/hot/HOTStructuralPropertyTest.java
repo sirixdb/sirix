@@ -63,62 +63,68 @@ import java.util.stream.Stream;
 
 /**
  * A seeded, property-based exercise of every HOT index kind the writer serves, against the complete
- * structural invariant and a plain sorted reference after every single mutation.
+ * structural invariant and a plain sorted reference after every operation of the stream.
  *
  * <p>
- * Each case is a deterministic function of its seed: an index kind (CAS, PATH, NAME, VALIDTIME or a
- * projection store with its segment side map), one of the four versioning types, a
- * leaf-consolidation cadence, and a generated stream of puts, posting removals, blob tombstones,
- * commits, reverts to an earlier revision and cold reopens. Key generators are shaped after the
- * inputs that produced the structural defects fixed since September: sparse partial keys that
- * differ on a few scattered bits, long common prefixes with trailing-byte differences, ascending,
- * descending and clustered runs, and bulk posting runs that grow one chunk so that a leaf fills by
- * bytes rather than by count — to several KiB on the heavy lane, where a run may hold
- * {@value #HEAVY_MAX_BULK} node keys, and to at most {@value #DEFAULT_MAX_BULK} of them on the
- * default lane, which checks the whole index after each one of them.
+ * A case is one seed's generated stream run under one versioning type: an index kind (CAS, PATH,
+ * NAME, VALIDTIME or a projection store with its segment side map), a leaf-consolidation cadence,
+ * and a stream of puts, posting removals, blob tombstones, commits, reverts to an earlier revision
+ * and cold reopens. <b>Every seed is run against all four versioning types</b> — FULL, INCREMENTAL,
+ * DIFFERENTIAL and SLIDING_SNAPSHOT — so that coverage never depends on the seed budget, and the
+ * consolidation cadence rotates with the pair so all four cadences appear within one seed. Key
+ * generators are shaped after the inputs that produced the structural defects fixed since
+ * September: sparse partial keys that differ on a few scattered bits, long common prefixes with
+ * trailing-byte differences, ascending, descending and clustered runs, and bulk posting runs that
+ * grow one chunk to several KiB so that a leaf fills by bytes rather than by count.
  * </p>
  *
  * <p>
- * <b>The default lane (the one CI runs) checks everything after every single mutation.</b> After
- * each put and each removal — including every individual put and removal inside a bulk posting run —
- * the writer's uncommitted trie must pass {@link HOTInvariantValidator} (children ascending and
- * non-overlapping, trie condition, sparse-path encoding, every stored key routing back to its leaf),
- * an in-order walk of its live slots must equal the reference's slot set exactly, and <em>every</em>
- * key the reference holds must answer exactly what the reference answers. After every commit every
- * historical revision is checked the same way through the reader, each with its logical iterator and
- * every one of its lookups; a cold reopen repeats that from disk with the caches cleared. Nothing is
- * sampled and nothing is skipped.
+ * <b>A step is one operation of the stream</b>, in both lanes: a bulk put or removal of the node
+ * keys under one key (the {@code M} and {@code X} operations) is verified once, after the whole run
+ * has been written, and the handler recorded for it is the one that dispatched its last node key.
+ * Neither lane checks the index between the node keys of a run, so a structural handler reached in
+ * the middle of one is attributed to, and checked with, the operation as a whole.
  * </p>
  *
  * <p>
- * Its streams are sized for that cost, so the lane stays well under a minute per kind on a developer
- * machine (PATH, the slowest, is about 30 s for its two seeds): {@link #DEFAULT_OPS} units of work
- * per seed, bulk runs of at most {@value #DEFAULT_MAX_BULK} node keys, and a commit no more often
- * than every dozen operations, because every commit re-checks every revision before it. It reaches
- * leaf splits, the pair and strand placements, the fold cascade, the frontier splice and the
- * Direction-1 sub-insert; a deep trie and the multi-KiB postings that fill a leaf by bytes belong to
- * the heavy lane.
+ * <b>The default lane (the one CI runs) samples nothing else.</b> After every operation the
+ * writer's uncommitted trie must pass {@link HOTInvariantValidator} (children ascending and
+ * non-overlapping, trie condition, sparse-path encoding, every stored key routing back to its
+ * leaf), an in-order walk of its live slots must equal the reference's slot set exactly, and
+ * <em>every</em> key the reference holds must answer exactly what the reference answers. Every
+ * commit checks the new revision through the reader the same way, including its logical iterator
+ * and every one of its values; a committed revision is immutable, and every cold reopen re-checks
+ * <em>every</em> historical revision that way from disk with the caches cleared, so no revision
+ * goes unchecked and none is sampled.
+ * </p>
+ *
+ * <p>
+ * Its streams are sized for that cost, so the lane stays around a minute per kind on a developer
+ * machine: {@link #DEFAULT_OPS} units of work per seed, run under each of the four versioning
+ * types.
  * </p>
  *
  * <p>
  * <b>The opt-in heavy lane trades those checks for reach</b>, so that a long soak visits far more
  * structure per minute. It runs an extended budget over every kind (sized by
- * {@code -Dsirix.hot.property.heavy.seeds} / {@code heavy.ops}; the advisory cross-platform CI lanes
- * exclude it) and samples on fixed cadences: a put that merged in place or a posting bit removed in
- * place is followed by the lookups of the key it touched alone, with the complete check every
- * {@value #FULL_CHECK_EVERY}th step (every structural handler is always followed by it); writer-side
- * and inexact reader-side lookups compare {@value #LOOKUP_SAMPLE} rotating keys instead of all of
- * them; a commit checks the new revision, exactly every {@value #EXACT_COMMIT_EVERY}th commit, plus
- * {@value #OLDER_REVISIONS_PER_COMMIT} rotating older revisions, and bulk runs reach
- * {@value #HEAVY_MAX_BULK} node keys while commits may come every other operation. Only a cold
- * reopen revisits every revision. With {@code -Dsirix.hot.property.collect=true} it records every
- * distinct failure instead of stopping at the first.
+ * {@code -Dsirix.hot.property.heavy.seeds} / {@code heavy.ops}, each seed again under all four
+ * versioning types; the advisory cross-platform CI lanes exclude it) and samples on fixed cadences:
+ * an operation whose last handler merged into a leaf in place, or removed a posting bit in place,
+ * is followed by the lookups of the key it touched alone, with the complete check every
+ * {@value #FULL_CHECK_EVERY}th operation; every other handler is followed by the complete check;
+ * writer-side and inexact reader-side lookups compare {@value #LOOKUP_SAMPLE} rotating keys instead
+ * of all of them; a commit checks the new revision, comparing every value only every
+ * {@value #EXACT_COMMIT_EVERY}th commit, plus {@value #OLDER_REVISIONS_PER_COMMIT} rotating older
+ * revisions; and a cold reopen checks every revision but compares every value only for the newest.
+ * With {@code -Dsirix.hot.property.collect=true} it records every distinct failure instead of
+ * stopping at the first.
  * </p>
  *
  * <p>
- * A failing seed is shrunk with delta debugging and reported as a replayable stream whose header
- * names the lane it failed under; {@link #replay} runs such a stream under the same checks.
- * {@code -Dsirix.hot.property.seed=N} pins the default lane to one seed.
+ * A failing case is shrunk with delta debugging and reported as a replayable stream whose header
+ * names the versioning, consolidation cadence and lane it failed under; {@link #replay} runs such a
+ * stream under the same checks. {@code -Dsirix.hot.property.seed=N} pins the default lane to one
+ * seed, which still runs all four versioning types.
  * </p>
  */
 final class HOTStructuralPropertyTest {
@@ -138,19 +144,11 @@ final class HOTStructuralPropertyTest {
       System.getProperty(PROPERTY + "seed") == null
           ? 2
           : 1);
-  private static final int DEFAULT_OPS = Integer.getInteger(PROPERTY + "ops", 2_000);
+  private static final int DEFAULT_OPS = Integer.getInteger(PROPERTY + "ops", 1_600);
   private static final long BASE_SEED = Long.getLong(PROPERTY + "seed", 1L);
   private static final long SHRINK_SECONDS = Long.getLong(PROPERTY + "shrinkSeconds", 120L);
 
-  /**
-   * Node keys one bulk posting run may hold. The default lane checks the trie completely after every
-   * one of them, so it keeps runs short; the heavy lane grows a single chunk to several KiB, which is
-   * how a leaf splits by bytes rather than by count.
-   */
-  private static final int DEFAULT_MAX_BULK = 24;
-  static final int HEAVY_MAX_BULK = 2_500;
-
-  // ===== heavy-lane sampling cadences; the default lane checks every mutation completely =====
+  // ===== heavy-lane sampling cadences; the default lane checks every operation completely =====
 
   /** Keys compared per sampled lookup pass, rotating so a long run still visits all of them. */
   static final int LOOKUP_SAMPLE = 16;
@@ -318,7 +316,7 @@ final class HOTStructuralPropertyTest {
       replay(kind, versioning, consolidationInterval, exhaustive, temporaryDirectory.resolve("replay"), stream);
       return;
     }
-    // Shrink the recorded stream again under the complete per-mutation checks unless its header
+    // Shrink the recorded stream again under the complete per-operation checks unless its header
     // recorded the heavy lane, and write the result next to the file.
     final CaseConfig config = new CaseConfig(kind, versioning, -1L, consolidationInterval, exhaustive);
     final List<Op> ops = Op.parseStream(stream);
@@ -337,10 +335,11 @@ final class HOTStructuralPropertyTest {
   // ===== budget driver =====
 
   /**
-   * Run {@code seeds} consecutive seeds of {@code kind}, with {@code exhaustive} selecting the
-   * complete per-mutation checks of the default lane over the heavy lane's sampling cadences.
-   * Without {@code collect} the first failure is shrunk and thrown; with it every failure is shrunk,
-   * written next to the test's temporary directory and summarised in the returned list.
+   * Run {@code seeds} consecutive seeds of {@code kind}, each one's stream against all four
+   * versioning types, with {@code exhaustive} selecting the complete per-operation checks of the
+   * default lane over the heavy lane's sampling cadences. Without {@code collect} the first failure
+   * is shrunk and thrown; with it every failure is shrunk, written next to the test's temporary
+   * directory and summarised in the returned list.
    */
   private List<String> runBudget(final Kind kind, final int seeds, final int ops, final boolean collect,
       final boolean exhaustive) {
@@ -353,33 +352,36 @@ final class HOTStructuralPropertyTest {
     REACH_COUNTERS.forEach((name, counter) -> countersBefore.put(name, counter.get()));
     for (int i = 0; i < seeds; i++) {
       final long seed = BASE_SEED + i;
-      final CaseConfig config = CaseConfig.forSeed(kind, seed, exhaustive);
-      final List<Op> stream = new StreamGenerator(kind, seed, ops, exhaustive).generate();
-      final CaseResult result = runCase(config, stream);
-      result.handlers.forEach((handler, count) -> handlers.merge(handler, count, Integer::sum));
-      maxHeight = Math.max(maxHeight, result.height);
-      storedKeys += result.storedKeys;
-      System.out.println("[hot-property] " + config.header() + ": " + stream.size() + " ops, " + result.applied
-          + " applied, final slots " + result.storedKeys + ", height " + result.height + (result.failure == null
-              ? ""
-              : ", FAILED " + signature(result.failure)));
-      if (result.failure == null) {
-        continue;
+      final List<Op> stream = new StreamGenerator(kind, seed, ops).generate();
+      for (int versioning = 0; versioning < VERSIONINGS.length; versioning++) {
+        final CaseConfig config = CaseConfig.forCase(kind, seed, versioning, exhaustive);
+        final CaseResult result = runCase(config, stream);
+        result.handlers.forEach((handler, count) -> handlers.merge(handler, count, Integer::sum));
+        maxHeight = Math.max(maxHeight, result.height);
+        storedKeys += result.storedKeys;
+        System.out.println("[hot-property] " + config.header() + ": " + stream.size() + " ops, " + result.applied
+            + " applied, final slots " + result.storedKeys + ", height " + result.height + (result.failure == null
+                ? ""
+                : ", FAILED " + signature(result.failure)));
+        if (result.failure == null) {
+          continue;
+        }
+        final AssertionError report = shrinkAndReport(config, stream, result);
+        if (!collect) {
+          throw report;
+        }
+        final String name = "failure-" + kind.name().toLowerCase() + "-" + seed + "-"
+            + config.versioning().name().toLowerCase() + ".txt";
+        final Path file = FAILURE_DIRECTORY.resolve(name);
+        try {
+          Files.createDirectories(FAILURE_DIRECTORY);
+          Files.writeString(file, report.getMessage(), StandardCharsets.UTF_8);
+        } catch (final IOException e) {
+          throw new UncheckedIOException(e);
+        }
+        failures.add(config.header() + " -> " + signature(result.failure) + " (" + file + ")");
+        System.out.println("[hot-property] " + failures.get(failures.size() - 1));
       }
-      final AssertionError report = shrinkAndReport(config, stream, result);
-      if (!collect) {
-        throw report;
-      }
-      final String name = "failure-" + kind.name().toLowerCase() + "-" + seed + ".txt";
-      final Path file = FAILURE_DIRECTORY.resolve(name);
-      try {
-        Files.createDirectories(FAILURE_DIRECTORY);
-        Files.writeString(file, report.getMessage(), StandardCharsets.UTF_8);
-      } catch (final IOException e) {
-        throw new UncheckedIOException(e);
-      }
-      failures.add(config.header() + " -> " + signature(result.failure) + " (" + file + ")");
-      System.out.println("[hot-property] " + failures.get(failures.size() - 1));
     }
     final StringBuilder moved = new StringBuilder();
     REACH_COUNTERS.forEach((name, counter) -> {
@@ -390,9 +392,10 @@ final class HOTStructuralPropertyTest {
             : ", ").append(name).append('=').append(delta);
       }
     });
-    System.out.println("[hot-property] " + kind + ": " + seeds + " seed(s) x " + ops + " ops in "
-        + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) + " ms; final slots " + storedKeys
-        + ", max height " + maxHeight + "; handlers " + handlers + "; counters {" + moved + "}");
+    System.out.println(
+        "[hot-property] " + kind + ": " + seeds + " seed(s) x " + VERSIONINGS.length + " versioning(s) x " + ops
+            + " ops in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) + " ms; final slots " + storedKeys
+            + ", max height " + maxHeight + "; handlers " + handlers + "; counters {" + moved + "}");
     return failures;
   }
 
@@ -588,13 +591,18 @@ final class HOTStructuralPropertyTest {
 
   /**
    * One case: its index kind, versioning, seed and consolidation cadence, and whether it is checked
-   * completely after every mutation (the default lane) or on the heavy lane's cadences. The flag
+   * completely after every operation (the default lane) or on the heavy lane's cadences. The flag
    * belongs to the case because shrinking and replay must reproduce the checks that failed.
    */
   record CaseConfig(Kind kind, VersioningType versioning, long seed, int consolidationInterval, boolean exhaustive) {
-    static CaseConfig forSeed(final Kind kind, final long seed, final boolean exhaustive) {
-      return new CaseConfig(kind, VERSIONINGS[(int) Math.floorMod(seed, VERSIONINGS.length)], seed,
-          CONSOLIDATION_INTERVALS[(int) Math.floorMod(seed / VERSIONINGS.length, CONSOLIDATION_INTERVALS.length)],
+    /**
+     * The case that runs {@code seed}'s stream under {@code VERSIONINGS[versioningIndex]}. Every seed
+     * is run against all four versioning types, so no versioning depends on the seed budget; the
+     * consolidation cadence rotates with the pair, which cycles all four of them within one seed.
+     */
+    static CaseConfig forCase(final Kind kind, final long seed, final int versioningIndex, final boolean exhaustive) {
+      return new CaseConfig(kind, VERSIONINGS[versioningIndex], seed,
+          CONSOLIDATION_INTERVALS[(int) Math.floorMod(seed + versioningIndex, CONSOLIDATION_INTERVALS.length)],
           exhaustive);
     }
 
@@ -782,8 +790,8 @@ final class HOTStructuralPropertyTest {
             handlers.merge(handler, 1, Integer::sum);
           }
           final boolean inPlace = IN_PLACE_MERGE.equals(handler) || IN_PLACE_REMOVE.equals(handler);
-          // The default lane checks completely after every mutation; the bulk runs checked each of
-          // their intermediate mutations inside apply, this is their last one.
+          // One operation of the stream is one step, so a bulk run is checked once it has written
+          // every node key, under the handler that dispatched the last of them.
           driver.verifyWriterSide(op, config.exhaustive() || !inPlace || applied % FULL_CHECK_EVERY == 0);
         }
         case Op.COMMIT -> commitIfOpen();
@@ -830,7 +838,9 @@ final class HOTStructuralPropertyTest {
       }
       commits++;
       if (config.exhaustive()) {
-        verifyAllRevisions(false); // every historical revision, exactly, after every commit
+        // The new revision exactly, and nothing sampled: every older revision is immutable and was
+        // checked at its own commit, and the next cold reopen re-checks all of them from disk.
+        verifyRevision(latest, true, false);
         return;
       }
       // The new revision every time, exactly every EXACT_COMMIT_EVERY commits; older revisions on a
@@ -922,10 +932,10 @@ final class HOTStructuralPropertyTest {
     void restore(Object snapshot);
 
     /**
-     * Writer-side checks after a mutation: the touched key's lookup always, and with {@code full} the
-     * structural validator, the ordered slot walk and the lookups as well — every key the reference
-     * holds on the default lane, {@value HOTStructuralPropertyTest#LOOKUP_SAMPLE} rotating ones on the
-     * heavy lane.
+     * Writer-side checks after one stream operation: the touched key's lookup always, and with
+     * {@code full} the structural validator, the ordered slot walk and the lookups as well — every key
+     * the reference holds on the default lane, {@value HOTStructuralPropertyTest#LOOKUP_SAMPLE}
+     * rotating ones on the heavy lane.
      */
     void verifyWriterSide(Op lastOp, boolean full);
 
@@ -996,7 +1006,7 @@ final class HOTStructuralPropertyTest {
   private abstract static class PostingDriver<K> implements Driver {
     final IndexType indexType;
     final int indexNumber;
-    /** Check completely after every single mutation and compare every answer (the default lane). */
+    /** Check completely after every stream operation and compare every answer (the default lane). */
     private final boolean exhaustive;
     private TreeMap<ByteKey, Logical<K>> model = new TreeMap<>();
     private byte[] scratch = new byte[512];
@@ -1074,20 +1084,9 @@ final class HOTStructuralPropertyTest {
                 + " returned " + removed + ", reference says " + expected);
           }
         }
-        if (i == count - 1) {
-          publish(prefix, key, nodeKeys);
-          return; // the caller checks this one, having read the handler that dispatched it
-        }
-        if (exhaustive) {
-          // Each node key of a bulk run is a mutation of its own, and is checked as one.
-          publish(prefix, key, nodeKeys);
-          verifyWriterSide(op, true);
-        }
       }
-    }
-
-    /** Replace the reference entry of {@code prefix} with the postings it now holds. */
-    private void publish(final ByteKey prefix, final K key, final LongAVLTreeSet nodeKeys) {
+      // The whole operation is one step of the stream: the caller checks it once, here, with the
+      // reference holding every node key the run wrote or removed.
       if (nodeKeys.isEmpty()) {
         model.remove(prefix);
       } else {
@@ -1672,45 +1671,28 @@ final class HOTStructuralPropertyTest {
     private final Kind kind;
     private final SplittableRandom random;
     private final int opCount;
-    /**
-     * Largest bulk posting run this lane generates: {@link HOTStructuralPropertyTest#DEFAULT_MAX_BULK}
-     * or {@link HOTStructuralPropertyTest#HEAVY_MAX_BULK}.
-     */
-    private final int maxBulk;
-    /** Smallest commit cadence scale this lane generates: one commit per that many operations. */
-    private final int minCadenceScale;
     private final List<long[]> live = new ArrayList<>();
     private final List<List<long[]>> liveAtRevision = new ArrayList<>();
     private int revisions;
 
-    StreamGenerator(final Kind kind, final long seed, final int opCount, final boolean exhaustive) {
+    StreamGenerator(final Kind kind, final long seed, final int opCount) {
       if (opCount <= 0) {
         throw new IllegalArgumentException("a stream needs a positive work budget: " + opCount);
       }
       this.kind = kind;
       this.random = new SplittableRandom(seed);
       this.opCount = opCount;
-      // The per-mutation lane checks the whole index after every node key of a bulk run and every
-      // historical revision after every commit, so it generates short runs and commits no more often
-      // than every dozen operations. The heavy lane grows one chunk to several KiB and may commit
-      // after every other operation.
-      this.maxBulk = exhaustive
-          ? DEFAULT_MAX_BULK
-          : HEAVY_MAX_BULK;
-      this.minCadenceScale = exhaustive
-          ? 24
-          : 3;
     }
 
     List<Op> generate() {
       liveAtRevision.add(List.of());
       final List<Op> ops = new ArrayList<>(opCount + 16);
-      final int cadenceScale = Math.max(minCadenceScale, switch (random.nextInt(4)) {
+      final int cadenceScale = switch (random.nextInt(4)) {
         case 0 -> 3;
         case 1 -> 24;
         case 2 -> 160;
         default -> 900;
-      });
+      };
       int untilCommit = nextCadence(cadenceScale);
       int work = 0;
       while (work < opCount) {
@@ -1846,7 +1828,7 @@ final class HOTStructuralPropertyTest {
       }
       final long[] key = freshKey(phase);
       if (phase.bulkPostings) {
-        final int count = bulkCount();
+        final int count = 100 + random.nextInt(2_400);
         final long[] tuple = {key[0], key[1], key[2], bulkBase(phase, count), count};
         live.add(tuple);
         if (phase.hotSet.size() < 4) {
@@ -1885,7 +1867,7 @@ final class HOTStructuralPropertyTest {
       }
       if (phase.bulkPostings) {
         // A run of node keys in another chunk of the same key: a second slot of several KiB.
-        final int count = bulkCount();
+        final int count = 50 + random.nextInt(1_000);
         final long[] tuple = {source[0], source[1], source[2], bulkBase(phase, count), count};
         live.add(tuple);
         return Op.putMany(tuple[0], tuple[1], tuple[2], tuple[3], count);
@@ -1895,11 +1877,6 @@ final class HOTStructuralPropertyTest {
       final long[] tuple = {source[0], source[1], source[2], nodeKey, 1L};
       live.add(tuple);
       return Op.put(tuple[0], tuple[1], tuple[2], tuple[3]);
-    }
-
-    /** Node keys in one generated bulk run: two up to this lane's {@link #maxBulk}, inclusive. */
-    private int bulkCount() {
-      return 2 + random.nextInt(maxBulk - 1);
     }
 
     private long nodeKey(final Phase phase) {

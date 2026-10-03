@@ -93,17 +93,22 @@ in CI via the `Deep verification` workflow.
                            --tests 'io.sirix.cache.ShardedPageCacheInvariantStressTest'
 
 # HOT structural property test, default lane: runs with the normal test task, one test per index
-# kind. It checks completely after every single mutation (every put and removal, each one inside a
-# bulk posting run included): the structural validator, the full ordered slot walk against the
-# reference, every one of the reference's keys compared with what the index answers, and every
-# historical revision re-checked that way after every commit and cold after a reopen. About 30 s per
-# kind; -Dsirix.hot.property.ops=N / .seeds=N / .seed=N resize or pin it.
+# kind, every seed's stream under all four versioning types. A step is one operation of the stream,
+# so a bulk posting run (the M and X operations) is checked once it has written every node key, not
+# between them. After every operation it runs the structural validator, the full ordered slot walk
+# against the reference and compares every one of the reference's keys with what the index answers;
+# every commit checks the new revision that way through the reader, and every cold reopen re-checks
+# every historical revision from disk. Nothing else is sampled. About a minute per kind;
+# -Dsirix.hot.property.ops=N / .seeds=N / .seed=N resize or pin it.
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.pathIndex'
-# Heavy lane: every index kind with a longer seeded budget, sampling for reach instead (the complete
-# check every 32nd in-place step and after every structural handler, 16 rotating keys per lookup
-# pass, the newest revision plus three rotating older ones per commit, postings of several KiB).
-# Records each shrunk failure as a replayable stream whose header names the lane it failed under
-# (-Dsirix.hot.property.kinds=CAS,PATH,NAME,VALIDTIME,PROJECTION narrows it)
+# Heavy lane: every index kind with a longer seeded budget (each seed again under all four versioning
+# types), sampling for reach instead - an operation whose last handler merged or removed in place is
+# followed by that key's lookups alone, with the complete check every 32nd operation and after every
+# other handler; 16 rotating keys per lookup pass; per commit the new revision, with every value
+# compared only every 8th commit, plus three rotating older revisions; a cold reopen checks every
+# revision but compares every value only for the newest.
+# Records each shrunk failure as a replayable stream whose header names the versioning, cadence and
+# lane it failed under (-Dsirix.hot.property.kinds=CAS,PATH,NAME,VALIDTIME,PROJECTION narrows it)
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.extendedBudgetAcrossEveryKind' \
                            -Dsirix.hot.property.collect=true -Dsirix.hot.property.heavy.seeds=8 \
                            -Dsirix.hot.property.heavy.ops=15000 -Dsirix.hot.property.failureDir=/tmp/hot-property

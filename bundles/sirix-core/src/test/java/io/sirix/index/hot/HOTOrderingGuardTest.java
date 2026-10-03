@@ -654,8 +654,8 @@ final class HOTOrderingGuardTest {
     }
 
     /**
-     * A leaf of {@code keys} whose values are {@code valueLength} bytes each, so it fills by bytes
-     * long before it fills by count.
+     * A leaf of {@code keys} whose values are {@code valueLength} bytes each, so it fills by bytes long
+     * before it fills by count.
      */
     private PageReference paddedLeaf(final int[] keys, final int valueLength) {
       final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.PATH);
@@ -668,9 +668,9 @@ final class HOTOrderingGuardTest {
     }
 
     /**
-     * A full root over bits 1-7 of the first key byte (partial = that byte) whose child at partial
-     * 0x08 is {@code straddle}: 32 children, so a branch insert at an existing bit splits it, and
-     * the compressed lower half discriminates on bit 2 first. Every other child is a one-key leaf
+     * A full root over bits 1-7 of the first key byte (partial = that byte) whose child at partial 0x08
+     * is {@code straddle}: 32 children, so a branch insert at an existing bit splits it, and the
+     * compressed lower half discriminates on bit 2 first. Every other child is a one-key leaf
      * {@code partial << 24}; those keys are written to {@code siblings} ascending.
      */
     private PageReference fullFirstByteRoot(final PageReference straddle, final int[] siblings) {

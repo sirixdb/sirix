@@ -173,20 +173,24 @@ All notable changes to SirixDB are documented in this file.
   through the block found no well-formed frontier candidate at any level and failed closed. Found
   by a new seeded, property-based structural test (`HOTStructuralPropertyTest`) that drives every
   HOT index kind — CAS, PATH, NAME, VALIDTIME and the projection slot store with its segment side
-  map — with generated put, remove, bulk-posting, commit, revert and cold-reopen streams across all
-  four versioning types, and shrinks a failing seed to a replayable stream; the shape appeared on a
-  projection store after 770 ordinary writes. Its default lane, the one CI runs, checks completely
-  after every single mutation — every individual put and removal inside a bulk run included: the
-  structural validator, the full ordered slot walk against the reference's slot set, and every one
-  of the reference's keys compared to what the index answers, plus every historical revision
-  re-checked that way through the reader after every commit and again cold from disk after a reopen.
-  Nothing is sampled there; its streams are sized for that cost (about 30 s per kind) and reach leaf
-  splits, the pair and strand placements, the fold cascade, the frontier splice and the Direction-1
-  sub-insert. The opt-in `heavy` lane trades those checks for reach, which is what a long soak needs
-  and how the three shapes below were found: it samples the complete check every 32nd in-place step
-  (every structural handler is always checked), compares 16 rotating keys per lookup pass, checks
-  the newest revision per commit with three rotating older ones, and grows single postings to several
-  KiB so leaves split by bytes; `docs/VERIFICATION.md` has both commands.
+  map — with generated put, remove, bulk-posting, commit, revert and cold-reopen streams, every seed
+  run under all four versioning types, and shrinks a failing case to a replayable stream; the shape
+  appeared on a projection store after 770 ordinary writes. A step is one operation of the stream in
+  both lanes, so a bulk posting run is checked once it has written every node key rather than between
+  them, under the handler that dispatched the last of them. Beyond that the default lane, the one CI
+  runs, samples nothing: after every operation it runs the structural validator, the full ordered
+  slot walk against the reference's slot set, and compares every one of the reference's keys with
+  what the index answers; every commit checks the new revision that way through the reader, including
+  its logical iterator and every value, and every cold reopen re-checks every historical revision
+  from disk. Its streams are sized for that cost (about a minute per kind) and reach tries of height
+  six, leaf splits by count and by bytes, the pair and strand placements, the fold cascade, the
+  complete-frontier splice and the Direction-1 sub-insert. The opt-in `heavy` lane trades those
+  checks for reach, which is what a long soak needs and how the three shapes below were found: an
+  operation that merged or removed in place is followed by that key's lookups alone, with the
+  complete check every 32nd operation and after every other handler; lookup passes compare 16
+  rotating keys; a commit checks the new revision, comparing every value only every eighth commit,
+  plus three rotating older revisions; and a cold reopen checks every revision but compares every
+  value only for the newest. `docs/VERIFICATION.md` has both commands.
   The merge arm now proves, before the merge, that the key keeps the spine's order — the question
   every branch placement already asks — and hands a key that would cross a neighbour to the
   complete-frontier splice, counted by
