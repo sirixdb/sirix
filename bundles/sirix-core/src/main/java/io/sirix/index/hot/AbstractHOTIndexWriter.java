@@ -2319,7 +2319,23 @@ public abstract class AbstractHOTIndexWriter<K> {
         : "branch";
     final byte[] structuralKey;
     final boolean structurallyChanged;
-    if (merge) {
+    if (merge && !mergeKeepsSpineOrder(navResult, keyBuf, keyLen)) {
+      // The descent routes K to this leaf, yet K sorts past a neighbour of the leaf on the spine: a
+      // sibling that holds keys on both sides of a bit the block discriminates on (which Direction 1
+      // sub-inserts create on purpose) can have a range the routed leaf's new extreme would reach
+      // into. Merged in place, the two children's ranges interleave (I12) and the next structural
+      // insert through the block finds no well-formed candidate. The complete frontier places K at
+      // its lexicographic position instead, exactly as it does for a branch insert.
+      MERGE_SPINE_ORDER_DELEGATED.incrementAndGet();
+      lastDispatchHandler = "h:merge-spine-order";
+      structuralKey = exactKeyForStructuralMutation(keyBuf, keyLen);
+      final byte[] valueSlice = valueLen == valueBuf.length
+          ? valueBuf
+          : Arrays.copyOf(valueBuf, valueLen);
+      spliceCompleteFrontierIncrementally(navResult, pathDepth - 1, structuralKey, valueSlice,
+          StructuralSplitKey.ABSENT);
+      structurallyChanged = true;
+    } else if (merge) {
       structuralKey = mergeIntoLeaf(navResult, keyBuf, keyLen, valueBuf, valueLen);
       structurallyChanged = structuralKey != null;
     } else {
@@ -3441,6 +3457,35 @@ public abstract class AbstractHOTIndexWriter<K> {
       return extremeKeepsSpineOrder(navResult, placementDepth - 1, 1, keySlice);
     }
     return true; // K lies inside the subtree's range: no extreme on the spine changes
+  }
+
+  /**
+   * In-place merges declined because {@code K}, routed to a leaf whose range it would extend, sorts
+   * past that leaf's neighbour on the spine; the complete frontier placed the key instead.
+   */
+  public static final AtomicLong MERGE_SPINE_ORDER_DELEGATED = new AtomicLong();
+
+  /**
+   * Whether merging {@code K} into the routed leaf keeps every spine neighbour in order — the
+   * {@link #keyKeepsSpineOrder} question for the leaf itself, asked without materializing the key
+   * unless it matters. A key present in the leaf or inside its range moves no extreme and costs two
+   * comparisons against the leaf's end entries; only a key beyond one end walks the spine.
+   */
+  private boolean mergeKeepsSpineOrder(final LeafNavigationResult navResult, final byte[] keyBuf, final int keyLen) {
+    final int pathDepth = navResult.pathDepth();
+    if (pathDepth == 0) {
+      return true; // the leaf is the whole index: no spine above it
+    }
+    final HOTLeafPage leaf = navResult.leaf();
+    final int entries = leaf.getEntryCount();
+    final boolean belowFirst = entries == 0 || leaf.compareKeyWithBound(0, keyBuf, keyLen) > 0;
+    final boolean aboveLast = entries == 0 || leaf.compareKeyWithBound(entries - 1, keyBuf, keyLen) < 0;
+    if (!belowFirst && !aboveLast) {
+      return true; // K is present or lies inside the leaf's range: no extreme on the spine changes
+    }
+    final byte[] keySlice = exactKeyForStructuralMutation(keyBuf, keyLen);
+    return (!belowFirst || extremeKeepsSpineOrder(navResult, pathDepth - 1, 0, keySlice))
+        && (!aboveLast || extremeKeepsSpineOrder(navResult, pathDepth - 1, 1, keySlice));
   }
 
   /**
@@ -5928,8 +5973,28 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /** The two persistent halves of a subtree split immediately before an absent key. */
-  private record StructuralKeySplit(@Nullable PageReference left, @Nullable PageReference right) {
+  private record StructuralKeySplit(@Nullable PageReference left, @Nullable PageReference right,
+      @Nullable List<CarriedSideReference> droppedOwnerSideReferences) {
+    StructuralKeySplit(final @Nullable PageReference left, final @Nullable PageReference right) {
+      this(left, right, null);
+    }
   }
+
+  /**
+   * A side-map reference whose owning slot is the entry a {@link StructuralSplitKey#PRESENT_AND_DROPPED}
+   * split dropped from its boundary leaf. The owner lives on in {@code K}'s fresh leaf, so the
+   * reference moves there with it.
+   */
+  private record CarriedSideReference(long refKey, PageReference reference) {
+  }
+
+  /**
+   * Frontier splits of a present key whose dropped boundary entry owned side-map references, carried
+   * onto the key's fresh leaf. A projection slot reaches this when its referenced blob is replaced by
+   * an inline value that overflows the leaf: the owner marker is rewritten before the side page is
+   * released, so the dropped entry still owns the page at the moment the leaf splits.
+   */
+  public static final AtomicLong FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES = new AtomicLong();
 
   /** What {@link #splitSubtreeBeforeKey} may find of its split key in the boundary leaf. */
   private enum StructuralSplitKey {
@@ -6022,6 +6087,16 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
       putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
+      final List<CarriedSideReference> carried = split.droppedOwnerSideReferences();
+      if (carried != null) {
+        // The split dropped K's stale entry from the boundary leaf; the side pages that entry owned
+        // keep their owner, which now lives here.
+        for (int i = 0, n = carried.size(); i < n; i++) {
+          final CarriedSideReference reference = carried.get(i);
+          keyLeaf.setPageReference(reference.refKey(), reference.reference());
+        }
+        FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES.incrementAndGet();
+      }
       keyRef = swizzle(keyLeaf);
       replacementRef = joinOrderedAroundKey(split.left(), keyRef, split.right(), keySlice, revision, replacedLeafRefs);
       if (replacementRef == null) {
@@ -6192,15 +6267,19 @@ public abstract class AbstractHOTIndexWriter<K> {
         if (rightFrom < leaf.getEntryCount()) {
           right = copyLeafRange(leaf, rightFrom, leaf.getEntryCount());
         }
-        // A side reference whose owning slot is the dropped entry finds no home and fails closed
-        // here: projection segment pages are never silently orphaned.
-        rehomeSplitLeafSideReferences(leaf, left, right);
+        // A side reference whose owning slot is the dropped entry follows that slot to K's fresh
+        // leaf; one whose owner is in neither half fails closed here, so that projection segment
+        // pages are never silently orphaned.
+        final List<CarriedSideReference> carried = rehomeSplitLeafSideReferences(leaf, left, right, dropped
+            ? keySlice
+            : null);
         final StructuralKeySplit result = new StructuralKeySplit(left == null
             ? null
             : swizzle(left),
             right == null
                 ? null
-                : swizzle(right));
+                : swizzle(right),
+            carried);
         if (sourceRef.getKey() >= 0 || sourceRef.getLogKey() >= 0) {
           replacedLeafRefs.add(sourceRef);
         } else if (!leaf.isClosed()) {
@@ -6263,7 +6342,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         discardUnpublishedStructuralCandidateOrThrow(left);
         return null;
       }
-      return new StructuralKeySplit(left, right);
+      return new StructuralKeySplit(left, right, childSplit.droppedOwnerSideReferences());
     } catch (final RuntimeException | Error failure) {
       closeUnregisteredFreshSubtree(left, failure);
       closeUnregisteredFreshSubtree(right, failure);
@@ -6428,14 +6507,18 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /**
    * Preserve projection side-map ownership when the one boundary leaf is split. A side whose range is
-   * empty has no half; an owner in neither half — the entry a replacing split dropped — is refused
-   * rather than orphaning its segment page.
+   * empty has no half. An owner in neither half is the entry a replacing split dropped, whose
+   * references are returned for the caller to attach to the key's fresh leaf when {@code droppedKey}
+   * names that entry; any other missing owner is refused rather than orphaning its segment page.
+   *
+   * @return the references owned by the dropped entry, or {@code null} when there are none
    */
-  private void rehomeSplitLeafSideReferences(final HOTLeafPage source, final @Nullable HOTLeafPage left,
-      final @Nullable HOTLeafPage right) {
+  private @Nullable List<CarriedSideReference> rehomeSplitLeafSideReferences(final HOTLeafPage source,
+      final @Nullable HOTLeafPage left, final @Nullable HOTLeafPage right, final byte @Nullable [] droppedKey) {
     if (source.segmentRefCount() == 0) {
-      return;
+      return null;
     }
+    List<CarriedSideReference> carried = null;
     final byte[] ownerKey = new byte[Long.BYTES];
     for (final long refKey : source.overflowPageRefKeysSorted()) {
       final PageReference sideRef = source.getPageReference(refKey);
@@ -6448,11 +6531,19 @@ public abstract class AbstractHOTIndexWriter<K> {
           : right != null && right.findEntry(ownerKey) >= 0
               ? right
               : null;
-      if (owner == null) {
+      if (owner != null) {
+        owner.setPageReference(refKey, sideRef);
+        continue;
+      }
+      if (droppedKey == null || !Arrays.equals(ownerKey, droppedKey)) {
         throw new IllegalStateException("HOT boundary leaf split lost side-reference owner for refKey " + refKey);
       }
-      owner.setPageReference(refKey, sideRef);
+      if (carried == null) {
+        carried = new ArrayList<>(2);
+      }
+      carried.add(new CarriedSideReference(refKey, sideRef));
     }
+    return carried;
   }
 
   /**

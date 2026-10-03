@@ -57,6 +57,30 @@ import static org.mockito.Mockito.when;
 final class HOTOrderingGuardTest {
 
   @Test
+  void mergeIntoRoutedLeafMustNotCrossAnAncestorsPreviousSibling() {
+    try (final Fixture fixture = new Fixture()) {
+      // The root tells the middle leaf from the node below it by bit 6 alone; the middle leaf holds
+      // keys on both sides of bits 3 and 5, which the root does not discriminate on for it, and the
+      // node below branches on bit 4. Ordinary projection-store writes built this shape on main.
+      final PageReference below =
+          fixture.node(new int[] {4}, new int[] {0, 1}, fixture.leaf(0x37), fixture.leaf(0x3b));
+      fixture.install(fixture.node(new int[] {2, 6}, new int[] {0, 2, 3}, fixture.leaf(0x10),
+          fixture.leaf(0x25, 0x2d, 0x34), below));
+      fixture.assertKeys(0x10, 0x25, 0x2d, 0x34, 0x37, 0x3b);
+      final long delegated = AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get();
+      // 0x33 has bits 2 and 6 set, so it routes to the node below and on to the 0x37 leaf, from
+      // which it differs at bit 5, below that node's only bit: the merge arm. Merged in place it
+      // would be the node's new minimum, below the middle leaf's maximum 0x34, and the root's two
+      // children would interleave (I12); on main that was published silently and the next
+      // structural insert through the block found no well-formed frontier candidate at all.
+      assertDoesNotThrow(() -> fixture.writer.insert(0x33), () -> "handler=" + fixture.writer.lastDispatchHandler);
+      fixture.assertKeys(0x10, 0x25, 0x2d, 0x33, 0x34, 0x37, 0x3b);
+      assertEquals(delegated + 1, AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get(),
+          "the merge arm must hand a key that would cross a spine neighbour to the complete frontier");
+    }
+  }
+
+  @Test
   void pairMaximumMustNotCrossAnAncestorsNextSibling() {
     try (final Fixture fixture = new Fixture()) {
       final PageReference child = fixture.node(new int[] {1, 4}, new int[] {0, 1, 2}, fixture.leaf(0x00),

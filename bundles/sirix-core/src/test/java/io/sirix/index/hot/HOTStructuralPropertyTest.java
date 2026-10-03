@@ -33,6 +33,7 @@ import io.sirix.settings.VersioningType;
 import it.unimi.dsi.fastutil.longs.LongAVLTreeSet;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -49,12 +50,14 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.SplittableRandom;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -122,6 +125,35 @@ final class HOTStructuralPropertyTest {
   private static final int FULL_CHECK_EVERY = Integer.getInteger(PROPERTY + "fullEvery", 32);
   private static final String IN_PLACE_MERGE = "merge";
   private static final String IN_PLACE_REMOVE = "h:remove-posting-bit";
+
+  /** Rare-path counters whose movement during a run is reported next to the handler tally. */
+  private static final Map<String, AtomicLong> REACH_COUNTERS = new LinkedHashMap<>();
+  static {
+    REACH_COUNTERS.put("fullNodeSplitBreaksTrieCondition", AbstractHOTIndexWriter.FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION);
+    REACH_COUNTERS.put("loneHalfFold", AbstractHOTIndexWriter.FULL_EXISTING_BIT_LONE_HALF_FOLD);
+    REACH_COUNTERS.put("loneHalfFull", AbstractHOTIndexWriter.FULL_EXISTING_BIT_LONE_HALF_FULL);
+    REACH_COUNTERS.put("directionOneSubinsert", AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT);
+    REACH_COUNTERS.put("directionOneFallback", AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK);
+    REACH_COUNTERS.put("fullExistingBitDirectionOne", AbstractHOTIndexWriter.FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT);
+    REACH_COUNTERS.put("branchSpineOrderDelegated", AbstractHOTIndexWriter.BRANCH_SPINE_ORDER_DELEGATED);
+    REACH_COUNTERS.put("mergeSpineOrderDelegated", AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED);
+    REACH_COUNTERS.put("branchCompleteFrontier", AbstractHOTIndexWriter.BRANCH_COMPLETE_FRONTIER);
+    REACH_COUNTERS.put("strandCompleteFrontier", AbstractHOTIndexWriter.STRAND_COMPLETE_FRONTIER);
+    REACH_COUNTERS.put("completeFrontierSplice", AbstractHOTIndexWriter.COMPLETE_STRUCTURAL_FRONTIER_SPLICE);
+    REACH_COUNTERS.put("frontierJoinStraddleSplit", AbstractHOTIndexWriter.FRONTIER_JOIN_STRADDLE_SPLIT);
+    REACH_COUNTERS.put("frontierSplitHalfDeclined", AbstractHOTIndexWriter.FRONTIER_SPLIT_HALF_DECLINED);
+    REACH_COUNTERS.put("frontierCarriedOwnerSideRefs", AbstractHOTIndexWriter.FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES);
+    REACH_COUNTERS.put("mergeOverflowFromIntegrateArm", AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM);
+    REACH_COUNTERS.put("mergeOverflowFromFullParent", AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_FULL_PARENT);
+    REACH_COUNTERS.put("offPathOverflowOk", AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK);
+    REACH_COUNTERS.put("offPathOverflowFallback", AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK);
+    REACH_COUNTERS.put("existingBitFoldNotAdjacent", HOTIncrementalInsert.EXISTING_BIT_FOLD_NOT_ADJACENT);
+    REACH_COUNTERS.put("prefixShrinkRefused", HOTIncrementalInsert.PREFIX_SHRINK_REFUSED_FOR_CAPACITY);
+    REACH_COUNTERS.put("consolidationPairDidNotFit", HOTIncrementalInsert.CONSOLIDATION_PAIR_DID_NOT_FIT);
+    REACH_COUNTERS.put("splitSegmentRefCarries", HOTIncrementalInsert.SPLIT_SEGMENT_REF_CARRIES);
+    REACH_COUNTERS.put("structuralValidationFailure", AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE);
+    REACH_COUNTERS.put("structuralValidationOversizeSkipped", AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED);
+  }
 
   /** Where collect mode writes each shrunk failure. */
   private static final Path FAILURE_DIRECTORY =
@@ -195,6 +227,59 @@ final class HOTStructuralPropertyTest {
     }
   }
 
+  @Test
+  @DisplayName("replay a recorded failure file (-Dsirix.hot.property.replayFile=<file>)")
+  void replayRecordedFailure() throws IOException {
+    final String file = System.getProperty(PROPERTY + "replayFile");
+    Assumptions.assumeTrue(file != null, "no replay file given");
+    final List<String> lines = Files.readAllLines(Path.of(file), StandardCharsets.UTF_8);
+    Kind kind = null;
+    VersioningType versioning = null;
+    int consolidationInterval = 0;
+    int streamFrom = -1;
+    for (int i = 0; i < lines.size(); i++) {
+      final String line = lines.get(i).trim();
+      if (line.startsWith("kind=")) {
+        for (final String field : line.split("\\s+")) {
+          final String[] pair = field.split("=", 2);
+          switch (pair[0]) {
+            case "kind" -> kind = Kind.valueOf(pair[1]);
+            case "versioning" -> versioning = VersioningType.valueOf(pair[1]);
+            case "consolidationInterval" -> consolidationInterval = Integer.parseInt(pair[1]);
+            default -> {
+              // seed and anything else are informational
+            }
+          }
+        }
+      } else if (line.startsWith("stream")) {
+        streamFrom = i + 1;
+        break;
+      }
+    }
+    if (kind == null || versioning == null || streamFrom < 0) {
+      throw new IllegalArgumentException(file + " is not a recorded failure: it needs a kind= header and a stream");
+    }
+    final String stream = String.join("\n", lines.subList(streamFrom, lines.size()));
+    if (!Boolean.getBoolean(PROPERTY + "reshrink")) {
+      replay(kind, versioning, consolidationInterval, temporaryDirectory.resolve("replay"), stream);
+      return;
+    }
+    // Shrink the recorded stream again under the current checks (for instance with fullEvery=1), and
+    // write the result next to the file.
+    final CaseConfig config = new CaseConfig(kind, versioning, -1L, consolidationInterval);
+    final List<Op> ops = Op.parseStream(stream);
+    final CaseResult result = runCase(config, ops);
+    if (result.failure == null) {
+      System.out.println("[hot-property] " + file + " no longer fails; nothing to shrink");
+      return;
+    }
+    final AssertionError report = shrinkAndReport(config, ops, result);
+    final Path out = Path.of(file + ".shrunk.txt");
+    Files.writeString(out, report.getMessage(), StandardCharsets.UTF_8);
+    System.out.println("[hot-property] reshrunk " + file + " -> " + out);
+    throw report;
+  }
+
   // ===== budget driver =====
 
   /**
@@ -208,6 +293,8 @@ final class HOTStructuralPropertyTest {
     final long started = System.nanoTime();
     int maxHeight = 0;
     long storedKeys = 0;
+    final Map<String, Long> countersBefore = new LinkedHashMap<>();
+    REACH_COUNTERS.forEach((name, counter) -> countersBefore.put(name, counter.get()));
     for (int i = 0; i < seeds; i++) {
       final long seed = BASE_SEED + i;
       final CaseConfig config = CaseConfig.forSeed(kind, seed);
@@ -238,9 +325,18 @@ final class HOTStructuralPropertyTest {
       failures.add(config.header() + " -> " + signature(result.failure) + " (" + file + ")");
       System.out.println("[hot-property] " + failures.get(failures.size() - 1));
     }
+    final StringBuilder moved = new StringBuilder();
+    REACH_COUNTERS.forEach((name, counter) -> {
+      final long delta = counter.get() - countersBefore.get(name);
+      if (delta != 0) {
+        moved.append(moved.isEmpty()
+            ? ""
+            : ", ").append(name).append('=').append(delta);
+      }
+    });
     System.out.println("[hot-property] " + kind + ": " + seeds + " seed(s) x " + ops + " ops in "
         + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) + " ms; final slots " + storedKeys + ", max height "
-        + maxHeight + "; handlers " + handlers);
+        + maxHeight + "; handlers " + handlers + "; counters {" + moved + "}");
     return failures;
   }
 
@@ -251,7 +347,14 @@ final class HOTStructuralPropertyTest {
     final List<Op> ops = Op.parseStream(stream);
     AbstractHOTIndexWriter.setConsolidationIntervalForTesting(consolidationInterval);
     try (Runner runner = new Runner(config, directory)) {
-      runner.run(ops);
+      try {
+        runner.run(ops);
+      } catch (final Throwable failure) {
+        System.out.println("[hot-property] replay failed at op " + runner.applied + " (" + (runner.applied < ops.size()
+            ? ops.get(runner.applied).line()
+            : "end") + "), handler " + runner.lastHandler + ": " + signature(failure));
+        throw failure;
+      }
     } finally {
       AbstractHOTIndexWriter.setConsolidationIntervalForTesting(0);
       Databases.clearGlobalCaches();
@@ -259,7 +362,7 @@ final class HOTStructuralPropertyTest {
   }
 
   private record CaseResult(@Nullable Throwable failure, int applied, Map<String, Integer> handlers, int storedKeys,
-      int height) {
+      int height, String lastHandler) {
   }
 
   private CaseResult runCase(final CaseConfig config, final List<Op> ops) {
@@ -269,13 +372,16 @@ final class HOTStructuralPropertyTest {
     try {
       runner = new Runner(config, directory);
       runner.run(ops);
-      return new CaseResult(null, runner.applied, runner.handlers, runner.driver.storedKeys(), runner.driver.height());
+      return new CaseResult(null, runner.applied, runner.handlers, runner.driver.storedKeys(), runner.driver.height(),
+          runner.lastHandler);
     } catch (final Throwable failure) {
       return new CaseResult(failure, runner == null
           ? 0
           : runner.applied, runner == null
               ? Map.of()
-              : runner.handlers, 0, 0);
+              : runner.handlers, 0, 0, runner == null
+                  ? "-"
+                  : runner.lastHandler);
     } finally {
       if (runner != null) {
         runner.close();
@@ -312,6 +418,8 @@ final class HOTStructuralPropertyTest {
           : "")
       .append(")\nfailure=")
       .append(signature)
+      .append("\nlast handler=")
+      .append(result.lastHandler)
       .append("\nstream (replay with HOTStructuralPropertyTest.replay):\n");
     for (final Op op : shrunk) {
       sb.append(op.line()).append('\n');
@@ -564,6 +672,7 @@ final class HOTStructuralPropertyTest {
     private int commits;
     private int olderRevisionCursor;
     int applied;
+    String lastHandler = "-";
 
     Runner(final CaseConfig config, final Path databasePath) {
       this.config = config;
@@ -599,6 +708,7 @@ final class HOTStructuralPropertyTest {
           if (!"-".equals(handler)) {
             handlers.merge(handler, 1, Integer::sum);
           }
+          lastHandler = handler;
           final boolean inPlace = IN_PLACE_MERGE.equals(handler) || IN_PLACE_REMOVE.equals(handler);
           driver.verifyWriterSide(op, !inPlace || applied % FULL_CHECK_EVERY == 0);
         }
@@ -741,8 +851,8 @@ final class HOTStructuralPropertyTest {
 
     /**
      * Reader-side checks of one committed revision against the reference snapshot taken then:
-     * structure, slot order and the logical iterator always; {@code exact} compares every value and
-     * every lookup instead of sampling.
+     * structure and slot order always; {@code exact} also walks the logical iterator and compares
+     * every value and every lookup instead of sampling.
      */
     void verifyRevision(StorageEngineReader reader, Object snapshot, boolean exact);
 
@@ -928,11 +1038,13 @@ final class HOTStructuralPropertyTest {
       noteValidation(HOTInvariantValidator.validate(root, reader));
       compareSlots("reader-slot-walk", liveSlotKeys(reader, root, true), expectedSlots(expected));
       final PostingLookup<K> lookup = readerLookup(reader);
-      final Iterator<? extends Map.Entry<K, NodeReferences>> iterator = lookup.iterator();
-      if (iterator != null) {
-        compareIterator(iterator, expected, exact);
-      }
       if (exact) {
+        // The logical iterator decodes every posting list of the revision; with bulk postings that
+        // is the dominant cost of a revision check, so it belongs to the exact pass.
+        final Iterator<? extends Map.Entry<K, NodeReferences>> iterator = lookup.iterator();
+        if (iterator != null) {
+          compareIterator(iterator, expected);
+        }
         for (final Map.Entry<ByteKey, Logical<K>> entry : expected.entrySet()) {
           checkLookup(lookup, entry.getKey(), entry.getValue().key, expected);
         }
@@ -954,13 +1066,9 @@ final class HOTStructuralPropertyTest {
       return slots;
     }
 
-    /**
-     * The logical iterator must present the reference's keys in order; {@code exact} compares every
-     * posting list, otherwise its cardinality and both extremes (the exact pass runs periodically and
-     * at every cold reopen).
-     */
+    /** The logical iterator must present the reference's keys in order, each with its exact postings. */
     private void compareIterator(final Iterator<? extends Map.Entry<K, NodeReferences>> iterator,
-        final TreeMap<ByteKey, Logical<K>> expected, final boolean exact) {
+        final TreeMap<ByteKey, Logical<K>> expected) {
       final Iterator<Map.Entry<ByteKey, Logical<K>>> reference = expected.entrySet().iterator();
       int position = 0;
       while (iterator.hasNext()) {
@@ -975,20 +1083,11 @@ final class HOTStructuralPropertyTest {
           throw new PropertyViolation("reader-iterator-order",
               "logical key " + position + " is " + actualPrefix + ", reference expects " + wanted.getKey());
         }
-        final LongAVLTreeSet wantedNodeKeys = wanted.getValue().nodeKeys;
-        final NodeReferences actualNodeKeys = actual.getValue();
-        if (exact) {
-          final long[] wantedArray = wantedNodeKeys.toLongArray();
-          final long[] actualArray = actualNodeKeys.toSortedArray();
-          if (!Arrays.equals(wantedArray, actualArray)) {
-            throw new PropertyViolation("reader-iterator-postings",
-                "postings of " + actualPrefix + ": " + describe(actualArray) + " vs reference " + describe(wantedArray));
-          }
-        } else if (actualNodeKeys.cardinality() != wantedNodeKeys.size()
-            || !actualNodeKeys.isPresent(wantedNodeKeys.firstLong())
-            || !actualNodeKeys.isPresent(wantedNodeKeys.lastLong())) {
-          throw new PropertyViolation("reader-iterator-postings", "postings of " + actualPrefix + ": "
-              + actualNodeKeys.cardinality() + " node keys vs reference " + wantedNodeKeys.size());
+        final long[] wantedArray = wanted.getValue().nodeKeys.toLongArray();
+        final long[] actualArray = actual.getValue().toSortedArray();
+        if (!Arrays.equals(wantedArray, actualArray)) {
+          throw new PropertyViolation("reader-iterator-postings",
+              "postings of " + actualPrefix + ": " + describe(actualArray) + " vs reference " + describe(wantedArray));
         }
         position++;
       }
