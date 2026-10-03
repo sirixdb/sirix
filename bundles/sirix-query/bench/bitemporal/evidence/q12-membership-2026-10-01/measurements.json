@@ -14,7 +14,10 @@
     "answer_sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
     "answer_matches_recorded_t100k_answer": true,
     "oracle_exact": true,
-    "runs_seconds": [5.840684, 5.364762],
+    "runs_seconds": [
+      5.840684,
+      5.364762
+    ],
     "baseline_seconds_8aa9f0d9e": 1069.754587,
     "reduction_vs_baseline": "183x and 199x",
     "xtdb_2_1_t100k_seconds": 2360.0,
@@ -434,5 +437,38 @@
     "bundles/sirix-query/src/main/java/io/sirix/query/compiler/expression/MembershipProbeExpr.java": "3932baa0afce9627e227872ddd75a8f4b3a464e707d8b21a652d1c6cacbc0a2e"
   },
   "query_texts_sha256": "622b16ae7038c8a3eccc4151b9bba0e585c6232a9152bfab82971ef25fd4cbd0",
-  "brackit_sha256": "7da6e0d4508c0032aac882da2b4a750cf9adf87f96475ae7f011cfa7b92d7508"
+  "brackit_sha256": "7da6e0d4508c0032aac882da2b4a750cf9adf87f96475ae7f011cfa7b92d7508",
+  "remeasured_t100k_final_head": {
+    "why": "The lookup now opens and closes the inner iterator inside the probe that needs it, and every scan exit is terminal. This pair was measured on that state; the pins below are the sha256 of the worktree files it was built from.",
+    "date": "2026-10-03 Europe/Berlin",
+    "tier": "t100k",
+    "inputs_sha256_manifest": "fe3f025b5e143e75a6ec63badef4c2d830c91d1a0067cb41ba824a6e61f42c39",
+    "store": "freshly loaded with BitemporalSirixLoadMain t100k, unmodified kit event stream, one commit per publication, no batching override",
+    "load_seconds": 67.071,
+    "query": 12,
+    "rows": 4,
+    "answer_sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+    "answer_matches_recorded_t100k_answer": true,
+    "oracle_exact": true,
+    "before_seconds": [
+      987.999106
+    ],
+    "before_means": "same classes, membership rule disabled with -Dsirix.optimizer.hashMembership=false, which is the documented knob for disabling just this rule on the candidate; the rule-disabled leg executes none of the changed code.",
+    "after_seconds": [
+      5.825218,
+      6.376734
+    ],
+    "reduction_vs_rule_disabled": "170x and 155x",
+    "xtdb_2_1_t100k_seconds": 2360.0,
+    "optimized_plan": "t100k-after-memofix.plan.txt",
+    "candidate_sources_sha256": {
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/XQExt.java": "9beba081b4fa4b6701353bc743ed17d3a2124a08ef31f9d77b3dddde01f6cd4b",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/SirixOptimizer.java": "70670890a69a743c7f25daf4763e1a94a6992d2701f2666abd48c8df4e3637de",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/HashMembershipStage.java": "bed6c5045755440c8b5b71c1a98657639a9668e0f59eed3e4d05fb399927f23a",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/translator/SirixTranslator.java": "d49fb669a9fd1db93e2975cdc935778b308d698a9a2d61f017d607537fb31f11",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/expression/MembershipIndexExpr.java": "117fe38be7affe65c80c5c6982a35e189b6fc3cea58d7c16147efc98b7b9b41a",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/expression/MembershipProbeExpr.java": "c87ab143af7dc072e8b4076d3829a4ab0a43d1e4ecc2d71cf3016c600a49c7b6"
+    },
+    "caveat": "Shared machine, single-process measurements; the machine gate reported concurrent heavy JVMs from another worktree, so these support the order-of-growth and done-bar conclusion rather than small percentage comparisons. Heavy JVMs were serialized through a flock so no two ran at once. Only Q12 at t100k was run."
+  }
 }

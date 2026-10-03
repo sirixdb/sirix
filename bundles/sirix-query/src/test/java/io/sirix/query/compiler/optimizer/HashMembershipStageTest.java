@@ -13,6 +13,8 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.json.Array;
 import io.brackit.query.jdm.json.Object;
+import io.brackit.query.jsonitem.array.AbstractArray;
+import io.brackit.query.jsonitem.array.DArray;
 import io.brackit.query.jsonitem.object.AbstractObject;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.sequence.BaseIter;
@@ -30,6 +32,8 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -457,6 +461,46 @@ final class HashMembershipStageTest {
   }
 
   @Test
+  void anEmptyInnerRelationIsReadOnceNotOncePerOuterRow() throws Exception {
+    // The scan is entered at most once per lookup, so an empty inner side is opened once and every
+    // later probe is answered from the terminal state without re-entering it.
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final CountingSequence inner = new CountingSequence(0);
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain, "declare variable $src external;" + " count(let $h := $src for $a in 1 to 64"
+          + " where empty(for $b in $h where $b eq $a return $b) return $a)");
+      assertEquals("64", answer(query, context));
+      assertEquals(1, inner.opened, "the empty inner side is iterated once for all 64 outer rows");
+      assertEquals(1, inner.closed);
+      assertEquals(0, inner.visited);
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
+    }
+  }
+
+  @Test
+  void anAbruptInnerFailureLeavesTheLookupDelegating() throws Exception {
+    // The scan releases the outer tuple it evaluates the source against, so a scan that leaves
+    // without a verdict can never be resumed. An error that is not a QueryException takes exactly
+    // that exit. An array binding is an item, so the let slot keeps it unwrapped and the memo
+    // survives into the next execution, where `$h[]` still needs a tuple to evaluate the source.
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final FailingOnceArray inner = new FailingOnceArray(4, 2);
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain, "declare variable $src external;" + " let $h := $src for $a in (1,2,3,4,5)"
+          + " where empty(for $b in $h[] where $b eq $a return $b) return $a");
+      final Exception failure = assertThrows(Exception.class, () -> answer(query, context));
+      assertInstanceOf(IllegalStateException.class, rootCause(failure), "the inner error must propagate");
+      // The array is healthy from here on: inner keys 1..4, so only 5 survives the anti-join.
+      assertEquals("5", answer(query, context));
+      assertTrue(containsProbe(chain.getOptimizedAST()), "membership route admission");
+    }
+  }
+
+  @Test
   void anEarlyExitingSemiJoinClosesItsInnerIterator() throws Exception {
     // The leak this pins: a probe that answers from its first match used to leave the scan parked on
     // an open iterator with no later path closing it. Brackit's own fn:exists closes its iterator on
@@ -749,6 +793,91 @@ final class HashMembershipStageTest {
       public Object remove(final int index) {
         return delegate.remove(index);
       }
+    }
+  }
+
+  /** An array whose member access fails once, then behaves. */
+  private static final class FailingOnceArray extends AbstractArray {
+    private final Array delegate;
+    private final int failAt;
+    private boolean failed;
+
+    private FailingOnceArray(final int size, final int failAt) {
+      final List<Sequence> values = new ArrayList<>(size);
+      for (int value = 1; value <= size; value++) {
+        values.add(new Int32(value));
+      }
+      this.delegate = new DArray(values);
+      this.failAt = failAt;
+    }
+
+    @Override
+    public Sequence at(final int index) {
+      if (!failed && index == failAt - 1) {
+        failed = true;
+        throw new IllegalStateException("inner side failed mid-scan");
+      }
+      return delegate.at(index);
+    }
+
+    @Override
+    public Sequence at(final IntNumeric index) {
+      return at(index.intValue());
+    }
+
+    @Override
+    public List<Sequence> values() {
+      return delegate.values();
+    }
+
+    @Override
+    public IntNumeric length() {
+      return delegate.length();
+    }
+
+    @Override
+    public int len() {
+      return delegate.len();
+    }
+
+    @Override
+    public Array replaceAt(final IntNumeric index, final Sequence value) {
+      return delegate.replaceAt(index, value);
+    }
+
+    @Override
+    public Array replaceAt(final int index, final Sequence value) {
+      return delegate.replaceAt(index, value);
+    }
+
+    @Override
+    public Array insert(final IntNumeric index, final Sequence value) {
+      return delegate.insert(index, value);
+    }
+
+    @Override
+    public Array insert(final int index, final Sequence value) {
+      return delegate.insert(index, value);
+    }
+
+    @Override
+    public Array append(final Sequence value) {
+      return delegate.append(value);
+    }
+
+    @Override
+    public Array remove(final int index) {
+      return delegate.remove(index);
+    }
+
+    @Override
+    public Array remove(final IntNumeric index) {
+      return delegate.remove(index);
+    }
+
+    @Override
+    public Array range(final IntNumeric from, final IntNumeric to) {
+      return delegate.range(from, to);
     }
   }
 

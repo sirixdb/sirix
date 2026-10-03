@@ -246,30 +246,38 @@ soon as its keys exist, and the memo holds its single entry softly, so the key s
 row's database items are collectable instead of being retained for the lifetime of the caller's
 `Query`.
 
-### Re-measured done bar (2026-10-02, t100k)
+### Re-measured done bar (2026-10-03, t100k)
 
-The plan tree changed, so the campaign timings above do not describe this state and are preserved
-only as history — `t100k-after.plan.txt` / `t250k-after.plan.txt` still show the superseded
-`LetBind sirix:membership0`. Q12 was re-measured at t100k on the fixed source state, against a store
-freshly loaded with `BitemporalSirixLoadMain t100k` from the unmodified kit event stream with one
-commit per publication and no batching override (load: 77.324 s):
+The plan tree changed, so the campaign timings above do not describe this state and are preserved only
+as history — `t100k-after.plan.txt` / `t250k-after.plan.txt` still show the superseded
+`LetBind sirix:membership0`. The evaluation algorithm then changed twice more (an incremental key set,
+then a probe-scoped iterator), so the 2026-10-02 re-measurement is superseded too and is kept under
+`remeasured_t100k_after_memo_fix` with that note. Q12 was measured again on the current state, against
+a store freshly loaded with `BitemporalSirixLoadMain t100k` from the unmodified kit event stream with
+one commit per publication and no batching override (load: 67.071 s):
 
 | Q12 at t100k | seconds | rows | oracle |
 |---|---:|---:|---|
 | baseline `8aa9f0d9e` (historical) | 1069.754587 | 4 | exact |
 | superseded let-bound plan `79042b96a` (historical) | 8.443716 | 4 | exact |
-| **this state, fresh process** | **5.840684** | 4 | exact |
-| **this state, repeat** | **5.364762** | 4 | exact |
+| **this state, rule disabled** | **987.999106** | 4 | exact |
+| **this state, fresh process** | **5.825218** | 4 | exact |
+| **this state, repeat** | **6.376734** | 4 | exact |
 
-Both runs are byte-identical to the independent oracle `q12.tsv`, and their answer hash
-`b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068` is the same answer the baseline
-and the superseded plan produced — so the rewrite is answer-preserving across all three plans. That
-is a 183x and 199x reduction against the baseline, and Q12 is far below XTDB 2.1's 2,360 s at this
-tier, so the intent's done bar for Q12 is met. The optimized plan is `t100k-after-memofix.plan.txt`:
-the lookup sits inside the `Selection`'s probe with `GroupBy` and `OrderBy` downstream and no
-membership variable anywhere. Source hashes for the measured state are in `measurements.json` under
-`remeasured_t100k_after_memo_fix`. These are shared-machine single-process measurements supporting
-the order-of-growth and done-bar conclusion rather than small percentage comparisons; only Q12 at
-t100k was re-run and no baseline rerun was requested.
+The rule-disabled leg is the same classes with `-Dsirix.optimizer.hashMembership=false`, the knob this
+note documents for disabling just this rule, so it is a true pair on one build rather than a comparison
+across two. It executes none of the changed code. All five runs are byte-identical to the independent
+oracle `q12.tsv`, and their answer hash
+`b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068` is the same answer the baseline and
+every intermediate plan produced — so the rewrite is answer-preserving across all of them. That is a
+170x and 155x reduction against the same build with the rule off, and Q12 is far below XTDB 2.1's
+2,360 s at this tier, so the intent's done bar for Q12 is met. The optimized plan is
+`t100k-after-memofix.plan.txt`: the lookup sits inside the `Selection`'s probe with `GroupBy` and
+`OrderBy` downstream and no membership variable anywhere. Source hashes for the measured state are in
+`measurements.json` under `remeasured_t100k_final_head`, computed from the worktree files the run was
+built from. These are shared-machine single-process measurements — the machine gate reported
+concurrent heavy JVMs from another worktree, and heavy JVMs were serialized through a `flock` so no
+two ran at once — so they support the order-of-growth and done-bar conclusion rather than small
+percentage comparisons. Only Q12 at t100k was run.
 
 The authoritative suite result for HEAD is this branch's test step, not the counts above.
