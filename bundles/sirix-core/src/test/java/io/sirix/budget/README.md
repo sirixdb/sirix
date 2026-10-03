@@ -76,7 +76,7 @@ failure table and tells the reader where the work went.
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
 | `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, a head insert touches an untouched suffix, **or** streaming append commits rewalk previously committed prefixes instead of consuming transient ingest positions (measurement: `docs/UPDATE_DIFF_INGEST_POSITIONS.md`) |
-| `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
+| `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds about one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
 
 Every one of these was checked **by mutation**: the defect it guards was put back, the test was seen
@@ -119,9 +119,9 @@ maintains, so a budget quotes the same numbers an investigation would:
 - `EngineWorkCounters`: HOT leaf loads and fragments walked, coalesced read runs / span bytes /
   fallbacks / singletons, projection payload materialization (`lazyLoads`,
   `chunkMaterializations`, `eagerFallbacks`), intent-log promotions, index-catalogue directory
-  listings. Only what a budget captures is
-  listed: a catalog entry nothing reads is one more thing to keep true, and a *gated* one nothing
-  asserts is worse than dead, because capturing it aborts the test wherever its gate is off.
+  listings. Only what a budget captures is listed: a catalog entry nothing reads is one more thing
+  to keep true, and a *gated* one nothing asserts is worse than dead, because capturing it aborts
+  the test wherever its gate is off.
 - `QueryWorkCounters` (`sirix-query`): the served-route counters, named as the benchmark runners
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of
