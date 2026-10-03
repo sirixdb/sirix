@@ -255,7 +255,8 @@ public final class ValidTimeIntervalIndexWriter {
    */
   public static boolean isExactLexicalBound(final @Nullable String raw) {
     if (raw == null || raw.length() < 20 || raw.charAt(4) != '-' || raw.charAt(10) != 'T' || raw.charAt(0) < '0'
-        || raw.charAt(0) > '9' || raw.startsWith("0000") || raw.charAt(17) == '6') {
+        || raw.charAt(0) > '9' || raw.startsWith("0000") || raw.charAt(17) == '6'
+        || raw.charAt(19) == '.' && (raw.length() == 20 || raw.charAt(20) < '0' || raw.charAt(20) > '9')) {
       return false;
     }
     final int length = raw.length();

@@ -37,8 +37,7 @@ public final class ValidTimeIntervalIndex {
     if (definition == null) {
       return null;
     }
-    final Evidence evidence = residual == null ? null : readEvidence(document, definition.getID());
-    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, residual, definition.getID(), evidence);
+    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, residual, definition.getID(), null);
   }
 
   public static @Nullable Sequence comparisonSequence(final JsonDBItem document, final Supplier<Sequence> point,
@@ -95,28 +94,43 @@ public final class ValidTimeIntervalIndex {
     return new Evidence(members.toLongArray(), unverified, unordered.isEmpty());
   }
 
-  static long[] candidates(final JsonDBItem document, final Instant instant, final boolean strictStart,
-      final boolean strictEnd, final int indexId, final Evidence evidence) {
+  static LongOpenHashSet closedCandidates(final JsonDBItem document, final Instant instant, final int indexId) {
     final IntervalDomain domain = new IntervalDomain();
     final var tree = ValidTimeIntervalIndexFactory.createReaderTree(document.getTrx().getStorageEngineReader(),
         indexId, domain);
-    final LongOpenHashSet candidates = new LongOpenHashSet();
+    final LongOpenHashSet closed = new LongOpenHashSet();
+    tree.stab(domain.point(instant), closed::add);
+    return closed;
+  }
+
+  static long[] candidates(final JsonDBItem document, final Instant instant, final boolean strictStart,
+      final boolean strictEnd, final int indexId, final Evidence evidence, final LongOpenHashSet closed) {
+    final IntervalDomain domain = new IntervalDomain();
     final long point = domain.point(instant);
     final boolean exactPoint = domain.isExact(instant);
-    if (strictEnd && exactPoint) {
-      tree.stabHalfOpen(point, candidates::add);
-    } else {
-      tree.stab(point, candidates::add);
-    }
-    if (strictStart && exactPoint) {
-      tree.startingAt(point, candidates::remove);
-    }
-    if (exactPoint && (strictStart || strictEnd) && !evidence.unverified().isEmpty()) {
-      tree.stab(point, key -> {
-        if (evidence.unverified().contains(key)) {
-          candidates.add(key);
+    final LongOpenHashSet candidates = exactPoint && strictEnd ? new LongOpenHashSet() : closed;
+    if (exactPoint && (strictStart || strictEnd)) {
+      final var tree = ValidTimeIntervalIndexFactory.createReaderTree(document.getTrx().getStorageEngineReader(),
+          indexId, domain);
+      if (strictEnd) {
+        tree.stabHalfOpen(point, candidates::add);
+      }
+      if (strictStart) {
+        tree.startingAt(point, key -> {
+          if (!evidence.unverified().contains(key)) {
+            candidates.remove(key);
+          }
+        });
+      }
+      if (strictEnd && !evidence.unverified().isEmpty()) {
+        final var keys = closed.iterator();
+        while (keys.hasNext()) {
+          final long key = keys.nextLong();
+          if (evidence.unverified().contains(key)) {
+            candidates.add(key);
+          }
         }
-      });
+      }
     }
     final long[] sorted = candidates.toLongArray();
     Arrays.sort(sorted);

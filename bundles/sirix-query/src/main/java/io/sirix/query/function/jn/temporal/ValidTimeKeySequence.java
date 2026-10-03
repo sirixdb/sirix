@@ -14,6 +14,7 @@ import io.sirix.index.interval.IntervalDomain;
 import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex.Evidence;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBObject;
+import it.unimi.dsi.fastutil.longs.LongArrays;
 
 import java.time.Instant;
 import java.util.Arrays;
@@ -47,10 +48,15 @@ final class ValidTimeKeySequence extends AbstractSequence {
 
   private long[] candidates() {
     if (candidates == null) {
+      final var closed = ValidTimeIntervalIndex.closedCandidates(document, instant, indexId);
+      if (closed.isEmpty()) {
+        candidates = LongArrays.EMPTY_ARRAY;
+        return candidates;
+      }
       if (evidence == null) {
         evidence = ValidTimeIntervalIndex.readEvidence(document, indexId);
       }
-      candidates = ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId, evidence);
+      candidates = ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId, evidence, closed);
     }
     return candidates;
   }

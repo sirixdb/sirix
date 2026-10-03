@@ -52,8 +52,10 @@ minus the interval index id, reserving the upper half of the physical id space. 
 to the same `ValidTimeIndexPage` and commit atomically through the transaction intent log. The order
 guard is conservative: rebuilding can reestablish orderedness after subsequent edits restore it.
 
-The catalog declares `validTimeFormat="4"`. Opening a resource never upgrades an obsolete valid-time
-catalog or adds a revision. Readers omit obsolete indexes from discovery and use the ordinary exact
+The catalog declares `validTimeFormat="5"`. Formats through 4 contain exactness evidence produced
+before empty fractional spellings were excluded; they require a rebuild. Opening a resource never
+upgrades an obsolete valid-time catalog or adds a revision. Readers omit obsolete indexes from
+discovery and use the ordinary exact
 query fallback, including historical reads, optimizer discovery and VIEW-authorized REST reads.
 Write-authorized maintenance can call `JsonResourceSession.rebuildValidTimeIndexes()` to rebuild
 obsolete indexes from document data into fresh physical roots and commit a new revision before
@@ -78,13 +80,18 @@ need verification. Exact candidates require no field reads. A strict integer tie
 an original cast error. Membership, verification and order evidence is collected once per evaluation
 and shared by plain-FLWOR admission and candidate filtering.
 
+Direct and folded sequences probe the closed candidate set before expanding posting evidence. An
+empty closed stab emits no interval or posting references. Nonempty strict slices reuse the closed
+set for rounded/clamped rescue. Plain-FLWOR coverage and document-order admission still read their
+evidence before considering a point stab.
+
 ## Verification plan
 
 All Gradle commands use a private Maven-local directory. Do not use or modify `~/.m2` for this
 change: it may contain a stale Brackit snapshot.
 
 ```bash
-./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx2g \
+heavy ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx2g \
   -Dmaven.repo.local="$PWD/build/m2-private" --max-workers=2 \
   -PtestHeapMin=512m -PtestHeapMax=2g \
   :sirix-core:test --tests 'io.sirix.index.interval.*' \
@@ -95,7 +102,8 @@ change: it may contain a stale Brackit snapshot.
 
 Run the complete `:sirix-core:test :sirix-query:test` suites and the work-budget commands in
 [VERIFICATION.md](VERIFICATION.md), with the same private Maven repository. On the shared laptop,
-any JVM heap above 2 GB is run under the supplied two-slot `heavy()` limiter. The full-suite run
+every Gradle or Maven invocation runs under the supplied memory-gated two-slot `heavy()` limiter;
+other JVMs with heaps above 2 GB use it too. The full-suite run
 uses a 512 MB initial/6 GB maximum test heap and a 2 GB Gradle heap.
 
 The new budget decorates a real transaction. Before demand and during exact-key counting it permits
@@ -103,20 +111,24 @@ zero candidate moves, timestamp reads, and object-constructor child-pointer read
 permits one object read. Direct function, direct FLWOR slice and plain `jn:doc(...)[]` FLWOR counts exercise the
 query interface through the decorated cursor. A second case holds only sub-millisecond bounds, so every record carries a
 verification posting. Closed, strict-start, strict-end, and combined strict stabs before and after
-all intervals must return zero with zero candidate moves, timestamp reads, and constructor reads.
+all intervals must return zero with zero candidate moves, timestamp reads, constructor reads, interval
+references and posting references. `sirix.validTime.scanDiag` gates the emitted-reference counters
+behind a static-final flag; both module test tasks provide it, and captures require the gate to be on.
 Direct key and sequence consumers and folded bitemporal count/first-item queries use the decorated
 cursor. Positive probes inside the intervals and at a rounded end tie must still verify the records
-on demand in every mode. A separate user-function count budget is retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
+on demand in every mode and capture one membership plus one verification reference per record.
+Repeated demand reuses candidates and posting evidence without further enumeration. A separate user-function count budget is retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
 mutation must fail this budget; ordinary result assertions alone cannot detect it.
 
 The small inexact fixture remains at 64 records. The dedicated Test phase must also execute the
-100,000-record variant and record its printed `moveTo`, `getFirstChildKey`, and `getValue` counts,
+100,000-record variant and record its printed `moveTo`, `getFirstChildKey`, `getValue`, `intervalRefs`
+and `postingRefs` counts,
 all zero for each empty answer before and after the intervals in every mode and query route.
 Printed modes use bit 1 for strict start and bit 2 for strict end. It is opt-in so ordinary CI retains
 fixture-scale coverage:
 
 ```bash
-SIRIX_VALID_TIME_LARGE_BUDGET=true ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx2g \
+SIRIX_VALID_TIME_LARGE_BUDGET=true heavy ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx2g \
   -Dmaven.repo.local="$PWD/build/m2-private" --max-workers=2 \
   -PtestHeapMin=512m -PtestHeapMax=2g :sirix-query:test \
   --tests '*ValidTimeSliceWorkBudgetTest.oneHundredThousandInexactIntervalsHaveZeroReadEmptyStab' --info
