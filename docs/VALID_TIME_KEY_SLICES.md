@@ -55,7 +55,7 @@ The order guard is conservative: rebuilding can reestablish orderedness after su
 restore it.
 
 `IndexDef.needsValidTimeRebuild()` identifies obsolete catalog definitions, including formats whose
-exactness evidence predates the empty-fraction lexical check. Opening a resource never
+evidence predates the empty-fraction lexical check or container-move membership repair. Opening a resource never
 upgrades an obsolete valid-time catalog or adds a revision. Readers omit obsolete indexes from
 discovery and use the ordinary exact query fallback, including historical reads, optimizer discovery and VIEW-authorized REST reads.
 The explicit maintenance contract is documented on

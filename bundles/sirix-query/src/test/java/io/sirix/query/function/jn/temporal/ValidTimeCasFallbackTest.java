@@ -209,7 +209,7 @@ final class ValidTimeCasFallbackTest {
           definition.getNextSibling()) {
         if (definition.getAttribute(formatName) != null) {
           definition.deleteAttribute(formatName);
-          definition.setAttribute(formatName, new Str("4"));
+          definition.setAttribute(formatName, new Str("5"));
           changed = true;
         }
       }
