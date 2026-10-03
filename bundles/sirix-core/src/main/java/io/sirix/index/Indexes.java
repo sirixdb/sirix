@@ -122,6 +122,17 @@ public final class Indexes implements Materializable {
     dirty = false;
   }
 
+  public void replaceWith(final Set<IndexDef> definitions) {
+    requireNonNull(definitions);
+    indexes.retainAll(definitions);
+    if (indexes.size() != definitions.size()) {
+      for (final IndexDef definition : definitions) {
+        indexes.add(requireNonNull(definition));
+      }
+    }
+    dirty = false;
+  }
+
   /**
    * Materializes indexes to XML representation. Thread-safe: CopyOnWriteArraySet provides consistent
    * snapshot for iteration.

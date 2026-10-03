@@ -1035,6 +1035,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         : null;
     indexController =
         resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
+    if (preserveCurrentDefinitions) {
+      indexController.getIndexes().replaceWith(indexDefs);
+    }
     indexController.clearChangeListeners();
     indexController.createIndexListeners(preserveCurrentDefinitions
         ? indexDefs
