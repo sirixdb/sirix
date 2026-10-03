@@ -15,12 +15,13 @@ historical expression-memo block is
 `remeasured_t100k_at_73d6e5daf`; `remeasured_t100k_final_head` (taken at `e24c6b854`, despite the
 name) and `remeasured_t100k_after_memo_fix` are earlier re-measurements kept for history and marked
 `superseded_by`. Commits landing after a block was taken are recorded in its
-`changed_after_this_run`, which says what they touched and whether Q12's path changed; that is the
-honest way to read these numbers, because the head moves and a block never does. The
+`changed_after_this_run`. Those historical notes describe the changes known when the record was
+written; they do not establish equivalence to the current head. The
 `t100k-after-memofix*.plan.txt` trees show the nested-probe plan every later block ran, which is
 a historical plan shape. The physical cursor operator now uses a `HashMembershipJoin` marker and
-owns no expression memo. Its measurements and validation are recorded separately. Changes made after the
-campaign are listed in the addendum of the implementation note.
+owns no expression memo. Its measurements and validation are recorded separately; see
+[historical expression implementations](../../../../../../docs/QUERY_MEMBERSHIP_OPTIMIZATION.md#historical-expression-implementations)
+for the superseded designs.
 
 - `Q12Probe.java.txt`: exact runner used for the recorded SH1 measurements. It canonicalizes the
   answer and checks byte equality with the independent oracle before printing a timing.

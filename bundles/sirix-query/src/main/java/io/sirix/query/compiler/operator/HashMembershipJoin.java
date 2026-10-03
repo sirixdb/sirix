@@ -21,6 +21,7 @@ import io.brackit.query.operator.Operator;
 import io.brackit.query.util.ExprUtil;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
 
@@ -47,11 +48,11 @@ public final class HashMembershipJoin extends Check implements Operator {
   private final Binding binding;
   private final Expr key;
   private final Expr fallback;
-  private final QNm field;
+  private final @Nullable QNm field;
   private final boolean anti;
 
   public HashMembershipJoin(final Operator in, final Expr source, final Binding binding, final Expr key,
-      final Expr fallback, final QNm field, final boolean anti) {
+      final Expr fallback, final @Nullable QNm field, final boolean anti) {
     this.in = Objects.requireNonNull(in);
     this.source = Objects.requireNonNull(source);
     this.binding = Objects.requireNonNull(binding);
@@ -63,7 +64,7 @@ public final class HashMembershipJoin extends Check implements Operator {
 
   /** A compiled slot reference, with no cached value or per-execution state. */
   public static final class Binding implements Reference {
-    private final DeclVariable declared;
+    private final @Nullable DeclVariable declared;
     private int slot = -1;
 
     public Binding(final Expr resolved) {
@@ -77,7 +78,7 @@ public final class HashMembershipJoin extends Check implements Operator {
       slot = pos;
     }
 
-    private Sequence read(final QueryContext ctx, final Tuple tuple) {
+    private @Nullable Sequence read(final QueryContext ctx, final Tuple tuple) {
       if (declared == null) {
         // BoundVariable.evaluate wraps non-item values on each reference. The tuple slot is
         // the actual binding and remains stable across all outer rows in its scope.
@@ -107,10 +108,10 @@ public final class HashMembershipJoin extends Check implements Operator {
 
   private final class JoinCursor implements Cursor {
     private final Cursor input;
-    private Tuple previous;
-    private Tuple pending;
-    private Sequence scope;
-    private Lookup lookup;
+    private @Nullable Tuple previous;
+    private @Nullable Tuple pending;
+    private @Nullable Sequence scope;
+    private @Nullable Lookup lookup;
     private boolean closed;
 
     private JoinCursor(final Cursor input) {
@@ -123,7 +124,7 @@ public final class HashMembershipJoin extends Check implements Operator {
     }
 
     @Override
-    public Tuple next(final QueryContext ctx) {
+    public @Nullable Tuple next(final QueryContext ctx) {
       if (closed) {
         return null;
       }
@@ -131,7 +132,7 @@ public final class HashMembershipJoin extends Check implements Operator {
         Tuple tuple;
         while ((tuple = pending) != null || (tuple = input.next(ctx)) != null) {
           pending = null;
-          if (check && dead(tuple) || accepts(ctx, tuple)) {
+          if ((check && dead(tuple)) || accepts(ctx, tuple)) {
             previous = tuple;
             return tuple;
           }
@@ -157,8 +158,10 @@ public final class HashMembershipJoin extends Check implements Operator {
       }
     }
 
+    @SuppressWarnings("ReferenceEquality")
     private boolean accepts(final QueryContext ctx, final Tuple tuple) {
       final Sequence current = binding.read(ctx, tuple);
+      // Binding identity separates evaluations of the inner relation; value equality does not.
       if (lookup == null || scope != current) {
         if (lookup != null) {
           lookup.close();
@@ -197,13 +200,13 @@ public final class HashMembershipJoin extends Check implements Operator {
 
   /** Only reachable from its owning cursor; never shared across evaluations or workers. */
   private final class Lookup {
-    private LongOpenHashSet longs;
-    private ObjectOpenHashSet<String> strings;
+    private @Nullable LongOpenHashSet longs;
+    private @Nullable ObjectOpenHashSet<String> strings;
     private boolean hasNull;
     private boolean started;
     private boolean complete;
     private boolean delegate;
-    private Iter iter;
+    private @Nullable Iter iter;
 
     /** Returns match=1, absent=0, or fallback=-1. */
     private int probe(final QueryContext ctx, final Tuple tuple) {
@@ -241,6 +244,8 @@ public final class HashMembershipJoin extends Check implements Operator {
           iter = rows.iterate();
         }
         while (true) {
+          // A started lookup owns an iterator until complete or delegate, both handled above.
+          @SuppressWarnings("NullAway")
           final Item row = iter.next();
           if (row == null) {
             complete = true;
@@ -272,7 +277,7 @@ public final class HashMembershipJoin extends Check implements Operator {
       }
     }
 
-    private boolean found(final Atomic probe) {
+    private boolean found(final @Nullable Atomic probe) {
       if (probe == null) {
         return false;
       }
@@ -285,11 +290,11 @@ public final class HashMembershipJoin extends Check implements Operator {
       return strings != null && stringKey(probe) && strings.contains(probe.stringValue());
     }
 
-    private int absent(final Atomic probe) {
-      if (probe == null || probe instanceof Null || longs == null && strings == null) {
+    private int absent(final @Nullable Atomic probe) {
+      if (probe == null || probe instanceof Null || (longs == null && strings == null)) {
         return 0;
       }
-      return longs != null && probe instanceof LonNumeric || strings != null && stringKey(probe)
+      return (longs != null && probe instanceof LonNumeric) || (strings != null && stringKey(probe))
           ? 0
           : -1;
     }

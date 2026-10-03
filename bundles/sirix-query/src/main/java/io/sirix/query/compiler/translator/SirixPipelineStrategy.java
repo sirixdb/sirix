@@ -15,9 +15,6 @@ import io.brackit.query.expr.VectorizedGroupByExpr;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Expr;
 import io.brackit.query.operator.Operator;
-import io.brackit.query.operator.Start;
-import io.brackit.query.operator.TableJoin;
-import io.brackit.query.util.Cmp;
 import io.sirix.query.compiler.optimizer.GroupAggregateDetectionStage;
 import io.sirix.query.compiler.optimizer.RowMaterializeDetectionStage;
 import io.sirix.query.compiler.optimizer.SortedScanDetectionStage;
@@ -61,9 +58,9 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
 
   /**
    * P5b stage 7a: consume the {@code SIRIX_GROUP_AGG_*} annotations from
-   * {@link io.sirix.query.compiler.optimizer.GroupAggregateDetectionStage}. The generic pipeline is
-   * ALWAYS compiled (via {@code super}) and rides along as the runtime fallback, so serving declines
-   * can never change an answer — only its cost.
+   * {@link GroupAggregateDetectionStage}. For pipelines without membership joins, the generic
+   * pipeline is always compiled (via {@code super}) and rides along as the runtime fallback, so
+   * serving declines can never change an answer — only its cost.
    */
   @Override
   public Expr compilePipeExpr(AST node, Compiler compiler) throws QueryException {

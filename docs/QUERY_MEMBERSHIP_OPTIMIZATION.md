@@ -163,10 +163,11 @@ t250k result is claimed; that tier's results below belong to the historical expr
 
 ## SH1 evidence (2026-10-01/02, measured on commit `79042b96a`)
 
-Every number in this section — timings, suite counts, and the source hashes in
+Every number in this section — timings, suite counts, and the campaign source hashes in
 `measurements.json` — was measured on commit `79042b96a` and describes that commit only. Later
-commits on this branch are deliberately not re-measured here; the addendum below records what
-changed after it and what covers it instead.
+commits are not covered by these numbers; see [Historical expression implementations](#historical-expression-implementations)
+for the superseded designs and [Physical operator validation](#physical-operator-validation) for
+the separately pinned cursor implementation.
 
 Baseline: Sirix main `8aa9f0d9e`, Oracle GraalVM Java 25.0.3, local Brackit
 `1.0-alpha10-SNAPSHOT`. The kit's original query texts, inputs, independent TSV oracles,

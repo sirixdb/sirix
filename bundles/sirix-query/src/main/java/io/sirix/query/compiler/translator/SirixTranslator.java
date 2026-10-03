@@ -117,7 +117,8 @@ public class SirixTranslator extends TopDownTranslator {
    * (block-based) FLWOR execution via Brackit's ForkJoinPool model.
    *
    * @param options options map
-   * @param pipelineStrategy the pipeline strategy (sequential or block-parallel)
+   * @param pipelineStrategy the strategy for pipelines without membership joins; membership joins use
+   *        {@link SirixPipelineStrategy}
    */
   public SirixTranslator(final Map<QNm, Str> options, final PipelineStrategy pipelineStrategy) {
     super(options, (node, compiler) -> SirixPipelineStrategy.hasMembershipJoin(node)
@@ -125,6 +126,7 @@ public class SirixTranslator extends TopDownTranslator {
         : pipelineStrategy.compilePipeExpr(node, compiler));
   }
 
+  @Override
   protected Expr anyExpr(AST node) throws QueryException {
     if (node.getType() == XQExt.HashMembershipJoin) {
       // A marker outside a physical selection (e.g. a subsequently folded expression) remains exact.

@@ -7,6 +7,7 @@ import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.module.Namespaces;
 import io.brackit.query.module.StaticContext;
 import io.sirix.query.compiler.XQExt;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Recognizes independent single-value-equality semi/anti joins before FLWOR pipelining. The marker
@@ -57,7 +58,7 @@ public final class HashMembershipStage implements Stage {
     }
   }
 
-  private static Membership membership(final AST expression, final QNm outerName, final boolean negate) {
+  private static @Nullable Membership membership(final AST expression, final QNm outerName, final boolean negate) {
     final AST node = unwrap(expression);
     if (builtin(node, "not")) {
       return membership(node.getChild(0), outerName, !negate);
@@ -82,7 +83,7 @@ public final class HashMembershipStage implements Stage {
       }
       final AST value = unwrap(returned.getChild(0));
       // Returning the row itself or its equality key cannot erase a successful match.
-      return isVariable(value, innerName) || isKey(value, innerName) && sameField(field(value), match.field)
+      return isVariable(value, innerName) || (isKey(value, innerName) && sameField(field(value), match.field))
           ? match
           : null;
     }
@@ -97,8 +98,8 @@ public final class HashMembershipStage implements Stage {
     return null;
   }
 
-  private static Membership equality(final AST source, final AST condition, final QNm innerName, final QNm outerName,
-      final boolean anti) {
+  private static @Nullable Membership equality(final AST source, final AST condition, final QNm innerName,
+      final QNm outerName, final boolean anti) {
     final AST comparison = unwrap(condition);
     final AST scope = scope(source, outerName);
     if (scope == null || comparison.getType() != XQ.ComparisonExpr || comparison.getChildCount() != 3
@@ -116,7 +117,7 @@ public final class HashMembershipStage implements Stage {
     return null;
   }
 
-  private static QNm bindingName(final AST node, final int type) {
+  private static @Nullable QNm bindingName(final AST node, final int type) {
     if (node.getType() != type || node.getChildCount() != 2) {
       return null;
     }
@@ -131,7 +132,7 @@ public final class HashMembershipStage implements Stage {
    * The independent variable the source reads. It is the lookup's scope: its value is identical for
    * every row of the outer {@code for}, and changes exactly when an enclosing binding changes.
    */
-  private static AST scope(final AST source, final QNm outerName) {
+  private static @Nullable AST scope(final AST source, final QNm outerName) {
     AST base = unwrap(source);
     if (base.getType() == XQ.ArrayAccess && base.getChildCount() == 2 && base.getChild(1).getType() == XQ.SequenceExpr
         && base.getChild(1).getChildCount() == 0) {
@@ -143,17 +144,17 @@ public final class HashMembershipStage implements Stage {
   }
 
   private static boolean isKey(final AST key, final QNm name) {
-    return isVariable(key, name) || key.getType() == XQ.DerefExpr && key.getChildCount() == 2
-        && isVariable(unwrap(key.getChild(0)), name) && key.getChild(1).getType() == XQ.QNm;
+    return isVariable(key, name) || (key.getType() == XQ.DerefExpr && key.getChildCount() == 2
+        && isVariable(unwrap(key.getChild(0)), name) && key.getChild(1).getType() == XQ.QNm);
   }
 
-  private static QNm field(final AST key) {
+  private static @Nullable QNm field(final AST key) {
     return key.getType() == XQ.DerefExpr
         ? (QNm) key.getChild(1).getValue()
         : null;
   }
 
-  private static boolean sameField(final QNm first, final QNm second) {
+  private static boolean sameField(final @Nullable QNm first, final @Nullable QNm second) {
     return first == null
         ? second == null
         : first.equals(second);
@@ -181,6 +182,6 @@ public final class HashMembershipStage implements Stage {
         || Namespaces.DEFAULT_FN_NSURI.equals(namespace);
   }
 
-  private record Membership(AST source, AST scope, QNm field, AST outerKey, boolean anti) {
+  private record Membership(AST source, AST scope, @Nullable QNm field, AST outerKey, boolean anti) {
   }
 }
