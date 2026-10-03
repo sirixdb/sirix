@@ -365,7 +365,9 @@ public final class IndexDef implements Materializable {
 
     if (type == IndexType.VALIDTIME) {
       attribute = root.getAttribute(VALID_TIME_FORMAT_ATTRIBUTE);
-      validTimeFormat = attribute == null ? "" : attribute.getValue().stringValue();
+      validTimeFormat = attribute == null
+          ? ""
+          : attribute.getValue().stringValue();
     }
 
     attribute = root.getAttribute(CONTENT_TYPE_ATTRIBUTE);

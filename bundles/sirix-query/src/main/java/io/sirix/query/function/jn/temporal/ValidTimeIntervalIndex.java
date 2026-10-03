@@ -23,13 +23,15 @@ import java.util.function.Supplier;
 
 public final class ValidTimeIntervalIndex {
 
-  record Evidence(long[] members, LongOpenHashSet unverified, boolean ordered) {}
+  @SuppressWarnings("ArrayRecordComponent") // Internal primitive arrays avoid per-key boxing.
+  record Evidence(long[] members, LongOpenHashSet unverified, boolean ordered) {
+  }
 
   private ValidTimeIntervalIndex() {}
 
   public static @Nullable Sequence sequence(final JsonDBItem document, final Instant instant,
       final ValidTimeConfig config, final boolean strictStart, final boolean strictEnd,
-      final Predicate<? super JsonDBObject> residual) {
+      final @Nullable Predicate<? super JsonDBObject> residual) {
     Objects.requireNonNull(document);
     Objects.requireNonNull(instant);
     Objects.requireNonNull(config);
@@ -37,7 +39,8 @@ public final class ValidTimeIntervalIndex {
     if (definition == null) {
       return null;
     }
-    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, residual, definition.getID(), null);
+    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, residual, definition.getID(),
+        null);
   }
 
   public static @Nullable Sequence comparisonSequence(final JsonDBItem document, final Supplier<Sequence> point,
@@ -65,7 +68,8 @@ public final class ValidTimeIntervalIndex {
     if (!new IntervalDomain().isExact(instant)) {
       return null;
     }
-    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, null, definition.getID(), evidence);
+    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, null, definition.getID(),
+        evidence);
   }
 
   public static long[] keys(final JsonDBItem document, final Instant instant, final boolean strictEnd) {
@@ -84,8 +88,7 @@ public final class ValidTimeIntervalIndex {
     if (document instanceof Array) {
       ValidTimeIntervalIndexFactory.createMembershipStore(reader, indexId)
                                    .scan(document.getNodeKey(), 0, 0, members::add);
-      ValidTimeIntervalIndexFactory.createOrderStore(reader, indexId)
-                                   .scan(document.getNodeKey(), 0, 0, unordered::add);
+      ValidTimeIntervalIndexFactory.createOrderStore(reader, indexId).scan(document.getNodeKey(), 0, 0, unordered::add);
     } else {
       members.add(document.getNodeKey());
     }
@@ -96,8 +99,8 @@ public final class ValidTimeIntervalIndex {
 
   static LongOpenHashSet closedCandidates(final JsonDBItem document, final Instant instant, final int indexId) {
     final IntervalDomain domain = new IntervalDomain();
-    final var tree = ValidTimeIntervalIndexFactory.createReaderTree(document.getTrx().getStorageEngineReader(),
-        indexId, domain);
+    final var tree =
+        ValidTimeIntervalIndexFactory.createReaderTree(document.getTrx().getStorageEngineReader(), indexId, domain);
     final LongOpenHashSet closed = new LongOpenHashSet();
     tree.stab(domain.point(instant), closed::add);
     return closed;
@@ -108,10 +111,12 @@ public final class ValidTimeIntervalIndex {
     final IntervalDomain domain = new IntervalDomain();
     final long point = domain.point(instant);
     final boolean exactPoint = domain.isExact(instant);
-    final LongOpenHashSet candidates = exactPoint && strictEnd ? new LongOpenHashSet() : closed;
+    final LongOpenHashSet candidates = exactPoint && strictEnd
+        ? new LongOpenHashSet()
+        : closed;
     if (exactPoint && (strictStart || strictEnd)) {
-      final var tree = ValidTimeIntervalIndexFactory.createReaderTree(document.getTrx().getStorageEngineReader(),
-          indexId, domain);
+      final var tree =
+          ValidTimeIntervalIndexFactory.createReaderTree(document.getTrx().getStorageEngineReader(), indexId, domain);
       if (strictEnd) {
         tree.stabHalfOpen(point, candidates::add);
       }
@@ -145,7 +150,9 @@ public final class ValidTimeIntervalIndex {
         sorted[matchCount++] = key;
       }
     }
-    return matchCount == sorted.length ? sorted : Arrays.copyOf(sorted, matchCount);
+    return matchCount == sorted.length
+        ? sorted
+        : Arrays.copyOf(sorted, matchCount);
   }
 
   private static @Nullable IndexDef findValidTimeIndex(final JsonDBItem document) {

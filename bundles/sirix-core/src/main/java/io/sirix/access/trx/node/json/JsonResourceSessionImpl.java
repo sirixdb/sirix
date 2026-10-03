@@ -56,11 +56,10 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
     implements JsonResourceSession, InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
   /**
-   * Bounded LRU cap for the per-revision IndexController maps. Without a cap each
-   * map grew one entry per distinct revision an rtx/wtx accessed and was never
-   * pruned. Evicting a controller is safe because each {@link JsonIndexController}
-   * owns its own {@link io.sirix.index.ChangeListener} set; the listeners are
-   * not registered globally — see {@link AbstractIndexController#notifyChange}
+   * Bounded LRU cap for the per-revision IndexController maps. Without a cap each map grew one entry
+   * per distinct revision an rtx/wtx accessed and was never pruned. Evicting a controller is safe
+   * because each {@link JsonIndexController} owns its own {@link io.sirix.index.ChangeListener} set;
+   * the listeners are not registered globally — see {@link AbstractIndexController#notifyChange}
    * which iterates the controller's own {@code listeners} field.
    */
   private static final int INDEX_CONTROLLER_CACHE_SIZE = 1024;
@@ -84,7 +83,8 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
    * @param writeLock the write lock, which ensures, that only a single read-write transaction is
    *        opened on a resource
    * @param user a user, which interacts with SirixDB, might be {@code null}
-   * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter} instances.
+   * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter}
+   *        instances.
    */
   public JsonResourceSessionImpl(final ResourceStore<JsonResourceSession> resourceStore,
       final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
@@ -93,10 +93,10 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, storageEngineWriterFactory);
 
     this.databaseName = databaseName;
-    rtxIndexControllers = Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE)
-        .<Integer, JsonIndexController>build().asMap();
-    wtxIndexControllers = Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE)
-        .<Integer, JsonIndexController>build().asMap();
+    rtxIndexControllers =
+        Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE).<Integer, JsonIndexController>build().asMap();
+    wtxIndexControllers =
+        Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE).<Integer, JsonIndexController>build().asMap();
   }
 
   @Override
@@ -126,10 +126,12 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   public JsonNodeTrx createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter storageEngineWriter, int maxNodeCount,
       Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
-    final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, storageEngineWriter, documentNode);
+    final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx =
+        createNodeReadOnlyTrx(nodeTrxId, storageEngineWriter, documentNode);
 
     // Node factory.
-    final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(getResourceConfig().nodeHashFunction, storageEngineWriter);
+    final JsonNodeFactory nodeFactory =
+        new JsonNodeFactoryImpl(getResourceConfig().nodeHashFunction, storageEngineWriter);
 
     // Path summary.
     final boolean buildPathSummary = getResourceConfig().withPathSummary;
@@ -147,14 +149,14 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
         : null;
     final var resourceConfig = getResourceConfig();
     return new JsonNodeTrxImpl(this.databaseName, this, nodeReadOnlyTrx, pathSummaryWriter, maxNodeCount, lock,
-        autoCommitDelay, new JsonNodeHashing(resourceConfig, nodeReadOnlyTrx, storageEngineWriter), nodeFactory, afterCommitState,
-        new RecordToRevisionsIndex(storageEngineWriter), isAutoCommitting);
+        autoCommitDelay, new JsonNodeHashing(resourceConfig, nodeReadOnlyTrx, storageEngineWriter), nodeFactory,
+        afterCommitState, new RecordToRevisionsIndex(storageEngineWriter), isAutoCommitting);
   }
 
   @SuppressWarnings("unchecked")
   @Override
   public JsonIndexController getRtxIndexController(final int revision) {
-    return rtxIndexControllers.computeIfAbsent(revision, unused -> {
+    return rtxIndexControllers.computeIfAbsent(revision, _ -> {
       final JsonIndexController controller = createIndexController(revision);
       for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
         if (definition.needsValidTimeRebuild()) {

@@ -26,8 +26,9 @@ import static java.util.Objects.requireNonNull;
  * {@code (forkNode, endpoint) -> multiset(ref)} logical ordered map is encoded in a single HOT
  * sub-tree shared by BOTH RI-tree stores; a per-instance one-byte {@link #store} discriminator
  * ({@link ValidTimeKey#STORE_LOWER} / {@link ValidTimeKey#STORE_UPPER}) keeps the two stores in
- * disjoint, contiguous key ranges. The record references (node keys) are stored as the HOT slot
- * VALUE — a chunked Roaring bitmap, exactly as the CAS index stores node keys under a CAS value.
+ * disjoint, contiguous key ranges. Companion evidence stores use the same SPI over a separate root
+ * with their own discriminators. The record references (node keys) are stored as the HOT slot VALUE
+ * — a chunked Roaring bitmap, exactly as the CAS index stores node keys under a CAS value.
  * </p>
  *
  * <p>
@@ -37,9 +38,9 @@ import static java.util.Objects.requireNonNull;
  * </p>
  *
  * <p>
- * The {@code reader} may be {@code null} on a writer-only store (the build / maintain path never
- * scans); {@code scan} is then a no-op. The {@code writer} may be {@code null} on a read-only store
- * (the query path never mutates); {@code insert}/{@code remove} then throw.
+ * The {@code reader} may be {@code null} on a writer-only store; scans are then no-ops. Factories
+ * that need read-your-writes provide both. The {@code writer} may be {@code null} on a read-only
+ * store (the query path never mutates); {@code insert}/{@code remove} then throw.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -67,8 +68,7 @@ public final class HotOrderedStore implements OrderedStore {
   private final @Nullable HOTIndexReader<ValidTimeKey> reader;
 
   /**
-   * @param store the discriminator byte ({@link ValidTimeKey#STORE_LOWER} or
-   *        {@link ValidTimeKey#STORE_UPPER})
+   * @param store the interval or evidence discriminator defined by {@link ValidTimeKey}
    * @param writer the HOT index writer (mutations); may be {@code null} for a read-only store
    * @param reader the HOT index reader (scans); may be {@code null} for a writer-only store
    */
