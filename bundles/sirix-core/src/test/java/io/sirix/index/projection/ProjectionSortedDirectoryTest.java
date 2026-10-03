@@ -13,6 +13,7 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
 import io.sirix.settings.VersioningType;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -30,6 +31,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ProjectionSortedDirectoryTest {
+
+  @BeforeAll
+  static void requireMergeDiagnostics() {
+    assertTrue(VersioningType.hotMergeDiagEnabled(),
+        "Run with -Dsirix.hot.mergeDiag=true (the gradle test configuration sets it).");
+  }
 
   @TempDir
   Path temporaryDirectory;

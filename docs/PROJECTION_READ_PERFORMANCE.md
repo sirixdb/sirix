@@ -63,7 +63,7 @@ leaves. A requested-slot result never becomes a complete-leaf swizzle.
 exact-size offset directory, without allocating a writable native frame or building routing
 metadata. Scalar misses in one fragment-chain walk share one freshly captured committed file
 extent. Complete reconstruction retains coalesced batch I/O and copies older projection values
-straight into its private result. Copies and mutable promotion restore full writable capacity.
+straight into its private result. Compact images are immutable; copies restore full writable capacity.
 A decoder-only image is never published as a canonical complete leaf: the complete-leaf cache only
 ever receives a fully built leaf, with its routing index, its off-heap frame accounting and its
 ordinary stamp binding. The persisted leaf layout and all four versioning policies are unchanged.

@@ -107,7 +107,7 @@ All notable changes to SirixDB are documented in this file.
   index-metadata record, resolved by every serving decision and every commit, is read this way
   instead of reconstructing its whole leaf. Compact fragment decoding avoids writable frames, and
   reconstruction copies packed values directly. Small HOT byte-key searches use allocation-free machine-word lanes. Persisted formats,
-  versioning, and work-budget bounds are unchanged; point reads and FULL leaf loads are included in
+  versioning, and work-budget bounds are unchanged; point reads are included in
   the work counters. See `docs/PROJECTION_READ_PERFORMANCE.md`.
 
 - **A join whose where clause mixes an equality with a general comparison is keyed on the

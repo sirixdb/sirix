@@ -257,20 +257,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   private MemorySegment slotMemory;
   private Runnable releaser;
   /**
-   * Per-entry packed offsets: MAX_ENTRIES long for every writable leaf. A compact decoder-only image
-   * owns exactly {@code entryCount} offsets; {@link #ensureMutableSlotMemorySlow} widens it before
-   * the first in-place mutation and every copy restores full capacity.
-   *
-   * <p>
-   * Volatile because that promotion replaces the array while unsynchronized readers index it: a plain
-   * reference store publishes the widened array unsafely, so a racing reader could observe it with
-   * default-zero elements and silently resolve every slot to entry 0's header. The volatile store is
-   * the release that publishes the copied contents, and each reader's load is the matching acquire.
-   * Loops that index it more than once snapshot it into a local, so the barrier is paid once per
-   * search rather than once per comparison.
-   * </p>
+   * Per-entry packed offsets: MAX_ENTRIES long for every writable leaf. An immutable compact image
+   * owns exactly {@code entryCount} offsets; every copy restores full writable capacity.
    */
-  private volatile int[] slotOffsets;
+  private final int[] slotOffsets;
   private int entryCount;
   private int usedSlotMemorySize;
 
@@ -2191,6 +2181,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    *         exceeds {@link #MAX_KEY_VALUE_LENGTH}
    */
   private boolean handlePrefixForInsert(final byte[] key, final int keyLen, final int valueLen) {
+    if (binarySearchOnly) {
+      ensureMutableSlotMemorySlow();
+    }
     if (entryCount == 0) {
       // First entry: set prefix to entire key
       commonPrefix = Arrays.copyOfRange(key, 0, keyLen);
@@ -2522,7 +2515,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * becomes mutable.
    */
   private void ensureMutableSlotMemory() {
-    if (slotMemory.byteSize() >= DEFAULT_SIZE && slotOffsets.length >= MAX_ENTRIES) {
+    if (!binarySearchOnly && slotMemory.byteSize() >= DEFAULT_SIZE) {
       return;
     }
     ensureMutableSlotMemorySlow();
@@ -2530,12 +2523,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /** Cold first-mutation path; the monitor never touches an already-mutable leaf's hot write path. */
   private synchronized void ensureMutableSlotMemorySlow() {
-    if (slotOffsets.length < MAX_ENTRIES) {
-      // A compact raw image owns exactly its entries. Restore the full directory before an insert
-      // can shift offsets past entryCount; the copy carries identical contents.
-      slotOffsets = Arrays.copyOf(slotOffsets, MAX_ENTRIES);
+    assert !binarySearchOnly : "Compact HOT fragments are immutable; mutate a copy";
+    if (binarySearchOnly) {
+      throw new IllegalStateException("Compact HOT fragments are immutable; mutate a copy");
     }
-    // Another writer may have completed the one-time promotion while this writer awaited the lock.
     if (slotMemory.byteSize() >= DEFAULT_SIZE) {
       return;
     }
@@ -2591,6 +2582,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @return the amount of space reclaimed
    */
   public int compact() {
+    if (binarySearchOnly) {
+      ensureMutableSlotMemorySlow();
+    }
     if (entryCount == 0) {
       final int reclaimed = usedSlotMemorySize;
       usedSlotMemorySize = 0;
@@ -2886,6 +2880,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @return true if updated, false if there wasn't enough space
    */
   public boolean updateValue(int index, byte[] newValue) {
+    if (binarySearchOnly) {
+      ensureMutableSlotMemorySlow();
+    }
     Objects.checkIndex(index, entryCount);
     Objects.requireNonNull(newValue);
     if (newValue.length > MAX_KEY_VALUE_LENGTH) {
@@ -3275,7 +3272,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    *         the page cannot be split (e.g., only 1 entry)
    */
   public @Nullable byte[] splitTo(HOTLeafPage target) {
+    if (binarySearchOnly) {
+      ensureMutableSlotMemorySlow();
+    }
     Objects.requireNonNull(target);
+    if (target.binarySearchOnly) {
+      target.ensureMutableSlotMemorySlow();
+    }
 
     if (entryCount < 2) {
       return null;
@@ -3447,7 +3450,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public int splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen, byte[] value, int valueLen,
       int @Nullable [] newSideOut, boolean keepSplitWhenValueDoesNotFit) {
+    if (binarySearchOnly) {
+      ensureMutableSlotMemorySlow();
+    }
     Objects.requireNonNull(target);
+    if (target.binarySearchOnly) {
+      target.ensureMutableSlotMemorySlow();
+    }
 
     final int count = entryCount;
     if (count < 1) {
@@ -3777,6 +3786,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * </p>
    */
   private void recomputePrefix() {
+    if (binarySearchOnly) {
+      ensureMutableSlotMemorySlow();
+    }
     if (entryCount == 0) {
       commonPrefix = EMPTY_PREFIX;
       commonPrefixLen = 0;

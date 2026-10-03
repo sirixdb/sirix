@@ -216,7 +216,7 @@ final class HOTCompactFragmentReadTest {
   }
 
   @Test
-  void compactImageOwnsAnExactOffsetDirectoryUntilItIsCopiedOrPromoted() throws Exception {
+  void compactImageRejectsMutationAndCopiesRestoreWritableCapacity() throws Exception {
     final byte[] wire;
     try (HOTLeafPage original = leaf(17)) {
       wire = serialize(original);
@@ -233,17 +233,46 @@ final class HOTCompactFragmentReadTest {
         assertFalse(copy.put(key(HOTLeafPage.MAX_ENTRIES), value(1)));
       }
       assertEquals(17, offsetDirectoryLength(compact));
-      // Descending keys insert in front of existing entries: every insert shifts the directory,
-      // which the in-place promotion must have widened first.
-      for (int row = 60; row >= 17; row--) {
-        assertTrue(compact.put(key(row), value(row)));
+      final Class<? extends Throwable> rejection = HOTLeafPage.class.desiredAssertionStatus()
+          ? AssertionError.class
+          : IllegalStateException.class;
+      assertTrue(compact.acquireGuard());
+      try {
+        assertThrows(rejection, () -> compact.put(key(18), value(18)));
+        assertThrows(rejection, () -> compact.updateValue(1, new byte[] {99}));
+        assertThrows(rejection, () -> compact.updateValueRange(1, new byte[] {99}, 0, 1));
+        assertThrows(rejection, () -> compact.deleteAt(1));
+        assertThrows(rejection, compact::compact);
+        try (HOTLeafPage target = compact.copyForRead()) {
+          assertThrows(rejection, () -> compact.splitTo(target));
+          assertThrows(rejection, () -> target.splitTo(compact));
+          assertThrows(rejection, () -> compact.splitToWithInsert(target, key(18), key(18).length, value(18),
+              value(18).length));
+          assertThrows(rejection, () -> target.splitToWithInsert(compact, key(18), key(18).length, value(18),
+              value(18).length));
+          assertArrayEquals(wire, serialize(target));
+        }
+        assertEquals(1, compact.getGuardCount());
+        assertEquals(17, compact.size());
+        assertEquals(17, offsetDirectoryLength(compact));
+        assertFalse(compact.slots().isNative());
+        assertArrayEquals(wire, serialize(compact));
+        try (HOTLeafPage copy = compact.copyForRead()) {
+          for (int row = 60; row >= 17; row--) {
+            assertTrue(copy.put(key(row), value(row)));
+          }
+          assertTrue(copy.updateValue(1, new byte[] {99}));
+          assertTrue(copy.slots().isNative());
+          assertEquals(61, copy.size());
+          for (int row = 0; row <= 60; row++) {
+            assertArrayEquals(row == 1 ? new byte[] {99} : value(row),
+                copy.copyStoredValue(copy.findEntry(key(row))));
+          }
+        }
+      } finally {
+        compact.releaseGuard();
       }
-      assertEquals(HOTLeafPage.MAX_ENTRIES, offsetDirectoryLength(compact));
-      assertTrue(compact.slots().isNative());
-      assertEquals(61, compact.size());
-      for (int row = 0; row <= 60; row++) {
-        assertArrayEquals(value(row), compact.copyStoredValue(compact.findEntry(key(row))));
-      }
+      assertArrayEquals(wire, serialize(compact));
     }
   }
 

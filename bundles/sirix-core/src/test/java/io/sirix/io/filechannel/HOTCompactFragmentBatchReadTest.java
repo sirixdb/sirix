@@ -104,7 +104,7 @@ final class HOTCompactFragmentBatchReadTest {
   }
 
   @Test
-  void compactPointSearchMatchesNativeOrderingAndSurvivesTransitionToWritableMemory() throws IOException {
+  void compactPointSearchMatchesNativeOrderingAndItsWritableCopy() throws IOException {
     final HOTLeafPage source = new HOTLeafPage(1, 1, IndexType.PROJECTION);
     HOTLeafPage compact = null;
     try {
@@ -132,9 +132,13 @@ final class HOTCompactFragmentBatchReadTest {
       assertEquals(source.findEntry(new byte[] {43}), compact.findEntry(new byte[] {43}));
       assertEquals(source.findEntry(new byte[] {42}), compact.findEntry(new byte[] {42}));
       final byte[] addedKey = {42, 3, 7};
-      assertTrue(compact.put(addedKey, new byte[] {99}));
-      assertTrue(compact.slots().isNative(), "mutation restores independent writable capacity");
-      assertArrayEquals(new byte[] {99}, compact.copyStoredValue(compact.findEntry(addedKey)));
+      try (HOTLeafPage copy = compact.copyForRead()) {
+        assertTrue(copy.put(addedKey, new byte[] {99}));
+        assertTrue(copy.slots().isNative(), "a copy owns independent writable capacity");
+        assertArrayEquals(new byte[] {99}, copy.copyStoredValue(copy.findEntry(addedKey)));
+      }
+      assertTrue(compact.findEntry(addedKey) < 0);
+      assertArrayEquals(wire, serialize(compact));
       assertTrue(source.findEntry(addedKey) < 0);
       assertArrayEquals(wire, serialize(source), "the committed source bytes remain untouched");
     } finally {

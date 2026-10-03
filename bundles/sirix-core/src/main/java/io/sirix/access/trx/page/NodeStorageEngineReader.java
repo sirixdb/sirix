@@ -3828,11 +3828,22 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       final @Nullable HOTLeafPage incoming, final boolean retainLeafGuard) {
     final HOTLeafPage complete = adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey,
         handoffReference, incoming, retainLeafGuard);
-    if (complete != null && trxIntentLog == null && resourceConfig.versioningType != VersioningType.FULL
-        && !handoffReference.getPageFragments().isEmpty()) {
-      resourceBufferManager.getHOTMiniPageCache().discard(cacheKey);
+    try {
+      if (complete != null && trxIntentLog == null && resourceConfig.versioningType != VersioningType.FULL
+          && !handoffReference.getPageFragments().isEmpty()) {
+        resourceBufferManager.getHOTMiniPageCache().discard(cacheKey);
+      }
+      return complete;
+    } catch (final RuntimeException | Error failure) {
+      if (complete != null && retainLeafGuard) {
+        try {
+          complete.releaseGuard();
+        } catch (final RuntimeException | Error releaseFailure) {
+          addSuppressedSafely(failure, releaseFailure);
+        }
+      }
+      throw failure;
     }
-    return complete;
   }
 
   /**

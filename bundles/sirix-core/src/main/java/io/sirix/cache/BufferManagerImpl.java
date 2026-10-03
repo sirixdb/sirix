@@ -666,17 +666,11 @@ public final class BufferManagerImpl implements BufferManager {
    */
   @Override
   public void clearAllCaches() {
-    // Memoized index answers are derived from the pages cleared below, so they go with them: this is
-    // the "cold process" contract Databases.clearGlobalCaches() promises its corruption tests. In a
-    // finally because an exception from any page cache above would otherwise leave the derived
-    // answers behind — a cache that outlives the pages it was derived from is precisely what the
-    // "cold process" contract rules out.
+    Throwable failure = null;
     try {
       pageCache.clear();
       recordPageCache.clear();
       recordPageFragmentCache.clear();
-      hotLeafPageCache.clear();
-      hotLeafFragmentCache.clear();
       revisionRootPageCache.clear();
       namesCache.clear();
       globalVerdictCache.clear();
@@ -684,13 +678,30 @@ public final class BufferManagerImpl implements BufferManager {
       globalDictionaryRecordCache.clear();
       globalDictionaryWarmMarkers.clear();
       pathSummaryCache.clear();
-    } finally {
-      try {
-        hotMiniPageCache.clear();
-      } finally {
-        hotLookupCache.clear();
-      }
+    } catch (final RuntimeException | Error e) {
+      failure = e;
     }
+    try {
+      hotLeafPageCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
+      hotLeafFragmentCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
+      hotMiniPageCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
+      hotLookupCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    ShardedPageCache.rethrowCleanupFailure(failure);
   }
 
   @Override
@@ -1074,11 +1085,7 @@ public final class BufferManagerImpl implements BufferManager {
     try {
       removedLookups = answerSweep.getAsInt();
     } catch (final RuntimeException | Error e) {
-      if (failure == null) {
-        failure = e;
-      } else {
-        failure.addSuppressed(e);
-      }
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
     }
     if (removedFromRecordCache + removedFromFragmentCache + removedFromPageCache + removedFromRevisionCache
         + removedLookups > 0) {
@@ -1096,9 +1103,7 @@ public final class BufferManagerImpl implements BufferManager {
       // exception when a finally completes abruptly, not even recording it as a cause — and the
       // body's failure is both the earlier one and the one that usually explains this one. Attach and
       // return, so the caller sees the original with this hanging off it.
-      if (fromBody != failure) {
-        fromBody.addSuppressed(failure);
-      }
+      ShardedPageCache.retainCleanupFailure(fromBody, failure);
       return;
     }
     // Rethrown unwrapped, in the two shapes the catches above can produce. Neither sweep declares a
@@ -1119,16 +1124,28 @@ public final class BufferManagerImpl implements BufferManager {
    * </p>
    */
   private void clearHotPageCaches(final Predicate<PageReference> matches) {
+    Throwable failure = null;
     try {
       clearHotPageCache(hotLeafPageCache, matches);
-    } finally {
-      try {
-        clearHotPageCache(hotLeafFragmentCache.nativeImages(), matches);
-        clearHotPageCache(hotLeafFragmentCache.heapImages(), matches);
-      } finally {
-        hotMiniPageCache.invalidate(matches);
-      }
+    } catch (final RuntimeException | Error e) {
+      failure = e;
     }
+    try {
+      clearHotPageCache(hotLeafFragmentCache.nativeImages(), matches);
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
+      clearHotPageCache(hotLeafFragmentCache.heapImages(), matches);
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
+      hotMiniPageCache.invalidate(matches);
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    ShardedPageCache.rethrowCleanupFailure(failure);
   }
 
   /**
@@ -1169,6 +1186,7 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     int removed = 0;
+    Throwable failure = null;
     for (final PageReference key : keysToRemove) {
       // removeAndGet, NOT get-then-remove: the two-step version retires whatever the GET saw while
       // the REMOVE unmaps whatever is there now. A page cached between the two is then dropped from
@@ -1176,12 +1194,17 @@ public final class BufferManagerImpl implements BufferManager {
       // TransactionIntentLog claimed in between (see removeHOTLeavesFromCache, which exists because
       // one instance can be both a container page and a cache entry) is freed while the writer still
       // owns it for commit. One atomic step means we only ever retire the page we actually unmapped.
-      final HOTLeafPage page = cache.removeAndGet(key);
-      if (page != null && !page.isClosed()) {
-        page.retire();
+      try {
+        final HOTLeafPage page = cache.removeAndGet(key);
+        if (page != null && !page.isClosed()) {
+          page.retire();
+        }
+        removed++;
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
       }
-      removed++;
     }
+    ShardedPageCache.rethrowCleanupFailure(failure);
     return removed;
   }
 

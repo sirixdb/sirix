@@ -1271,7 +1271,6 @@ public enum VersioningType {
     return SINGLE_FRAGMENT_READS.sum();
   }
 
-  /** Count a FULL page's direct storage read, which bypasses fragment combining entirely. */
   /** Reads that actually reconstructed a page from a chain of fragments. */
   public static long multiFragmentMerges() {
     return MULTI_FRAGMENT_MERGES.sum();

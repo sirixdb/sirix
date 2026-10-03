@@ -26,6 +26,7 @@ import io.sirix.page.PageFragmentKeyImpl;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 import io.sirix.settings.VersioningType;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -59,9 +60,53 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 final class HOTProjectionEntryReadTest {
+
+  @BeforeAll
+  static void requireMergeDiagnostics() {
+    assertTrue(VersioningType.hotMergeDiagEnabled(),
+        "Run with -Dsirix.hot.mergeDiag=true (the gradle test configuration sets it).");
+  }
   private static final byte[] KEY = {7, 11};
   private static final byte[] VALUE = {13, 17};
   private static final long SIDE_KEY = 42;
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void failedMiniDiscardReleasesThePromotedCompleteLeafGuard(final boolean packedLimit) {
+    try (Fixture fixture = new Fixture(true)) {
+      for (int revision = 5; revision >= 1; revision--) {
+        fixture.add(revision);
+      }
+      final HOTLeafPage base = fixture.images.get(1L);
+      base.setCompleteDump(true);
+      final byte[] value = packedLimit ? new byte[HOTMiniPage.MAX_DATA_BYTES / 2] : VALUE;
+      final int previousReads = packedLimit ? 1 : HOTMiniPageCache.POINT_PROMOTION_DISTINCT_KEYS - 1;
+      for (int i = 0; i <= previousReads; i++) {
+        assertTrue(base.put(new byte[] {7, (byte) i}, value));
+      }
+      for (int i = 0; i < previousReads; i++) {
+        assertArrayEquals(value,
+            fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {7, (byte) i}, SIDE_KEY).value());
+      }
+      assertEquals(0, fixture.completeCache.size());
+      final HOTMiniPageCache failingMiniCache = spy(fixture.miniCache);
+      final Error failure = new OutOfMemoryError("mini-page removal bookkeeping");
+      doAnswer(_ -> {
+        final HOTLeafPage complete = assertInstanceOf(HOTLeafPage.class, fixture.chain.getPage());
+        assertEquals(1, complete.getGuardCount());
+        throw failure;
+      }).when(failingMiniCache).discard(any(PageReference.class));
+      when(fixture.buffers.getHOTMiniPageCache()).thenReturn(failingMiniCache);
+      assertSame(failure, assertThrows(Error.class, () -> fixture.storage.readHOTProjectionEntry(fixture.chain,
+          new byte[] {7, (byte) previousReads}, SIDE_KEY)));
+      final HOTLeafPage complete = assertInstanceOf(HOTLeafPage.class, fixture.chain.getPage());
+      assertEquals(0, complete.getGuardCount());
+      assertEquals(1, fixture.completeCache.size());
+      assertArrayEquals(value, fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {7, 0}, SIDE_KEY).value());
+      assertEquals(0, complete.getGuardCount());
+      fixture.assertReleased();
+    }
+  }
 
   @ParameterizedTest
   @EnumSource(value = VersioningType.class, names = {"DIFFERENTIAL", "INCREMENTAL", "SLIDING_SNAPSHOT"})
@@ -376,7 +421,6 @@ final class HOTProjectionEntryReadTest {
   void newestValueNeedsOneFragmentAndNeverPublishesAPartialLeaf() {
     try (Fixture fixture = new Fixture(false)) {
       fixture.add(5).put(KEY, VALUE);
-      assertTrue(VersioningType.hotMergeDiagEnabled());
       final long before = VersioningType.pointLeafReads();
       final long walked = VersioningType.pointFragmentsWalked();
       assertArrayEquals(VALUE, fixture.read().value());

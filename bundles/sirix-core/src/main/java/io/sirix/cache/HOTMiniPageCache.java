@@ -13,10 +13,10 @@ import java.util.function.Predicate;
 
 /**
  * Buffer-manager-owned, byte-budgeted cache of immutable resolved HOT slots. Hits use the ordinary
- * page-cache guard. Only admissions lock (per resource); invalidation fences every in-flight
- * read-through admission so truncation cannot resurrect an answer under a reused durable offset.
- * The fence lives on the owning resource, so promoting one leaf to its complete image never
- * serialises or rejects the concurrent resolution of any other leaf, bar a rare hash collision.
+ * page-cache guard. Admissions and invalidations use shared stripe monitors; invalidation fences
+ * in-flight read-through admission so truncation cannot resurrect an answer under a reused durable offset.
+ * Fences use 1,024 shared hash stripes over database, resource and durable key. Promotion normally
+ * touches only one leaf; a rare collision can serialize or reject another leaf's admission.
  */
 public final class HOTMiniPageCache {
   /** Four distinct confirmed point misses justify one ordinary complete-view reconstruction. */
@@ -177,8 +177,9 @@ public final class HOTMiniPageCache {
 
   /**
    * Drop the subset after complete-page promotion and reject earlier, unfinished admissions for this
-   * key. Every complete-leaf reconstruction calls this, so it touches only its own resource: an
-   * admission either publishes before the bump and is removed here, or sees the bump and declines.
+   * key. Every complete-leaf reconstruction bumps its shared hash stripe: an admission for this key
+   * either publishes before the bump and is removed here, or sees the bump and declines. A colliding
+   * leaf's admission can also be rejected, leaving its correct answer uncached.
    */
   public void discard(final PageReference key) {
     if (pages == null) {
@@ -206,11 +207,17 @@ public final class HOTMiniPageCache {
       return;
     }
     fenceEveryStripe();
+    Throwable failure = null;
     for (final PageReference key : pages.asMap().keySet()) {
-      if (matches.test(key)) {
-        retireRemoved(key);
+      try {
+        if (matches.test(key)) {
+          retireRemoved(key);
+        }
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
       }
     }
+    ShardedPageCache.rethrowCleanupFailure(failure);
   }
 
   /**

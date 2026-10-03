@@ -109,17 +109,46 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
 
   @Override
   public void remove(final PageReference key) {
-    heapImages.remove(key);
-    nativeImages.remove(key);
+    final HOTLeafPage removed = removeAndGet(key);
+    if (removed != null) {
+      removed.retire();
+    }
   }
 
   @Override
   public @Nullable HOTLeafPage removeAndGet(final PageReference key) {
-    final HOTLeafPage compact = heapImages.removeAndGet(key);
-    final HOTLeafPage resident = nativeImages.removeAndGet(key);
-    return compact != null
+    HOTLeafPage compact = null;
+    HOTLeafPage resident = null;
+    Throwable failure = null;
+    try {
+      compact = heapImages.removeAndGet(key);
+    } catch (final RuntimeException | Error e) {
+      failure = e;
+    }
+    try {
+      resident = nativeImages.removeAndGet(key);
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    final HOTLeafPage result = compact != null
         ? compact
         : resident;
+    if (resident != null && resident != result) {
+      try {
+        resident.retire();
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
+      }
+    }
+    if (failure != null && result != null) {
+      try {
+        result.retire();
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
+      }
+    }
+    ShardedPageCache.rethrowCleanupFailure(failure);
+    return result;
   }
 
   @Override
@@ -140,11 +169,18 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
 
   @Override
   public void clear() {
+    Throwable failure = null;
     try {
       heapImages.clear();
-    } finally {
-      nativeImages.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = e;
     }
+    try {
+      nativeImages.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    ShardedPageCache.rethrowCleanupFailure(failure);
   }
 
   @Override
@@ -154,11 +190,7 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
 
   @Override
   public void close() {
-    try {
-      heapImages.close();
-    } finally {
-      nativeImages.close();
-    }
+    clear();
   }
 
   public long getCurrentWeightBytes() {

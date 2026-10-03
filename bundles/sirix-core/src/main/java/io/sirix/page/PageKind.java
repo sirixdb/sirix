@@ -6735,8 +6735,8 @@ public enum PageKind {
     }
 
     // Read slot offsets. An ordinary image keeps MAX_ENTRIES of capacity for insertions after
-    // deserialization. A compact raw image owns exactly its entries; HOTLeafPage restores the full
-    // directory in every copy and before any in-place mutable promotion.
+    // deserialization. An immutable compact raw image owns exactly its entries; HOTLeafPage restores
+    // the full writable directory in every copy.
     final int[] slotOffsets = new int[compactFragment
         ? entryCount
         : HOTLeafPage.MAX_ENTRIES];
