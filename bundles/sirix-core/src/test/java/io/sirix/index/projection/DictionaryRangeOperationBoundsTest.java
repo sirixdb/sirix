@@ -1,5 +1,7 @@
 package io.sirix.index.projection;
 
+import static io.sirix.utils.StringComparisonOracle.compareStrings;
+
 import io.sirix.node.ValueDictionaryEntryNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -72,34 +74,35 @@ final class DictionaryRangeOperationBoundsTest {
     // vacuously against the unfixed decode.
     final byte[] packed = new byte[] {'a', (byte) 0xE2, (byte) 0x82, (byte) 0xAC, 'a', 'b'};
     assertThrows(IllegalStateException.class,
-        () -> ValueDictionaryEntryNode.compareUtf16Range(packed, 0, 2, packed, 4, 2),
+        () -> ValueDictionaryEntryNode.compareCodePointRange(packed, 0, 2, packed, 4, 2),
         "a truncated sequence must fail closed, never borrow the neighbour's bytes");
     // The same bytes sliced to their true extent compare fine, so the guard is about the BOUND and
     // not about the content: "a\u20AC" orders after "ab".
-    assertTrue(ValueDictionaryEntryNode.compareUtf16Range(packed, 0, 4, packed, 4, 2) > 0);
+    assertTrue(ValueDictionaryEntryNode.compareCodePointRange(packed, 0, 4, packed, 4, 2) > 0);
   }
 
   @Test
   @DisplayName("range comparison validates its window against the backing array")
   void rangeComparisonValidatesItsWindow() {
     final byte[] value = utf8("abc");
-    assertThrows(NullPointerException.class, () -> ValueDictionaryEntryNode.compareUtf16Range(null, 0, 0, value, 0, 3));
+    assertThrows(NullPointerException.class,
+        () -> ValueDictionaryEntryNode.compareCodePointRange(null, 0, 0, value, 0, 3));
     assertThrows(IndexOutOfBoundsException.class,
-        () -> ValueDictionaryEntryNode.compareUtf16Range(value, 0, 4, value, 0, 3));
+        () -> ValueDictionaryEntryNode.compareCodePointRange(value, 0, 4, value, 0, 3));
     assertThrows(IndexOutOfBoundsException.class,
-        () -> ValueDictionaryEntryNode.compareUtf16Range(value, -1, 2, value, 0, 3));
+        () -> ValueDictionaryEntryNode.compareCodePointRange(value, -1, 2, value, 0, 3));
   }
 
   @Test
-  @DisplayName("range comparison agrees with UTF-16 ordering, including supplementary planes")
-  void rangeComparisonMatchesUtf16Ordering() {
+  @DisplayName("range comparison agrees with Unicode codepoint ordering, including supplementary planes")
+  void rangeComparisonMatchesCodePointOrdering() {
     final String[] values = {"", "a", "ab", "b", "！", "𐐀", "zz"};
     for (final String left : values) {
       for (final String right : values) {
         final byte[] l = utf8(left);
         final byte[] r = utf8(right);
-        assertEquals(Integer.signum(left.compareTo(right)),
-            Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(l, 0, l.length, r, 0, r.length)),
+        assertEquals(Integer.signum(compareStrings(left, right)),
+            Integer.signum(ValueDictionaryEntryNode.compareCodePointRange(l, 0, l.length, r, 0, r.length)),
             "\"" + left + "\" vs \"" + right + "\"");
       }
     }
@@ -117,11 +120,11 @@ final class DictionaryRangeOperationBoundsTest {
     for (final String[] pair : pairs) {
       final byte[] l = utf8(pair[0]);
       final byte[] r = utf8(pair[1]);
-      assertEquals(Integer.signum(pair[0].compareTo(pair[1])),
-          Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(l, 0, l.length, r, 0, r.length)),
+      assertEquals(Integer.signum(compareStrings(pair[0], pair[1])),
+          Integer.signum(ValueDictionaryEntryNode.compareCodePointRange(l, 0, l.length, r, 0, r.length)),
           "\"" + pair[0] + "\" vs \"" + pair[1] + "\"");
-      assertEquals(Integer.signum(pair[1].compareTo(pair[0])),
-          Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(r, 0, r.length, l, 0, l.length)),
+      assertEquals(Integer.signum(compareStrings(pair[1], pair[0])),
+          Integer.signum(ValueDictionaryEntryNode.compareCodePointRange(r, 0, r.length, l, 0, l.length)),
           "\"" + pair[1] + "\" vs \"" + pair[0] + "\"");
     }
   }
@@ -133,11 +136,14 @@ final class DictionaryRangeOperationBoundsTest {
     for (final String[] pair : pairs) {
       final byte[] shorter = utf8(pair[0]);
       final byte[] longer = utf8(pair[1]);
-      assertTrue(ValueDictionaryEntryNode.compareUtf16Range(shorter, 0, shorter.length, longer, 0, longer.length) < 0,
+      assertTrue(
+          ValueDictionaryEntryNode.compareCodePointRange(shorter, 0, shorter.length, longer, 0, longer.length) < 0,
           pair[0] + " < " + pair[1]);
-      assertTrue(ValueDictionaryEntryNode.compareUtf16Range(longer, 0, longer.length, shorter, 0, shorter.length) > 0,
+      assertTrue(
+          ValueDictionaryEntryNode.compareCodePointRange(longer, 0, longer.length, shorter, 0, shorter.length) > 0,
           pair[1] + " > " + pair[0]);
-      assertEquals(0, ValueDictionaryEntryNode.compareUtf16Range(longer, 0, longer.length, longer, 0, longer.length));
+      assertEquals(0,
+          ValueDictionaryEntryNode.compareCodePointRange(longer, 0, longer.length, longer, 0, longer.length));
     }
   }
 
@@ -150,8 +156,8 @@ final class DictionaryRangeOperationBoundsTest {
     // real and not a rewrite of the loop that still walks every byte.
     final byte[] left = new byte[] {(byte) 0xE2, 'a'};
     final byte[] right = new byte[] {(byte) 0xE2, 'b'};
-    assertTrue(ValueDictionaryEntryNode.compareUtf16Range(left, 0, 2, right, 0, 2) < 0);
-    assertEquals(0, ValueDictionaryEntryNode.compareUtf16Range(left, 0, 2, left, 0, 2));
+    assertTrue(ValueDictionaryEntryNode.compareCodePointRange(left, 0, 2, right, 0, 2) < 0);
+    assertEquals(0, ValueDictionaryEntryNode.compareCodePointRange(left, 0, 2, left, 0, 2));
   }
 
   @Test
@@ -161,7 +167,7 @@ final class DictionaryRangeOperationBoundsTest {
     final int off = utf8("prefix").length;
     final int len = utf8("𐐀").length;
     final byte[] standalone = utf8("！");
-    assertEquals(Integer.signum("𐐀".compareTo("！")),
-        Integer.signum(ValueDictionaryEntryNode.compareUtf16Range(packed, off, len, standalone, 0, standalone.length)));
+    assertEquals(Integer.signum(compareStrings("𐐀", "！")), Integer.signum(
+        ValueDictionaryEntryNode.compareCodePointRange(packed, off, len, standalone, 0, standalone.length)));
   }
 }

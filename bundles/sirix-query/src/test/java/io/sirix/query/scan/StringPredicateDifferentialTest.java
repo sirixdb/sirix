@@ -17,9 +17,11 @@ import org.junit.jupiter.api.Test;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -32,9 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Selectivity is SWEPT (common / mid / rare / none / absent-from-dictionary) — a wrong-answer bug
  * once hid behind a common literal for a whole session, its error scaling with rarity. The corpus
  * also carries a SUPPLEMENTARY character (U+10400, a 4-byte UTF-8 sequence) alongside a BMP
- * character in U+E000..U+FFFF (U+FF01) — the exact pair where raw UTF-8 byte order and the
- * interpreter's UTF-16 {@code String.compareTo} order DISAGREE, so a kernel comparing bytes without
- * the 4-byte-lead fallback inverts their order.
+ * character in U+E000..U+FFFF (U+FF01), which distinguishes Unicode codepoint order from Java's
+ * UTF-16 code-unit order. Supplementary characters must order after all BMP characters.
  */
 public final class StringPredicateDifferentialTest {
 
@@ -43,7 +44,7 @@ public final class StringPredicateDifferentialTest {
   private static final String RES = "records.jn";
   private static final String SRC = "jn:doc('" + DB + "','" + RES + "')[]";
 
-  private java.nio.file.Path dbDir;
+  private Path dbDir;
 
   @BeforeEach
   void setUp() throws Exception {
@@ -75,8 +76,7 @@ public final class StringPredicateDifferentialTest {
       sb.append('"');
       // sup: the collation adversary. U+FF01 (BMP, 3-byte UTF-8: EF BC 81) vs U+10400
       // (supplementary, 4-byte UTF-8: F0 90 90 80). UTF-8 byte order says FF01 < 10400;
-      // UTF-16 code-unit order says U+10400 (surrogate D801) < U+FF01. The interpreter uses
-      // the latter.
+      // UTF-16 code-unit order would invert them. The interpreter uses codepoint order.
       sb.append(",\"sup\":\"")
         .append(i % 3 == 0
             ? "！mark"
@@ -141,11 +141,43 @@ public final class StringPredicateDifferentialTest {
 
   @Test
   void supplementaryCharacterOrderingMatchesTheInterpreter() throws Exception {
-    // The UTF-8-vs-UTF-16 divergence pair: U+10400 orders BELOW U+FF01 in the interpreter's
-    // collation but ABOVE it in raw byte order. Both directions swept.
+    // U+10400 orders ABOVE U+FF01 in Unicode codepoint order. Sweep both sides and directions.
     assertGroupServedDifferential("$u.sup lt \"！\"");
+    assertGroupServedDifferential("$u.sup gt \"！\"");
     assertGroupServedDifferential("$u.sup ge \"！\"");
     assertGroupServedDifferential("$u.sup le \"𐐀deseret\"");
+  }
+
+  @Test
+  void loneSurrogateOrderingDeclinesProjectionAndPreservesRows() throws Exception {
+    for (final String literal : new String[] {"\uD800", "\uDC00", "http://\uD800x", "http://\uDC00x"}) {
+      for (final String op : new String[] {"lt", "le", "gt", "ge"}) {
+        final String where = "$u.url " + op + " \"" + literal + "\"";
+        final long expected = op.startsWith("l")
+            ? N
+            : 0;
+        assertCountFallbackDifferential(where, expected);
+        assertCountFallbackDifferential(where + " and $u.id ge 0", expected);
+      }
+    }
+  }
+
+  @Test
+  void nestedLoneSurrogateOrderingDeclinesProjectionAndPreservesRows() throws Exception {
+    for (final String literal : new String[] {"\uD800", "\uDC00"}) {
+      for (final String op : new String[] {"lt", "le", "gt", "ge"}) {
+        final String comparison = "$u.url " + op + " \"" + literal + "\"";
+        final long expected = op.startsWith("l")
+            ? N
+            : 0;
+        final String disjunction = "(" + comparison + " or $u.url eq \"never\") and $u.id ge 0";
+        assertCountFallbackDifferential(disjunction, expected);
+        assertGroupFallbackDifferential(disjunction, expected);
+        final String negation = "not(" + comparison + " and $u.url ge \"\")";
+        assertCountFallbackDifferential(negation, N - expected);
+        assertGroupFallbackDifferential(negation, N - expected);
+      }
+    }
   }
 
   // ---- contains, selectivity swept -----------------------------------------------------------
@@ -226,6 +258,31 @@ public final class StringPredicateDifferentialTest {
     assertTrue(SirixVectorizedExecutor.groupAggServedCount() > before,
         "predicate did NOT flow through the served group-aggregate route: " + where);
     assertEquals(interpreted, vectorized, "served result differs for predicate: " + where);
+  }
+
+  private void assertCountFallbackDifferential(final String where, final long expected) throws Exception {
+    final String query = "count(for $u in " + SRC + " where " + where + " return $u)";
+    final String interpreted = run(query, false).trim();
+    assertEquals(Long.toString(expected), interpreted, "interpreter row count for: " + where);
+    final long before = SirixVectorizedExecutor.projectionCountsServed();
+    assertEquals(interpreted, run(query, true).trim(), "fallback row count for: " + where);
+    assertEquals(before, SirixVectorizedExecutor.projectionCountsServed(),
+        "lossy literal was admitted to a projection count: " + where);
+  }
+
+  private void assertGroupFallbackDifferential(final String where, final long expected) throws Exception {
+    final String query = "subsequence(for $u in " + SRC + " where " + where + " let $k := $u.id group by $k "
+        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 7)";
+    final String interpreted = run(query, false);
+    if (expected > 0) {
+      assertFalse(interpreted.isEmpty(), "matching rows must survive: " + where);
+    } else {
+      assertEquals("", interpreted, "no rows should match: " + where);
+    }
+    final long before = SirixVectorizedExecutor.groupAggServedCount();
+    assertEquals(interpreted, run(query, true), "fallback groups for: " + where);
+    assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(),
+        "lossy literal was admitted to a projection group aggregate: " + where);
   }
 
   private String run(final String query, final boolean vectorized) throws Exception {

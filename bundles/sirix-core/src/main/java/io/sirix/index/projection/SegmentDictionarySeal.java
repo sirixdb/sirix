@@ -106,13 +106,13 @@ public final class SegmentDictionarySeal {
     IntArrays.quickSort(mintsByRank, (left, right) -> {
       final byte[] leftValue = valuesById[left - 1];
       final byte[] rightValue = valuesById[right - 1];
-      return ValueDictionaryEntryNode.compareUtf16Range(leftValue, 0, leftValue.length, rightValue, 0,
+      return ValueDictionaryEntryNode.compareCodePointRange(leftValue, 0, leftValue.length, rightValue, 0,
           rightValue.length);
     });
     for (int rank = 1; rank < count; rank++) {
       final byte[] previous = valuesById[mintsByRank[rank - 1] - 1];
       final byte[] next = valuesById[mintsByRank[rank] - 1];
-      if (ValueDictionaryEntryNode.compareUtf16Range(previous, 0, previous.length, next, 0, next.length) >= 0) {
+      if (ValueDictionaryEntryNode.compareCodePointRange(previous, 0, previous.length, next, 0, next.length) >= 0) {
         final int lower = Math.min(mintsByRank[rank - 1], mintsByRank[rank]);
         final int higher = Math.max(mintsByRank[rank - 1], mintsByRank[rank]);
         throw new IllegalStateException("mints " + lower + " and " + higher

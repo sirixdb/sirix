@@ -3,7 +3,6 @@
  */
 package io.sirix.index.projection;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import org.jspecify.annotations.Nullable;
 
@@ -328,9 +327,8 @@ public final class ProjectionIndexScan {
      * {@link #LT} with string bytes: the numeric switches assume long semantics (zone maps on a dict
      * column hold dict IDS, so pruning by them on a string range drops matching leaves), and a distinct
      * op makes every exhaustive switch a compile error instead of a silent wrong answer. Interpreter
-     * collation contract: {@code Str#cmp} is UTF-16 code-unit order; raw UTF-8 byte order diverges
-     * exactly when a 4-byte sequence (lead {@code >= 0xF0}) meets a BMP char in U+E000..U+FFFF —
-     * evaluators must detect that and fall back to decoded comparison. Missing cells do NOT match.
+     * collation contract: {@code Str#cmp} uses Unicode codepoint order, which agrees with unsigned
+     * well-formed UTF-8 byte order. Missing cells do NOT match.
      */
     STR_LT,
     /** String ordering {@code v <= lit}; see {@link #STR_LT} for the collation contract. */
@@ -660,11 +658,11 @@ public final class ProjectionIndexScan {
     // row" falls out as a consequence instead of a special case.
     final long[] idBits = new long[dictSize + 63 >>> 6];
     boolean any = false;
-    final boolean litHasSupplementary = hasFourByteUtf8(p.stringLitBytes, 0, p.stringLitBytes.length);
+
     for (int i = 0; i < dictSize; i++) {
       if (stringDictEntryMatches(leaf.stringDictionaryEntryBacking(p.column, i),
           leaf.stringDictionaryEntryOffset(p.column, i), leaf.stringDictionaryEntryLength(p.column, i), p.op,
-          p.stringLitBytes, litHasSupplementary)) {
+          p.stringLitBytes)) {
         idBits[i >>> 6] |= 1L << (i & 63);
         any = true;
       }
@@ -687,26 +685,18 @@ public final class ProjectionIndexScan {
    * paths.
    *
    * <p>
-   * Ordering ops honor the interpreter's collation ({@code Str#cmp} = {@code String.compareTo} =
-   * UTF-16 code-unit order): raw unsigned UTF-8 byte order equals CODEPOINT order, which diverges
-   * exactly when a supplementary character (4-byte UTF-8, lead {@code >= 0xF0}) meets a BMP character
-   * in U+E000..U+FFFF — so if EITHER side carries a 4-byte sequence, both decode and compare as
-   * Strings. {@code contains} needs no such gate: UTF-8 is self-synchronizing, a byte-wise needle
-   * match IS a codepoint substring match.
+   * Ordering ops honor the interpreter's Unicode codepoint collation, which agrees with unsigned
+   * well-formed UTF-8 byte order. UTF-8 is self-synchronizing, so a byte-wise needle match also
+   * implements {@code contains}.
    */
-  static boolean stringDictEntryMatches(final byte[] entry, final int off, final int len, final Op op, final byte[] lit,
-      final boolean litHasSupplementary) {
+  static boolean stringDictEntryMatches(final byte[] entry, final int off, final int len, final Op op,
+      final byte[] lit) {
     return switch (op) {
       case EQ -> Arrays.equals(entry, off, off + len, lit, 0, lit.length);
       case NE -> !Arrays.equals(entry, off, off + len, lit, 0, lit.length);
       case STR_CONTAINS -> containsBytes(entry, off, len, lit);
       case STR_LT, STR_LE, STR_GT, STR_GE -> {
-        final int cmp;
-        if (litHasSupplementary || hasFourByteUtf8(entry, off, len)) {
-          cmp = new String(entry, off, len, StandardCharsets.UTF_8).compareTo(new String(lit, StandardCharsets.UTF_8));
-        } else {
-          cmp = Arrays.compareUnsigned(entry, off, off + len, lit, 0, lit.length);
-        }
+        final int cmp = Arrays.compareUnsigned(entry, off, off + len, lit, 0, lit.length);
         yield switch (op) {
           case STR_LT -> cmp < 0;
           case STR_LE -> cmp <= 0;

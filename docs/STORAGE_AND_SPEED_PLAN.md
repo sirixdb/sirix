@@ -112,9 +112,9 @@ arithmetic on the long. A DATE variant is required or q6/q36–q42 miss the leve
 The read side is already disk-resident (raw 256-entry value blocks behind a 3-byte radix; `ReadView` has a fixed
 footprint). **The gate is the build:** the writer and probe front hold every distinct value in heap (twice on the
 streaming load; budget 4 × rows × (avg + 52) ≥ 20 GB at 100M against a 2 GiB cap), post-pass builds are capped at
-16,384 distinct per generation, ids are minted during ingestion into immutable FOR-packed leaves, entries compare in
-UTF-16 order, and the header has no bulk/append boundary. Design (build-first, post-load): spilled distinct set →
-rank pass in UTF-16 order → codes = rank → remap every leaf's id lane for the column (`convertStringDictColumnToGlobal`
+16,384 distinct per generation, ids are minted during ingestion into immutable FOR-packed leaves, entries follow the
+[string ordering contract](SEGMENT_PROJECTION_INDEXES.md#41-three-representations), and the header has no bulk/append boundary.
+Design (build-first, post-load): spilled distinct set → rank pass → codes = rank → remap every leaf's id lane for the column (`convertStringDictColumnToGlobal`
 is the leaf primitive) and drop its DICT / BLOOM / DICT_HASHES segments; reuse the existing raw block store (FSST'd
 4 K blocks would break the zero-copy `sliceSlot`/`compareIds`/`stringOpVerdict` paths); add the boundary field;
 appends take codes above it. **Executor scope, all today declining or comparing entries for `STRING_GLOBAL`:**
@@ -266,7 +266,7 @@ witness), the mutation that must fail, the acceptance number at 1M, the test cla
   `ProjectionIndexCatalog.java`, `GroupTableSpill.java` / `HeapHeadroom.java` (cap and share together). Witness: a
   fill over the headroom fraction serves windowed and retains nothing; released bytes return at query end; the pass
   count on a q18-shaped fixture drops when headroom is raised. No rebuild.
-- **B7 — P2.** Design document first, build-first (spilled distinct set, UTF-16 rank pass, leaf id remap, boundary
+- **B7 — P2.** Design document first, build-first (spilled distinct set, rank pass as above, leaf id remap, boundary
   field, raw block reuse, the executor site list above, the verdict strategy), two reviews, then build. Acceptance:
   the four fat columns ≤ 30 B/row total at 100M; q5/q20/q23–q26 within §4.
 

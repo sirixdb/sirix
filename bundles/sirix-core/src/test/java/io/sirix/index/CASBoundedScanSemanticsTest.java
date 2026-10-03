@@ -17,6 +17,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.axis.DescendantAxis;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.service.InsertPosition;
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Bound semantics of the bounded CAS scans.
@@ -139,6 +141,54 @@ final class CASBoundedScanSemanticsTest {
       assertEquals(List.of("apple"),
           valuesOf(rtx, rangeHits(indexController, rtx, casDef, TITLE_PATH, null, "car", true, false)), "(-inf,car)");
     });
+  }
+
+  @Test
+  void cappedStringResidualsReadUncommittedValuesWithoutMovingTheWriterCursor() {
+    final String prefix = "a".repeat(246);
+    final String low = prefix + "b";
+    final String high = prefix + "\uE000";
+    final String astral = prefix + "𐐀";
+    final String json = "[{\"title\":\"" + low + "\",\"alias\":\"" + high + "\"},{\"title\":\"" + high
+        + "\"},{\"title\":\"" + astral + "\"}]";
+    final var dbPath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+    try (final var database = Databases.openJsonDatabase(dbPath)) {
+      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        final var controller = session.getWtxIndexController(trx.getRevisionNumber());
+        final IndexDef casDef = IndexDefs.createCASIdxDef(false, Type.STR, parsePaths(Set.of(TITLE_PATH, ALIAS_PATH)),
+            0, IndexDef.DbType.JSON);
+        controller.createIndexes(Set.of(casDef), trx);
+        new JsonShredder.Builder(trx, JsonShredder.createStringReader(json), InsertPosition.AS_FIRST_CHILD).build()
+                                                                                                           .call();
+        trx.moveToDocumentRoot();
+        final var axis = new DescendantAxis(trx);
+        while (axis.hasNext()) {
+          axis.nextLong();
+          if (low.equals(trx.getValue())) {
+            break;
+          }
+        }
+        assertEquals(low, trx.getValue());
+        final long cursorKey = trx.getNodeKey();
+        for (final SearchMode mode : new SearchMode[] {SearchMode.LOWER, SearchMode.LOWER_OR_EQUAL, SearchMode.GREATER,
+            SearchMode.GREATER_OR_EQUAL}) {
+          assertTrue(trx.moveTo(cursorKey));
+          final Iterator<NodeReferences> hits =
+              filterHits(controller, trx, casDef, TITLE_PATH, prefix + "\uD800", mode);
+          assertTrue(hits.hasNext());
+          assertEquals(cursorKey, trx.getNodeKey());
+          assertEquals(low, trx.getValue());
+          final boolean lower = mode == SearchMode.LOWER || mode == SearchMode.LOWER_OR_EQUAL;
+          assertEquals(lower
+              ? List.of(low)
+              : List.of(astral, high), valuesOf(trx, hits));
+        }
+        trx.rollback();
+      }
+    }
   }
 
   /**

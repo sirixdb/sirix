@@ -1239,7 +1239,7 @@ final class RankTableReadViewTest {
   }
 
   private static int compareCollation(final byte[] left, final byte[] right) {
-    return ValueDictionaryEntryNode.compareUtf16Range(left, 0, left.length, right, 0, right.length);
+    return ValueDictionaryEntryNode.compareCodePointRange(left, 0, left.length, right, 0, right.length);
   }
 
   /** The 1-based storage position of the oversized (spilled) fixture value. */

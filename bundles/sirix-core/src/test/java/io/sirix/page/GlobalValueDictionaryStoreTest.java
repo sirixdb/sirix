@@ -6,6 +6,8 @@
 
 package io.sirix.page;
 
+import static io.sirix.utils.StringComparisonOracle.compareStrings;
+
 import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.DatabaseType;
@@ -166,10 +168,9 @@ public final class GlobalValueDictionaryStoreTest {
         seed(wtx);
         final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
         intern(dictionary, "2013-07-14T20:38:47");
-        // First-seen ids deliberately disagree with UTF-16 order. U+10400's high surrogate sorts
-        // before U+FF01 even though unsigned UTF-8/scalar order puts U+10400 after it.
-        intern(dictionary, "\uFF01");
+        // First-seen ids deliberately disagree with codepoint order: U+10400 follows U+FF01.
         intern(dictionary, "\uD801\uDC00");
+        intern(dictionary, "\uFF01");
         intern(dictionary, "92233720368547758070");
         headerKey = flush(wtx, dictionary);
         wtx.commit();
@@ -181,8 +182,8 @@ public final class GlobalValueDictionaryStoreTest {
         assertEquals(38L, view.xsIntegerOfSubstring(1, 15, 2));
         assertEquals(201307142038L + 1L, view.packIsoMinuteSubstring(1, 1, 16));
         assertEquals("2013-07-14T20:38", view.materializeIsoMinuteSubstring(1, 1, 16));
-        assertTrue(view.compareIds(3, 2) < 0, "comparison must follow UTF-16, not first-seen or UTF-8 order");
-        assertEquals(Integer.signum("\uD801\uDC00".compareTo("\uFF01")), Integer.signum(view.compareIds(3, 2)));
+        assertTrue(view.compareIds(2, 3) > 0, "comparison must follow codepoints rather than first-seen IDs");
+        assertEquals(Integer.signum(compareStrings("\uD801\uDC00", "\uFF01")), Integer.signum(view.compareIds(2, 3)));
         assertEquals(Long.MIN_VALUE, view.xsIntegerOfSubstring(2, 1, 1), "a non-ASCII cast transform must fail closed");
         assertEquals(Long.MIN_VALUE, view.xsIntegerOfSubstring(4, 1, 20),
             "an out-of-range integer must decline instead of wrapping");

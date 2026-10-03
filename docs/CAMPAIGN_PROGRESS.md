@@ -4,6 +4,10 @@ Branch: `codex/clickbench-port-rebased-20260827` (working directly in the user's
 Constraints honoured: no reset/clean/stash/rebase/branch-switch/checkout/commit/push; every
 pre-existing modification preserved.
 
+The UTF-16 comparators and expected checksums below describe this historical campaign.
+The current string ordering contract is owned by
+[SEGMENT_PROJECTION_INDEXES.md §4.1](SEGMENT_PROJECTION_INDEXES.md#41-three-representations).
+
 ## Session start (2026-08-29 ~09:25)
 
 ### Exclusive ownership

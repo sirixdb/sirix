@@ -2872,12 +2872,12 @@ public final class ProjectionColumnScan {
       final byte[] dictionary = slice.dictBytes();
       final int[] offsets = slice.dictOffsets();
       final byte[] literal = predicate.stringLitBytes;
-      final boolean supplementary = ProjectionIndexScan.hasFourByteUtf8(literal, 0, literal.length);
+
       final int alphabet = packed.alphabetSize();
       long accepted = 0L;
       for (int id = 0, count = Math.min(offsets.length - 1, alphabet); id < count; id++) {
         if (ProjectionIndexScan.stringDictEntryMatches(dictionary, offsets[id], offsets[id + 1] - offsets[id],
-            predicate.op, literal, supplementary)) {
+            predicate.op, literal)) {
           accepted |= 1L << id;
         }
       }
@@ -2907,10 +2907,10 @@ public final class ProjectionColumnScan {
     int matches = 0;
     int lastMatch = -1;
     final byte[] lit = p.stringLitBytes;
-    final boolean litHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(lit, 0, lit.length);
+
     for (int i = 0; i < dictSize; i++) {
       if (ProjectionIndexScan.stringDictEntryMatches(dictBytes, dictOffsets[i], dictOffsets[i + 1] - dictOffsets[i],
-          p.op, lit, litHasSupplementary)) {
+          p.op, lit)) {
         idBits[i >>> 6] |= 1L << (i & 63);
         matches++;
         lastMatch = i;
@@ -3291,9 +3291,9 @@ public final class ProjectionColumnScan {
    * Sliced twin of {@link ProjectionIndexByteScan#stringDictMinMax}: the presence-gated extremum of a
    * dict column's REFERENCED entries over leaves {@code [fromLeaf, toLeaf)} — a dictionary holds
    * PHANTOM entries interned by missing rows, so an unreferenced entry must never win. Comparison
-   * authority is the byte kernel's own {@code compareStrSlices} (UTF-16 collation fallback on 4-byte
-   * leads). Returns the winning entry's bytes, or {@code null} when no present value exists in the
-   * range; a slice missing its dict/id lanes throws — the caller declines.
+   * authority is the byte kernel's own {@code compareStrSlices} (Unicode codepoint collation over
+   * UTF-8 bytes). Returns the winning entry's bytes, or {@code null} when no present value exists in
+   * the range; a slice missing its dict/id lanes throws — the caller declines.
    */
   public static byte @Nullable [] stringDictMinMax(final ColumnSlice[] slices, final int fromLeaf, final int toLeaf,
       final boolean min) {

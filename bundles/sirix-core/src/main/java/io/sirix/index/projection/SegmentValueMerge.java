@@ -460,7 +460,7 @@ final class SegmentValueMerge {
 
   /** Collation order of two whole values. */
   private static int compareValues(final byte[] left, final byte[] right) {
-    return ValueDictionaryEntryNode.compareUtf16Range(left, 0, left.length, right, 0, right.length);
+    return ValueDictionaryEntryNode.compareCodePointRange(left, 0, left.length, right, 0, right.length);
   }
 
   // ---------------------------------------------------------------------------------------------

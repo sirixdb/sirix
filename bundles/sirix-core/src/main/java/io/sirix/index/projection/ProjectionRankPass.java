@@ -22,8 +22,8 @@ import java.util.PriorityQueue;
 
 /**
  * Rewrites one {@code COLUMN_KIND_STRING_DICT} column of an existing projection index as a
- * {@code COLUMN_KIND_STRING_GLOBAL} column whose ids are RANKS — assigned in UTF-16 collation order
- * of their values.
+ * {@code COLUMN_KIND_STRING_GLOBAL} column whose ids are RANKS — assigned in Unicode codepoint
+ * collation order of their values.
  *
  * <p>
  * <b>Why this is a post-pass and not part of the load.</b> Rank order is a property of the whole
@@ -42,7 +42,7 @@ import java.util.PriorityQueue;
  * UTF-8, and emit {@code (value, leafId, localId)} into a bounded run buffer that sorts and spills
  * when full. Validation is not defensive padding: the merge orders by BYTES, and the equivalence
  * between byte order and the engine's collation holds only for well-formed UTF-8, so a CESU-8
- * surrogate would be ranked into a position {@code compareUtf16Range} disagrees with.</li>
+ * surrogate would be ranked into a position {@code compareCodePointRange} disagrees with.</li>
  * <li><b>S2 merge</b> — k-way merge the runs, mint one rank per distinct value into a front-less
  * appender, and emit {@code (leafId, localId, rank)} triples. The appender commits per
  * generation.</li>
@@ -281,8 +281,8 @@ public final class ProjectionRankPass {
       int rank = 0;
       while (!queue.isEmpty()) {
         final RunCursor head = queue.poll();
-        if (current == null
-            || ValueDictionaryEntryNode.compareUtf16Range(current, 0, currentLength, head.value, 0, head.length) != 0) {
+        if (current == null || ValueDictionaryEntryNode.compareCodePointRange(current, 0, currentLength, head.value, 0,
+            head.length) != 0) {
           rank = appender.accept(head.value, 0, head.length);
           distinct++;
           if (current == null || current.length < head.length) {
@@ -483,7 +483,8 @@ public final class ProjectionRankPass {
 
     @Override
     public int compareTo(final RunCursor other) {
-      final int byValue = ValueDictionaryEntryNode.compareUtf16Range(value, 0, length, other.value, 0, other.length);
+      final int byValue =
+          ValueDictionaryEntryNode.compareCodePointRange(value, 0, length, other.value, 0, other.length);
       if (byValue != 0) {
         return byValue;
       }
@@ -572,7 +573,7 @@ public final class ProjectionRankPass {
     }
 
     private int compare(final int left, final int right) {
-      final int byValue = ValueDictionaryEntryNode.compareUtf16Range(bytes, offsets[left],
+      final int byValue = ValueDictionaryEntryNode.compareCodePointRange(bytes, offsets[left],
           offsets[left + 1] - offsets[left], bytes, offsets[right], offsets[right + 1] - offsets[right]);
       if (byValue != 0) {
         return byValue;

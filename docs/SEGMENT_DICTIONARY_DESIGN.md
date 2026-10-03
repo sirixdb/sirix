@@ -99,8 +99,9 @@ string region and for a projection leaf's id lane. **Document pages and projecti
 same id for the same value.** Ids are permanent within a generation and never reused; a value that
 is deleted and re-inserted resurrects its id (§7).
 
-A **rank** is the id's position in the sealed generation's collation order (UTF-16, the header
-contract). Ranks are storage positions, not identities: the lane never carries a rank. Decode:
+A **rank** is the id's position in the sealed generation's
+[string order](SEGMENT_PROJECTION_INDEXES.md#41-three-representations).
+Ranks are storage positions, not identities: the lane never carries a rank. Decode:
 `mint → rank (forward run) → bucket(rank / 256) → value`. Probe: `value → rank (separators + bucket
 binary search) → mint (inverse run, or the writer's in-memory hash)`.
 
@@ -177,8 +178,8 @@ refuses a global tag loudly. `SegmentDictionaryLane.bind` refuses to bind while 
 off (a positive witness, not a fallback); 1f decides whether lane loads force framing on.
 
 **Per slot with values in s, on the committing thread:**
-1. `byId` from the mint map; sort the mints by value (UTF-16 collation, `compareUtf16Range`, the
-   header contract) → `rankByMint`;
+1. `byId` from the mint map; sort the mints by value under the
+   [string ordering contract](SEGMENT_PROJECTION_INDEXES.md#41-three-representations) → `rankByMint`;
 2. feed the values in rank order to chained rank-ordered generations (`markRankOrdered()` +
    `flush`/`flushAppend`, 16384 distinct values per generation, `ordered = rankOrdered &&
    base.isFullyOrdered()` keeps the chain ordered) → `headerKey`;

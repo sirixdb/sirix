@@ -2084,9 +2084,9 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   public void stringSortedScansServeAndMatchTheGenericPipeline() throws IOException {
     // String ORDER BY keys (gap 1b widened to STRING_DICT) + `return $r.field` (gap 1c).
     // The corpus plants the collation adversary pair U+FF01 (3-byte UTF-8, high UTF-16
-    // unit) vs U+10400 (4-byte UTF-8, surrogate pair): raw unsigned UTF-8 order and the
-    // interpreter's UTF-16 order DISAGREE on it, so a comparator missing the decoded
-    // fallback fails the differential — descending puts the pair at the FRONT of the
+    // unit) vs U+10400 (4-byte UTF-8, surrogate pair): codepoint order disagrees with
+    // Java's UTF-16 order, so a comparator using String.compareTo fails the differential —
+    // descending puts the pair at the FRONT of the
     // window. Duplicate names prove document-order stability; the "" phrase exercises
     // the empty string as an order value and as an NE literal.
     query("""

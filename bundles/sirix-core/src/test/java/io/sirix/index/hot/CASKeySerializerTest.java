@@ -73,6 +73,24 @@ class CASKeySerializerTest {
     }
 
     @Test
+    @DisplayName("Unicode key bytes agree with Brackit's codepoint order")
+    void unicodeKeyOrderMatchesTheInterpreter() {
+      final String[] values = {"", "a", "！", "𐐀", "😀", "prefix-！", "prefix-𐐀", "prefix-𐐀a"};
+      for (final String left : values) {
+        for (final String right : values) {
+          final CASValue a = new CASValue(new Str(left), Type.STR, 1);
+          final CASValue b = new CASValue(new Str(right), Type.STR, 1);
+          final byte[] bufferA = new byte[256];
+          final byte[] bufferB = new byte[256];
+          final int lenA = serializer.serialize(a, bufferA, 0);
+          final int lenB = serializer.serialize(b, bufferB, 0);
+          assertEquals(Integer.signum(a.compareTo(b)), Integer.signum(compareBytes(bufferA, lenA, bufferB, lenB)),
+              left + " vs " + right);
+        }
+      }
+    }
+
+    @Test
     @DisplayName("Empty string round-trips and sorts below every non-empty value")
     void testEmptyStringIsAValue() {
       // The empty string is a legitimate indexed value, so its key is legitimately just the 10-byte

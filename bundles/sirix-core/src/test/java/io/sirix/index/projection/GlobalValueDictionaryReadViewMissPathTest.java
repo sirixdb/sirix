@@ -1,5 +1,7 @@
 package io.sirix.index.projection;
 
+import static io.sirix.utils.StringComparisonOracle.compareStrings;
+
 import com.sun.management.ThreadMXBean;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
@@ -189,14 +191,15 @@ final class GlobalValueDictionaryReadViewMissPathTest {
           final int neighbour = id == ENTRIES
               ? 1
               : id + 1;
-          assertEquals(Integer.signum(valueOf(id).compareTo(valueOf(neighbour))),
+          assertEquals(Integer.signum(compareStrings(valueOf(id), valueOf(neighbour))),
               Integer.signum(view.compareIds(id, neighbour)), "ordering of " + id + " vs " + neighbour);
         }
-        // Ordering follows UTF-16, not first-seen and not raw UTF-8.
+        // Ordering follows Unicode codepoints, not first-seen IDs.
         final int fullwidth = ENTRIES + 1;
         final int supplementary = ENTRIES + 2;
-        assertEquals(Integer.signum("𐐀".compareTo("！")), Integer.signum(view.compareIds(supplementary, fullwidth)),
-            "supplementary-plane ordering must follow UTF-16");
+        assertEquals(Integer.signum(compareStrings("𐐀", "！")),
+            Integer.signum(view.compareIds(supplementary, fullwidth)),
+            "supplementary-plane ordering must follow Unicode codepoints");
         // Overflow declines rather than wrapping.
         assertEquals(Long.MIN_VALUE, view.xsIntegerOfSubstring(ENTRIES + 3, 1, 20));
         // Range refusals, at both ends.
@@ -230,8 +233,8 @@ final class GlobalValueDictionaryReadViewMissPathTest {
         final int other = id == 1
             ? 2
             : 1;
-        assertEquals(Integer.signum(valueOf(id).compareTo(valueOf(other))), Integer.signum(view.compareIds(id, other)),
-            "cold ordering for id " + id);
+        assertEquals(Integer.signum(compareStrings(valueOf(id), valueOf(other))),
+            Integer.signum(view.compareIds(id, other)), "cold ordering for id " + id);
       }
       // And the static materialiser agrees with the view on the same revision.
       for (int id = 1; id <= ENTRIES; id += 257) {
@@ -286,11 +289,11 @@ final class GlobalValueDictionaryReadViewMissPathTest {
         // DISTINCT ids throughout: compareIds short-circuits on id equality, so comparing an id
         // with itself resolves no bucket, no block and no slice — a first version of this test did
         // exactly that and reported a false 0.0 B/probe.
-        // EXACT expected checksum, computed from String.compareTo before the measured window, so the
+        // EXACT expected checksum, computed from the interpreter before the measured window, so the
         // loop's result is pinned rather than merely "not a sentinel".
         long expected = 0L;
         for (int id = 1; id <= ENTRIES; id++) {
-          expected += Integer.signum(valueOf(id).compareTo(valueOf(id == ENTRIES
+          expected += Integer.signum(compareStrings(valueOf(id), valueOf(id == ENTRIES
               ? 1
               : id + 1)));
         }
@@ -355,7 +358,7 @@ final class GlobalValueDictionaryReadViewMissPathTest {
         final double hotPerProbe = (double) hotAllocated / ((long) passes * hotIds);
         long hotExpected = 0L;
         for (int id = 1; id <= hotIds; id++) {
-          hotExpected += Integer.signum(valueOf(id).compareTo(valueOf(id == hotIds
+          hotExpected += Integer.signum(compareStrings(valueOf(id), valueOf(id == hotIds
               ? 1
               : id + 1)));
         }

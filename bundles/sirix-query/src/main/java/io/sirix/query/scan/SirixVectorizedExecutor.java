@@ -6,6 +6,8 @@
  */
 package io.sirix.query.scan;
 
+import static io.sirix.utils.StringComparisons.compareCodePoints;
+
 import it.unimi.dsi.fastutil.HashCommon;
 import io.brackit.query.ErrorCode;
 import io.brackit.query.QueryContext;
@@ -3848,8 +3850,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * The numeric kernels skip non-numeric values, so a string column reaches their "no numeric value
    * contributed" branch. That branch used to be terminal — every {@code min(EventDate)}-shaped query
    * died with an internal error even though the interpreter answers it — but string extrema are
-   * perfectly well defined: {@code fn:min}/{@code fn:max} order {@code xs:string} by codepoint, which
-   * is what {@link String#compareTo} implements for the values a JSON document can hold.
+   * perfectly well defined: {@code fn:min}/{@code fn:max} order {@code xs:string} by the Unicode
+   * codepoint collation used by the interpreter.
    *
    * <p>
    * The distinct values come from the typed group-key kernel, which already carries this file's
@@ -3911,8 +3913,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       final String value = encoded.substring(colon + 1, end);
       if (best == null || (min
-          ? value.compareTo(best) < 0
-          : value.compareTo(best) > 0)) {
+          ? compareCodePoints(value, best) < 0
+          : compareCodePoints(value, best) > 0)) {
         best = value;
       }
     }
@@ -8392,10 +8394,34 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return convertPredicateLeaf(cp, n, handle, true);
   }
 
+  private static boolean hasLossyStringLiteral(final CompiledPredicate cp, final int n) {
+    final int literalIndex = cp.strIdx[n];
+    if (literalIndex < 0) {
+      return false;
+    }
+    final String literal = cp.strLiterals[literalIndex];
+    for (int i = 0; i < literal.length(); i++) {
+      final char ch = literal.charAt(i);
+      if (Character.isHighSurrogate(ch)) {
+        if (++i == literal.length() || !Character.isLowSurrogate(literal.charAt(i))) {
+          return true;
+        }
+      } else if (Character.isLowSurrogate(ch)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private ProjectionIndexScan.ColumnPredicate convertPredicateLeaf(final CompiledPredicate cp, final int n,
       final ProjectionIndexRegistry.Handle handle, final boolean segmentScopedServable) {
     {
       final byte op = cp.ops[n];
+      if (hasLossyStringLiteral(cp, n)) {
+        // UTF-8 replaces unpaired surrogates. Decline byte-backed predicates at this shared
+        // flat/tree boundary so fallback comparison retains the original literal.
+        return null;
+      }
       final int fi = cp.fieldIdx[n];
       if (fi < 0 || fi >= cp.fieldNames.length)
         return null;
@@ -10924,10 +10950,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final int fi = cp.fieldIdx[nodeIdx];
         // Same kind guard = missing-field semantics (JSON null: acceptsPredicate declines over
         // null-bearing columns — null orders SMALLEST, which this line cannot express).
-        // String.compareTo IS the interpreter's Str#cmp collation, no UTF-8 subtlety here.
+        // Use the same Unicode codepoint collation as the interpreter's Str#cmp.
         if (scratch.fieldKind[fi] != 3)
           return false;
-        final int c = scratch.strVals[fi].compareTo(cp.strLiterals[cp.strIdx[nodeIdx]]);
+        final int c = compareCodePoints(scratch.strVals[fi], cp.strLiterals[cp.strIdx[nodeIdx]]);
         return switch (cp.cmpOp[nodeIdx]) {
           case OP_GT -> c > 0;
           case OP_LT -> c < 0;
@@ -11963,7 +11989,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // Missing rows never match; null-bearing columns never reach here (acceptsPredicate).
           if (pk[i] != 3 || vals[i] == null)
             continue;
-          final int c = vals[i].compareTo(lit);
+          final int c = compareCodePoints(vals[i], lit);
           final boolean match = switch (dir) {
             case OP_GT -> c > 0;
             case OP_LT -> c < 0;
@@ -14806,32 +14832,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return new ServedGroups(new ItemSequence(ordered), true);
   }
 
-  /**
-   * Unicode codepoint order of two strings, which is also the unsigned byte order of their UTF-8
-   * encodings. {@link String#compareTo} compares UTF-16 units instead and puts every supplementary
-   * character before the BMP characters from {@code U+E000} up.
-   */
-  private static int compareCodePoints(final String left, final String right) {
-    final int length = Math.min(left.length(), right.length());
-    for (int i = 0; i < length; i++) {
-      final char l = left.charAt(i);
-      final char r = right.charAt(i);
-      if (l != r) {
-        return codePointOrderUnit(l) - codePointOrderUnit(r);
-      }
-    }
-    return left.length() - right.length();
-  }
-
-  /** Remaps a UTF-16 unit so units compare in codepoint order: surrogates above every BMP unit. */
-  private static int codePointOrderUnit(final char unit) {
-    return unit < Character.MIN_SURROGATE
-        ? unit
-        : unit > Character.MAX_SURROGATE
-            ? unit - 0x800
-            : unit + 0x2000;
-  }
-
   public ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
@@ -15389,7 +15389,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           anyDeferred = true;
         } else if (col >= 0 && deferredKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
           // A GLOBAL operand defers exactly like a per-leaf dict one — pass 2 folds its best as an
-          // ID under the dictionary's UTF-16 collation and materializes winners only. Requires a
+          // ID under the dictionary's Unicode codepoint collation and materializes winners only. Requires a
           // readable dictionary at this revision; without one the column cannot answer.
           final long headerKey = handle.valueDictionaryHeaderKey(col);
           if (headerKey <= 0L) {
@@ -17351,8 +17351,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                     }
                     final String cur = best[a][sl];
                     if (cur == null || (deferredIsMinArr[a]
-                        ? cand.compareTo(cur) < 0
-                        : cand.compareTo(cur) > 0)) {
+                        ? compareCodePoints(cand, cur) < 0
+                        : compareCodePoints(cand, cur) > 0)) {
                       best[a][sl] = cand;
                     }
                   }
@@ -17403,8 +17403,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 }
                 final String cur = deferredBest[a][sl];
                 if (cur == null || (deferredIsMinArr[a]
-                    ? cand.compareTo(cur) < 0
-                    : cand.compareTo(cur) > 0)) {
+                    ? compareCodePoints(cand, cur) < 0
+                    : compareCodePoints(cand, cur) > 0)) {
                   deferredBest[a][sl] = cand;
                 }
               }

@@ -189,7 +189,8 @@ SearchPhrase 6.0 M × 78 = 0.47 GB — 5.86 GB for the four**: still far over th
 
 ## 2. What P2 changes, in one list
 
-1. **Rank ids.** Ids `1..orderedPrefixCount` are assigned in UTF-16 collation order of their values. Nothing about
+1. **Rank ids.** Ids `1..orderedPrefixCount` follow the
+   [string ordering contract](SEGMENT_PROJECTION_INDEXES.md#41-three-representations). Nothing about
    the id *representation* changes; only their meaning, and that meaning is carried by one new header field.
 2. **A post-pass build** with a spilled distinct set: bounded heap, sequential I/O, no persistent probe per value.
 3. **A boundary field** in `ValueDictionaryHeaderNode` separating the ordered prefix from an append-order tail.
@@ -227,8 +228,8 @@ The record is fixed-width (`NodeKind:1672-1703`, `VALUE_DICTIONARY_HEADER`): 28 
     int64   forwardRootKey       // hash-prefix radix root
     int64   reverseRootKey       // id-prefix radix root
     int32   generation           // successful append generations
-    int32   orderedPrefixCount   // NEW, appended. ids 1..orderedPrefixCount are in UTF-16 collation
-                                 // order of their values; ids above it are in append (first-intern)
+    int32   orderedPrefixCount   // NEW, appended. ordered prefix; collation is specified in §5.4
+                                 // ids above it are in append (first-intern)
                                  // order. 0 for every dictionary built by today's streaming mint.
 ```
 
@@ -670,10 +671,10 @@ S1 EXTRACT      for each row group in physical order:
                   read the column's DICT segment (<= 1024 entries, already deduped per leaf)
                   for each entry e:  VALIDATE well-formed UTF-8 (§5.4), then emit (value, leafId, localId)
                 deduplicate inside a bounded run buffer; when it fills, sort the run
-                (UTF-16 order, §5.4) and spill it; carry an HLL and the exact distinct
+                (order specified in §5.4) and spill it; carry an HLL and the exact distinct
                 byte total (the distinct-weighted mean length §4.1 needs).
 
-S2 MERGE+RANK   k-way merge the runs in UTF-16 order.
+S2 MERGE+RANK   k-way merge the runs in the order specified in §5.4.
                 for each distinct value v, in order:
                   rank := rank + 1
                   appender.accept(v)                      // mints exactly `rank` — §5.3
@@ -736,40 +737,12 @@ stay exactly as they are for the streaming path they were built for.
 The generation writer's own budget is `MINIMUM_BUDGET_BYTES` plus the generation's values — ~2.4 MB at
 `16,384 × (52 + avgLen)` — so the `AdmissionPolicy` is `FAIL_CLOSED`: a refusal here is a defect, not a decline.
 
-### 5.4 UTF-16 order from unsigned byte order — the transform
+### 5.4 String ordering and validation
 
-The engine's collation is UTF-16 code-unit order (`ValueDictionaryEntryNode.compareUtf16Range`), which differs from
-UTF-8 byte order in exactly one place: a supplementary character (U+10000+, 4-byte lead `0xF0..0xF4`) sorts *after*
-U+E000..U+FFFF (3-byte lead `0xEE`, `0xEF`) in UTF-8 bytes, but *before* it in UTF-16, because it is written as
-surrogates `0xD800..0xDFFF`.
-
-**Precondition: the values are valid UTF-8.** The whole argument rests on it, so it is a checked precondition and
-not an assumption. `0xEE` and `0xEF` can only ever be **lead** bytes of valid UTF-8 (continuations are
-`0x80..0xBF`), and `0xFE`/`0xFF` never occur in valid UTF-8 at all. Under that precondition the byte-wise
-substitution
-
-```
-  0xEE -> 0xFE      0xEF -> 0xFF      every other byte unchanged
-```
-
-is unambiguous, and **unsigned byte order over the transformed bytes is exactly UTF-16 code-unit order.** The
-transform is applied in the comparator (or materialised into the sort key), never stored. Order within
-`0xE0..0xED` is untouched; `0xF0..0xF4` now precede `0xFE/0xFF`, matching surrogates preceding U+E000.
-
-This makes S1/S2 a plain byte-order external sort — SIMD-comparable, no code-point decoding in the merge — while
-being *provably* the collation the query engine uses.
-
-**S1 validates, and a violation is a build error.** Every value entering the extract pass is checked for
-well-formed UTF-8 (correct continuation counts, no overlong forms, no encoded surrogate `0xED 0xA0..0xBF`, no
-`0xC0/0xC1/0xF5..0xFF`), and a violation **fails the pass by name** rather than being sorted into a silently wrong
-order. This is cheap — one pass over bytes S1 is already copying — and it is the only thing standing between a
-malformed value and an ordering that `compareUtf16Range` would disagree with. `ValueDictionaryEntryNode`'s
-`decodeCodePoint` already assumes the same well-formedness on the read side, so P2 is checking an invariant the
-existing code relies on rather than inventing one.
-
-W1 (§13) is the proof obligation. Its mutation is "remove the substitution", and its **generator must include
-unpaired and encoded surrogates and overlong forms** so that the validation arm is exercised, not just the ordering
-arm.
+The current rank collation and extraction validation are specified in
+[SEGMENT_PROJECTION_INDEXES.md §4](SEGMENT_PROJECTION_INDEXES.md#4-dictionaries-and-string-encodings).
+The former UTF-16 byte-substitution recipe is obsolete. W1 (§13) retains the ordering and
+malformed-input proof obligations.
 
 ### 5.5 Memory arithmetic at 100 M
 
@@ -1301,7 +1274,7 @@ alone would mis-attribute its bytes.
 
 | # | witness | mutation that must fail |
 |---|---|---|
-| W1 | `RankOrderIsUtf16Order` — a generated value set spanning ASCII, U+0800..U+D7FF, **U+E000..U+FFFF** and **supplementary** characters; the ranks produced by S2 equal the order of `ValueDictionaryEntryNode.compareUtf16Range`. The generator **also emits malformed input** — unpaired and CESU-style encoded surrogates (`0xED 0xA0..0xBF`), overlong forms, `0xC0/0xC1/0xF5..0xFF` — which S1 must reject by name (§5.4). | remove the `0xEE→0xFE / 0xEF→0xFF` substitution → the PUA-vs-supplementary pair inverts; remove S1's validation → an encoded surrogate sorts into a position `compareUtf16Range` disagrees with, and the differential catches it. |
+| W1 | Generated values spanning ASCII, U+0800..U+D7FF, **U+E000..U+FFFF** and **supplementary** characters must rank according to the contract in §5.4. The generator also emits malformed UTF-8, which S1 must reject by name. | restore the obsolete byte substitution → the PUA-vs-supplementary pair inverts; remove S1's validation → malformed-input rejection fails. |
 | W2 | `RankPassIsExactUnderHashCollision` — two distinct values constructed to collide on `GlobalValueDictionary.valueHash`; both get distinct ranks and every row resolves to its own value. | map `(leafId, localId) → rank` by hash instead of by the merge's triples → one row reads the other's value. |
 | W3 | `OrderedPrefixBoundaryIsHonoured` — a dictionary with `B < entryCount`; a sorted scan, an id-range predicate and a zone prune each either decline or produce the interpreter's answer. | test `B > 0` instead of `B == entryCount` → the sorted scan emits the append-order tail in the wrong place (assert the exact wrong sequence, so the guard's absence is *visible*, not merely "different"). |
 | W4 | `RemapPreservesEveryValue` — for every row of a fixture, the value read after S4 equals the value read before it, through the interpreter. | start ranks at 0 → an off-by-one on every row; `intern` after the merge rather than during → ids stop being ranks. |

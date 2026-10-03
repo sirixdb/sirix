@@ -1,5 +1,7 @@
 package io.sirix.query.compiler.expression;
 
+import static io.sirix.utils.StringComparisons.compareCodePoints;
+
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
@@ -28,58 +30,58 @@ import java.util.Map;
 /**
  * Physical operator for vectorized pipeline execution.
  *
- * <p>Follows the {@link IndexExpr} pattern: constructed from AST properties
- * during translation, evaluates by opening a storage engine reader and
- * scanning columnar batches with SIMD-accelerated filtering.</p>
+ * <p>
+ * Follows the {@link IndexExpr} pattern: constructed from AST properties during translation,
+ * evaluates by opening a storage engine reader and scanning columnar batches with SIMD-accelerated
+ * filtering.
+ * </p>
  *
  * <h3>Evaluate flow (columnar route):</h3>
  * <ol>
- *   <li>Look up database → JsonDBCollection</li>
- *   <li>Open resource session → JsonResourceSession</li>
- *   <li>Begin read-only transaction → JsonNodeReadOnlyTrx</li>
- *   <li>Get storage engine reader → StorageEngineReader (bridge to columnar scan)</li>
- *   <li>Create ColumnarScanAxis for multi-page columnar scan</li>
- *   <li>Loop: while nextBatch() != null
- *     <ul>
- *       <li>Apply string EQ/NE predicates via ColumnarStringFilter (FSST-aware)</li>
- *       <li>Apply numeric and string range predicates via scalar fallback
- *           (materialize string value → parse → compare row-by-row)</li>
- *       <li>Skip batch if selectionCount == 0</li>
- *       <li>Materialize surviving rows → moveTo(nodeKey) → add to result</li>
- *     </ul>
- *   </li>
- *   <li>Return ItemSequence of all surviving items</li>
+ * <li>Look up database → JsonDBCollection</li>
+ * <li>Open resource session → JsonResourceSession</li>
+ * <li>Begin read-only transaction → JsonNodeReadOnlyTrx</li>
+ * <li>Get storage engine reader → StorageEngineReader (bridge to columnar scan)</li>
+ * <li>Create ColumnarScanAxis for multi-page columnar scan</li>
+ * <li>Loop: while nextBatch() != null
+ * <ul>
+ * <li>Apply string EQ/NE predicates via ColumnarStringFilter (FSST-aware)</li>
+ * <li>Apply numeric and string range predicates via scalar fallback (materialize string value →
+ * parse → compare row-by-row)</li>
+ * <li>Skip batch if selectionCount == 0</li>
+ * <li>Materialize surviving rows → moveTo(nodeKey) → add to result</li>
+ * </ul>
+ * </li>
+ * <li>Return ItemSequence of all surviving items</li>
  * </ol>
  *
  * <h3>Known limitations (current implementation):</h3>
  * <ul>
- *   <li><b>Route field unused:</b> The {@code route} property ("columnar"/"simd") is
- *       extracted from the AST but not consumed — execution always takes the columnar
- *       path. The SIMD route is a placeholder for future per-field typed columns in
- *       ColumnarScanAxis, which would enable {@code ColumnBatchFilter.filterLong/filterDouble}
- *       SIMD vectorization.</li>
- *   <li><b>Field name not dispatched:</b> {@code VectorizedPredicate.fieldName()} is
- *       extracted during routing but not used for column dispatch. All predicates are
- *       applied to global columns (COL_NUMERIC_VALUE / COL_STRING_VALUE) rather than
- *       per-field typed columns. This is correct for single-field queries but limits
- *       multi-field predicate efficiency.</li>
- *   <li><b>ColumnBatchFilter SIMD dead code:</b> {@code ColumnBatchFilter.filterLong}
- *       and {@code filterDouble} are fully implemented with SIMD Vector API but never
- *       called from this expression. The reason: mixed batches contain both number-type
- *       and string-type rows, and {@code filterDouble} removes null rows (string rows)
- *       from the selection vector before the scalar fallback can process them. The
- *       {@code filterNumericCombined} method handles both populations correctly in a
- *       single pass. SIMD can be enabled by pre-splitting populations.</li>
+ * <li><b>Route field unused:</b> The {@code route} property ("columnar"/"simd") is extracted from
+ * the AST but not consumed — execution always takes the columnar path. The SIMD route is a
+ * placeholder for future per-field typed columns in ColumnarScanAxis, which would enable
+ * {@code ColumnBatchFilter.filterLong/filterDouble} SIMD vectorization.</li>
+ * <li><b>Field name not dispatched:</b> {@code VectorizedPredicate.fieldName()} is extracted during
+ * routing but not used for column dispatch. All predicates are applied to global columns
+ * (COL_NUMERIC_VALUE / COL_STRING_VALUE) rather than per-field typed columns. This is correct for
+ * single-field queries but limits multi-field predicate efficiency.</li>
+ * <li><b>ColumnBatchFilter SIMD dead code:</b> {@code ColumnBatchFilter.filterLong} and
+ * {@code filterDouble} are fully implemented with SIMD Vector API but never called from this
+ * expression. The reason: mixed batches contain both number-type and string-type rows, and
+ * {@code filterDouble} removes null rows (string rows) from the selection vector before the scalar
+ * fallback can process them. The {@code filterNumericCombined} method handles both populations
+ * correctly in a single pass. SIMD can be enabled by pre-splitting populations.</li>
  * </ul>
  *
  * <h3>HFT-grade analysis:</h3>
- * <p>No hot-path allocation violations: ColumnarScanAxis pre-allocates extraction
- * arrays, ColumnBatch reuses arrays via reset(). String EQ/NE uses FSST-aware
- * compressed comparison via ColumnarStringFilter. Numeric predicates currently use
- * scalar fallback (parse-then-compare) — SIMD acceleration via ColumnBatchFilter
- * will be available when per-field typed columns are added to ColumnarScanAxis.
- * The only per-batch allocation is JsonDBItem wrappers for surviving rows
- * (unavoidable — Brackit requires Item objects).</p>
+ * <p>
+ * No hot-path allocation violations: ColumnarScanAxis pre-allocates extraction arrays, ColumnBatch
+ * reuses arrays via reset(). String EQ/NE uses FSST-aware compressed comparison via
+ * ColumnarStringFilter. Numeric predicates currently use scalar fallback (parse-then-compare) —
+ * SIMD acceleration via ColumnBatchFilter will be available when per-field typed columns are added
+ * to ColumnarScanAxis. The only per-batch allocation is JsonDBItem wrappers for surviving rows
+ * (unavoidable — Brackit requires Item objects).
+ * </p>
  */
 public final class VectorizedPipelineExpr implements Expr {
 
@@ -103,8 +105,7 @@ public final class VectorizedPipelineExpr implements Expr {
   public Sequence evaluate(QueryContext ctx, Tuple tuple) throws QueryException {
     if (databaseName == null || resourceName == null) {
       throw new QueryException(new QNm("VectorizedPipelineExpr"),
-          "Cannot execute vectorized pipeline: database=%s, resource=%s"
-              .formatted(databaseName, resourceName));
+          "Cannot execute vectorized pipeline: database=%s, resource=%s".formatted(databaseName, resourceName));
     }
     if (predicates == null || predicates.isEmpty()) {
       throw new QueryException(new QNm("VectorizedPipelineExpr"),
@@ -135,8 +136,16 @@ public final class VectorizedPipelineExpr implements Expr {
     try {
       return evaluateColumnar(rtx, resourceSession, jsonCollection);
     } catch (final Exception e) {
-      try { rtx.close(); } catch (final Exception s) { e.addSuppressed(s); }
-      try { resourceSession.close(); } catch (final Exception s) { e.addSuppressed(s); }
+      try {
+        rtx.close();
+      } catch (final Exception s) {
+        e.addSuppressed(s);
+      }
+      try {
+        resourceSession.close();
+      } catch (final Exception s) {
+        e.addSuppressed(s);
+      }
       throw e;
     }
   }
@@ -144,9 +153,11 @@ public final class VectorizedPipelineExpr implements Expr {
   /**
    * Columnar scan-filter-materialize loop.
    *
-   * <p>Hot path: per-batch filtering uses pre-allocated arrays from ColumnarScanAxis
-   * and in-place selection vector compaction from ColumnBatchFilter. No allocations
-   * in the inner loop except for JsonDBItem wrappers on surviving rows.</p>
+   * <p>
+   * Hot path: per-batch filtering uses pre-allocated arrays from ColumnarScanAxis and in-place
+   * selection vector compaction from ColumnBatchFilter. No allocations in the inner loop except for
+   * JsonDBItem wrappers on surviving rows.
+   * </p>
    */
   private Sequence evaluateColumnar(JsonNodeReadOnlyTrx rtx, JsonResourceSession resourceSession,
       JsonDBCollection jsonCollection) throws QueryException {
@@ -185,14 +196,18 @@ public final class VectorizedPipelineExpr implements Expr {
   /**
    * Apply all extracted predicates to a batch.
    *
-   * <p>Each predicate narrows the selection vector in-place. String EQ/NE predicates
-   * use ColumnarStringFilter with FSST-aware compressed comparison. Numeric predicates
-   * use a combined filter that handles both number-type rows (via COL_NUMERIC_VALUE)
-   * and string-encoded numbers (via COL_STRING_VALUE) in a single pass.</p>
+   * <p>
+   * Each predicate narrows the selection vector in-place. String EQ/NE predicates use
+   * ColumnarStringFilter with FSST-aware compressed comparison. Numeric predicates use a combined
+   * filter that handles both number-type rows (via COL_NUMERIC_VALUE) and string-encoded numbers (via
+   * COL_STRING_VALUE) in a single pass.
+   * </p>
    *
-   * <p><b>Design note:</b> SIMD and scalar fallback cannot be chained sequentially because
-   * {@code ColumnBatchFilter.filterDouble} removes rows with null in COL_NUMERIC_VALUE
-   * (string rows). A combined pass preserves both populations correctly.</p>
+   * <p>
+   * <b>Design note:</b> SIMD and scalar fallback cannot be chained sequentially because
+   * {@code ColumnBatchFilter.filterDouble} removes rows with null in COL_NUMERIC_VALUE (string rows).
+   * A combined pass preserves both populations correctly.
+   * </p>
    */
   private void applyPredicates(ColumnBatch batch) {
     if (predicates == null) {
@@ -206,11 +221,11 @@ public final class VectorizedPipelineExpr implements Expr {
           if (pred.isStringFilterable()) {
             // EQ/NE: use FSST-aware compressed comparison
             if (pred.op() == ComparisonOperator.EQ) {
-              ColumnarStringFilter.filterStringEqual(
-                  batch, ColumnarScanAxis.COL_STRING_VALUE, (String) pred.constant());
+              ColumnarStringFilter.filterStringEqual(batch, ColumnarScanAxis.COL_STRING_VALUE,
+                  (String) pred.constant());
             } else {
-              ColumnarStringFilter.filterStringNotEqual(
-                  batch, ColumnarScanAxis.COL_STRING_VALUE, (String) pred.constant());
+              ColumnarStringFilter.filterStringNotEqual(batch, ColumnarScanAxis.COL_STRING_VALUE,
+                  (String) pred.constant());
             }
           } else {
             // String range predicates: materialize and compare row-by-row
@@ -225,12 +240,14 @@ public final class VectorizedPipelineExpr implements Expr {
   }
 
   /**
-   * Scalar fallback for string range predicates (LT/LE/GT/GE).
-   * Materializes string values per-row and compares.
+   * Scalar fallback for string range predicates (LT/LE/GT/GE). Materializes string values per-row and
+   * compares.
    *
-   * <p>Uses per-row {@code materializeDeferredString} instead of bulk
-   * {@code materializeAllSelected} because mixed batches may contain number rows
-   * with garbage in COL_STRING_VALUE deferred arrays — bulk decode would crash.</p>
+   * <p>
+   * Uses per-row {@code materializeDeferredString} instead of bulk {@code materializeAllSelected}
+   * because mixed batches may contain number rows with garbage in COL_STRING_VALUE deferred arrays —
+   * bulk decode would crash.
+   * </p>
    */
   private static void filterStringScalar(ColumnBatch batch, VectorizedPredicate pred) {
     final String constant = (String) pred.constant();
@@ -249,29 +266,32 @@ public final class VectorizedPipelineExpr implements Expr {
   }
 
   /**
-   * Combined numeric predicate filter for batches containing both number-type
-   * and string-type rows.
+   * Combined numeric predicate filter for batches containing both number-type and string-type rows.
    *
-   * <p>Number rows (non-null in COL_NUMERIC_VALUE) are compared directly via the
-   * double column — fast scalar path (SIMD can be added by splitting populations).
-   * String rows (null in COL_NUMERIC_VALUE, non-null in COL_STRING_VALUE) are
-   * materialized per-row, parsed to number, and compared row-by-row.</p>
+   * <p>
+   * Number rows (non-null in COL_NUMERIC_VALUE) are compared directly via the double column — fast
+   * scalar path (SIMD can be added by splitting populations). String rows (null in COL_NUMERIC_VALUE,
+   * non-null in COL_STRING_VALUE) are materialized per-row, parsed to number, and compared
+   * row-by-row.
+   * </p>
    *
-   * <p><b>Why not chain SIMD + scalar?</b> {@code ColumnBatchFilter.filterDouble}
-   * removes null rows from the selection vector. String rows have null in
-   * COL_NUMERIC_VALUE, so they'd be removed before the scalar fallback runs.
-   * This combined pass handles both populations correctly in one iteration.</p>
+   * <p>
+   * <b>Why not chain SIMD + scalar?</b> {@code ColumnBatchFilter.filterDouble} removes null rows from
+   * the selection vector. String rows have null in COL_NUMERIC_VALUE, so they'd be removed before the
+   * scalar fallback runs. This combined pass handles both populations correctly in one iteration.
+   * </p>
    *
-   * <p><b>Why per-row materialization?</b> {@code batch.materializeAllSelected()}
-   * processes ALL selected rows via {@code FSSTCompressor.batchDecode}, which
-   * reads deferred byte arrays (offsets, page indices) without checking null flags.
-   * For number rows, COL_STRING_VALUE has null flags set but stale garbage in
-   * deferred byte arrays — batchDecode would read garbage page indices and crash
-   * with ArrayIndexOutOfBoundsException. Per-row {@code materializeDeferredString}
-   * checks null flags first and returns null for null rows.</p>
+   * <p>
+   * <b>Why per-row materialization?</b> {@code batch.materializeAllSelected()} processes ALL selected
+   * rows via {@code FSSTCompressor.batchDecode}, which reads deferred byte arrays (offsets, page
+   * indices) without checking null flags. For number rows, COL_STRING_VALUE has null flags set but
+   * stale garbage in deferred byte arrays — batchDecode would read garbage page indices and crash
+   * with ArrayIndexOutOfBoundsException. Per-row {@code materializeDeferredString} checks null flags
+   * first and returns null for null rows.
+   * </p>
    *
-   * @param batch  the column batch to filter in-place
-   * @param pred   the numeric predicate
+   * @param batch the column batch to filter in-place
+   * @param pred the numeric predicate
    * @param isLong true for INT64 predicates (parse as long), false for FLOAT64
    */
   private static void filterNumericCombined(ColumnBatch batch, VectorizedPredicate pred, boolean isLong) {
@@ -280,7 +300,9 @@ public final class VectorizedPipelineExpr implements Expr {
       return;
     }
     final double doubleConstant = numConst.doubleValue();
-    final long longConstant = isLong ? numConst.longValue() : 0;
+    final long longConstant = isLong
+        ? numConst.longValue()
+        : 0;
     final ComparisonOperator op = pred.op();
 
     final double[] numColumn = batch.doubleColumn(ColumnarScanAxis.COL_NUMERIC_VALUE);
@@ -323,7 +345,7 @@ public final class VectorizedPipelineExpr implements Expr {
    * Scalar string comparison for range predicates.
    */
   private static boolean compareString(String value, String constant, ComparisonOperator op) {
-    return op.testCompareTo(value.compareTo(constant));
+    return op.testCompareTo(compareCodePoints(value, constant));
   }
 
   @Override

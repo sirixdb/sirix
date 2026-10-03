@@ -355,6 +355,7 @@ Byte order equals key order within each serializer, except:
 | Case | Why | Where compensated |
 |---|---|---|
 | CAS strings of ≥ 246 UTF-8 bytes | truncated; a 246-byte value collides with every longer value sharing that prefix, hence `≥` not `>` (`hot/CASKeySerializer.java:965-973`) | `CASIndex` re-checks candidates against the documents when `losesInformation` holds (`idx/cas/CASIndex.java:613-623`) |
+| CAS string bounds containing unpaired surrogates | UTF-8 encoding would replace the original literal | open that side of the scan and compare the original bounds as residuals; see §4.4.3 |
 | CAS decimals that map to the same double | "WITHIN one double … the suffix decides, and that is not value order" (`hot/CASKeySerializer.java:478-483`) | `narrowsNumeric` (`:829-928`) |
 | CAS integers outside `long` | saturate to `Long.MIN_VALUE`/`MAX_VALUE` (`:688-718`) | `narrowsNumeric` |
 | CAS floats | narrowed through `float` (`:296-304`) | `narrowsNumeric` returns true when `(double)(float)d != d` |
@@ -1019,6 +1020,19 @@ full scan with a filter otherwise (`idx/cas/CASIndex.java:59-140`, `:516-700`); 
 (`idx/path/PathIndex.java:24-73`; `idx/name/NameIndex.java:29-81`). HOT posting lists span every
 revision's node keys while the path summary describes the query revision, so CAS checks for stale
 PCRs (`idx/cas/CASIndex.java:599-605`).
+
+For an `xs:string` ordering bound containing an unpaired surrogate, the shared `CASIndex`
+boundary opens that side without serializing replacement bytes. An encodable opposite
+bound remains eligible for a bounded scan. Every returned key is checked against both
+original bounds, with their original inclusivity, using the
+[string ordering contract](SEGMENT_PROJECTION_INDEXES.md#41-three-representations).
+Path-class filtering still applies. If a stored key reaches the 246-byte cap, the
+residual reads each candidate's original document value rather than comparing the
+decoded prefix; a separate record reader preserves the index cursor for read-only
+transactions, while a writer supplies its own uncommitted records. Losslessly encodable
+bounds keep their existing scan path. This boundary serves `IndexExpr`, the vectorized
+executor and the public JSON/XML CAS scan functions (`CASIndex.openStringRangeWithResidual`,
+`exactStringRangeMatches`).
 
 ### 4.5 Incremental insert
 

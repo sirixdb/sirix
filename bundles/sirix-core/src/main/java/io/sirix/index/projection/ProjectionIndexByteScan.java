@@ -4081,7 +4081,7 @@ public final class ProjectionIndexByteScan {
    * <p>
    * {@code bestOut[a][slot]} receives the materialized best value, or stays {@code null} when no row
    * of the group carries the operand (min over the empty sequence). Thread-partials merge caller-side
-   * via {@link String#compareTo} — the identical collation on materialized values.
+   * via Unicode codepoint comparison — the identical collation on materialized values.
    */
   public static void stringAggForWinnerGroups(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final ProjectionIndexScan.PredicateTree treeOrNull,
@@ -4108,9 +4108,9 @@ public final class ProjectionIndexByteScan {
    * index-aligned with {@code stringAggColumns}, a non-null entry marking that column as
    * {@code STRING_GLOBAL} and supplying the dictionary view its ids resolve through. The best value
    * of a global operand is tracked as an ID under {@link GlobalValueDictionary.ReadView#compareIds} —
-   * the same UTF-16 collation {@code compareStrSlices} gives the per-leaf entries — and materialized
-   * once per winning group at the end. Rows whose id repeats the incumbent skip without a dictionary
-   * touch, which on low-cardinality operands is nearly every row.
+   * the same Unicode codepoint collation {@code compareStrSlices} gives the per-leaf entries — and
+   * materialized once per winning group at the end. Rows whose id repeats the incumbent skip without
+   * a dictionary touch, which on low-cardinality operands is nearly every row.
    *
    * <p>
    * The view is a PER-WORKER object (its slice caches are not thread-safe); callers running fold
@@ -4440,15 +4440,10 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
-   * Slice comparison under the interpreter's collation ({@code Str#cmp} = UTF-16 code units):
-   * unsigned bytes unless either side carries a 4-byte UTF-8 lead, then decoded compareTo.
+   * Slice comparison under the interpreter's Unicode codepoint collation: unsigned UTF-8 bytes.
    */
   static int compareStrSlices(final byte[] a, final int aOff, final int aLen, final byte[] b, final int bOff,
       final int bLen) {
-    if (ProjectionIndexScan.hasFourByteUtf8(a, aOff, aLen) || ProjectionIndexScan.hasFourByteUtf8(b, bOff, bLen)) {
-      return new String(a, aOff, aLen, StandardCharsets.UTF_8).compareTo(
-          new String(b, bOff, bLen, StandardCharsets.UTF_8));
-    }
     return Arrays.compareUnsigned(a, aOff, aOff + aLen, b, bOff, bOff + bLen);
   }
 
@@ -6278,11 +6273,11 @@ public final class ProjectionIndexByteScan {
     final long[] idBits = new long[dictSize + 63 >>> 6];
     boolean any = false;
     final byte[] lit = p.stringLitBytes;
-    final boolean litHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(lit, 0, lit.length);
+
     int concatOff = baseOff + 4 + dictSize * 4;
     for (int i = 0; i < dictSize; i++) {
       final int len = getIntLE(payload, baseOff + 4 + i * 4);
-      if (ProjectionIndexScan.stringDictEntryMatches(payload, concatOff, len, p.op, lit, litHasSupplementary)) {
+      if (ProjectionIndexScan.stringDictEntryMatches(payload, concatOff, len, p.op, lit)) {
         idBits[i >>> 6] |= 1L << (i & 63);
         any = true;
       }

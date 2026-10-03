@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.utils.StringComparisons.compareCodePoints;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -158,9 +160,9 @@ public final class SegmentGroupCanonicaliser {
      * Order two cells by the values they name, under the dictionary's collation.
      *
      * <p>
-     * The default compares Strings, which is UTF-16 code-unit order — the same order
-     * {@code compareUtf16Range} imposes on the dictionary's storage, so the two agree. A plain resolver
-     * overrides it with {@code compareCells} and touches no String at all.
+     * The default compares Strings in Unicode codepoint order — the same order
+     * {@code compareCodePointRange} imposes on the dictionary's storage, so the two agree. A plain
+     * resolver overrides it with {@code compareCells} and touches no String at all.
      * </p>
      */
     default int compareValues(final long left, final long right) {
@@ -173,7 +175,7 @@ public final class SegmentGroupCanonicaliser {
                 : -1)
             : 1;
       }
-      return a.compareTo(b);
+      return compareCodePoints(a, b);
     }
   }
 
@@ -1554,9 +1556,9 @@ public final class SegmentGroupCanonicaliser {
    * </p>
    *
    * <p>
-   * The order is {@link String#compareTo}, which is UTF-16 code-unit order — the same order
-   * {@code ValueDictionaryEntryNode.compareUtf16Range} imposes on the dictionary's own storage, so a
-   * lane ranked here and a dictionary sealed there agree.
+   * The order is Unicode codepoint order — the same order
+   * {@code ValueDictionaryEntryNode.compareCodePointRange} imposes on the dictionary's own storage,
+   * so a lane ranked here and a dictionary sealed there agree.
    * </p>
    *
    * <p>
@@ -1602,7 +1604,7 @@ public final class SegmentGroupCanonicaliser {
     for (int i = 0; i < count; i++) {
       arrivalByRank[i] = i + 1;
     }
-    IntArrays.quickSort(arrivalByRank, (left, right) -> byArrival[left - 1].compareTo(byArrival[right - 1]));
+    IntArrays.quickSort(arrivalByRank, (left, right) -> compareCodePoints(byArrival[left - 1], byArrival[right - 1]));
     final int[] ranks = new int[count];
     final int[] sorted = new int[count];
     for (int rank = 0; rank < count; rank++) {
@@ -1740,10 +1742,10 @@ public final class SegmentGroupCanonicaliser {
         return;
       }
       final int right = left + 1;
-      int smallest = right < size && head[heap[right]].compareTo(head[heap[left]]) < 0
+      int smallest = right < size && compareCodePoints(head[heap[right]], head[heap[left]]) < 0
           ? right
           : left;
-      if (head[heap[smallest]].compareTo(head[heap[parent]]) >= 0) {
+      if (compareCodePoints(head[heap[smallest]], head[heap[parent]]) >= 0) {
         return;
       }
       final int swap = heap[parent];

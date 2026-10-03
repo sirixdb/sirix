@@ -500,6 +500,19 @@ Cites: `proj/ProjectionIndexRowGroupPage.java:2242-2515`; `proj/ProjectionIndexB
 
 ### 4.1 Three representations
 
+Served string comparisons, `MIN`/`MAX`, sorting and top-k use XQuery's default Unicode
+codepoint collation, matching the interpreter. For well-formed UTF-8 this is unsigned byte
+order; materialized strings use `StringComparisons.compareCodePoints`, not Java's UTF-16
+`String.compareTo`. Dictionary ranks, block separators and read-side probes must use this
+same order (`ValueDictionaryEntryNode.compareCodePointRange`). Ranked dictionaries built
+under the former UTF-16 order must be rebuilt: the node layout is unchanged, and there is
+no compatibility reader for the old ordering.
+
+Projection predicates with unpaired-surrogate literals decline byte-backed serving and
+retain the original string for fallback comparison (`SVE.convertPredicateLeaf`). Such
+literals cannot be encoded losslessly as UTF-8; CAS range handling is specified in
+[HOT_INDEX_SPECIFICATION.md §4.4.3](HOT_INDEX_SPECIFICATION.md#443-index-level-ranges).
+
 | Kind | Dictionary lives in | Chosen when |
 |---|---|---|
 | STRING_DICT (2) | the row group's DICT segment (RAW or FSST) | default |
@@ -525,9 +538,9 @@ seeding breaks the budget; AUTO ranks candidates and admits a subset within
   SEGMENT_DICTIONARY_DIRECTORY 62.
 - **Header node** (`core/node/NodeKind.java:1674-1747`): i32 version (must be 0), i32 entryCount (ids
   1..entryCount live), i64 forwardRootKey (0 = no forward index), i64 reverseRootKey, i32 generation, optional
-  trailer `i32 orderedPrefixCount; i64 blockIndexKey; i64 rankTableKey`. Ids 1..P are in UTF-16 collation
-  order; order-needing readers require `P == entryCount`; a non-zero rank table means ids are mint ids, not
-  storage positions (`core/node/ValueDictionaryHeaderNode.java:40-103`).
+  trailer `i32 orderedPrefixCount; i64 blockIndexKey; i64 rankTableKey`. Positions 1..P follow the
+  string ordering contract in §4.1; order-needing readers require `P == entryCount`; a non-zero rank table
+  means ids are mint ids, not storage positions (`core/node/ValueDictionaryHeaderNode.java:40-103`).
 - **Radix** (`proj/GlobalValueDictionaryRadix.java:25-31`, `:225-269`, `:740-750`): forward index on a 3-byte
   hash path, then an 8-byte secondary path; buckets ≤ 128 entries, chains ≤ 64, collision trees ≤ 64 deep;
   reverse index on a 3-byte id path with 256 ids per bucket; value blocks ≤ 64 KiB and ≤ 256 values
@@ -540,7 +553,10 @@ seeding breaks the budget; AUTO ranks candidates and admits a subset within
   GLOBAL_DICTIONARY_BUDGET_EXCEEDED, stderr `[proj] PROJECTION ABANDONED`) but the load finishes
   (`proj/GlobalDictionaryBudgetExceededException.java:8-103`; `proj/ProjectionBulkLoad.java:484-507`, `:645-657`).
 - **Rank post-pass** (`ProjectionRankPass`): off unless `sirix.projection.globalDict.rank=true`; no production
-  caller, tests only (`proj/ProjectionRankPass.java:22-119`).
+  caller, tests only (`proj/ProjectionRankPass.java:22-119`). Extraction validates every value as well-formed
+  UTF-8 and fails the pass by name for invalid continuation counts, overlong forms, encoded surrogates or
+  invalid lead bytes (`ProjectionRankPass.isWellFormedUtf8`). The read-side comparator validates only the
+  deciding sequences, so it cannot replace this whole-value validation.
 
 ### 4.3 Segment-scoped dictionaries (the segment lane)
 
@@ -558,7 +574,7 @@ The segment lane replaces the load-time dictionary pre-pass (design:
   permanent; projection pages and document pages share one dictionary per (segment, column); values longer than
   the maximum stay on the page (`proj/SegmentScopedDictionaries.java:21-332`, `:537-555`, `:833-862`).
 - **Sealing**: a segment becomes sealable when no page is outstanding; `SegmentDictionarySeal.write` ranks mints
-  by UTF-16 order, interns in rank order in generations, builds the block index, then attaches a rank table
+  by the order in §4.1, interns in rank order in generations, builds the block index, then attaches a rank table
   (unless the permutation is the identity); "The order of the four writes is load-bearing" (`proj/SegmentSealController.java:13-212`;
   `proj/SegmentDictionarySeal.java:25-213`).
 - **Directory node** (kind 62): `i32 segments; i64 starts[]`, then per segment `i32 slots`, per slot

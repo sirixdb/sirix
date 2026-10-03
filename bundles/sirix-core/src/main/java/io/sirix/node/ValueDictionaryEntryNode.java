@@ -116,7 +116,8 @@ public final class ValueDictionaryEntryNode implements DataRecord {
   }
 
   /**
-   * UTF-16 collation of this value against a byte RANGE, exposing and copying neither side.
+   * Unicode codepoint collation of this value against a byte RANGE, exposing and copying neither
+   * side.
    *
    * <p>
    * The mixed case: a dictionary read view holds packed values as {@code (backing, offset, length)}
@@ -132,7 +133,7 @@ public final class ValueDictionaryEntryNode implements DataRecord {
   public int compareToRange(final byte[] bytes, final int offset, final int length) {
     requireNonNull(bytes, "bytes must not be null");
     Objects.checkFromIndexSize(offset, length, bytes.length);
-    return compareUtf16Range(value, 0, value.length, bytes, offset, length);
+    return compareCodePointRange(value, 0, value.length, bytes, offset, length);
   }
 
   /** Compare a caller-owned byte range without exposing or copying the stored bytes. */
@@ -189,12 +190,12 @@ public final class ValueDictionaryEntryNode implements DataRecord {
   }
 
   /**
-   * Compare this UTF-8 value with another one under Java/Brackit's UTF-16 string order without
+   * Compare this UTF-8 value with another one under Brackit's Unicode codepoint string order without
    * materialising either string.
    *
    * <p>
-   * The distinction matters for supplementary characters: unsigned UTF-8 order follows Unicode scalar
-   * values, while {@link String#compareTo(String)} compares UTF-16 code units. Dictionary ids are
+   * Unsigned UTF-8 order follows Unicode codepoints, including supplementary characters. Unlike
+   * {@link String#compareTo(String)}, this comparison agrees with XQuery. Dictionary ids are
    * first-seen ids and therefore carry no ordering information of their own.
    * </p>
    *
@@ -203,15 +204,16 @@ public final class ValueDictionaryEntryNode implements DataRecord {
    *         greater than {@code other}
    * @throws IllegalStateException if a sequence the comparison has to decode is not well-formed
    *         UTF-8; bytes the order is already settled by are not validated, see
-   *         {@link #compareUtf16Range}
+   *         {@link #compareCodePointRange}
    */
-  public int compareValueUtf16(final ValueDictionaryEntryNode other) {
+  public int compareValueCodePoints(final ValueDictionaryEntryNode other) {
     requireNonNull(other, "other must not be null");
-    return compareUtf16Range(value, 0, value.length, other.value, 0, other.value.length);
+    return compareCodePointRange(value, 0, value.length, other.value, 0, other.value.length);
   }
 
   /**
-   * UTF-16 collation over two byte RANGES, so a caller holding packed values can compare in place.
+   * Unicode codepoint collation over two byte RANGES, so a caller holding packed values can compare
+   * in place.
    *
    * <p>
    * This is the identical decode-and-compare the instance form used; only the bounds moved from
@@ -233,8 +235,8 @@ public final class ValueDictionaryEntryNode implements DataRecord {
    * @param rightLength length of the right value
    * @return negative, zero or positive as left orders before, with, or after right
    */
-  public static int compareUtf16Range(final byte[] left, final int leftOffset, final int leftLength, final byte[] right,
-      final int rightOffset, final int rightLength) {
+  public static int compareCodePointRange(final byte[] left, final int leftOffset, final int leftLength,
+      final byte[] right, final int rightOffset, final int rightLength) {
     requireNonNull(left, "left must not be null");
     requireNonNull(right, "right must not be null");
     Objects.checkFromIndexSize(leftOffset, leftLength, left.length);
@@ -262,49 +264,20 @@ public final class ValueDictionaryEntryNode implements DataRecord {
     }
     int thisOffset = leftOffset + prefix;
     int otherOffset = rightOffset + prefix;
-    int thisPendingLowSurrogate = -1;
-    int otherPendingLowSurrogate = -1;
-    while (thisOffset < leftLimit || thisPendingLowSurrogate >= 0) {
-      if (otherOffset >= rightLimit && otherPendingLowSurrogate < 0) {
+    while (thisOffset < leftLimit) {
+      if (otherOffset >= rightLimit) {
         return 1;
       }
-
-      final int thisUnit;
-      if (thisPendingLowSurrogate >= 0) {
-        thisUnit = thisPendingLowSurrogate;
-        thisPendingLowSurrogate = -1;
-      } else {
-        final int codePoint = decodeCodePoint(left, thisOffset, leftLimit);
-        thisOffset += utf8Width(codePoint);
-        if (codePoint > Character.MAX_VALUE) {
-          thisUnit = Character.highSurrogate(codePoint);
-          thisPendingLowSurrogate = Character.lowSurrogate(codePoint);
-        } else {
-          thisUnit = codePoint;
-        }
-      }
-
-      final int otherUnit;
-      if (otherPendingLowSurrogate >= 0) {
-        otherUnit = otherPendingLowSurrogate;
-        otherPendingLowSurrogate = -1;
-      } else {
-        final int codePoint = decodeCodePoint(right, otherOffset, rightLimit);
-        otherOffset += utf8Width(codePoint);
-        if (codePoint > Character.MAX_VALUE) {
-          otherUnit = Character.highSurrogate(codePoint);
-          otherPendingLowSurrogate = Character.lowSurrogate(codePoint);
-        } else {
-          otherUnit = codePoint;
-        }
-      }
-
-      final int comparison = Integer.compare(thisUnit, otherUnit);
+      final int thisCodePoint = decodeCodePoint(left, thisOffset, leftLimit);
+      final int otherCodePoint = decodeCodePoint(right, otherOffset, rightLimit);
+      final int comparison = Integer.compare(thisCodePoint, otherCodePoint);
       if (comparison != 0) {
         return comparison;
       }
+      thisOffset += utf8Width(thisCodePoint);
+      otherOffset += utf8Width(otherCodePoint);
     }
-    return otherOffset >= rightLimit && otherPendingLowSurrogate < 0
+    return otherOffset >= rightLimit
         ? 0
         : -1;
   }
