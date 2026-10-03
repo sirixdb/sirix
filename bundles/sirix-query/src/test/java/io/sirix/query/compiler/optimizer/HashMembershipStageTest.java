@@ -447,9 +447,10 @@ final class HashMembershipStageTest {
 
   @Test
   void mixedHitAndMissSemiProbesNeverReadMoreThanTheOriginalPlan() throws Exception {
-    // Inner keys are 1..8. The route reads rows 1..3 for the first probe, stops at its match and
-    // gives the partial keys up rather than parking the scan, so the later probes delegate and pay
-    // the original plan's scan-until-match: 8 + 1 + 8 + 8 + 5. Both totals are 33.
+    // Inner keys are 1..8. Probe 3 reads rows 1..3 and stops at its match, retaining keys 1..3.
+    // Probe 1 is then answered from those keys without reading anything; 9, 8, 42 and 5 are not in
+    // them and delegate, paying the original plan's scan-until-match. Route: 3 + 8 + 0 + 8 + 8 + 5.
+    // Original: 3 + 8 + 1 + 8 + 8 + 5.
     final String text = "declare variable $src external;" + " let $h := $src for $a in (3, 9, 1, 8, 42, 5)"
         + " where exists(for $b in $h where $b eq $a return $b) return $a";
     final CountingSequence withRule = new CountingSequence(8);
@@ -457,7 +458,7 @@ final class HashMembershipStageTest {
     final CountingSequence withoutRule = new CountingSequence(8);
     assertEquals("3 1 8 5", semiJoinAnswer(text, withoutRule, false));
     assertEquals(33, withoutRule.visited, "the original plan scans until each probe's match");
-    assertEquals(33, withRule.visited, "the route reads no more of the inner side than that");
+    assertEquals(32, withRule.visited, "the retained keys answer probe 1 without rescanning");
   }
 
   @Test
@@ -526,6 +527,22 @@ final class HashMembershipStageTest {
     // keyed on the binding, so neither evaluation may answer from the other's keys.
     assertOptimized("3 1", "for $i in (1,2) let $inner := ($i, $i + 1)"
         + " for $a in (1,2,3) where empty(for $b in $inner where $b eq $a return $b) return $a");
+  }
+
+  @Test
+  void aSingleOuterRowAntiJoinReadsMoreThanTheOriginalPlansEarlyExit() throws Exception {
+    // The acknowledged cost of the shared pass. fn:empty pulls one item and closes, so the original
+    // plan stops at inner row 1 here; the route reads all 8 to leave a reusable key set. Pinned so
+    // the trade stays visible: stopping the anti-join at its match is what would undo Q12, where the
+    // same pass is amortised over a large outer side instead of one row.
+    final String text = "declare variable $src external;" + " let $h := $src for $a in (1)"
+        + " where empty(for $b in $h where $b eq $a return $b) return $a";
+    final CountingSequence withRule = new CountingSequence(8);
+    assertEquals("", semiJoinAnswer(text, withRule, true));
+    final CountingSequence withoutRule = new CountingSequence(8);
+    assertEquals("", semiJoinAnswer(text, withoutRule, false));
+    assertEquals(1, withoutRule.visited, "the original plan stops at the first matching inner row");
+    assertEquals(8, withRule.visited, "the route reads the whole relation to leave a reusable set");
   }
 
   @Test

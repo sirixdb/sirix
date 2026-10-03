@@ -8,10 +8,14 @@ The **campaign artifacts** here — the `t100k-{before,after}` / `t250k-{before,
 commit `79042b96a` and describe that commit only. The plan trees named `after` therefore show the
 superseded let-bound plan, not the current one.
 
-Later rounds added two artifacts that describe a **later** state, each carrying its own provenance:
-`measurements.json#remeasured_t100k_after_memo_fix` (with its own `candidate_sources_sha256`) and the
-`t100k-after-memofix*.plan.txt` trees. Changes made after the campaign are listed in the addendum of
-the implementation note.
+Later rounds added artifacts that describe **later** states, each carrying its own
+`candidate_sources_sha256`. **`measurements.json#remeasured_t100k_final_head` is the current one** —
+it is the only block whose source hashes match the head of this branch, so cite Q12's latency from
+there. `measurements.json#remeasured_t100k_after_memo_fix` is an earlier re-measurement, superseded
+because the lookup's evaluation algorithm changed twice after it was taken; it is kept for history
+only. The `t100k-after-memofix*.plan.txt` trees show the nested-probe plan both of those blocks ran,
+which is still the current plan shape — only the runtime behaviour changed after them. Changes made
+after the campaign are listed in the addendum of the implementation note.
 
 - `Q12Probe.java.txt`: exact runner used for the recorded SH1 measurements. It canonicalizes the
   answer and checks byte equality with the independent oracle before printing a timing.
@@ -25,7 +29,8 @@ the implementation note.
   queries have identical optimized plan trees on frozen main and the candidate. This is a plan check,
   not an isolated ClickBench timing campaign.
 - `measurements.json`: oracle-verified measurements, answer/input hashes, and candidate source hashes
-  for the campaign, plus `remeasured_t100k_after_memo_fix` for the later oracle-checked re-measurements.
+  for the campaign, plus two later oracle-checked re-measurements — `remeasured_t100k_final_head`
+  (current; hashes match this branch's head) and `remeasured_t100k_after_memo_fix` (superseded).
 - `validation.json`: complete query-suite and work-budget counts plus the work-counter mutation.
 
 ## Reproduction

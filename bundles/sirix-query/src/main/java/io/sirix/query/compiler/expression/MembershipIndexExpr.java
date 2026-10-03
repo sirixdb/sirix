@@ -58,13 +58,24 @@ import java.util.Objects;
  * {@link io.brackit.query.jdm.Expr} offers no teardown hook to release it at.
  *
  * <p>
- * An anti-join therefore reads the relation through to the end in that one probe: {@code empty}
- * needs every row anyway, and the complete key set then answers every later probe without touching
- * the source. A semi-join instead stops at its own key, because one match answers the predicate —
- * the early exit the unoptimized plan has — and gives the partial keys up rather than parking the
- * scan, so later probes delegate to the original predicate and pay exactly the scan-until-match it
- * would have performed. Neither direction reads more of the inner relation than the plan it
- * replaces.
+ * An anti-join therefore reads the relation through to the end in that one probe, and the complete
+ * key set then answers every later probe without touching the source. A semi-join instead stops at
+ * its own key, because one match answers the predicate, and gives the partial keys up rather than
+ * parking the scan; later probes answer from the retained keys when those already contain the key
+ * and otherwise delegate to the original predicate.
+ *
+ * <p>
+ * The bound this buys is <em>amortised</em>, not per probe: at most one pass over the inner
+ * relation for the whole lifetime of a lookup, however many outer rows probe it. It is not a
+ * per-probe bound, because the plan this replaces also stops early — Brackit's
+ * {@code EmptySequence} backs both {@code fn:empty} and {@code fn:exists} and pulls one item before
+ * closing, so each of its probes reads only up to its own match. A single probe here can therefore
+ * read more of the relation than that plan's probe would: one outer row whose key matches the first
+ * inner row costs the original one row and costs this route the whole relation. The win comes from
+ * sharing that one pass across many outer rows, which is the shape the rule exists for; stopping
+ * the anti-join at its match would hand that shape back to a per-row scan. Reading further than the
+ * original also means an error sitting past the original's early exit can surface here when it
+ * would not have there.
  */
 public final class MembershipIndexExpr implements Expr, Reference {
   private final Expr source;
@@ -170,13 +181,34 @@ public final class MembershipIndexExpr implements Expr, Reference {
     /** Returns 1 for a match, 0 for no match, or -1 when the original predicate must decide. */
     int probe(final QueryContext ctx, final Tuple tuple, final Expr probe, final boolean anti) {
       if (delegate) {
-        return -1;
+        return delegated(ctx, tuple, probe);
       }
-      // Once the inner side is exhausted the sets are final, and the volatile read of complete
-      // publishes them, so the common case answers without taking the monitor.
+      // A completed set and a given-up one are both final, and the volatile read that observed them
+      // publishes them, so every probe but the one that reads the inner side answers lock-free.
       return complete
           ? decide(ctx, tuple, probe)
           : scan(ctx, tuple, probe, anti);
+    }
+
+    /**
+     * A key the retained set already contains was indexed from a real inner row, so it proves a match
+     * however little of the relation was read. Only a key the set does not contain is undecidable on a
+     * partial set and has to go back to the original predicate.
+     */
+    private int delegated(final QueryContext ctx, final Tuple tuple, final Expr probe) {
+      final Atomic key;
+      try {
+        key = outerKey(ctx, tuple, probe);
+      } catch (final QueryException exception) {
+        return -1;
+      }
+      return matched(key);
+    }
+
+    private int matched(final Atomic key) {
+      return key != null && found(key)
+          ? 1
+          : -1;
     }
 
     private int decide(final QueryContext ctx, final Tuple tuple, final Expr probe) {
@@ -200,14 +232,14 @@ public final class MembershipIndexExpr implements Expr, Reference {
     /**
      * Reads the inner side within this one call and closes the iterator before returning on every path,
      * so no lookup ever owns a parked iterator. An anti-join reads the relation through to the end,
-     * which is the single pass {@code empty} needs anyway and leaves the keys reusable by every later
-     * probe. A semi-join stops at its own key, because that answers the predicate, and gives the
-     * partial keys up rather than parking the scan: later probes delegate to the original predicate,
-     * whose cost for them is the same scan-until-match the unoptimized plan performs.
+     * which leaves the keys reusable by every later probe; that is one pass amortised over the
+     * binding's probes, not a per-probe bound, and this probe may read further than the original plan's
+     * early exit would have. A semi-join stops at its own key, because that answers the predicate, and
+     * gives the partial keys up rather than parking the scan.
      */
     private synchronized int scan(final QueryContext ctx, final Tuple tuple, final Expr probe, final boolean anti) {
       if (delegate) {
-        return -1;
+        return delegated(ctx, tuple, probe);
       }
       if (complete) {
         return decide(ctx, tuple, probe);
@@ -243,7 +275,7 @@ public final class MembershipIndexExpr implements Expr, Reference {
           index(row);
         }
         if (delegate) {
-          return -1;
+          return matched(key);
         }
         if (key == null) {
           return 0;

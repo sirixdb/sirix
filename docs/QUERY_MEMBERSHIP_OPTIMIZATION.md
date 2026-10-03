@@ -32,16 +32,27 @@ transaction later than that, and `Expr` has no teardown hook to release it at �
 this note claimed the pause matched Brackit's behaviour, which was simply wrong.
 
 That fixes the shape of each direction. An **anti-join** reads the relation through to the end in the
-first probe that needs it: `empty` has to see every row anyway, so this is the single pass it already
-owed, and the completed key set then answers every later probe without touching the source. A
-**semi-join** stops at its own key, because one match answers the predicate — the early exit the
-unoptimized plan has, where `TableJoin` hashes the one outer key and streams the inner side and
-`fn:exists` stops at the first match, so `exists(...)` over a million inner rows visits one row where
-draining first would have visited all of them. Having stopped, it gives the partial keys up rather
-than parking the scan: later probes delegate to the original predicate and pay exactly the
-scan-until-match it would have performed. So neither direction reads more of the inner relation than
-the plan it replaces, which is the property that matters; for a mixed semi-join workload the route no
-longer gets a single shared pass, and that is the price of closing the iterator on every path. A probe
+first probe that needs it, and the completed key set then answers every later probe without touching
+the source. A **semi-join** stops at its own key, because one match answers the predicate — the early
+exit the unoptimized plan has, where `TableJoin` hashes the one outer key and streams the inner side
+and `fn:exists` stops at the first match, so `exists(...)` over a million inner rows visits one row
+where draining first would have visited all of them. Having stopped, it gives the partial keys up
+rather than parking the scan: a later probe whose key the retained set already contains is answered
+from it — a key in the set was indexed from a real inner row, so it proves a match however little of
+the relation was read — and only a key the set does not contain goes back to the original predicate.
+
+**The bound is amortised, not per probe.** At most one pass over the inner relation for the whole
+lifetime of a lookup, however many outer rows probe it. It is not a per-probe bound, and an earlier
+revision of this note claiming "neither direction reads more of the inner relation than the plan it
+replaces" was wrong: the plan this replaces also stops early. Brackit's `EmptySequence` backs both
+`fn:empty` and `fn:exists` and pulls one item before closing, so each of *its* probes reads only up
+to its own match — which is exactly why the rule-off counter below is `128 * 129 / 2 + 128 * 128` and
+not `256 * 128`. A single probe here can therefore read more than that plan's probe would: one outer
+row whose key matches the first inner row costs the original one row and costs this route the whole
+relation. The win is sharing that one pass across many outer rows, which is the shape the rule exists
+for — Q12 probes a 100k-row history from a large outer side — and stopping the anti-join at its match
+would hand that shape straight back to a per-row scan. Reading further than the original also means
+an error sitting past the original's early exit can surface here when it would not have there. A probe
 whose key the completed set does not contain, and whose domain cannot be compared with it, still
 delegates to the original predicate.
 
@@ -197,7 +208,10 @@ The t250k retry uses a fresh store; the partial original store contributes no me
 
 ## Addendum: changes after commit `79042b96a`
 
-The campaign section above is a closed record of `79042b96a`. Three changes landed after it, so its
+The campaign section above is a closed record of `79042b96a`. Seven changes landed after it — the
+null key, the `sdb:explain` range, the lookup leaving the tuple slot, the memo key, the retention
+release, the probe-scoped iterator with its terminal exit, and consulting the retained keys before
+delegating — so its
 suite counts (`1,774 tests`, `16 membership tests`) and the `MembershipIndexExpr.java`,
 `HashMembershipStage.java` and `SirixTranslator.java` entries in `candidate_sources_sha256` describe
 that commit, not HEAD. They were deliberately left as recorded rather than re-written without a new
