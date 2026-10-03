@@ -4,23 +4,27 @@ import io.sirix.exception.SirixDatabaseLockException;
 import io.sirix.exception.SirixIOException;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.UUID;
 
 /** Process ownership of a database. The persistent lock file is never unlinked on close. */
 final class DatabaseLock implements AutoCloseable {
   private final FileChannel channel;
+  private final FileChannel verificationChannel;
 
   // Retain the lock for the lifetime of the channel. Closing the channel releases it, even when
   // cleanup of the database fails. A crashed process also releases the OS lock automatically.
   private final FileLock lock;
 
-  private DatabaseLock(final FileChannel channel, final FileLock lock) {
+  private DatabaseLock(final FileChannel channel, final FileLock lock, final FileChannel verificationChannel) {
     this.channel = channel;
     this.lock = lock;
+    this.verificationChannel = verificationChannel;
   }
 
   static DatabaseLock acquire(final Path databasePath) {
@@ -32,13 +36,41 @@ final class DatabaseLock implements AutoCloseable {
       throw new SirixIOException("Could not open database ownership lock at " + lockPath, e);
     }
 
+    FileChannel verificationChannel = null;
     try {
-      final FileLock lock = channel.tryLock();
+      final FileLock lock = channel.tryLock(0, 1, false);
       if (lock == null) {
         throw new SirixDatabaseLockException(databasePath);
       }
-      return new DatabaseLock(channel, lock);
+      final UUID generation = UUID.randomUUID();
+      final ByteBuffer token = ByteBuffer.allocate(2 * Long.BYTES);
+      token.putLong(generation.getMostSignificantBits()).putLong(generation.getLeastSignificantBits()).flip();
+      channel.position(1);
+      while (token.hasRemaining()) {
+        channel.write(token);
+      }
+      verificationChannel = FileChannel.open(lockPath, StandardOpenOption.READ);
+      verificationChannel.position(1);
+      token.clear();
+      while (token.hasRemaining()) {
+        if (verificationChannel.read(token) < 0) {
+          throw new SirixDatabaseLockException(databasePath);
+        }
+      }
+      token.flip();
+      if (token.getLong() != generation.getMostSignificantBits()
+          || token.getLong() != generation.getLeastSignificantBits()) {
+        throw new SirixDatabaseLockException(databasePath);
+      }
+      return new DatabaseLock(channel, lock, verificationChannel);
     } catch (final IOException | RuntimeException | Error e) {
+      if (verificationChannel != null) {
+        try {
+          verificationChannel.close();
+        } catch (final IOException closeFailure) {
+          e.addSuppressed(closeFailure);
+        }
+      }
       try {
         channel.close();
       } catch (final IOException closeFailure) {
@@ -60,7 +92,11 @@ final class DatabaseLock implements AutoCloseable {
   @Override
   public void close() {
     try {
-      channel.close();
+      try {
+        verificationChannel.close();
+      } finally {
+        channel.close();
+      }
     } catch (final IOException e) {
       throw new SirixIOException("Could not release database ownership lock " + lock, e);
     }

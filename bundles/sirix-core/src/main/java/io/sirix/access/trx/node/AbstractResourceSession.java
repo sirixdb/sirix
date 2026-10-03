@@ -380,12 +380,18 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     throw new UnsupportedOperationException("This resource session does not support user sessions");
   }
 
-  public final synchronized void releaseUserSession() {
-    if (userSessionCount <= 0) {
-      throw new IllegalStateException("No user session is registered");
+  public final void releaseUserSession() {
+    if (sharedSession == null) {
+      throw new IllegalStateException("Only a user session can release its shared session");
     }
-    if (--userSessionCount == 0) {
-      close();
+    synchronized (sharedSession) {
+      if (sharedSession.userSessionCount <= 0) {
+        throw new IllegalStateException("No user session is registered");
+      }
+      if (sharedSession.userSessionCount == 1) {
+        sharedSession.close();
+      }
+      sharedSession.userSessionCount--;
     }
   }
 
@@ -1200,15 +1206,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       nodeTrxMap.clear();
       storageEngineReaderMap.clear();
       storageEngineWriterMap.clear();
-      resourceStore.closeResourceSession(resourceConfig.getResource());
-
-      if (sharedSession == null) {
-        storage.close();
-      }
-
       if (pool.get() != null) {
         pool.get().close();
       }
+      if (sharedSession == null) {
+        storage.close();
+      }
+      resourceStore.closeResourceSession(resourceConfig.getResource());
       isClosed = true;
     }
   }
