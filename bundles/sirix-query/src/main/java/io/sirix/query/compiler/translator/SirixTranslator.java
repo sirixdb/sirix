@@ -177,10 +177,14 @@ public class SirixTranslator extends TopDownTranslator {
   private static final Set<String> COMPUTED_AGG_FUNCS = Set.of("sum", "avg", "min", "max", "count");
 
   /**
-   * Gap item 2: {@code sum|avg|min|max|count(<computed pipe>)} — an aggregate call whose sole
-   * argument is a pipeline {@link ComputedAggregateDetectionStage} annotated as a servable
-   * computed-expression fold. Emits the projection-served expression with the GENERIC function call
-   * compiled alongside as the runtime fallback; every other call compiles exactly as before.
+   * Optimizer-marked valid-time scans retain deferred point evaluation so empty arrays do not
+   * evaluate the point expression.
+   *
+   * <p>
+   * {@code sum|avg|min|max|count(<computed pipe>)} — an aggregate call whose sole argument is a
+   * pipeline {@link ComputedAggregateDetectionStage} annotated as a servable computed-expression
+   * fold. Emits the projection-served expression with the GENERIC function call compiled alongside as
+   * the runtime fallback. Unmarked calls retain the generic translation.
    */
   @Override
   protected Expr functionCall(AST node) throws QueryException {

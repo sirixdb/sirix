@@ -113,7 +113,7 @@ public final class HotOrderedStore implements OrderedStore {
   }
 
   private void scan(final ValidTimeKey from, final ValidTimeKey to, final LongConsumer out) {
-    final Iterator<Map.Entry<ValidTimeKey, NodeReferences>> it = reader.range(from, to);
+    final Iterator<Map.Entry<ValidTimeKey, NodeReferences>> it = requireNonNull(reader).range(from, to);
     while (it.hasNext()) {
       final NodeReferences refs = it.next().getValue();
       if (refs == null) {

@@ -42,10 +42,11 @@ import java.time.Instant;
  * <p>
  * JSON mutation and shred notifications for one record are contiguous. When the containing object
  * key changes, the preceding record is reconciled and its state is retired. The final record is
- * reconciled before commit or asynchronous page flush. This bounds listener memory to one small
- * state object even for a 100M-record load; a non-contiguous revisit remains correct because the
- * earlier interval has already been published and the later burst re-seeds from the current record.
- * No document cursor is moved and no full index rebuild is involved.
+ * reconciled before commit or asynchronous page flush. One active record and a fixed set of
+ * structural snapshots bound listener memory even for a 100M-record load; a non-contiguous revisit
+ * remains correct because the earlier interval has already been published and the later burst
+ * re-seeds from the current record. No document cursor is moved and no full index rebuild is
+ * involved.
  * </p>
  *
  * <h2>Object-key resolution</h2>
@@ -103,9 +104,8 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   @Override
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey) {
-    // The interval index is maintained exclusively via the primitive (name+value) event below,
-    // which carries the field name and instant value we need without a snapshot. The ImmutableNode
-    // variant is a no-op (it is only invoked when no primitive listener path applies).
+    // Field edits use the primitive name+value overloads; moves use the structural hooks.
+    // Consuming this snapshot overload too would duplicate maintenance.
   }
 
   /**

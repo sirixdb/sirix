@@ -6,6 +6,7 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.json.Object;
 import io.sirix.query.function.DateTimeToInstant;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 
@@ -16,8 +17,8 @@ public final class ValidTimeIndexScan {
   private ValidTimeIndexScan() {}
 
   /**
-   * The exact instant predicate, identical in semantics to the linear scan and to the interval-index
-   * registration: reads the configured valid-time fields off {@code obj} and tests
+   * The exact instant predicate used by linear scans and demand-time interval-index verification:
+   * reads the configured valid-time fields off {@code obj} and tests
    * {@code validFrom <= validTime <= validTo}, where an <em>absent</em> (or unparseable) bound is
    * treated as unbounded on that side — a missing {@code validTo} is "valid from {@code validFrom}
    * onward", a missing {@code validFrom} is "valid up to {@code validTo}". A record with neither
@@ -63,7 +64,7 @@ public final class ValidTimeIndexScan {
     return true;
   }
 
-  private static Instant parseInstant(final Sequence seq) {
+  private static @Nullable Instant parseInstant(final Sequence seq) {
     if (seq instanceof DateTime dt) {
       return DATE_TIME_TO_INSTANT.convert(dt);
     }

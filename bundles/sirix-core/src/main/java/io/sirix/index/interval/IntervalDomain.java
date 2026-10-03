@@ -18,8 +18,7 @@ import org.jspecify.annotations.Nullable;
  * {@code lo <= x <= hi} (compared as exact instants) implies {@code map(lo) <= map(x) <= map(hi)}
  * (floor-to-milli and clamping both preserve order), so the index returns a SUPERSET of matches —
  * no false negatives. False positives (sub-millisecond ties, clamped out-of-range instants) are
- * removed by the caller's exact-instant re-verification, exactly as with the CAS-index narrowing
- * path.
+ * removed by the caller's exact-instant re-verification.
  *
  * <p>
  * Open-ended intervals: a missing {@code validFrom} maps to {@code 1} ("valid since the beginning
