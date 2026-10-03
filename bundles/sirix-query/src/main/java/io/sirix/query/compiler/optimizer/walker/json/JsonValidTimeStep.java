@@ -384,10 +384,8 @@ public final class JsonValidTimeStep extends Walker {
   }
 
   /**
-   * The field name if {@code node} is {@code deref($loopVar, fieldName)} or a single XSD-type cast
-   * wrapping it (e.g. {@code xs:dateTime($loopVar.fieldName)} — the canonical phrasing since JSON
-   * valid-time fields are strings that must be cast to compare against an {@code xs:dateTime} point),
-   * else {@code null}.
+   * Recognizes only {@code xs:dateTime($loopVar.fieldName)} with a static field name. Bare or
+   * computed dereferences and other casts retain their original evaluation.
    */
   private static @Nullable String derefFieldOfVar(final AST node, final Object loopVar) {
     if (node.getType() != XQ.FunctionCall || node.getChildCount() != 1 || !(node.getValue() instanceof QNm name)
