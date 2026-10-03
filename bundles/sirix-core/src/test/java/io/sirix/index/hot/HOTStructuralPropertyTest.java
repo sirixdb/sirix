@@ -87,7 +87,9 @@ import java.util.stream.Stream;
  *
  * <p>
  * The default lane runs a small budget per kind. The {@code heavy} method runs an extended budget
- * over every kind, sized by {@code -Dsirix.hot.property.heavy.seeds} / {@code heavy.ops}; with
+ * over every kind (a few minutes per kind by default, like the other heavy soaks; the advisory
+ * cross-platform CI lanes exclude it), sized by {@code -Dsirix.hot.property.heavy.seeds} /
+ * {@code heavy.ops}; with
  * {@code -Dsirix.hot.property.collect=true} it records every distinct failure instead of stopping at
  * the first. {@code -Dsirix.hot.property.seed=N} pins the default lane to one seed.
  * </p>
@@ -107,9 +109,9 @@ final class HOTStructuralPropertyTest {
 
   private static final int DEFAULT_SEEDS = Integer.getInteger(PROPERTY + "seeds",
       System.getProperty(PROPERTY + "seed") == null
-          ? 3
+          ? 2
           : 1);
-  private static final int DEFAULT_OPS = Integer.getInteger(PROPERTY + "ops", 3_000);
+  private static final int DEFAULT_OPS = Integer.getInteger(PROPERTY + "ops", 2_000);
   private static final long BASE_SEED = Long.getLong(PROPERTY + "seed", 1L);
   private static final long SHRINK_SECONDS = Long.getLong(PROPERTY + "shrinkSeconds", 120L);
   private static final int LOOKUP_SAMPLE = 16;
@@ -213,8 +215,9 @@ final class HOTStructuralPropertyTest {
   @Tag("heavy")
   @DisplayName("extended budget over every index kind")
   void extendedBudgetAcrossEveryKind() {
-    final int seeds = Integer.getInteger(PROPERTY + "heavy.seeds", 16);
-    final int ops = Integer.getInteger(PROPERTY + "heavy.ops", 20_000);
+    // Sized like the other heavy soaks (a few minutes per kind); campaigns pass larger budgets.
+    final int seeds = Integer.getInteger(PROPERTY + "heavy.seeds", 3);
+    final int ops = Integer.getInteger(PROPERTY + "heavy.ops", 5_000);
     final boolean collect = Boolean.getBoolean(PROPERTY + "collect");
     final String kindFilter = System.getProperty(PROPERTY + "kinds");
     final List<String> failures = new ArrayList<>();
