@@ -662,6 +662,23 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     return false;
   }
 
+  private static Iterator<NodeReferences> openLossyStringComparison(final StorageEngineReader storageEngineReader,
+      final HOTIndexReader<CASValue> reader, final IndexDef indexDef, final CASFilter filter,
+      final Set<Long> pcrsRequested) {
+    if (pcrsRequested.size() == 1 && resolvesToADifferentPathClass(filter, indexDef, pcrsRequested)) {
+      return Collections.emptyIterator();
+    }
+    final SearchMode mode = filter.getMode();
+    final boolean lower = mode == SearchMode.GREATER || mode == SearchMode.GREATER_OR_EQUAL;
+    return openStringRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested, lower
+        ? filter.getKey()
+        : null,
+        lower
+            ? null
+            : filter.getKey(),
+        mode == SearchMode.GREATER_OR_EQUAL, mode == SearchMode.LOWER_OR_EQUAL);
+  }
+
   /**
    * Open HOT-based CAS index with filter.
    */
@@ -677,18 +694,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
     if (filter != null && filter.getMode() != SearchMode.EQUAL
         && hasLossyStringBound(filter.getKey(), indexDef.getContentType())) {
-      if (pcrsRequested.size() == 1 && resolvesToADifferentPathClass(filter, indexDef, pcrsRequested)) {
-        return Collections.emptyIterator();
-      }
-      final SearchMode mode = filter.getMode();
-      final boolean lower = mode == SearchMode.GREATER || mode == SearchMode.GREATER_OR_EQUAL;
-      return openStringRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested, lower
-          ? filter.getKey()
-          : null,
-          lower
-              ? null
-              : filter.getKey(),
-          mode == SearchMode.GREATER_OR_EQUAL, mode == SearchMode.LOWER_OR_EQUAL);
+      return openLossyStringComparison(storageEngineReader, reader, indexDef, filter, pcrsRequested);
     }
 
     // Gated on what the QUERY pins, not on what the INDEX spans. A seek needs one exact key, so it

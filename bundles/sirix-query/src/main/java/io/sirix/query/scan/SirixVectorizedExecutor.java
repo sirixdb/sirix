@@ -8394,25 +8394,33 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return convertPredicateLeaf(cp, n, handle, true);
   }
 
+  private static boolean hasLossyStringLiteral(final CompiledPredicate cp, final int n) {
+    final int literalIndex = cp.strIdx[n];
+    if (literalIndex < 0) {
+      return false;
+    }
+    final String literal = cp.strLiterals[literalIndex];
+    for (int i = 0; i < literal.length(); i++) {
+      final char ch = literal.charAt(i);
+      if (Character.isHighSurrogate(ch)) {
+        if (++i == literal.length() || !Character.isLowSurrogate(literal.charAt(i))) {
+          return true;
+        }
+      } else if (Character.isLowSurrogate(ch)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private ProjectionIndexScan.ColumnPredicate convertPredicateLeaf(final CompiledPredicate cp, final int n,
       final ProjectionIndexRegistry.Handle handle, final boolean segmentScopedServable) {
     {
       final byte op = cp.ops[n];
-      final int literalIndex = cp.strIdx[n];
-      if (literalIndex >= 0) {
+      if (hasLossyStringLiteral(cp, n)) {
         // UTF-8 replaces unpaired surrogates. Decline byte-backed predicates at this shared
         // flat/tree boundary so fallback comparison retains the original literal.
-        final String literal = cp.strLiterals[literalIndex];
-        for (int i = 0; i < literal.length(); i++) {
-          final char ch = literal.charAt(i);
-          if (Character.isHighSurrogate(ch)) {
-            if (++i == literal.length() || !Character.isLowSurrogate(literal.charAt(i))) {
-              return null;
-            }
-          } else if (Character.isLowSurrogate(ch)) {
-            return null;
-          }
-        }
+        return null;
       }
       final int fi = cp.fieldIdx[n];
       if (fi < 0 || fi >= cp.fieldNames.length)
