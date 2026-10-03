@@ -35,6 +35,7 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
+import static io.sirix.utils.StringComparisons.compareCodePoints;
 
 public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx & NodeCursor> {
   B createBuilder(R rtx, StorageEngineWriter storageEngineWriter, PathSummaryReader pathSummaryReader,
@@ -60,6 +61,12 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       IndexDef indexDef, CASFilterRange filter) {
     final HOTIndexReader<CASValue> reader =
         HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
+
+    if (filter != null && (hasLossyStringBound(filter.getMin(), indexDef.getContentType())
+        || hasLossyStringBound(filter.getMax(), indexDef.getContentType()))) {
+      return openStringRangeWithResidual(reader, indexDef, filter.getPCRs(), filter.getMin(), filter.getMax(),
+          filter.isMinInclusive(), filter.isMaxInclusive());
+    }
 
     // Bounded-cursor fast path. Bound inclusivity is enforced INSIDE the cursor, on each group's
     // logical key bytes: index keys are not prefix-free (a string value is raw UTF-8 with no
@@ -187,6 +194,84 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       @Override
       public NodeReferences next() {
         return entries.next().getValue();
+      }
+    };
+  }
+
+  private static boolean hasLossyStringBound(final @Nullable Atomic bound, final Type type) {
+    if (bound == null || !type.instanceOf(Type.STR)) {
+      return false;
+    }
+    final String literal = bound.stringValue();
+    for (int i = 0; i < literal.length(); i++) {
+      final char ch = literal.charAt(i);
+      if (Character.isHighSurrogate(ch)) {
+        if (++i == literal.length() || !Character.isLowSurrogate(literal.charAt(i))) {
+          return true;
+        }
+      } else if (Character.isLowSurrogate(ch)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static Iterator<NodeReferences> openStringRangeWithResidual(final HOTIndexReader<CASValue> reader,
+      final IndexDef indexDef, final Set<Long> pcrs, final @Nullable Atomic min, final @Nullable Atomic max,
+      final boolean minInclusive, final boolean maxInclusive) {
+    final Type type = indexDef.getContentType();
+    final Atomic scanMin = hasLossyStringBound(min, type) ? null : min;
+    final Atomic scanMax = hasLossyStringBound(max, type) ? null : max;
+    final Iterator<Map.Entry<CASValue, NodeReferences>> entries;
+    if (pcrs.size() == 1 && (scanMin != null || scanMax != null)) {
+      final long pcr = pcrs.iterator().next();
+      final boolean includeMin = minInclusive || CASKeySerializer.truncates(scanMin, type);
+      final boolean includeMax = maxInclusive || CASKeySerializer.truncates(scanMax, type);
+      entries = scanMin == null
+          ? reader.iteratorTo(new CASValue(scanMax, type, pcr), includeMax)
+          : reader.iteratorFrom(new CASValue(scanMin, type, pcr), includeMin);
+    } else {
+      entries = reader.iterator();
+    }
+    final long[] acceptedPCRs = new long[pcrs.size()];
+    int i = 0;
+    for (final Long pcr : pcrs) {
+      acceptedPCRs[i++] = pcr;
+    }
+    final String minLiteral = min == null ? null : min.stringValue();
+    final String maxLiteral = max == null ? null : max.stringValue();
+    return new CloseForwardingIterator(entries) {
+      private @Nullable NodeReferences next;
+
+      @Override
+      public boolean hasNext() {
+        if (next != null) {
+          return true;
+        }
+        while (entries.hasNext()) {
+          final Map.Entry<CASValue, NodeReferences> entry = entries.next();
+          if (acceptedPCRs.length != 0 && !containsPCR(acceptedPCRs, pathNodeKeyOf(entry))) {
+            continue;
+          }
+          final String value = entry.getKey().getAtomicValue().stringValue();
+          final int lower = minLiteral == null ? 1 : compareCodePoints(value, minLiteral);
+          final int upper = maxLiteral == null ? -1 : compareCodePoints(value, maxLiteral);
+          if ((lower > 0 || lower == 0 && minInclusive) && (upper < 0 || upper == 0 && maxInclusive)) {
+            next = entry.getValue();
+            return true;
+          }
+        }
+        return false;
+      }
+
+      @Override
+      public NodeReferences next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
+        }
+        final NodeReferences result = next;
+        next = null;
+        return result;
       }
     };
   }
@@ -522,6 +607,17 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final Set<Long> pcrsRequested = filter == null
         ? Set.of()
         : filter.getPCRs();
+
+    if (filter != null && filter.getMode() != SearchMode.EQUAL
+        && hasLossyStringBound(filter.getKey(), indexDef.getContentType())) {
+      if (pcrsRequested.size() == 1 && resolvesToADifferentPathClass(filter, indexDef, pcrsRequested)) {
+        return Collections.emptyIterator();
+      }
+      final SearchMode mode = filter.getMode();
+      final boolean lower = mode == SearchMode.GREATER || mode == SearchMode.GREATER_OR_EQUAL;
+      return openStringRangeWithResidual(reader, indexDef, pcrsRequested, lower ? filter.getKey() : null,
+          lower ? null : filter.getKey(), mode == SearchMode.GREATER_OR_EQUAL, mode == SearchMode.LOWER_OR_EQUAL);
+    }
 
     // Gated on what the QUERY pins, not on what the INDEX spans. A seek needs one exact key, so it
     // needs exactly one requested path class; how many path classes the index happens to hold is
