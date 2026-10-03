@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
+import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.node.Node;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
@@ -27,6 +28,19 @@ import org.junit.jupiter.api.Test;
  * identical.
  */
 final class IndexDefPersistedDefinitionTest {
+
+  @Test
+  void validTimeCatalogRequiresTheMetadataFormat() {
+    final IndexDef definition =
+        IndexDefs.createValidTimeIdxDef(Set.of(json("/[]/vf"), json("/[]/vt")), 0, IndexDef.DbType.JSON);
+    assertTrue(definition.hasSameDefinition(roundTrip(definition)));
+    final Node<?> persisted = definition.materialize();
+    final QNm format = new QNm("validTimeFormat");
+    assertTrue(persisted.deleteAttribute(format));
+    assertThrows(DocumentException.class, () -> new IndexDef(IndexDef.DbType.JSON).init(persisted));
+    persisted.setAttribute(format, new Str("1"));
+    assertThrows(DocumentException.class, () -> new IndexDef(IndexDef.DbType.JSON).init(persisted));
+  }
 
   private static Path<QNm> json(final String path) {
     return Path.parse(path, PathParser.Type.JSON);

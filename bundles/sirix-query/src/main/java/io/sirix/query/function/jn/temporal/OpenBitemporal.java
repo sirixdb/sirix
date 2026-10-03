@@ -5,11 +5,14 @@ import io.brackit.query.QueryException;
 import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
+import io.brackit.query.atomic.IntNumeric;
 import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.json.Array;
+import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.BaseIter;
@@ -21,6 +24,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.JsonDBObject;
 
 import java.time.Instant;
 
@@ -57,6 +61,9 @@ public final class OpenBitemporal extends AbstractFunction {
    */
   public static final QNm OPEN_BITEMPORAL = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open-bitemporal");
 
+  public static final QNm OPEN_BITEMPORAL_SLICE =
+      new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open-bitemporal-slice");
+
   private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   /**
@@ -71,7 +78,7 @@ public final class OpenBitemporal extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    if (args.length != 4) {
+    if (args.length != 4 && args.length != 6) {
       throw new QueryException(new QNm("Expected 4 arguments: collection, resource, transactionTime, validTime"));
     }
 
@@ -103,18 +110,61 @@ public final class OpenBitemporal extends AbstractFunction {
           + "Configure valid time paths when creating the resource."));
     }
 
-    // Fastest path: a persistent valid-time interval index (Relational-Interval-Tree) stabs the
-    // query instant in O(h) and re-verifies each candidate (provably the same set as the scan).
-    final ValidTimeIntervalIndex.Result intervalResult =
-        ValidTimeIntervalIndex.tryIndexScan(document, validTime, validTimeConfig);
-    if (intervalResult != null) {
-      return new ItemSequence(intervalResult.items().toArray(new Item[0]));
+    final String field = args.length == 6
+        ? ((Str) args[4]).stringValue()
+        : null;
+    final int mode = args.length == 6
+        ? ((IntNumeric) args[5]).intValue()
+        : 0;
+    if (args.length == 6 && (mode < 1 || mode > 4)) {
+      throw new QueryException(new QNm("Invalid valid-time comparison mode"));
+    }
+    final boolean start = mode == 1 || mode == 2;
+    final boolean strict = mode == 2 || mode == 4;
+    final ValidTimeResidual residual = field == null
+        ? null
+        : new ValidTimeResidual(sctx, validDateTime, field, start, strict);
+    final boolean indexedField = field == null || field.equals(start
+        ? validTimeConfig.getNormalizedValidFromPath()
+        : validTimeConfig.getNormalizedValidToPath());
+    if (indexedField) {
+      final Sequence sequence = ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, start && strict,
+          !start && strict, residual);
+      if (sequence != null) {
+        return sequence;
+      }
+    }
+
+    if (residual != null) {
+      final Sequence source = ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig);
+      return new LazySequence() {
+        @Override
+        public Iter iterate() {
+          final Iter input = source.iterate();
+          return new BaseIter() {
+            @Override
+            public Item next() {
+              Item item;
+              while ((item = input.next()) != null) {
+                if (item instanceof JsonDBObject object && residual.test(object)) {
+                  return item;
+                }
+              }
+              return null;
+            }
+
+            @Override
+            public void close() {
+              input.close();
+            }
+          };
+        }
+      };
     }
 
     // Fast path: if a CAS index exists on a valid-time path, narrow candidates with an index range
     // scan and verify each by reading (provably the same result set as the linear scan below).
-    final ValidTimeIndexScan.Result indexResult =
-        ValidTimeIndexScan.tryIndexScan(document, validTime, validTimeConfig);
+    final ValidTimeIndexScan.Result indexResult = ValidTimeIndexScan.tryIndexScan(document, validTime, validTimeConfig);
     if (indexResult != null) {
       return new ItemSequence(indexResult.items().toArray(new Item[0]));
     }
@@ -169,7 +219,7 @@ public final class OpenBitemporal extends AbstractFunction {
           return document;
         }
         // If the document is an array, iterate its children
-        if (document instanceof io.brackit.query.jdm.json.Array array) {
+        if (document instanceof Array array) {
           childIter = array.iterate();
         }
       }
@@ -195,9 +245,8 @@ public final class OpenBitemporal extends AbstractFunction {
     private boolean isValidAtTime(JsonDBItem item) {
       // Delegate to the single shared predicate so the linear fallback, the interval-index
       // re-verification, and the CAS-narrowing path stay in lock-step (incl. open-ended intervals).
-      return item instanceof io.brackit.query.jdm.json.Object obj
-          && ValidTimeIndexScan.isValidAtTime(obj, validTime,
-              validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
+      return item instanceof Object obj && ValidTimeIndexScan.isValidAtTime(obj, validTime,
+          validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
     }
 
     @Override

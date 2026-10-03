@@ -19,14 +19,14 @@ import org.jspecify.annotations.Nullable;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Container page for valid-time interval indexes, keyed by {@code IndexDef#getID()}.
+ * Container page for valid-time interval indexes, keyed by physical tree id.
  *
  * <p>
- * The delegate holds one {@link PageReference} per registered valid-time index, each rooting a
- * versioned HOT tree whose leaves are the Relational-Interval-Tree's two ordered stores
- * (lower/upper), keyed by {@code [store-discriminator:1][forkNode:8][endpoint:8]}. The sparse
- * {@code maxHotPageKeys} map is the only per-index metadata and persists each tree's HOT page-key
- * allocator. There is no alternate keyed-trie or red-black-tree representation.
+ * Each registered index uses one root at its catalog id for the Relational-Interval-Tree's
+ * lower/upper stores, and a companion root in the high half of the reference space for membership
+ * and verification postings. Both are versioned HOT trees keyed by
+ * {@code [store-discriminator:1][forkNode:8][endpoint:8]}. The sparse {@code maxHotPageKeys} map
+ * persists each physical tree's independent page-key allocator.
  * </p>
  *
  * <p>
