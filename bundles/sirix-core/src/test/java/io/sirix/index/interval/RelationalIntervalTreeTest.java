@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.junit.jupiter.api.Test;
 
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.function.LongConsumer;
 
@@ -79,7 +80,7 @@ final class RelationalIntervalTreeTest {
 
     @Override
     public void remove(final long fork, final long endpoint, final long ref) {
-      forks.get(fork).get(endpoint).remove(ref);
+      Objects.requireNonNull(Objects.requireNonNull(forks.get(fork)).get(endpoint)).remove(ref);
     }
 
     @Override
