@@ -65,6 +65,57 @@ public final class CASStringBoundDifferentialTest extends AbstractJsonTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
+  void cappedStoredKeysWithLossyBoundsMatchTheInterpreter(final boolean multiPath) {
+    loadLongFixture();
+    createIndex(multiPath);
+    final String[] operators = {"<", "<=", ">", ">="};
+    final String[] comparisons = {"lt", "le", "gt", "ge"};
+    for (final int prefixLength : new int[] {243, 244, 245, 246}) {
+      final String prefix = "a".repeat(prefixLength);
+      for (final String suffix : new String[] {"\uD800", "\uDC00"}) {
+        final String literal = prefix + suffix;
+        for (int i = 0; i < operators.length; i++) {
+          final String predicate = "$o.title " + comparisons[i] + " '" + literal + "'";
+          final String plain = "for $o in " + SOURCE + "[] where " + predicate + " return $o.title";
+          assertDifferential(scan(literal, operators[i]), plain);
+          assertDifferential(SOURCE + "[][?$$.title " + comparisons[i] + " '" + literal + "'].title", plain);
+          assertEquals(run("count(" + plain + ")", false), run("count(" + plain + ")", true));
+          if (multiPath) {
+            final String indexed = "let $doc := " + SOURCE + " return jn:scan-cas-index($doc,"
+                + "jn:find-cas-index($doc,'xs:string','/[]/title'),'" + literal + "','" + operators[i] + "',())";
+            final String allPaths = "for $o in " + SOURCE + "[] for $v in ($o.title, $o.alias) where $v "
+                + comparisons[i] + " '" + literal + "' return $v";
+            assertDifferential(indexed, allPaths);
+          }
+        }
+        for (final boolean includeMin : new boolean[] {false, true}) {
+          assertRange(literal, null, includeMin, true);
+          assertRange(null, literal, true, includeMin);
+          for (final boolean includeMax : new boolean[] {false, true}) {
+            assertRange(prefix + "\uD7FF", literal, includeMin, includeMax);
+            assertRange(literal, prefix + "\uE000", includeMin, includeMax);
+            assertRange(prefix + "\uD800", prefix + "\uDC00", includeMin, includeMax);
+          }
+        }
+      }
+    }
+  }
+
+  private void loadLongFixture() {
+    JsonTestHelper.deleteEverything();
+    final StringBuilder json = new StringBuilder("[{\"title\":\"short\",\"alias\":\"short\"}");
+    for (final int prefixLength : new int[] {243, 244, 245, 246}) {
+      final String prefix = "a".repeat(prefixLength);
+      for (final String suffix : new String[] {"", "b", "\uD7FF", "\uE000", "𐐀", "\uE000"}) {
+        json.append(",{\"title\":\"").append(prefix).append(suffix)
+            .append("\",\"alias\":\"").append(prefix).append("\uE000\"}");
+      }
+    }
+    query("jn:store('json-path1','mydoc.jn','" + json.append(']') + "')");
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
   void losslessBoundsKeepTheirResults(final boolean multiPath) {
     createIndex(multiPath);
     for (final String literal : new String[] {"?", "a", "！", "𐐀"}) {

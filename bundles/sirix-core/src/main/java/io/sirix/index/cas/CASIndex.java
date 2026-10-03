@@ -10,6 +10,7 @@ import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
+import io.sirix.node.interfaces.BooleanValueNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NumericValueNode;
 import io.sirix.node.interfaces.ValueNode;
@@ -64,8 +65,8 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
     if (filter != null && (hasLossyStringBound(filter.getMin(), indexDef.getContentType())
         || hasLossyStringBound(filter.getMax(), indexDef.getContentType()))) {
-      return openStringRangeWithResidual(reader, indexDef, filter.getPCRs(), filter.getMin(), filter.getMax(),
-          filter.isMinInclusive(), filter.isMaxInclusive());
+      return openStringRangeWithResidual(storageEngineReader, reader, indexDef, filter.getPCRs(), filter.getMin(),
+          filter.getMax(), filter.isMinInclusive(), filter.isMaxInclusive());
     }
 
     // Bounded-cursor fast path. Bound inclusivity is enforced INSIDE the cursor, on each group's
@@ -216,9 +217,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     return false;
   }
 
-  private static Iterator<NodeReferences> openStringRangeWithResidual(final HOTIndexReader<CASValue> reader,
-      final IndexDef indexDef, final Set<Long> pcrs, final @Nullable Atomic min, final @Nullable Atomic max,
-      final boolean minInclusive, final boolean maxInclusive) {
+  private static Iterator<NodeReferences> openStringRangeWithResidual(final StorageEngineReader storageEngineReader,
+      final HOTIndexReader<CASValue> reader, final IndexDef indexDef, final Set<Long> pcrs,
+      final @Nullable Atomic min, final @Nullable Atomic max, final boolean minInclusive, final boolean maxInclusive) {
     final Type type = indexDef.getContentType();
     final Atomic scanMin = hasLossyStringBound(min, type) ? null : min;
     final Atomic scanMax = hasLossyStringBound(max, type) ? null : max;
@@ -253,11 +254,15 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
           if (acceptedPCRs.length != 0 && !containsPCR(acceptedPCRs, pathNodeKeyOf(entry))) {
             continue;
           }
-          final String value = entry.getKey().getAtomicValue().stringValue();
-          final int lower = minLiteral == null ? 1 : compareCodePoints(value, minLiteral);
-          final int upper = maxLiteral == null ? -1 : compareCodePoints(value, maxLiteral);
-          if ((lower > 0 || lower == 0 && minInclusive) && (upper < 0 || upper == 0 && maxInclusive)) {
+          final CASValue key = entry.getKey();
+          if (CASKeySerializer.truncates(key.getAtomicValue(), type)) {
+            next = exactStringRangeMatches(storageEngineReader, entry.getValue(), minLiteral, maxLiteral,
+                minInclusive, maxInclusive);
+          } else if (inStringRange(key.getAtomicValue().stringValue(), minLiteral, maxLiteral, minInclusive,
+              maxInclusive)) {
             next = entry.getValue();
+          }
+          if (next != null) {
             return true;
           }
         }
@@ -274,6 +279,53 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         return result;
       }
     };
+  }
+
+  private static boolean inStringRange(final String value, final @Nullable String min, final @Nullable String max,
+      final boolean minInclusive, final boolean maxInclusive) {
+    final int lower = min == null ? 1 : compareCodePoints(value, min);
+    final int upper = max == null ? -1 : compareCodePoints(value, max);
+    return (lower > 0 || lower == 0 && minInclusive) && (upper < 0 || upper == 0 && maxInclusive);
+  }
+
+  private static @Nullable NodeReferences exactStringRangeMatches(final StorageEngineReader storageEngineReader,
+      final NodeReferences candidates, final @Nullable String min, final @Nullable String max,
+      final boolean minInclusive, final boolean maxInclusive) {
+    final long candidateCount = candidates.cardinality();
+    long[] matching = new long[(int) Math.min(candidateCount, 16)];
+    int kept = 0;
+    try (final StorageEngineReader separateReader = storageEngineReader instanceof StorageEngineWriter
+        ? null
+        : storageEngineReader.getResourceSession().createStorageEngineReader(storageEngineReader.getRevisionNumber())) {
+      final StorageEngineReader records = separateReader == null ? storageEngineReader : separateReader;
+      final LongIterator it = candidates.nodeKeyIterator();
+      while (it.hasNext()) {
+        final long nodeKey = it.next();
+        final DataRecord record = records.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+        final String value;
+        if (record instanceof ValueNode valueNode) {
+          value = valueNode.getValue();
+        } else if (record instanceof NumericValueNode numericNode) {
+          value = String.valueOf(numericNode.getValue());
+        } else if (record instanceof BooleanValueNode booleanNode) {
+          value = Boolean.toString(booleanNode.getValue());
+        } else {
+          continue;
+        }
+        if (inStringRange(value, min, max, minInclusive, maxInclusive)) {
+          if (kept == matching.length) {
+            matching = Arrays.copyOf(matching, Math.max(matching.length << 1, 16));
+          }
+          matching[kept++] = nodeKey;
+        }
+      }
+    }
+    if (kept == 0) {
+      return null;
+    }
+    return kept == candidateCount
+        ? candidates
+        : NodeReferences.ofSortedArray(Arrays.copyOf(matching, kept));
   }
 
   /**
@@ -615,8 +667,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       }
       final SearchMode mode = filter.getMode();
       final boolean lower = mode == SearchMode.GREATER || mode == SearchMode.GREATER_OR_EQUAL;
-      return openStringRangeWithResidual(reader, indexDef, pcrsRequested, lower ? filter.getKey() : null,
-          lower ? null : filter.getKey(), mode == SearchMode.GREATER_OR_EQUAL, mode == SearchMode.LOWER_OR_EQUAL);
+      return openStringRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested,
+          lower ? filter.getKey() : null, lower ? null : filter.getKey(), mode == SearchMode.GREATER_OR_EQUAL,
+          mode == SearchMode.LOWER_OR_EQUAL);
     }
 
     // Gated on what the QUERY pins, not on what the INDEX spans. A seek needs one exact key, so it
