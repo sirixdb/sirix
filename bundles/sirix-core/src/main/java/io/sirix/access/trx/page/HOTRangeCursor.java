@@ -107,6 +107,10 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
     return reader.readSideOverflowPage(reference);
   }
 
+  public boolean verifyChecksumsOnRead() {
+    return reader.verifyChecksumsOnRead();
+  }
+
   private final HOTTrieReader reader;
   private final PageReference rootRef;
   private final byte @Nullable [] fromKey;

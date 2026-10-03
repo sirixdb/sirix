@@ -291,11 +291,14 @@ nothing. Higher chunk indices retain direct updates; they cannot be confused wit
 readers identify the logical key boundary, not the high bit of a chunk index.
 
 A folded payload of at least 256 bytes lives in an `OverflowPage`. Its leaf slot stores the
-13-byte marker `[FD][referenceKey_BE8][payloadLength_BE4]`. The side-map key is a 47-bit FNV-1a hash
+21-byte marker `[FD][referenceKey_BE8][payloadLength_BE4][payloadHash_BE8]`. The payload hash uses
+the same XXH3-64 function as projection side-page descriptors. The side-map key is a 47-bit FNV-1a hash
 of the composite key, mixed with `hash ^= hash >>> 29`, shifted left 16 bits with sub-id 1.
 A same-leaf hash collision leaves a newly folded payload inline. Frontier rebuilds that bring
 colliding owners together rename a marker to a free side-map key before attaching its payload.
 Readers resolve the side page through their revision and validate its length against the marker.
+When `verifyChecksumsOnRead` is enabled, every reader and writer verifies the payload hash before
+decoding, including after a cold reopen.
 Splits and frontier rebuilds route references by the actual composite owner key; consolidation
 skips leaves carrying side pages. A fold that becomes cold or empty removes the old side reference.
 

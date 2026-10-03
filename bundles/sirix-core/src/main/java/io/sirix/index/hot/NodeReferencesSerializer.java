@@ -29,7 +29,10 @@ package io.sirix.index.hot;
 
 import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
+import io.sirix.exception.SirixCorruptionException;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.io.HashAlgorithm;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageReference;
@@ -86,8 +89,9 @@ public final class NodeReferencesSerializer {
 
   /**
    * Format marker of a <em>referenced</em> chunk: the payload lives in an {@link OverflowPage} on the
-   * leaf's side map and the slot holds only {@code [0xFD][refKey:8 BE][payloadLength:4 BE]} (13
-   * bytes). A folded hot chunk is stored this way so that a versioned leaf image carries 13 bytes per
+   * leaf's side map and the slot holds only
+   * {@code [0xFD][refKey:8 BE][payloadLength:4 BE][payloadHash:8 BE]} (21
+   * bytes). A folded hot chunk is stored this way so that a versioned leaf image carries 21 bytes per
    * chunk instead of the payload: the sliding carry-forward then re-emits references, not chunk
    * bytes. Readers resolve the page through the storage engine ({@code readSideOverflowPage}); every
    * structural move of the owning entry routes the side reference by the marker
@@ -95,10 +99,10 @@ public final class NodeReferencesSerializer {
    */
   public static final byte REFERENCED_FORMAT = (byte) 0xFD;
   /** Length of a referenced-chunk marker. */
-  public static final int REFERENCED_LENGTH = 1 + Long.BYTES + Integer.BYTES;
+  public static final int REFERENCED_LENGTH = 1 + Long.BYTES + Integer.BYTES + Long.BYTES;
 
   /** Encode a referenced-chunk marker. */
-  public static byte[] encodeReferenced(final long refKey, final int payloadLength) {
+  public static byte[] encodeReferenced(final long refKey, final int payloadLength, final long payloadHash) {
     if (payloadLength <= 0 || payloadLength > 0xFFFF) {
       throw new IllegalArgumentException("referenced payload length must be in [1, 65535]: " + payloadLength);
     }
@@ -109,6 +113,9 @@ public final class NodeReferencesSerializer {
     }
     for (int i = 0; i < Integer.BYTES; i++) {
       marker[1 + Long.BYTES + i] = (byte) (payloadLength >>> (24 - 8 * i));
+    }
+    for (int i = 0; i < Long.BYTES; i++) {
+      marker[1 + Long.BYTES + Integer.BYTES + i] = (byte) (payloadHash >>> (56 - 8 * i));
     }
     return marker;
   }
@@ -155,14 +162,24 @@ public final class NodeReferencesSerializer {
     return length;
   }
 
+  public static long referencedPayloadHash(final byte[] marker, final int offset) {
+    return readKeyBE(marker, offset + 1 + Long.BYTES + Integer.BYTES);
+  }
+
+  public static long referencedPayloadHash(final HOTLeafPage leaf, final long ref) {
+    return leaf.refLongBEAt(ref, 1 + Long.BYTES + Integer.BYTES);
+  }
+
   /**
    * Resolve the payload of a referenced chunk through a side-page reader: the leaf's side reference
-   * under the marker's key, read via {@code readSideOverflowPage}, length-checked against the marker.
+   * under the marker's key, read via {@code readSideOverflowPage}, length-checked and optionally
+   * hash-checked against the marker.
    *
    * @throws IllegalStateException when the side reference or its page is missing or the length
    *         disagrees
    */
   public static byte[] resolveReferencedPayload(final HOTLeafPage leaf, final long refKey, final int payloadLength,
+      final long payloadHash, final boolean verifyChecksums,
       final Function<PageReference, @Nullable OverflowPage> reader) {
     if (payloadLength <= 0 || payloadLength > 0xFFFF) {
       throw new IllegalStateException("Invalid referenced posting payload length: " + payloadLength);
@@ -181,7 +198,16 @@ public final class NodeReferencesSerializer {
       throw new IllegalStateException("referenced posting chunk " + refKey + " on leaf " + leaf.getPageKey() + " has "
           + page.dataLength() + " payload bytes but its marker records " + payloadLength);
     }
-    return page.getDataBytes();
+    final byte[] payload = page.getDataBytes();
+    if (verifyChecksums) {
+      final long actualHash = ProjectionIndexColumnSegmentCodec.contentHash(payload);
+      if (actualHash != payloadHash) {
+        throw new SirixCorruptionException(sideReference.getKey(),
+            "referenced posting chunk " + refKey + " on leaf " + leaf.getPageKey(),
+            HashAlgorithm.longToBytes(payloadHash), HashAlgorithm.longToBytes(actualHash));
+      }
+    }
+    return payload;
   }
 
   /**
@@ -547,7 +573,8 @@ public final class NodeReferencesSerializer {
           chunkBytes = leaf.copyStoredValue(idx);
           if (candidate.length == compositeLen && isReferenced(chunkBytes, 0, chunkBytes.length)) {
             chunkBytes = resolveReferencedPayload(leaf, referencedKey(chunkBytes, 0),
-                referencedPayloadLength(chunkBytes, 0), cursor::readSideOverflowPage);
+                referencedPayloadLength(chunkBytes, 0), referencedPayloadHash(chunkBytes, 0),
+                cursor.verifyChecksumsOnRead(), cursor::readSideOverflowPage);
           }
         }
       } catch (RuntimeException e) {
@@ -893,7 +920,8 @@ public final class NodeReferencesSerializer {
         }
         final long refKey = referencedKey(leaf, ref);
         final int payloadLength = referencedPayloadLength(leaf, ref);
-        final byte[] payload = resolveReferencedPayload(leaf, refKey, payloadLength, trie::readSideOverflowPage);
+        final byte[] payload = resolveReferencedPayload(leaf, refKey, payloadLength, referencedPayloadHash(leaf, ref),
+            trie.verifyChecksumsOnRead(), trie::readSideOverflowPage);
         if (!trie.validateCurrentLeaf()) {
           return false; // the marker (and so the side reference) may have been torn — restart the walk
         }

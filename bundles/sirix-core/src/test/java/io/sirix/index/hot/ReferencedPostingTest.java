@@ -1,7 +1,9 @@
 package io.sirix.index.hot;
 
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.exception.SirixCorruptionException;
 import io.sirix.index.IndexType;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -34,34 +36,45 @@ final class ReferencedPostingTest {
   void markerRoundTripAndMissingOrMismatchedPayloadsFailClosed() {
     final long key = HOTLeafPage.overflowPageRefKey(123, PostingDeltas.REFERENCE_SUB_ID);
     final byte[] payload = payload(31);
-    final byte[] marker = NodeReferencesSerializer.encodeReferenced(key, payload.length);
-    assertEquals(13, marker.length);
+    final long hash = ProjectionIndexColumnSegmentCodec.contentHash(payload);
+    final byte[] marker = NodeReferencesSerializer.encodeReferenced(key, payload.length, hash);
+    assertEquals(21, marker.length);
     assertEquals(key, NodeReferencesSerializer.referencedKey(marker, 0));
     assertEquals(payload.length, NodeReferencesSerializer.referencedPayloadLength(marker, 0));
-    assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.encodeReferenced(key, 0));
-    assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.encodeReferenced(key, 65536));
+    assertEquals(hash, NodeReferencesSerializer.referencedPayloadHash(marker, 0));
+    assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.encodeReferenced(key, 0, hash));
+    assertThrows(IllegalArgumentException.class, () -> NodeReferencesSerializer.encodeReferenced(key, 65536, hash));
     assertThrows(IllegalStateException.class, () -> NodeReferencesSerializer.deserializeChunk(marker));
     try (HOTLeafPage leaf = new HOTLeafPage(1, 1, IndexType.CAS)) {
       assertTrue(leaf.put(key(4), marker));
+      assertEquals(hash, NodeReferencesSerializer.referencedPayloadHash(leaf, leaf.valueRef(0)));
       assertThrows(IllegalStateException.class, () -> NodeReferencesSerializer.resolveReferencedPayload(leaf, key,
-          payload.length, ReferencedPostingTest::read));
+          payload.length, hash, true, ReferencedPostingTest::read));
       final PageReference reference = reference(payload);
       leaf.setPageReference(key, reference);
       assertArrayEquals(payload,
-          NodeReferencesSerializer.resolveReferencedPayload(leaf, key, payload.length, ReferencedPostingTest::read));
+          NodeReferencesSerializer.resolveReferencedPayload(leaf, key, payload.length, hash, true,
+              ReferencedPostingTest::read));
       assertThrows(IllegalStateException.class, () -> NodeReferencesSerializer.resolveReferencedPayload(leaf, key,
-          payload.length + 1, ReferencedPostingTest::read));
+          payload.length + 1, hash, true, ReferencedPostingTest::read));
       assertThrows(IllegalStateException.class,
-          () -> NodeReferencesSerializer.resolveReferencedPayload(leaf, key, payload.length, ignored -> null));
+          () -> NodeReferencesSerializer.resolveReferencedPayload(leaf, key, payload.length, hash, true, ignored -> null));
       assertThrows(IllegalStateException.class,
           () -> leaf.mergeWithNodeRefs(key(4), key(4).length, payload, payload.length));
+      final byte[] corrupted = payload.clone();
+      corrupted[corrupted.length - 1] ^= 1;
+      reference.setPage(new OverflowPage(corrupted));
+      assertThrows(SirixCorruptionException.class, () -> NodeReferencesSerializer.resolveReferencedPayload(leaf, key,
+          payload.length, hash, true, ReferencedPostingTest::read));
+      assertArrayEquals(corrupted, NodeReferencesSerializer.resolveReferencedPayload(leaf, key, payload.length, hash,
+          false, ReferencedPostingTest::read));
     }
   }
 
   @Test
   void projectionBytesAreNeverTreatedAsPostingOwnership() {
     try (HOTLeafPage leaf = new HOTLeafPage(1, 1, IndexType.PROJECTION)) {
-      assertTrue(leaf.put(key(4), NodeReferencesSerializer.encodeReferenced(17, 10)));
+      assertTrue(leaf.put(key(4), NodeReferencesSerializer.encodeReferenced(17, 10, 0)));
       assertEquals(-1, leaf.findReferencedPostingOwner(17));
     }
   }
@@ -112,8 +125,10 @@ final class ReferencedPostingTest {
         HOTLeafPage rebuilt = new HOTLeafPage(3, 2, IndexType.CAS)) {
       final byte[] first = payload(11);
       final byte[] second = payload(22);
-      assertTrue(source1.put(key(1), NodeReferencesSerializer.encodeReferenced(collision, first.length)));
-      assertTrue(source2.put(key(2), NodeReferencesSerializer.encodeReferenced(collision, second.length)));
+      assertTrue(source1.put(key(1), NodeReferencesSerializer.encodeReferenced(collision, first.length,
+          ProjectionIndexColumnSegmentCodec.contentHash(first))));
+      assertTrue(source2.put(key(2), NodeReferencesSerializer.encodeReferenced(collision, second.length,
+          ProjectionIndexColumnSegmentCodec.contentHash(second))));
       final PageReference firstRef = reference(first);
       final PageReference secondRef = reference(second);
       source1.setPageReference(collision, firstRef);
@@ -139,7 +154,8 @@ final class ReferencedPostingTest {
             ? first
             : second,
             NodeReferencesSerializer.resolveReferencedPayload(rebuilt, refKey,
-                NodeReferencesSerializer.referencedPayloadLength(rebuilt, value), ReferencedPostingTest::read));
+                NodeReferencesSerializer.referencedPayloadLength(rebuilt, value),
+                NodeReferencesSerializer.referencedPayloadHash(rebuilt, value), true, ReferencedPostingTest::read));
       }
       assertSame(firstRef, source1.getPageReference(collision));
       assertSame(secondRef, source2.getPageReference(collision));
@@ -169,7 +185,8 @@ final class ReferencedPostingTest {
       final byte[] key = key(i);
       final byte[] payload = payload(i);
       final long refKey = PostingDeltas.referenceKey(key, key.length);
-      assertTrue(leaf.put(key, NodeReferencesSerializer.encodeReferenced(refKey, payload.length)));
+      assertTrue(leaf.put(key, NodeReferencesSerializer.encodeReferenced(refKey, payload.length,
+          ProjectionIndexColumnSegmentCodec.contentHash(payload))));
       final PageReference reference = reference(payload);
       leaf.setPageReference(refKey, reference);
       references.add(reference);
