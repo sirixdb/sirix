@@ -79,16 +79,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private final DatabaseConfiguration dbConfig;
 
   /**
-   * The session management instance.
-   *
-   * <p>
-   * Instances of this class are responsible for registering themselves in the pool (in
-   * {@link #LocalDatabase(TransactionManager, DatabaseConfiguration, PathBasedPool, ResourceStore, WriteLocksRegistry, PathBasedPool)}),
-   * as well as de-registering themselves (in {@link #close()}).
-   */
-  private final PathBasedPool<Database<?>> sessions;
-
-  /**
    * The resource store to open/close resource sessions.
    */
   private final ResourceStore<T> resourceStore;
@@ -110,23 +100,20 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    *
    * @param transactionManager A manager for database transactions.
    * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
-   * @param sessions The database sessions management instance.
    * @param resourceStore The resource store used by this database.
    * @param writeLocks Manages the locks for resource sessions.
    * @param resourceSessions The pool for resource sessions.
    */
   public LocalDatabase(final TransactionManager transactionManager, final DatabaseConfiguration dbConfig,
-      final PathBasedPool<Database<?>> sessions, final ResourceStore<T> resourceStore,
-      final WriteLocksRegistry writeLocks, final PathBasedPool<ResourceSession<?, ?>> resourceSessions) {
+      final ResourceStore<T> resourceStore, final WriteLocksRegistry writeLocks,
+      final PathBasedPool<ResourceSession<?, ?>> resourceSessions) {
     this.transactionManager = transactionManager;
     this.dbConfig = requireNonNull(dbConfig);
-    this.sessions = sessions;
     this.resourceStore = resourceStore;
     this.resourceSessions = resourceSessions;
     this.writeLocks = writeLocks;
     this.resourceIDsToResourceNames = new HashMap<>();
     this.resourceNamesToResourceIDs = new HashMap<>();
-    this.sessions.putObject(dbConfig.getDatabaseFile(), this);
     this.bufferManager = Databases.getGlobalBufferManager();
   }
 
@@ -485,7 +472,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     resourceStore.close();
     transactionManager.close();
     isClosed = true;
-    this.sessions.removeObject(dbConfig.getDatabaseFile(), this);
     Databases.freeAllocatedMemory();
   }
 

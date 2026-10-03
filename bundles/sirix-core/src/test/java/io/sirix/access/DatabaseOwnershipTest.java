@@ -383,6 +383,154 @@ final class DatabaseOwnershipTest {
   }
 
   @ParameterizedTest
+  @CsvSource({"JSON,false", "JSON,true", "XML,false", "XML,true"})
+  void removalKeepsOwnershipReservedUntilChannelsClose(final DatabaseType type, final boolean forceRemoval)
+      throws Exception {
+    final Path path = directory.resolve("removing-" + type);
+    assertTrue(createDatabase(path, type));
+    final Path configuration = path.resolve(DatabaseConfiguration.DatabasePaths.CONFIG_BINARY.getFile());
+    final Path lockPath = path.resolve(".lock");
+    final AtomicBoolean contentsChecked = new AtomicBoolean();
+    final AtomicBoolean lockOnlyChecked = new AtomicBoolean();
+    try (final Database<?> handle = openDatabase(path, type);
+        final ExecutorService competitor = Executors.newSingleThreadExecutor()) {
+      assertTrue(handle.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      if (!forceRemoval) {
+        handle.close();
+      }
+      try (final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+        if (invocation.getMethod().getName().equals("deleteIfExists")) {
+          if (configuration.equals(invocation.getArgument(0))) {
+            assertRemovalCompetitorsRefused(path, competitor, false);
+            contentsChecked.set(true);
+          } else if (lockPath.equals(invocation.getArgument(0))) {
+            assertRemovalCompetitorsRefused(path, competitor, true);
+            lockOnlyChecked.set(true);
+          }
+        }
+        return invocation.callRealMethod();
+      })) {
+        Databases.removeDatabase(path);
+        assertTrue(contentsChecked.get());
+        assertTrue(lockOnlyChecked.get());
+        assertFalse(handle.isOpen());
+        assertFalse(Files.exists(path));
+      }
+      Files.createDirectory(path);
+      final Process nextOwner = child(path, "lock-only");
+      try {
+        assertEquals("OPEN", childResult(nextOwner));
+      } finally {
+        stopChild(nextOwner);
+      }
+      assertTrue(createDatabase(path, type));
+      try (final Database<?> recreated = openDatabase(path, type)) {
+        assertTrue(recreated.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      }
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  private void assertRemovalCompetitorsRefused(final Path path, final ExecutorService competitor,
+      final boolean lockOnly) throws Exception {
+    final List<RuntimeException> failures = competitor.submit(() -> {
+      final List<RuntimeException> rejected = new ArrayList<>(5);
+      final Path alias = path.resolve(".");
+      for (final DatabaseType type : DatabaseType.values()) {
+        rejected.add(assertThrows(RuntimeException.class, () -> {
+          try (final Database<?> unexpected = openDatabase(alias, type)) {
+            assertTrue(unexpected.isOpen());
+          }
+        }));
+        if (lockOnly) {
+          rejected.add(assertThrows(RuntimeException.class, () -> createDatabase(alias, type)));
+        } else {
+          assertFalse(createDatabase(alias, type));
+        }
+      }
+      rejected.add(assertThrows(RuntimeException.class, () -> Databases.removeDatabase(alias)));
+      return rejected;
+    }).get(30, TimeUnit.SECONDS);
+    final Process contender = child(path, "lock-only");
+    try {
+      assertEquals("LOCKED " + path.toRealPath(), childResult(contender),
+          "local competitors must not release the remover's process lock");
+      assertTrue(contender.waitFor(30, TimeUnit.SECONDS));
+      assertEquals(0, contender.exitValue());
+    } finally {
+      stopChild(contender);
+    }
+    assertTrue(failures.stream().allMatch(IllegalStateException.class::isInstance));
+  }
+
+  @ParameterizedTest
+  @CsvSource({"JSON,false", "JSON,true", "XML,false", "XML,true"})
+  void deletionBackendsStayOutOfConcurrentPublicSnapshots(final DatabaseType type, final boolean forceRemoval)
+      throws Exception {
+    final Path path = directory.resolve("deleting-" + type);
+    final Path otherPath = directory.resolve("snapshot-handles-" + type);
+    assertTrue(createDatabase(path, type));
+    assertTrue(createDatabase(otherPath, type));
+    final Path resources = path.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final AtomicBoolean observing = new AtomicBoolean();
+    final AtomicBoolean stop = new AtomicBoolean();
+    final CompletableFuture<Void> firstSnapshot = new CompletableFuture<>();
+    final AtomicReference<Future<?>> snapshots = new AtomicReference<>();
+    final AtomicReference<Future<?>> handleChanges = new AtomicReference<>();
+    try (final Database<?> handle = openDatabase(path, type);
+        final ExecutorService workers = Executors.newFixedThreadPool(2)) {
+      assertTrue(handle.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      if (!forceRemoval) {
+        handle.close();
+      }
+      try {
+        try (final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+          if (invocation.getMethod().getName().equals("list") && resources.equals(invocation.getArgument(0))
+              && observing.compareAndSet(false, true)) {
+            snapshots.set(workers.submit(() -> {
+              try {
+                do {
+                  final Map<Path, Set<Database<?>>> snapshot = DatabasesInternals.getOpenDatabases();
+                  for (final Set<Database<?>> handles : snapshot.values()) {
+                    handles.forEach(Database::close);
+                  }
+                  assertFalse(snapshot.containsKey(path), "a deletion backend must not be exposed to shutdown");
+                  firstSnapshot.complete(null);
+                } while (!stop.get());
+              } catch (final RuntimeException | Error failure) {
+                firstSnapshot.completeExceptionally(failure);
+                throw failure;
+              }
+            }));
+            firstSnapshot.get(30, TimeUnit.SECONDS);
+            handleChanges.set(workers.submit(() -> {
+              for (int i = 0; i < 32; i++) {
+                openDatabase(otherPath, type).close();
+              }
+            }));
+          }
+          return invocation.callRealMethod();
+        })) {
+          Databases.removeDatabase(path);
+          assertTrue(observing.get());
+          Objects.requireNonNull(handleChanges.get()).get(30, TimeUnit.SECONDS);
+          assertFalse(handle.isOpen());
+          assertFalse(Files.exists(path));
+        }
+      } finally {
+        stop.set(true);
+        if (snapshots.get() != null) {
+          Objects.requireNonNull(snapshots.get()).get(30, TimeUnit.SECONDS);
+        }
+      }
+    } finally {
+      Databases.removeDatabase(path);
+      Databases.removeDatabase(otherPath);
+    }
+  }
+
+  @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void removalFinalizesPendingLockDeletionAfterBothChannelsClose(final boolean openHandle) throws Exception {
     final Path path = createDatabase();

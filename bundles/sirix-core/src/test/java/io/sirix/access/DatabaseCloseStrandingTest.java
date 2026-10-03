@@ -6,7 +6,6 @@
 
 package io.sirix.access;
 
-import io.sirix.api.Database;
 import io.sirix.api.Transaction;
 import io.sirix.api.TransactionManager;
 import io.sirix.api.json.JsonResourceSession;
@@ -25,29 +24,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class DatabaseCloseStrandingTest {
 
   @Test
-  @DisplayName("a failed store stays registered until cleanup succeeds")
-  void failingResourceStoreCanRetryBeforeDeregisteringTheDatabase(@TempDir final Path tempDir) {
-    final PathBasedPool<Database<?>> sessions = new PathBasedPool<>();
+  @DisplayName("a failed store leaves its backend open until cleanup succeeds")
+  void failingResourceStoreCanRetryBeforeClosingTheDatabase(@TempDir final Path tempDir) {
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(tempDir);
 
     final ThrowingResourceStore store = new ThrowingResourceStore();
-    final LocalDatabase<JsonResourceSession, ?> database = newDatabase(dbConfig, sessions, store);
+    final LocalDatabase<JsonResourceSession, ?> database = newDatabase(dbConfig, store);
 
-    assertTrue(sessions.containsAnyEntry(tempDir));
+    assertTrue(database.isOpen());
     assertThrows(IllegalStateException.class, database::close);
     assertTrue(database.isOpen());
-    assertTrue(sessions.containsAnyEntry(tempDir));
     store.fail = false;
     database.close();
     assertFalse(database.isOpen());
-    assertFalse(sessions.containsAnyEntry(tempDir));
     database.close();
   }
 
   @SuppressWarnings("unchecked")
   private static LocalDatabase<JsonResourceSession, ?> newDatabase(final DatabaseConfiguration dbConfig,
-      final PathBasedPool<Database<?>> sessions, final ResourceStore<JsonResourceSession> store) {
-    return new LocalDatabase<>(new NoOpTransactionManager(), dbConfig, sessions, store, new WriteLocksRegistry(),
+      final ResourceStore<JsonResourceSession> store) {
+    return new LocalDatabase<>(new NoOpTransactionManager(), dbConfig, store, new WriteLocksRegistry(),
         new PathBasedPool<>());
   }
 
