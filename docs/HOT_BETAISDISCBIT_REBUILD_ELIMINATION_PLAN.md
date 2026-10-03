@@ -25,10 +25,8 @@ exactly three places — the **complete branch-path inventory**, read from
   (IllegalArgumentException | IllegalStateException)` → `rebuildWholeIndex`. The
   structural self-heal.
 
-`branchSplitFullNode` (`:1010`, the `!betaIsDiscBit` full-node case →
-`splitIndirectWithEntry` + `integrate`) was read in full: it **always returns `true`**,
-never falls back. The straddle-guard removal eliminates the two
-`catch (HOTStraddleException)` arms. So (A), (B), (C) are *all* that remain.
+This inventory describes the implementation at the time of this plan. Current branch-split
+candidate handling is specified in [HOT_INDEX_SPECIFICATION.md §4.5.4 case 4](HOT_INDEX_SPECIFICATION.md#454-branch-path).
 
 > **(A) and (B) are one problem** — β colliding with an *existing* discriminative bit
 > (`betaIsDiscBit`). The *not-full* form is already handled incrementally
@@ -358,8 +356,8 @@ A fix is accepted only when 1–6 are green.
 
 ## §9. Review passes
 
-**Pass 1 (inventory).** — *Confirmed* against the source: the only branch-path rebuilds
-are (A) `:878`, (B) `:933`, (C) `:840`+twin; `branchSplitFullNode` always returns `true`.
+**Pass 1 (inventory).** — The historical inventory is in §1; current branch handling is specified
+in [HOT_INDEX_SPECIFICATION.md §4.5.4](HOT_INDEX_SPECIFICATION.md#454-branch-path).
 
 **Pass 2 (the dispatch).** — *Caught the prior-attempt bug:* a `splitIndirect` +
 `addChildAtCombination` decomposition fails when `compressHalf` drops β from K's half.
