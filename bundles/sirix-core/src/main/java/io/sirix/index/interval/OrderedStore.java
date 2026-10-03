@@ -11,12 +11,14 @@ import java.util.function.LongConsumer;
  * Storage SPI the {@link RelationalIntervalTree} drives: one logical ordered map from a composite
  * key {@code (forkNode, endpoint)} to a multiset of record references (node keys).
  *
- * <p>The SirixDB-backed implementation encodes the composite key as a single order-preserving byte
+ * <p>
+ * The SirixDB-backed implementation encodes the composite key as a single order-preserving byte
  * string {@code [forkNode:8][endpoint:8]} so {@link #scan} over a fixed {@code forkNode} with an
  * endpoint sub-range is one contiguous HOT-trie range scan. The in-memory reference implementation
  * used by the tests has identical observable semantics.
  *
- * <p>Everything is primitive {@code long}; the only allocation happens inside the concrete store,
+ * <p>
+ * Everything is primitive {@code long}; the only allocation happens inside the concrete store,
  * never in the {@link RelationalIntervalTree} query path.
  *
  * @author Johannes Lichtenberger
@@ -35,4 +37,7 @@ public interface OrderedStore {
    * than once if it was inserted more than once under the same key; callers dedup if required.
    */
   void scan(long forkNode, long endpointLo, long endpointHi, LongConsumer out);
+
+  /** Stream all endpoints for every fork in the inclusive range, in one ordered-store scan. */
+  void scanForks(long forkLo, long forkHi, LongConsumer out);
 }

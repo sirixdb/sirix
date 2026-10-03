@@ -37,6 +37,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.HashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import java.util.Set;
 
 import static io.brackit.query.util.path.Path.parse;
@@ -442,6 +445,28 @@ final class JsonValidTimeIncrementalMaintenanceTest {
       }
       Collections.sort(expected);
       assertEquals(expected, actual, "valid-time entries at " + point + " in revision " + revision);
+      final LongOpenHashSet all = new LongOpenHashSet();
+      tree.rangeIntersect(0, domain.maxValue() + 1, all::add);
+      ValidTimeIntervalIndexFactory.createVerificationStore(rtx.getStorageEngineReader(), INDEX_ID)
+                                   .scan(0, 0, 0, all::add);
+      final var expectedParents = new HashMap<Long, LongOpenHashSet>();
+      final var keys = all.iterator();
+      while (keys.hasNext()) {
+        final long key = keys.nextLong();
+        assertTrue(rtx.moveTo(key));
+        expectedParents.computeIfAbsent(rtx.getParentKey(), ignored -> new LongOpenHashSet()).add(key);
+      }
+      final var membership =
+          ValidTimeIntervalIndexFactory.createMembershipStore(rtx.getStorageEngineReader(), INDEX_ID);
+      final LongArrayList allMembers = new LongArrayList();
+      membership.scanForks(Long.MIN_VALUE, Long.MAX_VALUE, allMembers::add);
+      assertEquals(all.size(), allMembers.size(), "each registered object has exactly one parent posting");
+      assertEquals(all, new LongOpenHashSet(allMembers));
+      for (final var parent : expectedParents.entrySet()) {
+        final LongOpenHashSet members = new LongOpenHashSet();
+        membership.scan(parent.getKey(), 0, 0, members::add);
+        assertEquals(parent.getValue(), members, "parent membership at revision " + revision);
+      }
     }
   }
 
