@@ -253,11 +253,11 @@ public final class HOTIncrementalInsert {
       final boolean rightSide = HOTBulkBuilder.bitAt(ownerKey, splitBit);
       HOTLeafPage target = findOwningLeaf(rightSide
           ? right
-          : left, ownerKey);
+          : left, ownerKey, refKey);
       if (target == null) {
         target = findOwningLeaf(rightSide
             ? left
-            : right, ownerKey);
+            : right, ownerKey, refKey);
       }
       if (target == null) {
         throw new IllegalStateException(
@@ -275,9 +275,9 @@ public final class HOTIncrementalInsert {
    * page of a half is in memory and swizzled onto its reference ({@link HOTBulkBuilder} and
    * {@link #swizzle}), so this needs no page resolution.
    */
-  private static @Nullable HOTLeafPage findOwningLeaf(final Page half, final byte[] ownerKey) {
+  private static @Nullable HOTLeafPage findOwningLeaf(final Page half, final byte[] ownerKey, final long refKey) {
     if (half instanceof HOTLeafPage leaf) {
-      return leaf.findEntry(ownerKey) >= 0
+      return leaf.findEntry(ownerKey) >= 0 || leaf.findReferencedPostingOwner(refKey) >= 0
           ? leaf
           : null;
     }
@@ -288,7 +288,7 @@ public final class HOTIncrementalInsert {
             ? null
             : childRef.getPage();
         if (child != null) {
-          final HOTLeafPage found = findOwningLeaf(child, ownerKey);
+          final HOTLeafPage found = findOwningLeaf(child, ownerKey, refKey);
           if (found != null) {
             return found;
           }

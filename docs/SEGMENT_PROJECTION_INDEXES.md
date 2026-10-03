@@ -2105,3 +2105,10 @@ The retained-order proof is documented at
 **Work-budget tests** assert on these counters and on the `# served:` route counters (§7.3): a load or query may not
 start doing materially more work, where a result check would see nothing. The catalog of counters, the tests, and the
 rules for adding or changing a budget are in `bundles/sirix-core/src/test/java/io/sirix/budget/README.md`.
+
+**Posting-delta work counters.** The existing `-Dsirix.hot.mergeDiag=true` enables
+`HOTIndexWriter.postingDeltaWrites()`, `postingDeltaFolds()`, and
+`AbstractHOTIndexWriter.REFERENCED_CHUNK_WRITES`. They count single-posting slots
+written and bounded in-memory base replacements, respectively. They are process-wide monotonic
+totals; capture differences around an operation. The disabled write path does not increment them.
+`EngineWorkCounters.HOT_POSTINGS` catalogs both for work-budget tests.

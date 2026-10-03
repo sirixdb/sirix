@@ -31,6 +31,8 @@ import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.OverflowPage;
+import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
@@ -40,6 +42,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
 
@@ -80,6 +83,121 @@ public final class NodeReferencesSerializer {
    * Format marker for tombstone (deleted entry).
    */
   private static final byte TOMBSTONE_FORMAT = (byte) 0xFE;
+
+  /**
+   * Format marker of a <em>referenced</em> chunk: the payload lives in an {@link OverflowPage} on the
+   * leaf's side map and the slot holds only {@code [0xFD][refKey:8 BE][payloadLength:4 BE]} (13
+   * bytes). A folded hot chunk is stored this way so that a versioned leaf image carries 13 bytes per
+   * chunk instead of the payload: the sliding carry-forward then re-emits references, not chunk
+   * bytes. Readers resolve the page through the storage engine ({@code readSideOverflowPage}); every
+   * structural move of the owning entry routes the side reference by the marker
+   * ({@link HOTLeafPage#findReferencedPostingOwner}).
+   */
+  public static final byte REFERENCED_FORMAT = (byte) 0xFD;
+  /** Length of a referenced-chunk marker. */
+  public static final int REFERENCED_LENGTH = 1 + Long.BYTES + Integer.BYTES;
+
+  /** Encode a referenced-chunk marker. */
+  public static byte[] encodeReferenced(final long refKey, final int payloadLength) {
+    if (payloadLength <= 0 || payloadLength > 0xFFFF) {
+      throw new IllegalArgumentException("referenced payload length must be in [1, 65535]: " + payloadLength);
+    }
+    final byte[] marker = new byte[REFERENCED_LENGTH];
+    marker[0] = REFERENCED_FORMAT;
+    for (int i = 0; i < Long.BYTES; i++) {
+      marker[1 + i] = (byte) (refKey >>> (56 - 8 * i));
+    }
+    for (int i = 0; i < Integer.BYTES; i++) {
+      marker[1 + Long.BYTES + i] = (byte) (payloadLength >>> (24 - 8 * i));
+    }
+    return marker;
+  }
+
+  /** Whether {@code bytes[offset..offset+length)} is a referenced-chunk marker. */
+  public static boolean isReferenced(final byte[] bytes, final int offset, final int length) {
+    return length == REFERENCED_LENGTH && bytes[offset] == REFERENCED_FORMAT;
+  }
+
+  /** Whether the slot value {@code ref} of {@code leaf} is a referenced-chunk marker. */
+  public static boolean isReferenced(final HOTLeafPage leaf, final long ref) {
+    return HOTLeafPage.refLength(ref) == REFERENCED_LENGTH && leaf.refByteAt(ref, 0) == REFERENCED_FORMAT;
+  }
+
+  /** The side-map key of a referenced-chunk marker held in a heap array. */
+  public static long referencedKey(final byte[] marker, final int offset) {
+    long key = 0L;
+    for (int i = 0; i < Long.BYTES; i++) {
+      key = (key << 8) | (marker[offset + 1 + i] & 0xFFL);
+    }
+    return key;
+  }
+
+  /** The payload length recorded in a referenced-chunk marker held in a heap array. */
+  public static int referencedPayloadLength(final byte[] marker, final int offset) {
+    int length = 0;
+    for (int i = 0; i < Integer.BYTES; i++) {
+      length = (length << 8) | (marker[offset + 1 + Long.BYTES + i] & 0xFF);
+    }
+    return length;
+  }
+
+  /** The side-map key of the referenced-chunk marker at slot value {@code ref}. */
+  public static long referencedKey(final HOTLeafPage leaf, final long ref) {
+    return leaf.refLongBEAt(ref, 1);
+  }
+
+  /** The payload length recorded in the referenced-chunk marker at slot value {@code ref}. */
+  public static int referencedPayloadLength(final HOTLeafPage leaf, final long ref) {
+    int length = 0;
+    for (int i = 0; i < Integer.BYTES; i++) {
+      length = (length << 8) | (leaf.refByteAt(ref, 1 + Long.BYTES + i) & 0xFF);
+    }
+    return length;
+  }
+
+  /**
+   * Resolve the payload of a referenced chunk through a side-page reader: the leaf's side reference
+   * under the marker's key, read via {@code readSideOverflowPage}, length-checked against the marker.
+   *
+   * @throws IllegalStateException when the side reference or its page is missing or the length
+   *         disagrees
+   */
+  public static byte[] resolveReferencedPayload(final HOTLeafPage leaf, final long refKey, final int payloadLength,
+      final Function<PageReference, @Nullable OverflowPage> reader) {
+    if (payloadLength <= 0 || payloadLength > 0xFFFF) {
+      throw new IllegalStateException("Invalid referenced posting payload length: " + payloadLength);
+    }
+    final PageReference sideReference = leaf.getPageReference(refKey);
+    if (sideReference == null) {
+      throw new IllegalStateException(
+          "referenced posting chunk " + refKey + " has no side reference on leaf " + leaf.getPageKey());
+    }
+    final OverflowPage page = reader.apply(sideReference);
+    if (page == null) {
+      throw new IllegalStateException(
+          "referenced posting chunk " + refKey + " on leaf " + leaf.getPageKey() + " has an unresolvable side page");
+    }
+    if (page.dataLength() != payloadLength) {
+      throw new IllegalStateException("referenced posting chunk " + refKey + " on leaf " + leaf.getPageKey() + " has "
+          + page.dataLength() + " payload bytes but its marker records " + payloadLength);
+    }
+    return page.getDataBytes();
+  }
+
+  /**
+   * Read the one low-16 bit of a delta, or -1 for its tombstone. The caller guards/validates the
+   * leaf.
+   */
+  static long readDeltaBit(final HOTLeafPage leaf, final long ref) {
+    if (isTombstone(leaf, ref)) {
+      return -1;
+    }
+    if (HOTLeafPage.refLength(ref) != 2 + Long.BYTES || leaf.refByteAt(ref, 0) != PACKED_FORMAT
+        || leaf.refByteAt(ref, 1) != 1) {
+      throw new IllegalArgumentException("a posting delta must contain exactly one packed chunk bit");
+    }
+    return requireChunkBit16(leaf.refLongBEAt(ref, 2));
+  }
 
   /**
    * Threshold for switching from packed to Roaring format.
@@ -240,6 +358,9 @@ public final class NodeReferencesSerializer {
       return deserializePacked(bytes, offset + 1, length - 1);
     } else if (format == ROARING_FORMAT) {
       return deserializeRoaring(bytes, offset + 1, length - 1);
+    } else if (format == REFERENCED_FORMAT) {
+      throw new IllegalStateException("Resolve referenced posting payloads through their side pages before decoding");
+
     } else {
       throw new IllegalArgumentException("Unknown NodeReferences format: " + format);
     }
@@ -397,9 +518,16 @@ public final class NodeReferencesSerializer {
    */
   public static @Nullable Roaring64Bitmap mergeChunksInPrefixRange(final HOTRangeCursor cursor, final byte[] prefixBuf,
       final int prefixLen) {
+    return mergeChunksInPrefixRange(cursor, prefixBuf, prefixLen, false);
+  }
+
+  /** Variant for prefix-free CAS/VALIDTIME keys, whose chunk ranges also contain delta slots. */
+  public static @Nullable Roaring64Bitmap mergeChunksInPrefixRange(final HOTRangeCursor cursor, final byte[] prefixBuf,
+      final int prefixLen, final boolean postingDeltas) {
     requireNonNull(cursor, "cursor cannot be null");
     requireNonNull(prefixBuf, "prefixBuf cannot be null");
     final int compositeLen = prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES;
+    final int deltaLen = compositeLen + PostingDeltas.SUFFIX_BYTES;
     Roaring64Bitmap merged = null;
     int tornRounds = 0;
     while (cursor.hasNext()) {
@@ -409,12 +537,18 @@ public final class NodeReferencesSerializer {
       byte[] chunkBytes = null;
       try {
         final byte[] candidate = leaf.getKey(idx);
-        if (candidate != null && candidate.length == compositeLen
-            && Arrays.compareUnsigned(candidate, 0, prefixLen, prefixBuf, 0, prefixLen) == 0) {
+        if (candidate != null && (candidate.length == compositeLen || (postingDeltas && candidate.length == deltaLen))
+            && Arrays.compareUnsigned(candidate, 0, prefixLen, prefixBuf, 0, prefixLen) == 0
+            && (candidate.length == compositeLen
+                || PostingDeltas.isDelta(HOTKeySerializer.readChunkIdx(candidate, 0, deltaLen) & 0xFFFFFFFFL))) {
           composite = candidate;
           // Preserve zero-length vs unreadable instead of letting getValue() collapse both to an
           // absent value. A matched composite slot must carry a canonical chunk payload.
           chunkBytes = leaf.copyStoredValue(idx);
+          if (candidate.length == compositeLen && isReferenced(chunkBytes, 0, chunkBytes.length)) {
+            chunkBytes = resolveReferencedPayload(leaf, referencedKey(chunkBytes, 0),
+                referencedPayloadLength(chunkBytes, 0), cursor::readSideOverflowPage);
+          }
         }
       } catch (RuntimeException e) {
         if (cursor.validateLeaf()) {
@@ -430,15 +564,35 @@ public final class NodeReferencesSerializer {
       tornRounds = 0;
       if (chunkBytes != null && !isTombstone(chunkBytes, 0, chunkBytes.length)) {
         // The copies are validated heap bytes now — safe to hand to the deserializer.
-        final Roaring64Bitmap chunkBitmap = deserializeChunk(chunkBytes).getNodeKeys();
-        if (!chunkBitmap.isEmpty()) {
+        final long trailer = HOTKeySerializer.readChunkIdx(composite, 0, compositeLen) & 0xFFFFFFFFL;
+        if (composite.length == deltaLen) {
+          final long suffix = HOTKeySerializer.readChunkIdx(composite, 0, deltaLen) & 0xFFFFFFFFL;
+          // A delta slot follows its base chunk in application order.
+          final long deltaHigh = trailer << 16;
+          final boolean remove = PostingDeltas.isRemove(suffix);
+          if (chunkBytes.length != 2 + Long.BYTES || chunkBytes[0] != PACKED_FORMAT || chunkBytes[1] != 1) {
+            throw new IllegalArgumentException("a posting delta must contain exactly one packed chunk bit");
+          }
+          final long nodeKey = deltaHigh | requireChunkBit16(readKeyBE(chunkBytes, 2));
+          if (remove) {
+            if (merged != null) {
+              merged.removeLong(nodeKey);
+            }
+          } else {
+            if (merged == null) {
+              merged = new Roaring64Bitmap();
+            }
+            merged.addLong(nodeKey);
+          }
+        } else {
+          final Roaring64Bitmap chunkBitmap = deserializeChunk(chunkBytes).getNodeKeys();
           if (merged == null) {
             merged = new Roaring64Bitmap();
           }
           // chunkIdx is UNSIGNED (see ChunkAccumulator#addChunk): mask before widening, exactly as the
           // reader-side call sites do. Sign-extending here would make the writer's same-transaction
           // view reconstruct a different node key than the reader for the very same stored chunk.
-          final long high = (HOTKeySerializer.readChunkIdx(composite, 0, composite.length) & 0xFFFFFFFFL) << 16;
+          final long high = trailer << 16;
           final LongIterator bIt = chunkBitmap.getLongIterator();
           while (bIt.hasNext()) {
             merged.add(high | bIt.next());
@@ -453,15 +607,15 @@ public final class NodeReferencesSerializer {
   /**
    * Accumulates a lookup's chunk payloads into the cheapest sufficient representation: a sorted
    * {@code long[]} while the result stays small (the average CAS posting list holds one or two node
-   * keys), spilling to a {@link Roaring64Bitmap} past {@link #COMPACT_LIMIT} or when a Roaring-format
-   * chunk appears. The emitted {@link NodeReferences#ofSortedArray} result costs one right-sized
-   * array + one wrapper instead of a bitmap container tree per lookup — the single largest allocation
-   * the read path had left.
+   * keys), spilling to a {@link Roaring64Bitmap} past {@link #COMPACT_LIMIT}. The emitted
+   * {@link NodeReferences#ofSortedArray} result costs one right-sized array + one wrapper instead of
+   * a bitmap container tree per lookup — the single largest allocation the read path had left.
    *
    * <p>
    * Sortedness precondition: chunks must be appended in ascending composite-key order (the chunk
    * walk's natural order — chunkIdx-major, bit16-minor, duplicate-free), which makes every append
-   * strictly ascending. Not thread-safe; pool per reader or per iterator.
+   * strictly ascending. Deltas may arrive out of posting order and use bounded sorted insertion. Not
+   * thread-safe; pool per reader or per iterator.
    */
   public static final class ChunkAccumulator {
 
@@ -504,6 +658,38 @@ public final class NodeReferencesSerializer {
       }
       keys[count++] = key;
       lastKey = key;
+    }
+
+    /** Delta order is chronological, so insert within the bounded compact run without spilling. */
+    private void addDelta(final long key) {
+      if (bitmap != null || count == 0 || Long.compareUnsigned(key, lastKey) > 0) {
+        add(key);
+        return;
+      }
+      int low = 0;
+      int high = count - 1;
+      while (low <= high) {
+        final int mid = (low + high) >>> 1;
+        final int cmp = Long.compareUnsigned(keys[mid], key);
+        if (cmp < 0) {
+          low = mid + 1;
+        } else if (cmp > 0) {
+          high = mid - 1;
+        } else {
+          return;
+        }
+      }
+      if (count == keys.length) {
+        if (count >= COMPACT_LIMIT) {
+          spillToBitmap().add(key);
+          return;
+        }
+        keys = Arrays.copyOf(keys, count * 2);
+      }
+      System.arraycopy(keys, low, keys, low + 1, count - low);
+      keys[low] = key;
+      count++;
+      // This key is no greater than lastKey, which remains the sorted run's maximum.
     }
 
     /** Move everything accumulated so far into a bitmap and switch to it. */
@@ -565,6 +751,58 @@ public final class NodeReferencesSerializer {
           throw e; // stable bytes — genuine corruption, not a torn read
         }
         return false;
+      }
+    }
+
+    /**
+     * Apply one delta slot ({@code C ‖ suffix}): add or remove its node keys in chunk {@code chunkIdx}.
+     *
+     * @return {@code false} on a torn read (the caller restarts the walk)
+     */
+    public boolean applyDelta(final HOTLeafPage leaf, final long ref, final long chunkIdx, final long suffix,
+        final @Nullable HOTTrieReader trie) {
+      try {
+        final long bit = readDeltaBit(leaf, ref);
+        if (bit >= 0) {
+          final long key = (chunkIdx << 16) | bit;
+          if (PostingDeltas.isRemove(suffix)) {
+            remove(key);
+          } else {
+            addDelta(key);
+          }
+        }
+        return true;
+      } catch (RuntimeException e) {
+        if (trie == null || trie.validateCurrentLeaf()) {
+          throw e;
+        }
+        return false;
+      }
+    }
+
+    private void remove(final long key) {
+      final Roaring64Bitmap spilled = bitmap;
+      if (spilled != null) {
+        spilled.removeLong(key);
+        return;
+      }
+      int low = 0;
+      int high = count - 1;
+      while (low <= high) {
+        final int mid = (low + high) >>> 1;
+        final int cmp = Long.compareUnsigned(keys[mid], key);
+        if (cmp < 0) {
+          low = mid + 1;
+        } else if (cmp > 0) {
+          high = mid - 1;
+        } else {
+          System.arraycopy(keys, mid + 1, keys, mid, count - mid - 1);
+          count--;
+          if (count > 0) {
+            lastKey = keys[count - 1];
+          }
+          return;
+        }
       }
     }
 
@@ -645,7 +883,77 @@ public final class NodeReferencesSerializer {
         }
         return true;
       }
+      if (format == REFERENCED_FORMAT) {
+        if (length != REFERENCED_LENGTH) {
+          throw new IllegalArgumentException(
+              "Referenced chunk marker must be " + REFERENCED_LENGTH + " bytes, but slot has " + length);
+        }
+        if (trie == null) {
+          throw new IllegalStateException("a referenced posting chunk needs a trie reader to resolve its side page");
+        }
+        final long refKey = referencedKey(leaf, ref);
+        final int payloadLength = referencedPayloadLength(leaf, ref);
+        final byte[] payload = resolveReferencedPayload(leaf, refKey, payloadLength, trie::readSideOverflowPage);
+        if (!trie.validateCurrentLeaf()) {
+          return false; // the marker (and so the side reference) may have been torn — restart the walk
+        }
+        return addChunkFromBytes(payload, high);
+      }
       throw new IllegalArgumentException("Unknown NodeReferences format: " + format);
+    }
+
+    /** The heap-array twin of {@code addChunkFromSlot} for a resolved referenced payload. */
+    private boolean addChunkFromBytes(final byte[] bytes, final long high) {
+      if (bytes.length == 0) {
+        throw new IllegalArgumentException("Posting-list chunk payload must not be empty");
+      }
+      final byte format = bytes[0];
+      if (format == TOMBSTONE_FORMAT) {
+        if (bytes.length != 1) {
+          throw new IllegalArgumentException("Referenced tombstone payload must be exactly one byte");
+        }
+        return true;
+      }
+      if (format == PACKED_FORMAT) {
+        if (bytes.length < 2) {
+          throw new IllegalArgumentException("Packed referenced payload has no count byte");
+        }
+        final int chunkCount = bytes[1] & 0xFF;
+        if (chunkCount == 0 || chunkCount > PACKED_THRESHOLD || 2 + chunkCount * Long.BYTES != bytes.length) {
+          throw new IllegalArgumentException(
+              "Packed referenced payload is malformed: count=" + chunkCount + ", length=" + bytes.length);
+        }
+        long previousBit16 = 0L;
+        for (int i = 0; i < chunkCount; i++) {
+          final long bit16 = requireChunkBit16(readKeyBE(bytes, 2 + i * Long.BYTES));
+          if (i > 0 && Long.compareUnsigned(previousBit16, bit16) >= 0) {
+            throw new IllegalArgumentException("Packed posting-list chunk bits must be strictly increasing");
+          }
+          add(high | bit16);
+          previousBit16 = bit16;
+        }
+        return true;
+      }
+      if (format == ROARING_FORMAT) {
+        if (bytes.length < 2) {
+          throw new IllegalArgumentException("Referenced Roaring payload carries no bitmap");
+        }
+        final Roaring64Bitmap chunkBitmap = new Roaring64Bitmap();
+        try {
+          chunkBitmap.deserialize(ByteBuffer.wrap(bytes, 1, bytes.length - 1));
+        } catch (IOException e) {
+          throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap deserialization", e);
+        }
+        if (!chunkBitmap.isEmpty()) {
+          requireChunkBit16(chunkBitmap.last());
+        }
+        final LongIterator it = chunkBitmap.getLongIterator();
+        while (it.hasNext()) {
+          add(high | it.next());
+        }
+        return true;
+      }
+      throw new IllegalArgumentException("Unknown NodeReferences format in a referenced payload: " + format);
     }
 
     /**

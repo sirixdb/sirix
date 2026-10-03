@@ -10,10 +10,12 @@ import io.sirix.index.redblacktree.keyvalue.CASValue;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * The CAS and NAME key serializers write the US-ASCII case straight into the destination buffer
@@ -33,32 +35,43 @@ final class KeySerializerUtf8Test {
   private static final int CAS_MAX_VALUE_BYTES = 246;
 
   private static String[] samples() {
-    return new String[] {"hello", "", "a", "Ünïcödé", "日本語のフィールド名", "emoji 🚀 rocket", "unpaired \uD800 surrogate",
-        "low \uDC00 surrogate", "mixed ascii then Ü", "x".repeat(CAS_MAX_VALUE_BYTES - 1),
-        "x".repeat(CAS_MAX_VALUE_BYTES), "x".repeat(CAS_MAX_VALUE_BYTES + 50), "x".repeat(CAS_MAX_VALUE_BYTES) + "Ü",
-        "x".repeat(CAS_MAX_VALUE_BYTES - 1) + "Ü", "Ü" + "x".repeat(CAS_MAX_VALUE_BYTES)};
+    return new String[] {"hello", "", "a", "a\0", "\0".repeat(CAS_MAX_VALUE_BYTES), "Ünïcödé", "日本語のフィールド名",
+        "emoji 🚀 rocket", "unpaired \uD800 surrogate", "low \uDC00 surrogate", "mixed ascii then Ü",
+        "x".repeat(CAS_MAX_VALUE_BYTES - 1), "x".repeat(CAS_MAX_VALUE_BYTES), "x".repeat(CAS_MAX_VALUE_BYTES + 50),
+        "x".repeat(CAS_MAX_VALUE_BYTES) + "Ü", "x".repeat(CAS_MAX_VALUE_BYTES - 1) + "Ü",
+        "Ü" + "x".repeat(CAS_MAX_VALUE_BYTES)};
   }
 
-  /** What the CAS serializer's value region held before the ASCII fast path existed. */
-  private static byte[] referenceCasValueBytes(final String value, final int capacity) {
+  /** Canonical CAS framing of the capped UTF-8 payload, independent of destination capacity. */
+  private static byte[] referenceCasValueBytes(final String value) {
     final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
-    final int cap = Math.min(capacity - CAS_HEADER_BYTES, CAS_MAX_VALUE_BYTES);
-    return Arrays.copyOf(utf8, Math.min(utf8.length, cap));
+    final ByteArrayOutputStream framed = new ByteArrayOutputStream();
+    for (int i = 0; i < Math.min(utf8.length, CAS_MAX_VALUE_BYTES); i++) {
+      framed.write(utf8[i]);
+      if (utf8[i] == 0) {
+        framed.write(0xFF);
+      }
+    }
+    framed.write(0);
+    framed.write(0);
+    return framed.toByteArray();
   }
 
   @Test
-  @DisplayName("CAS string values encode exactly as getBytes(UTF_8), truncated to the key cap")
+  @DisplayName("CAS values frame the capped UTF-8 bytes without capacity-dependent truncation")
   void casStringValuesMatchReferenceEncoding() {
     for (final String value : samples()) {
-      if (value.isEmpty()) {
-        continue; // an empty value has no key; CASKeySerializer rejects it separately
-      }
-      for (final int capacity : new int[] {512, CAS_HEADER_BYTES + 32, CAS_HEADER_BYTES + CAS_MAX_VALUE_BYTES}) {
+      final CASValue key = new CASValue(new Str(value), Type.STR, 7);
+      final byte[] expected = referenceCasValueBytes(value);
+      for (final int capacity : new int[] {CASKeySerializer.INSTANCE.maxSerializedLength(key),
+          CAS_HEADER_BYTES + expected.length}) {
         final byte[] dest = new byte[capacity];
-        final int length = CASKeySerializer.INSTANCE.serialize(new CASValue(new Str(value), Type.STR, 7), dest, 0);
-        assertArrayEquals(referenceCasValueBytes(value, capacity), Arrays.copyOfRange(dest, CAS_HEADER_BYTES, length),
-            "value bytes for \"" + value + "\" at capacity " + capacity);
+        final int length = CASKeySerializer.INSTANCE.serialize(key, dest, 0);
+        assertArrayEquals(expected, Arrays.copyOfRange(dest, CAS_HEADER_BYTES, length),
+            "value bytes at capacity " + capacity);
       }
+      final byte[] tooSmall = new byte[CAS_HEADER_BYTES + expected.length - 1];
+      assertThrows(IndexOutOfBoundsException.class, () -> CASKeySerializer.INSTANCE.serialize(key, tooSmall, 0));
     }
   }
 

@@ -3,6 +3,10 @@
  */
 package io.sirix.io.file;
 
+import io.sirix.index.IndexType;
+import io.sirix.page.HOTLeafPage;
+import io.sirix.page.interfaces.Page;
+
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,6 +50,17 @@ public final class StorageProfile {
    */
   public static boolean isEnabled() {
     return ENABLED;
+  }
+
+  /** Attribute HOT leaf writes to the owning index; other page labels retain their class name. */
+  public static String pageKind(final Page page) {
+    if (page instanceof HOTLeafPage leaf) {
+      final IndexType type = leaf.getIndexType();
+      if (type != null) {
+        return "HOTLeafPage:" + type.name();
+      }
+    }
+    return page.getClass().getSimpleName();
   }
 
   /**

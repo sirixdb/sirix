@@ -62,8 +62,9 @@ final class CASKeySerializerPropertyTest {
   private static final int MAX_STRING_VALUE_BYTES = 246;
 
   private static byte[] key(final Atomic value, final Type type) {
-    final byte[] buffer = new byte[256];
-    final int length = CASKeySerializer.INSTANCE.serialize(new CASValue(value, type, PCR), buffer, 0);
+    final CASValue key = new CASValue(value, type, PCR);
+    final byte[] buffer = new byte[CASKeySerializer.INSTANCE.maxSerializedLength(key)];
+    final int length = CASKeySerializer.INSTANCE.serialize(key, buffer, 0);
     return Arrays.copyOf(buffer, length);
   }
 

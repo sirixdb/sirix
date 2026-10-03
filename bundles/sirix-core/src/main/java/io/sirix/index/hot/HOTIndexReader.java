@@ -156,8 +156,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
    *
    * <p>
    * Inclusivity is enforced by the cursor itself, on each group's logical key bytes — see
-   * {@link ChunkAggregatingIterator}. Callers must NOT post-filter positionally: index keys are not
-   * prefix-free, so the composite byte window is wider than the logical range.
+   * {@link ChunkAggregatingIterator}. The group boundary comes from the serializer, so a chunk
+   * trailer or delta suffix cannot make an excluded logical key appear in the range.
    *
    * @param fromKey start key
    * @param toKey end key
@@ -197,6 +197,11 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     requireNonNull(toKey);
     final byte[] toPrefix = serializeKeyToArray(toKey);
     return new ChunkAggregatingIterator(null, true, toPrefix, inclusive);
+  }
+
+  @Override
+  protected int logicalKeyLength(final byte[] composite) {
+    return keySerializer.logicalKeyLength(composite, 0, composite.length);
   }
 
   @Override

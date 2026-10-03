@@ -62,7 +62,7 @@ final class CASKeySerializerEdgeCaseTest {
    * helper honest about what the index actually stores.
    */
   private static byte[] key(final Atomic value, final Type type) {
-    final byte[] buffer = new byte[256];
+    final byte[] buffer = new byte[512];
     final int length = CASKeySerializer.INSTANCE.serialize(new CASValue(value, type, PCR), buffer, 0);
     return Arrays.copyOf(buffer, length);
   }
@@ -515,11 +515,11 @@ final class CASKeySerializerEdgeCaseTest {
   }
 
   @Test
-  @DisplayName("the empty string encodes to a bare header and sorts below every non-empty value")
-  void theEmptyStringIsABareHeader() {
+  @DisplayName("the empty string encodes to a terminated header and sorts below every non-empty value")
+  void theEmptyStringHasATerminator() {
     final byte[] empty = key(new Str(""), Type.STR);
     final byte[] nonEmpty = key(new Str("a"), Type.STR);
-    assertTrue(empty.length == HEADER_BYTES, "no value bytes at all");
+    assertTrue(empty.length == HEADER_BYTES + 2, "empty value followed by the terminator");
     assertTrue(Arrays.compareUnsigned(empty, nonEmpty) < 0, "and it sorts first, which is correct");
   }
 }

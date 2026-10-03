@@ -120,6 +120,14 @@ All notable changes to SirixDB are documented in this file.
 - **A database has one owning process and shared state across local handles.** Opens take an
   exclusive OS lock; independently closeable handles share revision and catalogue state while
   preserving user attribution. See the [ownership and lifecycle rules](docs/operations.md#10-known-limitations-and-operational-caveats).
+
+- **CAS and VALIDTIME posting chunks** now append single-posting deltas for hot chunks and fold
+  every 64 changes into one base payload. Hot folded payloads live in referenced side pages, so
+  versioned leaves carry 13-byte markers instead of repeating the payload. CAS logical keys use order-preserving zero escaping
+  and termination so delta suffixes cannot alias longer values, including trailing NULs. The full
+  48-bit node-key range remains supported. This replaces the development index format in place;
+  old CAS indexes are not supported. See `docs/DISK_FORMAT.md`.
+
 - **Versioned HOT projection reads** resolve explicitly requested slots from guarded raw fragments,
   retain bounded resolved-slot mini pages, and promote repeated point demand to complete leaves. The
   index-metadata record, resolved by every serving decision and every commit, is read this way

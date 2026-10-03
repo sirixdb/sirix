@@ -35,6 +35,7 @@ import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.RevisionRecordDurability;
 import io.sirix.io.Superblock;
 import io.sirix.io.Writer;
+import io.sirix.io.file.StorageProfile;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
@@ -998,7 +999,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   private long bufferSerializedPage(final ResourceConfiguration resourceConfiguration, final Page page,
       final BytesOut<?> bufferedBytes, final int pageAlignmentPadding) throws IOException {
     final var pipeline = resourceConfiguration.byteHandlePipeline;
-    final boolean storageProfileEnabled = io.sirix.io.file.StorageProfile.isEnabled();
+    final boolean storageProfileEnabled = StorageProfile.isEnabled();
     byte[] serializedPageBytes = null;
     // A pre-serialized segment cache is already the exact payload that this method hashes and
     // appends. Running it through PagePersister first only copies the same bytes into
@@ -1103,7 +1104,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
 
     if (storageProfileEnabled) {
-      final String pageKind = page.getClass().getSimpleName();
+      final String pageKind = StorageProfile.pageKind(page);
       if (preSerializedKeyValueLeafCache) {
         // Metadata is captured before PagePersister: the legacy cache path still copies its
         // already-processed bytes into scratch, so scratch length is not the raw length either.
@@ -1112,13 +1113,12 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           rawSize = serializedPageLength; // identity pipeline: encoded and raw are provably equal
         }
         if (rawSize == KeyValueLeafPage.UNKNOWN_BYTE_HANDLER_INPUT_LENGTH) {
-          io.sirix.io.file.StorageProfile.recordUnknownRaw(pageKind, serializedPageLength);
+          StorageProfile.recordUnknownRaw(pageKind, serializedPageLength);
         } else {
-          io.sirix.io.file.StorageProfile.record(pageKind, rawSize, serializedPageLength);
+          StorageProfile.record(pageKind, rawSize, serializedPageLength);
         }
       } else {
-        io.sirix.io.file.StorageProfile.record(pageKind, Math.toIntExact(byteBufferBytes.writePosition()),
-            serializedPageLength);
+        StorageProfile.record(pageKind, Math.toIntExact(byteBufferBytes.writePosition()), serializedPageLength);
       }
     }
 

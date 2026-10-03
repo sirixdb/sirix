@@ -35,6 +35,7 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.HOTLeafEntry;
 import io.sirix.page.PageReference;
+import io.sirix.page.OverflowPage;
 import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
 
@@ -183,6 +184,11 @@ public final class HOTTrieReader implements AutoCloseable {
     // tryAcquire branch always returns false without allocating or branching on
     // a second flag.
     return new Semaphore(Math.max(0, configured));
+  }
+
+  /** Resolve a posting payload through this reader's revision and transaction intent log. */
+  public @Nullable OverflowPage readSideOverflowPage(final PageReference reference) {
+    return storageEngineReader.readSideOverflowPage(reference);
   }
 
   /** The storage engine reader. */
