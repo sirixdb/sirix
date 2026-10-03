@@ -1,5 +1,6 @@
 package io.sirix.query.function.jn;
 
+import io.brackit.query.jdm.type.AnyItemType;
 import io.brackit.query.jdm.type.AnyJsonItemType;
 import io.brackit.query.jdm.type.AtomicType;
 import io.brackit.query.jdm.type.Cardinality;
@@ -126,7 +127,8 @@ public final class JNFun {
         new Signature(SequenceType.JSON_ITEM_SEQUENCE, new SequenceType(AtomicType.STR, Cardinality.One),
             new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.DATI, Cardinality.One),
             new SequenceType(AtomicType.DATI, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
-            new SequenceType(AtomicType.INR, Cardinality.One))));
+            new SequenceType(AtomicType.INR, Cardinality.One),
+            new SequenceType(AnyItemType.ANY, Cardinality.ZeroOrMany))));
 
     // store
     Functions.predefine(new Store(false));

@@ -13,7 +13,6 @@ import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.LazySequence;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.query.json.JsonDBItem;
-import io.sirix.query.json.JsonDBObject;
 
 import java.time.Instant;
 
@@ -58,7 +57,7 @@ public final class ValidTimeFilter {
           public Item next() {
             Item item;
             while ((item = input.next()) != null) {
-              if (item instanceof JsonDBObject object && first.test(object) && second.test(object)) {
+              if (first.test(item) && second.test(item)) {
                 return item;
               }
             }
