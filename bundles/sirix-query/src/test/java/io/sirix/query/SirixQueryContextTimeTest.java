@@ -95,6 +95,7 @@ final class SirixQueryContextTimeTest {
   }
 
   @Test
+  @SuppressWarnings("NullAway") // The XML store accepts a null commit message.
   void currentDateTimeOpensTheCorrectXmlRevision() {
     try (final var store = BasicXmlDBStore.newBuilder().location(directory).build();
         final var ctx = SirixQueryContext.createWithNodeStore(store);

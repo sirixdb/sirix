@@ -120,6 +120,7 @@ final class DateTimeToInstantTest {
   }
 
   @Test
+  @SuppressWarnings("NullAway") // Deliberately pass null to verify rejection.
   void rejectsAMissingValue() {
     assertThrows(NullPointerException.class, () -> CONVERTER.convert(null));
   }
