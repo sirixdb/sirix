@@ -6,12 +6,13 @@ import io.brackit.query.compiler.Bits;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.walker.topdown.ScopeWalker;
 import io.brackit.query.module.StaticContext;
-import io.brackit.query.function.json.JSONFun;
 import java.util.HashSet;
 import java.util.Set;
 
 abstract class BindingDependencies extends ScopeWalker {
+  private static final int MAX_PROOF_WORK = 1024;
   private AST module;
+  private int remainingWork;
 
   BindingDependencies(final StaticContext sctx) {
     super(sctx);
@@ -29,12 +30,28 @@ abstract class BindingDependencies extends ScopeWalker {
 
   protected final boolean dependencies(final AST node, final AST candidate, final Set<QNm> inputs,
       final Set<QNm> captured, final Set<QNm> defaults, final Set<AST> visited) {
+    remainingWork = MAX_PROOF_WORK;
+    return collect(node, candidate, inputs, captured, defaults, visited);
+  }
+
+  private boolean collect(final AST node, final AST candidate, final Set<QNm> inputs,
+      final Set<QNm> captured, final Set<QNm> defaults, final Set<AST> visited) {
+    if (remainingWork-- <= 0) {
+      return false;
+    }
+    if (CheapFirstConjunctStage.storedReadCall(node)) {
+      candidate.setProperty(CheapFirstConjunctStage.NATIVE_STORE, true);
+    }
     if (node.getType() == XQ.VariableRef || node.getType() == XQ.ContextItemExpr) {
       final QNm name = node.getType() == XQ.ContextItemExpr
           ? Bits.FS_DOT
           : (QNm) node.getValue();
       final Var variable = findScope(node).resolve(name);
       if (variable == null) {
+        if (parameter(node, name)) {
+          captured.add(name);
+          return true;
+        }
         if (inputs != null) {
           inputs.add(name);
         }
@@ -79,8 +96,9 @@ abstract class BindingDependencies extends ScopeWalker {
           if (freshRow(binding, candidate) && storedRead(source)) {
             // Opening arguments have already been evaluated to produce this row. They are
             // not inputs to its field predicates, even in a correlated temporal scan.
-            candidate.setProperty(CheapFirstConjunctStage.NATIVE_STORE, true);
-          } else if (freshRow(binding, candidate) && literalSource(source)) {
+            return true;
+          }
+          if (freshRow(binding, candidate) && literalSource(source)) {
             inputs.addAll(sourceInputs);
             captured.addAll(sourceCaptured);
             defaults.addAll(sourceDefaults);
@@ -101,7 +119,7 @@ abstract class BindingDependencies extends ScopeWalker {
       return ancestor == candidate;
     }
     for (int i = 0; i < node.getChildCount(); i++) {
-      if (!dependencies(node.getChild(i), candidate, inputs, captured, defaults, visited)) {
+      if (!collect(node.getChild(i), candidate, inputs, captured, defaults, visited)) {
         return false;
       }
     }
@@ -111,7 +129,22 @@ abstract class BindingDependencies extends ScopeWalker {
   private boolean source(final AST source, final AST candidate, final Set<QNm> inputs, final Set<QNm> captured,
       final Set<QNm> defaults, final Set<AST> visited) {
     return CheapFirstConjunctStage.cost(source, true) >= 0
-        && dependencies(source, candidate, inputs, captured, defaults, visited);
+        && collect(source, candidate, inputs, captured, defaults, visited);
+  }
+
+  private static boolean parameter(final AST node, final QNm name) {
+    for (AST parent = node.getParent(); parent != null; parent = parent.getParent()) {
+      if (parent.getType() == XQ.FunctionDecl || parent.getType() == XQ.InlineFuncItem) {
+        for (int i = 0; i < parent.getChildCount(); i++) {
+          final AST child = parent.getChild(i);
+          if (child.getType() == XQ.TypedVariableDeclaration && child.getChildCount() > 0
+              && name.equals(child.getChild(0).getValue())) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   private static boolean freshRow(final AST binding, final AST candidate) {
@@ -119,12 +152,15 @@ abstract class BindingDependencies extends ScopeWalker {
       return false;
     }
     AST parent = candidate;
+    AST child = null;
     boolean selection = false;
     while (parent != null && parent != binding) {
-      if (parent.getType() == XQ.ForBind || parent.getType() == XQ.Join || parent.getType() == XQ.GroupBy) {
+      if (parent.getType() == XQ.ForBind || parent.getType() == XQ.Join || parent.getType() == XQ.GroupBy
+          || parent.getType() == XQ.End || parent.getType() == XQ.PipeExpr) {
         return false;
       }
-      selection |= parent.getType() == XQ.Selection;
+      selection |= parent.getType() == XQ.Selection && parent.getChild(0) == child;
+      child = parent;
       parent = parent.getParent();
     }
     return parent == binding && selection;
@@ -148,16 +184,7 @@ abstract class BindingDependencies extends ScopeWalker {
         || root.getType() == XQ.ParenthesizedExpr) && root.getChildCount() > 0) {
       root = root.getChild(0);
     }
-    if (root.getType() != XQ.FunctionCall || !(root.getValue() instanceof QNm name)
-        || !JSONFun.JSON_NSURI.equals(name.getNamespaceURI())) {
-      return false;
-    }
-    return switch (name.getLocalName()) {
-      case "doc", "open", "open-bitemporal", "collection", "scan-valid-time-index", "scan-path-index", "scan-cas-index",
-          "scan-cas-index-range", "scan-name-index" ->
-        true;
-      default -> false;
-    };
+    return CheapFirstConjunctStage.storedReadCall(root);
   }
 
   private AST declaration(final QNm name) {

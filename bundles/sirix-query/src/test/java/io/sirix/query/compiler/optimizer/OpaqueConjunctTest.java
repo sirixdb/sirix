@@ -202,6 +202,36 @@ final class OpaqueConjunctTest {
     }
   }
 
+  static Stream<Arguments> parameterPaths() {
+    return Stream.of("scalar", "object", "alias", "local-shadow", "inline")
+                 .flatMap(shape -> Stream.of(false, true).map(cheap -> Arguments.of(shape, cheap)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("parameterPaths")
+  void functionParametersUseTheirTupleValuesInsteadOfGlobalDefaults(final String shape, final boolean cheap) {
+    withSwitch(cheap, () -> {
+      final Reads reads = new Reads();
+      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+          final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+          final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+        context.bind(new QNm("input"), shape.equals("scalar") ? increasing(reads)
+            : object("value", increasing(reads), reads));
+        final String value = shape.equals("scalar") ? "$c" : shape.equals("alias") ? "$b.value" : "$c.value";
+        final String predicate = "xs:integer(" + value + ") gt 0 and " + value + " eq 2";
+        final String body = shape.equals("alias") ? "let $b := $c return " + predicate
+            : shape.equals("local-shadow") ? "let $input := 0 return " + predicate : predicate;
+        final String text = "declare variable $input external; declare variable $c := 0; "
+            + (shape.equals("inline") ? "let $f := function($c) { " + body + " } return $f($input)"
+                : "declare function local:f($c) { " + body + " }; local:f($input)");
+        assertEquals("true", serialize(chain, context, text));
+        assertEquals(2, reads.scalar);
+        assertEquals(shape.equals("scalar") ? 0 : 2, reads.fields);
+        assertEquals(0, reads.inspections);
+      }
+    });
+  }
+
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void callerSuppliedStoredViewsKeepTheirOpaqueMemoReads(final boolean cheap) {
@@ -231,9 +261,14 @@ final class OpaqueConjunctTest {
     });
   }
 
+  static Stream<Arguments> providerPaths() {
+    return Stream.of("fresh", "direct", "nested", "default", "nested-default", "alias", "literal", "composed",
+        "composed-array").flatMap(shape -> Stream.of(false, true).map(cheap -> Arguments.of(shape, cheap)));
+  }
+
   @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void aCustomDocumentProviderKeepsItsChangingFieldsInOriginalOrder(final boolean cheap) {
+  @MethodSource("providerPaths")
+  void aCustomDocumentProviderKeepsItsChangingFieldsInOriginalOrder(final String shape, final boolean cheap) {
     withSwitch(cheap, () -> {
       final Reads reads = new Reads();
       try (final BasicJsonDBStore actual = BasicJsonDBStore.newBuilder().location(directory).build()) {
@@ -253,39 +288,62 @@ final class OpaqueConjunctTest {
         try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(provider);
             final SirixQueryContext context = SirixQueryContext.createWithJsonStore(provider)) {
           context.bind(new QNm("keep"), Int32.ONE);
-          assertEquals("true",
-              serialize(chain, context,
-                  "declare variable $keep external;" + " for $r in jn:doc('data','rows') where if ($keep eq 1)"
-                      + " then (xs:integer($r.value) gt 0 and $r.value eq 2) else false() return true()"));
+          final String doc = "jn:doc('data','rows')";
+          final String predicate = "xs:integer($r.value) gt 0 and $r.value eq 2";
+          final String text = switch (shape) {
+            case "fresh" -> "for $r in " + doc + " where if ($keep eq 1) then (" + predicate
+                + ") else false() return true()";
+            case "direct" -> "xs:integer(" + doc + ".value) gt 0 and " + doc + ".value eq 2";
+            case "nested" -> "(for $r in " + doc + " return xs:integer($r.value) gt 0) and " + doc + ".value eq 2";
+            case "default" -> "declare variable $c := " + doc + ".value; xs:integer($c) gt 0 and $c eq 2";
+            case "nested-default" -> "declare variable $c := (for $r in " + doc
+                + " return $r.value); xs:integer($c) gt 0 and $c eq 2";
+            case "alias" -> "let $c := " + doc + ".value return xs:integer($c) gt 0 and $c eq 2";
+            case "literal" -> "for $r in [{\"child\":" + doc + "}][] where xs:integer($r.child.value) gt 0"
+                + " and $r.child.value eq 2 return true()";
+            case "composed", "composed-array" -> "for $r at $p in " + (shape.equals("composed")
+                ? "(" + doc + ", {\"value\":0})"
+                : "[" + doc + ", {\"value\":0}][]") + " where if ($keep eq 1) then (" + predicate
+                + ") else false() return $p";
+            default -> throw new IllegalArgumentException(shape);
+          };
+          assertEquals(shape.startsWith("composed") ? "1" : "true",
+              serialize(chain, context, "declare variable $keep external;" + text));
           assertEquals(2, reads.scalar);
         }
       }
     });
   }
 
+  static Stream<Arguments> escapedRows() {
+    return Stream.of("native-return", "native-selected-return", "literal-return", "literal-selected-return",
+        "native-inner", "literal-inner", "native-join")
+                 .flatMap(shape -> Stream.of(false, true).map(cheap -> Arguments.of(shape, cheap)));
+  }
+
   @ParameterizedTest
-  @ValueSource(strings = {"native-return", "native-inner", "literal-inner", "native-join"})
-  void anEscapedCompositeCannotBecomeAFreshFilterRow(final String shape) {
-    withSwitch(true, () -> {
+  @MethodSource("escapedRows")
+  void anEscapedCompositeCannotBecomeAFreshFilterRow(final String shape, final boolean cheap) {
+    withSwitch(cheap, () -> {
       final Reads reads = new Reads();
       try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
           final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
           final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
         store.create("data", "rows", "{\"id\":1,\"value\":2}");
-        final String source = shape.equals("literal-inner")
-            ? "[{\"value\":2}][]"
+        final String source = shape.startsWith("literal")
+            ? "[{\"id\":1,\"value\":2}][]"
             : "jn:doc('data','rows')";
         final String test = "xs:integer($a.value) gt 0 and $a.value eq 2";
         final String text = "for $a in " + source + (shape.equals("native-join")
             ? " for $n in (1,1) where $a.id eq $n and (if ($n gt 0) then (" + test + ") else false()) return $a"
-            : shape.equals("native-return")
-                ? " return ($a, " + test + ")"
+            : shape.endsWith("return")
+                ? (shape.contains("selected") ? " where $a.id eq 1" : "") + " return ($a, " + test + ")"
                 : " for $n in 1 to 2 where if ($n gt 0) then (" + test + ") else false() return $a");
         try (final Iter result = new Query(chain, text).execute(context).iterate()) {
           final Object first = assertInstanceOf(Object.class, result.next());
           first.replace(new QNm("value"), increasing(reads));
           reads.scalar = 0;
-          if (shape.equals("native-return"))
+          if (shape.endsWith("return"))
             assertEquals("true", result.next().toString());
           else
             assertInstanceOf(Object.class, result.next());

@@ -154,6 +154,12 @@ public final class CheapFirstConjunctStage implements Stage {
     return cost(node, false);
   }
 
+  static boolean storedReadCall(final AST node) {
+    return node.getType() == XQ.FunctionCall && node.getValue() instanceof QNm name
+        && JSONFun.JSON_NSURI.equals(name.getNamespaceURI())
+        && (READ_FUNCTIONS.contains(name.getLocalName()) || INDEX_SCAN_FUNCTIONS.contains(name.getLocalName()));
+  }
+
   /** Classifies initializer sources, including the optimizer's read-only index scans. */
   static int cost(final AST node, final boolean admitIndexRewrites) {
     final int type = node.getType();
