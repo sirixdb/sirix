@@ -2,19 +2,26 @@ package io.sirix.cache;
 
 import io.sirix.index.IndexType;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.lang.foreign.Arena;
+import java.lang.Thread.State;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -22,6 +29,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 /**
  * Tests for {@link ShardedPageCache} eviction protections:
@@ -175,6 +186,313 @@ class ShardedPageCacheTest {
       assertEquals(existingWeight, cache.getCurrentWeightBytes());
       invalidReplacement.close();
       cache.clear();
+    }
+  }
+
+  @Test
+  @DisplayName("removePage: a never-cached HOT leaf returns without touching other mappings; a stale remembered key and a non-recording page still scan")
+  void removePageSkipsTheScanOnlyForNeverCachedRecordingPages() {
+    try (Arena arena = Arena.ofConfined()) {
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+      final HOTLeafPage cached = hotLeaf(arena, 10, 1);
+      final PageReference key = keyFor(10);
+      cache.put(key, cached);
+      assertSame(key, cached.lastCacheKey(), "admission records the key before the mapping is published");
+      final long weight = cache.getCurrentWeightBytes();
+      final HOTLeafPage neverCached = hotLeaf(arena, 11, 0);
+      assertNull(neverCached.lastCacheKey(), "a fresh page records no key");
+      cache.removePage(neverCached); // returns at the recorded-key check; no scan, nothing removed
+      assertSame(cached, cache.asMap().get(keyFor(10)));
+      assertEquals(weight, cache.getCurrentWeightBytes());
+      // A stale remembered key must still fall back to the exact scan.
+      cached.setLastCacheKey(keyFor(99));
+      cache.removePage(cached);
+      assertNull(cache.asMap().get(keyFor(10)), "the stale key must not defeat removal");
+      assertEquals(0L, cache.getCurrentWeightBytes());
+      cached.close();
+      neverCached.close();
+    }
+  }
+
+  @Test
+  @DisplayName("removePage: a mapped HOT leaf whose recorded key was erased fails loudly, never skips silently")
+  void removePageRefusesToTreatAStillMappedHotLeafAsNeverCached() {
+    boolean assertionsEnabled = false;
+    assert assertionsEnabled = true;
+    assertTrue(assertionsEnabled, "the one-owner invariant is enforced by a Java assertion; tests need -ea");
+    try (Arena arena = Arena.ofConfined()) {
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+      final PageReference key = keyFor(70);
+      final HOTLeafPage mapped = hotLeaf(arena, 70, 0);
+      cache.put(key, mapped);
+      final long weight = cache.getCurrentWeightBytes();
+      // A second owner of the same instance (another HOT-leaf cache holding a value-equal key)
+      // erasing the key this cache published is the only way the no-key fast path can be wrong.
+      mapped.setLastCacheKey(null);
+
+      assertThrows(AssertionError.class, () -> cache.removePage(mapped),
+          "a still-mapped page must not be reported as never cached");
+
+      assertSame(mapped, cache.asMap().get(key), "the unremovable mapping must stay visible, not silently retained");
+      assertEquals(weight, cache.getCurrentWeightBytes());
+      cache.clear();
+    }
+  }
+
+  @Test
+  @DisplayName("removePage: a page type that never records its key still scans and is removed")
+  void removePageStillScansForNonRecordingPages() {
+    final ShardedPageCache<KeyValueLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+    final KeyValueLeafPage page = mock(KeyValueLeafPage.class);
+    when(page.getActualMemorySize()).thenReturn(PAGE_BYTES);
+    when(page.acquireGuard()).thenReturn(true);
+    cache.put(keyFor(20), page);
+    assertSame(page, cache.asMap().get(keyFor(20)), "the mapping must exist for its removal to be observable");
+    cache.removePage(page);
+    assertNull(cache.asMap().get(keyFor(20)), "the exact scan must still find and remove it");
+    assertEquals(0L, cache.getCurrentWeightBytes());
+    cache.close();
+  }
+
+  @Test
+  @DisplayName("every removal forgets the page's remembered key, so removing the same page again is a no-scan no-op")
+  void removalsForgetTheRememberedKey() {
+    try (Arena arena = Arena.ofConfined()) {
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+      // removePage: the HOT writer's own removal before log.put removes the same instance again.
+      final PageReference first = keyFor(40);
+      final HOTLeafPage viaRemovePage = hotLeaf(arena, 40, 0);
+      cache.put(first, viaRemovePage);
+      assertSame(first, viaRemovePage.lastCacheKey());
+      cache.removePage(viaRemovePage);
+      assertNull(viaRemovePage.lastCacheKey(), "removePage must forget the key it removed under");
+      // remove(key) with an equal, non-identical key.
+      final HOTLeafPage viaRemove = hotLeaf(arena, 41, 0);
+      cache.put(keyFor(41), viaRemove);
+      cache.remove(keyFor(41));
+      assertNull(viaRemove.lastCacheKey(), "remove(key) must forget an equal key");
+      // removeAndGet(key).
+      final HOTLeafPage viaRemoveAndGet = hotLeaf(arena, 42, 0);
+      cache.put(keyFor(42), viaRemoveAndGet);
+      assertSame(viaRemoveAndGet, cache.removeAndGet(keyFor(42)));
+      assertNull(viaRemoveAndGet.lastCacheKey(), "removeAndGet must forget the key");
+      // put replacing the mapping's page: the displaced page loses the key, the winner records it.
+      final PageReference shared = keyFor(43);
+      final HOTLeafPage displaced = hotLeaf(arena, 43, 0);
+      final HOTLeafPage winner = hotLeaf(arena, 44, 0);
+      cache.put(shared, displaced);
+      cache.put(shared, winner);
+      assertNull(displaced.lastCacheKey(), "the displaced page must forget the key it lost");
+      assertSame(shared, winner.lastCacheKey());
+      assertTrue(displaced.isClosed(), "the displaced page is retired by the replacement");
+      // A remembered key that is not this mapping's key is left alone.
+      final HOTLeafPage other = hotLeaf(arena, 45, 0);
+      cache.put(keyFor(45), other);
+      final PageReference foreign = keyFor(99);
+      other.setLastCacheKey(foreign);
+      cache.remove(keyFor(45));
+      assertSame(foreign, other.lastCacheKey(), "only the removed mapping's own key is forgotten");
+      // The second removal of an already removed page leaves every other mapping and charge alone.
+      final HOTLeafPage bystander = hotLeaf(arena, 47, 0);
+      cache.put(keyFor(47), bystander);
+      final long weight = cache.getCurrentWeightBytes();
+      cache.removePage(viaRemovePage);
+      assertSame(bystander, cache.asMap().get(keyFor(47)));
+      assertSame(winner, cache.asMap().get(shared));
+      assertEquals(weight, cache.getCurrentWeightBytes());
+      // clear retires the remaining pages and forgets their keys.
+      cache.clear();
+      assertNull(bystander.lastCacheKey(), "clear must forget the key");
+      assertNull(winner.lastCacheKey(), "clear must forget the key");
+      assertTrue(bystander.isClosed());
+      viaRemovePage.close();
+      viaRemove.close();
+      viaRemoveAndGet.close();
+      other.close();
+    }
+  }
+
+  @Test
+  @DisplayName("an evicted page forgets its remembered key")
+  void evictionForgetsTheRememberedKey() {
+    try (Arena arena = Arena.ofConfined()) {
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+      final HOTLeafPage page = hotLeaf(arena, 50, 0);
+      cache.put(keyFor(50), page);
+      cache.evictUnderPressure(); // consume the HOT-bit second chance
+      cache.evictUnderPressure();
+      assertNull(cache.asMap().get(keyFor(50)), "the unguarded page must be evicted");
+      assertNull(page.lastCacheKey(), "eviction must forget the key");
+      assertTrue(page.isClosed());
+    }
+  }
+
+  @Test
+  @Timeout(20)
+  @DisplayName("same-key re-publication cannot lose its remembered key to an earlier removal")
+  void concurrentPutRecordsTheKeyAfterThePreviousRemovalForgetsIt() throws Exception {
+    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+    final HOTLeafPage page = mock(HOTLeafPage.class);
+    final PageReference key = keyFor(55);
+    final AtomicReference<PageReference> remembered = new AtomicReference<>();
+    final CountDownLatch forgetting = new CountDownLatch(1);
+    final CountDownLatch finishForget = new CountDownLatch(1);
+    when(page.getActualMemorySize()).thenReturn(PAGE_BYTES);
+    when(page.lastCacheKey()).thenAnswer(_ -> remembered.get());
+    doAnswer(invocation -> {
+      final PageReference newKey = invocation.getArgument(0);
+      if (newKey == null) {
+        forgetting.countDown();
+        assertTrue(finishForget.await(5, TimeUnit.SECONDS), "the test must release key cleanup");
+      }
+      remembered.set(newKey);
+      return null;
+    }).when(page).setLastCacheKey(any());
+    cache.put(key, page);
+
+    final FutureTask<Void> removal = new FutureTask<>(() -> {
+      cache.remove(key);
+      return null;
+    });
+    final FutureTask<Void> publication = new FutureTask<>(() -> {
+      cache.put(key, page);
+      return null;
+    });
+    final Thread remover = new Thread(removal, "cache-key-remover");
+    final Thread publisher = new Thread(publication, "cache-key-publisher");
+    try {
+      remover.start();
+      assertTrue(forgetting.await(5, TimeUnit.SECONDS));
+      publisher.start();
+      // The removal holds CHM's per-key monitor. Wait for publication to contend on that monitor:
+      // the old put recorded its key before blocking here, so cleanup could erase the new key.
+      while (publisher.getState() != State.BLOCKED) {
+        assertTrue(publisher.isAlive(), "publication must contend on the in-flight removal");
+        if (Thread.currentThread().isInterrupted()) {
+          throw new InterruptedException("interrupted while waiting for same-key contention");
+        }
+        Thread.yield();
+      }
+      finishForget.countDown();
+      removal.get(5, TimeUnit.SECONDS);
+      publication.get(5, TimeUnit.SECONDS);
+
+      assertSame(page, cache.asMap().get(key));
+      assertSame(key, page.lastCacheKey(), "the published mapping must record its key");
+      cache.removePage(page);
+      assertTrue(cache.asMap().isEmpty(), "instance removal must find the re-published HOT leaf");
+      assertEquals(0L, cache.getCurrentWeightBytes());
+    } finally {
+      finishForget.countDown();
+      remover.join(5000);
+      publisher.join(5000);
+      cache.close();
+    }
+  }
+
+  @Test
+  @Timeout(20)
+  @DisplayName("removePage: a detach still inside its own compute is not reported as a lost-key violation")
+  void concurrentRemovePageToleratesADetachThatAlreadyForgotTheKey() throws Exception {
+    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+    final HOTLeafPage page = mock(HOTLeafPage.class);
+    final PageReference key = keyFor(56);
+    final AtomicReference<PageReference> remembered = new AtomicReference<>();
+    final CountDownLatch forgotten = new CountDownLatch(1);
+    final CountDownLatch finishDetach = new CountDownLatch(1);
+    when(page.getActualMemorySize()).thenReturn(PAGE_BYTES);
+    when(page.lastCacheKey()).thenAnswer(_ -> remembered.get());
+    doAnswer(invocation -> {
+      final PageReference newKey = invocation.getArgument(0);
+      remembered.set(newKey);
+      if (newKey == null) {
+        forgotten.countDown();
+        assertTrue(finishDetach.await(5, TimeUnit.SECONDS), "the test must release the detach");
+      }
+      return null;
+    }).when(page).setLastCacheKey(any());
+    cache.put(key, page);
+
+    final FutureTask<Void> detach = new FutureTask<>(() -> {
+      cache.remove(key);
+      return null;
+    });
+    final FutureTask<Void> instanceRemoval = new FutureTask<>(() -> {
+      cache.removePage(page);
+      return null;
+    });
+    final Thread detacher = new Thread(detach, "cache-key-detacher");
+    final Thread remover = new Thread(instanceRemoval, "cache-instance-remover");
+    try {
+      detacher.start();
+      assertTrue(forgotten.await(5, TimeUnit.SECONDS));
+      // CHM keeps the node linked and iterable until the detach's compute RETURNS, so the mapping
+      // is still visible to a scan while the page already reports no key.
+      assertSame(page, cache.asMap().get(key), "the in-flight detach must still be visible");
+      assertNull(page.lastCacheKey(), "the detach must already have forgotten the key");
+
+      remover.start();
+      while (remover.isAlive() && remover.getState() != State.BLOCKED) {
+        if (Thread.currentThread().isInterrupted()) {
+          throw new InterruptedException("interrupted while waiting for per-key contention");
+        }
+        Thread.yield();
+      }
+      finishDetach.countDown();
+      detach.get(5, TimeUnit.SECONDS);
+      // Confirming the sighting under the mapping's own compute lock resolves it to "already gone"
+      // instead of an invariant violation no detach caused.
+      instanceRemoval.get(5, TimeUnit.SECONDS);
+
+      assertTrue(cache.asMap().isEmpty(), "the detach must still complete its removal");
+      assertEquals(0L, cache.getCurrentWeightBytes());
+    } finally {
+      finishDetach.countDown();
+      detacher.join(5000);
+      remover.join(5000);
+      cache.close();
+    }
+  }
+
+  private enum LoadRemoval {
+    CLOSED_GET, FAILED_GUARD, COMPUTED_DROP, GUARDED_DROP, COMPUTED_REPLACEMENT, GUARDED_REPLACEMENT
+  }
+
+  @ParameterizedTest
+  @EnumSource(LoadRemoval.class)
+  @DisplayName("closed-page cleanup and load displacement forget only the old page's key")
+  void loadPathsForgetTheRemovedPagesKey(final LoadRemoval removal) {
+    try (Arena arena = Arena.ofConfined()) {
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+      final PageReference key = keyFor(60);
+      final HOTLeafPage old = hotLeaf(arena, 60, 0);
+      final HOTLeafPage replacement = hotLeaf(arena, 61, 0);
+      cache.put(key, old);
+      old.retire(); // model a stale mapping that cannot supply a live page or guard
+
+      switch (removal) {
+        case CLOSED_GET -> assertNull(cache.get(key));
+        case FAILED_GUARD -> assertNull(cache.getAndGuard(key));
+        case COMPUTED_DROP -> assertNull(cache.get(key, (_, _) -> null));
+        case GUARDED_DROP -> assertNull(cache.getOrLoadAndGuard(key, _ -> null));
+        case COMPUTED_REPLACEMENT -> assertSame(replacement, cache.get(key, (_, _) -> replacement));
+        case GUARDED_REPLACEMENT -> {
+          assertSame(replacement, cache.getOrLoadAndGuard(key, _ -> replacement));
+          replacement.releaseGuard();
+        }
+      }
+
+      assertNull(old.lastCacheKey(), "the detached page must forget the removed mapping's key");
+      if (removal == LoadRemoval.COMPUTED_REPLACEMENT || removal == LoadRemoval.GUARDED_REPLACEMENT) {
+        assertSame(key, replacement.lastCacheKey(), "displacement must preserve the winner's key");
+        assertSame(replacement, cache.asMap().get(key));
+        assertEquals(expectedHotLeafWeight(replacement), cache.getCurrentWeightBytes());
+      } else {
+        assertTrue(cache.asMap().isEmpty());
+        assertEquals(0L, cache.getCurrentWeightBytes());
+      }
+      cache.close();
+      replacement.close();
     }
   }
 

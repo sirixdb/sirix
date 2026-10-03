@@ -56,6 +56,10 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   private boolean conditionalRemovalSucceeded;
   private boolean conditionalRemovalRetires;
   private RetirementFailures conditionalRemovalFailures;
+  /** Preallocated callback + state guarded by evictionLock for the assertion-only ownership probe. */
+  private final BiFunction<PageReference, V, V> forgottenKeyConfirmation;
+  private CacheablePage forgottenKeyExpected;
+  private boolean forgottenKeyConfirmed;
   private final long maxWeightBytes;
   private final AtomicLong currentWeightBytes = new AtomicLong(0L);
 
@@ -346,8 +350,25 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
   }
 
-  /** Clear only this page's swizzle; never erase a replacement installed on the same reference. */
+  /** Forget only the key whose mapping no longer owns this page. */
+  private static void forgetCacheKeyIfSame(final PageReference reference, final CacheablePage page) {
+    final PageReference remembered = page.lastCacheKey();
+    if (remembered != null && (remembered == reference || reference.equals(remembered))) {
+      page.setLastCacheKey(null);
+    }
+  }
+
+  /**
+   * Clear only this page's ownership metadata; never erase a replacement's swizzle or key. Each step
+   * is contained on its own: a failing key forget must not keep the swizzle pointing at a detached
+   * page, and vice versa.
+   */
   private static void clearSwizzleIfSame(PageReference reference, CacheablePage page, RetirementFailures failures) {
+    try {
+      forgetCacheKeyIfSame(reference, page);
+    } catch (RuntimeException | Error forgetFailure) {
+      failures.retain(forgetFailure);
+    }
     try {
       if (page instanceof Page swizzledPage) {
         reference.clearPageIfSame(swizzledPage);
@@ -519,6 +540,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   public ShardedPageCache(long maxWeightBytes) {
     this.shard = new Shard(map, evictionLock);
     this.conditionalRemovalFunction = this::removeExpectedMapping;
+    this.forgottenKeyConfirmation = this::confirmMappingWithoutCacheKey;
     this.maxWeightBytes = maxWeightBytes;
     LOGGER.info("Created ShardedPageCache (simplified single-map design) with maxWeight={} bytes", maxWeightBytes);
   }
@@ -908,11 +930,13 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     // Validate before entering compute: a rejected candidate must not retire the existing winner.
     final long valueWeight = weightOf(value);
     value.markAccessed();
-    value.setLastCacheKey(key);
     final RetirementFailures failures = new RetirementFailures();
     lifecycleLock.readLock().lock();
     try {
       map.compute(key, (k, existing) -> {
+        // Record ownership under the same per-key lock as detachment. Otherwise a concurrent
+        // removal can forget the key after we record it but before this mapping is published.
+        value.setLastCacheKey(k);
         chargeWeight(k, valueWeight);
         if (existing != null && existing != value) {
           // Returning value transfers this key's cache ownership from existing to value. Any reader
@@ -1040,6 +1064,54 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   }
 
   /**
+   * HOT leaves record their cache key; other page types may use the interface's no-op setter.
+   */
+  private static boolean recordsCacheKey(final CacheablePage page) {
+    return page instanceof HOTLeafPage;
+  }
+
+  /**
+   * Preallocated {@link ConcurrentHashMap#computeIfPresent} callback confirming one sighting without
+   * disturbing the mapping; state is guarded by evictionLock.
+   */
+  private V confirmMappingWithoutCacheKey(PageReference reference, V current) {
+    if (current == forgottenKeyExpected && current.lastCacheKey() == null) {
+      forgottenKeyConfirmed = true;
+    }
+    return current;
+  }
+
+  /**
+   * Whether a mapping still holds this exact page INSTANCE while the page records no cache key.
+   *
+   * <p>
+   * Both halves are re-read under the mapping's own compute lock, because iteration alone cannot tell
+   * the two states apart: a detach keeps its node linked and iterable until its compute returns, and
+   * a concurrent re-admission records its key inside that same compute. Reading value and key
+   * together under that lock resolves an in-flight detach to "already gone" and a fresh admission to
+   * "legitimately owned". The mapping itself is preserved either way.
+   * </p>
+   */
+  private boolean mapsPageWithoutItsCacheKey(final CacheablePage page) {
+    forgottenKeyExpected = page;
+    forgottenKeyConfirmed = false;
+    try {
+      for (final var entry : map.entrySet()) {
+        if (entry.getValue() == page) {
+          map.computeIfPresent(entry.getKey(), forgottenKeyConfirmation);
+          if (forgottenKeyConfirmed) {
+            return true;
+          }
+        }
+      }
+      return false;
+    } finally {
+      forgottenKeyExpected = null;
+      forgottenKeyConfirmed = false;
+    }
+  }
+
+  /**
    * Remove a page from the cache by reference identity, without closing it.
    *
    * <p>
@@ -1061,6 +1133,16 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
       // before acting, so a stale remembered key simply falls through to the scan below.
       final PageReference remembered = page.lastCacheKey();
       if (remembered != null && removeMappingIfSameWhileLocked(remembered, page)) {
+        return;
+      }
+      if (remembered == null && recordsCacheKey(page)) {
+        // A HOT leaf is owned under at most one key. Admission records it before publication and
+        // every detach forgets it, so no key means this leaf was never cached or already removed.
+        // A stale key, or a page type that does not record keys, still needs the exact scan.
+        // The invariant is checked, not assumed: leaving a mapped page behind here would let the
+        // caller take a still-cached page private and the sweeper free its frame underneath.
+        assert !mapsPageWithoutItsCacheKey(page) : "HOT leaf " + page.getPageKey()
+            + " records no cache key yet is still mapped — its key was erased by another owner of the same instance";
         return;
       }
       for (final var entry : map.entrySet()) {
