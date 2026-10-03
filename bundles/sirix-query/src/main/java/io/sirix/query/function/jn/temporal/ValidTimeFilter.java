@@ -24,11 +24,6 @@ import java.util.function.Supplier;
  * {@code validFrom <= validTime <= validTo}, used by {@code jn:valid-at} /
  * {@code jn:open-bitemporal} and {@code jn:scan-valid-time-index} when no index applies.
  *
- * <p>
- * The predicate is exactly the one the interval-index and CAS-narrowing paths re-verify against
- * ({@link ValidTimeIndexScan#isValidAtTime}), so all three paths return the identical set.
- * </p>
- *
  * @author Johannes Lichtenberger
  */
 public final class ValidTimeFilter {
