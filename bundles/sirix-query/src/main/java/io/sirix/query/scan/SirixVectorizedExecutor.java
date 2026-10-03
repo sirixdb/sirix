@@ -8398,6 +8398,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final ProjectionIndexRegistry.Handle handle, final boolean segmentScopedServable) {
     {
       final byte op = cp.ops[n];
+      final int literalIndex = cp.strIdx[n];
+      if (literalIndex >= 0) {
+        final String literal = cp.strLiterals[literalIndex];
+        for (int i = 0; i < literal.length(); i++) {
+          final char ch = literal.charAt(i);
+          if (Character.isHighSurrogate(ch)) {
+            if (++i == literal.length() || !Character.isLowSurrogate(literal.charAt(i))) {
+              return null;
+            }
+          } else if (Character.isLowSurrogate(ch)) {
+            return null;
+          }
+        }
+      }
       final int fi = cp.fieldIdx[n];
       if (fi < 0 || fi >= cp.fieldNames.length)
         return null;

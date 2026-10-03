@@ -17,9 +17,11 @@ import org.junit.jupiter.api.Test;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -42,7 +44,7 @@ public final class StringPredicateDifferentialTest {
   private static final String RES = "records.jn";
   private static final String SRC = "jn:doc('" + DB + "','" + RES + "')[]";
 
-  private java.nio.file.Path dbDir;
+  private Path dbDir;
 
   @BeforeEach
   void setUp() throws Exception {
@@ -146,6 +148,34 @@ public final class StringPredicateDifferentialTest {
     assertGroupServedDifferential("$u.sup le \"𐐀deseret\"");
   }
 
+  @Test
+  void loneSurrogateOrderingDeclinesProjectionAndPreservesRows() throws Exception {
+    for (final String literal : new String[] {"\uD800", "\uDC00", "http://\uD800x", "http://\uDC00x"}) {
+      for (final String op : new String[] {"lt", "le", "gt", "ge"}) {
+        final String where = "$u.url " + op + " \"" + literal + "\"";
+        final long expected = op.startsWith("l") ? N : 0;
+        assertCountFallbackDifferential(where, expected);
+        assertCountFallbackDifferential(where + " and $u.id ge 0", expected);
+      }
+    }
+  }
+
+  @Test
+  void nestedLoneSurrogateOrderingDeclinesProjectionAndPreservesRows() throws Exception {
+    for (final String literal : new String[] {"\uD800", "\uDC00"}) {
+      for (final String op : new String[] {"lt", "le", "gt", "ge"}) {
+        final String comparison = "$u.url " + op + " \"" + literal + "\"";
+        final long expected = op.startsWith("l") ? N : 0;
+        final String disjunction = "(" + comparison + " or $u.url eq \"never\") and $u.id ge 0";
+        assertCountFallbackDifferential(disjunction, expected);
+        assertGroupFallbackDifferential(disjunction, expected);
+        final String negation = "not(" + comparison + " and $u.url ge \"\")";
+        assertCountFallbackDifferential(negation, N - expected);
+        assertGroupFallbackDifferential(negation, N - expected);
+      }
+    }
+  }
+
   // ---- contains, selectivity swept -----------------------------------------------------------
 
   @Test
@@ -224,6 +254,31 @@ public final class StringPredicateDifferentialTest {
     assertTrue(SirixVectorizedExecutor.groupAggServedCount() > before,
         "predicate did NOT flow through the served group-aggregate route: " + where);
     assertEquals(interpreted, vectorized, "served result differs for predicate: " + where);
+  }
+
+  private void assertCountFallbackDifferential(final String where, final long expected) throws Exception {
+    final String query = "count(for $u in " + SRC + " where " + where + " return $u)";
+    final String interpreted = run(query, false).trim();
+    assertEquals(Long.toString(expected), interpreted, "interpreter row count for: " + where);
+    final long before = SirixVectorizedExecutor.projectionCountsServed();
+    assertEquals(interpreted, run(query, true).trim(), "fallback row count for: " + where);
+    assertEquals(before, SirixVectorizedExecutor.projectionCountsServed(),
+        "lossy literal was admitted to a projection count: " + where);
+  }
+
+  private void assertGroupFallbackDifferential(final String where, final long expected) throws Exception {
+    final String query = "subsequence(for $u in " + SRC + " where " + where + " let $k := $u.id group by $k "
+        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 7)";
+    final String interpreted = run(query, false);
+    if (expected > 0) {
+      assertFalse(interpreted.isEmpty(), "matching rows must survive: " + where);
+    } else {
+      assertEquals("", interpreted, "no rows should match: " + where);
+    }
+    final long before = SirixVectorizedExecutor.groupAggServedCount();
+    assertEquals(interpreted, run(query, true), "fallback groups for: " + where);
+    assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(),
+        "lossy literal was admitted to a projection group aggregate: " + where);
   }
 
   private String run(final String query, final boolean vectorized) throws Exception {
