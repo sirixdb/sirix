@@ -337,16 +337,18 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public Date getDate() {
-    return date != null
-        ? date
-        : (date = new Date(getDateTime()));
+    if (date == null) {
+      date = new Date(getDateTime());
+    }
+    return date;
   }
 
   @Override
   public Time getTime() {
-    return time != null
-        ? time
-        : (time = new Time(getDateTime()));
+    if (time == null) {
+      time = new Time(getDateTime());
+    }
+    return time;
   }
 
   @Override

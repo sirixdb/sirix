@@ -101,8 +101,8 @@ final class SirixQueryContextTimeTest {
         final var chain = SirixCompileChain.createWithNodeStore(store)) {
       final Instant reference = Instant.now().truncatedTo(ChronoUnit.MILLIS);
       final Instant present = reference.minusSeconds(60);
-      final var collection = store.create("products", new DocumentParser("<value>past</value>"), null,
-          reference.minusSeconds(120));
+      final var collection =
+          store.create("products", new DocumentParser("<value>past</value>"), null, reference.minusSeconds(120));
       try (final var session = collection.getDatabase().beginResourceSession("resource1");
           final var trx = session.beginNodeTrx()) {
         assertTrue(trx.moveToFirstChild());

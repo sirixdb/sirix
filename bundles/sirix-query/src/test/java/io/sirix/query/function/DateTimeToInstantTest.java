@@ -90,8 +90,8 @@ final class DateTimeToInstantTest {
   }
 
   /**
-   * The converted instant must re-encode to the very index key the stored value carries: that
-   * round trip is what {@code ValidTimeIndexScan} performs when it turns the instant back into an
+   * The converted instant must re-encode to the very index key the stored value carries: that round
+   * trip is what {@code ValidTimeIndexScan} performs when it turns the instant back into an
    * {@code xs:dateTime} to bound a range scan.
    */
   @Test
@@ -112,15 +112,11 @@ final class DateTimeToInstantTest {
   }
 
   private static Stream<Arguments> invalidTimezones() {
-    return Stream.of(false, true).flatMap(negative -> Stream.of(
-        Arguments.of(negative, 1, 0, 0, 0),
-        Arguments.of(negative, 0, 15, 0, 0),
-        Arguments.of(negative, 0, 18, 0, 0),
-        Arguments.of(negative, 0, 14, 1, 0),
-        Arguments.of(negative, 0, 0, 60, 0),
-        Arguments.of(negative, 0, 0, -1, 0),
-        Arguments.of(negative, 0, 0, 0, 1),
-        Arguments.of(negative, 0, 0, 0, 1_000_000)));
+    return Stream.of(false, true)
+                 .flatMap(negative -> Stream.of(Arguments.of(negative, 1, 0, 0, 0), Arguments.of(negative, 0, 15, 0, 0),
+                     Arguments.of(negative, 0, 18, 0, 0), Arguments.of(negative, 0, 14, 1, 0),
+                     Arguments.of(negative, 0, 0, 60, 0), Arguments.of(negative, 0, 0, -1, 0),
+                     Arguments.of(negative, 0, 0, 0, 1), Arguments.of(negative, 0, 0, 0, 1_000_000)));
   }
 
   @Test
@@ -129,8 +125,7 @@ final class DateTimeToInstantTest {
   }
 
   private static void assertConverts(final String lexical, final String expectedInstant) {
-    assertEquals(Instant.parse(expectedInstant), CONVERTER.convert(new DateTime(lexical)),
-        "converting " + lexical);
+    assertEquals(Instant.parse(expectedInstant), CONVERTER.convert(new DateTime(lexical)), "converting " + lexical);
   }
 
   private static void assertSameIndexKey(final String lexical) {
