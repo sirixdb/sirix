@@ -45,12 +45,15 @@ final class IndexDefPersistedDefinitionTest {
     final IndexDef missingFormat = new IndexDef(IndexDef.DbType.JSON);
     missingFormat.init(persisted);
     assertTrue(missingFormat.needsValidTimeRebuild());
-    persisted.setAttribute(format, new Str("1"));
-    final IndexDef oldFormat = new IndexDef(IndexDef.DbType.JSON);
-    oldFormat.init(persisted);
-    assertTrue(oldFormat.needsValidTimeRebuild());
-    assertTrue(roundTrip(oldFormat).needsValidTimeRebuild());
-    assertFalse(definition.hasSameDefinition(oldFormat));
+    for (final String obsolete : List.of("1", "2", "3", "4")) {
+      persisted.deleteAttribute(format);
+      persisted.setAttribute(format, new Str(obsolete));
+      final IndexDef oldFormat = new IndexDef(IndexDef.DbType.JSON);
+      oldFormat.init(persisted);
+      assertTrue(oldFormat.needsValidTimeRebuild());
+      assertTrue(roundTrip(oldFormat).needsValidTimeRebuild());
+      assertFalse(definition.hasSameDefinition(oldFormat));
+    }
   }
 
   private static Path<QNm> json(final String path) {

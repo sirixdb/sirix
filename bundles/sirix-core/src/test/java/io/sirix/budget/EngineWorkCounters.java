@@ -6,6 +6,7 @@ package io.sirix.budget;
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.io.filechannel.FileChannelReader;
+import io.sirix.index.interval.HotOrderedStore;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
@@ -27,6 +28,14 @@ public final class EngineWorkCounters {
   private EngineWorkCounters() {
     throw new AssertionError("no instances");
   }
+
+  public static final WorkCounter VALID_TIME_INTERVAL_REFS = WorkCounter.gated("validTime.intervalRefs",
+      "one record reference emitted by an interval store scan", HotOrderedStore::intervalRefsEmitted,
+      "-Dsirix.validTime.scanDiag=true", HotOrderedStore::scanDiagnosticsEnabled);
+
+  public static final WorkCounter VALID_TIME_POSTING_REFS = WorkCounter.gated("validTime.postingRefs",
+      "one record reference emitted by a membership, verification or order posting scan",
+      HotOrderedStore::postingRefsEmitted, "-Dsirix.validTime.scanDiag=true", HotOrderedStore::scanDiagnosticsEnabled);
 
   // ===== HOT leaf pages =====================================================
 
