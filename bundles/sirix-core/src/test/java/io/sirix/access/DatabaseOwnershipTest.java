@@ -1,5 +1,6 @@
 package io.sirix.access;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.Database;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
@@ -8,6 +9,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixDatabaseLockException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
@@ -785,21 +787,62 @@ final class DatabaseOwnershipTest {
   }
 
   @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void failedCleanupRetainsWritersAndOwnershipUntilRetry(final boolean forceRemoval) throws Exception {
-    final Path path = createDatabase();
-    try (final Database<JsonResourceSession> failing = Databases.openJsonDatabase(path)) {
+  @CsvSource({"JSON,false,session", "JSON,true,session", "XML,false,session", "XML,true,session", "JSON,false,create",
+      "JSON,true,create", "XML,false,create", "XML,true,create"})
+  void timedCommitHookCannotAdmitResourcesOnClosingHandle(final DatabaseType type, final boolean forceRemoval,
+      final String callback) throws Exception {
+    final Path path = directory.resolve("timed-handle-" + callback + "-" + type);
+    assertTrue(createDatabase(path, type));
+    final Process process = child(path, "timed-" + callback + (forceRemoval
+        ? "-remove"
+        : "-close"));
+    try {
+      assertEquals("READY", childResult(process));
+      assertChildRefused(path);
+      process.getOutputStream().write('\n');
+      process.getOutputStream().flush();
+      assertEquals("OPEN", childResult(process));
+      assertTrue(process.waitFor(30, TimeUnit.SECONDS));
+      assertEquals(0, process.exitValue());
+      if (forceRemoval) {
+        assertFalse(Files.exists(path));
+      } else {
+        try (final Database<?> reopened = openDatabase(path, type)) {
+          assertTrue(reopened.existsResource("other"));
+          assertFalse(reopened.existsResource("from-hook"));
+          try (final ResourceSession<?, ?> session = reopened.beginResourceSession("resource")) {
+            assertTrue(session.getMostRecentRevisionNumber() > 0);
+          }
+        }
+      }
+    } finally {
+      stopChild(process);
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"JSON,false", "JSON,true", "XML,false", "XML,true"})
+  void failedCleanupRetainsWritersAndOwnershipUntilRetry(final DatabaseType type, final boolean forceRemoval)
+      throws Exception {
+    final Path path = directory.resolve("failed-cleanup-" + type);
+    assertTrue(createDatabase(path, type));
+    try (final Database<?> failing = openDatabase(path, type)) {
       assertTrue(failing.createResource(ResourceConfiguration.newBuilder("failed").build()));
       assertTrue(failing.createResource(ResourceConfiguration.newBuilder("healthy").build()));
-      final JsonResourceSession session = failing.beginResourceSession("failed");
-      final JsonResourceSession healthy = failing.beginResourceSession("healthy");
-      final JsonNodeTrx writer = session.beginNodeTrx();
-      writer.insertStringValueAsFirstChild("pending");
+      final ResourceSession<?, ?> session = failing.beginResourceSession("failed");
+      final ResourceSession<?, ?> healthy = failing.beginResourceSession("healthy");
+      final NodeTrx writer = session.beginNodeTrx();
+      if (writer instanceof JsonNodeTrx jsonWriter) {
+        jsonWriter.insertStringValueAsFirstChild("pending");
+      } else {
+        ((XmlNodeTrx) writer).insertElementAsFirstChild(new QNm("pending"));
+      }
       setWriterField(writer, "asyncCommitFailure", new IOException("injected hardening failure"));
-      try (final Database<JsonResourceSession> sibling = forceRemoval
-          ? Databases.openJsonDatabase(path)
+      try (final Database<?> sibling = forceRemoval
+          ? openDatabase(path, type)
           : null) {
-        final JsonResourceSession siblingSession = sibling == null
+        final ResourceSession<?, ?> siblingSession = sibling == null
             ? null
             : sibling.beginResourceSession("healthy");
         assertThrows(SirixIOException.class, () -> {
@@ -821,8 +864,10 @@ final class DatabaseOwnershipTest {
             Objects.requireNonNull(DatabasesInternals.getOpenDatabases().get(path.toRealPath())).contains(failing));
         assertThrows(IllegalStateException.class, () -> failing.removeResource("failed"));
         assertChildRefused(path);
-        try (final Database<JsonResourceSession> reopened = Databases.openJsonDatabase(path)) {
-          final JsonResourceSession other = reopened.beginResourceSession("failed");
+        assertSame(session, failing.beginResourceSession("failed"));
+        assertTrue(failing.createResource(ResourceConfiguration.newBuilder("after-failure").build()));
+        try (final Database<?> reopened = openDatabase(path, type)) {
+          final ResourceSession<?, ?> other = reopened.beginResourceSession("failed");
           assertThrows(SirixUsageException.class, other::beginNodeTrx);
           assertSame(session.getRtxIndexController(session.getMostRecentRevisionNumber()),
               other.getRtxIndexController(other.getMostRecentRevisionNumber()));
@@ -834,14 +879,14 @@ final class DatabaseOwnershipTest {
       if (forceRemoval) {
         Databases.removeDatabase(path);
         assertFalse(Files.exists(path));
-        assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
+        assertTrue(createDatabase(path, type));
       } else {
         failing.close();
       }
       assertFalse(failing.isOpen());
       assertTrue(session.isClosed());
       assertTrue(writer.isClosed());
-      assertChildOpened(path);
+      assertChildOpened(path, type);
     } finally {
       Databases.removeDatabase(path);
     }
@@ -1119,7 +1164,13 @@ final class DatabaseOwnershipTest {
   }
 
   private void assertChildOpened(final Path path) throws Exception {
-    final Process process = child(path, "open");
+    assertChildOpened(path, DatabaseType.JSON);
+  }
+
+  private void assertChildOpened(final Path path, final DatabaseType type) throws Exception {
+    final Process process = child(path, type == DatabaseType.JSON
+        ? "open"
+        : "open-xml");
     try {
       assertEquals("OPEN", childResult(process));
       assertTrue(process.waitFor(30, TimeUnit.SECONDS));
@@ -1170,8 +1221,15 @@ final class DatabaseOwnershipTest {
     public static void main(final String[] args) throws Exception {
       final Path path = Path.of(args[0]);
       try {
-        if (args[1].equals("timed-close") || args[1].equals("timed-remove")) {
-          timedCleanup(path, args[1].equals("timed-remove"));
+        if (args[1].equals("timed-close") || args[1].equals("timed-remove") || args[1].equals("timed-session-close")
+            || args[1].equals("timed-session-remove") || args[1].equals("timed-create-close")
+            || args[1].equals("timed-create-remove")) {
+          final String callback = args[1].startsWith("timed-session-")
+              ? "session"
+              : args[1].startsWith("timed-create-")
+                  ? "create"
+                  : "database";
+          timedCleanup(path, args[1].endsWith("-remove"), callback);
           return;
         }
         if (args[1].equals("lock-only")) {
@@ -1197,7 +1255,9 @@ final class DatabaseOwnershipTest {
               : "EXISTS");
           return;
         }
-        try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+        try (final Database<?> database = args[1].equals("open-xml")
+            ? Databases.openXmlDatabase(path)
+            : Databases.openJsonDatabase(path)) {
           if (!database.isOpen()) {
             throw new IllegalStateException("Child database is closed");
           }
@@ -1215,7 +1275,8 @@ final class DatabaseOwnershipTest {
       }
     }
 
-    private static void timedCleanup(final Path path, final boolean forceRemoval) throws Exception {
+    private static void timedCleanup(final Path path, final boolean forceRemoval, final String callback)
+        throws Exception {
       final DatabaseType type = Databases.getDatabaseType(path);
       final Path hookTarget = path.resolveSibling(path.getFileName() + "-hook-target");
       final CountDownLatch hookEntered = new CountDownLatch(1);
@@ -1225,6 +1286,12 @@ final class DatabaseOwnershipTest {
       final CompletableFuture<Void> cleanupFinished = new CompletableFuture<>();
       try (final Database<?> database = openDatabase(path, type)) {
         assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+        if (!callback.equals("database")) {
+          assertTrue(database.createResource(ResourceConfiguration.newBuilder("other").build()));
+          try (final ResourceSession<?, ?> other = database.beginResourceSession("other")) {
+            assertFalse(other.isClosed());
+          }
+        }
         final ResourceSession<?, ?> session = database.beginResourceSession("resource");
         final NodeTrx writer = session.beginNodeTrx(10, TimeUnit.MILLISECONDS);
         writer.addPreCommitHook(unused -> {
@@ -1232,22 +1299,35 @@ final class DatabaseOwnershipTest {
             hookEntered.countDown();
             try {
               assertTrue(allowHook.await(30, TimeUnit.SECONDS));
-              try (final Database<?> other = openDatabase(hookTarget, type)) {
-                assertTrue(other.isOpen());
-              }
               assertTrue(Objects.requireNonNull(DatabasesInternals.getOpenDatabases().get(path.toRealPath()))
                                 .contains(database));
-              if (forceRemoval) {
-                assertThrows(IllegalStateException.class, () -> {
-                  try (final Database<?> unexpected = openDatabase(path, type)) {
-                    assertTrue(unexpected.isOpen());
-                  }
-                });
-                assertThrows(IllegalStateException.class, () -> Databases.removeDatabase(path));
-              } else {
-                try (final Database<?> concurrent = openDatabase(path, type)) {
-                  assertTrue(concurrent.isOpen());
+              switch (callback) {
+                case "session" ->
+                  assertThrows(IllegalStateException.class, () -> database.beginResourceSession("other"));
+                case "create" -> {
+                  assertThrows(IllegalStateException.class,
+                      () -> database.createResource(ResourceConfiguration.newBuilder("from-hook").build()));
+                  assertFalse(Files.exists(
+                      path.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve("from-hook")));
                 }
+                case "database" -> {
+                  try (final Database<?> other = openDatabase(hookTarget, type)) {
+                    assertTrue(other.isOpen());
+                  }
+                  if (forceRemoval) {
+                    assertThrows(IllegalStateException.class, () -> {
+                      try (final Database<?> unexpected = openDatabase(path, type)) {
+                        assertTrue(unexpected.isOpen());
+                      }
+                    });
+                    assertThrows(IllegalStateException.class, () -> Databases.removeDatabase(path));
+                  } else {
+                    try (final Database<?> concurrent = openDatabase(path, type)) {
+                      assertTrue(concurrent.isOpen());
+                    }
+                  }
+                }
+                default -> throw new IllegalArgumentException(callback);
               }
               hookOpened.complete(null);
             } catch (final Throwable failure) {
