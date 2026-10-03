@@ -1046,7 +1046,10 @@ PCRs (`idx/cas/CASIndex.java:599-605`).
       against the leaf's end entries; a key beyond one end walks the spine
       (`extremeKeepsSpineOrder`) and, where it would cross a neighbour, is placed by the
       complete-frontier splice at its lexicographic position instead, counted by
-      `MERGE_SPINE_ORDER_DELEGATED`. The seeded structural property test
+      `MERGE_SPINE_ORDER_DELEGATED`. Both questions are asked of the writer's serialization buffer
+      over `[0, keyLen)` — the comparisons and the walk take the buffer and its valid length — so the
+      ordinary merge allocates no key; only a declined merge materializes the exact key the frontier
+      needs. The seeded structural property test
       (`HOTStructuralPropertyTest`) built the shape on a projection store with 770 ordinary writes;
       `HOTOrderingGuardTest` pins it with three leaves and one node;
    3. structural changes are validated after publication (§4.8);
@@ -1514,7 +1517,7 @@ Cases, in order:
 
 | Operation | Cost |
 |---|---|
-| merge without split | O(h) copy-on-write descent + O(log 512) leaf search + the spine-order proof of §4.5.1: two comparisons against the leaf's end entries for a key inside its range, otherwise one upward walk that stops at the first level with a neighbour on the moving side; allocation only on first touch of a page |
+| merge without split | O(h) copy-on-write descent + O(log 512) leaf search + the spine-order proof of §4.5.1: two comparisons against the leaf's end entries for a key inside its range, otherwise one upward walk that stops at the first level with a neighbour on the moving side, all over the serialization buffer; allocation only on first touch of a page |
 | leaf split | O(entries) union materialization (one `Entry` object per key, `hot/HOTIncrementalInsert.java:134-158`) + O(h · 32) integration |
 | branch cases | O(32) node re-encoding + guards O(children · h); exact scans ≤ 63 pages |
 | merge after an overflow split | the same O(children · h) cascade pre-check as the branch arms, once per overflow; the merge fast path (no split) still pays the spine-order proof above, and a key that would extend its leaf past a spine neighbour enters the complete-frontier splice without any overflow (`MERGE_SPINE_ORDER_DELEGATED`, §4.5.1) |

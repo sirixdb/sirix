@@ -3411,7 +3411,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private boolean pairKeepsSpineOrder(final LeafNavigationResult navResult, final int betaValue,
       final byte[] keySlice) {
-    return extremeKeepsSpineOrder(navResult, navResult.pathDepth() - 1, betaValue, keySlice);
+    return extremeKeepsSpineOrder(navResult, navResult.pathDepth() - 1, betaValue, keySlice, keySlice.length);
   }
 
   /**
@@ -3451,10 +3451,10 @@ public abstract class AbstractHOTIndexWriter<K> {
       return false; // defensive: an unresolvable subtree cannot be proved safe
     }
     if (Arrays.compareUnsigned(keySlice, first) < 0) {
-      return extremeKeepsSpineOrder(navResult, placementDepth - 1, 0, keySlice);
+      return extremeKeepsSpineOrder(navResult, placementDepth - 1, 0, keySlice, keySlice.length);
     }
     if (Arrays.compareUnsigned(keySlice, last) > 0) {
-      return extremeKeepsSpineOrder(navResult, placementDepth - 1, 1, keySlice);
+      return extremeKeepsSpineOrder(navResult, placementDepth - 1, 1, keySlice, keySlice.length);
     }
     return true; // K lies inside the subtree's range: no extreme on the spine changes
   }
@@ -3467,9 +3467,11 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /**
    * Whether merging {@code K} into the routed leaf keeps every spine neighbour in order — the
-   * {@link #keyKeepsSpineOrder} question for the leaf itself, asked without materializing the key
-   * unless it matters. A key present in the leaf or inside its range moves no extreme and costs two
-   * comparisons against the leaf's end entries; only a key beyond one end walks the spine.
+   * {@link #keyKeepsSpineOrder} question for the leaf itself, asked of the serialization buffer
+   * {@code keyBuf[0..keyLen)} so that the ordinary merge allocates nothing. A key present in the leaf
+   * or inside its range moves no extreme and costs two comparisons against the leaf's end entries;
+   * only a key beyond one end walks the spine, and only a declined merge materializes the exact key
+   * for the structural frontier that then places it.
    */
   private boolean mergeKeepsSpineOrder(final LeafNavigationResult navResult, final byte[] keyBuf, final int keyLen) {
     final int pathDepth = navResult.pathDepth();
@@ -3483,19 +3485,24 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (!belowFirst && !aboveLast) {
       return true; // K is present or lies inside the leaf's range: no extreme on the spine changes
     }
-    final byte[] keySlice = exactKeyForStructuralMutation(keyBuf, keyLen);
-    return (!belowFirst || extremeKeepsSpineOrder(navResult, pathDepth - 1, 0, keySlice))
-        && (!aboveLast || extremeKeepsSpineOrder(navResult, pathDepth - 1, 1, keySlice));
+    return (!belowFirst || extremeKeepsSpineOrder(navResult, pathDepth - 1, 0, keyBuf, keyLen))
+        && (!aboveLast || extremeKeepsSpineOrder(navResult, pathDepth - 1, 1, keyBuf, keyLen));
   }
 
   /**
-   * The spine walk shared by {@link #pairKeepsSpineOrder} and {@link #keyKeepsSpineOrder}: from
-   * {@code fromDepth} upward, {@code K} is the route slot's new minimum ({@code side == 0}) or
-   * maximum ({@code side == 1}). The walk stops at the first level whose slot has a neighbour on that
-   * side, since the extreme change goes no further.
+   * The spine walk shared by {@link #pairKeepsSpineOrder}, {@link #keyKeepsSpineOrder} and
+   * {@link #mergeKeepsSpineOrder}: from {@code fromDepth} upward, {@code K} is the route slot's new
+   * minimum ({@code side == 0}) or maximum ({@code side == 1}). The walk stops at the first level
+   * whose slot has a neighbour on that side, since the extreme change goes no further.
+   *
+   * <p>
+   * {@code K} is {@code keyBuf[0..keyLen)}, so the merge arm can ask this of the writer's
+   * serialization buffer without copying a key out of it; the structural callers pass the exact key
+   * they already hold, which is the same range.
+   * </p>
    */
   private boolean extremeKeepsSpineOrder(final LeafNavigationResult navResult, final int fromDepth, final int side,
-      final byte[] keySlice) {
+      final byte[] keyBuf, final int keyLen) {
     final HOTIndirectPage[] pathNodes = navResult.pathNodes();
     final int[] childSlots = navResult.pathChildIndices();
     for (int depth = fromDepth; depth >= 0; depth--) {
@@ -3504,11 +3511,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (side == 0) {
         if (slot > 0) {
           final byte[] previousLast = lastKeyOfSubtree(node.getChildReference(slot - 1));
-          return previousLast != null && Arrays.compareUnsigned(previousLast, keySlice) < 0;
+          return previousLast != null
+              && Arrays.compareUnsigned(previousLast, 0, previousLast.length, keyBuf, 0, keyLen) < 0;
         }
       } else if (slot + 1 < node.getNumChildren()) {
         final byte[] nextFirst = firstKeyOfSubtree(node.getChildReference(slot + 1));
-        return nextFirst != null && Arrays.compareUnsigned(keySlice, nextFirst) < 0;
+        return nextFirst != null && Arrays.compareUnsigned(keyBuf, 0, keyLen, nextFirst, 0, nextFirst.length) < 0;
       }
     }
     return true; // K becomes the index's own extreme on that side
@@ -3644,7 +3652,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         return true; // the upper half still carries the split subtree's maximum
       }
     }
-    return extremeKeepsSpineOrder(navResult, insertDepth - 1, side, keySlice);
+    return extremeKeepsSpineOrder(navResult, insertDepth - 1, side, keySlice, keySlice.length);
   }
 
   /**
