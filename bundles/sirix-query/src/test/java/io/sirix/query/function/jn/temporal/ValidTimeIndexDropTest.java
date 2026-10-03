@@ -170,7 +170,7 @@ public final class ValidTimeIndexDropTest {
         for (final Instant t : sampleTimes) {
           final Set<Integer> brute = bruteForce(records, t);
 
-          // jn:valid-at falls back to CAS-narrowing / linear scan and is still correct.
+          // jn:valid-at falls back to linear scan and is still correct.
           assertEquals(brute, idsFromValidAt(chain, ctx, t),
               "jn:valid-at must still equal brute force AFTER the drop (fallback) at t=" + t);
 
@@ -301,7 +301,7 @@ public final class ValidTimeIndexDropTest {
             "interval-index fast path must be gone after the drop");
         for (final Instant t : List.of(UNIVERSAL, records.get(0).validFrom(), records.get(0).validTo())) {
           assertEquals(bruteForce(records, t), idsFromValidAt(chain, ctx, t),
-              "jn:valid-at must still equal brute force after dropping VALIDTIME (CAS-narrowing fallback) at t=" + t);
+              "jn:valid-at must still equal brute force after dropping VALIDTIME (linear fallback) at t=" + t);
         }
         // The surviving CAS index returns the record whose validFrom == records.get(0).validFrom().
         final String casScan =

@@ -14,7 +14,6 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.BaseIter;
-import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.sequence.LazySequence;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -180,9 +179,6 @@ public final class OpenBitemporal extends AbstractFunction {
     if (intervalSequence != null) {
       return intervalSequence;
     }
-    final ValidTimeIndexScan.Result indexResult = ValidTimeIndexScan.tryIndexScan(document, validTime, validTimeConfig);
-    return indexResult != null
-        ? new ItemSequence(indexResult.items().toArray(new Item[0]))
-        : ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig);
+    return ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig);
   }
 }

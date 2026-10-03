@@ -111,9 +111,8 @@ public final class ValidTimeIndexes {
    * Create the valid-time indexes within the given write transaction when the resource is configured
    * with valid-time paths (idempotent per index kind). Creates the persistent interval index plus one
    * {@code xs:dateTime} CAS index per valid-time field — the semantically correct content type for
-   * timestamps, which the CAS-narrowing fallback of {@code jn:valid-at} scans with exact temporal
-   * ranges (values that fail the xs:dateTime cast are skipped by the CAS builder, never aborting the
-   * insert). All definitions are created in ONE {@code createIndexes} call, so the document is
+   * timestamps (values that fail the xs:dateTime cast are skipped by the CAS builder, never aborting
+   * the insert). All definitions are created in ONE {@code createIndexes} call, so the document is
    * traversed once for every builder. Does not commit — the caller owns the transaction lifecycle, so
    * data shred and index creation can land in one revision.
    *
