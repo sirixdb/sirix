@@ -11,6 +11,7 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.json.Object;
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.access.DatabaseConfiguration;
@@ -392,7 +393,7 @@ public final class ValidTimeIndexEndToEndTest {
     try {
       Item item;
       while ((item = iter.next()) != null) {
-        ids.add(((Numeric) ((io.brackit.query.jdm.json.Object) item).get(id)).intValue());
+        ids.add(((Numeric) ((Object) item).get(id)).intValue());
       }
     } finally {
       iter.close();
