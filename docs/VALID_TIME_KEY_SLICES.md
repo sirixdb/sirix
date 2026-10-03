@@ -8,7 +8,7 @@ objects. Its sorted key sequence constructs JSON objects only when a consumer re
 
 | Source | Indexed predicate | Fallback |
 | --- | --- | --- |
-| `jn:valid-at`, `jn:open-bitemporal`, two-argument `jn:scan-valid-time-index` | Closed point containment | Original exact temporal predicate for rounded, clamped, open, duplicate, or lexically ambiguous bounds; existing scan routes when no interval index exists |
+| `jn:valid-at`, `jn:open-bitemporal`, two-argument `jn:scan-valid-time-index` | Closed point containment | Original exact temporal predicate for rounded, clamped, open, duplicate, or lexically ambiguous bounds; exact linear scan when no interval index applies |
 | `for $x in jn:open-bitemporal(C,R,T,P) where P lt xs:dateTime($x.vt) return ...` | Half-open end; inclusive `le`, reversed `gt/ge`, general comparisons, and the analogous start comparisons are supported | Original cast/comparison for exceptional records; original temporal scan plus comparison for a different configured field or absent index |
 | `for $x in jn:doc/open(...)[] where xs:dateTime($x.vf) op P and P op xs:dateTime($x.vt) return ...` | All four combinations of inclusive/strict endpoints, either operand/conjunct order | Original full array scan and comparisons unless every member has two exact bounds and its array order agrees with key order |
 
@@ -26,7 +26,9 @@ Transaction time is resolved at each evaluation. No revision is captured during 
 Timezone offsets in `xs:dateTime` arguments are preserved when converting to `Instant`.
 Folded bitemporal comparisons retain their original operand type, comparison kind, and direction
 independently of the source function's dateTime argument conversion. Their fallbacks filter the
-original closed interval/CAS/linear source in its existing order.
+original closed interval or linear source in its existing order.
+Temporal fallbacks do not narrow with dateTime CAS indexes: their Brackit casts can omit bounds
+accepted by the closed predicate’s `Instant.parse`, so they provide no candidate coverage proof.
 Timezone-less comparison points retain Brackit's ordinary comparisons, as do non-singleton plain
 FLWOR points. Computed field dereferences are not folded. Non-object array members evaluate the
 original comparisons with empty field dereferences. Plain-FLWOR points are evaluated only on row

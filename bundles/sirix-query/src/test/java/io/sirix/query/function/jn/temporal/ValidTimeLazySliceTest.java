@@ -759,9 +759,9 @@ final class ValidTimeLazySliceTest {
       writer.moveTo(document.getNodeKey());
       writer.moveSubtreeToFirstChild(second);
       writer.commit();
-      final List<Long> expected = route.equals("linear")
-          ? List.of(2L, 1L)
-          : List.of(1L, 2L);
+      final List<Long> expected = route.equals("interval")
+          ? List.of(1L, 2L)
+          : List.of(2L, 1L);
       for (final String point : List.of(POINT, "xs:dateTime('2024-01-01T00:00:00')")) {
         final String source = source("indexed").replace(POINT, point);
         assertEquals(expected, values(new Query(chain, "for $x in " + source + " return $x.id").execute(context)));
