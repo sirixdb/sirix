@@ -354,6 +354,52 @@ public final class ProjectionBloomChunks {
           : 0);
     }
 
+    /**
+     * Cut {@code [0, chunkCount())} into {@code ranges} contiguous chunk ranges of comparable WORK
+     * rather than of comparable index width, as ascending bounds with {@code [0] == 0} and the last
+     * entry {@code chunkCount()}. A range may come out empty; every chunk falls in exactly one.
+     *
+     * <p>
+     * A sealed block is one page read. The open chunk is one per tail, because each referenced tail is
+     * its own side page even though all of them arrive in a single ranged fetch — and it cannot be
+     * divided without giving that single fetch up. So an even cut over the index can hand the range
+     * that happens to hold the open chunk {@link #CHUNK_LEAVES} page reads while a sibling range of
+     * whole blocks does sixteen, and the only remedy is to give the open chunk's range fewer blocks.
+     * Which shape wins depends on how many tails the chunk holds, so both are priced and the lower peak
+     * is taken; for a column with no open chunk this is exactly the even cut.
+     * </p>
+     */
+    int[] weightedRangeBounds(final int ranges) {
+      if (ranges < 1) {
+        throw new IllegalArgumentException("ranges must be positive: " + ranges);
+      }
+      final int sealed = chunks.size();
+      final int count = chunkCount();
+      final int openWeight = tails.size();
+      final int evenLen = (count + ranges - 1) / ranges;
+      final boolean isolateOpenChunk =
+          openWeight > 0 && ranges > 1
+              && Math.max((sealed + ranges - 2) / (ranges - 1), openWeight) < Math.max(evenLen, Math
+                                                                                                    .max(count
+                                                                                                        - (ranges - 1)
+                                                                                                            * evenLen
+                                                                                                        - 1, 0)
+                  + openWeight);
+      final int blockRanges = isolateOpenChunk
+          ? ranges - 1
+          : ranges;
+      final int units = isolateOpenChunk
+          ? sealed
+          : count;
+      final int len = (units + blockRanges - 1) / blockRanges;
+      final int[] bounds = new int[ranges + 1];
+      for (int r = 1; r <= blockRanges; r++) {
+        bounds[r] = Math.min(r * len, units);
+      }
+      bounds[ranges] = count;
+      return bounds;
+    }
+
     /** Physical chunk boundaries must also be disjoint logical mask-word boundaries. */
     boolean parallelPruningIsSafe() {
       return logicalByPhysical == null;
@@ -783,8 +829,8 @@ public final class ProjectionBloomChunks {
     if (storage == null || columnKinds == null || changedColumnsByLeaf == null) {
       throw new NullPointerException("storage, columnKinds, and changedColumnsByLeaf are required");
     }
-    if (changedColumnsByLeaf.isEmpty() && !rowGroupCountChanged) {
-      return new RewriteStats(0, 0, 0L, 0L);
+    if (changedColumnsByLeaf.isEmpty()) {
+      return new RewriteStats(0, 0, 0L, 0L, 0);
     }
     boolean hasBloomColumn = false;
     for (int column = 0; column < columnKinds.length; column++) {
@@ -801,42 +847,32 @@ public final class ProjectionBloomChunks {
           throw new IllegalArgumentException("changed leaf slot out of range: " + slot);
         }
       }
-      return new RewriteStats(0, 0, 0L, 0L);
+      return new RewriteStats(0, 0, 0L, 0L, 0);
     }
     final int sealedNew = sealedChunkCount(physicalRowGroupCount);
-    // A chunk this maintenance COMPLETES is not written as a block here: its row groups take tail
-    // writes below and the fold loop seals it from those tails, in this same transaction. The fold is
-    // the single place that seals, because it is driven by each column's OWN published mark and covers
-    // every chunk in [foldFrom, sealedNew) whether or not a changed leaf landed in it — while the
-    // sealed-rewrite path below only ever visits chunks that hold one. Sealing through the rewrite
-    // path would therefore leave a chunk completed by a commit that did not touch it with no block at
-    // all, against a manifest that already counts it sealed, and its 256 leaves would stop pruning.
-    // So openFirst is the smallest mark any string column has published; a column without a published
-    // mark leaves the new count as the only classification available, and then the rewrite path has to
-    // recover that column's tails itself (tailFirstChunk[c] == 0).
+    // openFirst splits the changed leaves exactly where the NEW manifest splits the column: everything
+    // the new high-water mark seals is a block, the remainder is the open chunk's tails. A chunk this
+    // commit completes therefore takes the sealed-rewrite path, which rebuilds it from its earlier
+    // tails plus this commit's leaves and tombstones those tails — one block write, no writing a tail
+    // only to delete it in the same transaction. That path visits a chunk only if a changed leaf lands
+    // in it, which every completed chunk has: its last leaf (chunkId + 1) * CHUNK_LEAVES lies above the
+    // prior physical count, so it is a slot this commit allocated and wrote, and allocation records the
+    // slot for every column.
+    //
+    // tailFirstChunk[c] is the first chunk that can still own tails for that column: strictly below its
+    // published mark a chunk was folded and its tails tombstoned, so probing there finds nothing. A
+    // column with no published mark has no known mark, so every chunk may own tails (0).
     final int[] tailFirstChunk = new int[columnKinds.length];
-    int sealedOld = -1;
-    boolean everyColumnPublished = true;
     for (int c = 0; c < columnKinds.length; c++) {
       if (!isStringKind(columnKinds[c])) {
         continue;
       }
       final Manifest prior = parseManifest(storage.getBlob(ProjectionIndexHOTStorage.bloomBlockSlotKey(c)), -1);
-      if (prior == null) {
-        everyColumnPublished = false;
-        continue;
+      if (prior != null) {
+        tailFirstChunk[c] = sealedChunkCount(prior.physicalRowGroupCount());
       }
-      tailFirstChunk[c] = sealedChunkCount(prior.physicalRowGroupCount());
-      sealedOld = sealedOld < 0
-          ? tailFirstChunk[c]
-          : Math.min(sealedOld, tailFirstChunk[c]);
     }
-    if (!everyColumnPublished) {
-      sealedOld = -1;
-    }
-    final int openFirst = (sealedOld < 0
-        ? sealedNew
-        : Math.min(sealedOld, sealedNew)) * CHUNK_LEAVES + 1;
+    final int openFirst = sealedNew * CHUNK_LEAVES + 1;
     final IntOpenHashSet sealedChunkIds = new IntOpenHashSet();
     boolean touchesOpenChunk = false;
     for (final LongIterator iterator = changedColumnsByLeaf.keySet().iterator(); iterator.hasNext();) {
@@ -854,6 +890,7 @@ public final class ProjectionBloomChunks {
     int chunksWritten = 0;
     long bytesRead = 0L;
     long bytesWritten = 0L;
+    int tailSlotReads = 0;
     // Sealed chunks: a touched row group rewrites its column's whole block (rare outside appends).
     for (final int chunkId : sealedChunkIds) {
       final int firstLeaf = chunkId * CHUNK_LEAVES + 1;
@@ -875,13 +912,13 @@ public final class ProjectionBloomChunks {
             ? new byte[leafCount][]
             : Arrays.copyOf(priorSlices, leafCount);
         // No usable block in a chunk that can still own tails: its fingerprints live in tail blobs (a
-        // chunk the prior revision had not sealed, or a block lost to corruption). Start from them so a
-        // rewrite never loses a leaf. Strictly below this column's published mark the chunk was already
-        // folded and its tails tombstoned, so probing there can only ever find nothing.
+        // chunk this commit is completing, or a block lost to corruption). Start from them so a rewrite
+        // never loses a leaf.
         final boolean recoverTails = priorSlices == null && chunkId >= tailFirstChunk[c];
         if (recoverTails) {
           for (int i = 0; i < leafCount; i++) {
             final byte[] tail = storage.getBlob(tailSlotKey(c, firstLeaf + i));
+            tailSlotReads++;
             if (tail != null) {
               slices[i] = tail;
               bytesRead += tail.length;
@@ -924,9 +961,11 @@ public final class ProjectionBloomChunks {
     // A receding high-water mark can reopen a sealed chunk. Preserve its remaining fingerprints
     // as tails before applying the changed rows, and remove the block from the new open span.
     final int openLeaves = openLeafCount(physicalRowGroupCount);
-    if (openLeaves > 0 && sealedOld > sealedNew) {
+    if (openLeaves > 0) {
       for (int c = 0; c < columnKinds.length; c++) {
-        if (!isStringKind(columnKinds[c])) {
+        // Per column, against that column's OWN published mark: one column whose manifest is missing
+        // must not stop every other column from reopening its block.
+        if (!isStringKind(columnKinds[c]) || tailFirstChunk[c] <= sealedNew) {
           continue;
         }
         final long chunkSlot = chunkSlotKey(c, sealedNew);
@@ -970,6 +1009,7 @@ public final class ProjectionBloomChunks {
             bytesRead += segment.length;
           final long tailSlot = tailSlotKey(c, (int) slot);
           final byte[] prior = storage.getBlob(tailSlot);
+          tailSlotReads++;
           if (prior != null)
             bytesRead += prior.length;
           if (Arrays.equals(prior, segment)) {
@@ -1009,6 +1049,7 @@ public final class ProjectionBloomChunks {
         final byte[][] slices = new byte[CHUNK_LEAVES][];
         for (int i = 0; i < CHUNK_LEAVES; i++) {
           final byte[] tail = storage.getBlob(tailSlotKey(c, firstLeaf + i));
+          tailSlotReads++;
           slices[i] = tail;
           if (tail != null)
             bytesRead += tail.length;
@@ -1040,6 +1081,7 @@ public final class ProjectionBloomChunks {
         final int firstRemovedTail = Math.max(physicalRowGroupCount + 1, priorSealed * CHUNK_LEAVES + 1);
         for (int rowGroupId = firstRemovedTail; rowGroupId <= parsedPrior.physicalRowGroupCount(); rowGroupId++) {
           final long tailSlot = tailSlotKey(c, rowGroupId);
+          tailSlotReads++;
           if (storage.getRawSlot(tailSlot) != null) {
             storage.tombstoneBlob(tailSlot);
             chunksWritten++;
@@ -1051,7 +1093,7 @@ public final class ProjectionBloomChunks {
         bytesWritten += nextManifest.length;
       }
     }
-    return new RewriteStats(rowGroupsRead, chunksWritten, bytesRead, bytesWritten);
+    return new RewriteStats(rowGroupsRead, chunksWritten, bytesRead, bytesWritten, tailSlotReads);
   }
 
   private static boolean chunkSelectsColumn(final Long2ObjectMap<long[]> changedColumnsByLeaf, final int firstLeaf,
@@ -1083,7 +1125,12 @@ public final class ProjectionBloomChunks {
     return word < words.length && (words[word] & (1L << (column & 63))) != 0L;
   }
 
-  record RewriteStats(int rowGroupsRead, int chunksWritten, long bytesRead, long bytesWritten) {
+  /**
+   * Work one maintenance performed. {@code tailSlotReads} counts every open-chunk tail slot the
+   * rewrite looked at, which is the only way to see that a chunk strictly below a column's published
+   * mark is never probed for tails it cannot own.
+   */
+  record RewriteStats(int rowGroupsRead, int chunksWritten, long bytesRead, long bytesWritten, int tailSlotReads) {
   }
 
   /**

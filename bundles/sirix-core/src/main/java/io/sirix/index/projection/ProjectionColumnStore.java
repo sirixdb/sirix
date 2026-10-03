@@ -584,11 +584,13 @@ public final class ProjectionColumnStore {
         return block.pruneMany(hashes, keeps, n, fetcher, 0, chunkCount);
       }
       final long[] droppedByRange = new long[ranges];
-      final int rangeLen = (chunkCount + ranges - 1) / ranges;
+      // Cut on work, not on chunk index: the open chunk is one indivisible fetch of up to one page per
+      // tail, so an index-even split loads its range far more heavily than a sibling range of blocks.
+      final int[] bounds = block.weightedRangeBounds(ranges);
       final AtomicReference<RuntimeException> failed = new AtomicReference<>();
       IntStream.range(0, ranges).parallel().forEach(r -> {
-        final int from = r * rangeLen;
-        final int to = Math.min(from + rangeLen, chunkCount);
+        final int from = bounds[r];
+        final int to = bounds[r + 1];
         if (from >= to || failed.get() != null) {
           return;
         }

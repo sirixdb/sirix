@@ -2397,7 +2397,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final int newRowGroupCount = fences.liveRowGroupCount();
       if (changedLeafSlots.isEmpty()) {
         recordMaintenanceTelemetry(dirty.size(), rowGroupsRead, 0, 0, fences, setValueRowCounts,
-            new ProjectionBloomChunks.RewriteStats(0, 0, 0L, 0L));
+            new ProjectionBloomChunks.RewriteStats(0, 0, 0L, 0L, 0));
         return true;
       }
 
