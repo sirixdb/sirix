@@ -275,7 +275,7 @@ public final class BackupManager {
   }
 
   /**
-   * Opens the restored database and every resource read-only; opening a read transaction on the most
+   * Opens the restored database and a read-only transaction on every resource; reading the most
    * recent revision exercises superblock validation, beacon recovery, the checksummed revision slot
    * and the root-page checksum chain.
    */

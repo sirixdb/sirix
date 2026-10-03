@@ -262,31 +262,8 @@ storage allocator decisions, and ClockSweeper progress at INFO. Logger names:
 
 ## 8. Backup and restore
 
-Sirix has **no streaming or incremental backup tool**. Resource directories are
-self-contained; the operational pattern is:
-
-1. Stop the writer for the resource (close any active `NodeTrx`).
-   Read-only transactions can continue.
-2. `cp -a` or `rsync -a --inplace` the resource directory to the backup target.
-   Sirix's append-only page format means this is consistent without additional
-   coordination.
-3. Verify the backup by opening it as a read-only resource:
-   ```java
-   try (var db = Databases.openJsonDatabase(backupPath);
-        var session = db.beginResourceSession("...");
-        var rtx = session.beginNodeReadOnlyTrx()) { /* ... */ }
-   ```
-
-Restoring is a directory move/copy back; no replay is required.
-
-**Caveats:**
-
-- Hot backup (writer running) is **not** safe — the in-flight Transaction Intent
-  Log can leave the on-disk image inconsistent. Wait for `wtx.commit()` /
-  `wtx.close()` first.
-- Snapshot-based backups via filesystem snapshots (LVM, ZFS) are safe **iff** the
-  snapshot is atomic across all files of the resource. ext4 + LVM is fine; per-
-  file snapshots are not.
+See [Backup & Restore](BACKUP.md) for the backup API and CLI, online-backup
+prerequisites, cold copies, filesystem snapshots and restore verification.
 
 A point-in-time recovery is possible via Sirix's revision system: open the
 resource at the desired revision number or timestamp via
@@ -330,8 +307,13 @@ resource at the desired revision number or timestamp via
    lifetime while sharing storage, committed revisions and index-catalogue
    state. New readers and writers see commits through either handle; existing
    readers retain their pinned revision. Closing one handle closes its sessions
-   while other handles remain usable. The process-wide `WriteLocksRegistry`
-   still supplies the `Semaphore(1)` per resource path. A second
+   while other handles remain usable. While its close is running, that handle
+   rejects new resource creation and resource-session admission. A failed close
+   can be retried on the same handle. Removing a database force-closes its local
+   handles before deleting its files; the canonical path remains reserved until
+   the ownership channels close, preventing competing local lock acquisitions.
+   The process-wide `WriteLocksRegistry` still supplies the `Semaphore(1)` per
+   resource path. A second
    `beginNodeTrx()` on a resource with an active writer throws after a 5-second
    `tryAcquire` timeout. Plan for serialised writes; do batch ingestion in one
    writer.
