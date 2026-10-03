@@ -1041,7 +1041,7 @@ The storage engine is deceptively simple: pages go in, pages come out. The compl
 │  mydatabase/                           ◄── Database directory               │
 │  ├── dbsetting.obj                     ◄── Database configuration (binary)  │
 │  ├── keyselector/                      ◄── Encryption key storage           │
-│  ├── .lock                             ◄── Database lock file               │
+│  ├── .lock                             ◄── Declared, never created or read  │
 │  └── resources/                        ◄── All resources in this database   │
 │      │                                                                      │
 │      ├── resource1/                    ◄── Resource directory               │
