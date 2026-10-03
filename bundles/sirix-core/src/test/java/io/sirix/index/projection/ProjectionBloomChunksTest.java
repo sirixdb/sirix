@@ -1234,11 +1234,14 @@ final class ProjectionBloomChunksTest {
       final int[] fetches = new int[1];
       final ProjectionColumnStore.ColumnSegmentFetcher tracking = offsets -> {
         fetches[0]++;
-        assertEquals(ProjectionBloomChunks.FETCH_WINDOW_CHUNKS, offsets.length);
+        assertEquals(count, offsets.length, "the whole open chunk must be asked for in one window");
         return delegate.fetchAll(offsets);
       };
       final long[] keep = prune(evidence[0], count, absent, tracking);
-      assertEquals(3, fetches[0], "the referenced tails are fetched in fixed windows");
+      // One fetch is one read transaction. These 33 tails cost 3 under the block window
+      // (ceil(33 / FETCH_WINDOW_CHUNKS)) and would cost 33 at a window of 1; the open chunk is one
+      // window of its own, so the count is 1 whatever the block window is set to.
+      assertEquals(1, fetches[0], "the open chunk's tails must arrive in ONE ranged fetch");
       for (int leaf = 0; leaf < count; leaf++) {
         assertDropped(keep, leaf, "valid referenced tail prunes leaf " + leaf);
       }
@@ -1276,6 +1279,210 @@ final class ProjectionBloomChunksTest {
       for (int leaf = 0; leaf < count; leaf++) {
         assertKept(keepPresent, leaf);
       }
+    }
+  }
+
+  /**
+   * The fold, not the sealed-rewrite path, is what seals a chunk: a commit can complete a chunk
+   * without touching any of its leaves, and that chunk must still become a block in that commit.
+   *
+   * <p>
+   * This is why a chunk is sealed only once an EARLIER commit published a mark below it. The
+   * sealed-rewrite path visits only chunks that hold a changed leaf; the fold covers every chunk in
+   * {@code [foldFrom, sealedNew)} from the column's own published mark. Move sealing into the rewrite
+   * path and this commit leaves chunk 0 with no block while its manifest already counts it sealed,
+   * and all 256 of its leaves silently stop pruning.
+   */
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void aChunkCompletedWithoutBeingTouchedStillGetsItsBlock(final VersioningType versioning) throws IOException {
+    createVersionedResource(versioning);
+    final int leaves = ProjectionBloomChunks.CHUNK_LEAVES;
+    final int built = leaves - 6;
+    final int grown = leaves + 44;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = encodedRowGroup("present");
+    final long present = ProjectionIndexColumnSegmentCodec.bloomHash("present".getBytes(StandardCharsets.UTF_8));
+    final long rejected = hashRejectedBy(bloomSegment(encoded));
+    final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int rowGroupId = 1; rowGroupId <= built; rowGroupId++) {
+          writer.append(encoded, rowGroupId, storage);
+        }
+        writer.finishChunks(storage, built, COLUMN_KINDS);
+        writer.publishManifests(storage, built);
+        assertNull(storage.getBlob(ProjectionBloomChunks.chunkSlotKey(0, 0)), "no chunk is sealed yet");
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        final ProjectionBloomChunks.RewriteStats stats = ProjectionBloomChunks.rewriteTouchedChunks(storage,
+            COLUMN_KINDS, grown, new Long2ObjectOpenHashMap<>(), true);
+        assertEquals(0, stats.rowGroupsRead(), "the fold works from the tails: no row group is re-read");
+        assertNotNull(storage.getBlob(ProjectionBloomChunks.chunkSlotKey(0, 0)),
+            "the chunk this commit completed must be a block even though none of its leaves changed");
+        for (int rowGroupId = 1; rowGroupId <= built; rowGroupId++) {
+          assertNull(storage.getBlob(ProjectionBloomChunks.tailSlotKey(0, rowGroupId)),
+              "folded row group " + rowGroupId + " keeps no tail blob");
+        }
+        wtx.commit();
+      }
+      Databases.clearGlobalCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(2)) {
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, grown);
+        assertNotNull(evidence);
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+            ProjectionIndexCatalog.columnSegmentFetcher(session, 2);
+        final long[] keepPresent = prune(evidence[0], grown, present, fetcher);
+        final long[] keepRejected = prune(evidence[0], grown, rejected, fetcher);
+        for (int leaf = 0; leaf < built; leaf++) {
+          assertKept(keepPresent, leaf);
+          assertDropped(keepRejected, leaf, "the folded block still rejects an absent hash at leaf " + leaf);
+        }
+        for (int leaf = built; leaf < grown; leaf++) {
+          assertKept(keepRejected, leaf, "a row group that never carried a fingerprint is no evidence");
+        }
+      }
+    } finally {
+      writer.release();
+    }
+  }
+
+  /**
+   * A string column with no published mark leaves the new count as the only classification, so a
+   * chunk the previous revision held as TAILS goes through the sealed-rewrite path. The rewrite must
+   * recover those tails: leaf 1's fingerprint exists only as a revision-1 tail blob, and dropping the
+   * recovery would put a block over it that carries nothing for that leaf, so an absent hash would
+   * stop pruning it.
+   */
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void aSealedChunkWithoutAPublishedMarkRecoversItsTailsIntoTheBlock(final VersioningType versioning)
+      throws IOException {
+    createVersionedResource(versioning);
+    final int leaves = ProjectionBloomChunks.CHUNK_LEAVES;
+    final int built = leaves - 6;
+    final int grown = leaves + 4;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = encodedRowGroup("present");
+    final long present = ProjectionIndexColumnSegmentCodec.bloomHash("present".getBytes(StandardCharsets.UTF_8));
+    final long rejected = hashRejectedBy(bloomSegment(encoded));
+    final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int rowGroupId = 1; rowGroupId <= built; rowGroupId++) {
+          writer.append(encoded, rowGroupId, storage);
+        }
+        writer.finishChunks(storage, built, COLUMN_KINDS);
+        writer.publishManifests(storage, built);
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.tombstoneBlob(ProjectionIndexHOTStorage.bloomBlockSlotKey(0));
+        final LongOpenHashSet changed = new LongOpenHashSet();
+        for (int rowGroupId = built + 1; rowGroupId <= grown; rowGroupId++) {
+          storage.putRowGroupAsColumnSegmentSlots(rowGroupId, encoded);
+          changed.add(rowGroupId);
+        }
+        ProjectionBloomChunks.rewriteTouchedChunks(storage, COLUMN_KINDS, grown, changed);
+        final byte[] block = storage.getBlob(ProjectionBloomChunks.chunkSlotKey(0, 0));
+        assertNotNull(block, "the chunk the new count classifies as sealed becomes a block");
+        assertEquals(leaves, ProjectionIndexColumnSegmentCodec.bloomBlockLeafCount(block));
+        for (int rowGroupId = 1; rowGroupId <= leaves; rowGroupId++) {
+          assertNull(storage.getBlob(ProjectionBloomChunks.tailSlotKey(0, rowGroupId)),
+              "row group " + rowGroupId + " now lives in the block, not in a tail blob");
+        }
+        wtx.commit();
+      }
+      Databases.clearGlobalCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(2)) {
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, grown);
+        assertNotNull(evidence);
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+            ProjectionIndexCatalog.columnSegmentFetcher(session, 2);
+        final long[] keepPresent = prune(evidence[0], grown, present, fetcher);
+        final long[] keepRejected = prune(evidence[0], grown, rejected, fetcher);
+        for (int leaf = 0; leaf < grown; leaf++) {
+          assertKept(keepPresent, leaf);
+          assertDropped(keepRejected, leaf,
+              "leaf " + leaf + " kept its fingerprint across the rewrite that reopened its chunk");
+        }
+      }
+    } finally {
+      writer.release();
+    }
+  }
+
+  /**
+   * A sealed chunk whose 256 leaves all carried nothing has no block at all, and nothing to recover
+   * either: it was folded, so its tail range is empty. A later commit that gives ONE of its leaves a
+   * fingerprint must build the block from that single leaf and prune by it.
+   */
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void anAllEmptySealedChunkGainsABlockFromOneLateFingerprint(final VersioningType versioning) throws IOException {
+    createVersionedResource(versioning);
+    final int built = ProjectionBloomChunks.CHUNK_LEAVES + 1;
+    final int lateRowGroup = 5;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup empty = emptyEncodedRowGroup();
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup late = encodedRowGroup("late");
+    final long present = ProjectionIndexColumnSegmentCodec.bloomHash("late".getBytes(StandardCharsets.UTF_8));
+    final long rejected = hashRejectedBy(bloomSegment(late));
+    final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int rowGroupId = 1; rowGroupId <= built; rowGroupId++) {
+          writer.append(empty, rowGroupId, storage);
+        }
+        writer.finishChunks(storage, built, COLUMN_KINDS);
+        writer.publishManifests(storage, built);
+        assertNull(storage.getBlob(ProjectionBloomChunks.chunkSlotKey(0, 0)),
+            "a sealed chunk in which no leaf carries a fingerprint needs no block");
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putRowGroupAsColumnSegmentSlots(lateRowGroup, late);
+        final Long2ObjectOpenHashMap<long[]> changedColumns = new Long2ObjectOpenHashMap<>();
+        changedColumns.put(lateRowGroup, new long[] {1L});
+        final ProjectionBloomChunks.RewriteStats stats =
+            ProjectionBloomChunks.rewriteTouchedChunks(storage, COLUMN_KINDS, built, changedColumns, false);
+        assertEquals(1, stats.rowGroupsRead(), "only the one late row group is read");
+        final byte[] block = storage.getBlob(ProjectionBloomChunks.chunkSlotKey(0, 0));
+        assertNotNull(block, "the one late fingerprint gives the blockless sealed chunk a block");
+        assertEquals(ProjectionBloomChunks.CHUNK_LEAVES, ProjectionIndexColumnSegmentCodec.bloomBlockLeafCount(block));
+        wtx.commit();
+      }
+      Databases.clearGlobalCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(2)) {
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, built);
+        assertNotNull(evidence);
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+            ProjectionIndexCatalog.columnSegmentFetcher(session, 2);
+        final long[] keepPresent = prune(evidence[0], built, present, fetcher);
+        final long[] keepRejected = prune(evidence[0], built, rejected, fetcher);
+        assertKept(keepPresent, lateRowGroup - 1);
+        assertDropped(keepRejected, lateRowGroup - 1, "the late leaf now carries negative evidence");
+        assertKept(keepRejected, 0, "a rowless leaf of the same block is no evidence");
+        assertKept(keepRejected, built - 1, "the open row group still carries no fingerprint");
+      }
+    } finally {
+      writer.release();
     }
   }
 

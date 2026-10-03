@@ -70,10 +70,13 @@ public final class ProjectionBloomChunks {
   private static final int MANIFEST_BYTES = Integer.BYTES + 1 + 4 * Integer.BYTES;
 
   /**
-   * Referenced chunk payloads held at once by one pruning call ({@code
+   * Referenced BLOCK payloads held at once by one pruning call ({@code
    * -Dsirix.projection.bloomFetchWindowChunks}, clamped to 1–64, default 16). Every window is one
    * ranged fetch on a fresh read transaction, so a wider window trades a few hundred KiB of
-   * owner-thread scratch for proportionally fewer transaction opens per column.
+   * owner-thread scratch for proportionally fewer transaction opens per column. The open chunk's
+   * tails are NOT paginated by this: they are one window of their own ({@link #CHUNK_LEAVES}
+   * single-leaf payloads, at most ~515 KiB — less than this window of blocks), because a block-sized
+   * window would open up to 16 read transactions for one chunk.
    */
   static final int FETCH_WINDOW_CHUNKS =
       Math.max(1, Math.min(64, Integer.getInteger("sirix.projection.bloomFetchWindowChunks", 16)));
@@ -245,8 +248,9 @@ public final class ProjectionBloomChunks {
 
   /**
    * Immutable per-column pruning evidence. A manifest-backed instance retains only primitive durable
-   * locators plus the open chunk's bounded inline fingerprints; referenced payloads are fetched and
-   * released in a fixed {@link #FETCH_WINDOW_CHUNKS}-chunk window by {@link #prune}.
+   * locators plus the open chunk's bounded inline fingerprints; referenced block payloads are fetched
+   * and released by {@link #prune} in a fixed {@link #FETCH_WINDOW_CHUNKS}-chunk window, and the open
+   * chunk's referenced tails in one window of their own.
    */
   public static final class ColumnEvidence {
     /** Locators of the sealed chunks' blocks, index = chunk id. */
@@ -341,7 +345,8 @@ public final class ProjectionBloomChunks {
 
     /**
      * How many chunks this evidence spans (the unit {@link #pruneMany} splits over): every sealed block
-     * plus, when the high-water mark is inside a chunk, the open chunk of tail blobs.
+     * plus, when the high-water mark is inside a chunk, the open chunk of tail blobs. Both shapes cost
+     * one ranged fetch, so a range holding the open chunk is comparable work to its siblings.
      */
     int chunkCount() {
       return chunks.size() + (tails.size() > 0
@@ -422,59 +427,64 @@ public final class ProjectionBloomChunks {
     }
 
     /**
-     * Prune with the open chunk's tail blobs: one raw fingerprint segment per row group, fetched in the
-     * same fixed windows as blocks. An inline tail is probed in place; a referenced tail is length- and
+     * Prune with the open chunk's tail blobs: one raw fingerprint segment per row group, all of them in
+     * ONE ranged fetch. An inline tail is probed in place; a referenced tail is length- and
      * hash-verified first. A missing or malformed tail keeps its one leaf.
+     *
+     * <p>
+     * The chunk holds at most {@link #CHUNK_LEAVES} tails, so one window covers it whatever the block
+     * window is. That matters because each {@code fetchRange} is one read transaction: a block-sized
+     * window would open one per {@link #FETCH_WINDOW_CHUNKS} tails for the single chunk a sealed block
+     * gets in one, and would leave the open chunk's range in the parallel split far heavier than its
+     * siblings.
+     * </p>
      */
     private int pruneOpenChunk(final long[] hashes, final long[][] keeps,
         final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final FetchScratch scratch) {
       final ProjectionIndexHOTStorage.BlobLocators localTails = tails;
       final int openFirstLeaf = chunks.size() * CHUNK_LEAVES;
       final int count = localTails.size();
-      int dropped = 0;
-      for (int windowBase = 0; windowBase < count; windowBase += FETCH_WINDOW_CHUNKS) {
-        scratch.clearPayloadsAndOffsets();
-        final int inWindow = Math.min(FETCH_WINDOW_CHUNKS, count - windowBase);
-        boolean needsFetch = false;
-        for (int j = 0; j < inWindow; j++) {
-          final int tail = windowBase + j;
-          if (localTails.inlinePayload(tail) == null && localTails.offset(tail) != Constants.NULL_ID_LONG
-              && localTails.length(tail) > 0
-              && localTails.length(tail) <= ProjectionIndexColumnSegmentCodec.maxBloomBlockBytes(1)) {
-            scratch.offsets[j] = localTails.offset(tail);
-            needsFetch = true;
-          }
+      scratch.clearTailPayloadsAndOffsets();
+      boolean needsFetch = false;
+      for (int tail = 0; tail < count; tail++) {
+        if (localTails.inlinePayload(tail) == null && localTails.offset(tail) != Constants.NULL_ID_LONG
+            && localTails.length(tail) > 0
+            && localTails.length(tail) <= ProjectionIndexColumnSegmentCodec.maxBloomBlockBytes(1)) {
+          scratch.tailOffsets[tail] = localTails.offset(tail);
+          needsFetch = true;
         }
-        boolean fetchSucceeded = !needsFetch;
-        if (needsFetch) {
-          try {
-            fetcher.fetchRange(scratch.offsets, 0, FETCH_WINDOW_CHUNKS, scratch.payloads);
-            fetchSucceeded = true;
-          } catch (final RuntimeException unreadable) {
-            // Optional evidence: referenced tails in this window stay kept.
-          }
-        }
-        for (int j = 0; j < inWindow; j++) {
-          final int tail = windowBase + j;
-          final byte[] inline = localTails.inlinePayload(tail);
-          final byte[] segment;
-          if (inline != null) {
-            segment = inline;
-          } else {
-            final byte[] fetched = fetchSucceeded
-                ? scratch.payloads[j]
-                : null;
-            segment = fetched != null && fetched.length == localTails.length(tail)
-                && ProjectionIndexColumnSegmentCodec.contentHash(fetched) == localTails.hash(tail)
-                    ? fetched
-                    : null;
-          }
-          if (segment != null) {
-            dropped += pruneTail(segment, openFirstLeaf + tail, hashes, keeps, logicalByPhysical);
-          }
-        }
-        Arrays.fill(scratch.payloads, null);
       }
+      boolean fetchSucceeded = !needsFetch;
+      if (needsFetch) {
+        try {
+          fetcher.fetchRange(scratch.tailOffsets, 0, count, scratch.tailPayloads);
+          fetchSucceeded = true;
+        } catch (final RuntimeException unreadable) {
+          // Optional evidence: referenced tails stay kept.
+        }
+      }
+      int dropped = 0;
+      for (int tail = 0; tail < count; tail++) {
+        final byte[] inline = localTails.inlinePayload(tail);
+        final byte[] segment;
+        if (inline != null) {
+          segment = inline;
+        } else {
+          final byte[] fetched = fetchSucceeded
+              ? scratch.tailPayloads[tail]
+              : null;
+          segment = fetched != null && fetched.length == localTails.length(tail)
+              && ProjectionIndexColumnSegmentCodec.contentHash(fetched) == localTails.hash(tail)
+                  ? fetched
+                  : null;
+        }
+        if (segment != null) {
+          dropped += pruneTail(segment, openFirstLeaf + tail, hashes, keeps, logicalByPhysical);
+        }
+      }
+      // The payload window is not live past this call. The explicit clear matters for owner-thread
+      // scratch, which otherwise promotes the last pages into a long-lived thread.
+      Arrays.fill(scratch.tailPayloads, null);
       return dropped;
     }
   }
@@ -578,15 +588,18 @@ public final class ProjectionBloomChunks {
       final FetchScratch nested = new FetchScratch();
       nested.inUse = true;
       nested.clearPayloadsAndOffsets();
+      nested.clearTailPayloadsAndOffsets();
       return nested;
     }
     scratch.inUse = true;
     scratch.clearPayloadsAndOffsets();
+    scratch.clearTailPayloadsAndOffsets();
     return scratch;
   }
 
   private static void releaseScratch(final FetchScratch scratch) {
     scratch.clearPayloadsAndOffsets();
+    scratch.clearTailPayloadsAndOffsets();
     scratch.inUse = false;
   }
 
@@ -601,17 +614,30 @@ public final class ProjectionBloomChunks {
         return false;
       }
     }
+    for (final byte[] payload : scratch.tailPayloads) {
+      if (payload != null) {
+        return false;
+      }
+    }
     return true;
   }
 
   private static final class FetchScratch {
     private final long[] offsets = new long[FETCH_WINDOW_CHUNKS];
     private final byte[][] payloads = new byte[FETCH_WINDOW_CHUNKS][];
+    /** The open chunk is one window, so its scratch is sized by the chunk, not by the block window. */
+    private final long[] tailOffsets = new long[CHUNK_LEAVES];
+    private final byte[][] tailPayloads = new byte[CHUNK_LEAVES][];
     private boolean inUse;
 
     private void clearPayloadsAndOffsets() {
       Arrays.fill(offsets, Constants.NULL_ID_LONG);
       Arrays.fill(payloads, null);
+    }
+
+    private void clearTailPayloadsAndOffsets() {
+      Arrays.fill(tailOffsets, Constants.NULL_ID_LONG);
+      Arrays.fill(tailPayloads, null);
     }
   }
 
@@ -778,24 +804,35 @@ public final class ProjectionBloomChunks {
       return new RewriteStats(0, 0, 0L, 0L);
     }
     final int sealedNew = sealedChunkCount(physicalRowGroupCount);
-    // A chunk is written as a block only once it was sealed by an EARLIER commit: the chunks this
-    // maintenance completes still take tail writes and are folded below, in this same transaction.
-    // The prior manifests say how many chunks were sealed; without any, a chunk counts as sealed only
-    // when its block already exists.
+    // A chunk this maintenance COMPLETES is not written as a block here: its row groups take tail
+    // writes below and the fold loop seals it from those tails, in this same transaction. The fold is
+    // the single place that seals, because it is driven by each column's OWN published mark and covers
+    // every chunk in [foldFrom, sealedNew) whether or not a changed leaf landed in it — while the
+    // sealed-rewrite path below only ever visits chunks that hold one. Sealing through the rewrite
+    // path would therefore leave a chunk completed by a commit that did not touch it with no block at
+    // all, against a manifest that already counts it sealed, and its 256 leaves would stop pruning.
+    // So openFirst is the smallest mark any string column has published; a column without a published
+    // mark leaves the new count as the only classification available, and then the rewrite path has to
+    // recover that column's tails itself (tailFirstChunk[c] == 0).
+    final int[] tailFirstChunk = new int[columnKinds.length];
     int sealedOld = -1;
+    boolean everyColumnPublished = true;
     for (int c = 0; c < columnKinds.length; c++) {
       if (!isStringKind(columnKinds[c])) {
         continue;
       }
       final Manifest prior = parseManifest(storage.getBlob(ProjectionIndexHOTStorage.bloomBlockSlotKey(c)), -1);
       if (prior == null) {
-        sealedOld = -1;
-        break;
+        everyColumnPublished = false;
+        continue;
       }
-      final int sealed = sealedChunkCount(prior.physicalRowGroupCount());
+      tailFirstChunk[c] = sealedChunkCount(prior.physicalRowGroupCount());
       sealedOld = sealedOld < 0
-          ? sealed
-          : Math.min(sealedOld, sealed);
+          ? tailFirstChunk[c]
+          : Math.min(sealedOld, tailFirstChunk[c]);
+    }
+    if (!everyColumnPublished) {
+      sealedOld = -1;
     }
     final int openFirst = (sealedOld < 0
         ? sealedNew
@@ -837,9 +874,12 @@ public final class ProjectionBloomChunks {
         final byte[][] slices = priorSlices == null
             ? new byte[leafCount][]
             : Arrays.copyOf(priorSlices, leafCount);
-        if (priorSlices == null) {
-          // No usable block: the chunk's fingerprints may still live in tail blobs (a fold that never
-          // happened, or a block lost to corruption). Start from them so a rewrite never loses a leaf.
+        // No usable block in a chunk that can still own tails: its fingerprints live in tail blobs (a
+        // chunk the prior revision had not sealed, or a block lost to corruption). Start from them so a
+        // rewrite never loses a leaf. Strictly below this column's published mark the chunk was already
+        // folded and its tails tombstoned, so probing there can only ever find nothing.
+        final boolean recoverTails = priorSlices == null && chunkId >= tailFirstChunk[c];
+        if (recoverTails) {
           for (int i = 0; i < leafCount; i++) {
             final byte[] tail = storage.getBlob(tailSlotKey(c, firstLeaf + i));
             if (tail != null) {
@@ -874,7 +914,7 @@ public final class ProjectionBloomChunks {
           bytesWritten += block.length;
         }
         chunksWritten++;
-        if (priorSlices == null) {
+        if (recoverTails) {
           for (int i = 0; i < leafCount; i++) {
             storage.tombstoneBlob(tailSlotKey(c, firstLeaf + i));
           }

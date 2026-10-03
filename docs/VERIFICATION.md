@@ -95,7 +95,7 @@ in CI via the `Deep verification` workflow.
 # Work budgets (add -Dsirix.workBudget.print=true -i to print every captured counter table)
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*'
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \
-                           --tests 'io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest'
+                           --tests 'io.sirix.index.projection.*WorkBudgetTest'
 
 # Mutation testing (report: bundles/sirix-core/build/reports/pitest/index.html)
 ./gradlew :sirix-core:pitest
