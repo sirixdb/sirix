@@ -29,10 +29,13 @@ package io.sirix.query.function.xml.io;
 
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
+import io.sirix.api.xml.XmlNodeReadOnlyTrx;
+import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixException;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
+import io.sirix.query.node.XmlDBCollection;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.utils.XmlDocumentCreator;
 import junit.framework.TestCase;
@@ -44,6 +47,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Instant;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -89,6 +93,39 @@ public final class DocByPointInTimeTest extends TestCase {
       final XmlDBNode node = (XmlDBNode) query.evaluate(ctx);
 
       assertEquals(5, node.getTrx().getRevisionNumber());
+    }
+  }
+
+  /**
+   * A point in time before the resource's first revision answers "the resource did not exist yet",
+   * and that answer must not take the resource session down with it.
+   * {@link io.sirix.api.Database#beginResourceSession} hands every caller the one cached session for
+   * that resource, so closing it here closed every transaction anybody else still held on it.
+   */
+  @Test
+  public void testPointInTimeBeforeFirstRevisionKeepsSharedSessionOpen() throws QueryException {
+    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXmlNodeTrx());
+    holder.getXmlNodeTrx().close();
+
+    final Path database = XmlTestHelper.PATHS.PATH1.getFile();
+
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+      final XmlDBCollection collection = store.lookup(database.toString());
+      final XmlResourceSession session = collection.getDatabase().beginResourceSession(XmlTestHelper.RESOURCE);
+      final XmlNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx();
+
+      try {
+        assertNull("a point in time before the first revision must yield no document",
+            collection.getDocument(XmlTestHelper.RESOURCE, Instant.parse("2000-01-01T00:00:00Z")));
+
+        assertFalse("the shared resource session was closed", session.isClosed());
+        assertFalse("an unrelated open transaction on the shared session was closed", rtx.isClosed());
+        assertTrue("the surviving transaction is no longer usable", rtx.moveToDocumentRoot());
+      } finally {
+        if (!rtx.isClosed()) {
+          rtx.close();
+        }
+      }
     }
   }
 }

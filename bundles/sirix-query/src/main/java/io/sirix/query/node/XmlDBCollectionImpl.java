@@ -36,10 +36,11 @@ import static java.util.Objects.requireNonNull;
 /**
  * Standard {@link XmlDBCollection} implementation backed by a Sirix {@link Database}.
  *
- * <p>{@link XmlDBCollection} is an interface so cross-cutting concerns (e.g. the REST layer's
+ * <p>
+ * {@link XmlDBCollection} is an interface so cross-cutting concerns (e.g. the REST layer's
  * per-request authorization, see {@code AuthCheckingXmlDBCollection}) can be layered on by
- * composition/delegation rather than by subclassing this class. equals/hashCode key on the
- * database only, so a delegating wrapper over the same database compares equal to the original.
+ * composition/delegation rather than by subclassing this class. equals/hashCode key on the database
+ * only, so a delegating wrapper over the same database compares equal to the original.
  *
  * @author Johannes Lichtenberger
  */
@@ -146,9 +147,11 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
 
   private XmlDBNode getDocumentInternal(final String resName, final Instant pointInTime) {
     return instantDocumentDataToXmlDBNodes.computeIfAbsent(new InstantDocumentData(resName, pointInTime), (unused) -> {
+      // Borrowed-session ownership is defined by Database.beginResourceSession: close only our trx.
       final XmlResourceSession resource = database.beginResourceSession(resName);
+      XmlNodeReadOnlyTrx trx = null;
       try {
-        XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
+        trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
         if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
           final int revision = trx.getRevisionNumber();
@@ -163,14 +166,15 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
             // sequence instead of anachronistically yielding the first revision.
             // (Returning null from computeIfAbsent leaves the cache untouched.)
             trx.close();
-            resource.close();
             return null;
           }
         }
 
         return new XmlDBNode(new ThreadSafeXmlReadOnlyTrx(trx), this);
       } catch (final Exception e) {
-        resource.close();
+        if (trx != null && !trx.isClosed()) {
+          trx.close();
+        }
         throw e;
       }
     });

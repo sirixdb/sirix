@@ -31,13 +31,13 @@ import static java.util.Objects.requireNonNull;
 /**
  * Standard {@link JsonDBCollection} implementation backed by a Sirix {@link Database}.
  *
- * <p>{@link JsonDBCollection} is an interface so cross-cutting concerns (e.g. the REST layer's
+ * <p>
+ * {@link JsonDBCollection} is an interface so cross-cutting concerns (e.g. the REST layer's
  * per-request authorization, see {@code AuthCheckingJsonDBCollection}) can be layered on by
- * composition/delegation rather than by subclassing this class. equals/hashCode key on the
- * database only, so a delegating wrapper over the same database compares equal to the original.
+ * composition/delegation rather than by subclassing this class. equals/hashCode key on the database
+ * only, so a delegating wrapper over the same database compares equal to the original.
  */
-public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonDBItem>
-    implements JsonDBCollection {
+public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonDBItem> implements JsonDBCollection {
 
   /**
    * Logger.
@@ -149,9 +149,11 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
   }
 
   private JsonDBItem getDocumentInternal(final String resName, final Instant pointInTime) {
+    // Borrowed-session ownership is defined by Database.beginResourceSession: close only our trx.
     final JsonResourceSession resource = database.beginResourceSession(resName);
+    JsonNodeReadOnlyTrx trx = null;
     try {
-      JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
+      trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
       if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
         final int revision = trx.getRevisionNumber();
@@ -165,14 +167,19 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
           // in time, i.e. the resource did not exist yet. Return the empty
           // sequence instead of anachronistically yielding the first revision.
           trx.close();
-          resource.close();
           return null;
         }
       }
 
-      return getItem(trx);
+      final JsonDBItem item = getItem(trx);
+      if (item == null) {
+        trx.close();
+      }
+      return item;
     } catch (final Exception e) {
-      resource.close();
+      if (trx != null && !trx.isClosed()) {
+        trx.close();
+      }
       throw e;
     }
   }
@@ -221,7 +228,8 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
     if (resources.size() > 1) {
       throw new DocumentException("More than one document stored in database/collection!");
     }
-    final JsonResourceSession resourceSession = database.beginResourceSession(resources.get(0).getFileName().toString());
+    final JsonResourceSession resourceSession =
+        database.beginResourceSession(resources.get(0).getFileName().toString());
     try {
       final int version = revision == -1
           ? resourceSession.getMostRecentRevisionNumber()
