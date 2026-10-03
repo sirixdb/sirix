@@ -135,6 +135,7 @@ final class HOTStructuralPropertyTest {
     REACH_COUNTERS.put("directionOneSubinsert", AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT);
     REACH_COUNTERS.put("directionOneFallback", AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK);
     REACH_COUNTERS.put("fullExistingBitDirectionOne", AbstractHOTIndexWriter.FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT);
+    REACH_COUNTERS.put("directionOneSplitAboveHalf", AbstractHOTIndexWriter.DIRECTION_ONE_SPLIT_ABOVE_HALF);
     REACH_COUNTERS.put("branchSpineOrderDelegated", AbstractHOTIndexWriter.BRANCH_SPINE_ORDER_DELEGATED);
     REACH_COUNTERS.put("mergeSpineOrderDelegated", AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED);
     REACH_COUNTERS.put("branchCompleteFrontier", AbstractHOTIndexWriter.BRANCH_COMPLETE_FRONTIER);

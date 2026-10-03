@@ -3661,6 +3661,12 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE = new AtomicLong();
   /** Indirect complete frontiers wrapped with K after a two-endpoint opposite-side proof. */
   public static final AtomicLong DIRECTION_ONE_OPPOSITE_FRONTIER_WRAP = new AtomicLong();
+  /**
+   * Sub-inserts into a freshly compressed split half declined because the key and the affected
+   * child's extremes span a bit at or above the half's most significant bit: the sub-insert could
+   * split the child there and the re-split half would then contradict the trie condition.
+   */
+  public static final AtomicLong DIRECTION_ONE_SPLIT_ABOVE_HALF = new AtomicLong();
   /** C2 continuations performed inside a freshly split full-node half. */
   public static final AtomicLong FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT = new AtomicLong();
 
@@ -5393,7 +5399,8 @@ public abstract class AbstractHOTIndexWriter<K> {
   private boolean directionOneIntoSplitHalf(final LeafNavigationResult navResult, final HOTIndirectPage originalNode,
       final int insertDepth, final HOTIndirectPage half, final boolean rightHalf, final int affectedIdx,
       final byte[] keySlice, final byte[] valueSlice, final int revision) {
-    if (!isSplitHalfDirectionOneSafe(navResult, insertDepth, half, rightHalf, affectedIdx, keySlice)) {
+    if (!isSplitHalfDirectionOneSafe(navResult, insertDepth, half, rightHalf, affectedIdx, keySlice)
+        || !subInsertKeepsHalfTrieCondition(half, affectedIdx, keySlice, valueSlice)) {
       DIRECTION_ONE_FALLBACK.incrementAndGet();
       return false;
     }
@@ -5432,6 +5439,52 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       throw failure;
     }
+  }
+
+  /**
+   * Bytes a leaf must have free beyond the key and value themselves for a merge to stay in place;
+   * over-estimating only sends a sub-insert to the generic placements, under-estimating would let
+   * it split where the guard below says it cannot.
+   */
+  private static final int LEAF_ENTRY_SLACK = 32;
+
+  /**
+   * Whether the Direction-1 sub-insert of {@code K} into the split half's child at
+   * {@code affectedIdx} can leave the half satisfying the trie condition. The half's MSB is measured
+   * before the sub-insert and unchanged by the re-split, while the child is not: a sub-insert that
+   * splits a leaf, or branches above a node, roots the child on the union's MSDB, and the published
+   * route then fails closed when that bit is at or above the half's MSB (I11) — after {@code K} is
+   * already placed, when nothing can decline any more. That MSDB is never more significant than the
+   * MSDB of {@code K} with the child's extremes, so the arm is declined when that one is at or above
+   * the half's MSB, unless the child is a leaf with room for {@code K}, which merges in place and
+   * introduces no bit. A leaf whose keys span the half's MSB (a straddle its zero column in the half
+   * says nothing about) is the shape that reaches this.
+   */
+  private boolean subInsertKeepsHalfTrieCondition(final HOTIndirectPage half, final int affectedIdx,
+      final byte[] keySlice, final byte[] valueSlice) {
+    final PageReference affected = half.getChildReference(affectedIdx);
+    final byte[] first = firstKeyOfSubtree(affected);
+    final byte[] last = lastKeyOfSubtree(affected);
+    if (first == null || last == null) {
+      return false; // defensive: an unresolvable subtree cannot be proved safe
+    }
+    final byte[] unionMin = Arrays.compareUnsigned(keySlice, first) < 0
+        ? keySlice
+        : first;
+    final byte[] unionMax = Arrays.compareUnsigned(keySlice, last) > 0
+        ? keySlice
+        : last;
+    if (Arrays.equals(unionMin, unionMax)
+        || HOTBulkBuilder.msdb(unionMin, unionMax) > half.getMostSignificantBitIndex()) {
+      return true; // every bit the sub-insert can introduce lies below the half's MSB
+    }
+    final Page child = resolveHOTPageForTraversal(affected);
+    if (child instanceof HOTLeafPage leaf && leaf.getEntryCount() < HOTLeafPage.MAX_ENTRIES
+        && leaf.getRemainingSpace() >= keySlice.length + valueSlice.length + LEAF_ENTRY_SLACK) {
+      return true; // K merges into the leaf in place: no split, no new bit
+    }
+    DIRECTION_ONE_SPLIT_ABOVE_HALF.incrementAndGet();
+    return false;
   }
 
   /**

@@ -1310,6 +1310,20 @@ points pass), and `isSplitHalfDirectionOneSafe` asks it for a sub-insert into a 
 split half, which is not on the spine at all. All of them share one walk (`extremeKeepsSpineOrder`),
 which stops at the first level whose slot has a neighbour on the side the extreme moves.
 
+**A split-half sub-insert must not split its child at the half's own bit.** Case 2's C2 arm
+measures the split halves before the sub-insert and re-splits the original node afterwards, so the
+half's MSB is the same both times while the affected child is not: the sub-insert splits whichever
+leaf `K` lands in at that union's MSDB, and a leaf whose keys span a bit at or above the half's MSB
+(a straddle its zero column in the half says nothing about) comes back as a node on that bit, which
+the refreshed half then contradicts (I11) — on `K`'s own route, after `K` is already placed, where
+the published-route validation can only fail the insert. That MSDB is never more significant than
+the MSDB of `K` with the child's own extremes, which `isSplitHalfDirectionOneSafe` already reads;
+it therefore declines the arm when that MSDB is at or above the half's MSB, counted by
+`DIRECTION_ONE_SPLIT_ABOVE_HALF`, and the generic leaf pair or the complete frontier places `K`.
+`HOTOrderingGuardTest` builds the shape: a full root over bits 1–7 of the first key byte whose
+child at partial 0x08 is a full leaf of 0x08… and 0x2a… keys, and a key 0x28… that routes to it and
+parts from its successor at bit 6.
+
 Cases, in order:
 
 1. β ∈ D(d*), d* not full: new leaf {K}, `addChildAtCombination(d*, subtreePrefix | βbit)`; on a
@@ -1809,7 +1823,8 @@ canonical block, and one for which no block exists, §4.5.4 case 9),
 `HOTIncrementalInsert` carries its own (`hot/HOTIncrementalInsert.java:38-64`):
 `SPLIT_SEGMENT_REF_CARRIES` and `SPLIT_SEGMENT_REFS_ROUTED` for side maps re-homed by a split,
 `FRESH_BIT_FOLD_NOT_ADJACENT` for a fresh-bit fold declined because the split child's next sibling
-parts from it below the split bit (§4.5.3),
+parts from it below the split bit (§4.5.3), and the writer's `DIRECTION_ONE_SPLIT_ABOVE_HALF` for a
+split-half sub-insert declined because the key and the affected child span the half's MSB (§4.5.4),
 `PREFIX_SHRINK_REFUSED_FOR_CAPACITY` for a leaf that refused a prefix shrink because the rebuilt
 residents plus the pending entry do not fit (§3.2.2, incremented in `page/HOTLeafPage.java:2172`),
 and `CONSOLIDATION_PAIR_DID_NOT_FIT` for a consolidation pair left unmerged because the union did

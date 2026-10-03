@@ -188,6 +188,13 @@ All notable changes to SirixDB are documented in this file.
   scope validator caught it and the insert failed closed (a CAS index, 221 ordinary writes). The
   shared integrate pre-check now declines such a fresh-bit fold at every level of the cascade,
   counted by `FRESH_BIT_FOLD_NOT_ADJACENT`, and the complete frontier re-encodes the block.
+  A third placement, recorded as an open gap when the full-node branch decomposition landed, is
+  closed with a constructed stream: the Direction-1 sub-insert into a freshly compressed split half
+  measured the trie condition before the sub-insert, and a full leaf whose keys spanned the half's
+  most significant bit came back from the sub-insert as a node on that very bit, so the re-split
+  half was published contradicting it (I11, fail-stop on the key's own route). The arm now declines
+  when the key and the affected child's extremes span a bit at or above the half's most significant
+  bit, counted by `DIRECTION_ONE_SPLIT_ABOVE_HALF`.
   In the same splice, a replacing split whose dropped boundary entry owned projection segment-page
   references used to throw and poison the transaction (a referenced blob replaced by an inline value
   that overflows its leaf still owns its page at that moment); those references are now carried

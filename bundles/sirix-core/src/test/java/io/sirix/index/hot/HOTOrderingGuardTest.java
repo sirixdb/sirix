@@ -107,6 +107,59 @@ final class HOTOrderingGuardTest {
   }
 
   @Test
+  void splitHalfSubInsertMustNotSplitAChildAtTheHalfsOwnBit() {
+    try (final Fixture fixture = new Fixture()) {
+      // A full root over bits 1..7 of the first key byte (partial = that byte). Its lower half,
+      // once compressed, discriminates on bit 2 first. The child at partial 0x08 is a full leaf
+      // holding 0x08... keys and 0x2a... keys, so it spans bit 2 although its partial has a zero
+      // there; the keys still route to it because no sibling partial is a subset of 0x2a.
+      final int[] straddling = new int[HOTLeafPage.MAX_ENTRIES];
+      for (int i = 0; i < 256; i++) {
+        straddling[i] = 0x08000000 + i;
+        straddling[256 + i] = 0x2a000000 + i;
+      }
+      final PageReference[] children = new PageReference[32];
+      final int[] partials = new int[32];
+      final List<Integer> expected = new ArrayList<>();
+      int slot = 0;
+      for (int partial = 0; partial <= 8; partial++) {
+        partials[slot] = partial;
+        children[slot++] = partial == 8
+            ? fixture.wideLeaf(straddling)
+            : fixture.wideLeaf(partial << 24);
+        if (partial != 8) {
+          expected.add(partial << 24);
+        }
+      }
+      for (int partial = 0x30; partial <= 0x36; partial++) {
+        partials[slot] = partial;
+        children[slot++] = fixture.wideLeaf(partial << 24);
+        expected.add(partial << 24);
+      }
+      for (int partial = 0x40; partial <= 0x4f; partial++) {
+        partials[slot] = partial;
+        children[slot++] = fixture.wideLeaf(partial << 24);
+        expected.add(partial << 24);
+      }
+      assertEquals(32, slot);
+      fixture.install(fixture.node(new int[] {1, 2, 3, 4, 5, 6, 7}, partials, children));
+      final int[] before = fixture.sortedUnion(straddling, expected.stream().mapToInt(Integer::intValue).toArray());
+      fixture.assertWideKeys(before);
+      final long declined = AbstractHOTIndexWriter.DIRECTION_ONE_SPLIT_ABOVE_HALF.get();
+      // 0x28... routes to the straddling leaf (bits 2 and 4 set; no higher subset partial exists)
+      // and parts from its successor 0x2a... at bit 6, a bit the full root already discriminates
+      // on. The root is split at bit 1, the key's combination partial in the lower half is the
+      // leaf's own, and the Direction-1 sub-insert would split the full leaf at bit 2 — the half's
+      // most significant bit — so the re-split half was published with a child on its own bit (I11).
+      assertDoesNotThrow(() -> fixture.writer.insertWide(0x28000000),
+          () -> "handler=" + fixture.writer.lastDispatchHandler);
+      fixture.assertWideKeys(fixture.sortedUnion(before, 0x28000000));
+      assertEquals(declined + 1, AbstractHOTIndexWriter.DIRECTION_ONE_SPLIT_ABOVE_HALF.get(),
+          "the sub-insert must be declined because the leaf and the key span the half's most significant bit");
+    }
+  }
+
+  @Test
   void pairMaximumMustNotCrossAnAncestorsNextSibling() {
     try (final Fixture fixture = new Fixture()) {
       final PageReference child = fixture.node(new int[] {1, 4}, new int[] {0, 1, 2}, fixture.leaf(0x00),
