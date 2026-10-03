@@ -6,32 +6,36 @@
 package io.sirix.index.interval;
 
 import java.util.function.LongConsumer;
+import java.util.Objects;
 
 /**
  * Relational Interval Tree (Kriegel, Pötke, Seidl) — interval indexing realised on ordinary ordered
  * indexes, giving output-sensitive {@code O(h·log n + k)} stabbing queries with a hard {@code O(h)}
  * bound on index probes (the property that makes worst-case latency predictable).
  *
- * <p>A virtual perfect binary tree labels the domain {@code [1, 2^h - 1]} in-order: the root is
+ * <p>
+ * A virtual perfect binary tree labels the domain {@code [1, 2^h - 1]} in-order: the root is
  * {@code 2^(h-1)} and a node's level equals the trailing-zero count of its value. An interval
  * {@code [lo, hi]} is <em>registered</em> at its fork node — the highest node value inside
  * {@code [lo, hi]} ({@link #forkNode}) — into two ordered stores: a {@code lower} store keyed
  * {@code (fork, lo)} and an {@code upper} store keyed {@code (fork, hi)}.
  *
- * <p>A stabbing query "which intervals contain x?" walks the root&rarr;x path (at most {@code h}
+ * <p>
+ * A stabbing query "which intervals contain x?" walks the root&rarr;x path (at most {@code h}
  * nodes). An interval forked at a path node {@code f} satisfies {@code lo <= f <= hi}, and since
  * {@code f} is an ancestor of {@code x}, exactly one endpoint test remains:
  * <ul>
- *   <li>{@code f > x} (turned left): {@code x <= f <= hi} already &rArr; stabs x iff {@code lo <= x}
- *       &rarr; scan {@code lower(f)} for {@code lo in [MIN, x]};</li>
- *   <li>{@code f < x} (turned right): {@code lo <= f <= x} already &rArr; stabs x iff {@code hi >= x}
- *       &rarr; scan {@code upper(f)} for {@code hi in [x, MAX]};</li>
- *   <li>{@code f == x}: every interval forked here stabs x &rarr; scan {@code lower(x)} fully.</li>
+ * <li>{@code f > x} (turned left): {@code x <= f <= hi} already &rArr; stabs x iff {@code lo <= x}
+ * &rarr; scan {@code lower(f)} for {@code lo in [MIN, x]};</li>
+ * <li>{@code f < x} (turned right): {@code lo <= f <= x} already &rArr; stabs x iff {@code hi >= x}
+ * &rarr; scan {@code upper(f)} for {@code hi in [x, MAX]};</li>
+ * <li>{@code f == x}: every interval forked here stabs x &rarr; scan {@code lower(x)} fully.</li>
  * </ul>
- * Exact (no false positives) and complete (every stabbing interval's fork is on the path); proved by
- * randomized differential testing against a brute-force filter.
+ * Exact (no false positives) and complete (every stabbing interval's fork is on the path); proved
+ * by randomized differential testing against a brute-force filter.
  *
- * <p>Domain mapping (timestamps &harr; {@code [1, 2^h - 1]}) is the caller's concern — see
+ * <p>
+ * Domain mapping (timestamps &harr; {@code [1, 2^h - 1]}) is the caller's concern — see
  * {@link IntervalDomain}. Stateless apart from the two stores; concurrency is delegated to them.
  *
  * @author Johannes Lichtenberger
@@ -48,9 +52,9 @@ public final class RelationalIntervalTree {
 
   /**
    * @param height the virtual-tree height {@code h}; domain is {@code [1, 2^h - 1]}. Must satisfy
-   *               {@code 2 <= h <= 62} and {@code 2^h - 1 >=} every endpoint ever registered/queried.
-   * @param lower  store keyed {@code (fork, lo)}
-   * @param upper  store keyed {@code (fork, hi)}
+   *        {@code 2 <= h <= 62} and {@code 2^h - 1 >=} every endpoint ever registered/queried.
+   * @param lower store keyed {@code (fork, lo)}
+   * @param upper store keyed {@code (fork, hi)}
    */
   public RelationalIntervalTree(final int height, final OrderedStore lower, final OrderedStore upper) {
     if (height < 2 || height > 62) {
@@ -74,7 +78,8 @@ public final class RelationalIntervalTree {
    * Fork node of {@code [lo, hi]} (with {@code 1 <= lo <= hi}): the highest node value (most trailing
    * zeros, closest to the root) lying inside {@code [lo, hi]}. {@code O(1)}, branchless.
    *
-   * <p>With {@code a = lo - 1}, a multiple of {@code 2^p} lies in {@code (a, hi]} iff
+   * <p>
+   * With {@code a = lo - 1}, a multiple of {@code 2^p} lies in {@code (a, hi]} iff
    * {@code floor(hi/2^p) > floor(a/2^p)}; the largest such {@code p} is the index of the highest set
    * bit of {@code a ^ hi}. The witness {@code (hi >>> p) << p} has exactly {@code p} trailing zeros —
    * the unique level-{@code p} node in the interval.
@@ -101,11 +106,11 @@ public final class RelationalIntervalTree {
   }
 
   /**
-   * Stabbing query: stream every {@code ref} whose interval contains {@code x} ({@code lo <= x <= hi})
-   * to {@code out}, in at most {@code h} store scans. Each match is delivered once (unless a ref was
-   * registered more than once).
+   * Stabbing query: stream every {@code ref} whose interval contains {@code x}
+   * ({@code lo <= x <= hi}) to {@code out}, in at most {@code h} store scans. Each match is delivered
+   * once (unless a ref was registered more than once).
    *
-   * @param x   query point; if outside {@code [1, maxValue]} the result is empty
+   * @param x query point; if outside {@code [1, maxValue]} the result is empty
    * @param out receiver for matching refs
    */
   public void stab(final long x, final LongConsumer out) {
@@ -124,7 +129,7 @@ public final class RelationalIntervalTree {
         lower.scan(node, MIN_VALUE, x, out); // node > x: need lo <= x
         node -= half;
       } else {
-        upper.scan(node, x, maxValue, out);  // node < x: need hi >= x
+        upper.scan(node, x, maxValue, out); // node < x: need hi >= x
         node += half;
       }
       level--;
@@ -132,6 +137,67 @@ public final class RelationalIntervalTree {
         return; // unreachable for x in [1, maxValue]; defensive
       }
     }
+  }
+
+  /**
+   * Stream intervals containing {@code x} with an exclusive upper endpoint ({@code lo <= x < hi}).
+   * Each interval is emitted once, using at most {@link #height()} ordered-store scans.
+   */
+  public void stabHalfOpen(final long x, final LongConsumer out) {
+    Objects.requireNonNull(out);
+    if (x < MIN_VALUE || x >= maxValue) {
+      return;
+    }
+    long node = 1L << (height - 1);
+    int level = height - 1;
+    while (true) {
+      if (node == x) {
+        upper.scan(node, x + 1, maxValue, out);
+        return;
+      }
+      final long half = 1L << (level - 1);
+      if (x < node) {
+        lower.scan(node, MIN_VALUE, x, out);
+        node -= half;
+      } else {
+        upper.scan(node, x + 1, maxValue, out);
+        node += half;
+      }
+      level--;
+    }
+  }
+
+  /** Stream intervals starting at {@code x}; useful for removing a strict lower-bound tie. */
+  public void startingAt(final long x, final LongConsumer out) {
+    Objects.requireNonNull(out);
+    if (x < MIN_VALUE || x > maxValue) {
+      return;
+    }
+    long node = 1L << (height - 1);
+    int level = height - 1;
+    while (true) {
+      if (node >= x) {
+        lower.scan(node, x, x, out);
+      }
+      if (node == x) {
+        return;
+      }
+      final long half = 1L << (level - 1);
+      node += x < node
+          ? -half
+          : half;
+      level--;
+    }
+  }
+
+  /**
+   * Stream every registered {@code ref} once per registration, in one ordered-store enumeration. Each
+   * interval is registered under exactly one fork in the {@code lower} store, so enumerating that
+   * store visits every registration exactly once.
+   */
+  public void forEachRef(final LongConsumer out) {
+    Objects.requireNonNull(out);
+    lower.forEachRef(out);
   }
 
   private void checkInterval(final long lo, final long hi) {

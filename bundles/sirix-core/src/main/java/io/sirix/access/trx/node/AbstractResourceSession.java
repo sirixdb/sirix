@@ -329,12 +329,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
-  protected void initializeIndexController(final int revision, AbstractIndexController<?, ?> controller) {
-    // Deserialize index definitions.
-    // For write transactions, the revision number is the NEW revision being created,
-    // but index definitions are stored at the LAST COMMITTED revision (and only for
-    // revisions where definitions exist — resources without secondary indexes have NO
-    // files here at all).
+  @Override
+  public void initializeIndexController(final int revision, final AbstractIndexController<?, ?> controller) {
+    checkArgument(revision >= 0, "revision must be >= 0!");
+    requireNonNull(controller).getIndexes().reset();
+    controller.refreshIndexCapabilities();
+    // Resolve persisted definitions at or below the requested revision. Writer rebinding passes
+    // the represented revision, so a revert must not inherit the latest revision's catalogue.
     final Path indexesDir =
         getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
     final int catalogueRevision = resolveIndexCatalogueRevision(indexesDir, revision);
@@ -356,12 +357,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * {@link #NO_INDEX_CATALOGUE}.
    *
    * <p>
-   * A write transaction asks for the revision it is about to create, whose file cannot exist yet, and
-   * it asks once per commit, because every commit re-instantiates the writer. Answering that from the
-   * directory costs one {@code readdir} over every catalogue ever written, and a commit with
-   * definitions writes one: O(revisions) per commit, O(revisions²) over a commit-per-operation load
-   * (measured at 0.68 µs per catalogue file, 78 % of the commit's CPU after 21,000 revisions). So the
-   * directory is consulted last:
+   * Writer rebinding asks for the represented revision once per commit, because every commit
+   * re-instantiates the writer. Answering that from the directory costs one {@code readdir} over
+   * every catalogue ever written, and a commit with definitions writes one: O(revisions) per commit,
+   * O(revisions²) over a commit-per-operation load (measured at 0.68 µs per catalogue file, 78 % of
+   * the commit's CPU after 21,000 revisions). So the directory is consulted last:
    * <ol>
    * <li>the requested revision's own file, one {@code stat}: a reader of a revision that committed
    * definitions, and the one file at or below the request that a writer outside this session can have

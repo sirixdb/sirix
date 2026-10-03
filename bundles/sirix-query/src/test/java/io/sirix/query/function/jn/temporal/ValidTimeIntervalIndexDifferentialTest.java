@@ -7,9 +7,11 @@ package io.sirix.query.function.jn.temporal;
 
 import io.brackit.query.Query;
 import io.brackit.query.atomic.Numeric;
+import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.json.Object;
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.access.DatabaseConfiguration;
@@ -28,6 +30,7 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.service.json.shredder.JsonShredder;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -59,8 +62,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * interval index, for MANY query instants (including every boundary case), this asserts that:
  * </p>
  * <ol>
- * <li>the interval-index path ({@link ValidTimeIntervalIndex#tryIndexScan}, which we assert is
- * actually taken) returns exactly the brute-force Java reference set;</li>
+ * <li>the interval-index path ({@link ValidTimeIntervalIndex#sequence}, which we assert is actually
+ * taken) returns exactly the brute-force Java reference set;</li>
  * <li>the {@code jn:valid-at} query over the indexed resource (interval-index fast path) returns
  * exactly that set;</li>
  * <li>the {@code jn:valid-at} query over a plain resource (no index → linear-scan fallback) returns
@@ -214,14 +217,13 @@ public final class ValidTimeIntervalIndexDifferentialTest {
 
             // (1) DIRECT interval-index path — assert it is taken, then compare its result set.
             final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-            final ValidTimeIntervalIndex.Result indexScan =
-                ValidTimeIntervalIndex.tryIndexScan(indexedDoc, t, validTimeConfig);
+            final Sequence indexScan =
+                ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false, null);
             assertNotNull(indexScan,
                 "Interval-index path must be taken on the indexed resource (a VALIDTIME index exists) at t=" + t);
             indexPathTakenCount++;
-            assertEquals(brute, idsOfItems(indexScan.items()),
-                "Direct interval-index result must equal brute force at t=" + t + " (candidates examined: "
-                    + indexScan.candidatesExamined() + ")");
+            assertEquals(brute, idsOfSequence(indexScan),
+                "Direct interval-index result must equal brute force at t=" + t);
             // All result items wrap the document's trx; ids are materialized, so release it now.
             indexedDoc.getTrx().close();
 
@@ -260,10 +262,10 @@ public final class ValidTimeIntervalIndexDifferentialTest {
         for (final Instant t : reopenSampleTimes(records)) {
           final Set<Integer> brute = bruteForce(records, t);
           final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-          final ValidTimeIntervalIndex.Result indexScan =
-              ValidTimeIntervalIndex.tryIndexScan(indexedDoc, t, validTimeConfig);
+          final Sequence indexScan =
+              ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false, null);
           assertNotNull(indexScan, "Persisted interval index must be usable after reopen at t=" + t);
-          assertEquals(brute, idsOfItems(indexScan.items()),
+          assertEquals(brute, idsOfSequence(indexScan),
               "Persisted interval-index result must equal brute force after reopen at t=" + t);
           assertEquals(brute, idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t),
               "jn:valid-at over reopened indexed resource must equal brute force at t=" + t);
@@ -325,10 +327,10 @@ public final class ValidTimeIntervalIndexDifferentialTest {
         for (final Instant t : incTimes) {
           final Set<Integer> brute = bruteForce(mutated, t);
           final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-          final ValidTimeIntervalIndex.Result indexScan =
-              ValidTimeIntervalIndex.tryIndexScan(indexedDoc, t, validTimeConfig);
+          final Sequence indexScan =
+              ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false, null);
           assertNotNull(indexScan, "Interval index must be usable after incremental maintenance at t=" + t);
-          assertEquals(brute, idsOfItems(indexScan.items()),
+          assertEquals(brute, idsOfSequence(indexScan),
               "Interval-index result must equal brute force AFTER incremental insert+delete at t=" + t);
           assertEquals(brute, idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t),
               "jn:valid-at must equal brute force AFTER incremental insert+delete at t=" + t);
@@ -406,9 +408,9 @@ public final class ValidTimeIntervalIndexDifferentialTest {
 
           // Path 1: the interval index directly (assert it is actually taken).
           final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-          final ValidTimeIntervalIndex.Result idx = ValidTimeIntervalIndex.tryIndexScan(indexedDoc, t, validTimeConfig);
+          final Sequence idx = ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false, null);
           assertNotNull(idx, "interval index must be usable at t=" + t);
-          assertEquals(want, idsOfItems(idx.items()), "interval-index path at t=" + t);
+          assertEquals(want, idsOfSequence(idx), "interval-index path at t=" + t);
 
           // Path 2: jn:valid-at over the indexed resource (interval-index fast path).
           assertEquals(want, idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t), "indexed jn:valid-at at t=" + t);
@@ -572,30 +574,24 @@ public final class ValidTimeIntervalIndexDifferentialTest {
   private static Set<Integer> idsFromValidAtQuery(final SirixCompileChain chain, final SirixQueryContext ctx,
       final String resource, final Instant t) {
     final String query = "jn:valid-at('" + DB_NAME + "', '" + resource + "', xs:dateTime('" + t + "'))";
-    final Sequence result = new Query(chain, query).evaluate(ctx);
+    return idsOfSequence(new Query(chain, query).evaluate(ctx));
+  }
+
+  /** Drain a (possibly lazy) result sequence, reading each item's {@code id} as it is produced. */
+  private static Set<Integer> idsOfSequence(final @Nullable Sequence sequence) {
     final Set<Integer> ids = new TreeSet<>();
-    if (result == null) {
+    if (sequence == null) {
       return ids;
     }
-    final Iter iter = result.iterate();
+    final QNm id = new QNm("id");
+    final Iter iter = sequence.iterate();
     try {
       Item item;
       while ((item = iter.next()) != null) {
-        final io.brackit.query.jdm.json.Object obj = (io.brackit.query.jdm.json.Object) item;
-        ids.add(((Numeric) obj.get(new io.brackit.query.atomic.QNm("id"))).intValue());
+        ids.add(((Numeric) ((Object) item).get(id)).intValue());
       }
     } finally {
       iter.close();
-    }
-    return ids;
-  }
-
-  private static Set<Integer> idsOfItems(final List<JsonDBItem> items) {
-    final Set<Integer> ids = new TreeSet<>();
-    for (final JsonDBItem item : items) {
-      final io.brackit.query.jdm.json.Object obj = (io.brackit.query.jdm.json.Object) item;
-      final Sequence idSeq = obj.get(new io.brackit.query.atomic.QNm("id"));
-      ids.add(((Numeric) idSeq).intValue());
     }
     return ids;
   }

@@ -1,13 +1,18 @@
 package io.sirix.query.compiler.optimizer.walker.json;
 
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.Str;
+import io.sirix.query.function.jn.temporal.OpenBitemporal;
+import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
+import java.util.ArrayList;
+import java.util.List;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.compiler.optimizer.walker.Walker;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.json.JsonIndexController;
-import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.query.json.JsonDBCollection;
@@ -17,37 +22,21 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 /**
- * Optimizer step that auto-selects the persistent VALIDTIME interval index for a plain FLWOR
- * stabbing predicate, rewriting it to draw the loop variable from {@code jn:scan-valid-time-index}.
+ * Folds plain-FLWOR valid-time comparisons and the first bitemporal residual into indexed slice
+ * sources. Query shapes and admission rules are documented in
+ * {@code docs/VALID_TIME_KEY_SLICES.md}.
  *
- * <p>It recognises (after the optimizer has pipelined the FLWOR into {@code ForBind}/{@code Selection}):
- *
- * <pre>{@code  for $x in jn:doc(DB,RES)[]
- *   where $x.validFrom <= P and P <= $x.validTo
- *   return ...  }</pre>
- *
- * and rewrites the loop source to {@code jn:scan-valid-time-index(jn:doc(DB,RES), P)} (dropping the
- * matched predicate). The two comparisons may use any equivalent operator/operand-order form: the
- * lower-field bound {@code deref($x,validFrom) <= P} as {@code <=}, or {@code P >= deref($x,validFrom)},
- * with value- or general-comparison operators; likewise the upper-field bound
- * {@code P <= deref($x,validTo)}. {@code P} must be INVARIANT w.r.t. {@code $x} (it must not
- * dereference {@code $x}); the SAME {@code P} must appear in both comparisons; the two
- * dereferenced fields must be the resource's configured {@code validFrom}/{@code validTo} fields; and
- * a VALIDTIME index must exist on that resource (revision-aware).
- *
- * <h2>Safety</h2>
- * <p>A NEW, dedicated walker (the CAS path in {@link JsonCASStep} is untouched). It only ever matches
- * the exact binary {@code AndExpr(cmp1, cmp2)} of the two stabbing comparisons over a
- * {@code jn:doc(...)[]} source with a VALIDTIME index; anything else is left unchanged and evaluated
- * normally (still correct). Extra conjuncts, a missing bound, a {@code $x}-dependent {@code P},
- * mismatched points, non-valid-time fields, or a missing index all fail the match and fall through.</p>
+ * <p>
+ * Plain-FLWOR points stay deferred until row demand. Runtime admission uses the evaluated revision;
+ * unsafe coverage or order retains the original comparisons. Bitemporal folding consumes only the
+ * first conjunct so it cannot expose a cast error suppressed by an earlier comparison.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
 public final class JsonValidTimeStep extends Walker {
 
-  private static final LogWrapper LOG_WRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(JsonValidTimeStep.class));
+  private static final LogWrapper LOG_WRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonValidTimeStep.class));
 
   private static final QNm DOC = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "doc");
   private static final QNm OPEN = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open");
@@ -63,9 +52,51 @@ public final class JsonValidTimeStep extends Walker {
     this.jsonDBStore = jsonDBStore;
   }
 
+  /** Apply the source rewrites, then remove only their now-redundant identity pipelines. */
+  public AST rewrite(final AST ast) {
+    return collapseIdentitySlices(walk(ast));
+  }
+
+  @SuppressWarnings("ReferenceEquality") // AST replacement is determined by node identity.
+  private static AST collapseIdentitySlices(final AST node) {
+    for (int i = 0; i < node.getChildCount(); i++) {
+      final AST child = node.getChild(i);
+      final AST replacement = collapseIdentitySlices(child);
+      if (replacement != child) {
+        node.replaceChild(i, replacement);
+      }
+    }
+    if (node.getType() != XQ.PipeExpr || node.getChildCount() != 1) {
+      return node;
+    }
+    final AST start = node.getChild(0);
+    if (start.getType() != XQ.Start || start.getChildCount() != 1) {
+      return node;
+    }
+    final AST binding = start.getChild(0);
+    if (binding.getType() != XQ.ForBind || binding.getChildCount() != 3 || binding.checkProperty("allowingEmpty")
+        || binding.getProperty("check") != null) {
+      return node;
+    }
+    final AST variable = binding.getChild(0);
+    final AST source = binding.getChild(1);
+    final AST end = binding.getChild(2);
+    if (variable.getType() != XQ.TypedVariableBinding || variable.getChildCount() != 1
+        || source.getType() != XQ.FunctionCall
+        || !(OpenBitemporal.OPEN_BITEMPORAL_SLICE.equals(source.getValue())
+            || SCAN_VALID_TIME_INDEX.equals(source.getValue()))
+        || end.getType() != XQ.End || end.getChildCount() != 1) {
+      return node;
+    }
+    final AST returned = end.getChild(0);
+    return returned.getType() == XQ.VariableRef && returned.getValue().equals(variable.getChild(0).getValue())
+        ? source.copyTree()
+        : node;
+  }
+
   @Override
   protected AST visit(final AST forBind) {
-    if (forBind.getType() != XQ.ForBind || forBind.getChildCount() < 3) {
+    if (forBind.getType() != XQ.ForBind || forBind.getChildCount() != 3 || forBind.checkProperty("allowingEmpty")) {
       return forBind;
     }
 
@@ -74,13 +105,19 @@ public final class JsonValidTimeStep extends Walker {
     final AST source = forBind.getChild(1);
     final AST selection = forBind.getChild(2);
 
-    if (binding.getType() != XQ.TypedVariableBinding || binding.getChildCount() < 1
+    if (binding.getType() != XQ.TypedVariableBinding || binding.getChildCount() != 1
         || selection.getType() != XQ.Selection || selection.getChildCount() < 1) {
       return forBind;
     }
 
     final Object loopVar = binding.getChild(0).getValue();
     if (loopVar == null) {
+      return forBind;
+    }
+
+    if (source.getType() == XQ.FunctionCall && OpenBitemporal.OPEN_BITEMPORAL.equals(source.getValue())
+        && source.getChildCount() == 4) {
+      foldBitemporalResidual(forBind, selection, source, loopVar);
       return forBind;
     }
 
@@ -146,22 +183,118 @@ public final class JsonValidTimeStep extends Walker {
     }
 
     // The point P must be invariant w.r.t. the loop variable.
-    if (referencesVar(upperBoundOnField.point, loopVar)) {
+    if (referencesVar(upperBoundOnField.point, loopVar) || !stablePoint(upperBoundOnField.point)) {
       return forBind;
     }
 
     // ---- All conditions met: rewrite. ----
     // New loop source: jn:scan-valid-time-index(jn:doc(DB,RES), P).
     final AST scanCall = new AST(XQ.FunctionCall, SCAN_VALID_TIME_INDEX);
+    scanCall.setProperty(ScanValidTimeIndex.DEFERRED_POINT, true);
     scanCall.addChild(docFn.copyTree());
     scanCall.addChild(upperBoundOnField.point.copyTree());
 
+    scanCall.addChild(new AST(XQ.Str, new Str(validFrom)));
+    scanCall.addChild(new AST(XQ.Str, new Str(validTo)));
+    final int mode = (upperBoundOnField.strict
+        ? 1
+        : 0)
+        | (lowerBoundOnField.strict
+            ? 2
+            : 0)
+        | (boundA == lowerBoundOnField
+            ? 4
+            : 0)
+        | (upperBoundOnField.general
+            ? 8
+            : 0)
+        | (lowerBoundOnField.general
+            ? 16
+            : 0)
+        | (upperBoundOnField.fieldOnLeft
+            ? 0
+            : 32)
+        | (lowerBoundOnField.fieldOnLeft
+            ? 64
+            : 0);
+    scanCall.addChild(new AST(XQ.Int, new Int32(mode)));
     forBind.replaceChild(1, scanCall);
-    // The whole predicate was consumed — replace the Selection with its End (drop the where).
-    final AST end = selection.getChild(selection.getChildCount() - 1);
-    forBind.replaceChild(2, end.copyTree());
+    // The overload checks exactness at this evaluation's revision; an unsafe shape executes the
+    // original two comparisons over the full array with their original short-circuit order.
+    forBind.replaceChild(2, selection.getChild(selection.getChildCount() - 1).copyTree());
 
     return forBind;
+  }
+
+  /** Works in user-function bodies too: collection/resource/revision are resolved per evaluation. */
+  private static void foldBitemporalResidual(final AST forBind, final AST selection, final AST source,
+      final Object loopVar) {
+    final AST point = source.getChild(3);
+    if (!stablePoint(point) || referencesVar(point, loopVar)) {
+      return;
+    }
+    final List<AST> conjuncts = new ArrayList<>();
+    conjuncts(selection.getChild(0), conjuncts);
+    // Moving a later comparison ahead of an earlier conjunct can expose a suppressed cast error.
+    for (int i = 0; i < Math.min(1, conjuncts.size()); i++) {
+      final AST conjunct = conjuncts.get(i);
+      if (conjunct.getType() != XQ.ComparisonExpr) {
+        continue;
+      }
+      final Bound bound = decodeBound(conjunct, loopVar);
+      if (bound == null || !astEquals(point, bound.point)) {
+        continue;
+      }
+      final AST call = new AST(XQ.FunctionCall, OpenBitemporal.OPEN_BITEMPORAL_SLICE);
+      for (int argument = 0; argument < 4; argument++) {
+        call.addChild(source.getChild(argument).copyTree());
+      }
+      call.addChild(new AST(XQ.Str, new Str(bound.fieldName)));
+      call.addChild(new AST(XQ.Int, new Int32((bound.fieldUpperBounded
+          ? 1
+          : 3)
+          + (bound.strict
+              ? 1
+              : 0)
+          + (bound.fieldOnLeft == bound.fieldUpperBounded
+              ? 0
+              : 4)
+          + (bound.general
+              ? 8
+              : 0))));
+      call.addChild(bound.point.copyTree());
+      forBind.replaceChild(1, call);
+      conjuncts.remove(i);
+      if (conjuncts.isEmpty()) {
+        forBind.replaceChild(2, selection.getChild(selection.getChildCount() - 1).copyTree());
+      } else {
+        AST remaining = conjuncts.getFirst().copyTree();
+        for (int c = 1; c < conjuncts.size(); c++) {
+          final AST and = new AST(XQ.AndExpr);
+          and.addChild(remaining);
+          and.addChild(conjuncts.get(c).copyTree());
+          remaining = and;
+        }
+        selection.replaceChild(0, remaining);
+      }
+      return;
+    }
+  }
+
+  private static void conjuncts(final AST node, final List<AST> output) {
+    if (node.getType() == XQ.AndExpr && node.getChildCount() == 2) {
+      conjuncts(node.getChild(0), output);
+      conjuncts(node.getChild(1), output);
+    } else {
+      output.add(node);
+    }
+  }
+
+  private static boolean stablePoint(final AST point) {
+    return point.getType() == XQ.VariableRef
+        || (point.getType() == XQ.FunctionCall && point.getValue() instanceof QNm name
+            && XS_NSURI.equals(name.getNamespaceURI()) && "dateTime".equals(name.getLocalName())
+            && point.getChildCount() == 1 && point.getChild(0).getType() == XQ.Str);
   }
 
   /**
@@ -173,30 +306,43 @@ public final class JsonValidTimeStep extends Walker {
     final String fieldName;
     final boolean fieldUpperBounded; // true: field <= point ; false: point <= field
     final AST point;
+    final boolean strict;
+    final boolean general;
+    final boolean fieldOnLeft;
 
-    Bound(final String fieldName, final boolean fieldUpperBounded, final AST point) {
+    Bound(final String fieldName, final boolean fieldUpperBounded, final AST point, final boolean strict,
+        final boolean general, final boolean fieldOnLeft) {
       this.fieldName = fieldName;
       this.fieldUpperBounded = fieldUpperBounded;
       this.point = point;
+      this.strict = strict;
+      this.general = general;
+      this.fieldOnLeft = fieldOnLeft;
     }
   }
 
   /**
    * Decode a {@code ComparisonExpr} [comparator, operandA, operandB] into a {@link Bound} relative to
-   * {@code loopVar}, or {@code null} if it is not a {@code <=}/{@code <} (or swapped {@code >=}/{@code >})
-   * comparison between exactly one {@code deref($loopVar, field)} and one non-field operand.
+   * {@code loopVar}, or {@code null} if it is not a {@code <=}/{@code <} (or swapped
+   * {@code >=}/{@code >}) comparison between exactly one {@code deref($loopVar, field)} and one
+   * non-field operand.
    *
-   * <p>Only the inclusive/half-open ordering operators that define interval containment are accepted:
-   * LE/LT and GE/GT (value or general). EQ/NE and anything else fail the match. Strictness ({@code <}
-   * vs {@code <=}) does not change the rewrite — the index scan re-verifies exact instants — but we
-   * accept LT/GT too so equivalent user phrasings still rewrite; the re-verification keeps results
-   * correct regardless.</p>
+   * <p>
+   * Only the inclusive/half-open ordering operators that define interval containment are accepted:
+   * LE/LT and GE/GT (value or general). EQ/NE and anything else fail the match. Strictness is
+   * preserved for both rewrites. The plain-FLWOR overload runs the original comparisons when its
+   * revision cannot prove complete, exact, ordered array coverage.
+   * </p>
    */
   private static @Nullable Bound decodeBound(final AST cmp, final Object loopVar) {
     if (cmp.getChildCount() != 3) {
       return null;
     }
     final int op = cmp.getChild(0).getType();
+    final boolean strict =
+        op == XQ.ValueCompLT || op == XQ.ValueCompGT || op == XQ.GeneralCompLT || op == XQ.GeneralCompGT;
+    final boolean general =
+        op == XQ.GeneralCompLT || op == XQ.GeneralCompLE || op == XQ.GeneralCompGT || op == XQ.GeneralCompGE;
     final AST left = cmp.getChild(1);
     final AST right = cmp.getChild(2);
 
@@ -209,7 +355,7 @@ public final class JsonValidTimeStep extends Walker {
       if (fieldLe == null) {
         return null;
       }
-      return new Bound(leftField, fieldLe, right);
+      return new Bound(leftField, fieldLe, right, strict, general, true);
     }
     if (rightField != null && leftField == null) {
       // field is on the RIGHT: invert the operator's sense.
@@ -219,7 +365,7 @@ public final class JsonValidTimeStep extends Walker {
       }
       // If "left OP right" means left<=right (fieldLeLeft semantics computed for left-field), then for
       // right-field the relation field-vs-point is the mirror: point OP-relation field.
-      return new Bound(rightField, !fieldLeLeft, left);
+      return new Bound(rightField, !fieldLeLeft, left, strict, general, false);
     }
     return null;
   }
@@ -238,36 +384,27 @@ public final class JsonValidTimeStep extends Walker {
   }
 
   /**
-   * The field name if {@code node} is {@code deref($loopVar, fieldName)} or a single XSD-type cast
-   * wrapping it (e.g. {@code xs:dateTime($loopVar.fieldName)} — the canonical phrasing since JSON
-   * valid-time fields are strings that must be cast to compare against an {@code xs:dateTime} point),
-   * else {@code null}.
+   * Recognizes only {@code xs:dateTime($loopVar.fieldName)} with a static field name. Bare or
+   * computed dereferences and other casts retain their original evaluation.
    */
   private static @Nullable String derefFieldOfVar(final AST node, final Object loopVar) {
-    final AST deref = unwrapXsCast(node);
+    if (node.getType() != XQ.FunctionCall || node.getChildCount() != 1 || !(node.getValue() instanceof QNm name)
+        || !XS_NSURI.equals(name.getNamespaceURI()) || !"dateTime".equals(name.getLocalName())) {
+      return null;
+    }
+    final AST deref = node.getChild(0);
     if (deref.getType() != XQ.DerefExpr || deref.getChildCount() != 2) {
       return null;
     }
     final AST base = deref.getChild(0);
     final AST field = deref.getChild(1);
-    if (base.getType() != XQ.VariableRef || !loopVar.equals(base.getValue())) {
+    if (base.getType() != XQ.VariableRef || !loopVar.equals(base.getValue()) || field.getType() != XQ.QNm) {
       return null;
     }
     final Object fieldVal = field.getValue();
-    return fieldVal == null ? null : fieldVal.toString();
-  }
-
-  /**
-   * Strip a single XSD-namespace constructor/cast wrapping {@code node} (e.g.
-   * {@code xs:dateTime(...)}). Returns {@code node} unchanged when there is no such wrapper. Only one
-   * level is stripped — the field cast in a valid-time predicate is a single {@code xs:dateTime(...)}.
-   */
-  private static AST unwrapXsCast(final AST node) {
-    if (node.getType() == XQ.FunctionCall && node.getChildCount() == 1
-        && node.getValue() instanceof QNm fn && XS_NSURI.equals(fn.getNamespaceURI())) {
-      return node.getChild(0);
-    }
-    return node;
+    return fieldVal == null
+        ? null
+        : fieldVal.toString();
   }
 
   /**
@@ -327,7 +464,9 @@ public final class JsonValidTimeStep extends Walker {
     }
     final Object va = a.getValue();
     final Object vb = b.getValue();
-    if (va == null ? vb != null : !va.equals(vb)) {
+    if (va == null
+        ? vb != null
+        : !va.equals(vb)) {
       return false;
     }
     for (int i = 0, n = a.getChildCount(); i < n; i++) {

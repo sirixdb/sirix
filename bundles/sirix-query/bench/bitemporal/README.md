@@ -93,9 +93,9 @@ raw results, and emit the same canonical TSV bytes.
 | 11 | daily temporal aggregation | VALIDTIME + generic group | yes |
 | 12 | disappearance anti-join/group | VALIDTIME + [membership anti-join](../../../../docs/QUERY_MEMBERSHIP_OPTIMIZATION.md#plan-and-invariants) + generic group | yes |
 
-`jn:open-bitemporal` currently treats the index's high endpoint as inclusive. Q4, Q6-Q9, Q11
-and Q12 therefore use `local:slice`, which first uses the ordinary persisted VALIDTIME index and
-then applies `valid < vt`. This strict residual was required to preserve SH1's half-open model.
+Q4, Q6-Q9, Q11 and Q12 express SH1's half-open model through `local:slice`, adding `valid < vt`
+to the closed `jn:open-bitemporal` source. Physical predicate folding, lazy evaluation, and dependency
+limitations are documented in [Valid-time key slices](../../../../docs/VALID_TIME_KEY_SLICES.md).
 Q1-Q3, Q5 and Q10 use explicit half-open or strict-overlap predicates. The Sirix runner refuses
 to run when the persisted VALIDTIME definitions are absent and records the route and residual flag
 in its manifest. The manifest's route labels describe logical query shapes, not physical plan

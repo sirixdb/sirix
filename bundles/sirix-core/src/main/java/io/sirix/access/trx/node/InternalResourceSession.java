@@ -44,6 +44,8 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
    */
   void recordSerializedIndexCatalogueRevision(int revision);
 
+  void initializeIndexController(int revision, AbstractIndexController<?, ?> controller);
+
   Path getCommitFile();
 
   void assertAccess(int revision);

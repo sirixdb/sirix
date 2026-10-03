@@ -39,6 +39,7 @@ import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
 import io.sirix.query.compiler.expression.VectorizedPipelineExpr;
+import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.query.stream.node.TemporalSirixNodeStream;
@@ -48,6 +49,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.IntNumeric;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
@@ -175,13 +177,23 @@ public class SirixTranslator extends TopDownTranslator {
   private static final Set<String> COMPUTED_AGG_FUNCS = Set.of("sum", "avg", "min", "max", "count");
 
   /**
-   * Gap item 2: {@code sum|avg|min|max|count(<computed pipe>)} — an aggregate call whose sole
-   * argument is a pipeline {@link ComputedAggregateDetectionStage} annotated as a servable
-   * computed-expression fold. Emits the projection-served expression with the GENERIC function call
-   * compiled alongside as the runtime fallback; every other call compiles exactly as before.
+   * Optimizer-marked valid-time scans retain deferred point evaluation so empty arrays do not
+   * evaluate the point expression.
+   *
+   * <p>
+   * {@code sum|avg|min|max|count(<computed pipe>)} — an aggregate call whose sole argument is a
+   * pipeline {@link ComputedAggregateDetectionStage} annotated as a servable computed-expression
+   * fold. Emits the projection-served expression with the GENERIC function call compiled alongside as
+   * the runtime fallback. Unmarked calls retain the generic translation.
    */
   @Override
   protected Expr functionCall(AST node) throws QueryException {
+    if (ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(node.getValue()) && node.getChildCount() == 5
+        && node.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)) {
+      return new SirixValidTimeScanExpr(ctx, expr(node.getChild(0), true), expr(node.getChild(1), true),
+          ((Str) node.getChild(2).getValue()).stringValue(), ((Str) node.getChild(3).getValue()).stringValue(),
+          ((IntNumeric) node.getChild(4).getValue()).intValue());
+    }
     if (node.getChildCount() == 1 && node.getValue() instanceof QNm fn && node.getChild(0).getType() == XQ.PipeExpr
         && Boolean.TRUE.equals(node.getChild(0).getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG))
         && COMPUTED_AGG_FUNCS.contains(fn.getLocalName())

@@ -6,22 +6,22 @@
 package io.sirix.index.interval;
 
 /**
- * Composite key into the single HOT sub-tree that backs a {@link RelationalIntervalTree}'s two
- * ordered stores.
+ * Composite key for the RI-tree stores and their companion evidence tree.
  *
- * <p>The RI-tree drives one logical ordered map {@code (forkNode, endpoint) -> multiset(ref)} per
- * store (a {@code lower} store keyed {@code (fork, lo)} and an {@code upper} store keyed
- * {@code (fork, hi)}). We realise BOTH stores in a single HOT sub-tree by prefixing the key with a
- * one-byte {@link #store} discriminator ({@link #STORE_LOWER} / {@link #STORE_UPPER}). The
- * order-preserving wire encoding is
+ * <p>
+ * The RI-tree drives one {@link OrderedStore} per store (a {@code lower} store keyed
+ * {@code (fork, lo)} and an {@code upper} store keyed {@code (fork, hi)}). We realise BOTH stores
+ * in a single HOT sub-tree by prefixing the key with a one-byte {@link #store} discriminator
+ * ({@link #STORE_LOWER} / {@link #STORE_UPPER}). The order-preserving wire encoding is
  * {@code [store:1][signFlippedBE(forkNode):8][signFlippedBE(endpoint):8]} (see
  * {@link ValidTimeKeySerializer}), so a fixed {@code (store, forkNode)} endpoint sub-range is one
  * contiguous HOT range scan — exactly what {@link OrderedStore#scan} needs.
  *
- * <p>The {@link Comparable} implementation matches the byte encoding's unsigned order: by store,
- * then by signed {@code forkNode}, then by signed {@code endpoint}. The fork node and endpoints are
- * always in {@code [1, 2^h-1]} (positive), so signed and the sign-flipped-unsigned orders coincide;
- * the sign-flip keeps the encoding total-order-preserving even for hypothetical negative inputs.
+ * <p>
+ * The {@link Comparable} implementation matches the byte encoding's unsigned order: by store, then
+ * by signed {@code forkNode}, then by signed {@code endpoint}. The fork node and endpoints are in
+ * {@code [1, 2^h-1]} for interval stores; evidence stores also use zero coordinates. The sign-flip
+ * keeps the encoding total-order-preserving across the full signed range used by scan sentinels.
  *
  * @author Johannes Lichtenberger
  */
@@ -32,6 +32,15 @@ public final class ValidTimeKey implements Comparable<ValidTimeKey> {
 
   /** Discriminator for the {@code upper} store, keyed {@code (fork, hi)}. */
   public static final byte STORE_UPPER = 1;
+
+  /** Records whose original bounds require exact verification, at the singleton key (0, 0). */
+  public static final byte STORE_UNVERIFIED = 2;
+
+  /** Object membership by immediate parent, at (parent node key, 0). */
+  public static final byte STORE_MEMBERS = 3;
+
+  /** Parents known to have non-monotonic child node keys, at (parent, 0). */
+  public static final byte STORE_UNORDERED = 4;
 
   private final byte store;
   private final long forkNode;

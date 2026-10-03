@@ -407,7 +407,7 @@ public class SirixOptimizer extends TopDownOptimizer {
       // Valid-time FIRST: it consumes a FLWOR stabbing predicate into a jn:scan-valid-time-index
       // call before the CAS path inspects FilterExprs. Each walker is narrowly scoped and leaves
       // every non-matching query's AST untouched.
-      ast = new JsonValidTimeStep(jsonItemStore).walk(ast);
+      ast = new JsonValidTimeStep(jsonItemStore).rewrite(ast);
       ast = new JsonCASStep(jsonItemStore).walk(ast);
       ast = new JsonPathStep(jsonItemStore).walk(ast);
       ast = new JsonObjectKeyNameStep(jsonItemStore).walk(ast);

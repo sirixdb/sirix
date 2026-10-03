@@ -43,6 +43,12 @@ public final class IndexDef implements Materializable {
 
   private static final QNm ID_ATTRIBUTE = new QNm("id");
 
+  private static final QNm VALID_TIME_FORMAT_ATTRIBUTE = new QNm("validTimeFormat");
+
+  private static final String VALID_TIME_FORMAT = "6";
+
+  private String validTimeFormat = VALID_TIME_FORMAT;
+
   private static final QNm DIMENSION_ATTRIBUTE = new QNm("dimension");
 
   private static final QNm DISTANCE_TYPE_ATTRIBUTE = new QNm("distanceType");
@@ -254,6 +260,10 @@ public final class IndexDef implements Materializable {
     tmp.attribute(DB_TYPE_ATTRIBUTE, new Una(dbType.toString()));
     tmp.attribute(ID_ATTRIBUTE, new Una(Integer.toString(id)));
 
+    if (type == IndexType.VALIDTIME) {
+      tmp.attribute(VALID_TIME_FORMAT_ATTRIBUTE, new Una(validTimeFormat));
+    }
+
     if (contentType != null) {
       tmp.attribute(CONTENT_TYPE_ATTRIBUTE, new Una(contentType.toString()));
     }
@@ -299,31 +309,8 @@ public final class IndexDef implements Materializable {
       tmp.closeElement();
     }
 
-    if (!excluded.isEmpty()) {
-      tmp.openElement(EXCLUDING_TAG);
-
-      final StringBuilder buf = new StringBuilder();
-      for (final QNm s : excluded) {
-        buf.append(s).append(",");
-      }
-      // remove trailing ","
-      buf.deleteCharAt(buf.length() - 1);
-      tmp.content(buf.toString());
-      tmp.closeElement();
-    }
-
-    if (!included.isEmpty()) {
-      tmp.openElement(INCLUDING_TAG);
-
-      final StringBuilder buf = new StringBuilder();
-      for (final QNm incl : included) {
-        buf.append(incl).append(",");
-      }
-      // remove trailing ","
-      buf.deleteCharAt(buf.length() - 1);
-      tmp.content(buf.toString());
-      tmp.closeElement();
-    }
+    materializeNameFilter(tmp, EXCLUDING_TAG, excluded);
+    materializeNameFilter(tmp, INCLUDING_TAG, included);
     //
     // if (indexStatistics != null) {
     // tmp.insert(indexStatistics.materialize());
@@ -331,6 +318,20 @@ public final class IndexDef implements Materializable {
 
     tmp.closeElement();
     return tmp.getRoot();
+  }
+
+  private static void materializeNameFilter(final FragmentHelper target, final QNm tag, final Set<QNm> names) {
+    if (names.isEmpty()) {
+      return;
+    }
+    target.openElement(tag);
+    final StringBuilder buf = new StringBuilder();
+    for (final QNm name : names) {
+      buf.append(name).append(",");
+    }
+    buf.deleteCharAt(buf.length() - 1);
+    target.content(buf.toString());
+    target.closeElement();
   }
 
   @Override
@@ -351,6 +352,13 @@ public final class IndexDef implements Materializable {
     attribute = root.getAttribute(TYPE_ATTRIBUTE);
     if (attribute != null) {
       type = IndexType.valueOf(attribute.getValue().stringValue());
+    }
+
+    if (type == IndexType.VALIDTIME) {
+      attribute = root.getAttribute(VALID_TIME_FORMAT_ATTRIBUTE);
+      validTimeFormat = attribute == null
+          ? ""
+          : attribute.getValue().stringValue();
     }
 
     attribute = root.getAttribute(CONTENT_TYPE_ATTRIBUTE);
@@ -601,6 +609,10 @@ public final class IndexDef implements Materializable {
     return contentType;
   }
 
+  public boolean needsValidTimeRebuild() {
+    return isValidTimeIndex() && !VALID_TIME_FORMAT.equals(validTimeFormat);
+  }
+
   /**
    * Compare the complete persisted meaning of two index definitions.
    *
@@ -627,6 +639,7 @@ public final class IndexDef implements Materializable {
   public boolean hasSameDefinition(final IndexDef other) {
     requireNonNull(other);
     return id == other.id && type == other.type && dbType == other.dbType && unique == other.unique
+        && (!isValidTimeIndex() || validTimeFormat.equals(other.validTimeFormat))
         && Objects.equals(contentType, other.contentType) && samePersistedPaths(paths, other.paths)
         && included.equals(other.included) && excluded.equals(other.excluded)
         && samePersistedPaths(projectionFields, other.projectionFields)

@@ -13,6 +13,7 @@ import org.roaringbitmap.longlong.LongIterator;
 
 import java.util.Iterator;
 import java.util.Map;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.LongConsumer;
 
 import static java.util.Objects.requireNonNull;
@@ -22,11 +23,12 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>
  * This is the SirixDB realisation of the storage SPI the {@link RelationalIntervalTree} drives. One
- * {@code (forkNode, endpoint) -> multiset(ref)} logical ordered map is encoded in a single HOT
- * sub-tree shared by BOTH RI-tree stores; a per-instance one-byte {@link #store} discriminator
+ * logical ordered map defined by {@link OrderedStore} is encoded in a single HOT sub-tree shared by
+ * BOTH RI-tree stores; a per-instance one-byte {@link #store} discriminator
  * ({@link ValidTimeKey#STORE_LOWER} / {@link ValidTimeKey#STORE_UPPER}) keeps the two stores in
- * disjoint, contiguous key ranges. The record references (node keys) are stored as the HOT slot
- * VALUE — a chunked Roaring bitmap, exactly as the CAS index stores node keys under a CAS value.
+ * disjoint, contiguous key ranges. Companion evidence stores use the same SPI over a separate root
+ * with their own discriminators. The record references (node keys) are stored as the HOT slot VALUE
+ * — a chunked Roaring bitmap, exactly as the CAS index stores node keys under a CAS value.
  * </p>
  *
  * <p>
@@ -36,22 +38,37 @@ import static java.util.Objects.requireNonNull;
  * </p>
  *
  * <p>
- * The {@code reader} may be {@code null} on a writer-only store (the build / maintain path never
- * scans); {@code scan} is then a no-op. The {@code writer} may be {@code null} on a read-only store
- * (the query path never mutates); {@code insert}/{@code remove} then throw.
+ * The {@code reader} may be {@code null} on a writer-only store; scans are then no-ops. Factories
+ * that need read-your-writes provide both. The {@code writer} may be {@code null} on a read-only
+ * store (the query path never mutates); {@code insert}/{@code remove} then throw.
  * </p>
  *
  * @author Johannes Lichtenberger
  */
 public final class HotOrderedStore implements OrderedStore {
 
+  private static final boolean SCAN_DIAGNOSTICS = Boolean.getBoolean("sirix.validTime.scanDiag");
+  private static final LongAdder INTERVAL_REFS_EMITTED = new LongAdder();
+  private static final LongAdder POSTING_REFS_EMITTED = new LongAdder();
+
+  public static boolean scanDiagnosticsEnabled() {
+    return SCAN_DIAGNOSTICS;
+  }
+
+  public static long intervalRefsEmitted() {
+    return INTERVAL_REFS_EMITTED.sum();
+  }
+
+  public static long postingRefsEmitted() {
+    return POSTING_REFS_EMITTED.sum();
+  }
+
   private final byte store;
   private final @Nullable HOTIndexWriter<ValidTimeKey> writer;
   private final @Nullable HOTIndexReader<ValidTimeKey> reader;
 
   /**
-   * @param store the discriminator byte ({@link ValidTimeKey#STORE_LOWER} or
-   *        {@link ValidTimeKey#STORE_UPPER})
+   * @param store the interval or evidence discriminator defined by {@link ValidTimeKey}
    * @param writer the HOT index writer (mutations); may be {@code null} for a read-only store
    * @param reader the HOT index reader (scans); may be {@code null} for a writer-only store
    */
@@ -83,7 +100,20 @@ public final class HotOrderedStore implements OrderedStore {
     }
     final ValidTimeKey from = new ValidTimeKey(store, forkNode, endpointLo);
     final ValidTimeKey to = new ValidTimeKey(store, forkNode, endpointHi);
-    final Iterator<Map.Entry<ValidTimeKey, NodeReferences>> it = reader.range(from, to);
+    scan(from, to, out);
+  }
+
+  @Override
+  public void forEachRef(final LongConsumer out) {
+    if (reader == null) {
+      return;
+    }
+    scan(new ValidTimeKey(store, Long.MIN_VALUE, Long.MIN_VALUE),
+        new ValidTimeKey(store, Long.MAX_VALUE, Long.MAX_VALUE), out);
+  }
+
+  private void scan(final ValidTimeKey from, final ValidTimeKey to, final LongConsumer out) {
+    final Iterator<Map.Entry<ValidTimeKey, NodeReferences>> it = requireNonNull(reader).range(from, to);
     while (it.hasNext()) {
       final NodeReferences refs = it.next().getValue();
       if (refs == null) {
@@ -91,6 +121,13 @@ public final class HotOrderedStore implements OrderedStore {
       }
       final LongIterator longIt = refs.getNodeKeys().getLongIterator();
       while (longIt.hasNext()) {
+        if (SCAN_DIAGNOSTICS) {
+          if (store == ValidTimeKey.STORE_LOWER || store == ValidTimeKey.STORE_UPPER) {
+            INTERVAL_REFS_EMITTED.increment();
+          } else {
+            POSTING_REFS_EMITTED.increment();
+          }
+        }
         out.accept(longIt.next());
       }
     }

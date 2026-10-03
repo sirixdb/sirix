@@ -9,10 +9,11 @@ import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexBuilder;
 import io.sirix.index.IndexDef;
+import io.sirix.index.IndexDefs;
+import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
 import io.sirix.index.cas.json.JsonCASIndexImpl;
 import io.sirix.index.interval.IntervalDomain;
-import io.sirix.index.interval.RelationalIntervalTree;
 import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
 import io.sirix.index.interval.ValidTimeIntervalIndexWriter;
 import io.sirix.index.interval.json.JsonValidTimeIndexBuilder;
@@ -33,6 +34,7 @@ import io.brackit.query.util.path.PathException;
 import io.brackit.query.util.path.PathParser;
 
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
@@ -81,6 +83,39 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     // Create index listeners for upcoming changes.
     createIndexListeners(indexDefs, nodeWriteTrx);
 
+    return this;
+  }
+
+  @Override
+  @SuppressWarnings("ReferenceEquality") // Identity marks whether the caller's set has been copied.
+  public JsonIndexController createIndexListeners(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
+    Set<IndexDef> current = indexDefs;
+    for (final IndexDef definition : indexDefs) {
+      if (!definition.needsValidTimeRebuild()) {
+        continue;
+      }
+      if (current == indexDefs) {
+        current = new LinkedHashSet<>(indexDefs);
+      }
+      final var writer = nodeWriteTrx.getStorageEngineWriter();
+      final var page = writer.getValidTimeIndexPage(writer.getActualRevisionRootPage());
+      int id = page.nextUnallocatedIndex(definition.getID() + 1);
+      while (indexes.getIndexDef(id, IndexType.VALIDTIME) != null) {
+        id = page.nextUnallocatedIndex(id + 1);
+      }
+      final IndexDef replacement = IndexDefs.createValidTimeIdxDef(definition.getPaths(), id, IndexDef.DbType.JSON);
+      validateNewIndexDefinitions(Set.of(replacement), nodeWriteTrx);
+      try {
+        IndexBuilder.build(nodeWriteTrx, createIndexBuilders(Set.of(replacement), nodeWriteTrx));
+      } catch (final RuntimeException | Error failure) {
+        writer.markTransactionRollbackOnly(failure);
+        throw failure;
+      }
+      indexes.removeIndex(definition);
+      current.remove(definition);
+      current.add(replacement);
+    }
+    super.createIndexListeners(current, nodeWriteTrx);
     return this;
   }
 
@@ -369,10 +404,9 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       return null;
     }
     final IntervalDomain domain = new IntervalDomain();
-    final RelationalIntervalTree tree =
-        ValidTimeIntervalIndexFactory.createWriterTree(storageEngineWriter, indexDef.getID(), domain);
-    final ValidTimeIntervalIndexWriter indexWriter = new ValidTimeIntervalIndexWriter(tree, domain,
-        validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
+    final ValidTimeIntervalIndexWriter indexWriter =
+        ValidTimeIntervalIndexFactory.createIndexWriter(storageEngineWriter, indexDef.getID(), domain,
+            validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
     return new JsonValidTimeIndexBuilder(indexWriter, nodeWriteTrx);
   }
 
@@ -385,10 +419,9 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       return null;
     }
     final IntervalDomain domain = new IntervalDomain();
-    final RelationalIntervalTree tree =
-        ValidTimeIntervalIndexFactory.createWriterTree(storageEngineWriter, indexDef.getID(), domain);
-    final ValidTimeIntervalIndexWriter indexWriter = new ValidTimeIntervalIndexWriter(tree, domain,
-        validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
+    final ValidTimeIntervalIndexWriter indexWriter =
+        ValidTimeIntervalIndexFactory.createIndexWriter(storageEngineWriter, indexDef.getID(), domain,
+            validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
     return new JsonValidTimeIndexListener(storageEngineWriter, indexWriter,
         validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
   }

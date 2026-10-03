@@ -1,5 +1,6 @@
 package io.sirix.query.function.jn;
 
+import io.brackit.query.jdm.type.AnyItemType;
 import io.brackit.query.jdm.type.AnyJsonItemType;
 import io.brackit.query.jdm.type.AtomicType;
 import io.brackit.query.jdm.type.Cardinality;
@@ -121,6 +122,13 @@ public final class JNFun {
         new Signature(SequenceType.JSON_ITEM_SEQUENCE, new SequenceType(AtomicType.STR, Cardinality.One),
             new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.DATI, Cardinality.One),
             new SequenceType(AtomicType.DATI, Cardinality.One))));
+
+    Functions.predefine(new OpenBitemporal(OpenBitemporal.OPEN_BITEMPORAL_SLICE,
+        new Signature(SequenceType.JSON_ITEM_SEQUENCE, new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.DATI, Cardinality.One),
+            new SequenceType(AtomicType.DATI, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.INR, Cardinality.One),
+            new SequenceType(AnyItemType.ANY, Cardinality.ZeroOrMany))));
 
     // store
     Functions.predefine(new Store(false));
@@ -251,6 +259,7 @@ public final class JNFun {
     Functions.predefine(new ScanCASIndexRange());
     Functions.predefine(new ScanNameIndex());
     Functions.predefine(new ScanValidTimeIndex());
+    Functions.predefine(ScanValidTimeIndex.forComparisons());
 
     // diff
     Functions.predefine(new Diff(Diff.DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,

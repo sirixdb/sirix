@@ -8,12 +8,13 @@ package io.sirix.index.interval;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
+import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.settings.Constants;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.HOTIndexWriter;
 
 /**
- * Constructs the {@link RelationalIntervalTree} that backs a valid-time interval index over a
- * single HOT sub-tree.
+ * Constructs the RI-tree and companion evidence stores of a valid-time interval index.
  *
  * <p>
  * Both RI-tree stores (lower/upper) are realised on ONE HOT sub-tree (one {@code indexNumber} =
@@ -25,8 +26,8 @@ import io.sirix.index.hot.HOTIndexWriter;
  *
  * <p>
  * The persistent {@link OrderedStore} required by the RI-tree is implemented by the canonical HOT
- * trie. Valid-time entries live in their dedicated {@link io.sirix.page.ValidTimeIndexPage}
- * reference slot, separate from the other index types.
+ * trie. The interval and companion trees use separate reference slots in
+ * {@link ValidTimeIndexPage}, independent of other index types.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -35,6 +36,54 @@ public final class ValidTimeIntervalIndexFactory {
 
   private ValidTimeIntervalIndexFactory() {
     throw new AssertionError("May never be instantiated!");
+  }
+
+  /** Revisioned posting of intervals that cannot be answered from millisecond endpoints alone. */
+  public static OrderedStore createVerificationStore(final StorageEngineReader storageEngineReader,
+      final int indexNumber) {
+    final HOTIndexReader<ValidTimeKey> reader = HOTIndexReader.create(storageEngineReader,
+        ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, metadataIndex(indexNumber));
+    return new HotOrderedStore(ValidTimeKey.STORE_UNVERIFIED, null, reader);
+  }
+
+  /** Read the revisioned record membership of an array or document root without node navigation. */
+  public static OrderedStore createMembershipStore(final StorageEngineReader storageEngineReader,
+      final int indexNumber) {
+    return new HotOrderedStore(ValidTimeKey.STORE_MEMBERS, null, HOTIndexReader.create(storageEngineReader,
+        ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, metadataIndex(indexNumber)));
+  }
+
+  /** Conservative, revisioned order guard for replacing an ordered array iteration by sorted keys. */
+  public static OrderedStore createOrderStore(final StorageEngineReader storageEngineReader, final int indexNumber) {
+    return new HotOrderedStore(ValidTimeKey.STORE_UNORDERED, null, HOTIndexReader.create(storageEngineReader,
+        ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, metadataIndex(indexNumber)));
+  }
+
+  /**
+   * The metadata tree uses the high half of the physical id space, leaving the interval tree's key
+   * geometry independent of large parent-membership postings. Both trees are revisioned in the same
+   * ValidTimeIndexPage and transaction intent log.
+   */
+  private static int metadataIndex(final int indexNumber) {
+    if (indexNumber < 0 || indexNumber >= Constants.INP_REFERENCE_COUNT / 2) {
+      throw new IllegalArgumentException("Valid-time index id exceeds the paired-tree capacity: " + indexNumber);
+    }
+    return Constants.INP_REFERENCE_COUNT - 1 - indexNumber;
+  }
+
+  /** Build intervals and metadata with independent writers over their respective HOT roots. */
+  public static ValidTimeIntervalIndexWriter createIndexWriter(final StorageEngineWriter storageEngineWriter,
+      final int indexNumber, final IntervalDomain domain, final String fromField, final String toField) {
+    final int metadataIndex = metadataIndex(indexNumber);
+    final RelationalIntervalTree tree = createWriterTree(storageEngineWriter, indexNumber, domain);
+    final HOTIndexWriter<ValidTimeKey> metadataWriter =
+        HOTIndexWriter.create(storageEngineWriter, ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, metadataIndex);
+    final HOTIndexReader<ValidTimeKey> metadataReader =
+        HOTIndexReader.create(storageEngineWriter, ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, metadataIndex);
+    return new ValidTimeIntervalIndexWriter(tree,
+        new HotOrderedStore(ValidTimeKey.STORE_UNVERIFIED, metadataWriter, metadataReader),
+        new HotOrderedStore(ValidTimeKey.STORE_MEMBERS, metadataWriter, metadataReader),
+        new HotOrderedStore(ValidTimeKey.STORE_UNORDERED, metadataWriter, metadataReader), domain, fromField, toField);
   }
 
   /**
