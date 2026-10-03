@@ -73,13 +73,14 @@ failure table and tells the reader where the work went.
 | | filtered group-by | it leaves the sliced route: whole-projection materialization (`eagerFallbacks`) or the generic pipeline |
 | | grouped top-K, clean range | the sorted view stops serving it, or reads data leaves, or reads more summaries than the range has leaves |
 | | grouped top-K, range holding a row without the aggregate | the view walks the range twice before declining, **or** declines ranges of the same view whose rows all carry a value |
+| `sirix-query` `ValidTimeSliceWorkBudgetTest` | direct, folded bitemporal and plain-FLWOR valid-time slices | exact counts construct objects or read timestamp fields; first-item demand materializes more than one object; an empty closed stab reads candidates from unrelated inexact intervals (64 rows in CI, opt-in 100,000-row evidence fixture) |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
 | `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, a head insert touches an untouched suffix, **or** streaming append commits rewalk previously committed prefixes instead of consuming transient ingest positions (measurement: `docs/UPDATE_DIFF_INGEST_POSITIONS.md`) |
 | `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds about one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
 
-Every one of these was checked **by mutation**: the defect it guards was put back, the test was seen
+The original budgets were checked **by mutation**: the defect it guards was put back, the test was seen
 to fail with the expected counter, and the source was restored. The measured healthy and broken
 figures are in each test's comments.
 
@@ -144,7 +145,9 @@ maintains, so a budget quotes the same numbers an investigation would:
   what the test itself hands in, so there is no global state and nothing to restore - but a decorator
   reads zero when the route stops going through it, so give its bound a floor, or a second capture
   on the same seam that must read non-zero. Today that is
-  `JsonDiffArrayPositionWorkBudgetTest`'s `JsonResourceSession` wrapper.
+  `JsonDiffArrayPositionWorkBudgetTest`'s `JsonResourceSession` wrapper and
+  `ValidTimeSliceWorkBudgetTest`'s decorated real JSON cursor. The latter intercepts both
+  transaction-time and revision-based document opening and requires observed reads on item demand.
 
 **Gated counters.** Counters on a hot path are compiled away behind a `static final` flag, so a test
 cannot switch one on for itself. The module's `test` block provides the property and the capture

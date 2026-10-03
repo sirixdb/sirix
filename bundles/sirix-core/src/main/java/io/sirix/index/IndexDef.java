@@ -45,7 +45,9 @@ public final class IndexDef implements Materializable {
 
   private static final QNm VALID_TIME_FORMAT_ATTRIBUTE = new QNm("validTimeFormat");
 
-  private static final String VALID_TIME_FORMAT = "3";
+  private static final String VALID_TIME_FORMAT = "4";
+
+  private String validTimeFormat = VALID_TIME_FORMAT;
 
   private static final QNm DIMENSION_ATTRIBUTE = new QNm("dimension");
 
@@ -259,7 +261,7 @@ public final class IndexDef implements Materializable {
     tmp.attribute(ID_ATTRIBUTE, new Una(Integer.toString(id)));
 
     if (type == IndexType.VALIDTIME) {
-      tmp.attribute(VALID_TIME_FORMAT_ATTRIBUTE, new Una(VALID_TIME_FORMAT));
+      tmp.attribute(VALID_TIME_FORMAT_ATTRIBUTE, new Una(validTimeFormat));
     }
 
     if (contentType != null) {
@@ -363,9 +365,7 @@ public final class IndexDef implements Materializable {
 
     if (type == IndexType.VALIDTIME) {
       attribute = root.getAttribute(VALID_TIME_FORMAT_ATTRIBUTE);
-      if (attribute == null || !VALID_TIME_FORMAT.equals(attribute.getValue().stringValue())) {
-        throw new DocumentException("Unsupported valid-time index format; rebuild the resource with this version");
-      }
+      validTimeFormat = attribute == null ? "" : attribute.getValue().stringValue();
     }
 
     attribute = root.getAttribute(CONTENT_TYPE_ATTRIBUTE);
@@ -616,6 +616,10 @@ public final class IndexDef implements Materializable {
     return contentType;
   }
 
+  public boolean needsValidTimeRebuild() {
+    return isValidTimeIndex() && !VALID_TIME_FORMAT.equals(validTimeFormat);
+  }
+
   /**
    * Compare the complete persisted meaning of two index definitions.
    *
@@ -642,6 +646,7 @@ public final class IndexDef implements Materializable {
   public boolean hasSameDefinition(final IndexDef other) {
     requireNonNull(other);
     return id == other.id && type == other.type && dbType == other.dbType && unique == other.unique
+        && (!isValidTimeIndex() || validTimeFormat.equals(other.validTimeFormat))
         && Objects.equals(contentType, other.contentType) && samePersistedPaths(paths, other.paths)
         && included.equals(other.included) && excluded.equals(other.excluded)
         && samePersistedPaths(projectionFields, other.projectionFields)

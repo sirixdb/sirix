@@ -222,7 +222,11 @@ public final class JsonValidTimeStep extends Walker {
             : 0)
         | (boundA == lowerBoundOnField
             ? 4
-            : 0);
+            : 0)
+        | (upperBoundOnField.general ? 8 : 0)
+        | (lowerBoundOnField.general ? 16 : 0)
+        | (upperBoundOnField.fieldOnLeft ? 0 : 32)
+        | (lowerBoundOnField.fieldOnLeft ? 64 : 0);
     scanCall.addChild(new AST(XQ.Int, new Int32(mode)));
     forBind.replaceChild(1, scanCall);
     // The overload checks exactness at this evaluation's revision; an unsafe shape executes the
@@ -259,9 +263,8 @@ public final class JsonValidTimeStep extends Walker {
       call.addChild(new AST(XQ.Int, new Int32((bound.fieldUpperBounded
           ? 1
           : 3)
-          + (bound.strict
-              ? 1
-              : 0))));
+          + (bound.strict ? 1 : 0)
+          + (bound.fieldOnLeft == bound.fieldUpperBounded ? 0 : 4))));
       forBind.replaceChild(1, call);
       conjuncts.remove(i);
       if (conjuncts.isEmpty()) {
@@ -306,12 +309,17 @@ public final class JsonValidTimeStep extends Walker {
     final boolean fieldUpperBounded; // true: field <= point ; false: point <= field
     final AST point;
     final boolean strict;
+    final boolean general;
+    final boolean fieldOnLeft;
 
-    Bound(final String fieldName, final boolean fieldUpperBounded, final AST point, final boolean strict) {
+    Bound(final String fieldName, final boolean fieldUpperBounded, final AST point, final boolean strict,
+        final boolean general, final boolean fieldOnLeft) {
       this.fieldName = fieldName;
       this.fieldUpperBounded = fieldUpperBounded;
       this.point = point;
       this.strict = strict;
+      this.general = general;
+      this.fieldOnLeft = fieldOnLeft;
     }
   }
 
@@ -335,6 +343,8 @@ public final class JsonValidTimeStep extends Walker {
     final int op = cmp.getChild(0).getType();
     final boolean strict =
         op == XQ.ValueCompLT || op == XQ.ValueCompGT || op == XQ.GeneralCompLT || op == XQ.GeneralCompGT;
+    final boolean general = op == XQ.GeneralCompLT || op == XQ.GeneralCompLE
+        || op == XQ.GeneralCompGT || op == XQ.GeneralCompGE;
     final AST left = cmp.getChild(1);
     final AST right = cmp.getChild(2);
 
@@ -347,7 +357,7 @@ public final class JsonValidTimeStep extends Walker {
       if (fieldLe == null) {
         return null;
       }
-      return new Bound(leftField, fieldLe, right, strict);
+      return new Bound(leftField, fieldLe, right, strict, general, true);
     }
     if (rightField != null && leftField == null) {
       // field is on the RIGHT: invert the operator's sense.
@@ -357,7 +367,7 @@ public final class JsonValidTimeStep extends Walker {
       }
       // If "left OP right" means left<=right (fieldLeLeft semantics computed for left-field), then for
       // right-field the relation field-vs-point is the mirror: point OP-relation field.
-      return new Bound(rightField, !fieldLeLeft, left, strict);
+      return new Bound(rightField, !fieldLeLeft, left, strict, general, false);
     }
     return null;
   }
@@ -392,7 +402,7 @@ public final class JsonValidTimeStep extends Walker {
     }
     final AST base = deref.getChild(0);
     final AST field = deref.getChild(1);
-    if (base.getType() != XQ.VariableRef || !loopVar.equals(base.getValue())) {
+    if (base.getType() != XQ.VariableRef || !loopVar.equals(base.getValue()) || field.getType() != XQ.QNm) {
       return null;
     }
     final Object fieldVal = field.getValue();
