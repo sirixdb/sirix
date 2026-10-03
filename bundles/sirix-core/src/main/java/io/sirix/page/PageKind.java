@@ -6803,20 +6803,25 @@ public enum PageKind {
       }
       return page;
     } catch (final RuntimeException | Error failure) {
-      try {
-        if (page != null) {
-          // The constructor has returned: the page is the sole frame owner, including any side
-          // references already decoded before a later trailer read failed.
-          page.close();
-        } else if (acquiredFrameOwner != null) {
-          // Construction did not publish ownership. Release the acquired/transferred frame here;
-          // DecompressionResult.close() is a no-op after transfer, so this remains exactly-once.
-          acquiredFrameOwner.run();
-        }
-      } catch (final RuntimeException | Error cleanupFailure) {
-        HOTLeafPage.addSuppressedSafely(failure, cleanupFailure);
-      }
+      closeUnpublishedHOTLeaf(page, acquiredFrameOwner, failure);
       throw failure;
+    }
+  }
+
+  private static void closeUnpublishedHOTLeaf(final @Nullable HOTLeafPage page,
+      final @Nullable Runnable acquiredFrameOwner, final Throwable failure) {
+    try {
+      if (page != null) {
+        // The constructor has returned: the page is the sole frame owner, including any side
+        // references already decoded before a later trailer read failed.
+        page.close();
+      } else if (acquiredFrameOwner != null) {
+        // Construction did not publish ownership. Release the acquired/transferred frame here;
+        // DecompressionResult.close() is a no-op after transfer, so this remains exactly-once.
+        acquiredFrameOwner.run();
+      }
+    } catch (final RuntimeException | Error cleanupFailure) {
+      HOTLeafPage.addSuppressedSafely(failure, cleanupFailure);
     }
   }
 

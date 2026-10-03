@@ -128,14 +128,9 @@ public final class HOTMiniPage implements CacheablePage {
     final int previousCount = previous == null
         ? 0
         : previous.count;
-    final boolean newKey = previous == null || !((insertion > 0 && previous.keyEquals(insertion - 1, key))
-        || (insertion < previousCount && previous.keyEquals(insertion, key)));
-    final int distinctKeys = (previous == null
-        ? 0
-        : previous.distinctKeys)
-        + (newKey
-            ? 1
-            : 0);
+    final int distinctKeys = previous == null
+        ? 1
+        : previous.distinctKeyCountAfterInsert(insertion, key);
     final long nextUsed = (long) previousUsed + HEADER_BYTES + key.length + Math.max(0, valueLength) + (side == null
         ? 0
         : SIDE_BYTES);
@@ -145,20 +140,7 @@ public final class HOTMiniPage implements CacheablePage {
     }
     final int capacity = Math.max(64, Integer.highestOneBit((int) required - 1) << 1);
     final short[] offsets = new short[previousCount + 1];
-    final PackedBody body;
-    if (previous != null && previous.body.data.length + offsets.length * Short.BYTES <= capacity
-        && previous.body.reserve(previousUsed, (int) nextUsed)) {
-      body = previous.body;
-    } else {
-      // Reserve directory headroom using the smallest possible record (header plus offset).
-      // Both arrays together stay within the same power-of-two charge and 32 KiB packed cap.
-      // A large record may consume that headroom; it still fits whenever the old format did.
-      final int directoryReserve = capacity / (HEADER_BYTES + Short.BYTES) * Short.BYTES;
-      body = new PackedBody(Math.max((int) nextUsed, capacity - directoryReserve), (int) nextUsed);
-      if (previous != null) {
-        System.arraycopy(previous.data, 0, body.data, 0, previousUsed);
-      }
-    }
+    final PackedBody body = appendBody(previous, capacity, previousUsed, (int) nextUsed, offsets.length);
     if (previous != null) {
       System.arraycopy(previous.offsets, 0, offsets, 0, insertion);
       System.arraycopy(previous.offsets, insertion, offsets, insertion + 1, previousCount - insertion);
@@ -168,24 +150,49 @@ public final class HOTMiniPage implements CacheablePage {
     putShort(packed, previousUsed, key.length);
     INTS.set(packed, previousUsed + 2, valueLength);
     LONGS.set(packed, previousUsed + 6, sideReferenceKey);
-    packed[previousUsed + 14] = (byte) (side == null
-        ? 0
-        : side.hasHash()
-            ? 2
-            : 1);
     int position = previousUsed + HEADER_BYTES;
     if (side != null) {
+      packed[previousUsed + 14] = (byte) (side.hasHash()
+          ? 2
+          : 1);
       LONGS.set(packed, position, side.getKey());
       LONGS.set(packed, position + 8, side.getDatabaseId());
       LONGS.set(packed, position + 16, side.getResourceId());
       LONGS.set(packed, position + 24, side.getHashAsLong());
       position += SIDE_BYTES;
+    } else {
+      packed[previousUsed + 14] = 0;
     }
     System.arraycopy(key, 0, packed, position, key.length);
     if (entry != null) {
       System.arraycopy(entry.value(), 0, packed, position + key.length, valueLength);
     }
     return new HOTMiniPage(body, offsets, capacity, (int) nextUsed, distinctKeys, pageKey, revision);
+  }
+
+  private int distinctKeyCountAfterInsert(final int insertion, final byte[] key) {
+    final boolean existingKey =
+        (insertion > 0 && keyEquals(insertion - 1, key)) || (insertion < count && keyEquals(insertion, key));
+    return distinctKeys + (existingKey
+        ? 0
+        : 1);
+  }
+
+  private static PackedBody appendBody(final @Nullable HOTMiniPage previous, final int capacity, final int previousUsed,
+      final int nextUsed, final int offsetCount) {
+    if (previous != null && previous.body.data.length + offsetCount * Short.BYTES <= capacity
+        && previous.body.reserve(previousUsed, nextUsed)) {
+      return previous.body;
+    }
+    // Reserve directory headroom using the smallest possible record (header plus offset).
+    // Both arrays together stay within the same power-of-two charge and 32 KiB packed cap.
+    // A large record may consume that headroom; it still fits whenever the old format did.
+    final int directoryReserve = capacity / (HEADER_BYTES + Short.BYTES) * Short.BYTES;
+    final PackedBody body = new PackedBody(Math.max(nextUsed, capacity - directoryReserve), nextUsed);
+    if (previous != null) {
+      System.arraycopy(previous.data, 0, body.data, 0, previousUsed);
+    }
+    return body;
   }
 
   /** Binary-search a resolved slot; negative result encodes the insertion position. Hold a guard. */

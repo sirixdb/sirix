@@ -4451,6 +4451,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
       throw new SirixIOException("Projection point route at key " + reference.getKey() + " is not a HOT page");
     }
+    return readVersionedHOTProjectionEntry(reference, canonicalKey, key, sideReferenceKey, intent);
+  }
+
+  private @Nullable HOTLeafEntry readVersionedHOTProjectionEntry(final PageReference reference,
+      final PageReference canonicalKey, final byte[] key, final long sideReferenceKey, final HOTReadIntent intent) {
     final HOTMiniPageCache miniPages = resourceBufferManager.getHOTMiniPageCache();
     final long generation = miniPages.generation(canonicalKey);
     final HOTMiniPage mini = miniPages.getAndGuard(canonicalKey);
