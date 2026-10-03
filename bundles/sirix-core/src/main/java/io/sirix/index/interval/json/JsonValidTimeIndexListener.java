@@ -85,13 +85,13 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
   private final String validToField;
 
   private final State activeState = new State();
+  private final State structuralMovedState = new State();
   private final State structuralSourceState = new State();
   private final State structuralDestinationState = new State();
   private long activeObjectKey = NO_OBJECT;
   private long structuralNodeKey = NO_OBJECT;
   private long structuralSourceObjectKey = NO_OBJECT;
   private boolean active;
-  private boolean directBoundStructuralChange;
 
   public JsonValidTimeIndexListener(final StorageEngineWriter storageEngineWriter,
       final ValidTimeIntervalIndexWriter indexWriter, final String validFromField, final String validToField) {
@@ -132,10 +132,7 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   private void onPrimitiveChange(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
       final long parentKey, final @Nullable QNm name, final @Nullable Str value) {
-    if (directBoundStructuralChange && nodeKey == structuralNodeKey) {
-      // A direct bound-field MOVE/rename is reconciled once from the before/after snapshots below.
-      // Its primitive DELETE/INSERT pair cannot describe sibling order, and applying it as well
-      // would publish the same record twice.
+    if (structuralNodeKey != NO_OBJECT) {
       return;
     }
 
@@ -414,39 +411,35 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     clearStructuralChange();
   }
 
-  /**
-   * Snapshot a directly moved/renamed valid-time field before sibling or parent linkage changes.
-   * Primitive notifications do not carry sibling order, so this one leaf is reconciled at the
-   * structural boundary instead. Moving a container keeps the default primitive path because the
-   * order of the valid-time fields inside each contained object does not change.
-   */
   @Override
   public void beforeStructuralChange(final long movedNodeKey) {
-    if (directBoundStructuralChange) {
+    if (structuralNodeKey != NO_OBJECT) {
       throw new IllegalStateException("Nested valid-time structural change for node " + movedNodeKey);
     }
 
     reconcileActiveObject();
     final ImmutableNode movedNode = loadNode(movedNodeKey);
-    if (!isDirectBoundField(movedNode)) {
-      return;
+    if (movedNode == null) {
+      throw new IllegalStateException("Structurally changed valid-time node " + movedNodeKey + " is unreadable");
     }
-
-    final long sourceObjectKey = resolveContainingObjectKeyFromParent(movedNode.getParentKey());
-    if (sourceObjectKey == NO_OBJECT) {
-      throw new IllegalStateException(
-          "Unable to resolve source object for structurally changed valid-time node " + movedNodeKey);
+    final NodeKind kind = movedNode.getKind();
+    final long parentKey = movedNode.getParentKey();
+    if (kind == NodeKind.OBJECT || kind == NodeKind.OBJECT_NAMED_OBJECT) {
+      seedState(movedNodeKey, NO_OBJECT, NO_OBJECT, structuralMovedState);
     }
-
-    seedState(sourceObjectKey, NO_OBJECT, NO_OBJECT, structuralSourceState);
+    if (kind.isFusedObjectNamed()) {
+      final long sourceObjectKey = resolveContainingObjectKeyFromParent(parentKey);
+      if (sourceObjectKey != NO_OBJECT) {
+        seedState(sourceObjectKey, NO_OBJECT, NO_OBJECT, structuralSourceState);
+        structuralSourceObjectKey = sourceObjectKey;
+      }
+    }
     structuralNodeKey = movedNodeKey;
-    structuralSourceObjectKey = sourceObjectKey;
-    directBoundStructuralChange = true;
   }
 
   @Override
   public void afterStructuralChange(final long movedNodeKey) {
-    if (!directBoundStructuralChange) {
+    if (structuralNodeKey == NO_OBJECT) {
       return;
     }
     if (movedNodeKey != structuralNodeKey) {
@@ -461,28 +454,30 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
       if (movedNode == null || !movedNode.hasParent()) {
         throw new IllegalStateException("Structurally changed valid-time node " + movedNodeKey + " is unreadable");
       }
-
-      final long destinationObjectKey = resolveContainingObjectKeyFromParent(movedNode.getParentKey());
-      if (destinationObjectKey == structuralSourceObjectKey) {
-        readBounds(structuralSourceObjectKey, NO_OBJECT, NO_OBJECT, structuralSourceState);
-        reconcileState(structuralSourceObjectKey, structuralSourceState);
-        return;
+      final long destinationObjectKey = movedNode.getKind().isFusedObjectNamed()
+          ? resolveContainingObjectKeyFromParent(movedNode.getParentKey())
+          : NO_OBJECT;
+      if (structuralMovedState.registered != null) {
+        readBounds(movedNodeKey, NO_OBJECT, NO_OBJECT, structuralMovedState);
       }
-
-      // Compute every post-surgery snapshot before publishing either side. If a read fails, the
-      // transaction is latched rollback-only without leaving a half-applied source/destination pair.
-      readBounds(structuralSourceObjectKey, NO_OBJECT, NO_OBJECT, structuralSourceState);
-      if (destinationObjectKey != NO_OBJECT) {
+      if (structuralSourceObjectKey != NO_OBJECT) {
+        readBounds(structuralSourceObjectKey, NO_OBJECT, NO_OBJECT, structuralSourceState);
+      }
+      if (destinationObjectKey != NO_OBJECT && destinationObjectKey != structuralSourceObjectKey) {
         seedState(destinationObjectKey, movedNodeKey, movedNodeKey, structuralDestinationState);
         readBounds(destinationObjectKey, NO_OBJECT, NO_OBJECT, structuralDestinationState);
       }
 
-      reconcileState(structuralSourceObjectKey, structuralSourceState);
-      if (destinationObjectKey != NO_OBJECT) {
+      if (structuralMovedState.registered != null) {
+        reconcileState(movedNodeKey, structuralMovedState);
+      }
+      if (structuralSourceObjectKey != NO_OBJECT) {
+        reconcileState(structuralSourceObjectKey, structuralSourceState);
+      }
+      if (destinationObjectKey != NO_OBJECT && destinationObjectKey != structuralSourceObjectKey) {
         reconcileState(destinationObjectKey, structuralDestinationState);
       }
     } catch (final RuntimeException | Error failure) {
-      // The document surgery has completed by this point, even if interval publication has not.
       markRollbackOnly(failure);
       throw failure;
     } finally {
@@ -495,21 +490,12 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     clearStructuralChange();
   }
 
-  private boolean isDirectBoundField(final @Nullable ImmutableNode node) {
-    if (node == null || !node.getKind().isFusedObjectNamed() || !(node instanceof NameNode nameNode)
-        || !node.hasParent()) {
-      return false;
-    }
-    final String fieldName = storageEngineWriter.getName(nameNode.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT);
-    return validFromField.equals(fieldName) || validToField.equals(fieldName);
-  }
-
   private void clearStructuralChange() {
     structuralNodeKey = NO_OBJECT;
     structuralSourceObjectKey = NO_OBJECT;
+    clearState(structuralMovedState);
     clearState(structuralSourceState);
     clearState(structuralDestinationState);
-    directBoundStructuralChange = false;
   }
 
   /**
