@@ -147,9 +147,7 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
 
   private XmlDBNode getDocumentInternal(final String resName, final Instant pointInTime) {
     return instantDocumentDataToXmlDBNodes.computeIfAbsent(new InstantDocumentData(resName, pointInTime), (unused) -> {
-      // beginResourceSession hands out the one session cached per resource, shared with every other
-      // reader and writer of it, so this method must not close it: that would roll back and close
-      // their transactions too. It owns only the transaction it opened here.
+      // Borrowed-session ownership is defined by Database.beginResourceSession: close only our trx.
       final XmlResourceSession resource = database.beginResourceSession(resName);
       XmlNodeReadOnlyTrx trx = null;
       try {

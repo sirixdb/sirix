@@ -149,9 +149,7 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
   }
 
   private JsonDBItem getDocumentInternal(final String resName, final Instant pointInTime) {
-    // beginResourceSession hands out the one session cached per resource, shared with every other
-    // reader and writer of it, so this method must not close it: that would roll back and close
-    // their transactions too. It owns only the transaction it opened here.
+    // Borrowed-session ownership is defined by Database.beginResourceSession: close only our trx.
     final JsonResourceSession resource = database.beginResourceSession(resName);
     JsonNodeReadOnlyTrx trx = null;
     try {

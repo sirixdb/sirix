@@ -1456,23 +1456,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Begin a read-only transaction at the revision that was valid at the given point in time.
-   * 
-   * <p>
-   * This uses <b>floor semantics</b>: returns the last revision that was committed at or before the
-   * given timestamp. This reflects the actual state of the database as it was at that moment in time.
-   * 
-   * <p>
-   * Special cases:
-   * <ul>
-   * <li>If timestamp is before all revisions → returns revision 0</li>
-   * <li>If timestamp is after all revisions → returns the most recent revision</li>
-   * <li>If timestamp exactly matches a revision → returns that revision</li>
-   * <li>If timestamp is between revisions → returns the earlier revision</li>
-   * </ul>
-   *
-   * @param pointInTime the point in time to query
-   * @return a read-only transaction at the revision valid at that time
+   * {@inheritDoc}
    */
   @Override
   public R beginNodeReadOnlyTrx(final Instant pointInTime) {
@@ -1533,23 +1517,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Get the revision number that was valid at the given point in time.
-   * 
-   * <p>
-   * This uses <b>floor semantics</b>: returns the last revision that was committed at or before the
-   * given timestamp. This reflects the actual state of the database as it was at that moment in time.
-   * 
-   * <p>
-   * Special cases:
-   * <ul>
-   * <li>If timestamp is before all revisions → returns 0</li>
-   * <li>If timestamp is after all revisions → returns the most recent revision number</li>
-   * <li>If timestamp exactly matches a revision → returns that revision number</li>
-   * <li>If timestamp is between revisions → returns the earlier revision number</li>
-   * </ul>
-   *
-   * @param pointInTime the point in time to query
-   * @return the revision number valid at that time
+   * {@inheritDoc}
    */
   @Override
   public int getRevisionNumber(final Instant pointInTime) {

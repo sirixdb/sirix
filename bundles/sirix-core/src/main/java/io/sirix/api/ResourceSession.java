@@ -252,11 +252,11 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   R beginNodeReadOnlyTrx(int revision);
 
   /**
-   * Begin a read-only transaction with the revision, which is closest to the given point in time.
+   * Begin a read-only transaction at the revision selected by {@link #getRevisionNumber(Instant)}.
    *
    * @param pointInTime the point in time
-   * @return instance of a class, which implements the {@link XmlNodeReadOnlyTrx} interface
-   * @throws IllegalArgumentException if {@code revision < 0}
+   * @return a read-only transaction at the selected revision
+   * @throws NullPointerException if {@code pointInTime} is {@code null}
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
    */
@@ -380,16 +380,24 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   }
 
   /**
-   * Get the revision number, which was committed at the closest time to the given point in time.
+   * Get the revision number that was valid at the given point in time using floor semantics.
+   *
+   * <p>
+   * Selects the last revision committed at or before the requested timestamp. A timestamp between
+   * revisions selects the earlier revision; an exact match selects that revision. A timestamp before
+   * all revisions selects the bootstrap revision 0, and one after all revisions selects the most
+   * recent revision.
    *
    * @param pointInTime the point in time
-   * @return the revision number, which was committed at the closest time to the given point in time.
+   * @return the revision number valid at that time
+   * @throws NullPointerException if {@code pointInTime} is {@code null}
    */
   int getRevisionNumber(Instant pointInTime);
 
   /**
    * Safely close resource session and immediately release all resources. If there are running
-   * transactions, they will automatically be closed.
+   * transactions, they will automatically be closed. Uncommitted write transactions are rolled back
+   * before closing.
    * <p>
    * This is an idempotent operation and does nothing if the resource session is already closed.
    *
