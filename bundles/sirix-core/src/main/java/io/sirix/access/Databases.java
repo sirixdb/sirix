@@ -27,6 +27,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -215,6 +216,7 @@ public final class Databases {
     }
 
     final Path canonicalPath = canonicalDatabasePath(databaseFile);
+    boolean success = true;
     try (final DatabaseLock ownership = DatabaseLock.acquire(canonicalPath)) {
       // Another creator may have published the database after our initial empty-directory check.
       // Recheck while owning the lock before creating, serializing, or cleaning up any files.
@@ -222,7 +224,6 @@ public final class Databases {
         return false;
       }
 
-      boolean success = true;
       for (final DatabaseConfiguration.DatabasePaths paths : DatabaseConfiguration.DatabasePaths.values()) {
         if (paths == DatabaseConfiguration.DatabasePaths.LOCK) {
           continue; // Acquiring ownership already created the persistent lock file.
@@ -241,16 +242,19 @@ public final class Databases {
       }
       if (!success) {
         removeDatabaseFiles(canonicalPath);
-        return false;
+      } else {
+        if (dbConfig.getDatabaseId() == 0) {
+          dbConfig.setDatabaseId(mintDatabaseId(canonicalPath));
+        }
+        DatabaseConfiguration.serialize(dbConfig);
       }
-      if (dbConfig.getDatabaseId() == 0) {
-        dbConfig.setDatabaseId(mintDatabaseId(canonicalPath));
-      }
-      DatabaseConfiguration.serialize(dbConfig);
-      return true;
     } catch (final IOException e) {
       throw new SirixIOException("Could not create database at " + canonicalPath, e);
     }
+    if (!success) {
+      removeEmptyDatabaseDirectory(canonicalPath);
+    }
+    return success;
   }
 
   private static boolean hasDatabaseContents(final Path path) throws IOException {
@@ -321,6 +325,7 @@ public final class Databases {
     } catch (final IOException e) {
       throw new SirixIOException("Could not remove database at " + path, e);
     }
+    removeEmptyDatabaseDirectory(path);
     freeAllocatedMemory();
   }
 
@@ -334,8 +339,20 @@ public final class Databases {
         }
       }
     }
+    if (hasDatabaseContents(path)) {
+      throw new DirectoryNotEmptyException(path.toString());
+    }
     Files.deleteIfExists(lockPath);
-    Files.delete(path);
+  }
+
+  private static void removeEmptyDatabaseDirectory(final Path path) {
+    try {
+      Files.deleteIfExists(path);
+    } catch (final DirectoryNotEmptyException e) {
+      return;
+    } catch (final IOException e) {
+      throw new SirixIOException("Could not remove database directory at " + path, e);
+    }
   }
 
   public static void freeAllocatedMemory() {

@@ -11,6 +11,7 @@ import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixDatabaseLockException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.utils.SirixFiles;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -29,6 +30,7 @@ import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -371,18 +373,29 @@ final class DatabaseOwnershipTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void removalRetainsOwnershipUntilLockFileDeletion(final boolean openHandle) throws Exception {
+  void removalFinalizesPendingLockDeletionAfterBothChannelsClose(final boolean openHandle) throws Exception {
     final Path path = createDatabase();
     final Path lockPath = path.resolve(".lock");
+    final List<FileChannel> lockChannels = new ArrayList<>(2);
     final AtomicBoolean deletingLock = new AtomicBoolean();
-    try (final Database<JsonResourceSession> database = openHandle ? Databases.openJsonDatabase(path) : null;
+    try (final MockedStatic<FileChannel> channels = trackLockChannels(lockPath, lockChannels);
+        final Database<JsonResourceSession> database = openHandle
+            ? Databases.openJsonDatabase(path)
+            : null;
         final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
-        if (invocation.getMethod().getName().equals("deleteIfExists") && lockPath.equals(invocation.getArgument(0))) {
-          deletingLock.set(true);
-          assertChildRefused(path);
-        }
-        return invocation.callRealMethod();
-      })) {
+          if (invocation.getMethod().getName().equals("deleteIfExists") && lockPath.equals(invocation.getArgument(0))) {
+            deletingLock.set(true);
+            assertEquals(2, lockChannels.size());
+            assertTrue(lockChannels.stream().allMatch(FileChannel::isOpen));
+            assertChildRefused(path);
+            return true;
+          }
+          if ((invocation.getMethod().getName().equals("delete")
+              || invocation.getMethod().getName().equals("deleteIfExists")) && path.equals(invocation.getArgument(0))) {
+            completePendingLockDeletion(lockPath, lockChannels, deletingLock);
+          }
+          return invocation.callRealMethod();
+        })) {
       Databases.removeDatabase(path);
       assertTrue(deletingLock.get());
       assertFalse(Files.exists(path));
@@ -393,25 +406,151 @@ final class DatabaseOwnershipTest {
 
   @ParameterizedTest
   @EnumSource(DatabaseType.class)
-  void failedCreationRetainsOwnershipUntilLockFileDeletion(final DatabaseType type) throws Exception {
+  void failedCreationFinalizesPendingLockDeletionAfterBothChannelsClose(final DatabaseType type) throws Exception {
     final Path path = directory.resolve("failed-creation");
     final Path lockPath = path.resolve(".lock");
     final Path keySelector = path.resolve(DatabaseConfiguration.DatabasePaths.KEY_SELECTOR.getFile());
+    final List<FileChannel> lockChannels = new ArrayList<>(2);
     final AtomicBoolean deletingLock = new AtomicBoolean();
-    try (final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
-      if (invocation.getMethod().getName().equals("createDirectory") && keySelector.equals(invocation.getArgument(0))) {
-        throw new IOException("injected creation failure");
-      }
-      if (invocation.getMethod().getName().equals("deleteIfExists") && lockPath.equals(invocation.getArgument(0))) {
-        deletingLock.set(true);
-        assertChildRefused(path);
-      }
-      return invocation.callRealMethod();
-    })) {
+    try (final MockedStatic<FileChannel> channels = trackLockChannels(lockPath, lockChannels);
+        final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+          if (invocation.getMethod().getName().equals("createDirectory")
+              && keySelector.equals(invocation.getArgument(0))) {
+            throw new IOException("injected creation failure");
+          }
+          if (invocation.getMethod().getName().equals("deleteIfExists") && lockPath.equals(invocation.getArgument(0))) {
+            deletingLock.set(true);
+            assertEquals(2, lockChannels.size());
+            assertTrue(lockChannels.stream().allMatch(FileChannel::isOpen));
+            assertChildRefused(path);
+            return true;
+          }
+          if ((invocation.getMethod().getName().equals("delete")
+              || invocation.getMethod().getName().equals("deleteIfExists")) && path.equals(invocation.getArgument(0))) {
+            completePendingLockDeletion(lockPath, lockChannels, deletingLock);
+          }
+          return invocation.callRealMethod();
+        })) {
       assertFalse(createDatabase(path, type));
       assertTrue(deletingLock.get());
       assertFalse(Files.exists(path));
     } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  private static MockedStatic<FileChannel> trackLockChannels(final Path lockPath, final List<FileChannel> channels) {
+    return mockStatic(FileChannel.class, invocation -> {
+      final Object result = invocation.callRealMethod();
+      if (invocation.getMethod().getName().equals("open") && invocation.getRawArguments().length == 2
+          && lockPath.equals(invocation.getArgument(0)) && invocation.getRawArguments()[1] instanceof OpenOption[]) {
+        channels.add((FileChannel) result);
+      }
+      return result;
+    });
+  }
+
+  private static void completePendingLockDeletion(final Path lockPath, final List<FileChannel> channels,
+      final AtomicBoolean deletionRequested) {
+    assertTrue(deletionRequested.get());
+    assertEquals(2, channels.size());
+    assertTrue(channels.stream().noneMatch(FileChannel::isOpen),
+        "both lock channels must close before directory deletion");
+    assertTrue(lockPath.toFile().delete(), "the pending lock file must disappear before deleting its directory");
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void incompleteContentCleanupFailsBeforeLockFileDeletion(final boolean failedCreation) throws Exception {
+    final Path path = directory.resolve("incomplete-cleanup");
+    if (!failedCreation) {
+      assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
+    }
+    final Path keySelector = path.resolve(DatabaseConfiguration.DatabasePaths.KEY_SELECTOR.getFile());
+    final Path resources = path.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    try {
+      try (final MockedStatic<SirixFiles> removal = mockStatic(SirixFiles.class, invocation -> {
+        if (invocation.getMethod().getName().equals("recursiveRemove")
+            && keySelector.equals(invocation.getArgument(0))) {
+          return null;
+        }
+        return invocation.callRealMethod();
+      }); final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+        if (failedCreation && invocation.getMethod().getName().equals("createDirectory")
+            && resources.equals(invocation.getArgument(0))) {
+          throw new IOException("injected creation failure");
+        }
+        return invocation.callRealMethod();
+      })) {
+        final SirixIOException failure = assertThrows(SirixIOException.class, () -> {
+          if (failedCreation) {
+            Databases.createJsonDatabase(new DatabaseConfiguration(path));
+          } else {
+            Databases.removeDatabase(path);
+          }
+        });
+        assertTrue(failure.getCause() instanceof DirectoryNotEmptyException);
+        assertTrue(Files.exists(keySelector));
+        assertTrue(Files.exists(path.resolve(".lock")));
+      }
+      Databases.removeDatabase(path);
+      assertFalse(Files.exists(path));
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void directoryFinalizationPreservesAConcurrentReplacement(final boolean failedCreation) throws Exception {
+    final Path path = directory.resolve("replaced-during-cleanup");
+    if (!failedCreation) {
+      assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
+    }
+    final Path keySelector = path.resolve(DatabaseConfiguration.DatabasePaths.KEY_SELECTOR.getFile());
+    final AtomicReference<Process> replacement = new AtomicReference<>();
+    try {
+      try (final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+        if (failedCreation && invocation.getMethod().getName().equals("createDirectory")
+            && keySelector.equals(invocation.getArgument(0))) {
+          throw new IOException("injected creation failure");
+        }
+        if ((invocation.getMethod().getName().equals("delete")
+            || invocation.getMethod().getName().equals("deleteIfExists")) && path.equals(invocation.getArgument(0))) {
+          final Process owner = child(path, "replace");
+          replacement.set(owner);
+          assertEquals("OPEN", childResult(owner));
+        }
+        return invocation.callRealMethod();
+      })) {
+        if (failedCreation) {
+          assertFalse(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
+        } else {
+          Databases.removeDatabase(path);
+        }
+        assertNotNull(replacement.get());
+        assertTrue(Databases.existsDatabase(path));
+        assertChildRefused(path);
+      }
+      stopChild(replacement.get());
+      try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+        assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+        try (final JsonResourceSession session = database.beginResourceSession("resource");
+            final JsonNodeTrx writer = session.beginNodeTrx()) {
+          writer.insertStringValueAsFirstChild("replacement");
+          writer.commit();
+        }
+      }
+      try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
+          final JsonResourceSession session = database.beginResourceSession("resource");
+          final JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+        assertTrue(reader.moveToFirstChild());
+        assertEquals("replacement", reader.getValue());
+      }
+    } finally {
+      if (replacement.get() != null) {
+        stopChild(replacement.get());
+      }
       Databases.removeDatabase(path);
     }
   }
@@ -463,8 +602,12 @@ final class DatabaseOwnershipTest {
       final JsonNodeTrx writer = session.beginNodeTrx();
       writer.insertStringValueAsFirstChild("pending");
       setWriterField(writer, "asyncCommitFailure", new IOException("injected hardening failure"));
-      try (final Database<JsonResourceSession> sibling = forceRemoval ? Databases.openJsonDatabase(path) : null) {
-        final JsonResourceSession siblingSession = sibling == null ? null : sibling.beginResourceSession("healthy");
+      try (final Database<JsonResourceSession> sibling = forceRemoval
+          ? Databases.openJsonDatabase(path)
+          : null) {
+        final JsonResourceSession siblingSession = sibling == null
+            ? null
+            : sibling.beginResourceSession("healthy");
         assertThrows(SirixIOException.class, () -> {
           if (forceRemoval) {
             Databases.removeDatabase(path);
@@ -514,8 +657,7 @@ final class DatabaseOwnershipTest {
   void delayedSessionReleaseStaysRegisteredUntilItReleasesItsBackend(final DatabaseType type) throws Exception {
     final Path path = directory.resolve("session-generation");
     assertTrue(createDatabase(path, type));
-    try (final Database<?> first = openDatabase(path, type);
-        final Database<?> second = openDatabase(path, type)) {
+    try (final Database<?> first = openDatabase(path, type); final Database<?> second = openDatabase(path, type)) {
       assertTrue(first.createResource(ResourceConfiguration.newBuilder("resource").build()));
       final ResourceSession<?, ?> old = first.beginResourceSession("resource");
       final Field ownerField = DatabaseHandle.class.getDeclaredField("owner");
@@ -536,8 +678,8 @@ final class DatabaseOwnershipTest {
           final ThreadMXBean threads = ManagementFactory.getThreadMXBean();
           final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
           ThreadInfo state = threads.getThreadInfo(closer.threadId());
-          while ((state == null || state.getLockOwnerId() != Thread.currentThread().threadId())
-              && closer.isAlive() && System.nanoTime() < deadline) {
+          while ((state == null || state.getLockOwnerId() != Thread.currentThread().threadId()) && closer.isAlive()
+              && System.nanoTime() < deadline) {
             Thread.onSpinWait();
             state = threads.getThreadInfo(closer.threadId());
           }
@@ -608,11 +750,15 @@ final class DatabaseOwnershipTest {
 
   private static boolean createDatabase(final Path path, final DatabaseType type) {
     final DatabaseConfiguration config = new DatabaseConfiguration(path);
-    return type == DatabaseType.JSON ? Databases.createJsonDatabase(config) : Databases.createXmlDatabase(config);
+    return type == DatabaseType.JSON
+        ? Databases.createJsonDatabase(config)
+        : Databases.createXmlDatabase(config);
   }
 
   private static Database<?> openDatabase(final Path path, final DatabaseType type) {
-    return type == DatabaseType.JSON ? Databases.openJsonDatabase(path) : Databases.openXmlDatabase(path);
+    return type == DatabaseType.JSON
+        ? Databases.openJsonDatabase(path)
+        : Databases.openXmlDatabase(path);
   }
 
   @Test
@@ -760,8 +906,8 @@ final class DatabaseOwnershipTest {
   private Process child(final Path path, final String mode) throws Exception {
     final String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
     return new ProcessBuilder(java, "-Xmx256m", "--enable-preview", "--enable-native-access=ALL-UNNAMED",
-        "--add-modules", "jdk.incubator.vector", "-Dsirix.allocator.maxSize=64M", "-Djava.io.tmpdir=" + directory, "-cp",
-        System.getProperty("java.class.path"), Child.class.getName(), path.toString(), mode).redirectError(
+        "--add-modules", "jdk.incubator.vector", "-Dsirix.allocator.maxSize=64M", "-Djava.io.tmpdir=" + directory,
+        "-cp", System.getProperty("java.class.path"), Child.class.getName(), path.toString(), mode).redirectError(
             directory.resolve("child-" + System.nanoTime() + ".log").toFile()).start();
   }
 
