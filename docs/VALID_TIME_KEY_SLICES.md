@@ -24,8 +24,12 @@ loop bindings retain their original evaluation.
 
 Transaction time is resolved at each evaluation. No revision is captured during compilation.
 Timezone offsets in `xs:dateTime` arguments are preserved when converting to `Instant`.
+Folded bitemporal comparisons retain their original operand type, comparison kind, and direction
+independently of the source function's dateTime argument conversion. Their fallbacks filter the
+original closed interval/CAS/linear source in its existing order.
 Timezone-less comparison points retain Brackit's ordinary comparisons, as do non-singleton plain
-FLWOR points. Computed field dereferences are not folded. Empty arrays never demand point cardinality.
+FLWOR points. Computed field dereferences are not folded. Non-object array members evaluate the
+original comparisons with empty field dereferences; empty arrays never demand point cardinality.
 
 ## Index representation
 
@@ -49,8 +53,9 @@ The catalog declares `validTimeFormat="4"`. Opening a resource with an obsolete 
 rebuilds its indexes from document data into fresh physical roots and commits a new revision before
 returning the session. Reopening the upgraded resource does not rebuild again. Historical revisions
 omit the obsolete index from discovery and use the ordinary exact query fallback; no old index-layout
-reader is retained. Writer rebinding also rebuilds obsolete definitions when reverting to an old
-revision, so subsequent mutations maintain the current representation.
+reader is retained. Writer rebinding resolves the represented revision's catalogue before listener
+creation and rebuilds obsolete definitions when reverting to an old revision, so unchanged records
+and subsequent mutations maintain the current representation.
 
 Every record carrying postings is registered in the interval tree, so a stab is the only candidate
 source. Every duplicate-bound record is registered over

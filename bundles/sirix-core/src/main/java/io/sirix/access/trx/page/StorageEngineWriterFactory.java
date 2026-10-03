@@ -29,7 +29,7 @@ package io.sirix.access.trx.page;
 
 import io.sirix.access.DatabaseType;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.IndexController;
+import io.sirix.access.trx.node.AbstractIndexController;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.page.DeweyIDPage;
@@ -39,7 +39,6 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.cache.BufferManager;
-import io.brackit.query.jdm.DocumentException;
 import io.sirix.access.trx.node.xml.XmlResourceSessionImpl;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
@@ -47,16 +46,8 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.cache.PageContainer;
-import io.sirix.exception.SirixException;
-import io.sirix.exception.SirixIOException;
 import io.sirix.io.Writer;
 import io.sirix.page.interfaces.Page;
-
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 /**
  * Page transaction factory.
@@ -90,27 +81,9 @@ public final class StorageEngineWriterFactory {
       final BufferManager bufferManager) {
     final ResourceConfiguration resourceConfig = resourceSession.getResourceConfig();
     final boolean usePathSummary = resourceConfig.withPathSummary;
-    // Use representRevision + 1 because that's the NEW revision being created.
-    // The node transaction will use trx.getRevisionNumber() which returns the new revision,
-    // so we need to use the same revision for the index controller to ensure they share state.
-    final int newRevisionNumber = representRevision + 1;
-    final IndexController<?, ?> indexController = resourceSession.getWtxIndexController(newRevisionNumber);
-
-    // The prospective-revision controller is cached and may still contain catalogue mutations from
-    // a transaction that is now rolling back. This factory is the authoritative persisted-state
-    // rebind point: start empty, then replace it with exactly lastStoredRevision's catalogue below.
-    indexController.getIndexes().reset();
-
-    // Deserialize index definitions.
-    final Path indexes = resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                    .resolve(lastStoredRevision + ".xml");
-    if (Files.exists(indexes)) {
-      try (final InputStream in = new FileInputStream(indexes.toFile())) {
-        indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
-      } catch (IOException | DocumentException | SirixException e) {
-        throw new SirixIOException("Index definitions couldn't be deserialized!", e);
-      }
-    }
+    final AbstractIndexController<?, ?> indexController =
+        (AbstractIndexController<?, ?>) resourceSession.getWtxIndexController(lastStoredRevision + 1);
+    resourceSession.initializeIndexController(representRevision, indexController);
 
     final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
     final TransactionIntentLog log = logFactory.createTrxIntentLog(bufferManager, resourceConfig);

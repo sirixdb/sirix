@@ -329,7 +329,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
-  protected void initializeIndexController(final int revision, AbstractIndexController<?, ?> controller) {
+  @Override
+  public void initializeIndexController(final int revision, final AbstractIndexController<?, ?> controller) {
+    checkArgument(revision >= 0, "revision must be >= 0!");
+    requireNonNull(controller).getIndexes().reset();
+    controller.refreshIndexCapabilities();
     // Deserialize index definitions.
     // For write transactions, the revision number is the NEW revision being created,
     // but index definitions are stored at the LAST COMMITTED revision (and only for

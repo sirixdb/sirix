@@ -3994,7 +3994,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       //
       // Intermediate auto-commits skip this when indexes are unchanged; final/explicit commits always
       // serialize so the last revision has a valid catalogue snapshot.
-      if (!isIntermediateCommit || indexController.getIndexes().isDirty()) {
+      if (!isIntermediateCommit || indexController.getIndexes().isDirty()
+          || representRevision < newRevisionRootPage.getRevision() - 1) {
         serializeIndexDefinitions(revision);
         indexController.getIndexes().clearDirty();
       }
@@ -4077,7 +4078,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // would resurrect the pre-drop catalogue from an older revision's file. An empty {revision}.xml
     // ("<indexes/>") makes the drop of the last index stick across the commit, while older revisions
     // keep their own non-empty files (time-travel preserved).
-    if (!indexCatalog.getIndexDefs().isEmpty() || indexCatalog.isDirty()) {
+    if (!indexCatalog.getIndexDefs().isEmpty() || indexCatalog.isDirty()
+        || representRevision < newRevisionRootPage.getRevision() - 1) {
       final Path indexes = storageEngineReader.getResourceSession().getResourceConfig().resourcePath.resolve(
           ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(revision + ".xml");
 

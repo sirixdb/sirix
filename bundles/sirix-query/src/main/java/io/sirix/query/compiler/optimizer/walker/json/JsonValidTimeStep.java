@@ -264,7 +264,9 @@ public final class JsonValidTimeStep extends Walker {
           ? 1
           : 3)
           + (bound.strict ? 1 : 0)
-          + (bound.fieldOnLeft == bound.fieldUpperBounded ? 0 : 4))));
+          + (bound.fieldOnLeft == bound.fieldUpperBounded ? 0 : 4)
+          + (bound.general ? 8 : 0))));
+      call.addChild(bound.point.copyTree());
       forBind.replaceChild(1, call);
       conjuncts.remove(i);
       if (conjuncts.isEmpty()) {

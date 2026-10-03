@@ -26,7 +26,7 @@ public final class ValidTimeIntervalIndex {
 
   public static @Nullable Sequence sequence(final JsonDBItem document, final Instant instant,
       final ValidTimeConfig config, final boolean strictStart, final boolean strictEnd,
-      final Predicate<JsonDBObject> residual) {
+      final Predicate<? super JsonDBObject> residual) {
     Objects.requireNonNull(document);
     Objects.requireNonNull(instant);
     Objects.requireNonNull(config);
