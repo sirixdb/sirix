@@ -23,8 +23,8 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>
  * This is the SirixDB realisation of the storage SPI the {@link RelationalIntervalTree} drives. One
- * {@code (forkNode, endpoint) -> multiset(ref)} logical ordered map is encoded in a single HOT
- * sub-tree shared by BOTH RI-tree stores; a per-instance one-byte {@link #store} discriminator
+ * logical ordered map defined by {@link OrderedStore} is encoded in a single HOT sub-tree shared by
+ * BOTH RI-tree stores; a per-instance one-byte {@link #store} discriminator
  * ({@link ValidTimeKey#STORE_LOWER} / {@link ValidTimeKey#STORE_UPPER}) keeps the two stores in
  * disjoint, contiguous key ranges. Companion evidence stores use the same SPI over a separate root
  * with their own discriminators. The record references (node keys) are stored as the HOT slot VALUE
