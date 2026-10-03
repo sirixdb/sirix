@@ -7,7 +7,6 @@ import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.HOTReadIntent;
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.page.HOTLeafEntry;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.exception.SirixIOException;
@@ -4008,7 +4007,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final byte[] keyBuf = KEY_BUFFER.get();
       if (!coalesce) {
         for (int i = 0; i < count; i++) {
-          out[i] = readBlob(reader, trieReader, rootRef, keyBuf, slotKeys[i], HOTReadIntent.SCAN, null);
+          out[i] = readBlob(reader, trieReader, rootRef, keyBuf, slotKeys[i], HOTReadIntent.SCAN);
         }
         return out;
       }
@@ -4114,19 +4113,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public static byte @Nullable [] readBlob(final StorageEngineReader reader, final int indexNumber, final long slotKey,
       final HOTReadIntent intent) {
-    return readBlob(reader, indexNumber, slotKey, intent, null);
-  }
-
-  /** Detached metadata may share the data seek's single admission, never a scan's. */
-  static byte @Nullable [] readBlob(final StorageEngineReader reader, final int indexNumber, final long slotKey,
-      final HOTReadIntent intent, final @Nullable ReadScope scope) {
     Objects.requireNonNull(intent, "intent");
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      return readBlob(reader, trieReader, rootRef, KEY_BUFFER.get(), slotKey, intent, scope);
+      return readBlob(reader, trieReader, rootRef, KEY_BUFFER.get(), slotKey, intent);
     }
   }
 
@@ -4143,11 +4136,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   private static byte @Nullable [] readBlob(final StorageEngineReader reader, final HOTTrieReader trieReader,
-      final PageReference rootRef, final byte[] keyBuf, final long slotKey, final HOTReadIntent intent,
-      final @Nullable ReadScope scope) {
+      final PageReference rootRef, final byte[] keyBuf, final long slotKey, final HOTReadIntent intent) {
     final long refKey = HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID);
     PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);
-    final HOTLeafEntry entry = trieReader.readProjectionEntry(rootRef, keyBuf, refKey, intent, scope);
+    final HOTLeafEntry entry = trieReader.readProjectionEntry(rootRef, keyBuf, refKey, intent);
     if (entry == null || entry.value().length == 0) {
       return null;
     }

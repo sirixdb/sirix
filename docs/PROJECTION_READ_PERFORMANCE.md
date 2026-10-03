@@ -64,7 +64,9 @@ exact-size offset directory, without allocating a writable native frame or build
 metadata. Scalar misses in one fragment-chain walk share one freshly captured committed file
 extent. Complete reconstruction retains coalesced batch I/O and copies older projection values
 straight into its private result. Copies and mutable promotion restore full writable capacity.
-The persisted leaf layout and all four versioning policies are unchanged.
+A decoder-only image is never published as a canonical complete leaf: the complete-leaf cache only
+ever receives a fully built leaf, with its routing index, its off-heap frame accounting and its
+ordinary stamp binding. The persisted leaf layout and all four versioning policies are unchanged.
 
 Read intent controls cache admission:
 
@@ -72,9 +74,6 @@ Read intent controls cache admission:
   demands on one leaf, or an accumulated packed-size limit, request complete reconstruction. The
   index-metadata record, which every serving decision and every commit resolves on its own, and a
   single advertised set-summary column read this way.
-- `SELECTIVE` can reuse cached slots but does not admit directly. A reader-confined `ReadScope`
-  gives one successful point seek a single admission shared between data and metadata; failed
-  seeks and scans discard deferred metadata.
 - `SCAN` uses complete leaves. General blob reads retain this intent because they may enumerate
   many slots. Writers and shared-page backends use the ordinary complete loader.
 

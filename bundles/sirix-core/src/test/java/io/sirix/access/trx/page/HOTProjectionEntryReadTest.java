@@ -13,7 +13,6 @@ import io.sirix.cache.BufferManager;
 import io.sirix.cache.Cache;
 import io.sirix.cache.EmptyCache;
 import io.sirix.cache.HOTMiniPageCache;
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.cache.ShardedPageCache;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -116,54 +115,6 @@ final class HOTProjectionEntryReadTest {
   }
 
   @ParameterizedTest
-  @EnumSource(value = VersioningType.class, names = {"DIFFERENTIAL", "INCREMENTAL", "SLIDING_SNAPSHOT"})
-  void metadataPromotionWaitsForConfirmedPointAndAnUnusedPublicationBudget(final VersioningType versioning) {
-    try (Fixture fixture = new Fixture(true, versioning)) {
-      for (int revision = 5; revision >= 1; revision--)
-        fixture.add(revision);
-      fixture.images.get(1L).setCompleteDump(true);
-      for (int i = 0; i < 8; i++)
-        fixture.images.get(5L).put(new byte[] {7, (byte) i}, VALUE);
-      final long merges = VersioningType.multiFragmentMerges();
-      for (int i = 0; i < 3; i++) {
-        final ReadScope scope = new ReadScope();
-        fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {7, (byte) i}, SIDE_KEY,
-            HOTReadIntent.SELECTIVE, scope);
-        scope.finish(true);
-      }
-      final long weight = fixture.miniCache.getCurrentWeightBytes();
-      for (int i = 3; i < 8; i++) {
-        final ReadScope scope = new ReadScope();
-        fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {7, (byte) i}, SIDE_KEY,
-            HOTReadIntent.SELECTIVE, scope);
-        scope.finish(false);
-      }
-      assertEquals(weight, fixture.miniCache.getCurrentWeightBytes());
-      assertEquals(merges, VersioningType.multiFragmentMerges(), "abandoned/selective seeks cannot promote");
-      final ReadScope used = new ReadScope();
-      fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {7, 3}, SIDE_KEY, HOTReadIntent.SELECTIVE, used);
-      final PageReference data = new PageReference().setKey(999);
-      fixture.miniCache.admit(data, fixture.miniCache.generation(data), 5, KEY, SIDE_KEY, null, used);
-      used.finish(true);
-      assertEquals(merges, VersioningType.multiFragmentMerges(), "a data admission leaves no metadata allowance");
-      final ReadScope point = new ReadScope();
-      fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {7, 3}, SIDE_KEY, HOTReadIntent.SELECTIVE,
-          point);
-      assertEquals(merges, VersioningType.multiFragmentMerges(), "an ambiguous open must defer promotion");
-      final List<PageFragmentKey> oldFragments = new ArrayList<>(fixture.chain.getPageFragments());
-      fixture.chain.setKey(12345).getPageFragments().clear();
-      point.finish(true);
-      point.finish(true);
-      assertEquals(merges + 1, VersioningType.multiFragmentMerges());
-      fixture.chain.setKey(5).setPageFragments(oldFragments);
-      assertArrayEquals(VALUE,
-          fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {7, 7}, SIDE_KEY).value());
-      assertEquals(merges + 1, VersioningType.multiFragmentMerges(), "the detached promotion identity is reused");
-      fixture.assertReleased();
-    }
-  }
-
-  @ParameterizedTest
   @EnumSource(VersioningType.class)
   void detachedPointThenRangeThenPointReusesOneReaderWithoutStaleTraversalOrGuards(final VersioningType versioning) {
     try (Fixture fixture = new Fixture(false, versioning); HOTTrieReader trie = new HOTTrieReader(fixture.storage)) {
@@ -206,7 +157,7 @@ final class HOTProjectionEntryReadTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void completePointImageUsesCompactDecoderWithoutPartialAdmissions(final VersioningType versioning) {
+  void completePointImagePublishesAFullyBuiltLeafWithoutPartialAdmissions(final VersioningType versioning) {
     try (Fixture fixture = new Fixture(true, versioning)) {
       fixture.chain.setPageFragments(new ArrayList<>());
       final HOTLeafPage complete = fixture.add(5);
@@ -226,7 +177,8 @@ final class HOTProjectionEntryReadTest {
         assertEquals(0, assertInstanceOf(ShardedPageCache.class, fixture.fragmentCache).size());
         assertEquals(merges, VersioningType.multiFragmentMerges());
         assertEquals(older, VersioningType.pointFragmentsWalked());
-        verify(fixture.disk).readHOTLeafFragment(any(PageReference.class), any(ResourceConfiguration.class));
+        verify(fixture.disk, never()).readHOTLeafFragment(any(PageReference.class), any(ResourceConfiguration.class));
+        verify(fixture.disk).read(any(PageReference.class), any(ResourceConfiguration.class));
         assertEquals(List.of(5L), fixture.reads, "all later slots and ranges reuse the complete image");
         trie.endWalk();
         assertSame(complete, trie.lowerBound(fixture.chain, KEY).leaf);
@@ -700,31 +652,6 @@ final class HOTProjectionEntryReadTest {
         mini.releaseGuard();
       }
       assertTrue(mini.isClosed());
-      fixture.assertReleased();
-    }
-  }
-
-  @ParameterizedTest
-  @EnumSource(value = VersioningType.class, names = {"DIFFERENTIAL", "INCREMENTAL", "SLIDING_SNAPSHOT"})
-  void nonAdmittingLookupReusesPointEntriesButNeverGrowsThem(final VersioningType versioning) {
-    try (Fixture fixture = new Fixture(true, versioning)) {
-      fixture.add(5).put(KEY, VALUE);
-      for (int revision = 4; revision >= 1; revision--) {
-        fixture.add(revision);
-      }
-      assertArrayEquals(VALUE,
-          fixture.storage.readHOTProjectionEntry(fixture.chain, KEY, SIDE_KEY, HOTReadIntent.SELECTIVE).value());
-      assertEquals(0, fixture.miniCache.getCurrentWeightBytes());
-      assertArrayEquals(VALUE, fixture.read().value());
-      final long weight = fixture.miniCache.getCurrentWeightBytes();
-      assertTrue(weight > 0, "the explicit point API must still admit resolved entries");
-      final long walks = VersioningType.pointLeafReads();
-      assertArrayEquals(VALUE,
-          fixture.storage.readHOTProjectionEntry(fixture.chain, KEY, SIDE_KEY, HOTReadIntent.SELECTIVE).value());
-      assertEquals(walks, VersioningType.pointLeafReads(), "selective cursors may reuse an existing mini entry");
-      assertNull(
-          fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {8}, SIDE_KEY, HOTReadIntent.SELECTIVE));
-      assertEquals(weight, fixture.miniCache.getCurrentWeightBytes(), "even an absence cannot grow a scan's mini page");
       fixture.assertReleased();
     }
   }

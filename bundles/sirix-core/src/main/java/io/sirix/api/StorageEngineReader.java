@@ -21,7 +21,6 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.cache.BufferManager;
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
@@ -518,9 +517,9 @@ public interface StorageEngineReader extends AutoCloseable {
   }
 
   /**
-   * Read a projection slot with explicit cache intent. A selective cursor may reuse a resolved mini
-   * entry but cannot admit one; a scan always uses a complete leaf. Implementations without selective
-   * reads conservatively use the complete loader for every intent.
+   * Read a projection slot with explicit cache intent. A scan always uses a complete leaf.
+   * Implementations without requested-slot reads conservatively use the complete loader for every
+   * intent.
    */
   default @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
       final long sideReferenceKey, final HOTReadIntent intent) {
@@ -540,12 +539,6 @@ public interface StorageEngineReader extends AutoCloseable {
     } finally {
       leaf.releaseGuard();
     }
-  }
-
-  /** Optional reader-confined metadata scope; complete-loader implementations need no admission. */
-  default @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
-      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
-    return readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
   }
 
   /**

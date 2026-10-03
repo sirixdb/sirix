@@ -6,7 +6,6 @@ package io.sirix.cache;
 import io.sirix.page.HOTLeafEntry;
 import io.sirix.page.HOTMiniPage;
 import io.sirix.page.PageReference;
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -51,27 +50,27 @@ final class HOTMiniPageCacheTest {
       assertEquals(8, page.getEntryCount());
       assertEquals(1, page.getDistinctKeyCount());
       page.releaseGuard();
-      assertFalse(cache.claimPointPromotion(pageKey, 0, new byte[] {8}, null));
+      assertFalse(cache.claimPointPromotion(pageKey, 0, new byte[] {8}));
       cache.admit(pageKey, 0, 7, new byte[] {8}, -1, null);
       cache.admit(pageKey, 0, 7, new byte[] {9}, -1, null);
-      assertFalse(cache.claimPointPromotion(pageKey, 0, KEY, null),
+      assertFalse(cache.claimPointPromotion(pageKey, 0, KEY),
           "another side-reference variant still asks for the same serialized key");
-      assertTrue(cache.claimPointPromotion(pageKey, 0, new byte[] {10}, null));
+      assertTrue(cache.claimPointPromotion(pageKey, 0, new byte[] {10}));
     } finally {
       cache.clear();
     }
   }
 
   @Test
-  void distinctPointPromotionHasOneClaimAndSharesTheAdmissionBudget() throws Exception {
+  void distinctPointPromotionHasExactlyOneClaimUnderConcurrentMisses() throws Exception {
     final HOTMiniPageCache cache = new HOTMiniPageCache(1L << 20);
     final PageReference pageKey = key(1, 2, 3);
     try {
       for (int i = 0; i < HOTMiniPageCache.POINT_PROMOTION_DISTINCT_KEYS - 1; i++) {
-        assertFalse(cache.claimPointPromotion(pageKey, 0, new byte[] {(byte) i}, null));
+        assertFalse(cache.claimPointPromotion(pageKey, 0, new byte[] {(byte) i}));
         cache.admit(pageKey, 0, 7, new byte[] {(byte) i}, -1, new HOTLeafEntry(VALUE, null));
       }
-      assertFalse(cache.claimPointPromotion(pageKey, 0, new byte[] {0}, null),
+      assertFalse(cache.claimPointPromotion(pageKey, 0, new byte[] {0}),
           "a repeated key does not spend another distinct miss");
       final long weight = cache.getCurrentWeightBytes();
       final CountDownLatch start = new CountDownLatch(1);
@@ -80,17 +79,8 @@ final class HOTMiniPageCacheTest {
         for (int i = 0; i < 8; i++) {
           final byte distinct = (byte) (i + 16);
           claims.add(pool.submit(() -> {
-            final ReadScope scope = new ReadScope();
-            scope.rememberMetadata(cache, key(1, 2, 9), 0, 7, KEY, -1, null);
             start.await();
-            final boolean claimed = cache.claimPointPromotion(pageKey, 0, new byte[] {distinct}, scope);
-            if (claimed) {
-              scope.finish(true);
-              assertNull(cache.getAndGuard(key(1, 2, 9)), "promotion spends the metadata allowance too");
-            } else {
-              scope.finish(false);
-            }
-            return claimed;
+            return cache.claimPointPromotion(pageKey, 0, new byte[] {distinct});
           }));
         }
         start.countDown();
@@ -111,7 +101,7 @@ final class HOTMiniPageCacheTest {
       assertFalse(old.isClosed(), "the immutable prefix stays alive through a pinned reader");
       old.releaseGuard();
       assertTrue(old.isClosed());
-      assertFalse(cache.claimPointPromotion(pageKey, 0, new byte[] {100}, null),
+      assertFalse(cache.claimPointPromotion(pageKey, 0, new byte[] {100}),
           "invalidation rejects the previous generation");
     } finally {
       cache.clear();
@@ -228,118 +218,29 @@ final class HOTMiniPageCacheTest {
   }
 
   @Test
-  void oneAdmissionBudgetPrioritizesDataAndReusesItsUnusedBudgetForOnlyOneMetadataRecord() {
-    final HOTMiniPageCache cache = new HOTMiniPageCache(1L << 20);
-    final PageReference data = key(1, 2, 3);
-    final PageReference metadata = key(1, 2, 4);
-    final ReadScope first = new ReadScope();
-    first.rememberMetadata(cache, metadata, 0, 7, KEY, -1, null);
-    cache.admit(data, 0, 7, KEY, -1, new HOTLeafEntry(VALUE, null), first);
-    cache.admit(key(1, 2, 5), 0, 7, KEY, -1, null, first);
-    first.finish(true);
-    assertNull(cache.getAndGuard(metadata));
-    assertNull(cache.getAndGuard(key(1, 2, 5)), "even multiple scoped data calls have only one admission");
-    final long dataWeight = cache.getCurrentWeightBytes();
-
-    final ReadScope repeated = new ReadScope();
-    repeated.rememberMetadata(cache, metadata, 0, 7, KEY, -1, null);
-    repeated.rememberMetadata(cache, key(1, 2, 6), 0, 7, KEY, -1, null);
-    cache.admit(data, 0, 7, KEY, -1, new HOTLeafEntry(VALUE, null), repeated);
-    repeated.finish(true);
-    final HOTMiniPage page = cache.getAndGuard(metadata);
-    assertNotNull(page);
-    assertNull(page.copyEntry(page.find(KEY, -1)));
-    assertEquals(dataWeight + page.getActualMemorySize(), cache.getCurrentWeightBytes());
-    page.releaseGuard();
-    assertNull(cache.getAndGuard(key(1, 2, 6)), "only the first metadata miss can retain a pending copy");
-    cache.clear();
-    assertTrue(page.isClosed());
-    first.finish(true);
-    repeated.finish(true);
-    assertEquals(0, cache.getCurrentWeightBytes(), "finishing twice cannot resurrect any entry");
-  }
-
-  @Test
-  void pendingMetadataIsDetachedAndPreservesNewestSideProvenanceAndPresentZeroHash() {
-    final HOTMiniPageCache cache = new HOTMiniPageCache(1L << 20);
-    final PageReference reference = key(1, 2, 3);
-    final PageReference side = key(4, 5, 6);
-    side.setHash(0L);
-    final byte[] slot = KEY.clone();
-    final byte[] value = VALUE.clone();
-    final ReadScope scope = new ReadScope();
-    scope.rememberMetadata(cache, reference, 0, 7, slot, 9, new HOTLeafEntry(value, side));
-    assertEquals(0, cache.getCurrentWeightBytes(), "an ambiguous open has no admission authority");
-    reference.setKey(99);
-    side.setKey(100);
-    slot[0] = 101;
-    value[0] = 102;
-    scope.finish(true);
-    final HOTMiniPage page = cache.getAndGuard(key(1, 2, 3));
-    assertNotNull(page);
-    try {
-      final HOTLeafEntry actual = page.copyEntry(page.find(KEY, 9));
-      assertArrayEquals(VALUE, actual.value());
-      assertEquals(key(4, 5, 6), actual.sideReference());
-      assertTrue(actual.sideReference().hasHash());
-      assertEquals(0L, actual.sideReference().getHashAsLong());
-      assertEquals(7, page.getRevision());
-    } finally {
-      page.releaseGuard();
-      cache.clear();
-    }
-    assertTrue(page.isClosed());
-  }
-
-  @Test
-  void scanInvalidationAndPromotionCancelPendingMetadataWithoutHoldingAnyGuard() {
-    for (int mode = 0; mode < 4; mode++) {
+  void everyInvalidationRejectsAnAdmissionReadBeforeItWithoutHoldingAnyGuard() {
+    for (int mode = 0; mode < 3; mode++) {
       final HOTMiniPageCache cache = new HOTMiniPageCache(1L << 20);
       final PageReference key = key(1, 2, 3);
-      final ReadScope scope = new ReadScope();
-      scope.rememberMetadata(cache, key, cache.generation(key), 1, KEY, -1, null);
+      final long stale = cache.generation(key);
       switch (mode) {
-        case 0 -> scope.finish(false);
-        case 1 -> cache.clear();
-        case 2 -> cache.invalidate(k -> k.getResourceId() == 2);
-        case 3 -> cache.discard(key);
+        case 0 -> cache.clear();
+        case 1 -> cache.invalidate(k -> k.getResourceId() == 2);
+        case 2 -> cache.discard(key);
         default -> throw new AssertionError(mode);
       }
-      scope.finish(true);
+      cache.admit(key, stale, 1, KEY, -1, new HOTLeafEntry(new byte[] {99}, null));
       assertEquals(0, cache.getCurrentWeightBytes());
       assertNull(cache.getAndGuard(key));
       cache.admit(key, cache.generation(key), 2, KEY, -1, new HOTLeafEntry(VALUE, null));
       final HOTMiniPage current = cache.getAndGuard(key);
       assertNotNull(current);
       assertArrayEquals(VALUE, current.copyEntry(current.find(KEY, -1)).value(),
-          "pending negative metadata cannot leak into a reused offset after invalidation");
+          "a stale admission cannot leak into a reused offset after invalidation");
       current.releaseGuard();
       cache.clear();
       assertTrue(current.isClosed());
     }
-  }
-
-  @Test
-  void deferredMetadataRetainsAtMostOneBoundedRecordAndNeverPromotesAtThePackedCap() {
-    final HOTMiniPageCache cache = new HOTMiniPageCache(1L << 20);
-    final PageReference key = key(1, 2, 3);
-    final ReadScope scope = new ReadScope();
-    scope.rememberMetadata(cache, key, 0, 1, KEY, -1, new HOTLeafEntry(new byte[HOTMiniPage.MAX_DATA_BYTES], null));
-    scope.finish(true);
-    assertEquals(0, cache.getCurrentWeightBytes());
-    final HOTLeafEntry large = new HOTLeafEntry(new byte[HOTMiniPage.MAX_DATA_BYTES - 32], null);
-    cache.admit(key, 0, 1, KEY, -1, large);
-    final HOTMiniPage full = cache.getAndGuard(key);
-    assertNotNull(full);
-    final ReadScope capped = new ReadScope();
-    capped.rememberMetadata(cache, key, 0, 1, new byte[] {99}, -1, new HOTLeafEntry(new byte[64], null));
-    capped.finish(true);
-    assertEquals(full.getActualMemorySize(), cache.getCurrentWeightBytes());
-    assertTrue(full.find(new byte[] {99}, -1) < 0);
-    assertEquals(1, full.getGuardCount(), "only this test's explicit inspection holds a guard");
-    full.releaseGuard();
-    cache.clear();
-    assertTrue(full.isClosed());
   }
 
   @Test

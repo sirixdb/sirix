@@ -99,15 +99,6 @@ public final class HOTMiniPage implements CacheablePage {
         && (entry == null || entry.sideReference() == null || entry.sideReference().isRawCanonicalHOTCacheReference());
   }
 
-  /** Bound even a deferred admission before retaining a detached copy of the caller's record. */
-  public static boolean fitsEmpty(final byte[] key, final @Nullable HOTLeafEntry entry) {
-    return canCache(key, entry) && (long) HEADER_BYTES + key.length + 2 + (entry == null
-        ? 0
-        : entry.value().length + (entry.sideReference() == null
-            ? 0L
-            : SIDE_BYTES)) <= MAX_DATA_BYTES;
-  }
-
   /**
    * Copy the directory; share the immutable payload prefix until capacity growth. Null means the
    * entry would exceed the unchanged packed cap. The caller guards previous and serializes admissions

@@ -4,7 +4,6 @@ import io.sirix.utils.ForwardingObject;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.HOTReadIntent;
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.IndexLogKey;
@@ -247,12 +246,6 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
       final long sideReferenceKey, final HOTReadIntent intent) {
     return delegate().readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
-  }
-
-  @Override
-  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
-      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
-    return delegate().readHOTProjectionEntry(reference, key, sideReferenceKey, intent, scope);
   }
 
   @Override

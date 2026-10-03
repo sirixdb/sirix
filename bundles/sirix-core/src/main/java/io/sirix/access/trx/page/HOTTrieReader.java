@@ -30,7 +30,6 @@ package io.sirix.access.trx.page;
 
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.HOTReadIntent;
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -875,15 +874,9 @@ public final class HOTTrieReader implements AutoCloseable {
     return readProjectionEntry(rootRef, key, sideReferenceKey, HOTReadIntent.POINT);
   }
 
-  /** A scan bypasses partial entries; an ambiguous cursor may consult but never grow them. */
+  /** A scan bypasses requested-slot reads and always resolves through the complete loader. */
   public @Nullable HOTLeafEntry readProjectionEntry(final PageReference rootRef, final byte[] key,
       final long sideReferenceKey, final HOTReadIntent intent) {
-    return readProjectionEntry(rootRef, key, sideReferenceKey, intent, null);
-  }
-
-  /** Propagate one explicit point/metadata admission budget without changing routing or guards. */
-  public @Nullable HOTLeafEntry readProjectionEntry(final PageReference rootRef, final byte[] key,
-      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
     Objects.requireNonNull(intent);
@@ -895,9 +888,8 @@ public final class HOTTrieReader implements AutoCloseable {
         if (intent != HOTReadIntent.SCAN && firstKeyCacheEnabled && !(swizzled instanceof HOTIndirectPage)
             && (!(swizzled instanceof HOTLeafPage) || swizzled.isClosed())) {
           clearCurrentLeaf();
-          final HOTLeafEntry entry = scope == null
-              ? storageEngineReader.readHOTProjectionEntry(reference, key, sideReferenceKey, intent)
-              : storageEngineReader.readHOTProjectionEntry(reference, key, sideReferenceKey, intent, scope);
+          final HOTLeafEntry entry =
+              storageEngineReader.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
           if (!(reference.getPage() instanceof HOTIndirectPage)) {
             return entry;
           }

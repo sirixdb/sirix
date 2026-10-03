@@ -37,7 +37,6 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.HOTReadIntent;
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.Cache;
@@ -4394,12 +4393,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
       final long sideReferenceKey, final HOTReadIntent intent) {
-    return readHOTProjectionEntry(reference, key, sideReferenceKey, intent, null);
-  }
-
-  @Override
-  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
-      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
     assertNotClosed();
     requireNonNull(reference);
     requireNonNull(key);
@@ -4437,10 +4430,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
     }
     if (reference.getPageFragments().isEmpty() || resourceConfig.versioningType == VersioningType.FULL) {
-      // A self-contained image is already a complete view. Retain it in the complete cache,
-      // without building write capacity/PEXT metadata for unrelated keys. This does not spend
-      // a mini admission or make the other entries in the same complete image miss later.
-      final Page loaded = loadHOTPage(reference, true, true);
+      // A self-contained image is already a complete view. Retain it in the complete cache through
+      // the ordinary loader, so the published leaf keeps its routing index, off-heap accounting and
+      // stamp binding. This does not spend a mini admission or make the other entries miss later.
+      final Page loaded = loadHOTPage(reference, true);
       if (loaded instanceof HOTLeafPage leaf) {
         try {
           return HOTLeafEntry.copyOf(leaf, key, sideReferenceKey);
@@ -4469,26 +4462,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         mini.releaseGuard();
       }
     }
-    if (intent == HOTReadIntent.POINT && promotionCandidate
-        && miniPages.claimPointPromotion(canonicalKey, generation, key, scope)) {
+    if (promotionCandidate && miniPages.claimPointPromotion(canonicalKey, generation, key)) {
       return StorageEngineReader.super.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
     }
     final HOTLeafEntry result = readHOTProjectionFragmentEntry(reference, canonicalKey, key, sideReferenceKey);
     if (reference.getPage() instanceof HOTIndirectPage) {
       return null; // Let the trie continue descent; never admit an indirect route as a leaf subset.
     }
-    if (intent == HOTReadIntent.POINT
-        && miniPages.admit(canonicalKey, generation, revisionNumber, key, sideReferenceKey, result, scope)) {
+    if (miniPages.admit(canonicalKey, generation, revisionNumber, key, sideReferenceKey, result)) {
       return StorageEngineReader.super.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
-    }
-    if (intent == HOTReadIntent.SELECTIVE && scope != null) {
-      scope.rememberMetadata(miniPages, canonicalKey, generation, revisionNumber, key, sideReferenceKey, result,
-          promotionCandidate
-              ? this
-              : null,
-          promotionCandidate
-              ? reference
-              : null);
     }
     return result;
   }
@@ -4597,12 +4579,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   private @Nullable Page loadHOTPage(final PageReference reference, final boolean retainLeafGuard) {
-    return loadHOTPage(reference, retainLeafGuard, false);
-  }
-
-  /** Compact decoding changes only a committed complete read image, never emission or versioning. */
-  private @Nullable Page loadHOTPage(final PageReference reference, final boolean retainLeafGuard,
-      final boolean compactCompletePoint) {
     assertNotClosed();
 
     if (reference == null) {
@@ -4676,9 +4652,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           }
         }
         if (loadedPage == null) {
-          loadedPage = compactCompletePoint
-              ? pageReader.readHOTLeafFragment(reference, resourceConfig)
-              : pageReader.read(reference, resourceConfig);
+          loadedPage = pageReader.read(reference, resourceConfig);
         }
 
         if (loadedPage instanceof HOTIndirectPage) {
