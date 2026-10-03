@@ -6169,16 +6169,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
       putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
-      final List<CarriedSideReference> carried = split.droppedOwnerSideReferences();
-      if (carried != null) {
-        // The split dropped K's stale entry from the boundary leaf; the side pages that entry owned
-        // keep their owner, which now lives here.
-        for (int i = 0, n = carried.size(); i < n; i++) {
-          final CarriedSideReference reference = carried.get(i);
-          keyLeaf.setPageReference(reference.refKey(), reference.reference());
-        }
-        FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES.incrementAndGet();
-      }
+      carryDroppedOwnerSideReferences(keyLeaf, split);
       keyRef = swizzle(keyLeaf);
       replacementRef = joinOrderedAroundKey(split.left(), keyRef, split.right(), keySlice, revision, replacedLeafRefs);
       if (replacementRef == null) {
@@ -6229,6 +6220,18 @@ public abstract class AbstractHOTIndexWriter<K> {
         closeUnregisteredFreshSubtree(keyRef, failure);
       }
       throw failure;
+    }
+  }
+
+  /** Attach a split's dropped owner's side references to the fresh leaf that now holds its key. */
+  private static void carryDroppedOwnerSideReferences(final HOTLeafPage keyLeaf, final StructuralKeySplit split) {
+    final List<CarriedSideReference> carried = split.droppedOwnerSideReferences();
+    if (carried != null) {
+      for (int i = 0, n = carried.size(); i < n; i++) {
+        final CarriedSideReference reference = carried.get(i);
+        keyLeaf.setPageReference(reference.refKey(), reference.reference());
+      }
+      FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES.incrementAndGet();
     }
   }
 
