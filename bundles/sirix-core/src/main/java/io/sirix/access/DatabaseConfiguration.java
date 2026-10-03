@@ -28,13 +28,11 @@
 
 package io.sirix.access;
 
-import io.sirix.utils.LogWrapper;
 import io.sirix.utils.ToStringHelper;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import io.sirix.api.Database;
 import org.jspecify.annotations.Nullable;
-import org.slf4j.LoggerFactory;
 import io.sirix.exception.SirixIOException;
 
 import java.io.FileReader;
@@ -61,8 +59,6 @@ import static java.util.Objects.requireNonNull;
  * @author Sebastian Graf, University of Konstanz
  */
 public final class DatabaseConfiguration {
-
-  private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(DatabaseConfiguration.class));
 
   /**
    * Paths for a {@link Database}. Each {@link Database} has the same folder layout.
@@ -365,7 +361,7 @@ public final class DatabaseConfiguration {
    * flow), so the immutable VALUES are cached and a fresh configuration is constructed per
    * {@link #deserialize(Path)} call — a caller mutating its copy can never poison the cache.
    */
-  private record ParsedConfig(Path recordedDbFile, int maxResourceID, long databaseId, DatabaseType databaseType,
+  private record ParsedConfig(int maxResourceID, long databaseId, DatabaseType databaseType,
       long maxSegmentAllocationSize, FileTime lastModifiedTime, long size) {
   }
 
@@ -522,11 +518,6 @@ public final class DatabaseConfiguration {
     // still records its ORIGINAL location, and deriving I/O paths from it silently redirected
     // every read AND write to the old directory. Bind the configuration to the directory the
     // settings were actually read from.
-    if (!parsed.recordedDbFile().toAbsolutePath().equals(dbFile)) {
-      logger.warn("Database at {} records its location as {} (moved or copied directory) — using the actual path.",
-          dbFile, parsed.recordedDbFile());
-    }
-
     final DatabaseConfiguration config =
         new DatabaseConfiguration(dbFile).setMaximumResourceID(parsed.maxResourceID())
                                          .setDatabaseType(parsed.databaseType())
@@ -546,7 +537,7 @@ public final class DatabaseConfiguration {
       jsonReader.beginObject();
       final String fileName = jsonReader.nextName();
       assert fileName.equals("file");
-      final Path recordedDbFile = Paths.get(jsonReader.nextString());
+      jsonReader.nextString(); // The serialized location is informational; the actual path owns I/O.
       final String IDName = jsonReader.nextName();
       assert IDName.equals("ID");
       final int ID = jsonReader.nextInt();
@@ -568,8 +559,8 @@ public final class DatabaseConfiguration {
       final DatabaseType dbType =
           DatabaseType.fromString(type).orElseThrow(() -> new IllegalStateException("Type can not be unknown."));
 
-      return new ParsedConfig(recordedDbFile, ID, databaseId, dbType, maxSegmentAllocationSize,
-          attributes.lastModifiedTime(), attributes.size());
+      return new ParsedConfig(ID, databaseId, dbType, maxSegmentAllocationSize, attributes.lastModifiedTime(),
+          attributes.size());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

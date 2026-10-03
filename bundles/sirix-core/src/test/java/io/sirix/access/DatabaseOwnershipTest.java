@@ -13,6 +13,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.utils.SirixFiles;
 import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -66,6 +67,11 @@ import static org.mockito.Mockito.doThrow;
 final class DatabaseOwnershipTest {
   @TempDir
   Path directory;
+
+  @BeforeEach
+  void canonicalizeDirectory() throws IOException {
+    directory = directory.toRealPath();
+  }
 
   private Path createDatabase() {
     final Path path = directory.resolve("database");

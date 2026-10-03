@@ -82,8 +82,9 @@ final class PreallocatedCommitTest {
                        .resolve(".commit");
   }
 
-  private static Path revisionsFilePath(final Path databasePath, final String resourceName) {
-    return databasePath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+  private static Path revisionsFilePath(final Path databasePath, final String resourceName) throws IOException {
+    return databasePath.toRealPath()
+                       .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
                        .resolve(resourceName)
                        .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
                        .resolve(io.sirix.io.IOStorage.REVISIONS_FILENAME);

@@ -302,7 +302,7 @@ public final class PowerLossSimulationTest {
   // =====================================================================================
 
   private Scenario recordScenario() throws IOException {
-    final Path workRoot = Files.createTempDirectory("sirix-powerloss-");
+    final Path workRoot = Files.createTempDirectory("sirix-powerloss-").toRealPath();
     final Path recordDb = workRoot.resolve("record-db");
     final Path templateDb = workRoot.resolve("template-db");
 
