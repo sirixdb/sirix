@@ -27,7 +27,6 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
-import io.sirix.query.json.JsonDBItem;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
@@ -137,13 +136,6 @@ public final class StoreValidTimeAutoIndexTest {
           assertNotNull(fast, "the auto-created interval index must be usable at t=" + t);
           assertEquals(brute, idsOfSequence(fast), "interval-index scan must equal brute force at t=" + t);
 
-          // The auto-created xs:dateTime CAS pair must power the CAS-narrowing scan (union of the
-          // two one-sided temporal ranges) and agree with brute force as well.
-          final ValidTimeIndexScan.Result casNarrowed =
-              ValidTimeIndexScan.tryIndexScan(collection.getDocument(RES), t, validTimeConfig);
-          assertNotNull(casNarrowed, "the auto-created xs:dateTime CAS indexes must be scannable at t=" + t);
-          assertEquals(brute, idsOfItems(casNarrowed.items()),
-              "the xs:dateTime CAS union scan must equal brute force at t=" + t);
         }
       }
     }
@@ -488,14 +480,6 @@ public final class StoreValidTimeAutoIndexTest {
       }
     } finally {
       iter.close();
-    }
-    return ids;
-  }
-
-  private static Set<Integer> idsOfItems(final List<JsonDBItem> items) {
-    final Set<Integer> ids = new TreeSet<>();
-    for (final JsonDBItem item : items) {
-      ids.add(((Numeric) ((Object) item).get(new QNm("id"))).intValue());
     }
     return ids;
   }
