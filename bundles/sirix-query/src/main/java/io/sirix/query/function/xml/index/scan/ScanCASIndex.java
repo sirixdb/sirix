@@ -79,7 +79,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
     final Type keyType = indexDef.getContentType();
     final Atomic key = Cast.cast(sctx, (Atomic) args[2], keyType, true);
     final String[] searchModes = {"<", "<=", "==", ">", ">="};
-    final String searchMode = FunUtil.getString(args, 3, "$search-mode", "==", searchModes, true);
+    final String searchMode = FunUtil.getString(args, 4, "$search-mode", "==", searchModes, true);
 
     final SearchMode mode = switch (searchMode) {
       case "<" -> SearchMode.LOWER;
