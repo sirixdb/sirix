@@ -2069,9 +2069,11 @@ included), `runFallbacks()` (members re-read exactly because their body crossed 
 process-wide running totals: read them as a difference across the operation you are attributing, never reset in place —
 a work-budget capture fails outright on a counter that ran backwards while it was running. A batch that stops
 coalescing, or is not sorted by file offset, returns the same bytes, so these are the only way to tell. `AbstractReader.regionChunkHits()` / `regionChunkFallbacks()`, the `# chunked:` projection events
-(§7.3) and the frame-slot allocator's `allocateCount` / `releaseCount` are unconditional for the same reason. The HOT
-fragment-merge counters in `VersioningType` sit on the default read path and stay gated behind `sirix.hot.mergeDiag`,
-which the `sirix-core` and `sirix-query` test JVMs switch on.
+(§7.3), the frame-slot allocator's `allocateCount` / `releaseCount` and the index-catalogue directory listings
+(`AbstractResourceSession.indexCatalogueDirectoryListings()`: a session resolves a transaction's catalogue from what it
+knows before it lists `indexes/`, and the listing is what grows with the revision count) are unconditional for the same
+reason. The HOT fragment-merge counters in `VersioningType` sit on the default read path and stay gated behind
+`sirix.hot.mergeDiag`, which the `sirix-core` and `sirix-query` test JVMs switch on.
 
 **Work-budget tests** assert on these counters and on the `# served:` route counters (§7.3): a load or query may not
 start doing materially more work, where a result check would see nothing. The catalog of counters, the tests, and the

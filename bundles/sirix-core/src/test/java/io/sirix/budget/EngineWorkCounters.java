@@ -3,6 +3,7 @@
  */
 package io.sirix.budget;
 
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.page.ChunkedBodyConfig;
@@ -110,4 +111,15 @@ public final class EngineWorkCounters {
 
   public static final List<WorkCounter> INTENT_LOG =
       List.of(KVL_PAGES_PINNED_BY_PROMOTION, KVL_PAGES_RETRIED_NEXT_EPOCH);
+
+  // ===== Index catalogue ====================================================
+
+  /**
+   * Listings of a resource's {@code indexes/} directory. The directory holds one catalogue file per
+   * commit that had definitions, so a writer that resolves its catalogue by listing it does work
+   * proportional to the number of revisions, on every commit.
+   */
+  public static final WorkCounter INDEX_CATALOGUE_LISTINGS =
+      WorkCounter.alwaysOn("catalogue.directoryListings", "one listing of a resource's index-catalogue directory",
+          AbstractResourceSession::indexCatalogueDirectoryListings);
 }

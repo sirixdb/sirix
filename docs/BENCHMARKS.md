@@ -269,7 +269,12 @@ find the most recent index definitions — O(revision) syscalls per index-
 controller creation, and a new controller is created per commit. With no
 secondary indexes (the default), NO file ever exists and every commit walked
 the entire history. Fix: one directory listing picking the max-numbered file
-≤ revision (an empty directory short-circuits instantly).
+≤ revision (an empty directory short-circuits instantly). Refined since, so a
+commit does not list at all: the lookup is answered from at most two `stat`s and
+the catalogues the session already knows about, and the listing is the last
+resort (the order and why each step returns what the listing would:
+`AbstractResourceSession.resolveIndexCatalogueRevision`; guarded by
+`IndexCatalogueResolutionWorkBudgetTest`).
 
 Second contributor fixed: the commit protocol issued 7 sync calls per commit
 (strace: 5 fsync + 2 fdatasync). The t3 `forceAll` was fully redundant with

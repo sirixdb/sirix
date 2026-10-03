@@ -302,7 +302,7 @@ resource at the desired revision number or timestamp via
 | **Document model** | JSON, XML | one or the other per resource; no mixing |
 | **Document size** | up to 64 KiB per LZ77 block, unlimited overall | LZ77's 16-bit offset caps the back-reference window; documents larger than 64 KiB fall back to a literal-only token stream (no compression) |
 | **Page size** | 256 KiB ceiling | all in-memory page buffers use this as the practical max |
-| **Concurrency** | many concurrent readers, exactly one writer per resource | the writer lock is a `Semaphore(1)` per resource |
+| **Concurrency** | many concurrent readers, exactly one writer per resource, within a single JVM | the writer lock is a `Semaphore(1)` per resource path, shared process-wide; a second process is not excluded — see §10.1 |
 | **Bitemporality** | system-time (revisions), valid-time (configurable paths via `validTimePaths`) | both queryable via `jn:all-times`, `jn:open-bitemporal`, `sdb:timestamp`, `sdb:valid-from` |
 | **Versioning strategies** | FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT | choose at resource creation; `SLIDING_SNAPSHOT` is the production default |
 | **Indexes** | name index, path index, CAS index, HOT (height-optimized trie) | configured at resource creation |
@@ -312,9 +312,19 @@ resource at the desired revision number or timestamp via
 
 ## 10. Known limitations and operational caveats
 
-1. **Single-writer-per-resource.** A second `beginNodeTrx()` on a resource with
-   an active writer throws after a 5-second `tryAcquire` timeout. Plan for
-   serialised writes; do batch ingestion in one writer.
+1. **Single-writer-per-resource, enforced inside one JVM only.** A second
+   `beginNodeTrx()` on a resource with an active writer throws after a 5-second
+   `tryAcquire` timeout. Plan for serialised writes; do batch ingestion in one
+   writer. The lock behind that timeout is the whole of the enforcement: a
+   `Semaphore(1)` per resource path, handed out by the process-wide
+   `WriteLocksRegistry`. Each `Databases.openDatabase` call mints a fresh database
+   handle with its own resource store, so two handles on the same path yield two
+   independent `ResourceSession`s for one resource, sharing only that semaphore;
+   and a second *process* opening the same directory is not refused at all,
+   because the database `.lock` file is declared
+   (`DatabaseConfiguration.DatabasePaths.LOCK`) but never created or checked.
+   Concurrent writers from separate handles or separate processes are therefore
+   unsupported and unsafe: use one open handle, in one process, per resource.
 
 2. **Brackit dependency.** Sirix depends on the released `io.sirix:brackit:1.0-alpha1`,
    so builds are reproducible from Maven Central with no local install or commit-hash

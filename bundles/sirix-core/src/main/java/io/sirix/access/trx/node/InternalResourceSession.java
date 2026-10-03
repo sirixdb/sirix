@@ -33,6 +33,17 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   Reader createReader();
 
+  /**
+   * Report that a writer of this session made the index catalogue of {@code revision} durable
+   * ({@code indexes/<revision>.xml}). The session resolves later catalogue lookups from what its
+   * writers reported instead of listing the directory, so every catalogue file a writer creates has
+   * to be reported here, after it exists.
+   *
+   * @param revision the revision the catalogue file is named for
+   * @throws IllegalArgumentException if {@code revision} is negative
+   */
+  void recordSerializedIndexCatalogueRevision(int revision);
+
   Path getCommitFile();
 
   void assertAccess(int revision);

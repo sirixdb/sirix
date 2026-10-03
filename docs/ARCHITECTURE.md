@@ -1041,7 +1041,7 @@ The storage engine is deceptively simple: pages go in, pages come out. The compl
 │  mydatabase/                           ◄── Database directory               │
 │  ├── dbsetting.obj                     ◄── Database configuration (binary)  │
 │  ├── keyselector/                      ◄── Encryption key storage           │
-│  ├── .lock                             ◄── Database lock file               │
+│  ├── .lock                             ◄── Declared, never created or read  │
 │  └── resources/                        ◄── All resources in this database   │
 │      │                                                                      │
 │      ├── resource1/                    ◄── Resource directory               │
@@ -1050,7 +1050,7 @@ The storage engine is deceptively simple: pages go in, pages come out. The compl
 │      │   │   ├── sirix.data            ◄── Page data (append-only)          │
 │      │   │   └── sirix.revisions       ◄── Revision offset index            │
 │      │   ├── indexes/                  ◄── Index definitions                │
-│      │   │   └── indexes.xml           ◄── XML index config                 │
+│      │   │   └── <revision>.xml        ◄── One catalogue per revision       │
 │      │   ├── log/                      ◄── Transaction intent log           │
 │      │   │   └── .commit               ◄── Commit marker file               │
 │      │   ├── encryption/               ◄── Resource encryption keys         │
