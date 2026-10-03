@@ -191,41 +191,13 @@ public final class RelationalIntervalTree {
   }
 
   /**
-   * Stream the overlap predicate {@code interval.lo < hi && lo < interval.hi}, once per match.
-   * Interior forks satisfy both comparisons by construction; only the two boundary paths need
-   * endpoint tests. At most {@code 2 * height + 1} ordered-store probes are required.
+   * Stream every registered {@code ref} once per registration, in one ordered-store enumeration. Each
+   * interval is registered under exactly one fork in the {@code lower} store, so enumerating that
+   * store visits every registration exactly once.
    */
-  public void rangeIntersect(final long lo, final long hi, final LongConsumer out) {
+  public void forEachRef(final LongConsumer out) {
     Objects.requireNonNull(out);
-    if (lo >= hi || hi <= MIN_VALUE || lo >= maxValue) {
-      return;
-    }
-    final long left = Math.max(MIN_VALUE, lo);
-    final long right = Math.min(maxValue, hi);
-    lower.scanForks(Math.max(MIN_VALUE, lo + 1), Math.min(maxValue, hi - 1), out);
-    scanBoundary(left, lo, hi, true, out);
-    scanBoundary(right, lo, hi, false, out);
-  }
-
-  private void scanBoundary(final long point, final long lo, final long hi, final boolean left,
-      final LongConsumer out) {
-    long node = 1L << (height - 1);
-    int level = height - 1;
-    while (true) {
-      if (left && node <= lo) {
-        upper.scan(node, lo + 1, maxValue, out);
-      } else if (!left && node >= hi) {
-        lower.scan(node, MIN_VALUE, hi - 1, out);
-      }
-      if (node == point) {
-        return;
-      }
-      final long half = 1L << (level - 1);
-      node += point < node
-          ? -half
-          : half;
-      level--;
-    }
+    lower.forEachRef(out);
   }
 
   private void checkInterval(final long lo, final long hi) {

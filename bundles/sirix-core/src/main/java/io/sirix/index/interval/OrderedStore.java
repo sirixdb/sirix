@@ -38,6 +38,6 @@ public interface OrderedStore {
    */
   void scan(long forkNode, long endpointLo, long endpointHi, LongConsumer out);
 
-  /** Stream all endpoints for every fork in the inclusive range, in one ordered-store scan. */
-  void scanForks(long forkLo, long forkHi, LongConsumer out);
+  /** Stream every {@code ref} this store holds, once per insertion, in one ordered-store scan. */
+  void forEachRef(LongConsumer out);
 }
