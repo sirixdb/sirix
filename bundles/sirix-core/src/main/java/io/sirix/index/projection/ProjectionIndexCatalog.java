@@ -255,7 +255,7 @@ public final class ProjectionIndexCatalog {
       final IndexDef def) {
     try (NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       final StorageEngineReader reader = rtx.getStorageEngineReader();
-      final byte[] slot0 = ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L);
+      final byte[] slot0 = ProjectionIndexHOTStorage.readMetadataBlob(reader, def.getID());
       final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(slot0);
       if (metadata == null || metadata.isStale()) {
         return STATS_UNUSABLE;
@@ -376,7 +376,7 @@ public final class ProjectionIndexCatalog {
       try (NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
         final StorageEngineReader reader = rtx.getStorageEngineReader();
         final ProjectionIndexMetadata metadata =
-            ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(reader, candidate.def.getID(), 0L));
+            ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(reader, candidate.def.getID()));
         if (metadata == null || metadata.isStale() || metadata.buildRevision() > revision
             || !metadata.matches(candidate.def.getProjectionRootPath().toString(), defFieldPaths(candidate.def),
                 defColumnKinds(candidate.def))) {
@@ -690,7 +690,7 @@ public final class ProjectionIndexCatalog {
     final byte[] slot0;
     final ProjectionIndexMetadata metadata;
     try {
-      slot0 = ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L);
+      slot0 = ProjectionIndexHOTStorage.readMetadataBlob(reader, def.getID());
       metadata = ProjectionIndexMetadata.parse(slot0);
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + " has a corrupt metadata payload at " + "revision "
@@ -759,7 +759,7 @@ public final class ProjectionIndexCatalog {
         ? System.nanoTime()
         : 0L;
     try {
-      metadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L));
+      metadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(reader, def.getID()));
       if (metadata == null || metadata.isStale()) {
         return NOT_USABLE;
       }
@@ -1393,7 +1393,7 @@ public final class ProjectionIndexCatalog {
     final ProjectionIndexMetadata metadata;
     final List<byte[]> persisted;
     try {
-      metadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L));
+      metadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(reader, def.getID()));
       if (metadata == null || metadata.isStale()) {
         return NOT_USABLE;
       }

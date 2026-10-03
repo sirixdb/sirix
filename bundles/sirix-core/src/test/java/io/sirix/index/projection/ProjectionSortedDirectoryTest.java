@@ -9,9 +9,15 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.io.StorageType;
+import io.sirix.settings.VersioningType;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -26,8 +32,105 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ProjectionSortedDirectoryTest {
 
+  @BeforeAll
+  static void requireMergeDiagnostics() {
+    assertTrue(VersioningType.hotMergeDiagEnabled(),
+        "Run with -Dsirix.hot.mergeDiag=true (the gradle test configuration sets it).");
+  }
+
   @TempDir
   Path temporaryDirectory;
+
+  /**
+   * The landing plan's point-read proof runs through this API. A cold seek must resolve the directory
+   * header, each node of its descent and its data leaf as REQUESTED SLOTS off the versioned chain; a
+   * metadata read that materialized the complete physical HOT leaf first would leave the
+   * requested-slot path unreached and record no point read at all. A FULL-versioned resource has no
+   * chain to resolve against and correctly stays on the complete loader.
+   */
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void aColdSeekResolvesRequestedSlotsOnEveryVersionedType(final VersioningType versioning) {
+    final Path databasePath = temporaryDirectory.resolve("cold-seek-" + versioning);
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    int revision = 1;
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
+                                                              .storageType(StorageType.FILE_CHANNEL)
+                                                              .versioningApproach(versioning)
+                                                              .maxNumberOfRevisionsToRestore(32)
+                                                              .storeDiffs(false)
+                                                              .storeNodeHistory(false)
+                                                              .buildPathSummary(false)
+                                                              .hashKind(HashType.NONE)
+                                                              .build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
+          final ProjectionSortedDirectory.Builder directory =
+              new ProjectionSortedDirectory.Builder(storage, SortedScanFixtures.GROUP_VALUE);
+          for (int i = 0; i < 300; i++) {
+            final ProjectionSortedLeaf leaf =
+                ProjectionSortedLeaf.encode(new byte[][] {key(i * 2)}, new byte[][] {key(i)}, 1);
+            assertNotNull(leaf);
+            assertEquals(i + 1, directory.append(leaf));
+          }
+          directory.finish();
+          writer.commit();
+        }
+        // Later commits give the leaves a real fragment chain by republishing data leaves with
+        // CHANGED payloads through the production write path; the fence keys stay as built.
+        for (int edit = 0; edit < 12; edit++) {
+          try (JsonNodeTrx writer = session.beginNodeTrx()) {
+            final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
+            final int leafId = 140 + edit;
+            final ProjectionSortedLeaf replacement = ProjectionSortedLeaf.encode(new byte[][] {key((leafId - 1) * 2)},
+                new byte[][] {key(leafId + 1_000 * edit)}, 1);
+            assertNotNull(replacement);
+            ProjectionSortedLeafStore.write(storage, leafId, replacement, SortedScanFixtures.GROUP_VALUE);
+            revision = writer.getRevisionNumber();
+            writer.commit();
+          }
+        }
+      }
+    }
+
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        JsonResourceSession session = database.beginResourceSession("resource");
+        JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
+      final long pointsBeforeOpen = VersioningType.pointLeafReads();
+      final ProjectionSortedDirectory.Accessor directory =
+          ProjectionSortedDirectory.open(reader.getStorageEngineReader(), 0);
+      assertNotNull(directory);
+      final long pointsAfterOpen = VersioningType.pointLeafReads();
+      assertEquals(151, directory.findLeafId(key(300)), "the cold descent must route where a warm one does");
+      final ProjectionSortedDirectory.Accessor.Cursor seeked = directory.seek(key(300));
+      assertTrue(seeked.isValid(), "the cold seek must position on a row");
+      assertEquals(151, seeked.leafId());
+      final long pointsAfterSeek = VersioningType.pointLeafReads();
+
+      if (versioning == VersioningType.FULL) {
+        assertEquals(pointsBeforeOpen, pointsAfterSeek,
+            "a FULL resource has no chain to resolve a slot from and must stay on the complete loader");
+      } else {
+        assertTrue(pointsAfterOpen > pointsBeforeOpen,
+            "the directory header read materialized a complete physical leaf instead of resolving its slot under "
+                + versioning);
+        assertTrue(pointsAfterSeek > pointsAfterOpen,
+            "the cold seek never reached requested-slot resolution under " + versioning);
+      }
+
+      // Scan reuse is retained: the in-order walk stays on SCAN and reads every leaf in order.
+      final ProjectionSortedDirectory.Accessor.Cursor scan = directory.first();
+      for (int i = 0; i < 300; i++) {
+        assertTrue(scan.isValid());
+        assertEquals(i + 1, scan.leafId());
+        scan.advance();
+      }
+      assertFalse(scan.isValid(), "the in-order walk must end after the last leaf");
+    }
+  }
 
   @Test
   void persistedTwoLevelDirectoryRoutesExactAndBetweenFenceKeys() {

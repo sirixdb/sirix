@@ -2,6 +2,7 @@ package io.sirix.cache;
 
 import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.HOTMiniPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
@@ -66,6 +67,55 @@ public final class BufferManagerImpl implements BufferManager {
    * the default chain cap. Below this the cache thrashes instead of serving anything.
    */
   private static final long MIN_HOT_FRAGMENT_BUDGET_BYTES = 32L * HOTLeafPage.DEFAULT_SIZE;
+
+  /** Fraction of the JVM max heap each heap-resident HOT cache may retain by default. */
+  private static final long HOT_HEAP_CACHE_BUDGET_DIVISOR = 16L;
+
+  /**
+   * Ceiling in bytes for EACH HOT cache that retains Java-heap images rather than allocator frames:
+   * the compact half of the raw-fragment cache, whose decoded images own a packed {@code byte[]}, and
+   * the resolved-slot mini cache. Both are charged their full heap footprint (packed bytes plus the
+   * page's conservative fixed per-page estimate), so this is a bound on retained heap and cannot be
+   * derived from the allocator's off-heap budget the way the complete-leaf ceiling is. It does NOT
+   * touch native fragment images: a backend without compact decode (MEMORY_MAPPED, or any byte
+   * pipeline whose handler has no memory-segment support) keeps the whole off-heap fragment share.
+   *
+   * <p>
+   * Operator-facing because the right size depends on how much of the heap the embedding application
+   * wants to lend the versioning window. The default is one {@value #HOT_HEAP_CACHE_BUDGET_DIVISOR}th
+   * of {@link Runtime#maxMemory()}, matching the fraction the metadata page cache and the mini cache
+   * already take of their own budgets, and floored at {@link #MIN_HOT_FRAGMENT_BUDGET_BYTES} so a
+   * small heap still holds one carry-forward window rather than thrashing. At that default the two
+   * caches together cannot retain more than an eighth of the heap; a per-image charge is the packed
+   * slot bytes plus about 4 KiB of fixed per-page estimate, so the smallest supported heap still
+   * holds several hundred sparse delta fragments.
+   * </p>
+   */
+  public static final String HOT_HEAP_CACHE_BYTES_PROPERTY = "sirix.hotHeapCache.maxBytes";
+
+  /** The retained-heap ceiling applied to each heap-resident HOT cache. */
+  private static long hotHeapCacheBudgetBytes() {
+    final long fallback =
+        Math.max(MIN_HOT_FRAGMENT_BUDGET_BYTES, Runtime.getRuntime().maxMemory() / HOT_HEAP_CACHE_BUDGET_DIVISOR);
+    final String configured = System.getProperty(HOT_HEAP_CACHE_BYTES_PROPERTY);
+    if (configured == null) {
+      return fallback;
+    }
+    long parsed;
+    try {
+      parsed = Long.parseLong(configured.trim());
+    } catch (final NumberFormatException malformed) {
+      parsed = -1L;
+    }
+    // No "disable" sentinel: ShardedPageCache reads a non-positive maximum as UNBOUNDED, so honouring
+    // a zero or negative value here would remove the very ceiling this property exists to impose.
+    if (parsed <= 0) {
+      LOGGER.warn("Ignoring invalid {}={} (expected a positive byte count), using the default of {} bytes",
+          HOT_HEAP_CACHE_BYTES_PROPERTY, configured, fallback);
+      return fallback;
+    }
+    return parsed;
+  }
 
   /**
    * Memoized HOT point lookups to retain.
@@ -216,7 +266,9 @@ public final class BufferManagerImpl implements BufferManager {
 
   // Individual HOT leaf fragments, keyed by their own durable offset (see the interface javadoc for
   // why this cannot share hotLeafPageCache).
-  private final ShardedPageCache<HOTLeafPage> hotLeafFragmentCache;
+  private final HOTFragmentCache hotLeafFragmentCache;
+
+  private final HOTMiniPageCache hotMiniPageCache;
 
   // Keep Caffeine PageCache for mixed page types (NamePage, RevisionRootPage, etc.)
   private final PageCache pageCache;
@@ -285,8 +337,14 @@ public final class BufferManagerImpl implements BufferManager {
 
     // Budget-aware HOT caches, together capped at a quarter of the record-page budget.
     // That ceiling is SPLIT between combined leaves and raw fragments, not granted to each: giving
-    // the new fragment cache its own quarter would silently double the HOT off-heap ceiling from
-    // 25% to 50% of the record-page budget.
+    // the new fragment cache its own quarter would silently double the HOT ceiling from 25% to 50%
+    // of the record-page budget.
+    //
+    // The record-page budget is derived from the allocator's OFF-HEAP budget, so it sizes every
+    // cache of allocator frames correctly: the combined leaves, and the native half of the fragment
+    // cache, which keeps that share in full. Compact fragment images and mini pages retain JAVA-HEAP
+    // bytes instead, so they are bounded by HOT_HEAP_CACHE_BYTES_PROPERTY, which is derived from the
+    // heap. The heap ceiling spends no off-heap allowance and takes none away.
     //
     // The split is 3:1 in favour of the combined leaves, not even. Combined leaves back every HOT
     // read, and their working set is the whole live index; fragments back only the copy-on-write
@@ -302,11 +360,23 @@ public final class BufferManagerImpl implements BufferManager {
     // is skipped entirely when the record-page cache is disabled (budget 0), where ShardedPageCache
     // reads a non-positive maximum as "unbounded" and a floor would create an uncapped cache.
     final long hotLeafBudget = maxRecordPageCacheWeight / 4;
+    final long hotHeapBudget = hotHeapCacheBudgetBytes();
     final long hotFragmentBudget = hotLeafBudget <= 0
         ? hotLeafBudget
         : Math.min(hotLeafBudget / 2, Math.max(hotLeafBudget / 4, MIN_HOT_FRAGMENT_BUDGET_BYTES));
-    hotLeafPageCache = new ShardedPageCache<>(hotLeafBudget - hotFragmentBudget);
-    hotLeafFragmentCache = new ShardedPageCache<>(hotFragmentBudget);
+    // Reserve 1/16 of the existing complete-leaf share (at most 64 MiB) for resolved slots.
+    // The total HOT allowance and raw-fragment allowance do not increase.
+    final long combinedBudget = hotLeafBudget - hotFragmentBudget;
+    final long miniBudget = combinedBudget <= 0
+        ? 0
+        : Math.min(Math.min(combinedBudget / 16, 64L << 20), hotHeapBudget);
+    hotMiniPageCache = miniBudget == 0
+        ? HOTMiniPageCache.disabled()
+        : new HOTMiniPageCache(miniBudget);
+    hotLeafPageCache = new ShardedPageCache<>(combinedBudget - miniBudget);
+    hotLeafFragmentCache = new HOTFragmentCache(hotFragmentBudget, hotFragmentBudget <= 0
+        ? hotFragmentBudget
+        : hotHeapBudget);
 
     // PageCache uses Caffeine which internally uses long for weights
     pageCache = new PageCache(maxPageCacheWeight);
@@ -325,11 +395,13 @@ public final class BufferManagerImpl implements BufferManager {
           recordPageCache.getCurrentWeightBytes(), recordPageCache.getMaxWeightBytes(), recordPageCache.size(),
           recordPageFragmentCache.getCurrentWeightBytes(), recordPageFragmentCache.getMaxWeightBytes(),
           hotLeafPageCache.getCurrentWeightBytes(), hotLeafPageCache.getMaxWeightBytes(),
-          hotLeafFragmentCache.getCurrentWeightBytes(), hotLeafFragmentCache.getMaxWeightBytes());
+          hotLeafFragmentCache.nativeImages().getCurrentWeightBytes(),
+          hotLeafFragmentCache.nativeImages().getMaxWeightBytes());
       recordPageCache.evictUnderPressure();
       recordPageFragmentCache.evictUnderPressure();
       hotLeafPageCache.evictUnderPressure();
       hotLeafFragmentCache.evictUnderPressure();
+      hotMiniPageCache.evictUnderPressure();
       pageCache.clear();
     };
     FrameSlotAllocator.setPressureListener(pressureListener);
@@ -507,15 +579,39 @@ public final class BufferManagerImpl implements BufferManager {
 
     // Start ClockSweeper for HOTLeafFragmentCache (GLOBAL)
     {
-      final ShardedPageCache.Shard<HOTLeafPage> shard = hotLeafFragmentCache.getShard(new PageReference());
+      final ShardedPageCache.Shard<HOTLeafPage> shard =
+          hotLeafFragmentCache.nativeImages().getShard(new PageReference());
       final ClockSweeper sweeper =
-          new ClockSweeper(shard, hotLeafFragmentCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0);
+          new ClockSweeper(shard, hotLeafFragmentCache.nativeImages(), globalEpochTracker, sweepIntervalMs, 0, 0, 0);
       final Thread thread = new Thread(sweeper, "ClockSweeper-HOTLeafFragment-GLOBAL");
       thread.setDaemon(true);
       thread.start();
       clockSweepers.add(sweeper);
       clockSweeperThreads.add(thread);
       LOGGER.info("Started GLOBAL ClockSweeper thread for HOTLeafFragmentCache");
+    }
+
+    // Start ClockSweeper for the compact (heap-resident) half of HOTLeafFragmentCache (GLOBAL)
+    {
+      final ShardedPageCache.Shard<HOTLeafPage> shard = hotLeafFragmentCache.heapImages().getShard(new PageReference());
+      final ClockSweeper sweeper =
+          new ClockSweeper(shard, hotLeafFragmentCache.heapImages(), globalEpochTracker, sweepIntervalMs, 0, 0, 0);
+      final Thread thread = new Thread(sweeper, "ClockSweeper-HOTLeafFragmentHeap-GLOBAL");
+      thread.setDaemon(true);
+      thread.start();
+      clockSweepers.add(sweeper);
+      clockSweeperThreads.add(thread);
+      LOGGER.info("Started GLOBAL ClockSweeper thread for the compact HOTLeafFragmentCache half");
+    }
+    final ShardedPageCache<HOTMiniPage> miniPages = hotMiniPageCache.pages();
+    if (miniPages != null) {
+      final ClockSweeper sweeper = new ClockSweeper(miniPages.getShard(new PageReference()), miniPages,
+          globalEpochTracker, sweepIntervalMs, 0, 0, 0);
+      final Thread thread = new Thread(sweeper, "ClockSweeper-HOTMiniPage-GLOBAL");
+      thread.setDaemon(true);
+      thread.start();
+      clockSweepers.add(sweeper);
+      clockSweeperThreads.add(thread);
     }
   }
 
@@ -570,17 +666,11 @@ public final class BufferManagerImpl implements BufferManager {
    */
   @Override
   public void clearAllCaches() {
-    // Memoized index answers are derived from the pages cleared below, so they go with them: this is
-    // the "cold process" contract Databases.clearGlobalCaches() promises its corruption tests. In a
-    // finally because an exception from any page cache above would otherwise leave the derived
-    // answers behind — a cache that outlives the pages it was derived from is precisely what the
-    // "cold process" contract rules out.
+    Throwable failure = null;
     try {
       pageCache.clear();
       recordPageCache.clear();
       recordPageFragmentCache.clear();
-      hotLeafPageCache.clear();
-      hotLeafFragmentCache.clear();
       revisionRootPageCache.clear();
       namesCache.clear();
       globalVerdictCache.clear();
@@ -588,9 +678,30 @@ public final class BufferManagerImpl implements BufferManager {
       globalDictionaryRecordCache.clear();
       globalDictionaryWarmMarkers.clear();
       pathSummaryCache.clear();
-    } finally {
-      hotLookupCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = e;
     }
+    try {
+      hotLeafPageCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
+      hotLeafFragmentCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
+      hotMiniPageCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
+      hotLookupCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    ShardedPageCache.rethrowCleanupFailure(failure);
   }
 
   @Override
@@ -603,10 +714,23 @@ public final class BufferManagerImpl implements BufferManager {
     return hotLeafFragmentCache;
   }
 
+  @Override
+  public HOTMiniPageCache getHOTMiniPageCache() {
+    return hotMiniPageCache;
+  }
+
   // ===== Metrics accessors =====
   // Exposed so SirixMetricsRegistry can publish per-cache size gauges without
   // pulling Micrometer into sirix-core. Read-only views; safe to poll at scrape
   // cadence from any thread.
+
+  public long getHOTMiniPageCacheCurrentWeightBytes() {
+    return hotMiniPageCache.getCurrentWeightBytes();
+  }
+
+  public long getHOTMiniPageCacheMaxWeightBytes() {
+    return hotMiniPageCache.getMaxWeightBytes();
+  }
 
   /** Pages found still guarded by an invalidation sweep; see {@link #GUARDED_PAGES_SWEPT}. */
   public static long getGuardedPagesSweptCount() {
@@ -648,9 +772,29 @@ public final class BufferManagerImpl implements BufferManager {
     return hotLeafFragmentCache.getCurrentWeightBytes();
   }
 
-  /** Configured max weight (bytes) of the HOT-leaf-fragment cache. */
+  /** Configured max weight (bytes) of the HOT-leaf-fragment cache, both residencies together. */
   public long getHOTLeafFragmentCacheMaxWeightBytes() {
     return hotLeafFragmentCache.getMaxWeightBytes();
+  }
+
+  /** Current weight (bytes) held by the fragment cache's allocator-frame images. */
+  public long getNativeHOTLeafFragmentCacheCurrentWeightBytes() {
+    return hotLeafFragmentCache.nativeImages().getCurrentWeightBytes();
+  }
+
+  /** Current retained heap (bytes) held by the fragment cache's compact decoded images. */
+  public long getHeapHOTLeafFragmentCacheCurrentWeightBytes() {
+    return hotLeafFragmentCache.heapImages().getCurrentWeightBytes();
+  }
+
+  /** Off-heap budget of the fragment cache's allocator-frame images, unaffected by the heap cap. */
+  public long getNativeHOTLeafFragmentCacheMaxWeightBytes() {
+    return hotLeafFragmentCache.nativeImages().getMaxWeightBytes();
+  }
+
+  /** Retained-heap budget of the fragment cache's compact decoded images. */
+  public long getHeapHOTLeafFragmentCacheMaxWeightBytes() {
+    return hotLeafFragmentCache.heapImages().getMaxWeightBytes();
   }
 
   @Override
@@ -941,11 +1085,7 @@ public final class BufferManagerImpl implements BufferManager {
     try {
       removedLookups = answerSweep.getAsInt();
     } catch (final RuntimeException | Error e) {
-      if (failure == null) {
-        failure = e;
-      } else {
-        failure.addSuppressed(e);
-      }
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
     }
     if (removedFromRecordCache + removedFromFragmentCache + removedFromPageCache + removedFromRevisionCache
         + removedLookups > 0) {
@@ -963,9 +1103,7 @@ public final class BufferManagerImpl implements BufferManager {
       // exception when a finally completes abruptly, not even recording it as a cause — and the
       // body's failure is both the earlier one and the one that usually explains this one. Attach and
       // return, so the caller sees the original with this hanging off it.
-      if (fromBody != failure) {
-        fromBody.addSuppressed(failure);
-      }
+      ShardedPageCache.retainCleanupFailure(fromBody, failure);
       return;
     }
     // Rethrown unwrapped, in the two shapes the catches above can produce. Neither sweep declares a
@@ -986,11 +1124,28 @@ public final class BufferManagerImpl implements BufferManager {
    * </p>
    */
   private void clearHotPageCaches(final Predicate<PageReference> matches) {
+    Throwable failure = null;
     try {
       clearHotPageCache(hotLeafPageCache, matches);
-    } finally {
-      clearHotPageCache(hotLeafFragmentCache, matches);
+    } catch (final RuntimeException | Error e) {
+      failure = e;
     }
+    try {
+      clearHotPageCache(hotLeafFragmentCache.nativeImages(), matches);
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
+      clearHotPageCache(hotLeafFragmentCache.heapImages(), matches);
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
+      hotMiniPageCache.invalidate(matches);
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    ShardedPageCache.rethrowCleanupFailure(failure);
   }
 
   /**
@@ -1031,6 +1186,7 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     int removed = 0;
+    Throwable failure = null;
     for (final PageReference key : keysToRemove) {
       // removeAndGet, NOT get-then-remove: the two-step version retires whatever the GET saw while
       // the REMOVE unmaps whatever is there now. A page cached between the two is then dropped from
@@ -1038,12 +1194,17 @@ public final class BufferManagerImpl implements BufferManager {
       // TransactionIntentLog claimed in between (see removeHOTLeavesFromCache, which exists because
       // one instance can be both a container page and a cache entry) is freed while the writer still
       // owns it for commit. One atomic step means we only ever retire the page we actually unmapped.
-      final HOTLeafPage page = cache.removeAndGet(key);
-      if (page != null && !page.isClosed()) {
-        page.retire();
+      try {
+        final HOTLeafPage page = cache.removeAndGet(key);
+        if (page != null && !page.isClosed()) {
+          page.retire();
+        }
+        removed++;
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
       }
-      removed++;
     }
+    ShardedPageCache.rethrowCleanupFailure(failure);
     return removed;
   }
 

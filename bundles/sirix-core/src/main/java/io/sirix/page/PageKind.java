@@ -5805,99 +5805,7 @@ public enum PageKind {
     @Override
     public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source, SerializationType type,
         final ByteHandler.DecompressionResult decompressionResult) {
-      final byte envelopeFlags = readVersionAndFlagsAllowing(source, HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
-
-      // Read header
-      final long recordPageKey = Utils.getVarLong(source);
-      final int revision = source.readInt();
-      final IndexType indexType = IndexType.getType(source.readByte());
-
-      // Read common prefix (V2 format with prefix compression)
-      final int commonPrefixLen = Short.toUnsignedInt(source.readShort());
-      final byte[] commonPrefix;
-      if (commonPrefixLen > 0) {
-        commonPrefix = new byte[commonPrefixLen];
-        source.read(commonPrefix);
-      } else {
-        commonPrefix = new byte[0];
-      }
-
-      final int rawEntryCount = source.readInt();
-      final boolean completeDump = (rawEntryCount & 0x80000000) != 0;
-      final int entryCount = rawEntryCount & 0x7FFFFFFF;
-      final int usedSlotMemorySize = source.readInt();
-
-      // Read slot offsets (allocate MAX_ENTRIES to allow insertions after deserialization)
-      final int[] slotOffsets = new int[HOTLeafPage.MAX_ENTRIES];
-      source.readInts(slotOffsets, 0, entryCount);
-
-      // Read slot memory (zero-copy when possible). The ownership variables deliberately cover the
-      // entire acquisition-to-return interval: the optional side-reference trailer is parsed only
-      // after the leaf exists, and corrupt/truncated trailer bytes must close that unpublished leaf
-      // instead of stranding either its transferred decompression frame or its copying-path frame.
-      final MemorySegmentAllocator allocator = Allocators.getInstance();
-      final boolean canZeroCopy = decompressionResult != null && source instanceof MemorySegmentBytesIn;
-      Runnable acquiredFrameOwner = null;
-      HOTLeafPage page = null;
-      try {
-        final MemorySegment slotMemory;
-        // Base of the allocation backing slotMemory, when slotMemory is only a slice of it. The
-        // allocator's live-slot map is keyed by the address it handed out, so the page has to be
-        // told the base or its optimistic read stamps silently bind to "not slot-backed" and stop
-        // validating anything. Null on the copying path, where slotMemory IS the allocation.
-        final MemorySegment stampBase;
-        if (canZeroCopy) {
-          final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
-          slotMemory = sourceSegment.asSlice(source.position(), usedSlotMemorySize);
-          stampBase = sourceSegment;
-          source.skip(usedSlotMemorySize);
-          acquiredFrameOwner = Objects.requireNonNull(decompressionResult.transferOwnership(),
-              "HOT-leaf decompression-frame ownership was already transferred");
-        } else {
-          stampBase = null;
-          // Construct the owner before entering the allocator. No heap allocation is then needed
-          // between a successful native-frame acquisition and publication into HOTLeafPage.
-          final HOTLeafAllocatedFrameOwner allocatedFrameOwner = new HOTLeafAllocatedFrameOwner(allocator);
-          acquiredFrameOwner = allocatedFrameOwner;
-          slotMemory = Objects.requireNonNull(allocator.allocate(HOTLeafPage.DEFAULT_SIZE));
-          allocatedFrameOwner.bind(slotMemory);
-          if (source instanceof MemorySegmentBytesIn msSource) {
-            MemorySegment.copy(msSource.getSource(), source.position(), slotMemory, 0, usedSlotMemorySize);
-            source.skip(usedSlotMemorySize);
-          } else {
-            final byte[] slotData = new byte[usedSlotMemorySize];
-            source.read(slotData);
-            MemorySegment.copy(slotData, 0, slotMemory, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, usedSlotMemorySize);
-          }
-        }
-
-        page = new HOTLeafPage(recordPageKey, revision, indexType, slotMemory, acquiredFrameOwner, slotOffsets,
-            entryCount, usedSlotMemorySize, commonPrefix, commonPrefixLen);
-        // Before the page is published: without this the zero-copy leaf's stamp binds to the slice's
-        // address, which is not an allocator key, and every validateStamp degrades to a closed-flag
-        // check for the page's whole lifetime.
-        page.setStampBaseSegment(stampBase);
-        page.setCompleteDump(completeDump);
-        if ((envelopeFlags & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS) != 0) {
-          deserializeSegmentRefs(source, page);
-        }
-        return page;
-      } catch (final RuntimeException | Error failure) {
-        try {
-          if (page != null) {
-            // The constructor has returned: the page is the sole frame owner, including any side
-            // references already decoded before a later trailer read failed.
-            page.close();
-          } else if (acquiredFrameOwner != null) {
-            // Construction did not publish ownership. Release the acquired/transferred frame here;
-            // DecompressionResult.close() is a no-op after transfer, so this remains exactly-once.
-            acquiredFrameOwner.run();
-          }
-        } catch (final RuntimeException | Error cleanupFailure) {
-          HOTLeafPage.addSuppressedSafely(failure, cleanupFailure);
-        }
-        throw failure;
-      }
+      return deserializeHOTLeaf(source, decompressionResult, false);
     }
 
     @Override
@@ -6790,6 +6698,131 @@ public enum PageKind {
           + " (allowed mask 0x" + Integer.toHexString(allowedMask & 0xFF) + ") — page written by a newer version");
     }
     return flags;
+  }
+
+  /** Read the existing HOT wire image without allocating writable capacity or routing metadata. */
+  static HOTLeafPage deserializeHOTLeafFragment(final BytesIn<?> source) {
+    return deserializeHOTLeaf(source, null, true);
+  }
+
+  private static HOTLeafPage deserializeHOTLeaf(final BytesIn<?> source,
+      final ByteHandler.DecompressionResult decompressionResult, final boolean compactFragment) {
+    final byte envelopeFlags = readVersionAndFlagsAllowing(source, HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
+
+    // Read header
+    final long recordPageKey = Utils.getVarLong(source);
+    final int revision = source.readInt();
+    final IndexType indexType = IndexType.getType(source.readByte());
+
+    // Read common prefix (V2 format with prefix compression)
+    final int commonPrefixLen = Short.toUnsignedInt(source.readShort());
+    final byte[] commonPrefix;
+    if (commonPrefixLen > 0) {
+      commonPrefix = new byte[commonPrefixLen];
+      source.read(commonPrefix);
+    } else {
+      commonPrefix = new byte[0];
+    }
+
+    final int rawEntryCount = source.readInt();
+    final boolean completeDump = (rawEntryCount & 0x80000000) != 0;
+    final int entryCount = rawEntryCount & 0x7FFFFFFF;
+    final int usedSlotMemorySize = source.readInt();
+
+    if (entryCount > HOTLeafPage.MAX_ENTRIES || usedSlotMemorySize < 0
+        || usedSlotMemorySize > HOTLeafPage.DEFAULT_SIZE) {
+      throw new IllegalStateException("Invalid HOT fragment dimensions");
+    }
+
+    // Read slot offsets. An ordinary image keeps MAX_ENTRIES of capacity for insertions after
+    // deserialization. An immutable compact raw image owns exactly its entries; HOTLeafPage restores
+    // the full writable directory in every copy.
+    final int[] slotOffsets = new int[compactFragment
+        ? entryCount
+        : HOTLeafPage.MAX_ENTRIES];
+    source.readInts(slotOffsets, 0, entryCount);
+
+    // Read slot memory (zero-copy when possible). The ownership variables deliberately cover the
+    // entire acquisition-to-return interval: the optional side-reference trailer is parsed only
+    // after the leaf exists, and corrupt/truncated trailer bytes must close that unpublished leaf
+    // instead of stranding either its transferred decompression frame or its copying-path frame.
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
+    final boolean canZeroCopy =
+        !compactFragment && decompressionResult != null && source instanceof MemorySegmentBytesIn;
+    Runnable acquiredFrameOwner = null;
+    HOTLeafPage page = null;
+    try {
+      final MemorySegment slotMemory;
+      // Base of the allocation backing slotMemory, when slotMemory is only a slice of it. The
+      // allocator's live-slot map is keyed by the address it handed out, so the page has to be
+      // told the base or its optimistic read stamps silently bind to "not slot-backed" and stop
+      // validating anything. Null on the copying path, where slotMemory IS the allocation.
+      final MemorySegment stampBase;
+      if (compactFragment) {
+        // Own only the packed slot bytes. No allocator frame or PEXT index is needed to answer
+        // a point lookup. This is a complete raw image in the existing fragment cache;
+        // ranges still reconstruct it and writers take their ordinary full-capacity copy.
+        final byte[] slots = new byte[usedSlotMemorySize];
+        source.read(slots);
+        slotMemory = MemorySegment.ofArray(slots);
+        stampBase = null;
+      } else if (canZeroCopy) {
+        final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
+        slotMemory = sourceSegment.asSlice(source.position(), usedSlotMemorySize);
+        stampBase = sourceSegment;
+        source.skip(usedSlotMemorySize);
+        acquiredFrameOwner = Objects.requireNonNull(decompressionResult.transferOwnership(),
+            "HOT-leaf decompression-frame ownership was already transferred");
+      } else {
+        stampBase = null;
+        // Construct the owner before entering the allocator. No heap allocation is then needed
+        // between a successful native-frame acquisition and publication into HOTLeafPage.
+        final HOTLeafAllocatedFrameOwner allocatedFrameOwner = new HOTLeafAllocatedFrameOwner(allocator);
+        acquiredFrameOwner = allocatedFrameOwner;
+        slotMemory = Objects.requireNonNull(allocator.allocate(HOTLeafPage.DEFAULT_SIZE));
+        allocatedFrameOwner.bind(slotMemory);
+        if (source instanceof MemorySegmentBytesIn msSource) {
+          MemorySegment.copy(msSource.getSource(), source.position(), slotMemory, 0, usedSlotMemorySize);
+          source.skip(usedSlotMemorySize);
+        } else {
+          final byte[] slotData = new byte[usedSlotMemorySize];
+          source.read(slotData);
+          MemorySegment.copy(slotData, 0, slotMemory, ValueLayout.JAVA_BYTE, 0, usedSlotMemorySize);
+        }
+      }
+
+      page = new HOTLeafPage(recordPageKey, revision, indexType, slotMemory, acquiredFrameOwner, slotOffsets,
+          entryCount, usedSlotMemorySize, commonPrefix, commonPrefixLen, compactFragment);
+      // Before the page is published: without this the zero-copy leaf's stamp binds to the slice's
+      // address, which is not an allocator key, and every validateStamp degrades to a closed-flag
+      // check for the page's whole lifetime.
+      page.setStampBaseSegment(stampBase);
+      page.setCompleteDump(completeDump);
+      if ((envelopeFlags & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS) != 0) {
+        deserializeSegmentRefs(source, page);
+      }
+      return page;
+    } catch (final RuntimeException | Error failure) {
+      closeUnpublishedHOTLeaf(page, acquiredFrameOwner, failure);
+      throw failure;
+    }
+  }
+
+  private static void closeUnpublishedHOTLeaf(final @Nullable HOTLeafPage page,
+      final @Nullable Runnable acquiredFrameOwner, final Throwable failure) {
+    try {
+      if (page != null) {
+        // The constructor has returned: the page is the sole frame owner, including any side
+        // references already decoded before a later trailer read failed.
+        page.close();
+      } else if (acquiredFrameOwner != null) {
+        // Construction did not publish ownership. Release the acquired/transferred frame here;
+        // DecompressionResult.close() is a no-op after transfer, so this remains exactly-once.
+        acquiredFrameOwner.run();
+      }
+    } catch (final RuntimeException | Error cleanupFailure) {
+      HOTLeafPage.addSuppressedSafely(failure, cleanupFailure);
+    }
   }
 
   /**

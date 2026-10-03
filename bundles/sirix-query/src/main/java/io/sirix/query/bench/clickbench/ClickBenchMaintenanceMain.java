@@ -312,7 +312,7 @@ public final class ClickBenchMaintenanceMain {
 
   private static ProjectionIndexMetadata readMetadata(final JsonNodeReadOnlyTrx rtx) {
     final ProjectionIndexMetadata metadata =
-        ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), 0, 0L));
+        ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(rtx.getStorageEngineReader(), 0));
     if (metadata == null || metadata.isStale()) {
       throw new IllegalStateException("ClickBench projection metadata is absent or stale");
     }

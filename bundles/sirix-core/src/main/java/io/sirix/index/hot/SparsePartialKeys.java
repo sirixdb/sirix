@@ -187,6 +187,9 @@ public final class SparsePartialKeys<T extends Number> {
    * @return bitmask of matching entries
    */
   private int searchBytes(byte densePartialKey) {
+    if (numEntries <= Long.BYTES) {
+      return ByteLaneSearch.subset(byteEntries, numEntries, densePartialKey);
+    }
     if (BYTE_SPECIES.length() >= MAX_ENTRIES) {
       // Full SIMD path: compare all 32 entries at once
       ByteVector searchReg = ByteVector.broadcast(BYTE_SPECIES, densePartialKey);
@@ -492,4 +495,3 @@ public final class SparsePartialKeys<T extends Number> {
         : ((size & (~7)) + 8);
   }
 }
-

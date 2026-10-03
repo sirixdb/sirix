@@ -3,6 +3,7 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.api.HOTReadIntent;
 import io.sirix.api.StorageEngineReader;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import org.jspecify.annotations.Nullable;
@@ -61,7 +62,7 @@ final class ProjectionSortedDirectory {
 
   static @Nullable Accessor open(final StorageEngineReader reader, final int indexNumber) {
     Objects.requireNonNull(reader, "reader");
-    final byte[] header = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, HEADER_SLOT);
+    final byte[] header = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, HEADER_SLOT, HOTReadIntent.POINT);
     return header == null
         ? null
         : new Accessor(reader, indexNumber, header);
@@ -182,7 +183,7 @@ final class ProjectionSortedDirectory {
       this.layout = parsed.layout();
       this.root = parsed.rootId() == 0
           ? null
-          : readNode(parsed.rootId());
+          : readNode(parsed.rootId(), HOTReadIntent.POINT);
     }
 
     int dataLeafCount() {
@@ -238,7 +239,7 @@ final class ProjectionSortedDirectory {
           }
           return childId;
         }
-        node = readNode(childId);
+        node = readNode(childId, HOTReadIntent.POINT);
       }
       throw new IllegalStateException("sorted projection directory has no data level");
     }
@@ -257,9 +258,9 @@ final class ProjectionSortedDirectory {
         cursor.positions[level] = position;
         final int childId = node.intPayloadAt(position);
         if (level == height - 1) {
-          cursor.loadLeaf(childId);
+          cursor.loadLeaf(childId, HOTReadIntent.POINT);
         } else {
-          node = readNode(childId);
+          node = readNode(childId, HOTReadIntent.POINT);
         }
       }
       cursor.row = cursor.leaf.lowerBound(key);
@@ -353,7 +354,7 @@ final class ProjectionSortedDirectory {
               }
               id = childId;
             } else {
-              node = readNode(childId);
+              node = readNode(childId, HOTReadIntent.SCAN);
             }
           }
         }
@@ -413,7 +414,7 @@ final class ProjectionSortedDirectory {
       private void descend(final int level, final int child) {
         int childId = child;
         for (int down = level + 1; down < height; down++) {
-          final ProjectionSortedLeaf node = readNode(childId);
+          final ProjectionSortedLeaf node = readNode(childId, HOTReadIntent.SCAN);
           nodes[down] = node;
           positions[down] = 0;
           childId = node.intPayloadAt(0);
@@ -562,21 +563,21 @@ final class ProjectionSortedDirectory {
         positions[selectedLevel] = selectedPosition;
         int childId = nodes[selectedLevel].intPayloadAt(selectedPosition);
         for (int down = selectedLevel + 1; down < height; down++) {
-          final ProjectionSortedLeaf child = readNode(childId);
+          final ProjectionSortedLeaf child = readNode(childId, HOTReadIntent.SCAN);
           nodes[down] = child;
           final int position = child.firstNonPrefixRowAfter(0, prefix, length) - 1;
           positions[down] = position;
           childId = child.intPayloadAt(position);
         }
-        loadLeaf(childId);
+        loadLeaf(childId, HOTReadIntent.SCAN);
         return true;
       }
 
-      private void loadLeaf(final int id) {
+      private void loadLeaf(final int id, final HOTReadIntent intent) {
         if (id < 1 || id > maxLeafId) {
           throw new IllegalStateException("sorted projection directory names an absent data leaf");
         }
-        final ProjectionSortedLeaf next = ProjectionSortedLeafStore.read(reader, indexNumber, id);
+        final ProjectionSortedLeaf next = ProjectionSortedLeafStore.read(reader, indexNumber, id, intent);
         if (next == null) {
           throw new IllegalStateException("missing sorted projection data leaf " + id);
         }
@@ -595,12 +596,12 @@ final class ProjectionSortedDirectory {
           positions[level] = nextPosition;
           int childId = node.intPayloadAt(nextPosition);
           for (int down = level + 1; down < height; down++) {
-            final ProjectionSortedLeaf child = readNode(childId);
+            final ProjectionSortedLeaf child = readNode(childId, HOTReadIntent.SCAN);
             nodes[down] = child;
             positions[down] = 0;
             childId = child.intPayloadAt(0);
           }
-          loadLeaf(childId);
+          loadLeaf(childId, HOTReadIntent.SCAN);
           return true;
         }
         leaf = null;
@@ -616,11 +617,17 @@ final class ProjectionSortedDirectory {
       }
     }
 
-    private ProjectionSortedLeaf readNode(final int nodeId) {
+    /**
+     * Read one directory node. A seek descent resolves exactly one node per level and never revisits
+     * it, so it takes {@link HOTReadIntent#POINT} and the versioned chain answers that single slot
+     * instead of reconstructing the whole physical leaf the node shares with its siblings. An in-order
+     * walk keeps {@link HOTReadIntent#SCAN}, which is what reuses that complete leaf.
+     */
+    private ProjectionSortedLeaf readNode(final int nodeId, final HOTReadIntent intent) {
       if (nodeId < 1 || nodeId > nodeCount) {
         throw new IllegalStateException("sorted projection directory node id is outside its header range");
       }
-      final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, HEADER_SLOT + nodeId);
+      final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, HEADER_SLOT + nodeId, intent);
       if (bytes == null) {
         throw new IllegalStateException("missing sorted projection directory node " + nodeId);
       }

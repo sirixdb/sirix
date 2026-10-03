@@ -108,7 +108,7 @@ final class ClickBenchProjectionAcceptance {
       final ProjectionIndexMetadata metadata;
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
         final byte[] raw =
-            ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), actualDefinition.getID(), 0L);
+            ProjectionIndexHOTStorage.readMetadataBlob(rtx.getStorageEngineReader(), actualDefinition.getID());
         if (raw == null) {
           throw failure(round,
               "projection definition #" + actualDefinition.getID() + " has no persisted slot-0 metadata");

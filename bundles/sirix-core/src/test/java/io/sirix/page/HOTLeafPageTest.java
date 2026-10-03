@@ -84,6 +84,54 @@ class HOTLeafPageTest {
   }
 
   @Test
+  void readCopyPreservesIncompleteBoundaryWithoutRetainingItsDependency() {
+    try (HOTLeafPage ancestor = new HOTLeafPage(1, 0, IndexType.PATH)) {
+      hotLeafPage.put(new byte[] {1}, new byte[] {2});
+      hotLeafPage.setCompletePageRef(ancestor);
+      hotLeafPage.setCompleteDump(false);
+      try (HOTLeafPage readCopy = hotLeafPage.copyForRead();
+          HOTLeafPage freshCopy = hotLeafPage.copyAsFreshPage(2, 2)) {
+        assertFalse(readCopy.isCompleteDump());
+        assertNull(readCopy.getCompletePageRef());
+        assertTrue(freshCopy.isCompleteDump());
+        assertNull(freshCopy.getCompletePageRef());
+        assertSame(ancestor, hotLeafPage.getCompletePageRef());
+        assertFalse(hotLeafPage.isCompleteDump());
+        assertArrayEquals(new byte[] {2}, readCopy.copyStoredValue(0));
+        assertArrayEquals(new byte[] {2}, freshCopy.copyStoredValue(0));
+        assertTrue(readCopy.put(new byte[] {3}, new byte[] {4}));
+        assertEquals(1, hotLeafPage.size());
+      }
+    }
+  }
+
+  @Test
+  void compactStoredValuesMatchEveryValueReferenceIncludingEmptyValuesAndTail() {
+    final byte[][] values = {new byte[0], new byte[] {11}, new byte[] {12, 13, 14}, new byte[0], new byte[] {15, 16}};
+    for (int slot = 0; slot < values.length; slot++) {
+      assertTrue(hotLeafPage.put(new byte[] {7, (byte) slot}, values[slot]));
+    }
+    final int[] offsets = new int[values.length];
+    for (int slot = 0; slot < offsets.length; slot++) {
+      offsets[slot] = hotLeafPage.getSlotOffset(slot);
+    }
+    final byte[] bytes = hotLeafPage.slots().asSlice(0, hotLeafPage.getUsedSlotsSize()).toArray(ValueLayout.JAVA_BYTE);
+    try (HOTLeafPage compact = new HOTLeafPage(1, 1, IndexType.PATH, MemorySegment.ofArray(bytes), null, offsets,
+        values.length, bytes.length, hotLeafPage.getCommonPrefix().clone(), hotLeafPage.getCommonPrefixLen(), true)) {
+      for (int slot = 0; slot < values.length; slot++) {
+        final long reference = compact.valueRef(slot);
+        assertEquals(values[slot].length, HOTLeafPage.refLength(reference));
+        final byte[] referenced = new byte[HOTLeafPage.refLength(reference)];
+        for (int offset = 0; offset < referenced.length; offset++) {
+          referenced[offset] = compact.refByteAt(reference, offset);
+        }
+        assertArrayEquals(values[slot], referenced);
+        assertArrayEquals(referenced, compact.copyStoredValue(slot));
+      }
+    }
+  }
+
+  @Test
   void testBasicCreation() {
     assertEquals(1L, hotLeafPage.getPageKey());
     assertEquals(1, hotLeafPage.getRevision());

@@ -356,6 +356,23 @@ public abstract class AbstractReader implements Reader {
     }
   }
 
+  /** Fragment decoder never retains the borrowed input or transfers its decompression owner. */
+  protected Page deserializeHOTLeafFragmentFromSegment(final ResourceConfiguration resourceConfiguration,
+      final MemorySegment compressedPage) throws IOException {
+    if (byteHandler instanceof ByteHandlerPipeline pipeline && pipeline.isEmpty()) {
+      final Page page = pagePersister.deserializeHOTLeafFragment(resourceConfiguration,
+          new MemorySegmentBytesIn(compressedPage), type);
+      fixupPageReferenceIds(page, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+      return page;
+    }
+    try (final var decoded = byteHandler.decompressScoped(compressedPage)) {
+      final Page page = pagePersister.deserializeHOTLeafFragment(resourceConfiguration,
+          new MemorySegmentBytesIn(decoded.segment()), type);
+      fixupPageReferenceIds(page, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+      return page;
+    }
+  }
+
   /**
    * Decode only the PAX regions from an already-read page image — see
    * {@link Reader#readRegionsOnly(PageReference, ResourceConfiguration, int)}.

@@ -19,8 +19,9 @@ retain their page-copy path. Checksum views have independent positions and exact
 
 With an empty byte pipeline and input borrowing enabled, overflow decoding borrows its serialized
 input directly: both raw and compressed overflow decoders finish with independently owned payload arrays. This removes a
-temporary native-frame allocation, copy, and release. Other page kinds still use the owned-buffer
-pipeline because record and HOT pages can retain that storage. Configured byte handlers always run.
+temporary native-frame allocation, copy, and release. Ordinary record and HOT page decoding still
+uses the owned-buffer pipeline because those pages can retain that storage. Compact HOT fragment
+decoding is described below. Configured byte handlers always run.
 
 Batches with multiple page references can submit Linux `POSIX_FADV_WILLNEED` hints for upcoming
 requested offsets before reading and decoding the current run: one hint per coalesced run, covering
@@ -49,6 +50,73 @@ the original queue. Both queues share one append owner and validate completed wr
 publishes offsets. Explicit final drains include both queues. The default lazy active/frozen pairs
 reserve 128 MiB for immediate pages and 8 MiB for grouped pages; larger individual payloads use the
 immediate path. Existing formats, logical commits, and incremental mutations are unchanged.
+
+## Versioned HOT projection slot reads
+
+`StorageEngineReader.readHOTProjectionEntry` and the explicit-intent `readBlob` overload can
+resolve a single projection slot without reconstructing unrelated entries. Newest values and
+zero-length tombstones win; absence stops at a complete dump or the end of the declared chain.
+The newest image supplies the side-page reference even when an older fragment supplies the value.
+Every raw image is guarded through its use, and raw images have a separate cache from complete
+leaves. A requested-slot result never becomes a complete-leaf swizzle.
+
+`FileChannelReader` decodes these raw images into independently owned packed heap bytes and an
+exact-size offset directory, without allocating a writable native frame or building routing
+metadata. Scalar misses in one fragment-chain walk share one freshly captured committed file
+extent. Complete reconstruction retains coalesced batch I/O and copies older projection values
+straight into its private result. Compact images are immutable; copies restore full writable capacity.
+A decoder-only image is never published as a canonical complete leaf: the complete-leaf cache only
+ever receives a fully built leaf, with its routing index, its off-heap frame accounting and its
+ordinary stamp binding. The persisted leaf layout and all four versioning policies are unchanged.
+
+Read intent controls cache admission:
+
+- `POINT` may cache a resolved slot, including a known absence or tombstone. Four distinct point
+  demands on one leaf, or an accumulated packed-size limit, request complete reconstruction. The
+  index-metadata record, which every serving decision and every commit resolves on its own, and a
+  single advertised set-summary column read this way. Sorted-directory seek descents and their
+  first data leaf also use `POINT`; directory headers and in-order cursor advances retain `SCAN`.
+- `SCAN` uses complete leaves. General blob reads retain this intent because they may enumerate
+  many slots. Writers and shared-page backends use the ordinary complete loader.
+
+Mini pages hold only bounded packed results and durable side-reference provenance. They use the
+normal guarded cache lifecycle and byte accounting. Invalidation fences in-flight admissions on one
+of 1,024 stripes, hashed from the resource and the durable key, so promoting one leaf to its complete
+image normally neither serialises nor rejects a concurrent resolution of an unrelated leaf. A hash
+collision does reject one, which costs nothing but a correct answer left uncached. A bulk clear
+fences every stripe.
+Their budget is one sixteenth of the existing complete-HOT allowance, capped at 64 MiB and the
+heap ceiling below, taken from that complete allowance. Complete adoption discards the corresponding
+mini page.
+
+HOT cache sweepers skip guarded images.
+
+The raw-fragment cache is mixed-residency and is split accordingly. A committed fragment decodes
+into an allocator frame on every backend that does not implement the compact reads — `MEMORY_MAPPED`,
+anything reached through a plain `Reader` default — and on any byte pipeline whose handler has no
+memory-segment support; it decodes into packed Java-heap bytes only on `FILE_CHANNEL` with a
+segment-capable pipeline. One budget cannot bound both honestly, so `HOTFragmentCache` holds two
+separately weighted halves and consults both on lookup, routing each admission by the image's own
+residency. The native half keeps the pre-existing off-heap fragment share in full, with the allocator
+pressure listener still behind it, so native capacity on `MEMORY_MAPPED` or a non-segment pipeline is
+unchanged. For a positive HOT allowance `q = maxRecordPageCacheWeight / 4`, the native fragment
+share is `min(q/2, max(q/4, 32 × 64 KiB))`; the remainder is the complete-leaf allowance before
+reserving mini pages. The compact half and the mini cache retain heap instead, are each charged
+their packed bytes plus the page's conservative fixed per-page heap estimate, and are each bounded by
+`sirix.hotHeapCache.maxBytes` — one sixteenth of `Runtime.maxMemory()` by default, floored at
+32 × 64 KiB. The property accepts positive byte counts; malformed or non-positive values use the
+default. The compact half spends no native fragment allowance; the mini reservation comes from the
+complete-leaf share described above. A heap-resident image holds no allocator frame, so each heap
+cache has its own clock sweeper rather than relying on allocator pressure. Point fragment walks,
+including walks answered from cached raw images, contribute to `EngineWorkCounters.HOT_LEAF_LOADS`;
+older point fragments contribute to `HOT_FRAGMENTS_WALKED`, and complete-leaf or mini-page hits
+contribute neither. A FULL-versioned resource still bypasses the merge and contributes nothing.
+Existing work-budget bounds are unchanged.
+
+Regression coverage: `HOTProjectionEntryReadTest`, `HOTMiniPageCacheTest`, `HOTHeapCacheBudgetTest`,
+`HOTCompactFragmentReadTest`, `HOTCompactFragmentBatchReadTest`,
+`ProjectionBlobHistoryReadTest`, and `HOTProjectionMergeBytesTest`. The *Work budgets* block in
+`docs/VERIFICATION.md` remains the required load/query work check.
 
 ## Projection execution
 

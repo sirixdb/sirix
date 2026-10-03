@@ -224,8 +224,11 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
   }
 
-  /** Slow-miss publication state; the cache-hit path allocates nothing. */
-  private static final class GuardedLoadState<T extends CacheablePage> {
+  /**
+   * Slow-miss publication state; the cache-hit path allocates nothing. It also carries the load's
+   * retained retirement failures, so one object serves an adoption instead of two.
+   */
+  private static final class GuardedLoadState<T extends CacheablePage> extends RetirementFailures {
     T candidate;
     T displaced;
     CacheCharge appliedCharge;
@@ -235,7 +238,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     boolean candidateGuarded;
   }
 
-  private static final class RetirementFailures {
+  private static class RetirementFailures {
     private Throwable first;
 
     private void retain(final Throwable failure) {
@@ -730,7 +733,12 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   @Override
   public V getAndGuard(PageReference key) {
     V existing = map.get(key);
-    if (existing != null && existing.acquireGuard()) {
+    if (existing == null) {
+      // An absent mapping needs no lifecycle fence, retirement bookkeeping or compute: this lookup
+      // is the linearization point of the miss, exactly as it is for the guarded hit below.
+      return null;
+    }
+    if (existing.acquireGuard()) {
       existing.markAccessed();
       return existing;
     }
@@ -770,7 +778,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
 
     final GuardedLoadState<V> loadState = new GuardedLoadState<>();
-    final RetirementFailures failures = new RetirementFailures();
+    final RetirementFailures failures = loadState;
     final V page;
     lifecycleLock.readLock().lock();
     try {

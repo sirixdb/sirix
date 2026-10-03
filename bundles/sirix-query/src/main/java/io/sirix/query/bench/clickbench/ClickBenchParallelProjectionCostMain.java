@@ -167,7 +167,7 @@ public final class ClickBenchParallelProjectionCostMain {
       }
       if (arm != Arm.BARE) {
         final byte[] raw =
-            ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), PROJECTION_INDEX_NUMBER, 0L);
+            ProjectionIndexHOTStorage.readMetadataBlob(rtx.getStorageEngineReader(), PROJECTION_INDEX_NUMBER);
         if (raw == null) {
           throw new IllegalStateException(arm + " published no projection metadata");
         }

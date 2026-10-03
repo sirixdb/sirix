@@ -6,6 +6,8 @@ package io.sirix.index.projection;
 import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.HOTReadIntent;
+import io.sirix.page.HOTLeafEntry;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -4005,7 +4007,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final byte[] keyBuf = KEY_BUFFER.get();
       if (!coalesce) {
         for (int i = 0; i < count; i++) {
-          out[i] = readBlob(reader, trieReader, rootRef, keyBuf, slotKeys[i]);
+          out[i] = readBlob(reader, trieReader, rootRef, keyBuf, slotKeys[i], HOTReadIntent.SCAN);
         }
         return out;
       }
@@ -4096,60 +4098,62 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     throw HOTTrieReader.stampRetriesExhausted("captureBlobReference(slot " + slotKey + ")");
   }
 
-  /** Reader-side blob read for committed revisions. */
+  /**
+   * Reader-side blob read for committed revisions. General blob readers may enumerate many slots;
+   * retain complete leaves for reuse, including by a later writer. Explicit point callers can opt
+   * into resolved-record caching with the overload accepting a read intent.
+   */
   public static byte @Nullable [] readBlob(final StorageEngineReader reader, final int indexNumber,
       final long slotKey) {
+    return readBlob(reader, indexNumber, slotKey, HOTReadIntent.SCAN);
+  }
+
+  /**
+   * Read one blob with an explicit read-cache policy; the value and provenance checks are identical.
+   */
+  public static byte @Nullable [] readBlob(final StorageEngineReader reader, final int indexNumber, final long slotKey,
+      final HOTReadIntent intent) {
+    Objects.requireNonNull(intent, "intent");
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      return readBlob(reader, trieReader, rootRef, KEY_BUFFER.get(), slotKey);
+      return readBlob(reader, trieReader, rootRef, KEY_BUFFER.get(), slotKey, intent);
     }
   }
 
+  /** The index-metadata record, which every serving decision and every commit resolves. */
+  public static final long METADATA_SLOT = 0L;
+
+  /**
+   * Read the index-metadata record. It is one stable slot that callers resolve on its own, so it is a
+   * point lookup: the versioned chain answers just this key and the result is retained as a resolved
+   * record instead of reconstructing the whole leaf for the sake of one blob.
+   */
+  public static byte @Nullable [] readMetadataBlob(final StorageEngineReader reader, final int indexNumber) {
+    return readBlob(reader, indexNumber, METADATA_SLOT, HOTReadIntent.POINT);
+  }
+
   private static byte @Nullable [] readBlob(final StorageEngineReader reader, final HOTTrieReader trieReader,
-      final PageReference rootRef, final byte[] keyBuf, final long slotKey) {
+      final PageReference rootRef, final byte[] keyBuf, final long slotKey, final HOTReadIntent intent) {
     final long refKey = HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID);
-    for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
-      final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
-      if (leaf == null) {
-        return null;
-      }
-      byte @Nullable [] value;
-      PageReference ref = null;
-      try {
-        final int idx = leaf.findEntry(keyBuf);
-        value = idx < 0
-            ? null
-            : leaf.copyStoredValue(idx);
-        if (value != null && value.length != 0 && !isInlineBlob(value)) {
-          ref = leaf.getPageReference(refKey);
-        }
-      } catch (final RuntimeException failure) {
-        if (trieReader.validateCurrentLeaf()) {
-          throw failure;
-        }
-        continue;
-      }
-      if (!trieReader.validateCurrentLeaf()) {
-        continue;
-      }
-      if (value == null || value.length == 0) {
-        return null;
-      }
-      if (isInlineBlob(value)) {
-        return verifyInlineBlob(value, slotKey);
-      }
-      if (ref == null) {
-        return verifyBlob(value, null, slotKey);
-      }
-      final OverflowPage page = reader.readSideOverflowPage(ref);
-      return verifyBlob(value, page == null
-          ? null
-          : page.getDataBytes(), slotKey);
+    PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);
+    final HOTLeafEntry entry = trieReader.readProjectionEntry(rootRef, keyBuf, refKey, intent);
+    if (entry == null || entry.value().length == 0) {
+      return null;
     }
-    throw HOTTrieReader.stampRetriesExhausted("readBlob(slot " + slotKey + ")");
+    final byte[] value = entry.value();
+    if (isInlineBlob(value)) {
+      return verifyInlineBlob(value, slotKey);
+    }
+    final PageReference ref = entry.sideReference();
+    final OverflowPage page = ref == null
+        ? null
+        : reader.readSideOverflowPage(ref);
+    return verifyBlob(value, page == null
+        ? null
+        : page.getDataBytes(), slotKey);
   }
 
   /** Verify + extract an inline blob's payload from its own slot value (no page). */

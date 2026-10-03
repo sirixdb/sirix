@@ -497,6 +497,25 @@ class ShardedPageCacheTest {
   }
 
   @Test
+  void guardedProbeOfAbsentKeyIsAPlainMiss() {
+    try (Arena arena = Arena.ofConfined()) {
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+      assertNull(cache.getAndGuard(keyFor(1)));
+      assertTrue(cache.asMap().isEmpty(), "a probe must not create a mapping");
+      assertEquals(0L, cache.getCurrentWeightBytes(), "a probe must not charge anything");
+      final HOTLeafPage leaf = hotLeaf(arena, 2, 0);
+      cache.put(keyFor(2), leaf);
+      final HOTLeafPage guarded = cache.getAndGuard(keyFor(2));
+      assertSame(leaf, guarded);
+      guarded.releaseGuard();
+      leaf.retire(); // a stale mapping whose guard cannot be acquired
+      assertNull(cache.getAndGuard(keyFor(2)));
+      assertNull(cache.asMap().get(keyFor(2)), "the guard-failure path still removes the dead mapping");
+      assertEquals(0L, cache.getCurrentWeightBytes(), "and uncharges it");
+    }
+  }
+
+  @Test
   @DisplayName("failed guarded admission leaves a stale existing mapping exactly accounted")
   void invalidGuardedLoadDoesNotMutateExistingMapping() {
     try (Arena arena = Arena.ofConfined()) {
