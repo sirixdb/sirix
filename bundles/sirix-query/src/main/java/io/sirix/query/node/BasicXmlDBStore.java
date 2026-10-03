@@ -25,7 +25,6 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -334,20 +333,17 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   @Override
   public XmlDBCollection lookup(final String name) {
-    final Path dbPath = location.resolve(name);
+    final Path dbPath = databasePath(name);
     if (Databases.existsDatabase(dbPath)) {
       try {
-        // First, check if we already have a database open for this path
-        // by comparing database names (not object identity)
-        final Optional<Database<XmlResourceSession>> existingDb =
-            databases.stream().filter(db -> db.isOpen() && db.getName().equals(name)).findFirst();
-
-        if (existingDb.isPresent()) {
-          // Reuse existing database and its collection
-          return collections.get(existingDb.get());
+        for (final var collection : collections.values()) {
+          final var database = collection.getDatabase();
+          if (collection.getName().equals(name) && database.isOpen()
+              && database.getDatabaseConfig().getDatabaseFile().equals(dbPath)) {
+            return collection;
+          }
         }
 
-        // No existing database found, open a new one
         final var database = Databases.openXmlDatabase(dbPath);
         databases.add(database);
         final XmlDBCollection collection = new XmlDBCollectionImpl(name, database);
@@ -362,7 +358,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   @Override
   public XmlDBCollection create(final String name) {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(location.resolve(name));
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(databasePath(name));
     try {
       if (Databases.createXmlDatabase(dbConf)) {
         throw new DocumentException("Document with name %s exists!", name);
@@ -403,10 +399,10 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   private XmlDBCollection createCollection(final String collName, final String optResName,
       final NodeSubtreeParser parser, final String commitMessage, final Instant commitTimestamp) {
-    final Path dbPath = location.resolve(collName);
+    final Path dbPath = databasePath(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      Databases.removeDatabase(dbPath);
+      removeIfExisting(dbConf);
       Databases.createXmlDatabase(dbConf);
       final var database = Databases.openXmlDatabase(dbPath);
       databases.add(database);
@@ -441,10 +437,10 @@ public final class BasicXmlDBStore implements XmlDBStore {
   @Override
   public XmlDBCollection create(final String collName, final @Nullable Stream<NodeSubtreeParser> parsers) {
     if (parsers != null) {
-      final Path dbPath = location.resolve(collName);
+      final Path dbPath = databasePath(collName);
       final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
       try {
-        Databases.removeDatabase(dbPath);
+        removeIfExisting(dbConf);
         Databases.createXmlDatabase(dbConf);
         final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
         databases.add(database);
@@ -486,9 +482,20 @@ public final class BasicXmlDBStore implements XmlDBStore {
     return null;
   }
 
+  private Path databasePath(final String name) {
+    final Path dbPath = location.resolve(name);
+    try {
+      return Files.exists(dbPath)
+          ? dbPath.toRealPath()
+          : dbPath;
+    } catch (final IOException e) {
+      throw new DocumentException(e);
+    }
+  }
+
   @Override
   public void drop(final String name) {
-    final Path dbPath = location.resolve(name);
+    final Path dbPath = databasePath(name);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
     if (!removeIfExisting(dbConfig)) {
       throw new DocumentException("No collection with the specified name found!");

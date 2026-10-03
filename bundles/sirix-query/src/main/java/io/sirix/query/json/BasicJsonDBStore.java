@@ -452,20 +452,17 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection lookup(final String name) {
-    final Path dbPath = location.resolve(name);
+    final Path dbPath = databasePath(name);
     if (Databases.existsDatabase(dbPath)) {
       try {
-        // First, check if we already have a database open for this path
-        // by comparing database names (not object identity)
-        final Optional<Database<JsonResourceSession>> existingDb =
-            databases.stream().filter(db -> db.isOpen() && db.getName().equals(name)).findFirst();
-
-        if (existingDb.isPresent()) {
-          // Reuse existing database and its collection
-          return collections.get(existingDb.get());
+        for (final var collection : collections.values()) {
+          final var database = collection.getDatabase();
+          if (collection.getName().equals(name) && database.isOpen()
+              && database.getDatabaseConfig().getDatabaseFile().equals(dbPath)) {
+            return collection;
+          }
         }
 
-        // No existing database found, open a new one
         final var database = Databases.openJsonDatabase(dbPath);
         databases.add(database);
         final JsonDBCollection collection = new JsonDBCollectionImpl(name, database, this);
@@ -480,7 +477,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(final String name) {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(location.resolve(name));
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(databasePath(name));
     try {
       if (Databases.createJsonDatabase(dbConf)) {
         throw new DocumentException("Document with name %s exists!", name);
@@ -668,7 +665,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   private JsonDBCollection createCollectionWithLoader(final String collName, final String optionalResourceName,
       final @Nullable InitialJsonLoader loader, final Object options, final @Nullable ProjectionSpec projection) {
-    final Path dbPath = location.resolve(collName);
+    final Path dbPath = databasePath(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       removeIfExisting(dbConf);
@@ -807,7 +804,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, Set<JsonReader> jsonReaders, Object options) {
-    final Path dbPath = location.resolve(collName);
+    final Path dbPath = databasePath(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       removeIfExisting(dbConf);
@@ -877,7 +874,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       return null;
     }
 
-    final Path dbPath = location.resolve(collName);
+    final Path dbPath = databasePath(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       removeIfExisting(dbConf);
@@ -927,7 +924,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       return null;
     }
 
-    final Path dbPath = location.resolve(collName);
+    final Path dbPath = databasePath(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       removeIfExisting(dbConf);
@@ -964,9 +961,20 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
+  private Path databasePath(final String name) {
+    final Path dbPath = location.resolve(name);
+    try {
+      return Files.exists(dbPath)
+          ? dbPath.toRealPath()
+          : dbPath;
+    } catch (final IOException e) {
+      throw new DocumentException(e);
+    }
+  }
+
   @Override
   public void drop(final String name) {
-    final Path dbPath = location.resolve(name);
+    final Path dbPath = databasePath(name);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
     if (!removeIfExisting(dbConfig)) {
       throw new DocumentException("No collection with the specified name found!");
