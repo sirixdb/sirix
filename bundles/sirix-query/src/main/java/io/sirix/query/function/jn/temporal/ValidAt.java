@@ -11,6 +11,7 @@ import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
+import io.brackit.query.jdm.json.Object;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.ItemSequence;
@@ -92,8 +93,8 @@ public final class ValidAt extends AbstractFunction {
           + "Configure valid time paths when creating the resource."));
     }
 
-    // Fastest path: a persistent valid-time interval index (Relational-Interval-Tree) stabs the
-    // query instant in O(h) and re-verifies each candidate (provably the same set as the scan).
+    // Exact interval keys avoid object reads; exceptional bounds retain demand-time verification
+    // against the same predicate as the fallback scan.
     final Sequence intervalSequence =
         ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false, null);
     if (intervalSequence != null) {
@@ -184,7 +185,7 @@ public final class ValidAt extends AbstractFunction {
     private boolean isValidAtTime(JsonDBItem item) {
       // Delegate to the single shared predicate so the linear fallback, the interval-index
       // re-verification, and the CAS-narrowing path stay in lock-step (incl. open-ended intervals).
-      return item instanceof io.brackit.query.jdm.json.Object obj && ValidTimeIndexScan.isValidAtTime(obj, validTime,
+      return item instanceof Object obj && ValidTimeIndexScan.isValidAtTime(obj, validTime,
           validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
     }
 

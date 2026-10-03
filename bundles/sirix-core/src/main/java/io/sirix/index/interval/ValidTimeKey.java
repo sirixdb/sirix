@@ -6,8 +6,7 @@
 package io.sirix.index.interval;
 
 /**
- * Composite key into the single HOT sub-tree that backs a {@link RelationalIntervalTree}'s two
- * ordered stores.
+ * Composite key for the RI-tree stores and their companion evidence tree.
  *
  * <p>
  * The RI-tree drives one logical ordered map {@code (forkNode, endpoint) -> multiset(ref)} per
@@ -21,9 +20,9 @@ package io.sirix.index.interval;
  *
  * <p>
  * The {@link Comparable} implementation matches the byte encoding's unsigned order: by store, then
- * by signed {@code forkNode}, then by signed {@code endpoint}. The fork node and endpoints are
- * always in {@code [1, 2^h-1]} (positive), so signed and the sign-flipped-unsigned orders coincide;
- * the sign-flip keeps the encoding total-order-preserving even for hypothetical negative inputs.
+ * by signed {@code forkNode}, then by signed {@code endpoint}. The fork node and endpoints are in
+ * {@code [1, 2^h-1]} for interval stores; evidence stores also use zero coordinates. The sign-flip
+ * keeps the encoding total-order-preserving across the full signed range used by scan sentinels.
  *
  * @author Johannes Lichtenberger
  */

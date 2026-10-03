@@ -12,12 +12,14 @@ import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.ExprUtil;
 import io.brackit.query.jdm.json.Object;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /** The original dateTime comparison, retained for intervals the index cannot prove exactly. */
 final class ValidTimeResidual implements Predicate<Item> {
-  private final StaticContext context;
+  private final @Nullable StaticContext context;
   private final QueryContext queryContext;
   private final Supplier<Sequence> point;
   private final QNm field;
@@ -25,14 +27,19 @@ final class ValidTimeResidual implements Predicate<Item> {
   private final boolean general;
   private final boolean fieldOnLeft;
 
-  ValidTimeResidual(final StaticContext context, final QueryContext queryContext, final Supplier<Sequence> point,
-      final String field, final boolean start, final boolean strict, final boolean general, final boolean fieldOnLeft) {
+  ValidTimeResidual(final @Nullable StaticContext context, final QueryContext queryContext,
+      final Supplier<Sequence> point, final String field, final boolean start, final boolean strict,
+      final boolean general, final boolean fieldOnLeft) {
     this.context = context;
     this.queryContext = queryContext;
     this.point = point;
     this.field = new QNm(field);
-    final Cmp ordered = strict ? Cmp.lt : Cmp.le;
-    comparison = start == fieldOnLeft ? ordered : ordered.swap();
+    final Cmp ordered = strict
+        ? Cmp.lt
+        : Cmp.le;
+    comparison = start == fieldOnLeft
+        ? ordered
+        : ordered.swap();
     this.general = general;
     this.fieldOnLeft = fieldOnLeft;
   }
@@ -56,8 +63,12 @@ final class ValidTimeResidual implements Predicate<Item> {
     return result != null && result.booleanValue();
   }
 
-  private Item bound(final Item item) {
-    final Item value = item instanceof Object object ? ExprUtil.asItem(object.get(field)) : null;
-    return value == null ? null : Cast.cast(context, value, Type.DATI, true);
+  private @Nullable Item bound(final Item item) {
+    final Item value = item instanceof Object object
+        ? ExprUtil.asItem(object.get(field))
+        : null;
+    return value == null
+        ? null
+        : Cast.cast(context, value, Type.DATI, true);
   }
 }

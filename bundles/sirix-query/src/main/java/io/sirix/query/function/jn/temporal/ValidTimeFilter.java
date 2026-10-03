@@ -14,6 +14,8 @@ import io.brackit.query.sequence.LazySequence;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.query.json.JsonDBItem;
 
+import org.jspecify.annotations.Nullable;
+
 import java.time.Instant;
 import java.util.function.Supplier;
 
@@ -34,8 +36,9 @@ public final class ValidTimeFilter {
   private ValidTimeFilter() {}
 
   /** Exact fallback for the two original xs:dateTime comparisons, preserving conjunct order. */
-  public static Sequence comparisonScanSequence(final JsonDBItem document, final Supplier<Sequence> point, final String from,
-      final String to, final int mode, final StaticContext context, final QueryContext queryContext) {
+  public static Sequence comparisonScanSequence(final JsonDBItem document, final Supplier<Sequence> point,
+      final String from, final String to, final int mode, final StaticContext context,
+      final QueryContext queryContext) {
     if (!(document instanceof Array array)) {
       throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE, "Expected an array for valid-time FLWOR");
     }
@@ -55,7 +58,7 @@ public final class ValidTimeFilter {
         final Iter input = array.iterate();
         return new BaseIter() {
           @Override
-          public Item next() {
+          public @Nullable Item next() {
             Item item;
             while ((item = input.next()) != null) {
               if (first.test(item) && second.test(item)) {
@@ -88,7 +91,7 @@ public final class ValidTimeFilter {
           private boolean initialized;
 
           @Override
-          public Item next() {
+          public @Nullable Item next() {
             if (!initialized) {
               initialized = true;
               if (isValidAt(document)) {

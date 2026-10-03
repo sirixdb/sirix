@@ -22,6 +22,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 
@@ -116,19 +117,25 @@ public final class OpenBitemporal extends AbstractFunction {
     if (args.length == 7 && (encodedMode < 1 || encodedMode > 16)) {
       throw new QueryException(new QNm("Invalid valid-time comparison mode"));
     }
-    final int mode = encodedMode == 0 ? 0 : ((encodedMode - 1) & 3) + 1;
+    final int mode = encodedMode == 0
+        ? 0
+        : ((encodedMode - 1) & 3) + 1;
     final boolean start = mode == 1 || mode == 2;
     final boolean strict = mode == 2 || mode == 4;
-    final Sequence comparisonPoint = args.length == 7 ? args[6] : null;
+    final Sequence comparisonPoint = args.length == 7
+        ? args[6]
+        : null;
     final ValidTimeResidual residual = field == null
         ? null
         : new ValidTimeResidual(sctx, ctx, () -> comparisonPoint, field, start, strict, encodedMode > 8,
-            ((encodedMode - 1) & 4) == 0 ? start : !start);
+            ((encodedMode - 1) & 4) == 0
+                ? start
+                : !start);
     final boolean indexedField = field == null || field.equals(start
         ? validTimeConfig.getNormalizedValidFromPath()
         : validTimeConfig.getNormalizedValidToPath());
-    if (indexedField && (residual == null || comparisonPoint instanceof DateTime point && point.getTimezone() != null
-        && point.cmp(validDateTime) == 0)) {
+    if (indexedField && (residual == null || (comparisonPoint instanceof DateTime point && point.getTimezone() != null
+        && point.cmp(validDateTime) == 0))) {
       final Sequence sequence = ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, start && strict,
           !start && strict, residual);
       if (sequence != null) {
@@ -144,7 +151,7 @@ public final class OpenBitemporal extends AbstractFunction {
           final Iter input = source.iterate();
           return new BaseIter() {
             @Override
-            public Item next() {
+            public @Nullable Item next() {
               Item item;
               while ((item = input.next()) != null) {
                 if (residual.test(item)) {
@@ -174,7 +181,8 @@ public final class OpenBitemporal extends AbstractFunction {
       return intervalSequence;
     }
     final ValidTimeIndexScan.Result indexResult = ValidTimeIndexScan.tryIndexScan(document, validTime, validTimeConfig);
-    return indexResult != null ? new ItemSequence(indexResult.items().toArray(new Item[0]))
+    return indexResult != null
+        ? new ItemSequence(indexResult.items().toArray(new Item[0]))
         : ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig);
   }
 }
