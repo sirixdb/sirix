@@ -163,6 +163,39 @@ All notable changes to SirixDB are documented in this file.
 
 ### Fixed
 
+- **A HOT in-place merge could interleave two sibling ranges** — the writer decides between merging
+  a key into the leaf its descent reached and branching above it by comparing the key's mismatch
+  bit with the deepest spine node's least significant discriminative bit only. A sibling leaf that
+  holds keys on both sides of bits the block discriminates on for other children (a shape the
+  writer's own Direction-1 sub-inserts build) can own a range the routed leaf's new extreme reaches
+  into, so the key routed to one child and sorted inside another child's range; merged in place, the
+  two ranges interleaved, range scans would return keys out of order, and the next structural insert
+  through the block found no well-formed frontier candidate at any level and failed closed. Found
+  by a new seeded, property-based structural test (`HOTStructuralPropertyTest`) that drives every
+  HOT index kind — CAS, PATH, NAME, VALIDTIME and the projection slot store with its segment side
+  map — with generated put, remove, bulk-posting, commit, revert and cold-reopen streams across all
+  four versioning types, checks the complete structural invariant and a sorted reference after
+  every step and every historical revision, and shrinks a failing seed to a replayable stream; the
+  shape appeared on a projection store after 770 ordinary writes. The merge arm now proves, before
+  the merge, that the key keeps the spine's order — the question every branch placement already
+  asks — and hands a key that would cross a neighbour to the complete-frontier splice, counted by
+  `MERGE_SPINE_ORDER_DELEGATED`; a key inside its leaf's range pays two comparisons and no walk.
+  The same test found a second placement that trusted the same assumption: when a leaf whose keys
+  span a bit the block does not discriminate on yet is split at that bit (the strand discharge, or a
+  merge-path overflow) and folded into its parent, `addEntry` gave the next sibling a zero in the
+  new column, so where that sibling was told apart from the leaf only by a bit below the split bit
+  the β = 1 half was published past it with partials out of order; the writer's post-publication
+  scope validator caught it and the insert failed closed (a CAS index, 221 ordinary writes). The
+  shared integrate pre-check now declines such a fresh-bit fold at every level of the cascade,
+  counted by `FRESH_BIT_FOLD_NOT_ADJACENT`, and the complete frontier re-encodes the block.
+  In the same splice, a replacing split whose dropped boundary entry owned projection segment-page
+  references used to throw and poison the transaction (a referenced blob replaced by an inline value
+  that overflows its leaf still owns its page at that moment); those references are now carried
+  onto the key's fresh leaf, counted by `FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES`; a constructed
+  projection trie reaches the split through a refused cascade and fails without the carry. Results,
+  on-disk format, revision visibility and write granularity are unchanged; answers change only
+  where an insert previously failed or a range scan would have been out of order. Specified in
+  `docs/HOT_INDEX_SPECIFICATION.md` §4.5.1, §4.5.2 and §4.5.3.
 - **A HOT leaf-page rebuild could write past its page** — inserting a key that shortens a leaf's
   common prefix rewrites every resident entry with the reclaimed prefix bytes, and that rewrite was
   performed without checking that the grown entries still fit the 64 KiB page. Loading a JSON

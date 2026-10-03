@@ -5048,8 +5048,15 @@ public abstract class AbstractHOTIndexWriter<K> {
     int depth = currentDepth;
     while (depth > 0) {
       final HOTIndirectPage parent = pathNodes[depth - 1];
-      if (parent.isDiscriminativeBit(beta)
-          && !HOTIncrementalInsert.canMergeBiNodeAtExistingDiscBit(parent, beta, childSlots[depth - 1])) {
+      if (parent.isDiscriminativeBit(beta)) {
+        if (!HOTIncrementalInsert.canMergeBiNodeAtExistingDiscBit(parent, beta, childSlots[depth - 1])) {
+          return false;
+        }
+      } else if (!HOTIncrementalInsert.freshBitLandsBesideSlot(parent, childSlots[depth - 1], beta)) {
+        // A fresh bit is folded in by addEntry, which puts the β=1 half right after the slot and a
+        // zero into every other child's new column. The slot's keys span β, so a sibling the block
+        // tells apart from it only by a bit below β sorts between the two halves: the fold would
+        // publish the half past that sibling (I7/I12). The complete frontier re-encodes the block.
         return false;
       }
       if (parent.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {

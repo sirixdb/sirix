@@ -81,6 +81,32 @@ final class HOTOrderingGuardTest {
   }
 
   @Test
+  void leafSplitAboveItsSeparatingBitMustNotBeFoldedIn() {
+    try (final Fixture fixture = new Fixture()) {
+      // A full leaf of the multiples of 8 below 0x1000: its keys lie on both sides of bit 20 (0x800).
+      // The root tells it from the one-key leaf after it by bit 29 (0x4) alone, which is below 20.
+      final int[] straddling = new int[HOTLeafPage.MAX_ENTRIES];
+      for (int i = 0; i < straddling.length; i++) {
+        straddling[i] = i << 3;
+      }
+      fixture.install(fixture.node(new int[] {29}, new int[] {0, 1}, fixture.wideLeaf(straddling),
+          fixture.wideLeaf(0xffc)));
+      fixture.assertWideKeys(fixture.sortedUnion(straddling, 0xffc));
+      final long routed = AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM.get();
+      final long declined = HOTIncrementalInsert.FRESH_BIT_FOLD_NOT_ADJACENT.get();
+      // 0xff9 merges into the full leaf, which splits at bit 20. Folding that split into the root
+      // with addEntry would give the next sibling a zero in the new column: its partial 0b01 would
+      // sit after the β=1 half's 0b10, and the root was published with partials out of order (I7).
+      assertDoesNotThrow(() -> fixture.writer.insertWide(0xff9), () -> "handler=" + fixture.writer.lastDispatchHandler);
+      fixture.assertWideKeys(fixture.sortedUnion(straddling, 0xff9, 0xffc));
+      assertEquals(declined + 1, HOTIncrementalInsert.FRESH_BIT_FOLD_NOT_ADJACENT.get(),
+          "the fresh-bit fold must be declined because the sibling parts from the leaf below the split bit");
+      assertEquals(routed + 1, AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM.get(),
+          "the declined fold must route the overflow through the complete frontier");
+    }
+  }
+
+  @Test
   void pairMaximumMustNotCrossAnAncestorsNextSibling() {
     try (final Fixture fixture = new Fixture()) {
       final PageReference child = fixture.node(new int[] {1, 4}, new int[] {0, 1, 2}, fixture.leaf(0x00),
@@ -590,6 +616,45 @@ final class HOTOrderingGuardTest {
       writer.rootReference = reference;
     }
 
+    /** {@code base} plus {@code extra}, ascending — the expected four-byte key order. */
+    private int[] sortedUnion(final int[] base, final int... extra) {
+      final int[] all = Arrays.copyOf(base, base.length + extra.length);
+      System.arraycopy(extra, 0, all, base.length, extra.length);
+      Arrays.sort(all);
+      return all;
+    }
+
+    /** {@link #assertKeys} for four-byte keys. */
+    private void assertWideKeys(final int... expected) {
+      HOTInvariantValidator.validate(root, storage).assertOk();
+      final List<Integer> actual = new ArrayList<>();
+      collectWide(root, actual);
+      assertEquals(Arrays.stream(expected).boxed().toList(), actual, "physical traversal must be exact and ordered");
+      for (final int value : expected) {
+        Page current = page(root);
+        for (int depth = 0; current instanceof HOTIndirectPage node && depth < 32; depth++) {
+          current = page(node.getChildReference(node.findChildIndex(wideKey(value))));
+        }
+        final HOTLeafPage leaf = assertInstanceOf(HOTLeafPage.class, current);
+        assertTrue(leaf.findEntry(wideKey(value)) >= 0, "key must route to its owning leaf: " + value);
+      }
+    }
+
+    private void collectWide(final PageReference reference, final List<Integer> actual) {
+      final Page current = page(reference);
+      if (current instanceof HOTLeafPage leaf) {
+        for (int i = 0; i < leaf.getEntryCount(); i++) {
+          final byte[] key = leaf.getKey(i);
+          actual.add((key[0] & 0xFF) << 24 | (key[1] & 0xFF) << 16 | (key[2] & 0xFF) << 8 | (key[3] & 0xFF));
+        }
+      } else {
+        final HOTIndirectPage node = assertInstanceOf(HOTIndirectPage.class, current);
+        for (int i = 0; i < node.getNumChildren(); i++) {
+          collectWide(node.getChildReference(i), actual);
+        }
+      }
+    }
+
     private void assertKeys(final int... expected) {
       HOTInvariantValidator.validate(root, storage).assertOk();
       final List<Integer> actual = new ArrayList<>();
@@ -706,6 +771,10 @@ final class HOTOrderingGuardTest {
 
     private void insert(final int value) {
       doIndex(key(value), 1, key(value), 1);
+    }
+
+    private void insertWide(final int value) {
+      doIndex(wideKey(value), 4, wideKey(value), 4);
     }
 
     @Override

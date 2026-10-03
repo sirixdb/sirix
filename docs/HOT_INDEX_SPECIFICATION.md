@@ -1034,9 +1034,25 @@ PCRs (`idx/cas/CASIndex.java:599-605`).
       key exists or the leaf is empty, β = −1; otherwise β = max of the DB against the two neighbours
       at the insertion point; d* = the deepest spine node whose MSB < β;
    2. **merge or branch**: `merge = β < 0 || pathDepth == 0 || β > leastSignificantDiscBit(deepest spine node)`
-      (`hot/AbstractHOTIndexWriter.java:2272`);
+      (`hot/AbstractHOTIndexWriter.java:2272`). **A merge still has to keep spine order.** The bound
+      looks at the deepest spine node only, and a sibling leaf that holds keys on both sides of bits
+      the block discriminates on for *other* children (a shape the Direction-1 sub-inserts of §4.5.4
+      build on purpose) can own a range the routed leaf's new extreme would reach into: the key
+      routes to one child by the block's bits and sorts inside another child's range. Merged in
+      place, the two ranges interleave (I12) and the next structural insert through the block finds
+      no well-formed frontier candidate at any level. So `mergeKeepsSpineOrder` asks, before the
+      merge, the question every branch placement asks (`keyKeepsSpineOrder`, §4.5.4): a key the leaf
+      already holds or that lies inside the leaf's range moves no extreme and costs two comparisons
+      against the leaf's end entries; a key beyond one end walks the spine
+      (`extremeKeepsSpineOrder`) and, where it would cross a neighbour, is placed by the
+      complete-frontier splice at its lexicographic position instead, counted by
+      `MERGE_SPINE_ORDER_DELEGATED`. The seeded structural property test
+      (`HOTStructuralPropertyTest`) built the shape on a projection store with 770 ordinary writes;
+      `HOTOrderingGuardTest` pins it with three leaves and one node;
    3. structural changes are validated after publication (§4.8);
-4. every `CONSOLIDATION_INTERVAL = 4096` inserts, consolidate the direct parent of the route: merge
+4. every `CONSOLIDATION_INTERVAL = 4096` inserts (a test may shorten the cadence of the writers it
+   creates through the package-private `setConsolidationIntervalForTesting`), consolidate the direct
+   parent of the route: merge
    adjacent leaf pairs under a BiNode up to `CONSOLIDATION_TARGET = 384` entries, never leaves with
    side references (`hot/AbstractHOTIndexWriter.java:152`, `:158`, `:1993-2011`, `:4867-4928`;
    `hot/HOTIncrementalInsert.java:1017-1098`).
@@ -1076,28 +1092,25 @@ PCRs (`idx/cas/CASIndex.java:599-605`).
    union, or for a projection the new bytes — and the split drops the stale entry from the boundary
    leaf (§4.5.4 case 9).
 
-   **Dropping an entry that owns a side reference refuses the insert.**
+   **A dropped entry's side references follow it to `K`'s fresh leaf.**
    `rehomeSplitLeafSideReferences` looks each side reference's owning slot up in the two halves of
-   the boundary leaf only, so a reference whose owner is the entry just dropped finds no home and
-   the split throws before publication. `spliceOverflowThroughFrontier` catches that and marks the
-   transaction rollback-only — this is the routed path, where the key's document node was written
-   while its index entry was not — so the insert fails, the transaction cannot commit, and a load
-   stops. Only a **PROJECTION** index can reach it: side references are attached to a HOT leaf in
-   exactly one place, `ProjectionIndexHOTStorage.putSegmentPage`
+   the boundary leaf; a reference whose owner is the entry the split just dropped is handed back
+   (`StructuralKeySplit.droppedOwnerSideReferences`, carried unchanged through the indirect levels of
+   the split) and `trySpliceCompleteFrontier` attaches it to the one-entry leaf it builds for `K`,
+   counted by `FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES`; a reference whose owner is in neither
+   half and is not the dropped entry still fails closed before publication, so a segment page is
+   never silently orphaned. Only a **PROJECTION** index can reach the carry: side references are
+   attached to a HOT leaf in exactly one place, `ProjectionIndexHOTStorage.putSegmentPage`
    (`index/projection/ProjectionIndexHOTStorage.java`, whose writer is hardwired to
    `IndexType.PROJECTION` by its constructor); every other `setPageReference` call on a HOT leaf
    copies or re-homes an existing reference. The posting indexes — **PATH, CAS, NAME and VALIDTIME**
    — therefore never carry one, `segmentRefCount()` is zero on their leaves, and the re-homing
-   returns immediately, so the valid-time index this change was made for cannot reach this shape.
-   What the base did differs per entry, and neither committed anything wrong. For the fold declined
-   at `L`'s own parent, the base already failed closed without publishing: `integrate` reached the
-   same fold and `mergeBiNodeAtExistingDiscBit` refused it with `IllegalArgumentException`,
-   `mergeIntoLeaf` marked the transaction rollback-only, and the load stopped at that insert — the
-   outcome the route replaces for every index but the one that owns a side reference. For the
-   cascade the trie-condition pre-check now declines, the base completed the insert and published an
-   I11-breaking half latently, so the load stopped only later; there the insert now stops where it
-   used to succeed. Carrying the dropped entry's reference onto `K`'s fresh leaf is filed as its
-   own task.
+   returns immediately. The producer is a blob slot whose referenced payload is replaced by an inline
+   one: `putBlobPayload` rewrites the owner marker with the inline value first and releases the side
+   page afterwards, so at the moment the larger value overflows the leaf the dropped entry still owns
+   the page; the owner's next step, `removeSegmentPage`, then finds the reference on `K`'s leaf and
+   releases it. Before this the split threw, `spliceOverflowThroughFrontier` marked the transaction
+   rollback-only and the load stopped with nothing wrong written.
 
 #### 4.5.3 `integrate`: propagating a BiNode
 
@@ -1129,6 +1142,20 @@ the last two if called regardless. The merge path asks the predicate before it f
 the branch path asks it through `canIntegrateBiNodeCleanly`
 (`hot/AbstractHOTIndexWriter.java:4698-4718`), whose `false` hands the insert to the complete-frontier
 splice (§4.5.4 case 9).
+
+**Placement of a β ∉ D fold.** `addEntry` puts the β = 1 half right after the slot and gives every
+other child a zero in the new column, so the half sorts before the next sibling only if that sibling
+already parts from the slot at a column more significant than β's. A leaf whose keys span β next to
+a sibling the block tells apart from it only by a bit *below* β — the straddle a Direction-1
+sub-insert leaves behind, seen from the sibling's side — breaks that: the β = 1 half's partial lands
+past the sibling's (I7), and the sibling's zero in the new column claims β = 0 against its keys.
+`freshBitLandsBesideSlot` (`hot/HOTIncrementalInsert.java`, counted by `FRESH_BIT_FOLD_NOT_ADJACENT`)
+is asked by `canIntegrateBiNodeCleanly` at every level whose β is fresh — the leaf's parent for the
+strand discharge and the merge-path overflow, and each full level above for the cascade, where β is
+the split node's MSB — and a `false` hands the insert to the complete-frontier splice, which
+re-encodes the block canonically. The seeded structural property test built the shape on a CAS index
+in 221 ordinary writes, through the strand discharge; `HOTOrderingGuardTest` pins it with a full
+leaf of 512 keys spanning bit 20 beside a one-key leaf told apart by bit 29.
 
 **Splitting a full node.** `compressHalf` keeps for each half only the bits that still vary within
 it, so a half's MSB can be far less significant than the node's. The node's children satisfied I11
@@ -1770,7 +1797,10 @@ Always-on counters (public `AtomicLong`s): `STRUCTURAL_VALIDATION_FAILURE` ("Mus
 `BRANCH_COMPLETE_FRONTIER`, `FULL_EXISTING_BIT_LONE_HALF_FOLD` and
 `FULL_EXISTING_BIT_LONE_HALF_FULL` (§4.5.4 case 2), `FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION` (§4.5.3),
 `BRANCH_SPINE_ORDER_DELEGATED` (a branch placement handed to the complete frontier because `K` would
-move a subtree's extreme past a neighbour, §4.5.4), `FRONTIER_SPLIT_HALF_RECANONICALIZED` and
+move a subtree's extreme past a neighbour, §4.5.4), `MERGE_SPINE_ORDER_DELEGATED` (the same for an
+in-place merge whose key would extend the routed leaf past a spine neighbour, §4.5.1),
+`FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES` (replacing frontier splits whose dropped boundary entry
+owned side references, carried onto the key's fresh leaf, §4.5.2 step 7), `FRONTIER_SPLIT_HALF_RECANONICALIZED` and
 `FRONTIER_SPLIT_HALF_DECLINED` (a boundary slice of the frontier's persistent split rebuilt as a
 canonical block, and one for which no block exists, §4.5.4 case 9),
 `MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM` and `MERGE_OVERFLOW_ROUTED_FROM_FULL_PARENT` (§4.5.2 step
@@ -1778,6 +1808,8 @@ canonical block, and one for which no block exists, §4.5.4 case 9),
 (`hot/AbstractHOTIndexWriter.java:3472-3502`, `:4937-4958`, `:5006-5021`).
 `HOTIncrementalInsert` carries its own (`hot/HOTIncrementalInsert.java:38-64`):
 `SPLIT_SEGMENT_REF_CARRIES` and `SPLIT_SEGMENT_REFS_ROUTED` for side maps re-homed by a split,
+`FRESH_BIT_FOLD_NOT_ADJACENT` for a fresh-bit fold declined because the split child's next sibling
+parts from it below the split bit (§4.5.3),
 `PREFIX_SHRINK_REFUSED_FOR_CAPACITY` for a leaf that refused a prefix shrink because the rebuilt
 residents plus the pending entry do not fit (§3.2.2, incremented in `page/HOTLeafPage.java:2172`),
 and `CONSOLIDATION_PAIR_DID_NOT_FIT` for a consolidation pair left unmerged because the union did

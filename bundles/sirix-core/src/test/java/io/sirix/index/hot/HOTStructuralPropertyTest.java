@@ -148,6 +148,7 @@ final class HOTStructuralPropertyTest {
     REACH_COUNTERS.put("offPathOverflowOk", AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK);
     REACH_COUNTERS.put("offPathOverflowFallback", AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK);
     REACH_COUNTERS.put("existingBitFoldNotAdjacent", HOTIncrementalInsert.EXISTING_BIT_FOLD_NOT_ADJACENT);
+    REACH_COUNTERS.put("freshBitFoldNotAdjacent", HOTIncrementalInsert.FRESH_BIT_FOLD_NOT_ADJACENT);
     REACH_COUNTERS.put("prefixShrinkRefused", HOTIncrementalInsert.PREFIX_SHRINK_REFUSED_FOR_CAPACITY);
     REACH_COUNTERS.put("consolidationPairDidNotFit", HOTIncrementalInsert.CONSOLIDATION_PAIR_DID_NOT_FIT);
     REACH_COUNTERS.put("splitSegmentRefCarries", HOTIncrementalInsert.SPLIT_SEGMENT_REF_CARRIES);
@@ -260,6 +261,10 @@ final class HOTStructuralPropertyTest {
       throw new IllegalArgumentException(file + " is not a recorded failure: it needs a kind= header and a stream");
     }
     final String stream = String.join("\n", lines.subList(streamFrom, lines.size()));
+    if (Boolean.getBoolean(PROPERTY + "validationDump")) {
+      // The writer's own post-publication validator describes the offending node on stderr.
+      System.setProperty("hot.diag.validationDump", "true");
+    }
     if (!Boolean.getBoolean(PROPERTY + "reshrink")) {
       replay(kind, versioning, consolidationInterval, temporaryDirectory.resolve("replay"), stream);
       return;
@@ -703,12 +708,18 @@ final class HOTStructuralPropertyTest {
           ensureTransaction();
           final AbstractHOTIndexWriter<?> writer = driver.writer();
           writer.lastDispatchHandler = "-";
-          driver.apply(op);
-          final String handler = writer.lastDispatchHandler;
+          final String handler;
+          try {
+            driver.apply(op);
+          } finally {
+            // Read in a finally block: a step that throws inside the writer still names the handler
+            // that was dispatching when it failed.
+            handler = writer.lastDispatchHandler;
+            lastHandler = handler;
+          }
           if (!"-".equals(handler)) {
             handlers.merge(handler, 1, Integer::sum);
           }
-          lastHandler = handler;
           final boolean inPlace = IN_PLACE_MERGE.equals(handler) || IN_PLACE_REMOVE.equals(handler);
           driver.verifyWriterSide(op, !inPlace || applied % FULL_CHECK_EVERY == 0);
         }

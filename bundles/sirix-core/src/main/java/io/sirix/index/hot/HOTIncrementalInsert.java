@@ -80,6 +80,13 @@ public final class HOTIncrementalInsert {
    */
   public static final AtomicLong EXISTING_BIT_FOLD_NOT_ADJACENT = new AtomicLong();
 
+  /**
+   * Folds of a split at a bit the node does not discriminate on yet, declined because the split
+   * child's next sibling is told apart from it only by a bit <em>below</em> the split bit: the β=1
+   * half's partial would then sort past that sibling ({@link #freshBitLandsBesideSlot}).
+   */
+  public static final AtomicLong FRESH_BIT_FOLD_NOT_ADJACENT = new AtomicLong();
+
   private HOTIncrementalInsert() {
     throw new AssertionError("utility class — static primitives only");
   }
@@ -1295,6 +1302,39 @@ public final class HOTIncrementalInsert {
       return false; // a sibling would sort between the two halves of one key range
     }
     return true;
+  }
+
+  /**
+   * Whether folding a split of the child at {@code slot} on {@code beta}, a bit {@code node} does not
+   * discriminate on yet, keeps the node's partials ascending. {@link #addEntry} gives every other
+   * child a zero in the new column and the β=1 half the slot's own partial with that column set, so
+   * the half sorts before the next sibling only if that sibling already differs from the slot at a
+   * column more significant than β's. Where the block tells the two apart only by a bit below β — a
+   * leaf whose keys span β next to a sibling that is all on β's one side — the fold would publish the
+   * half past its sibling (I7, and the sibling's partial would then claim β=0 against its keys).
+   *
+   * @param node the node the split would be folded into
+   * @param slot the child whose split is being folded
+   * @param beta the split bit, not a discriminative bit of {@code node}
+   * @return {@code true} iff the β=1 half lands immediately after {@code slot}
+   */
+  public static boolean freshBitLandsBesideSlot(final HOTIndirectPage node, final int slot, final int beta) {
+    final int n = node.getNumChildren();
+    if (slot + 1 >= n) {
+      return true; // no sibling after the slot: the half becomes the node's last child
+    }
+    final int[] discBits = discriminativeBits(node);
+    final int[] partials = node.getPartialKeysRef();
+    final int differing = partials[slot] ^ partials[slot + 1];
+    if (differing == 0) {
+      return false; // duplicate partials are never canonical; let the frontier rebuild the block
+    }
+    final int highestDifferingColumn = discBits.length - 1 - (31 - Integer.numberOfLeadingZeros(differing));
+    if (discBits[highestDifferingColumn] < beta) {
+      return true; // the sibling already parts from the slot above beta
+    }
+    FRESH_BIT_FOLD_NOT_ADJACENT.incrementAndGet();
+    return false;
   }
 
   /**
