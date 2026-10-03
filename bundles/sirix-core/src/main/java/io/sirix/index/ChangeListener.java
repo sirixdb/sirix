@@ -12,13 +12,12 @@ public interface ChangeListener {
    * committing transaction.
    *
    * <p>
-   * Listeners whose index entry maps 1:1 onto a change notification (PATH/CAS/NAME/valid-time)
-   * maintain their index eagerly inside {@link #listen} and keep the default no-op. Listeners whose
-   * index unit aggregates MULTIPLE notifications — a projection row spans every field of a record,
-   * and a value replace alone arrives as a DELETE/INSERT pair — buffer the affected keys in
-   * {@code listen} and apply the batched maintenance here, when the transaction's final state is
-   * known (mirroring {@code PathSummaryWriter}'s deferred statistics, flushed at the same commit
-   * point).
+   * Listeners whose index entry maps 1:1 onto a change notification (PATH/CAS/NAME) maintain their
+   * index eagerly inside {@link #listen} and keep the default no-op. Listeners whose index unit
+   * aggregates MULTIPLE notifications — a projection row spans every field of a record, and a value
+   * replace alone arrives as a DELETE/INSERT pair — buffer the affected keys in {@code listen} and
+   * apply the batched maintenance here, when the transaction's final state is known (mirroring
+   * {@code PathSummaryWriter}'s deferred statistics, flushed at the same commit point).
    */
   default void beforeCommit() {}
 
@@ -42,11 +41,11 @@ public interface ChangeListener {
    * bulk import uses instead of intermediate commits.
    *
    * <p>
-   * Only matters to a listener that maintains its index by re-reading the changed records, which the
-   * projection listener does: extraction reads the record's whole subtree back. Those records are
-   * reachable while their pages sit in the transaction's log, and unreachable once the flush has
-   * written them out into a revision that is not committed yet — so anything deferred past this point
-   * is deferred past the last moment it could be read.
+   * Listeners that re-read changed records, including projection and valid-time maintenance, must
+   * reconcile pending state here. Those records are reachable while their pages sit in the
+   * transaction's log, and unreachable once the flush has written them out into a revision that is
+   * not committed yet — so anything deferred past this point is deferred past the last moment it
+   * could be read.
    */
   default void beforePageFlush() {}
 
@@ -67,8 +66,9 @@ public interface ChangeListener {
    * Structural lifecycle hook: the transaction performed subtree surgery — currently a MOVE — whose
    * per-node notifications cannot express the change completely (moved plain containers and value
    * elements fire no per-node events, and a moved record continues to exist outside its old record
-   * set). Entry-level indexes (PATH/CAS/NAME/valid-time) are maintained by the move's per-node
-   * DELETE/INSERT pairs where those exist and keep the default no-op.
+   * set). Entry-level indexes (PATH/CAS/NAME) are maintained by the move's per-node DELETE/INSERT
+   * pairs where those exist and keep the default no-op. Valid-time maintenance uses the before/after
+   * structural hooks to reconcile the original registration and parent membership after linkage.
    */
   default void structuralChange() {}
 

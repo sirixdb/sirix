@@ -19,8 +19,8 @@ import java.time.Instant;
  * The two RI-tree stores (lower keyed {@code (fork, lo)}, upper keyed {@code (fork, hi)}) are both
  * realised on the same HOT sub-tree via a one-byte store discriminator — see
  * {@link HotOrderedStore} / {@link ValidTimeKey}. The record reference registered is the containing
- * OBJECT's node key (the same record identity the CAS-narrowing path resolves), so the query side
- * can re-read the exact {@code validFrom}/{@code validTo} instants off that object and re-verify.
+ * OBJECT's node key, so the query side can re-read the exact {@code validFrom}/{@code validTo}
+ * instants off that object and re-verify.
  * </p>
  *
  * <p>

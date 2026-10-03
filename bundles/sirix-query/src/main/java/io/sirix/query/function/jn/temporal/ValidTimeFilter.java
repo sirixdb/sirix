@@ -82,7 +82,7 @@ public final class ValidTimeFilter {
       @Override
       public Iter iterate() {
         return new BaseIter() {
-          private Iter childIter;
+          private @Nullable Iter childIter;
           private boolean initialized;
 
           @Override
