@@ -194,7 +194,7 @@ final class ShardedPageCacheInvariantStressTest {
 
   @Test
   @Timeout(120)
-  void guardAndWeightInvariantsHoldUnderConcurrentMixedOperations() throws InterruptedException {
+  void guardAndWeightInvariantsHoldUnderConcurrentMixedOperations() throws Exception {
     final ShardedPageCache<StubPage> cache = new ShardedPageCache<>(MAX_WEIGHT);
     final PageReference[] refs = new PageReference[KEYS];
     for (int i = 0; i < KEYS; i++) {
@@ -207,10 +207,11 @@ final class ShardedPageCacheInvariantStressTest {
     final AtomicBoolean stop = new AtomicBoolean();
     final CountDownLatch start = new CountDownLatch(1);
     final ExecutorService pool = Executors.newFixedThreadPool(THREADS);
+    final List<Future<?>> workers = new ArrayList<>(THREADS);
 
     for (int t = 0; t < THREADS; t++) {
       final long seed = 0xC0FFEE + t;
-      pool.execute(() -> {
+      workers.add(pool.submit(() -> {
         final Random random = new Random(seed);
         await(start);
         while (!stop.get()) {
@@ -248,7 +249,7 @@ final class ShardedPageCacheInvariantStressTest {
               cache.evictUnderPressure();
           }
         }
-      });
+      }));
     }
 
     start.countDown();
@@ -256,6 +257,9 @@ final class ShardedPageCacheInvariantStressTest {
     stop.set(true);
     pool.shutdown();
     assertTrue(pool.awaitTermination(60, TimeUnit.SECONDS), "threads must terminate");
+    for (final Future<?> worker : workers) {
+      worker.get(10, TimeUnit.SECONDS);
+    }
 
     assertEquals(0, guardedPageObservedClosed.get(),
         "a page was closed while a caller still held its guard (use-after-free hazard)");
