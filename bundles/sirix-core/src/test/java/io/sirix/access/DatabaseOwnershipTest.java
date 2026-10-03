@@ -1294,7 +1294,7 @@ final class DatabaseOwnershipTest {
         }
         final ResourceSession<?, ?> session = database.beginResourceSession("resource");
         final NodeTrx writer = session.beginNodeTrx(10, TimeUnit.MILLISECONDS);
-        writer.addPreCommitHook(unused -> {
+        writer.addPreCommitHook(_ -> {
           if (firstHook.compareAndSet(true, false)) {
             hookEntered.countDown();
             try {
