@@ -3996,8 +3996,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // revision was never committed and the orphaned file (named for an uncommitted, higher revision)
       // is never consulted.
       //
-      // Intermediate auto-commits skip this when indexes are unchanged; final/explicit commits always
-      // serialize so the last revision has a valid catalogue snapshot.
+      // Intermediate auto-commits may skip unchanged indexes only when based on the latest revision.
+      // Reverts publish their represented catalogue even when empty, so later opens cannot inherit
+      // the newer catalogue. Final/explicit commits always attempt serialization.
       if (!isIntermediateCommit || indexController.getIndexes().isDirty()
           || representRevision < newRevisionRootPage.getRevision() - 1) {
         serializeIndexDefinitions(revision);
@@ -4075,8 +4076,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private void serializeIndexDefinitions(int revision) {
     final var indexCatalog = indexController.getIndexes();
-    // Persist the catalogue when it has definitions, OR when it was mutated this commit even though
-    // it is now EMPTY (the last index was dropped). The latter is essential: the load-side
+    // Persist definitions, a dirty empty catalogue, or the catalogue of a reverted revision. An
+    // empty snapshot after dropping the last index or reverting is essential: the load-side
     // (AbstractResourceSession#initializeIndexController) falls back to the most recent {N}.xml at or
     // below the requested revision, so without an EMPTY catalogue file at the drop revision a reopen
     // would resurrect the pre-drop catalogue from an older revision's file. An empty {revision}.xml

@@ -47,22 +47,20 @@ A companion HOT tree stores revisioned postings for:
 - intervals requiring exact verification;
 - parents whose child node keys have been observed out of order.
 
-The companion tree has its own root and allocator. Its physical id is the reference-space maximum
-minus the interval index id, reserving the upper half of the physical id space. Both roots belong
-to the same `ValidTimeIndexPage` and commit atomically through the transaction intent log. The order
-guard is conservative: rebuilding can reestablish orderedness after subsequent edits restore it.
+The physical roots and key encoding are specified in
+[HOT index specification §2.3.4](HOT_INDEX_SPECIFICATION.md#234-validtime-idxintervalvalidtimekeyserializerjava).
+The order guard is conservative: rebuilding can reestablish orderedness after subsequent edits
+restore it.
 
-The catalog declares `validTimeFormat="5"`. Formats through 4 contain exactness evidence produced
-before empty fractional spellings were excluded; they require a rebuild. Opening a resource never
+`IndexDef.needsValidTimeRebuild()` identifies obsolete catalog definitions, including formats whose
+exactness evidence predates the empty-fraction lexical check. Opening a resource never
 upgrades an obsolete valid-time catalog or adds a revision. Readers omit obsolete indexes from
-discovery and use the ordinary exact
-query fallback, including historical reads, optimizer discovery and VIEW-authorized REST reads.
-Write-authorized maintenance can call `JsonResourceSession.rebuildValidTimeIndexes()` to rebuild
-obsolete indexes from document data into fresh physical roots and commit a new revision before
-returning. Repeating maintenance on the upgraded resource does not rebuild again. No old index-layout
-reader is retained. Writer rebinding resolves the represented revision's catalogue before listener
-creation and rebuilds obsolete definitions when reverting to an old revision, so unchanged records
-and subsequent mutations maintain the current representation.
+discovery and use the ordinary exact query fallback, including historical reads, optimizer discovery and VIEW-authorized REST reads.
+The explicit maintenance contract is documented on
+[`JsonResourceSession.rebuildValidTimeIndexes()`](../bundles/sirix-core/src/main/java/io/sirix/api/json/JsonResourceSession.java).
+No old index-layout reader is retained. Writer rebinding resolves the represented revision's
+catalogue before listener creation and rebuilds obsolete definitions when reverting to an old
+revision, so unchanged records and subsequent mutations maintain the current representation.
 
 Every record carrying postings is registered in the interval tree, so a stab is the only candidate
 source. Every duplicate-bound record is registered over

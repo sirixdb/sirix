@@ -22,35 +22,14 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 /**
- * Optimizer step that auto-selects the persistent VALIDTIME interval index for a plain FLWOR
- * stabbing predicate, rewriting it to draw the loop variable from {@code jn:scan-valid-time-index}.
+ * Folds plain-FLWOR valid-time comparisons and the first bitemporal residual into indexed slice
+ * sources. Query shapes and admission rules are documented in
+ * {@code docs/VALID_TIME_KEY_SLICES.md}.
  *
  * <p>
- * It recognises (after the optimizer has pipelined the FLWOR into
- * {@code ForBind}/{@code Selection}):
- *
- * <pre>{@code  for $x in jn:doc(DB,RES)[]
- *   where $x.validFrom <= P and P <= $x.validTo
- *   return ...  }</pre>
- *
- * and rewrites the loop source to {@code jn:scan-valid-time-index(jn:doc(DB,RES), P)} (passing the
- * original strictness and field names to its guarded exact fallback). The two comparisons may use
- * any equivalent operator/operand-order form: the lower-field bound
- * {@code deref($x,validFrom) <= P} as {@code <=}, or {@code P >= deref($x,validFrom)}, with value-
- * or general-comparison operators; likewise the upper-field bound {@code P <= deref($x,validTo)}.
- * {@code P} must be INVARIANT w.r.t. {@code $x} (it must not dereference {@code $x}); the SAME
- * {@code P} must appear in both comparisons; the two dereferenced fields must be the resource's
- * configured {@code validFrom}/{@code validTo} fields; and a VALIDTIME index must exist on that
- * resource (revision-aware).
- *
- * <h2>Safety</h2>
- * <p>
- * A NEW, dedicated walker (the CAS path in {@link JsonCASStep} is untouched). It only ever matches
- * the exact binary {@code AndExpr(cmp1, cmp2)} of the two stabbing comparisons over a
- * {@code jn:doc(...)[]} source with a VALIDTIME index; anything else is left unchanged and
- * evaluated normally (still correct). Extra conjuncts, a missing bound, a {@code $x}-dependent
- * {@code P}, mismatched points, non-valid-time fields, or a missing index all fail the match and
- * fall through.
+ * Plain-FLWOR points stay deferred until row demand. Runtime admission uses the evaluated revision;
+ * unsafe coverage or order retains the original comparisons. Bitemporal folding consumes only the
+ * first conjunct so it cannot expose a cast error suppressed by an earlier comparison.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -78,6 +57,7 @@ public final class JsonValidTimeStep extends Walker {
     return collapseIdentitySlices(walk(ast));
   }
 
+  @SuppressWarnings("ReferenceEquality") // AST replacement is determined by node identity.
   private static AST collapseIdentitySlices(final AST node) {
     for (int i = 0; i < node.getChildCount(); i++) {
       final AST child = node.getChild(i);
@@ -225,10 +205,18 @@ public final class JsonValidTimeStep extends Walker {
         | (boundA == lowerBoundOnField
             ? 4
             : 0)
-        | (upperBoundOnField.general ? 8 : 0)
-        | (lowerBoundOnField.general ? 16 : 0)
-        | (upperBoundOnField.fieldOnLeft ? 0 : 32)
-        | (lowerBoundOnField.fieldOnLeft ? 64 : 0);
+        | (upperBoundOnField.general
+            ? 8
+            : 0)
+        | (lowerBoundOnField.general
+            ? 16
+            : 0)
+        | (upperBoundOnField.fieldOnLeft
+            ? 0
+            : 32)
+        | (lowerBoundOnField.fieldOnLeft
+            ? 64
+            : 0);
     scanCall.addChild(new AST(XQ.Int, new Int32(mode)));
     forBind.replaceChild(1, scanCall);
     // The overload checks exactness at this evaluation's revision; an unsafe shape executes the
@@ -265,9 +253,15 @@ public final class JsonValidTimeStep extends Walker {
       call.addChild(new AST(XQ.Int, new Int32((bound.fieldUpperBounded
           ? 1
           : 3)
-          + (bound.strict ? 1 : 0)
-          + (bound.fieldOnLeft == bound.fieldUpperBounded ? 0 : 4)
-          + (bound.general ? 8 : 0))));
+          + (bound.strict
+              ? 1
+              : 0)
+          + (bound.fieldOnLeft == bound.fieldUpperBounded
+              ? 0
+              : 4)
+          + (bound.general
+              ? 8
+              : 0))));
       call.addChild(bound.point.copyTree());
       forBind.replaceChild(1, call);
       conjuncts.remove(i);
@@ -298,9 +292,9 @@ public final class JsonValidTimeStep extends Walker {
 
   private static boolean stablePoint(final AST point) {
     return point.getType() == XQ.VariableRef
-        || point.getType() == XQ.FunctionCall && point.getValue() instanceof QNm name
+        || (point.getType() == XQ.FunctionCall && point.getValue() instanceof QNm name
             && XS_NSURI.equals(name.getNamespaceURI()) && "dateTime".equals(name.getLocalName())
-            && point.getChildCount() == 1 && point.getChild(0).getType() == XQ.Str;
+            && point.getChildCount() == 1 && point.getChild(0).getType() == XQ.Str);
   }
 
   /**
@@ -347,8 +341,8 @@ public final class JsonValidTimeStep extends Walker {
     final int op = cmp.getChild(0).getType();
     final boolean strict =
         op == XQ.ValueCompLT || op == XQ.ValueCompGT || op == XQ.GeneralCompLT || op == XQ.GeneralCompGT;
-    final boolean general = op == XQ.GeneralCompLT || op == XQ.GeneralCompLE
-        || op == XQ.GeneralCompGT || op == XQ.GeneralCompGE;
+    final boolean general =
+        op == XQ.GeneralCompLT || op == XQ.GeneralCompLE || op == XQ.GeneralCompGT || op == XQ.GeneralCompGE;
     final AST left = cmp.getChild(1);
     final AST right = cmp.getChild(2);
 

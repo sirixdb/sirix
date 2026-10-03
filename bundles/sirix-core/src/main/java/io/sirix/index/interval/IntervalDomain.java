@@ -6,6 +6,7 @@
 package io.sirix.index.interval;
 
 import java.time.Instant;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Maps valid-time instants onto the {@link RelationalIntervalTree} integer domain
@@ -21,8 +22,9 @@ import java.time.Instant;
  * path.
  *
  * <p>
- * Open-ended intervals: a missing/over-range {@code validFrom} maps to {@code 1} ("valid since the
- * beginning of time"), a missing/over-range {@code validTo} to {@code maxValue} ("valid forever").
+ * Open-ended intervals: a missing {@code validFrom} maps to {@code 1} ("valid since the beginning
+ * of time"), a missing {@code validTo} to {@code maxValue} ("valid forever"). Present bounds
+ * outside the domain are clamped to the nearest endpoint and require exact verification.
  *
  * @author Johannes Lichtenberger
  */
@@ -62,7 +64,8 @@ public final class IntervalDomain {
   }
 
   /** Whether this instant is represented without rounding or clamping. */
-  public boolean isExact(final Instant instant) {
+  @SuppressWarnings("JavaInstantGetSecondsGetNano") // Tests fractional alignment, not epoch time.
+  public boolean isExact(final @Nullable Instant instant) {
     if (instant == null || instant.getNano() % 1_000_000 != 0) {
       return false;
     }
@@ -89,14 +92,14 @@ public final class IntervalDomain {
   }
 
   /** Lower endpoint for a (possibly open) interval start; {@code null} =&gt; {@code 1}. */
-  public long lowerBound(final Instant validFrom) {
+  public long lowerBound(final @Nullable Instant validFrom) {
     return validFrom == null
         ? RelationalIntervalTree.MIN_VALUE
         : point(validFrom);
   }
 
   /** Upper endpoint for a (possibly open) interval end; {@code null} =&gt; {@code maxValue}. */
-  public long upperBound(final Instant validTo) {
+  public long upperBound(final @Nullable Instant validTo) {
     return validTo == null
         ? maxValue
         : point(validTo);

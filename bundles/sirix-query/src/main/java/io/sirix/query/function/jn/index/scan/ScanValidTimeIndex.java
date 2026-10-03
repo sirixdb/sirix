@@ -30,6 +30,8 @@ import io.sirix.query.function.jn.temporal.ValidTimeFilter;
 import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
 import io.sirix.query.json.JsonDBItem;
 
+import org.jspecify.annotations.Nullable;
+
 import java.time.Instant;
 import java.util.function.Supplier;
 
@@ -126,15 +128,15 @@ public final class ScanValidTimeIndex extends AbstractFunction {
       throw new QueryException(new QNm("Invalid valid-time comparison mode"));
     }
     return new AbstractSequence() {
-      private Sequence selected;
+      private @Nullable Sequence selected;
 
       private Sequence selected() {
         if (selected == null) {
           final ValidTimeConfig config = document.getResourceSession().getResourceConfig().getValidTimeConfig();
           if (config != null && from.equals(config.getNormalizedValidFromPath())
               && to.equals(config.getNormalizedValidToPath())) {
-            selected = ValidTimeIntervalIndex.comparisonSequence(document, point, config, (mode & 1) != 0,
-                (mode & 2) != 0);
+            selected =
+                ValidTimeIntervalIndex.comparisonSequence(document, point, config, (mode & 1) != 0, (mode & 2) != 0);
           }
           if (selected == null) {
             selected = ValidTimeFilter.comparisonScanSequence(document, point, from, to, mode, sctx, ctx);
@@ -154,18 +156,20 @@ public final class ScanValidTimeIndex extends AbstractFunction {
       }
 
       @Override
-      public Item get(final IntNumeric position) {
-        return position.cmp(Int32.ONE) < 0 ? null : selected().get(position);
+      public @Nullable Item get(final IntNumeric position) {
+        return position.cmp(Int32.ONE) < 0
+            ? null
+            : selected().get(position);
       }
 
       @Override
       public Iter iterate() {
         return new BaseIter() {
-          private Iter input;
+          private @Nullable Iter input;
           private boolean closed;
 
           @Override
-          public Item next() {
+          public @Nullable Item next() {
             if (closed) {
               return null;
             }

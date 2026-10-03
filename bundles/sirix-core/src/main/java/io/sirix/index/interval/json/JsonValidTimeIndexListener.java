@@ -28,13 +28,14 @@ import java.time.Instant;
  * Incremental maintainer for a valid-time interval index.
  *
  * <p>
- * The listener receives one primitive change event per valid-time value-node
- * ({@code INSERT}/{@code DELETE}, with the field's local name and its string value). On the first
- * event for a record it reads that record's transaction-current bounds without moving the node
- * cursor. For a DELETE notification this is the still-persisted old interval; for an INSERT it
- * excludes the just-inserted node and thereby reconstructs the interval that preceded the insert.
- * The original interval is retained until the record's event burst ends, so a value replacement's
- * DELETE/INSERT pair becomes one old-delete/new-insert pair rather than two transient rewrites.
+ * The listener receives primitive field change events ({@code INSERT}/{@code DELETE}, with the
+ * field's local name and its value when present). Non-string bounds still count toward duplicate
+ * detection. On the first event for a record it reads that record's transaction-current bounds
+ * without moving the node cursor. For a DELETE notification this is the still-persisted old
+ * interval; for an INSERT it excludes the just-inserted node and thereby reconstructs the interval
+ * that preceded the insert. The original interval is retained until the record's event burst ends,
+ * so a value replacement's DELETE/INSERT pair becomes one old-delete/new-insert pair rather than
+ * two transient rewrites.
  * </p>
  *
  * <h2>Bounded coalescing</h2>

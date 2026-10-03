@@ -8,13 +8,13 @@ package io.sirix.index.interval;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.settings.Constants;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.HOTIndexWriter;
 
 /**
- * Constructs the {@link RelationalIntervalTree} that backs a valid-time interval index over a
- * single HOT sub-tree.
+ * Constructs the RI-tree and companion evidence stores of a valid-time interval index.
  *
  * <p>
  * Both RI-tree stores (lower/upper) are realised on ONE HOT sub-tree (one {@code indexNumber} =
@@ -26,8 +26,8 @@ import io.sirix.index.hot.HOTIndexWriter;
  *
  * <p>
  * The persistent {@link OrderedStore} required by the RI-tree is implemented by the canonical HOT
- * trie. Valid-time entries live in their dedicated {@link io.sirix.page.ValidTimeIndexPage}
- * reference slot, separate from the other index types.
+ * trie. The interval and companion trees use separate reference slots in
+ * {@link ValidTimeIndexPage}, independent of other index types.
  * </p>
  *
  * @author Johannes Lichtenberger

@@ -420,6 +420,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   private void loadIndexCatalogue(final int revision, final Indexes indexes) {
+    // Writer rebinding restores the represented revision without truncating later catalogues.
     final Path indexesDir =
         getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
     final int catalogueRevision = resolveIndexCatalogueRevision(indexesDir, revision);

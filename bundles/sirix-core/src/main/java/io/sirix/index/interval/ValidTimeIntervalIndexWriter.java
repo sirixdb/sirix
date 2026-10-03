@@ -12,9 +12,8 @@ import org.jspecify.annotations.Nullable;
 import java.time.Instant;
 
 /**
- * Writer-side wiring of a valid-time interval index: a {@link RelationalIntervalTree} over a single
- * persistent HOT sub-tree, plus the logic that maps a record OBJECT's {@code (validFrom, validTo)}
- * fields onto an interval and registers/unregisters it.
+ * Maintains interval registrations and companion evidence from a record OBJECT's valid-time fields.
+ * The builder and incremental listener share the extraction and exactness rules here.
  *
  * <p>
  * The two RI-tree stores (lower keyed {@code (fork, lo)}, upper keyed {@code (fork, hi)}) are both
@@ -68,8 +67,9 @@ public final class ValidTimeIntervalIndexWriter {
   /**
    * An interval extracted from a record's bounds. {@code present} controls registration in the
    * RI-tree and is the single gate for every posting: a record the query side can reach is always
-   * registered, so a stab is the only candidate source. Ambiguous duplicates span the whole domain and are marked inexact, so the stab yields them
-   * everywhere and the query's original field lookup decides their answer.
+   * registered, so a stab is the only candidate source. Ambiguous duplicates span the whole domain
+   * and are marked inexact, so the stab yields them everywhere and the query's original field lookup
+   * decides their answer.
    */
   public record Interval(boolean present, long lo, long hi, boolean exact, long parentKey) {
     static final Interval ABSENT = new Interval(false, 0L, 0L, false, -1L);
@@ -212,7 +212,7 @@ public final class ValidTimeIntervalIndexWriter {
    * Rebuilding the index can establish orderedness again. No per-array mutable state is retained.
    */
   public void checkOrder(final long key, final long parent, final long left, final long right) {
-    if (left > key || right >= 0 && right < key) {
+    if (left > key || (right >= 0 && right < key)) {
       orderStore.insert(parent, 0, 0);
     }
   }
@@ -237,7 +237,7 @@ public final class ValidTimeIntervalIndexWriter {
    * 4): a valid-time string field is a fused {@code OBJECT_NAMED_STRING} whose value is inline, so
    * {@code rtx.getValue()} reads it directly. The {@code isStringValue()} guard also covers any
    * hypothetical string-value-bearing node generically. Returns {@code null} if the value is missing
-   * or not a canonical ISO-8601 instant.
+   * or Java's Instant parser rejects it; lexical exactness is checked separately.
    */
   private static @Nullable Instant readInstantOfFieldAtCursor(final JsonNodeReadOnlyTrx rtx) {
     final NodeKind kind = rtx.getKind();
@@ -256,15 +256,17 @@ public final class ValidTimeIntervalIndexWriter {
   public static boolean isExactLexicalBound(final @Nullable String raw) {
     if (raw == null || raw.length() < 20 || raw.charAt(4) != '-' || raw.charAt(10) != 'T' || raw.charAt(0) < '0'
         || raw.charAt(0) > '9' || raw.startsWith("0000") || raw.charAt(17) == '6'
-        || raw.charAt(19) == '.' && (raw.length() == 20 || raw.charAt(20) < '0' || raw.charAt(20) > '9')) {
+        || (raw.charAt(19) == '.' && (raw.length() == 20 || raw.charAt(20) < '0' || raw.charAt(20) > '9'))) {
       return false;
     }
     final int length = raw.length();
     return raw.charAt(length - 1) == 'Z'
-        || (raw.charAt(length - 6) == '+' || raw.charAt(length - 6) == '-') && raw.charAt(length - 3) == ':';
+        || ((raw.charAt(length - 6) == '+' || raw.charAt(length - 6) == '-') && raw.charAt(length - 3) == ':');
   }
 
-  /** Parse a canonical ISO-8601 UTC instant string, or {@code null} on any failure. */
+  /**
+   * Parse with Java's Instant grammar; lexical exactness is checked separately before trusting keys.
+   */
   public static @Nullable Instant parseInstant(final @Nullable String raw) {
     if (raw == null) {
       return null;
