@@ -44,6 +44,7 @@ import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.page.UberPage;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.index.path.summary.PathSummaryWriter;
+import io.sirix.index.IndexDef;
 import io.sirix.io.IOStorage;
 
 import java.time.Duration;
@@ -118,6 +119,23 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   }
 
   @Override
+  public void createStorageEnginePool() {
+    super.createStorageEnginePool();
+    if (getResourceConfig().getValidTimeConfig() == null) {
+      return;
+    }
+    final JsonIndexController controller = createIndexController(getMostRecentRevisionNumber());
+    for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
+      if (definition.needsValidTimeRebuild()) {
+        try (final JsonNodeTrx writer = beginNodeTrx(AfterCommitState.CLOSE)) {
+          writer.commit();
+        }
+        return;
+      }
+    }
+  }
+
+  @Override
   public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader storageEngineReader,
       Node documentNode) {
     return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, storageEngineReader, (ImmutableJsonNode) documentNode);
@@ -157,7 +175,16 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   @SuppressWarnings("unchecked")
   @Override
   public JsonIndexController getRtxIndexController(final int revision) {
-    return rtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
+    return rtxIndexControllers.computeIfAbsent(revision, unused -> {
+      final JsonIndexController controller = createIndexController(revision);
+      for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
+        if (definition.needsValidTimeRebuild()) {
+          controller.getIndexes().removeIndex(definition);
+        }
+      }
+      controller.clearChangeListeners();
+      return controller;
+    });
   }
 
   @SuppressWarnings("unchecked")

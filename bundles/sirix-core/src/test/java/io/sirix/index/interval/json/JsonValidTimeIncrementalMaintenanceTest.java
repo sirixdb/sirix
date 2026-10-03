@@ -84,9 +84,6 @@ final class JsonValidTimeIncrementalMaintenanceTest {
       }
       """;
 
-  /**
-   * The builder's contract is first parseable duplicate in document order, independently per bound.
-   */
   private static final String DUPLICATE_BOUNDS_JSON = """
       {
         "left": [
@@ -254,7 +251,7 @@ final class JsonValidTimeIncrementalMaintenanceTest {
     }
   }
 
-  @ParameterizedTest(name = "{0} preserves first-parseable duplicate-bound semantics")
+  @ParameterizedTest(name = "{0} registers duplicate bounds over the whole domain")
   @EnumSource(VersioningType.class)
   void duplicateBoundsRemainBuilderEquivalentAcrossEveryIncrementalMutation(final VersioningType versioningType)
       throws Exception {
@@ -308,11 +305,9 @@ final class JsonValidTimeIncrementalMaintenanceTest {
         trailingToKey = toKeys.get(2);
       }
       assertIndex(database, initialRevision, IN_2020, objectKey);
-      assertIndex(database, initialRevision, IN_2022);
-      assertIndex(database, initialRevision, IN_2030, destinationObjectKey);
+      assertIndex(database, initialRevision, IN_2022, objectKey);
+      assertIndex(database, initialRevision, IN_2030, destinationObjectKey, objectKey);
 
-      // Updating ignored trailing duplicates must not replace the builder-selected first parseable
-      // values. This was the direct event-assignment bug: the listener used to publish 2023 here.
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         setString(wtx, trailingFromKey, "2023-01-01T00:00:00Z");
@@ -321,10 +316,8 @@ final class JsonValidTimeIncrementalMaintenanceTest {
       }
       ignoredUpdateRevision = mostRecentRevision(database);
       assertIndex(database, ignoredUpdateRevision, IN_2020, objectKey);
-      assertIndex(database, ignoredUpdateRevision, IN_2023);
+      assertIndex(database, ignoredUpdateRevision, IN_2023, objectKey);
 
-      // Reordering those parseable duplicates ahead of the old winners arrives as a DELETE/INSERT
-      // move pair. Final document order now selects the two 2023 nodes.
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(objectKey));
@@ -335,10 +328,8 @@ final class JsonValidTimeIncrementalMaintenanceTest {
       }
       moveRevision = mostRecentRevision(database);
       assertIndex(database, moveRevision, IN_2023, objectKey);
-      assertIndex(database, moveRevision, IN_2020);
+      assertIndex(database, moveRevision, IN_2020, objectKey);
 
-      // Deleting the selected duplicates reveals the next parseable pair rather than making the
-      // bounds unconditionally null.
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(trailingFromKey));
@@ -349,9 +340,8 @@ final class JsonValidTimeIncrementalMaintenanceTest {
       }
       deleteRevision = mostRecentRevision(database);
       assertIndex(database, deleteRevision, IN_2020, objectKey);
-      assertIndex(database, deleteRevision, IN_2023);
+      assertIndex(database, deleteRevision, IN_2023, objectKey);
 
-      // A newly inserted first duplicate wins immediately, exactly as a fresh builder scan would.
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(objectKey));
@@ -363,7 +353,7 @@ final class JsonValidTimeIncrementalMaintenanceTest {
         wtx.commit();
       }
       insertRevision = mostRecentRevision(database);
-      assertIndex(database, insertRevision, IN_2020);
+      assertIndex(database, insertRevision, IN_2020, objectKey);
       assertIndex(database, insertRevision, IN_2024, objectKey);
 
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
@@ -373,11 +363,9 @@ final class JsonValidTimeIncrementalMaintenanceTest {
         wtx.commit();
       }
       selectedUpdateRevision = mostRecentRevision(database);
-      assertIndex(database, selectedUpdateRevision, IN_2024);
+      assertIndex(database, selectedUpdateRevision, IN_2024, objectKey);
       assertIndex(database, selectedUpdateRevision, IN_2025, objectKey);
 
-      // Moving the selected start bound to another record must reconcile both records: the source
-      // falls back to its next parseable duplicate, while the destination selects the moved field.
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(destinationObjectKey));
@@ -385,8 +373,8 @@ final class JsonValidTimeIncrementalMaintenanceTest {
         wtx.commit();
       }
       crossObjectMoveRevision = mostRecentRevision(database);
-      assertIndex(database, crossObjectMoveRevision, IN_2021, objectKey);
-      assertIndex(database, crossObjectMoveRevision, IN_2026, destinationObjectKey);
+      assertIndex(database, crossObjectMoveRevision, IN_2021, objectKey, destinationObjectKey);
+      assertIndex(database, crossObjectMoveRevision, IN_2026, destinationObjectKey, objectKey);
     }
 
     Databases.clearGlobalCaches();
@@ -398,15 +386,14 @@ final class JsonValidTimeIncrementalMaintenanceTest {
       assertIndex(reopened, deleteRevision, IN_2020, objectKey);
       assertIndex(reopened, insertRevision, IN_2024, objectKey);
       assertIndex(reopened, selectedUpdateRevision, IN_2025, objectKey);
-      assertIndex(reopened, crossObjectMoveRevision, IN_2021, objectKey);
-      assertIndex(reopened, crossObjectMoveRevision, IN_2026, destinationObjectKey);
+      assertIndex(reopened, crossObjectMoveRevision, IN_2021, objectKey, destinationObjectKey);
+      assertIndex(reopened, crossObjectMoveRevision, IN_2026, destinationObjectKey, objectKey);
     }
   }
 
   private static IndexDef validTimeDefinition() {
-    final Set<io.brackit.query.util.path.Path<io.brackit.query.atomic.QNm>> paths = new LinkedHashSet<>();
-    paths.add(parse("/left/[]/" + VALID_FROM, PathParser.Type.JSON));
-    paths.add(parse("/left/[]/" + VALID_TO, PathParser.Type.JSON));
+    final var paths = new LinkedHashSet<>(List.of(parse("/left/[]/" + VALID_FROM, PathParser.Type.JSON),
+        parse("/left/[]/" + VALID_TO, PathParser.Type.JSON)));
     return IndexDefs.createValidTimeIdxDef(paths, INDEX_ID, IndexDef.DbType.JSON);
   }
 

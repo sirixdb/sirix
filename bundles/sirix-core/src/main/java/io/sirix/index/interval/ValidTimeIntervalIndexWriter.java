@@ -68,8 +68,7 @@ public final class ValidTimeIntervalIndexWriter {
   /**
    * An interval extracted from a record's bounds. {@code present} controls registration in the
    * RI-tree and is the single gate for every posting: a record the query side can reach is always
-   * registered, so a stab is the only candidate source. Ambiguous duplicates whose selected pair is
-   * absent or inverted span the whole domain and are marked inexact, so the stab yields them
+   * registered, so a stab is the only candidate source. Ambiguous duplicates span the whole domain and are marked inexact, so the stab yields them
    * everywhere and the query's original field lookup decides their answer.
    */
   public record Interval(boolean present, long lo, long hi, boolean exact, long parentKey) {
@@ -150,24 +149,16 @@ public final class ValidTimeIntervalIndexWriter {
   /** Duplicate fields retain the exact-predicate fallback instead of trusting the selected bounds. */
   public Interval toInterval(final @Nullable Instant from, final @Nullable Instant to, final long fromCount,
       final long toCount) {
-    // A record with no parseable validFrom AND no parseable validTo carries no interval at all —
-    // the exact predicate never matches it, so don't register. One bound present => open-ended
-    // interval.
-    final boolean duplicates = fromCount > 1 || toCount > 1;
-    if (from == null && to == null) {
-      return duplicates
-          ? unresolvable()
-          : Interval.ABSENT;
+    if (fromCount > 1 || toCount > 1) {
+      return unresolvable();
     }
-    final long lo = domain.lowerBound(from); // null -> 1 (open-ended start)
-    final long hi = domain.upperBound(to); // null -> maxValue (open-ended end)
+    if (from == null && to == null) {
+      return Interval.ABSENT;
+    }
+    final long lo = domain.lowerBound(from);
+    final long hi = domain.upperBound(to);
     if (lo > hi) {
-      // Inverted interval: never stabbed by any x in the scan's exact predicate.
-      // Duplicate lookup semantics need the original field predicate even if the builder's
-      // first-parseable pair is inverted, so span the domain instead of dropping the record.
-      return duplicates
-          ? unresolvable()
-          : Interval.ABSENT;
+      return Interval.ABSENT;
     }
     return new Interval(true, lo, hi, fromCount == 1 && toCount == 1 && domain.isExact(from) && domain.isExact(to),
         -1L);
