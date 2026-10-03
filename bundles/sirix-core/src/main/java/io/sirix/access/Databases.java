@@ -265,12 +265,15 @@ public final class Databases {
   }
 
   /**
-   * Delete a database. This deletes all relevant data. All running sessions must be closed
-   * beforehand.
+   * Delete a database and all its data, force-closing its local handles first. If session or backend
+   * cleanup fails, removal stops with ownership retained so cleanup can be retried.
    *
    * @param dbFile the database at this path should be deleted
    * @throws SirixIOException if Sirix fails to delete the database
+   * @throws SirixDatabaseLockException if another process owns the database
    */
+  // Throwable identity, not value equality, determines whether addSuppressed would suppress itself.
+  @SuppressWarnings("ReferenceEquality")
   public static synchronized void removeDatabase(final Path dbFile) {
     requireNonNull(dbFile);
     if (!Files.exists(dbFile)) {
@@ -346,6 +349,8 @@ public final class Databases {
   }
 
   private static void removeEmptyDatabaseDirectory(final Path path) {
+    // Both lock channels must be closed before this deletion: Windows can keep the deleted .lock
+    // entry pending until then. Only delete the empty directory, never a newer generation's files.
     try {
       Files.deleteIfExists(path);
     } catch (final DirectoryNotEmptyException e) {

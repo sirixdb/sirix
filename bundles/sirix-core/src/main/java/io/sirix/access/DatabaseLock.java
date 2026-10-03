@@ -17,8 +17,8 @@ final class DatabaseLock implements AutoCloseable {
   private final FileChannel channel;
   private final FileChannel verificationChannel;
 
-  // Retain the lock for the lifetime of the channel. Closing the channel releases it, even when
-  // cleanup of the database fails. A crashed process also releases the OS lock automatically.
+  // The database owner closes these channels only after its writers and backend are quiesced.
+  // A crashed process also releases the OS lock automatically.
   private final FileLock lock;
 
   private DatabaseLock(final FileChannel channel, final FileLock lock, final FileChannel verificationChannel) {
@@ -42,6 +42,9 @@ final class DatabaseLock implements AutoCloseable {
       if (lock == null) {
         throw new SirixDatabaseLockException(databasePath);
       }
+      // Validate that this descriptor still names the current .lock generation after acquisition;
+      // removal/recreation may have unlinked the file between open and tryLock. Keep the token
+      // outside the locked byte so the verification read also works with mandatory file locking.
       final UUID generation = UUID.randomUUID();
       final ByteBuffer token = ByteBuffer.allocate(2 * Long.BYTES);
       token.putLong(generation.getMostSignificantBits()).putLong(generation.getLeastSignificantBits()).flip();
@@ -49,6 +52,8 @@ final class DatabaseLock implements AutoCloseable {
       while (token.hasRemaining()) {
         channel.write(token);
       }
+      // Retain this channel until ownership ends: closing any descriptor for the same file can
+      // release POSIX process locks, including the one held through the ownership channel.
       verificationChannel = FileChannel.open(lockPath, StandardOpenOption.READ);
       verificationChannel.position(1);
       token.clear();

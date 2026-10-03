@@ -318,8 +318,10 @@ resource at the desired revision number or timestamp via
    absent. Another process's open throws `SirixDatabaseLockException`, naming
    the canonical database path. This applies to every open, including one used
    only for reads; concurrent opening from separate processes is unsupported.
-   Ownership lasts until the last database handle in the process closes. The
-   file remains after close: only a held lock excludes an opener, and the OS
+   Ownership lasts until the last database handle and shared backend close
+   successfully. If session or backend cleanup fails during close or removal,
+   ownership is retained; address the failure and retry the failed close or
+   removal. The file remains after close: only a held lock excludes an opener, and the OS
    releases it when an owner exits or crashes. Do not delete `.lock` to unlock
    a database.
 

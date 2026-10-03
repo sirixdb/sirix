@@ -4,9 +4,10 @@ import io.sirix.backup.BackupManager
 import java.nio.file.Paths
 
 /**
- * Creates a consistent online backup of the Sirix database at the `--location` option in
+ * Creates a consistent backup of the Sirix database at the `--location` option in
  * [targetPath]. Per-resource consistency is guaranteed by [BackupManager] (each resource's
- * writer lock is held while its files are copied).
+ * writer lock is held while its files are copied). Operational prerequisites are in
+ * `docs/BACKUP.md`.
  */
 class Backup(options: io.sirix.cli.CliOptions, private val targetPath: String) : CliCommand(options) {
 

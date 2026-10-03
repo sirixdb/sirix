@@ -15,7 +15,6 @@ import io.sirix.api.ResourceSession;
 import io.sirix.api.Transaction;
 import io.sirix.api.TransactionManager;
 import io.sirix.cache.BufferManager;
-import io.sirix.cache.BufferManagerImpl;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
@@ -37,7 +36,6 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import java.util.concurrent.atomic.AtomicReference;
@@ -175,7 +173,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final AtomicReference<ResourceStore<S>> storeReference = new AtomicReference<>();
     final ResourceStore<S> store = new ResourceStoreImpl<>(resourceSessions, (config, buffers, path) -> {
       final T shared = resourceStore.getOpenResourceSession(path);
-      @SuppressWarnings("unchecked")
+      // ResourceStoreImpl stores this factory without invoking it; storeReference is set before
+      // this store is returned to a handle, so every later factory invocation sees that store.
+      @SuppressWarnings({"unchecked", "NullAway"})
       final S session = (S) ((AbstractResourceSession<?, ?>) shared).openUserSession(storeReference.get(), user);
       return session;
     }, session -> ((AbstractResourceSession<?, ?>) session).releaseUserSession(), this);

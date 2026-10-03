@@ -43,7 +43,9 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
     this.allResourceSessions = allResourceSessions;
     this.resourceSessionFactory = resourceSessionFactory;
     this.sessionClosed = sessionClosed;
-    this.lifecycleMonitor = lifecycleMonitor == null ? this : lifecycleMonitor;
+    this.lifecycleMonitor = lifecycleMonitor == null
+        ? this
+        : lifecycleMonitor;
   }
 
   @Override
@@ -75,6 +77,8 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
    * Close every open resource session.
    */
   @Override
+  // Throwable identity, not value equality, determines whether addSuppressed would suppress itself.
+  @SuppressWarnings("ReferenceEquality")
   public void close() {
     Throwable failure = null;
     for (final Map.Entry<Path, R> entry : resourceSessions.entrySet()) {
