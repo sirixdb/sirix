@@ -138,6 +138,7 @@ test {
     // the same reading from a healthy one. This line is the "provide" half of assert-and-provide.
     // An explicit -Dsirix.hot.mergeDiag=false still wins, so the gated-off path stays testable.
     systemProperty 'sirix.hot.mergeDiag', System.getProperty('sirix.hot.mergeDiag', 'true')
+    systemProperty 'sirix.validTime.scanDiag', System.getProperty('sirix.validTime.scanDiag', 'true')
 
     // Same assert-and-provide contract for the page-section diagnostic: PageSectionDiagCountersTest
     // asserts the gate is on, this line provides it. The gate is a static-final read at class init
