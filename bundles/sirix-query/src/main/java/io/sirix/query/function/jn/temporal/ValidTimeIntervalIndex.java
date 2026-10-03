@@ -1,5 +1,7 @@
 package io.sirix.query.function.jn.temporal;
 
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.json.Array;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -15,40 +17,28 @@ import org.jspecify.annotations.Nullable;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.function.Predicate;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 
 /**
- * Valid-time point-in-time predicate accelerated by the persistent
- * {@link RelationalIntervalTree} interval index ({@link io.sirix.index.IndexType#VALIDTIME}).
+ * Revision-bound valid-time key scans. Exact millisecond intervals are answered by the RI-tree;
+ * persisted membership postings restrict the result to the document object or direct array members.
+ * Rounded/clamped/open/ambiguous bounds use the original exact predicate. Unverified postings are
+ * unioned before verification because a half-open stab may omit a rounded upper-bound tie.
  *
- * <p>Given a query instant {@code x}, this stabs the RI-tree at {@code domain.point(x)} — an
- * {@code O(h)}-bounded probe that streams every record OBJECT whose mapped interval contains
- * {@code x} — then RE-VERIFIES each candidate by reading its exact {@code validFrom}/{@code validTo}
- * instants and applying the identical predicate the linear scan uses
- * ({@code !x.isBefore(from) && !x.isAfter(to)}), de-duplicates, and returns the surviving objects.</p>
- *
- * <h2>Why this equals the linear scan (the correctness gate)</h2>
- * <p>{@link IntervalDomain} is monotonic, so a true match {@code lo <= x <= hi} (compared as exact
- * instants) maps to {@code map(lo) <= map(x) <= map(hi)} — every true match's fork is on the
- * root&rarr;x path, so {@code stab} is COMPLETE (no false negatives). The exact-instant
- * re-verification removes false positives (sub-millisecond ties, clamped out-of-range instants,
- * and any record whose interval the domain widened). The result is therefore exactly the set the
- * scan returns. The candidate set is additionally restricted to the same domain as the scan: the
- * top-level document item, or its direct array children.</p>
- *
- * <h2>How an interval record maps to its object</h2>
- * <p>The RI-tree stores the containing record OBJECT's node key as the reference (the builder /
- * listener register {@code (validFrom, validTo)} under the object's key), so a stab result is
- * already an object node key — no parent walk is needed (unlike the CAS-narrowing path, whose hits
- * are value-node keys).</p>
- *
- * @author Johannes Lichtenberger
+ * <p>
+ * The lazy sequence resolves keys on demand and constructs only requested JSON objects. The eager
+ * {@link #tryIndexScan} interface remains available for diagnostic/differential callers.
+ * </p>
  */
 public final class ValidTimeIntervalIndex {
 
-  private ValidTimeIntervalIndex() {
-  }
+  private ValidTimeIntervalIndex() {}
 
   /** The verified matching records, de-duplicated, in ascending node-key order. */
   public static final class Result {
@@ -73,8 +63,8 @@ public final class ValidTimeIntervalIndex {
   /**
    * Try to evaluate the valid-time point-in-time predicate via the interval index.
    *
-   * @param document        the document item (anchored at the top-level array/object node)
-   * @param validTime       the point in valid time to test
+   * @param document the document item (anchored at the top-level array/object node)
+   * @param validTime the point in valid time to test
    * @param validTimeConfig the resource's valid-time configuration
    * @return a {@link Result} when a VALIDTIME interval index exists and was used, or {@code null}
    *         when the caller should fall back to the CAS-narrowing path or linear scan
@@ -86,8 +76,7 @@ public final class ValidTimeIntervalIndex {
     }
 
     final JsonNodeReadOnlyTrx rtx = document.getTrx();
-    final JsonIndexController controller =
-        rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
+    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
     if (controller == null) {
       return null;
     }
@@ -127,7 +116,7 @@ public final class ValidTimeIntervalIndex {
     // Verify each candidate by reading BOTH fields with the exact instant predicate; build items.
     // Sort by node key for a deterministic order (matches ValidTimeIndexScan).
     final long[] sortedKeys = inDomain.toLongArray();
-    java.util.Arrays.sort(sortedKeys);
+    Arrays.sort(sortedKeys);
 
     final List<JsonDBItem> items = new ArrayList<>();
     for (final long objectKey : sortedKeys) {
@@ -141,6 +130,135 @@ public final class ValidTimeIntervalIndex {
     }
 
     return new Result(items, candidatesExamined);
+  }
+
+  /** Return a lazy key-backed sequence, or null when no interval index exists at this revision. */
+  public static @Nullable Sequence sequence(final JsonDBItem document, final Instant instant,
+      final ValidTimeConfig config, final boolean strictStart, final boolean strictEnd,
+      final Predicate<JsonDBObject> residual) {
+    Objects.requireNonNull(document);
+    Objects.requireNonNull(instant);
+    Objects.requireNonNull(config);
+    final var trx = document.getTrx();
+    final JsonIndexController controller = trx.getResourceSession().getRtxIndexController(trx.getRevisionNumber());
+    if (controller == null || findValidTimeIndex(controller) == null) {
+      return null;
+    }
+    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, residual);
+  }
+
+  /**
+   * A FLWOR cast predicate is index-only only when every array member has two exact, unique,
+   * parseable bounds. Otherwise its original scan must run: malformed casts on non-candidates can
+   * raise errors, and missing fields have different semantics from open-ended intervals.
+   */
+  public static boolean hasExactArrayBounds(final JsonDBItem document, final Instant instant) {
+    if (!(document instanceof Array array) || !new IntervalDomain().isExact(instant)) {
+      return false;
+    }
+    final var trx = document.getTrx();
+    final JsonIndexController controller = trx.getResourceSession().getRtxIndexController(trx.getRevisionNumber());
+    final IndexDef definition = controller == null
+        ? null
+        : findValidTimeIndex(controller);
+    if (definition == null) {
+      return false;
+    }
+    final LongOpenHashSet members = new LongOpenHashSet();
+    ValidTimeIntervalIndexFactory.createMembershipStore(trx.getStorageEngineReader(), definition.getID())
+                                 .scan(document.getNodeKey(), 0, 0, members::add);
+    if (members.size() != array.len()) {
+      return false;
+    }
+    final LongArrayList unordered = new LongArrayList(1);
+    ValidTimeIntervalIndexFactory.createOrderStore(trx.getStorageEngineReader(), definition.getID())
+                                 .scan(document.getNodeKey(), 0, 0, unordered::add);
+    if (!unordered.isEmpty()) {
+      return false;
+    }
+    final int size = members.size();
+    ValidTimeIntervalIndexFactory.createVerificationStore(trx.getStorageEngineReader(), definition.getID())
+                                 .scan(0, 0, 0, members::remove);
+    return members.size() == size;
+  }
+
+  /** Sorted matching object keys; no JSON wrappers are created for exact millisecond intervals. */
+  public static long[] keys(final JsonDBItem document, final Instant instant, final boolean strictEnd) {
+    return keys(document, instant, document.getResourceSession().getResourceConfig().getValidTimeConfig(), false,
+        strictEnd, null);
+  }
+
+  static long[] keys(final JsonDBItem document, final Instant instant, final ValidTimeConfig config,
+      final boolean strictStart, final boolean strictEnd, final Predicate<JsonDBObject> residual) {
+    Objects.requireNonNull(document);
+    Objects.requireNonNull(instant);
+    Objects.requireNonNull(config);
+    final var trx = document.getTrx();
+    final JsonIndexController controller = trx.getResourceSession().getRtxIndexController(trx.getRevisionNumber());
+    final IndexDef definition = controller == null
+        ? null
+        : findValidTimeIndex(controller);
+    if (definition == null) {
+      throw new IllegalStateException("No valid-time index at revision " + trx.getRevisionNumber());
+    }
+    final IntervalDomain domain = new IntervalDomain();
+    final var tree =
+        ValidTimeIntervalIndexFactory.createReaderTree(trx.getStorageEngineReader(), definition.getID(), domain);
+    final LongOpenHashSet unverified = new LongOpenHashSet();
+    ValidTimeIntervalIndexFactory.createVerificationStore(trx.getStorageEngineReader(), definition.getID())
+                                 .scan(0, 0, 0, unverified::add);
+    final LongOpenHashSet candidates = new LongOpenHashSet();
+    final long point = domain.point(instant);
+    final boolean exactPoint = domain.isExact(instant);
+    if (strictEnd && exactPoint) {
+      tree.stabHalfOpen(point, candidates::add);
+    } else {
+      tree.stab(point, candidates::add);
+    }
+    if (strictStart && exactPoint) {
+      tree.startingAt(point, candidates::remove);
+    }
+    // A rounded end equal to the query millisecond may actually lie AFTER the query. Such
+    // records must be included before exact verification, even when the half-open stab skipped them.
+    candidates.addAll(unverified);
+    final long[] sorted = candidates.toLongArray();
+    Arrays.sort(sorted);
+    int matchCount = 0;
+    final long savedKey = trx.getNodeKey();
+    final long itemKey = document.getNodeKey();
+    final LongOpenHashSet members = new LongOpenHashSet();
+    if (document instanceof Array) {
+      ValidTimeIntervalIndexFactory.createMembershipStore(trx.getStorageEngineReader(), definition.getID())
+                                   .scan(itemKey, 0, 0, members::add);
+    } else {
+      members.add(itemKey);
+    }
+    try {
+      for (final long key : sorted) {
+        if (!members.contains(key)) {
+          continue;
+        }
+        if (!exactPoint || unverified.contains(key)) {
+          if (!trx.moveTo(key) || !trx.isObject()) {
+            throw new IllegalStateException("Valid-time candidate disappeared: " + key);
+          }
+          final JsonDBObject object = new JsonDBObject(trx, document.getCollection());
+          if (!ValidTimeIndexScan.isValidAtTime(object, instant, config.getNormalizedValidFromPath(),
+              config.getNormalizedValidToPath(), residual == null && strictStart, residual == null && strictEnd)
+              || residual != null && !residual.test(object)) {
+            continue;
+          }
+        }
+        sorted[matchCount++] = key;
+      }
+    } finally {
+      if (trx.getNodeKey() != savedKey) {
+        trx.moveTo(savedKey);
+      }
+    }
+    return matchCount == sorted.length
+        ? sorted
+        : Arrays.copyOf(sorted, matchCount);
   }
 
   /** Find a VALIDTIME interval index in the controller, or {@code null}. */

@@ -94,16 +94,15 @@ public final class ValidAt extends AbstractFunction {
 
     // Fastest path: a persistent valid-time interval index (Relational-Interval-Tree) stabs the
     // query instant in O(h) and re-verifies each candidate (provably the same set as the scan).
-    final ValidTimeIntervalIndex.Result intervalResult =
-        ValidTimeIntervalIndex.tryIndexScan(document, validTime, validTimeConfig);
-    if (intervalResult != null) {
-      return new ItemSequence(intervalResult.items().toArray(new Item[0]));
+    final Sequence intervalSequence =
+        ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false, null);
+    if (intervalSequence != null) {
+      return intervalSequence;
     }
 
     // Fast path: if a CAS index exists on a valid-time path, narrow candidates with an index range
     // scan and verify each by reading (provably the same result set as the linear scan below).
-    final ValidTimeIndexScan.Result indexResult =
-        ValidTimeIndexScan.tryIndexScan(document, validTime, validTimeConfig);
+    final ValidTimeIndexScan.Result indexResult = ValidTimeIndexScan.tryIndexScan(document, validTime, validTimeConfig);
     if (indexResult != null) {
       return new ItemSequence(indexResult.items().toArray(new Item[0]));
     }
@@ -185,9 +184,8 @@ public final class ValidAt extends AbstractFunction {
     private boolean isValidAtTime(JsonDBItem item) {
       // Delegate to the single shared predicate so the linear fallback, the interval-index
       // re-verification, and the CAS-narrowing path stay in lock-step (incl. open-ended intervals).
-      return item instanceof io.brackit.query.jdm.json.Object obj
-          && ValidTimeIndexScan.isValidAtTime(obj, validTime,
-              validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
+      return item instanceof io.brackit.query.jdm.json.Object obj && ValidTimeIndexScan.isValidAtTime(obj, validTime,
+          validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
     }
 
     @Override

@@ -53,6 +53,10 @@ public final class IndexDef implements Materializable {
 
   private static final QNm ID_ATTRIBUTE = new QNm("id");
 
+  private static final QNm VALID_TIME_FORMAT_ATTRIBUTE = new QNm("validTimeFormat");
+
+  private static final String VALID_TIME_FORMAT = "2";
+
   private static final QNm DIMENSION_ATTRIBUTE = new QNm("dimension");
 
   private static final QNm DISTANCE_TYPE_ATTRIBUTE = new QNm("distanceType");
@@ -264,6 +268,10 @@ public final class IndexDef implements Materializable {
     tmp.attribute(DB_TYPE_ATTRIBUTE, new Una(dbType.toString()));
     tmp.attribute(ID_ATTRIBUTE, new Una(Integer.toString(id)));
 
+    if (type == IndexType.VALIDTIME) {
+      tmp.attribute(VALID_TIME_FORMAT_ATTRIBUTE, new Una(VALID_TIME_FORMAT));
+    }
+
     if (contentType != null) {
       tmp.attribute(CONTENT_TYPE_ATTRIBUTE, new Una(contentType.toString()));
     }
@@ -379,6 +387,13 @@ public final class IndexDef implements Materializable {
     attribute = root.getAttribute(TYPE_ATTRIBUTE);
     if (attribute != null) {
       type = IndexType.valueOf(attribute.getValue().stringValue());
+    }
+
+    if (type == IndexType.VALIDTIME) {
+      attribute = root.getAttribute(VALID_TIME_FORMAT_ATTRIBUTE);
+      if (attribute == null || !VALID_TIME_FORMAT.equals(attribute.getValue().stringValue())) {
+        throw new DocumentException("Unsupported valid-time index format; rebuild the resource with this version");
+      }
     }
 
     attribute = root.getAttribute(CONTENT_TYPE_ATTRIBUTE);

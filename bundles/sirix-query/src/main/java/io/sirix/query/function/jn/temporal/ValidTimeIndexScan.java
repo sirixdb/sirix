@@ -5,6 +5,7 @@ import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.access.ValidTimeConfig;
@@ -311,8 +312,13 @@ public final class ValidTimeIndexScan {
    * returned an empty sequence instead of an error).
    * </p>
    */
-  static boolean isValidAtTime(final io.brackit.query.jdm.json.Object obj, final Instant validTime,
-      final String validFromField, final String validToField) {
+  static boolean isValidAtTime(final Object obj, final Instant validTime, final String validFromField,
+      final String validToField) {
+    return isValidAtTime(obj, validTime, validFromField, validToField, false, false);
+  }
+
+  static boolean isValidAtTime(final Object obj, final Instant validTime, final String validFromField,
+      final String validToField, final boolean strictStart, final boolean strictEnd) {
     final Sequence validFromSeq = obj.get(new QNm(validFromField));
     final Sequence validToSeq = obj.get(new QNm(validToField));
 
@@ -329,10 +335,10 @@ public final class ValidTimeIndexScan {
     if (validFrom == null && validTo == null) {
       return false;
     }
-    if (validFrom != null && validTime.isBefore(validFrom)) {
+    if (validFrom != null && (validTime.isBefore(validFrom) || strictStart && validTime.equals(validFrom))) {
       return false;
     }
-    if (validTo != null && validTime.isAfter(validTo)) {
+    if (validTo != null && (validTime.isAfter(validTo) || strictEnd && validTime.equals(validTo))) {
       return false;
     }
     return true;
