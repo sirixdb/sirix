@@ -103,9 +103,10 @@ All notable changes to SirixDB are documented in this file.
   the on-disk layout of `indexes/`. Guarded by the `IndexCatalogueResolutionWorkBudgetTest` work
   budget.
 - **Versioned HOT projection reads** resolve explicitly requested slots from guarded raw fragments,
-  retain bounded resolved-slot mini pages, and promote repeated point demand to complete leaves.
-  Compact fragment decoding avoids writable frames, and reconstruction copies packed values
-  directly. Small HOT byte-key searches use allocation-free machine-word lanes. Persisted formats,
+  retain bounded resolved-slot mini pages, and promote repeated point demand to complete leaves. The
+  index-metadata record, resolved by every serving decision and every commit, is read this way
+  instead of reconstructing its whole leaf. Compact fragment decoding avoids writable frames, and
+  reconstruction copies packed values directly. Small HOT byte-key searches use allocation-free machine-word lanes. Persisted formats,
   versioning, and work-budget bounds are unchanged; point reads and FULL leaf loads are included in
   the work counters. See `docs/PROJECTION_READ_PERFORMANCE.md`.
 

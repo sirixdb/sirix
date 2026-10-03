@@ -164,7 +164,7 @@ public final class ProjectionIndexBenchSetup {
   public static int projectionRowGroupCount(final JsonResourceSession session, final int revision, final int defId) {
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       final ProjectionIndexMetadata metadata =
-          ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), defId, 0L));
+          ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(rtx.getStorageEngineReader(), defId));
       return metadata == null
           ? 0
           : metadata.rowGroupCount();

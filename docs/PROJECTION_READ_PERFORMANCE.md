@@ -69,7 +69,9 @@ The persisted leaf layout and all four versioning policies are unchanged.
 Read intent controls cache admission:
 
 - `POINT` may cache a resolved slot, including a known absence or tombstone. Four distinct point
-  demands on one leaf, or an accumulated packed-size limit, request complete reconstruction.
+  demands on one leaf, or an accumulated packed-size limit, request complete reconstruction. The
+  index-metadata record, which every serving decision and every commit resolves on its own, and a
+  single advertised set-summary column read this way.
 - `SELECTIVE` can reuse cached slots but does not admit directly. A reader-confined `ReadScope`
   gives one successful point seek a single admission shared between data and metadata; failed
   seeks and scans discard deferred metadata.
@@ -77,7 +79,9 @@ Read intent controls cache admission:
   many slots. Writers and shared-page backends use the ordinary complete loader.
 
 Mini pages hold only bounded packed results and durable side-reference provenance. They use the
-normal guarded cache lifecycle and byte accounting; invalidation fences in-flight admissions.
+normal guarded cache lifecycle and byte accounting. Invalidation fences in-flight admissions on the
+key's own admission stripe, so promoting one leaf to its complete image neither serialises nor
+rejects a concurrent resolution of an unrelated leaf; a bulk clear fences every stripe.
 Their budget is one sixteenth of the existing complete-HOT allowance, capped at 64 MiB, taken
 from that allowance. Complete adoption discards the corresponding mini page. Point resolutions
 contribute to `EngineWorkCounters.HOT_LEAF_LOADS`, older point fragments contribute to

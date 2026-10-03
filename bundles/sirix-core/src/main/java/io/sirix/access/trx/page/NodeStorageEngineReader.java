@@ -1280,7 +1280,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       if (!indexDef.isProjectionIndex()) {
         continue;
       }
-      final byte[] blob = ProjectionIndexHOTStorage.readBlob(this, indexDef.getID(), 0L);
+      final byte[] blob = ProjectionIndexHOTStorage.readMetadataBlob(this, indexDef.getID());
       if (blob == null) {
         continue;
       }
@@ -4454,7 +4454,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       throw new SirixIOException("Projection point route at key " + reference.getKey() + " is not a HOT page");
     }
     final HOTMiniPageCache miniPages = resourceBufferManager.getHOTMiniPageCache();
-    final long generation = miniPages.generation();
+    final long generation = miniPages.generation(canonicalKey);
     final HOTMiniPage mini = miniPages.getAndGuard(canonicalKey);
     boolean promotionCandidate = false;
     if (mini != null) {

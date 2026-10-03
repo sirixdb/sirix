@@ -143,7 +143,7 @@ final class HOTProjectionEntryReadTest {
       final ReadScope used = new ReadScope();
       fixture.storage.readHOTProjectionEntry(fixture.chain, new byte[] {7, 3}, SIDE_KEY, HOTReadIntent.SELECTIVE, used);
       final PageReference data = new PageReference().setKey(999);
-      fixture.miniCache.admit(data, fixture.miniCache.generation(), 5, KEY, SIDE_KEY, null, used);
+      fixture.miniCache.admit(data, fixture.miniCache.generation(data), 5, KEY, SIDE_KEY, null, used);
       used.finish(true);
       assertEquals(merges, VersioningType.multiFragmentMerges(), "a data admission leaves no metadata allowance");
       final ReadScope point = new ReadScope();

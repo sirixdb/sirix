@@ -4130,29 +4130,16 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     }
   }
 
+  /** The index-metadata record, which every serving decision and every commit resolves. */
+  public static final long METADATA_SLOT = 0L;
+
   /**
-   * A cursor that already copied a blob is now a scan. Retain its complete native leaf through the
-   * ordinary guarded loader without rereading the overflow payload or decoding the logical chunk.
+   * Read the index-metadata record. It is one stable slot that callers resolve on its own, so it is a
+   * point lookup: the versioned chain answers just this key and the result is retained as a resolved
+   * record instead of reconstructing the whole leaf for the sake of one blob.
    */
-  static void promoteBlobLeafForScan(final StorageEngineReader reader, final int indexNumber, final long slotKey) {
-    Objects.requireNonNull(reader, "reader");
-    final PageReference rootRef = rootReference(reader, indexNumber);
-    if (rootRef == null) {
-      throw new IllegalStateException("missing projection root while promoting blob slot " + slotKey);
-    }
-    final byte[] keyBuf = KEY_BUFFER.get();
-    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
-        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
-        if (leaf == null) {
-          throw new IllegalStateException("missing projection leaf while promoting blob slot " + slotKey);
-        }
-        if (trieReader.validateCurrentLeaf()) {
-          return;
-        }
-      }
-    }
-    throw HOTTrieReader.stampRetriesExhausted("promoteBlobLeafForScan(slot " + slotKey + ")");
+  public static byte @Nullable [] readMetadataBlob(final StorageEngineReader reader, final int indexNumber) {
+    return readBlob(reader, indexNumber, METADATA_SLOT, HOTReadIntent.POINT);
   }
 
   private static byte @Nullable [] readBlob(final StorageEngineReader reader, final HOTTrieReader trieReader,

@@ -3,6 +3,7 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.api.HOTReadIntent;
 import io.sirix.api.StorageEngineReader;
 import it.unimi.dsi.fastutil.objects.Object2LongLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
@@ -329,7 +330,7 @@ final class ProjectionSetSummaryChunks {
     if (reader == null || indexNumber < 0) {
       throw new IllegalArgumentException("reader and non-negative index number are required");
     }
-    return decode(ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slotKey(column)));
+    return decode(ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slotKey(column), HOTReadIntent.POINT));
   }
 
   static long slotKey(final int column) {

@@ -14,45 +14,67 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 
 /**
  * Buffer-manager-owned, byte-budgeted cache of immutable resolved HOT slots. Hits use the ordinary
  * page-cache guard. Only admissions lock (per key stripe); invalidation fences every in-flight
  * read-through admission so truncation cannot resurrect an answer under a reused durable offset.
+ * The fence lives on the key's own stripe, so promoting one leaf to its complete image never
+ * serialises or rejects the concurrent resolution of an unrelated leaf.
  */
 public final class HOTMiniPageCache {
   /** Four distinct confirmed point misses justify one ordinary complete-view reconstruction. */
   public static final int POINT_PROMOTION_DISTINCT_KEYS = 4;
   private static final HOTMiniPageCache DISABLED = new HOTMiniPageCache();
   private final @Nullable ShardedPageCache<HOTMiniPage> pages;
-  private final Object @Nullable [] admissionLocks;
-  private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock();
-  private volatile long generation;
+  private final AdmissionStripe @Nullable [] stripes;
+
+  /**
+   * One admission stripe: the monitor that serialises admissions for its keys, and the invalidation
+   * generation those admissions check. Keeping both on the same object is what makes the fence
+   * key-scoped — a bump is published by the same monitor release the admitting thread acquires.
+   */
+  private static final class AdmissionStripe {
+    private volatile long generation;
+  }
 
   public HOTMiniPageCache(final long maxWeightBytes) {
     if (maxWeightBytes <= 0) {
       throw new IllegalArgumentException("Mini-page cache budget must be positive; use disabled()");
     }
     pages = new ShardedPageCache<>(maxWeightBytes);
-    admissionLocks = new Object[64];
-    for (int i = 0; i < admissionLocks.length; i++) {
-      admissionLocks[i] = new Object();
+    stripes = new AdmissionStripe[64];
+    for (int i = 0; i < stripes.length; i++) {
+      stripes[i] = new AdmissionStripe();
     }
   }
 
   private HOTMiniPageCache() {
     pages = null;
-    admissionLocks = null;
+    stripes = null;
   }
 
   public static HOTMiniPageCache disabled() {
     return DISABLED;
   }
 
-  public long generation() {
-    return generation;
+  /**
+   * The fence to capture BEFORE reading anything an admission for {@code key} will be derived from,
+   * and to hand back to {@link #admit} or {@link #claimPointPromotion}. It is striped, so a discard
+   * may conservatively reject an admission for another key sharing the stripe; it can never let a
+   * stale one through.
+   */
+  public long generation(final PageReference key) {
+    Objects.requireNonNull(key);
+    return stripes == null
+        ? 0
+        : stripeFor(key).generation;
+  }
+
+  private AdmissionStripe stripeFor(final PageReference key) {
+    final AdmissionStripe[] all = Objects.requireNonNull(stripes);
+    return all[key.hashCode() & (all.length - 1)];
   }
 
   public @Nullable HOTMiniPage getAndGuard(final PageReference key) {
@@ -82,45 +104,40 @@ public final class HOTMiniPageCache {
     if (key.getKey() < 0 || key.getLogKey() >= 0) {
       throw new IllegalArgumentException("Mini-page cache key must be a canonical durable reference");
     }
-    lifecycleLock.readLock().lock();
-    try {
-      if (generation != expectedGeneration) {
+    final AdmissionStripe stripe = stripeFor(key);
+    synchronized (stripe) {
+      if (stripe.generation != expectedGeneration) {
         return false;
       }
-      synchronized (Objects.requireNonNull(admissionLocks)[key.hashCode() & (admissionLocks.length - 1)]) {
-        final HOTMiniPage previous = pages.getAndGuard(key);
-        try {
-          if (previous != null && previous.isPointPromotionRequested()) {
+      final HOTMiniPage previous = pages.getAndGuard(key);
+      try {
+        if (previous != null && previous.isPointPromotionRequested()) {
+          return false;
+        }
+        final HOTMiniPage next = HOTMiniPage.append(previous, key.getKey(), revision, slotKey, sideReferenceKey, entry);
+        if (next == null) {
+          return previous != null;
+        }
+        if (next != previous) {
+          if (next.getActualMemorySize() > pages.getMaxWeightBytes()) {
+            next.retire();
             return false;
           }
-          final HOTMiniPage next =
-              HOTMiniPage.append(previous, key.getKey(), revision, slotKey, sideReferenceKey, entry);
-          if (next == null) {
-            return previous != null;
-          }
-          if (next != previous) {
-            if (next.getActualMemorySize() > pages.getMaxWeightBytes()) {
-              next.retire();
-              return false;
-            }
-            // Own the immutable canonical key; callers may reuse or mutate their reference later.
-            final PageReference ownedKey = new PageReference().setKey(key.getKey())
-                                                              .setDatabaseId(key.getDatabaseId())
-                                                              .setResourceId(key.getResourceId());
-            pages.put(ownedKey, next);
-            if (scope != null) {
-              scope.admitted = true;
-            }
-          }
-          return false;
-        } finally {
-          if (previous != null) {
-            previous.releaseGuard();
+          // Own the immutable canonical key; callers may reuse or mutate their reference later.
+          final PageReference ownedKey = new PageReference().setKey(key.getKey())
+                                                            .setDatabaseId(key.getDatabaseId())
+                                                            .setResourceId(key.getResourceId());
+          pages.put(ownedKey, next);
+          if (scope != null) {
+            scope.admitted = true;
           }
         }
+        return false;
+      } finally {
+        if (previous != null) {
+          previous.releaseGuard();
+        }
       }
-    } finally {
-      lifecycleLock.readLock().unlock();
     }
   }
 
@@ -140,31 +157,27 @@ public final class HOTMiniPageCache {
     if (pages == null || (scope != null && (scope.admitted || scope.finished))) {
       return false;
     }
-    lifecycleLock.readLock().lock();
-    try {
-      if (generation != expectedGeneration) {
+    final AdmissionStripe stripe = stripeFor(key);
+    synchronized (stripe) {
+      if (stripe.generation != expectedGeneration) {
         return false;
       }
-      synchronized (Objects.requireNonNull(admissionLocks)[key.hashCode() & (admissionLocks.length - 1)]) {
-        final HOTMiniPage previous = pages.getAndGuard(key);
-        if (previous == null) {
+      final HOTMiniPage previous = pages.getAndGuard(key);
+      if (previous == null) {
+        return false;
+      }
+      try {
+        if (previous.getDistinctKeyCount() < POINT_PROMOTION_DISTINCT_KEYS - 1 || previous.containsKey(slotKey)
+            || !previous.requestPointPromotion()) {
           return false;
         }
-        try {
-          if (previous.getDistinctKeyCount() < POINT_PROMOTION_DISTINCT_KEYS - 1 || previous.containsKey(slotKey)
-              || !previous.requestPointPromotion()) {
-            return false;
-          }
-          if (scope != null) {
-            scope.admitted = true;
-          }
-          return true;
-        } finally {
-          previous.releaseGuard();
+        if (scope != null) {
+          scope.admitted = true;
         }
+        return true;
+      } finally {
+        previous.releaseGuard();
       }
-    } finally {
-      lifecycleLock.readLock().unlock();
     }
   }
 
@@ -263,17 +276,20 @@ public final class HOTMiniPageCache {
     }
   }
 
-  /** Drop the subset after complete-page promotion and reject earlier, unfinished admissions. */
+  /**
+   * Drop the subset after complete-page promotion and reject earlier, unfinished admissions for this
+   * key. Every complete-leaf reconstruction calls this, so it touches only the key's own stripe: an
+   * admission either publishes before the bump and is removed here, or sees the bump and declines.
+   */
   public void discard(final PageReference key) {
     if (pages == null) {
       return;
     }
-    lifecycleLock.writeLock().lock();
-    try {
-      generation++;
+    Objects.requireNonNull(key);
+    final AdmissionStripe stripe = stripeFor(key);
+    synchronized (stripe) {
+      stripe.generation++;
       retireRemoved(key);
-    } finally {
-      lifecycleLock.writeLock().unlock();
     }
   }
 
@@ -281,13 +297,8 @@ public final class HOTMiniPageCache {
     if (pages == null) {
       return;
     }
-    lifecycleLock.writeLock().lock();
-    try {
-      generation++;
-      pages.clear();
-    } finally {
-      lifecycleLock.writeLock().unlock();
-    }
+    fenceEveryStripe();
+    pages.clear();
   }
 
   public void invalidate(final Predicate<PageReference> matches) {
@@ -295,16 +306,24 @@ public final class HOTMiniPageCache {
     if (pages == null) {
       return;
     }
-    lifecycleLock.writeLock().lock();
-    try {
-      generation++;
-      for (final PageReference key : pages.asMap().keySet()) {
-        if (matches.test(key)) {
-          retireRemoved(key);
-        }
+    fenceEveryStripe();
+    for (final PageReference key : pages.asMap().keySet()) {
+      if (matches.test(key)) {
+        retireRemoved(key);
       }
-    } finally {
-      lifecycleLock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * A bulk removal cannot name the keys an in-flight admission is derived from, so it fences every
+   * stripe first. An admission already inside its stripe publishes before the bump and is then
+   * removed below; one that has not entered yet observes the bump and declines.
+   */
+  private void fenceEveryStripe() {
+    for (final AdmissionStripe stripe : Objects.requireNonNull(stripes)) {
+      synchronized (stripe) {
+        stripe.generation++;
+      }
     }
   }
 

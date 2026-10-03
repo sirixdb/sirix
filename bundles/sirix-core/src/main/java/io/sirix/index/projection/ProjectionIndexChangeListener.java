@@ -3531,7 +3531,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   /** Read-only writer-visible slot-0 probe for first-notification state classification. */
   private @Nullable ProjectionIndexMetadata readMetadata() {
-    return parseMetadata(ProjectionIndexHOTStorage.readBlob(storageEngineWriter, indexDef.getID(), 0L));
+    return parseMetadata(ProjectionIndexHOTStorage.readMetadataBlob(storageEngineWriter, indexDef.getID()));
   }
 
   private @Nullable ProjectionIndexMetadata parseMetadata(final byte @Nullable [] payload) {

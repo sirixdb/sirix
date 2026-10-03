@@ -23,6 +23,7 @@ import java.util.concurrent.Future;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -296,7 +297,7 @@ final class HOTMiniPageCacheTest {
       final HOTMiniPageCache cache = new HOTMiniPageCache(1L << 20);
       final PageReference key = key(1, 2, 3);
       final ReadScope scope = new ReadScope();
-      scope.rememberMetadata(cache, key, cache.generation(), 1, KEY, -1, null);
+      scope.rememberMetadata(cache, key, cache.generation(key), 1, KEY, -1, null);
       switch (mode) {
         case 0 -> scope.finish(false);
         case 1 -> cache.clear();
@@ -307,7 +308,7 @@ final class HOTMiniPageCacheTest {
       scope.finish(true);
       assertEquals(0, cache.getCurrentWeightBytes());
       assertNull(cache.getAndGuard(key));
-      cache.admit(key, cache.generation(), 2, KEY, -1, new HOTLeafEntry(VALUE, null));
+      cache.admit(key, cache.generation(key), 2, KEY, -1, new HOTLeafEntry(VALUE, null));
       final HOTMiniPage current = cache.getAndGuard(key);
       assertNotNull(current);
       assertArrayEquals(VALUE, current.copyEntry(current.find(KEY, -1)).value(),
@@ -447,9 +448,9 @@ final class HOTMiniPageCacheTest {
       final HOTMiniPageCache cache = new HOTMiniPageCache(1L << 20);
       final PageReference removed = key(1, 2, 3);
       final PageReference sibling = key(1, 3, 3);
-      final long generation = cache.generation();
+      final long generation = cache.generation(removed);
       cache.admit(removed, generation, 1, KEY, -1, null);
-      cache.admit(sibling, generation, 1, KEY, -1, null);
+      cache.admit(sibling, cache.generation(sibling), 1, KEY, -1, null);
       final HOTMiniPage held = cache.getAndGuard(removed);
       assertNotNull(held);
       if (promote) {
@@ -468,11 +469,65 @@ final class HOTMiniPageCacheTest {
       retained.releaseGuard();
       held.releaseGuard();
       assertTrue(held.isClosed());
-      cache.admit(removed, cache.generation(), 2, KEY, -1, new HOTLeafEntry(VALUE, null));
+      cache.admit(removed, cache.generation(removed), 2, KEY, -1, new HOTLeafEntry(VALUE, null));
       final HOTMiniPage replacement = cache.getAndGuard(removed);
       assertNotNull(replacement);
       assertArrayEquals(VALUE, replacement.copyEntry(replacement.find(KEY, -1)).value());
       replacement.releaseGuard();
+      cache.clear();
+    }
+  }
+
+  @Test
+  void aPromotionFencesItsOwnKeyUnderARaceAndLeavesUnrelatedLeavesAdmitting() throws Exception {
+    final HOTMiniPageCache cache = new HOTMiniPageCache(1L << 20);
+    final PageReference promoted = key(1, 2, 3);
+    try {
+      final PageReference[] unrelated = new PageReference[64];
+      final long[] captured = new long[unrelated.length];
+      for (int i = 0; i < unrelated.length; i++) {
+        unrelated[i] = key(1, 2, 1_000 + i);
+        captured[i] = cache.generation(unrelated[i]);
+      }
+      cache.discard(promoted);
+      int survived = 0;
+      for (int i = 0; i < unrelated.length; i++) {
+        cache.admit(unrelated[i], captured[i], 1, KEY, -1, new HOTLeafEntry(VALUE, null));
+        final HOTMiniPage page = cache.getAndGuard(unrelated[i]);
+        if (page != null) {
+          assertArrayEquals(VALUE, page.copyEntry(page.find(KEY, -1)).value());
+          page.releaseGuard();
+          survived++;
+        }
+      }
+      assertTrue(survived >= unrelated.length / 2,
+          "promoting one leaf rejected resolutions of unrelated leaves read before it: " + survived + " of "
+              + unrelated.length + " survived");
+
+      try (final var workers = Executors.newFixedThreadPool(2)) {
+        for (int round = 0; round < 64; round++) {
+          final PageReference raced = key(1, 2, 10_000 + round);
+          final long generation = cache.generation(raced);
+          final CountDownLatch start = new CountDownLatch(1);
+          final Future<?> admission = workers.submit(() -> {
+            start.await();
+            cache.admit(raced, generation, 1, KEY, -1, new HOTLeafEntry(VALUE, null));
+            return null;
+          });
+          final Future<?> promotion = workers.submit(() -> {
+            start.await();
+            cache.discard(raced);
+            return null;
+          });
+          start.countDown();
+          admission.get();
+          promotion.get();
+          assertNull(cache.getAndGuard(raced),
+              "a resolution read before the complete-page promotion outlived it in round " + round);
+          assertNotEquals(generation, cache.generation(raced), "the promoted key's own fence must advance");
+        }
+      }
+    } finally {
       cache.clear();
     }
   }
@@ -526,7 +581,8 @@ final class HOTMiniPageCacheTest {
   void evictionAccountsEveryAllocationAndBufferManagerKeepsTheExistingHotBudget() {
     final HOTMiniPageCache cache = new HOTMiniPageCache(4_096);
     for (int i = 0; i < 100; i++) {
-      cache.admit(key(1, 2, i), cache.generation(), 1, KEY, -1, null);
+      final PageReference evicted = key(1, 2, i);
+      cache.admit(evicted, cache.generation(evicted), 1, KEY, -1, null);
     }
     assertTrue(cache.getCurrentWeightBytes() <= 4_096);
     cache.evictUnderPressure(); // First pass clears recently used pages' HOT bits.
@@ -539,13 +595,13 @@ final class HOTMiniPageCacheTest {
           + manager.getHOTLeafFragmentCacheMaxWeightBytes() + manager.getHOTMiniPageCacheMaxWeightBytes());
       final HOTMiniPageCache mini = manager.getHOTMiniPageCache();
       final PageReference key = key(1, 2, 3);
-      mini.admit(key, mini.generation(), 1, KEY, -1, null);
+      mini.admit(key, mini.generation(key), 1, KEY, -1, null);
       manager.clearCachesForResource(1, 2);
       assertNull(mini.getAndGuard(key));
-      mini.admit(key, mini.generation(), 1, KEY, -1, null);
+      mini.admit(key, mini.generation(key), 1, KEY, -1, null);
       manager.clearCachesForDatabase(1);
       assertNull(mini.getAndGuard(key));
-      mini.admit(key, mini.generation(), 1, KEY, -1, null);
+      mini.admit(key, mini.generation(key), 1, KEY, -1, null);
       manager.clearAllCaches();
       assertEquals(0, mini.getCurrentWeightBytes());
     }
