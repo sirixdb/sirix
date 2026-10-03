@@ -32,25 +32,24 @@ public final class CASStringBoundDifferentialTest {
   }
 
   static Stream<Arguments> orderingBounds() {
-    return Stream.of("b", "\uD800").flatMap(literal -> Stream.of(
-        Arguments.of(literal, "<", "lt", "a"),
-        Arguments.of(literal, "<=", "le", "a"),
-        Arguments.of(literal, ">", "gt", ""),
-        Arguments.of(literal, ">=", "ge", "")));
+    return Stream.of("b", "\uD800")
+                 .flatMap(
+                     literal -> Stream.of(Arguments.of(literal, "<", "lt", "a"), Arguments.of(literal, "<=", "le", "a"),
+                         Arguments.of(literal, ">", "gt", ""), Arguments.of(literal, ">=", "ge", "")));
   }
 
   @ParameterizedTest
   @MethodSource("orderingBounds")
   void publicSingleComparisonScanMatchesTheInterpreter(final String literal, final String operator,
       final String comparison, final String expected) {
-    final String plain = "for $n in " + SOURCE + "/root/title where string($n) " + comparison
-        + " '" + literal + "' return string($n)";
+    final String plain =
+        "for $n in " + SOURCE + "/root/title where string($n) " + comparison + " '" + literal + "' return string($n)";
     final String interpreted = run(plain, false);
     assertEquals(expected, interpreted);
 
     final String indexed = "let $doc := " + SOURCE + " return xml:scan-cas-index($doc,"
-        + "xml:find-cas-index($doc,'xs:string','/root/title'),'" + literal + "',false(),'"
-        + operator + "','/root/title')";
+        + "xml:find-cas-index($doc,'xs:string','/root/title'),'" + literal + "',false(),'" + operator
+        + "','/root/title')";
     assertEquals(interpreted, run("for $n in (" + indexed + ") return string($n)", true), indexed);
   }
 
@@ -60,7 +59,9 @@ public final class CASStringBoundDifferentialTest {
         final var chain = SirixCompileChain.createWithNodeStore(store)) {
       final StringWriter output = new StringWriter();
       try (final PrintWriter writer = new PrintWriter(output)) {
-        new Query(optimized ? chain : new CompileChain(), expression).serialize(context, writer);
+        new Query(optimized
+            ? chain
+            : new CompileChain(), expression).serialize(context, writer);
       }
       return output.toString();
     }

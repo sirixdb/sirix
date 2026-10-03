@@ -153,7 +153,9 @@ public final class StringPredicateDifferentialTest {
     for (final String literal : new String[] {"\uD800", "\uDC00", "http://\uD800x", "http://\uDC00x"}) {
       for (final String op : new String[] {"lt", "le", "gt", "ge"}) {
         final String where = "$u.url " + op + " \"" + literal + "\"";
-        final long expected = op.startsWith("l") ? N : 0;
+        final long expected = op.startsWith("l")
+            ? N
+            : 0;
         assertCountFallbackDifferential(where, expected);
         assertCountFallbackDifferential(where + " and $u.id ge 0", expected);
       }
@@ -165,7 +167,9 @@ public final class StringPredicateDifferentialTest {
     for (final String literal : new String[] {"\uD800", "\uDC00"}) {
       for (final String op : new String[] {"lt", "le", "gt", "ge"}) {
         final String comparison = "$u.url " + op + " \"" + literal + "\"";
-        final long expected = op.startsWith("l") ? N : 0;
+        final long expected = op.startsWith("l")
+            ? N
+            : 0;
         final String disjunction = "(" + comparison + " or $u.url eq \"never\") and $u.id ge 0";
         assertCountFallbackDifferential(disjunction, expected);
         assertGroupFallbackDifferential(disjunction, expected);

@@ -22,8 +22,7 @@ public final class CASStringBoundDifferentialTest extends AbstractJsonTest {
 
   @BeforeEach
   void loadFixture() {
-    query("jn:store('json-path1','mydoc.jn','["
-        + "{\"title\":\"\",\"alias\":\"a\"},{\"title\":\"?\",\"alias\":\"a\"},"
+    query("jn:store('json-path1','mydoc.jn','[" + "{\"title\":\"\",\"alias\":\"a\"},{\"title\":\"?\",\"alias\":\"a\"},"
         + "{\"title\":\"a\",\"alias\":\"a\"},{\"title\":\"a\",\"alias\":\"a\"},"
         + "{\"title\":\"！\",\"alias\":\"a\"},{\"title\":\"𐐀\",\"alias\":\"a\"}]')");
   }
@@ -39,7 +38,9 @@ public final class CASStringBoundDifferentialTest extends AbstractJsonTest {
         final String predicate = "$o.title " + comparisons[i] + " '" + literal + "'";
         final String plain = "for $o in " + SOURCE + "[] where " + predicate + " return $o.title";
         final String indexed = scan(literal, operators[i]);
-        assertEquals(i < 2 ? "4" : "2", run("count(" + plain + ")", false));
+        assertEquals(i < 2
+            ? "4"
+            : "2", run("count(" + plain + ")", false));
         assertDifferential(indexed, plain);
         assertDifferential(SOURCE + "[][?$$.title " + comparisons[i] + " '" + literal + "'].title", plain);
         assertEquals(run("count(" + plain + ")", false), run("count(" + plain + ")", true));
@@ -107,8 +108,12 @@ public final class CASStringBoundDifferentialTest extends AbstractJsonTest {
     for (final int prefixLength : new int[] {243, 244, 245, 246}) {
       final String prefix = "a".repeat(prefixLength);
       for (final String suffix : new String[] {"", "b", "\uD7FF", "\uE000", "𐐀", "\uE000"}) {
-        json.append(",{\"title\":\"").append(prefix).append(suffix)
-            .append("\",\"alias\":\"").append(prefix).append("\uE000\"}");
+        json.append(",{\"title\":\"")
+            .append(prefix)
+            .append(suffix)
+            .append("\",\"alias\":\"")
+            .append(prefix)
+            .append("\uE000\"}");
       }
     }
     query("jn:store('json-path1','mydoc.jn','" + json.append(']') + "')");
@@ -130,17 +135,21 @@ public final class CASStringBoundDifferentialTest extends AbstractJsonTest {
   void lossyBoundsWithMultipleRequestedPathsMatchTheInterpreter(final String literal) {
     createIndex(true);
     for (final String op : new String[] {"<", ">="}) {
-      final String comparison = op.equals("<") ? "lt" : "ge";
+      final String comparison = op.equals("<")
+          ? "lt"
+          : "ge";
       final String indexed = "let $doc := " + SOURCE + " return jn:scan-cas-index($doc,"
           + "jn:find-cas-index($doc,'xs:string','/[]/title'),'" + literal + "','" + op + "',())";
-      final String plain = "for $o in " + SOURCE + "[] for $v in ($o.title, $o.alias) where $v "
-          + comparison + " '" + literal + "' return $v";
+      final String plain = "for $o in " + SOURCE + "[] for $v in ($o.title, $o.alias) where $v " + comparison + " '"
+          + literal + "' return $v";
       assertDifferential(indexed, plain);
     }
   }
 
   private void createIndex(final boolean multiPath) {
-    final String paths = multiPath ? "('/[]/title','/[]/alias')" : "'/[]/title'";
+    final String paths = multiPath
+        ? "('/[]/title','/[]/alias')"
+        : "'/[]/title'";
     query("let $doc := " + SOURCE + " let $idx := jn:create-cas-index($doc,'xs:string'," + paths
         + ") return sdb:commit($doc)");
   }
@@ -151,14 +160,26 @@ public final class CASStringBoundDifferentialTest extends AbstractJsonTest {
   }
 
   private void assertRange(final String min, final String max, final boolean includeMin, final boolean includeMax) {
-    final String minExpr = min == null ? "()" : "'" + min + "'";
-    final String maxExpr = max == null ? "()" : "'" + max + "'";
+    final String minExpr = min == null
+        ? "()"
+        : "'" + min + "'";
+    final String maxExpr = max == null
+        ? "()"
+        : "'" + max + "'";
     final String indexed = "let $doc := " + SOURCE + " return jn:scan-cas-index-range($doc,"
-        + "jn:find-cas-index($doc,'xs:string','/[]/title')," + minExpr + "," + maxExpr + ","
-        + includeMin + "()," + includeMax + "(),'/[]/title')";
-    final String lower = "$o.title " + (includeMin ? "ge" : "gt") + " " + minExpr;
-    final String upper = "$o.title " + (includeMax ? "le" : "lt") + " " + maxExpr;
-    final String predicate = min == null ? upper : max == null ? lower : lower + " and " + upper;
+        + "jn:find-cas-index($doc,'xs:string','/[]/title')," + minExpr + "," + maxExpr + "," + includeMin + "(),"
+        + includeMax + "(),'/[]/title')";
+    final String lower = "$o.title " + (includeMin
+        ? "ge"
+        : "gt") + " " + minExpr;
+    final String upper = "$o.title " + (includeMax
+        ? "le"
+        : "lt") + " " + maxExpr;
+    final String predicate = min == null
+        ? upper
+        : max == null
+            ? lower
+            : lower + " and " + upper;
     final String plain = "for $o in " + SOURCE + "[] where " + predicate + " return $o.title";
     assertDifferential(indexed, plain);
     assertDifferential(SOURCE + "[][?" + predicate.replace("$o", "$$") + "].title", plain);
@@ -173,12 +194,16 @@ public final class CASStringBoundDifferentialTest extends AbstractJsonTest {
   }
 
   private String run(final String expression, final boolean optimized) {
-    try (final var store = BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final var context = SirixQueryContext.createWithJsonStore(store);
         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       final StringWriter output = new StringWriter();
       try (final PrintWriter writer = new PrintWriter(output)) {
-        new Query(optimized ? chain : new CompileChain(), expression).serialize(context, writer);
+        new Query(optimized
+            ? chain
+            : new CompileChain(), expression).serialize(context, writer);
       }
       return output.toString();
     }
