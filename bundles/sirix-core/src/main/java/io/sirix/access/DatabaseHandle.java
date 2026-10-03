@@ -34,7 +34,7 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
   }
 
   @Override
-  public boolean createResource(final ResourceConfiguration config) {
+  public synchronized boolean createResource(final ResourceConfiguration config) {
     database();
     return owner.localDatabase.createResource(config, resourceStore);
   }
@@ -63,15 +63,16 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
 
   @Override
   public void close() {
+    close(true);
+  }
+
+  void close(final boolean releaseOwnership) {
     synchronized (Databases.class) {
       synchronized (this) {
         if (!closed) {
+          resourceStore.close();
+          Databases.releaseDatabase(owner, this, releaseOwnership);
           closed = true;
-          try {
-            resourceStore.close();
-          } finally {
-            Databases.releaseDatabase(owner, this);
-          }
         }
       }
     }

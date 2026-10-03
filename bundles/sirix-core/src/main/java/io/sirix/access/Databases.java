@@ -82,32 +82,23 @@ public final class Databases {
 
     @Override
     public void close() {
-      try {
-        database.close();
-      } catch (final RuntimeException | Error e) {
-        try {
-          lock.close();
-        } catch (final RuntimeException closeFailure) {
-          e.addSuppressed(closeFailure);
-        }
-        throw e;
-      }
+      database.close();
       lock.close();
     }
   }
 
-  static void releaseDatabase(final OpenDatabase<?> owner, final Database<?> handle) {
+  static void releaseDatabase(final OpenDatabase<?> owner, final Database<?> handle, final boolean releaseOwnership) {
     assert Thread.holdsLock(Databases.class);
     // removeDatabase may already have force-closed this generation. Closing an old handle must
     // never decrement a new owner's references or release its lock after a recreate/reopen.
-    MANAGER.sessions().removeObject(owner.path, handle);
-    if (OPEN_DATABASES.get(owner.path) == owner && --owner.references == 0) {
-      try {
+    if (OPEN_DATABASES.get(owner.path) == owner) {
+      if (owner.references == 1 && releaseOwnership) {
         owner.close();
-      } finally {
         OPEN_DATABASES.remove(owner.path);
       }
+      owner.references--;
     }
+    MANAGER.sessions().removeObject(owner.path, handle);
   }
 
   static synchronized Map<Path, Set<Database<?>>> snapshotOpenDatabases() {
@@ -214,10 +205,10 @@ public final class Databases {
     initAllocator(dbConfig.getMaxSegmentAllocationSize());
 
     final Path databaseFile = dbConfig.getDatabaseFile();
-    if (Files.exists(databaseFile) && !SirixFiles.isDirectoryEmpty(databaseFile)) {
-      return false;
-    }
     try {
+      if (Files.exists(databaseFile) && hasDatabaseContents(databaseFile)) {
+        return false;
+      }
       Files.createDirectories(databaseFile);
     } catch (final UnsupportedOperationException | IOException | SecurityException e) {
       return false;
@@ -227,11 +218,8 @@ public final class Databases {
     try (final DatabaseLock ownership = DatabaseLock.acquire(canonicalPath)) {
       // Another creator may have published the database after our initial empty-directory check.
       // Recheck while owning the lock before creating, serializing, or cleaning up any files.
-      final Path lockPath = canonicalPath.resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile());
-      try (final Stream<Path> children = Files.list(canonicalPath)) {
-        if (children.anyMatch(path -> !path.equals(lockPath))) {
-          return false;
-        }
+      if (hasDatabaseContents(canonicalPath)) {
+        return false;
       }
 
       boolean success = true;
@@ -252,7 +240,7 @@ public final class Databases {
         }
       }
       if (!success) {
-        SirixFiles.recursiveRemove(canonicalPath);
+        removeDatabaseFiles(canonicalPath);
         return false;
       }
       if (dbConfig.getDatabaseId() == 0) {
@@ -262,6 +250,13 @@ public final class Databases {
       return true;
     } catch (final IOException e) {
       throw new SirixIOException("Could not create database at " + canonicalPath, e);
+    }
+  }
+
+  private static boolean hasDatabaseContents(final Path path) throws IOException {
+    final Path lockPath = path.resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile());
+    try (final Stream<Path> children = Files.list(path)) {
+      return children.anyMatch(child -> !child.equals(lockPath));
     }
   }
 
@@ -278,24 +273,38 @@ public final class Databases {
       return;
     }
     final Path path = canonicalDatabasePath(dbFile);
-    final OpenDatabase<?> owner = OPEN_DATABASES.remove(path);
+    final OpenDatabase<?> owner = OPEN_DATABASES.get(path);
+    if (owner != null) {
+      logger.warn("removeDatabase({}): {} database handle(s) still open — force-closing before removal.", path,
+          owner.references);
+      final Set<Database<?>> handles = MANAGER.sessions().asMap().get(path);
+      Throwable failure = null;
+      if (handles != null) {
+        for (final Database<?> handle : Set.copyOf(handles)) {
+          try {
+            ((DatabaseHandle<?>) handle).close(false);
+          } catch (final RuntimeException | Error e) {
+            if (failure == null) {
+              failure = e;
+            } else if (failure != e) {
+              failure.addSuppressed(e);
+            }
+          }
+        }
+      }
+      if (failure instanceof RuntimeException exception) {
+        throw exception;
+      }
+      if (failure instanceof Error error) {
+        throw error;
+      }
+      owner.database.close();
+      OPEN_DATABASES.remove(path);
+    }
     final DatabaseLock lock = owner == null
         ? DatabaseLock.acquire(path)
         : owner.lock;
     try (lock) {
-      // Retain OS ownership while force-closing local handles, invalidating caches and deleting
-      // data. Acquiring a separate lock after close would let another process open in between.
-      if (owner != null) {
-        logger.warn("removeDatabase({}): {} database handle(s) still open — force-closing before removal.", path,
-            owner.references);
-        final Set<Database<?>> handles = MANAGER.sessions().asMap().get(path);
-        if (handles != null) {
-          for (final Database<?> handle : Set.copyOf(handles)) {
-            handle.close();
-          }
-        }
-        owner.database.close();
-      }
       if (DatabaseConfiguration.DatabasePaths.compareStructure(path) == 0) {
         final DatabaseConfiguration config = DatabaseConfiguration.deserialize(path);
         try (final Database<?> database = createLocalDatabase(config, createAdminUser())) {
@@ -308,28 +317,25 @@ public final class Databases {
       SuperblockValidator.invalidateUnder(path);
       ProjectionIndexCatalog.invalidateUnder(path.toString());
 
-      // Remove the configuration before releasing the lock: an opener holding this inode must
-      // not be able to publish a database while the directory is being deleted. Keep .lock until
-      // its channel closes, because Windows cannot unlink an open locked file.
-      Files.deleteIfExists(path.resolve(DatabaseConfiguration.DatabasePaths.CONFIG_BINARY.getFile()));
-      final Path lockPath = path.resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile());
-      try (final Stream<Path> children = Files.list(path)) {
-        for (final Path child : children.toList()) {
-          if (!child.equals(lockPath)) {
-            SirixFiles.recursiveRemove(child);
-          }
-        }
-      }
-    } catch (final IOException e) {
-      throw new SirixIOException("Could not remove database at " + path, e);
-    }
-    try {
-      Files.deleteIfExists(path.resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
-      Files.delete(path);
+      removeDatabaseFiles(path);
     } catch (final IOException e) {
       throw new SirixIOException("Could not remove database at " + path, e);
     }
     freeAllocatedMemory();
+  }
+
+  private static void removeDatabaseFiles(final Path path) throws IOException {
+    Files.deleteIfExists(path.resolve(DatabaseConfiguration.DatabasePaths.CONFIG_BINARY.getFile()));
+    final Path lockPath = path.resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile());
+    try (final Stream<Path> children = Files.list(path)) {
+      for (final Path child : children.toList()) {
+        if (!child.equals(lockPath)) {
+          SirixFiles.recursiveRemove(child);
+        }
+      }
+    }
+    Files.deleteIfExists(lockPath);
+    Files.delete(path);
   }
 
   public static void freeAllocatedMemory() {

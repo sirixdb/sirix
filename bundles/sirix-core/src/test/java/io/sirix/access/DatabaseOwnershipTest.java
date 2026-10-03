@@ -1,22 +1,38 @@
 package io.sirix.access;
 
 import io.sirix.api.Database;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.ResourceSession;
+import io.sirix.access.trx.node.AbstractNodeTrxImpl;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixDatabaseLockException;
+import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedStatic;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.OpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -29,13 +45,19 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 
 final class DatabaseOwnershipTest {
   @TempDir
@@ -308,6 +330,292 @@ final class DatabaseOwnershipTest {
   }
 
   @Test
+  @EnabledOnOs({OS.LINUX, OS.MAC})
+  void openerWithUnlinkedLockDescriptorCannotJoinRecreatedDatabase() throws Exception {
+    final Path path = createDatabase();
+    final Path lockPath = path.resolve(".lock");
+    final AtomicReference<Process> replacement = new AtomicReference<>();
+    try {
+      try (final MockedStatic<FileChannel> channels = mockStatic(FileChannel.class, invocation -> {
+        final Object result = invocation.callRealMethod();
+        if (invocation.getMethod().getName().equals("open") && invocation.getRawArguments().length == 2
+            && lockPath.equals(invocation.getArgument(0))
+            && invocation.getRawArguments()[1] instanceof OpenOption[] options && options.length == 2
+            && options[0] == StandardOpenOption.CREATE && options[1] == StandardOpenOption.WRITE) {
+          final FileChannel stale = (FileChannel) result;
+          try {
+            final Process owner = child(path, "replace");
+            replacement.set(owner);
+            assertEquals("OPEN", childResult(owner));
+          } catch (final Throwable failure) {
+            stale.close();
+            throw failure;
+          }
+        }
+        return result;
+      })) {
+        assertThrows(SirixDatabaseLockException.class, () -> {
+          try (final Database<JsonResourceSession> unexpected = Databases.openJsonDatabase(path)) {
+            assertTrue(unexpected.isOpen());
+          }
+        });
+      }
+      assertChildRefused(path);
+    } finally {
+      if (replacement.get() != null) {
+        stopChild(replacement.get());
+      }
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void removalRetainsOwnershipUntilLockFileDeletion(final boolean openHandle) throws Exception {
+    final Path path = createDatabase();
+    final Path lockPath = path.resolve(".lock");
+    final AtomicBoolean deletingLock = new AtomicBoolean();
+    try (final Database<JsonResourceSession> database = openHandle ? Databases.openJsonDatabase(path) : null;
+        final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+        if (invocation.getMethod().getName().equals("deleteIfExists") && lockPath.equals(invocation.getArgument(0))) {
+          deletingLock.set(true);
+          assertChildRefused(path);
+        }
+        return invocation.callRealMethod();
+      })) {
+      Databases.removeDatabase(path);
+      assertTrue(deletingLock.get());
+      assertFalse(Files.exists(path));
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(DatabaseType.class)
+  void failedCreationRetainsOwnershipUntilLockFileDeletion(final DatabaseType type) throws Exception {
+    final Path path = directory.resolve("failed-creation");
+    final Path lockPath = path.resolve(".lock");
+    final Path keySelector = path.resolve(DatabaseConfiguration.DatabasePaths.KEY_SELECTOR.getFile());
+    final AtomicBoolean deletingLock = new AtomicBoolean();
+    try (final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+      if (invocation.getMethod().getName().equals("createDirectory") && keySelector.equals(invocation.getArgument(0))) {
+        throw new IOException("injected creation failure");
+      }
+      if (invocation.getMethod().getName().equals("deleteIfExists") && lockPath.equals(invocation.getArgument(0))) {
+        deletingLock.set(true);
+        assertChildRefused(path);
+      }
+      return invocation.callRealMethod();
+    })) {
+      assertFalse(createDatabase(path, type));
+      assertTrue(deletingLock.get());
+      assertFalse(Files.exists(path));
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(DatabaseType.class)
+  void failedOpenLeavesDirectoryRecoverableByCreate(final DatabaseType type) throws Exception {
+    final Path path = directory.resolve("empty");
+    Files.createDirectory(path);
+    assertThrows(SirixIOException.class, () -> openDatabase(path, type));
+    assertTrue(Files.exists(path.resolve(".lock")));
+    assertTrue(createDatabase(path, type));
+    try (final Database<?> database = openDatabase(path, type)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(DatabaseType.class)
+  void killedCreatorLeavesLockOnlyDirectoryRecoverable(final DatabaseType type) throws Exception {
+    final Path path = directory.resolve("interrupted-creation");
+    Files.createDirectory(path);
+    final Process creator = child(path, "lock-only");
+    try {
+      assertEquals("OPEN", childResult(creator));
+      assertThrows(SirixDatabaseLockException.class, () -> createDatabase(path, type));
+      stopChild(creator);
+      assertTrue(createDatabase(path, type));
+      try (final Database<?> database = openDatabase(path, type)) {
+        assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      }
+    } finally {
+      stopChild(creator);
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void failedCleanupRetainsWritersAndOwnershipUntilRetry(final boolean forceRemoval) throws Exception {
+    final Path path = createDatabase();
+    try (final Database<JsonResourceSession> failing = Databases.openJsonDatabase(path)) {
+      assertTrue(failing.createResource(ResourceConfiguration.newBuilder("failed").build()));
+      assertTrue(failing.createResource(ResourceConfiguration.newBuilder("healthy").build()));
+      final JsonResourceSession session = failing.beginResourceSession("failed");
+      final JsonResourceSession healthy = failing.beginResourceSession("healthy");
+      final JsonNodeTrx writer = session.beginNodeTrx();
+      writer.insertStringValueAsFirstChild("pending");
+      setWriterField(writer, "asyncCommitFailure", new IOException("injected hardening failure"));
+      try (final Database<JsonResourceSession> sibling = forceRemoval ? Databases.openJsonDatabase(path) : null) {
+        final JsonResourceSession siblingSession = sibling == null ? null : sibling.beginResourceSession("healthy");
+        assertThrows(SirixIOException.class, () -> {
+          if (forceRemoval) {
+            Databases.removeDatabase(path);
+          } else {
+            failing.close();
+          }
+        });
+        assertTrue(failing.isOpen());
+        assertFalse(session.isClosed());
+        assertFalse(writer.isClosed());
+        assertTrue(healthy.isClosed(), "other resources must still be quiesced");
+        if (sibling != null) {
+          assertFalse(sibling.isOpen(), "other handles must still be quiesced");
+          assertTrue(siblingSession.isClosed());
+        }
+        assertTrue(DatabasesInternals.getOpenDatabases().get(path.toRealPath()).contains(failing));
+        assertThrows(IllegalStateException.class, () -> failing.removeResource("failed"));
+        assertChildRefused(path);
+        try (final Database<JsonResourceSession> reopened = Databases.openJsonDatabase(path)) {
+          final JsonResourceSession other = reopened.beginResourceSession("failed");
+          assertThrows(SirixUsageException.class, other::beginNodeTrx);
+          assertSame(session.getRtxIndexController(session.getMostRecentRevisionNumber()),
+              other.getRtxIndexController(other.getMostRecentRevisionNumber()));
+        }
+      } finally {
+        setWriterField(writer, "asyncCommitFailure", null);
+        setWriterField(writer, "asyncCommitTerminalFailure", false);
+      }
+      if (forceRemoval) {
+        Databases.removeDatabase(path);
+        assertFalse(Files.exists(path));
+        assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
+      } else {
+        failing.close();
+      }
+      assertFalse(failing.isOpen());
+      assertTrue(session.isClosed());
+      assertTrue(writer.isClosed());
+      assertChildOpened(path);
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(DatabaseType.class)
+  void delayedSessionReleaseStaysRegisteredUntilItReleasesItsBackend(final DatabaseType type) throws Exception {
+    final Path path = directory.resolve("session-generation");
+    assertTrue(createDatabase(path, type));
+    try (final Database<?> first = openDatabase(path, type);
+        final Database<?> second = openDatabase(path, type)) {
+      assertTrue(first.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      final ResourceSession<?, ?> old = first.beginResourceSession("resource");
+      final Field ownerField = DatabaseHandle.class.getDeclaredField("owner");
+      ownerField.setAccessible(true);
+      final Databases.OpenDatabase<?> owner = (Databases.OpenDatabase<?>) ownerField.get(first);
+      final CompletableFuture<Void> closed = new CompletableFuture<>();
+      final Thread closer = Thread.ofPlatform().daemon().unstarted(() -> {
+        try {
+          old.close();
+          closed.complete(null);
+        } catch (final Throwable failure) {
+          closed.completeExceptionally(failure);
+        }
+      });
+      try {
+        synchronized (owner.localDatabase) {
+          closer.start();
+          final ThreadMXBean threads = ManagementFactory.getThreadMXBean();
+          final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+          ThreadInfo state = threads.getThreadInfo(closer.threadId());
+          while ((state == null || state.getLockOwnerId() != Thread.currentThread().threadId())
+              && closer.isAlive() && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+            state = threads.getThreadInfo(closer.threadId());
+          }
+          assertNotNull(state);
+          assertEquals(Thread.currentThread().threadId(), state.getLockOwnerId());
+          assertEquals(System.identityHashCode(owner.localDatabase), state.getLockInfo().getIdentityHashCode());
+          assertThrows(IllegalStateException.class, () -> second.removeResource("resource"));
+        }
+        closed.get(30, TimeUnit.SECONDS);
+        second.removeResource("resource");
+        assertTrue(second.createResource(ResourceConfiguration.newBuilder("resource").build()));
+        try (final ResourceSession<?, ?> fresh = second.beginResourceSession("resource");
+            final ResourceSession<?, ?> other = first.beginResourceSession("resource")) {
+          old.close();
+          final int revision = fresh.getMostRecentRevisionNumber();
+          try (final NodeTrx writer = fresh.beginNodeTrx()) {
+            writer.commit();
+          }
+          assertEquals(revision + 1, other.getMostRecentRevisionNumber());
+          try (final NodeTrx writer = other.beginNodeTrx()) {
+            writer.commit();
+          }
+          assertEquals(revision + 2, fresh.getMostRecentRevisionNumber());
+        }
+      } finally {
+        closer.join(TimeUnit.SECONDS.toMillis(30));
+        assertFalse(closer.isAlive(), "session closer must finish");
+      }
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @Test
+  void failedBackendCloseRetainsOwnershipUntilRetry() throws Exception {
+    final Path path = createDatabase();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      final Field ownerField = DatabaseHandle.class.getDeclaredField("owner");
+      ownerField.setAccessible(true);
+      final Databases.OpenDatabase<?> owner = (Databases.OpenDatabase<?>) ownerField.get(database);
+      final Field storeField = LocalDatabase.class.getDeclaredField("resourceStore");
+      storeField.setAccessible(true);
+      final Object originalStore = storeField.get(owner.localDatabase);
+      final ResourceStore<?> failingStore = mock(ResourceStore.class);
+      doThrow(new IllegalStateException("injected backend cleanup failure")).doNothing().when(failingStore).close();
+      storeField.set(owner.localDatabase, failingStore);
+      try {
+        assertThrows(IllegalStateException.class, database::close);
+        assertTrue(database.isOpen());
+        assertTrue(DatabasesInternals.getOpenDatabases().get(path.toRealPath()).contains(database));
+        assertChildRefused(path);
+        database.close();
+        assertFalse(database.isOpen());
+        assertChildOpened(path);
+      } finally {
+        storeField.set(owner.localDatabase, originalStore);
+      }
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  private static void setWriterField(final NodeTrx writer, final String name, final Object value) throws Exception {
+    final Field field = AbstractNodeTrxImpl.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(writer, value);
+  }
+
+  private static boolean createDatabase(final Path path, final DatabaseType type) {
+    final DatabaseConfiguration config = new DatabaseConfiguration(path);
+    return type == DatabaseType.JSON ? Databases.createJsonDatabase(config) : Databases.createXmlDatabase(config);
+  }
+
+  private static Database<?> openDatabase(final Path path, final DatabaseType type) {
+    return type == DatabaseType.JSON ? Databases.openJsonDatabase(path) : Databases.openXmlDatabase(path);
+  }
+
+  @Test
   void staleHandleCannotReleaseRecreatedDatabase() throws Exception {
     final Path path = createDatabase();
     try (final Database<JsonResourceSession> stale = Databases.openJsonDatabase(path)) {
@@ -452,7 +760,7 @@ final class DatabaseOwnershipTest {
   private Process child(final Path path, final String mode) throws Exception {
     final String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
     return new ProcessBuilder(java, "-Xmx256m", "--enable-preview", "--enable-native-access=ALL-UNNAMED",
-        "--add-modules", "jdk.incubator.vector", "-Dsirix.allocator.maxSize=64M", "-cp",
+        "--add-modules", "jdk.incubator.vector", "-Dsirix.allocator.maxSize=64M", "-Djava.io.tmpdir=" + directory, "-cp",
         System.getProperty("java.class.path"), Child.class.getName(), path.toString(), mode).redirectError(
             directory.resolve("child-" + System.nanoTime() + ".log").toFile()).start();
   }
@@ -490,6 +798,20 @@ final class DatabaseOwnershipTest {
     public static void main(final String[] args) throws Exception {
       final Path path = Path.of(args[0]);
       try {
+        if (args[1].equals("lock-only")) {
+          try (final DatabaseLock lock = DatabaseLock.acquire(path)) {
+            System.out.println("OPEN");
+            System.out.flush();
+            System.in.read();
+          }
+          return;
+        }
+        if (args[1].equals("replace")) {
+          Databases.removeDatabase(path);
+          if (!Databases.createJsonDatabase(new DatabaseConfiguration(path))) {
+            throw new IllegalStateException("Replacement database was not created");
+          }
+        }
         if (args[1].equals("create")) {
           System.out.println("READY");
           System.out.flush();
@@ -505,7 +827,7 @@ final class DatabaseOwnershipTest {
           }
           System.out.println("OPEN");
           System.out.flush();
-          if (args[1].equals("hold")) {
+          if (args[1].equals("hold") || args[1].equals("replace")) {
             System.in.read();
           }
         }
