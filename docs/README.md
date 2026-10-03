@@ -22,6 +22,7 @@ list of files.
 |-----|----------------|
 | [formal-verification.md](formal-verification.md) | The invariant catalog: load-bearing invariants of the engine stated as pre/post-conditions, each with a proof sketch and a pointer to the CI test that discharges it. |
 | [cost-based-optimizer-design.md](cost-based-optimizer-design.md) | Design of the cost-based query optimizer (PathSummary statistics, selectivity/cardinality estimation, predicate pushdown, join ordering). |
+| [QUERY_MEMBERSHIP_OPTIMIZATION.md](QUERY_MEMBERSHIP_OPTIMIZATION.md) | The equality membership rule that plans single-equality semi/anti-joins as a hash lookup: admission conditions, value-comparison semantics it preserves, its amortised work bound, and the SH1 Q12 evidence. |
 | [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) | Every disabled test in `sirix-core`, why it is off, and the tracking artifact — so a real correctness gap is never mistaken for a benchmark that is simply not run in CI. |
 
 ## Projection indexes

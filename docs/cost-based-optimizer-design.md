@@ -196,7 +196,7 @@ The optimizer is a **pipeline** of 10 stages. Each stage implements the `Stage` 
   10    IndexMatching              Actually rewrite the AST to use specific indexes
 ```
 
-### One Sirix Stage Runs Before These Ten
+### Sirix Stages Run Before These Ten
 
 `JoinKeyPreferenceStage` is not appended after Brackit's stages like the ten above; it is inserted
 into Brackit's own stage list directly before its `JoinRecognition`, because it has to order the
@@ -207,6 +207,12 @@ only when Brackit's join detection is on and `-Dsirix.optimizer.joinKeyPreferenc
 a missing `JoinRecognition` anchor fails optimizer construction rather than silently dropping the
 stage. The javadoc of `JoinKeyPreferenceWalker` owns which equalities qualify, which predicates move
 where, and how the move changes which rows a predicate sees.
+
+`SirixOptimizer` also prepends `HashMembershipStage`, which marks single-equality semi/anti-join
+selections before Brackit's pipelining. `SirixPipelineStrategy` compiles those selections to a
+physical `HashMembershipJoin`; each cursor owns its membership table and inner iterator.
+[QUERY_MEMBERSHIP_OPTIMIZATION.md](QUERY_MEMBERSHIP_OPTIMIZATION.md) owns that rule, its admission
+conditions, its work bounds and its disable property.
 
 ### Why This Order?
 

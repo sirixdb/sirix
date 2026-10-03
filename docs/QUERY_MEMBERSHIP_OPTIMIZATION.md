@@ -148,8 +148,8 @@ safe.
 For 128 inner keys and 256 outer items of the **anti-join** shape, the enabled rule visits exactly 128
 inner items and closes one build iterator. Disabling it produces the same answer but visits 24,640
 inner items: `128 * 129 / 2 + 128 * 128`. The work bound is stated on the anti-join because that is
-the direction that owns a shared pass; a semi-join that matches on its first probe hands the
-remaining outer rows back to the original predicate by design, so it carries the
+the direction that owns a shared pass; a semi-join that stops at its own match answers later probes
+from the keys it retained and hands only the rest back to the original predicate, so it carries the
 never-worse-than-original bound instead, asserted by running the same query with the rule on and off
 and comparing both counters. The counter assertion was run with the rule disabled and failed on
 that count. The same bound is asserted for an inner side whose keys include one `"id": null`

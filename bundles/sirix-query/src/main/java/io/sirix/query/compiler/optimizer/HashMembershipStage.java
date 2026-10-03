@@ -15,8 +15,10 @@ import io.sirix.query.compiler.XQExt;
  * Brackit recognizes the equality inside {@code empty(for ...)} as a join, but the join's cursor is
  * recreated for every outer row. Even a hash join there performs quadratic work. This stage runs
  * before pipelining and replaces the predicate with a probe over an evaluation-local lookup whose
- * key set is filled incrementally, so a semi-join still stops at its first match and no direction
- * reads the inner relation twice. The original selection retains the outer order and multiplicity.
+ * key set is filled incrementally, so a semi-join still stops at its first match and the lookup
+ * scans the inner relation at most once, however many outer rows probe it. A probe that the keys
+ * read so far cannot decide falls back to the original predicate. The original selection retains
+ * the outer order and multiplicity.
  *
  * <p>
  * The lookup is nested inside the probe, not hoisted into a {@code let} binding. A bound lookup
