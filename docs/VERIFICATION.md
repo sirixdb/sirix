@@ -92,16 +92,26 @@ in CI via the `Deep verification` workflow.
 ./gradlew :sirix-core:test --tests 'io.sirix.access.trx.RevisionEpochTrackerWatermarkSafetyTest' \
                            --tests 'io.sirix.cache.ShardedPageCacheInvariantStressTest'
 
-# HOT structural property test: the default lane runs with the normal test task; the heavy lane
-# drives every index kind with a longer seeded budget and records each shrunk failure as a
-# replayable stream (-Dsirix.hot.property.kinds=CAS,PATH,NAME,VALIDTIME,PROJECTION narrows it)
+# HOT structural property test, default lane: runs with the normal test task, one test per index
+# kind. It checks completely after every single mutation (every put and removal, each one inside a
+# bulk posting run included): the structural validator, the full ordered slot walk against the
+# reference, every one of the reference's keys compared with what the index answers, and every
+# historical revision re-checked that way after every commit and cold after a reopen. About 30 s per
+# kind; -Dsirix.hot.property.ops=N / .seeds=N / .seed=N resize or pin it.
+./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.pathIndex'
+# Heavy lane: every index kind with a longer seeded budget, sampling for reach instead (the complete
+# check every 32nd in-place step and after every structural handler, 16 rotating keys per lookup
+# pass, the newest revision plus three rotating older ones per commit, postings of several KiB).
+# Records each shrunk failure as a replayable stream whose header names the lane it failed under
+# (-Dsirix.hot.property.kinds=CAS,PATH,NAME,VALIDTIME,PROJECTION narrows it)
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.extendedBudgetAcrossEveryKind' \
                            -Dsirix.hot.property.collect=true -Dsirix.hot.property.heavy.seeds=8 \
                            -Dsirix.hot.property.heavy.ops=15000 -Dsirix.hot.property.failureDir=/tmp/hot-property
-# Replay one recorded failure, checking every step (-Dsirix.hot.property.reshrink=true minimizes it again)
+# Replay one recorded failure under the checks its header records
+# (-Dsirix.hot.property.reshrink=true minimizes it again)
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.replayRecordedFailure' \
                            -Dsirix.hot.property.replayFile=/tmp/hot-property/hot-property-failures/failure-cas-3.txt \
-                           -Dsirix.hot.property.fullEvery=1 -Dsirix.hot.property.validationDump=true
+                           -Dsirix.hot.property.validationDump=true
 
 # Work budgets (add -Dsirix.workBudget.print=true -i to print every captured counter table)
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*'

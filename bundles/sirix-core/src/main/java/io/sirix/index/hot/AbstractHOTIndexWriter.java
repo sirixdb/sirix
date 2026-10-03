@@ -5442,9 +5442,10 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Bytes a leaf must have free beyond the key and value themselves for a merge to stay in place;
-   * over-estimating only sends a sub-insert to the generic placements, under-estimating would let it
-   * split where the guard below says it cannot.
+   * Bytes a leaf must have free beyond the key and value themselves for a prefix-preserving merge to
+   * stay in place: the entry's two length fields plus slack. Over-estimating only sends a sub-insert
+   * to the generic placements, under-estimating would let it split where the guard below says it
+   * cannot.
    */
   private static final int LEAF_ENTRY_SLACK = 32;
 
@@ -5456,9 +5457,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * route then fails closed when that bit is at or above the half's MSB (I11) — after {@code K} is
    * already placed, when nothing can decline any more. That MSDB is never more significant than the
    * MSDB of {@code K} with the child's extremes, so the arm is declined when that one is at or above
-   * the half's MSB, unless the child is a leaf with room for {@code K}, which merges in place and
-   * introduces no bit. A leaf whose keys span the half's MSB (a straddle its zero column in the half
-   * says nothing about) is the shape that reaches this.
+   * the half's MSB, unless the child is a leaf that is certain to take {@code K} in place
+   * ({@link #leafTakesKeyInPlace}), which introduces no bit. A leaf whose keys span the half's MSB
+   * (a straddle its zero column in the half says nothing about) is the shape that reaches this.
    */
   private boolean subInsertKeepsHalfTrieCondition(final HOTIndirectPage half, final int affectedIdx,
       final byte[] keySlice, final byte[] valueSlice) {
@@ -5479,12 +5480,27 @@ public abstract class AbstractHOTIndexWriter<K> {
       return true; // every bit the sub-insert can introduce lies below the half's MSB
     }
     final Page child = resolveHOTPageForTraversal(affected);
-    if (child instanceof HOTLeafPage leaf && leaf.getEntryCount() < HOTLeafPage.MAX_ENTRIES
-        && leaf.getRemainingSpace() >= keySlice.length + valueSlice.length + LEAF_ENTRY_SLACK) {
+    if (child instanceof HOTLeafPage leaf && leafTakesKeyInPlace(leaf, keySlice, valueSlice)) {
       return true; // K merges into the leaf in place: no split, no new bit
     }
     DIRECTION_ONE_SPLIT_ABOVE_HALF.incrementAndGet();
     return false;
+  }
+
+  /**
+   * Whether {@code leaf} is certain to store {@code K} in place, by count and by bytes. An entry
+   * costs the two length fields plus the key's suffix under the leaf's common prefix and the value,
+   * which {@link #LEAF_ENTRY_SLACK} bounds — but only while that prefix covers {@code K}. A key that
+   * shortens it rewrites every resident entry with the reclaimed prefix bytes, so the leaf needs
+   * {@code entryCount} times those bytes on top of the entry and refuses the rebuild, splitting
+   * instead, when the grown residents no longer fit the frame: a per-entry estimate cannot bound
+   * that, so a key that does not keep the prefix is never taken in place here.
+   */
+  private static boolean leafTakesKeyInPlace(final HOTLeafPage leaf, final byte[] keySlice, final byte[] valueSlice) {
+    final int prefixLength = leaf.getCommonPrefixLen();
+    return leaf.getEntryCount() < HOTLeafPage.MAX_ENTRIES && keySlice.length >= prefixLength
+        && Arrays.mismatch(leaf.getCommonPrefix(), 0, prefixLength, keySlice, 0, prefixLength) < 0
+        && leaf.getRemainingSpace() >= keySlice.length + valueSlice.length + LEAF_ENTRY_SLACK;
   }
 
   /**

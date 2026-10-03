@@ -174,11 +174,22 @@ All notable changes to SirixDB are documented in this file.
   by a new seeded, property-based structural test (`HOTStructuralPropertyTest`) that drives every
   HOT index kind — CAS, PATH, NAME, VALIDTIME and the projection slot store with its segment side
   map — with generated put, remove, bulk-posting, commit, revert and cold-reopen streams across all
-  four versioning types, checks the complete structural invariant and a sorted reference after
-  every step and every historical revision, and shrinks a failing seed to a replayable stream; the
-  shape appeared on a projection store after 770 ordinary writes. The merge arm now proves, before
-  the merge, that the key keeps the spine's order — the question every branch placement already
-  asks — and hands a key that would cross a neighbour to the complete-frontier splice, counted by
+  four versioning types, and shrinks a failing seed to a replayable stream; the shape appeared on a
+  projection store after 770 ordinary writes. Its default lane, the one CI runs, checks completely
+  after every single mutation — every individual put and removal inside a bulk run included: the
+  structural validator, the full ordered slot walk against the reference's slot set, and every one
+  of the reference's keys compared to what the index answers, plus every historical revision
+  re-checked that way through the reader after every commit and again cold from disk after a reopen.
+  Nothing is sampled there; its streams are sized for that cost (about 30 s per kind) and reach leaf
+  splits, the pair and strand placements, the fold cascade, the frontier splice and the Direction-1
+  sub-insert. The opt-in `heavy` lane trades those checks for reach, which is what a long soak needs
+  and how the three shapes below were found: it samples the complete check every 32nd in-place step
+  (every structural handler is always checked), compares 16 rotating keys per lookup pass, checks
+  the newest revision per commit with three rotating older ones, and grows single postings to several
+  KiB so leaves split by bytes; `docs/VERIFICATION.md` has both commands.
+  The merge arm now proves, before the merge, that the key keeps the spine's order — the question
+  every branch placement already asks — and hands a key that would cross a neighbour to the
+  complete-frontier splice, counted by
   `MERGE_SPINE_ORDER_DELEGATED`; a key inside its leaf's range pays two comparisons and no walk.
   The same test found a second placement that trusted the same assumption: when a leaf whose keys
   span a bit the block does not discriminate on yet is split at that bit (the strand discharge, or a
@@ -189,12 +200,21 @@ All notable changes to SirixDB are documented in this file.
   shared integrate pre-check now declines such a fresh-bit fold at every level of the cascade,
   counted by `FRESH_BIT_FOLD_NOT_ADJACENT`, and the complete frontier re-encodes the block.
   A third placement, recorded as an open gap when the full-node branch decomposition landed, is
-  closed with a constructed stream: the Direction-1 sub-insert into a freshly compressed split half
-  measured the trie condition before the sub-insert, and a full leaf whose keys spanned the half's
-  most significant bit came back from the sub-insert as a node on that very bit, so the re-split
-  half was published contradicting it (I11, fail-stop on the key's own route). The arm now declines
-  when the key and the affected child's extremes span a bit at or above the half's most significant
-  bit, counted by `DIRECTION_ONE_SPLIT_ABOVE_HALF`.
+  closed: the Direction-1 sub-insert into a freshly compressed split half measured the trie
+  condition before the sub-insert, and a leaf whose keys spanned the half's most significant bit
+  came back from the sub-insert as a node on that very bit, so the re-split half was published
+  contradicting it (I11, fail-stop on the key's own route). The arm now declines when the key and
+  the affected child's extremes span a bit at or above the half's most significant bit, counted by
+  `DIRECTION_ONE_SPLIT_ABOVE_HALF`, unless the child is a leaf certain to store the key in place —
+  which needs a free slot, free bytes *and* a common prefix the key keeps, since a key that
+  shortens that prefix grows every resident entry and makes the leaf split after all.
+  `HOTOrderingGuardTest` pins both overflows, by count and by bytes, each failing without the
+  decline. **Both are constructed states, not constructed streams:** a bounded search with the
+  property generator — 36 seeded heavy streams of 8,000 work units each over the PATH, CAS and NAME
+  indexes, plus longer 25,000-unit ones, reaching tries of height 6 and taking the Direction-1 arm
+  dozens of times per stream — produced no put stream that reaches the shape, so its reachability
+  from ordinary writes remains unproven and the guard is kept as a cheap decline to the complete
+  frontier.
   In the same splice, a replacing split whose dropped boundary entry owned projection segment-page
   references used to throw and poison the transaction (a referenced blob replaced by an inline value
   that overflows its leaf still owns its page at that moment); those references are now carried
@@ -202,7 +222,7 @@ All notable changes to SirixDB are documented in this file.
   projection trie reaches the split through a refused cascade and fails without the carry. Results,
   on-disk format, revision visibility and write granularity are unchanged; answers change only
   where an insert previously failed or a range scan would have been out of order. Specified in
-  `docs/HOT_INDEX_SPECIFICATION.md` §4.5.1, §4.5.2 and §4.5.3.
+  `docs/HOT_INDEX_SPECIFICATION.md` §4.5.1, §4.5.2, §4.5.3 and §4.5.4.
 - **A HOT leaf-page rebuild could write past its page** — inserting a key that shortens a leaf's
   common prefix rewrites every resident entry with the reclaimed prefix bytes, and that rewrite was
   performed without checking that the grown entries still fit the 64 KiB page. Loading a JSON

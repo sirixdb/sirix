@@ -1317,12 +1317,32 @@ leaf `K` lands in at that union's MSDB, and a leaf whose keys span a bit at or a
 (a straddle its zero column in the half says nothing about) comes back as a node on that bit, which
 the refreshed half then contradicts (I11) — on `K`'s own route, after `K` is already placed, where
 the published-route validation can only fail the insert. That MSDB is never more significant than
-the MSDB of `K` with the child's own extremes, which `isSplitHalfDirectionOneSafe` already reads;
-it therefore declines the arm when that MSDB is at or above the half's MSB, counted by
-`DIRECTION_ONE_SPLIT_ABOVE_HALF`, and the generic leaf pair or the complete frontier places `K`.
-`HOTOrderingGuardTest` builds the shape: a full root over bits 1–7 of the first key byte whose
-child at partial 0x08 is a full leaf of 0x08… and 0x2a… keys, and a key 0x28… that routes to it and
-parts from its successor at bit 6.
+the MSDB of `K` with the child's own extremes, so `subInsertKeepsHalfTrieCondition` declines the arm
+when that MSDB is at or above the half's MSB, counted by `DIRECTION_ONE_SPLIT_ABOVE_HALF`, and the
+generic leaf pair or the complete frontier places `K`.
+
+The one exception is a child leaf that is **certain** to store `K` in place, which introduces no bit
+at all. Certainty needs three things, and `leafTakesKeyInPlace` asks for all three: a free slot, free
+bytes for the entry (the two length fields plus the key's suffix and the value, bounded by
+`LEAF_ENTRY_SLACK`), and a common prefix that `K` keeps. The third is not a formality: a leaf stores
+suffixes under one byte-granular common prefix (§3.2.2), so a key that shortens it rewrites every
+resident entry with the reclaimed bytes, needs `entryCount` times those bytes *on top of* the entry,
+and — when the grown residents no longer fit the 64 KiB frame — is refused by the leaf
+(`PREFIX_SHRINK_REFUSED_FOR_CAPACITY`) and splits it after all, at exactly the bit this guard is
+about. No per-entry estimate can see that, and the shape is not exotic: the guard is only consulted
+when `K` parts from the leaf's range at a high bit, which is precisely when that bit tends to fall
+inside the leaf's prefix.
+
+`HOTOrderingGuardTest` pins both overflows from an assembled state — a full root over bits 1–7 of
+the first key byte, whose child at partial 0x08 either is a full leaf of 0x08… and 0x2a… keys met by
+a key 0x28… that parts from its successor at bit 6, or holds 500 of 512 slots of 0x2a00… keys with
+124-byte values met by a key 0x0a… that breaks its two-byte prefix. Each fails without the decline,
+with the Direction-1 handler publishing a malformed path. **These are constructed states, not
+constructed streams.** A bounded search with the property generator — 36 seeded heavy streams of
+8,000 work units each over PATH, CAS and NAME, plus longer 25,000-unit ones, which reached tries of
+height 6 and took the Direction-1 arm dozens of times per stream — produced no put stream that
+reaches the shape, so reachability from ordinary writes is unproven. The guard is kept because it is
+a cheap decline to the complete frontier, which places `K` correctly either way.
 
 Cases, in order:
 
