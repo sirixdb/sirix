@@ -52,13 +52,17 @@ import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.SortedSet;
 import java.util.SplittableRandom;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -151,6 +155,8 @@ final class HOTStructuralPropertyTest {
   private static final int DEFAULT_OPS = Integer.getInteger(PROPERTY + "ops", 1_600);
   private static final long BASE_SEED = Long.getLong(PROPERTY + "seed", 1L);
   private static final long SHRINK_SECONDS = Long.getLong(PROPERTY + "shrinkSeconds", 120L);
+  private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+  private static final Pattern NEWLINE = Pattern.compile("\n");
 
   // ===== heavy-lane sampling cadences; the default lane checks every operation completely =====
 
@@ -267,7 +273,7 @@ final class HOTStructuralPropertyTest {
     final String kindFilter = System.getProperty(PROPERTY + "kinds");
     final List<String> failures = new ArrayList<>();
     for (final Kind kind : Kind.values()) {
-      if (kindFilter != null && !kindFilter.toUpperCase().contains(kind.name())) {
+      if (kindFilter != null && !kindFilter.toUpperCase(Locale.ROOT).contains(kind.name())) {
         continue;
       }
       failures.addAll(runBudget(kind, seeds, ops, collect, false));
@@ -291,7 +297,7 @@ final class HOTStructuralPropertyTest {
     for (int i = 0; i < lines.size(); i++) {
       final String line = lines.get(i).trim();
       if (line.startsWith("kind=")) {
-        for (final String field : line.split("\\s+")) {
+        for (final String field : WHITESPACE.splitAsStream(line).toList()) {
           final String[] pair = field.split("=", 2);
           switch (pair[0]) {
             case "kind" -> kind = Kind.valueOf(pair[1]);
@@ -353,8 +359,8 @@ final class HOTStructuralPropertyTest {
         if (!collect) {
           throw report;
         }
-        final String name = "failure-" + kind.name().toLowerCase() + "-" + seed + "-"
-            + config.versioning().name().toLowerCase() + ".txt";
+        final String name = "failure-" + kind.name().toLowerCase(Locale.ROOT) + "-" + seed + "-"
+            + config.versioning().name().toLowerCase(Locale.ROOT) + ".txt";
         final Path file = FAILURE_DIRECTORY.resolve(name);
         try {
           Files.createDirectories(FAILURE_DIRECTORY);
@@ -368,7 +374,7 @@ final class HOTStructuralPropertyTest {
     }
     final StringBuilder moved = new StringBuilder();
     REACH_COUNTERS.forEach((name, counter) -> {
-      final long delta = counter.get() - countersBefore.get(name);
+      final long delta = counter.get() - Objects.requireNonNull(countersBefore.get(name));
       if (delta != 0) {
         moved.append(moved.isEmpty()
             ? ""
@@ -439,7 +445,7 @@ final class HOTStructuralPropertyTest {
   }
 
   private AssertionError shrinkAndReport(final CaseConfig config, final List<Op> stream, final CaseResult result) {
-    final Throwable failure = result.failure;
+    final Throwable failure = Objects.requireNonNull(result.failure);
     final String signature = signature(failure);
     final List<Op> failing = new ArrayList<>(stream.subList(0, Math.min(stream.size(), result.applied + 1)));
     final long started = System.nanoTime();
@@ -542,10 +548,10 @@ final class HOTStructuralPropertyTest {
    */
   static String signature(final Throwable failure) {
     final String message = String.valueOf(failure.getMessage());
-    final String[] lines = message.split("\n");
+    final List<String> lines = NEWLINE.splitAsStream(message).toList();
     final StringBuilder sb = new StringBuilder(failure.getClass().getSimpleName()).append(": ");
-    for (int i = 0; i < Math.min(2, lines.length); i++) {
-      sb.append(lines[i].trim()).append(' ');
+    for (int i = 0; i < Math.min(2, lines.size()); i++) {
+      sb.append(lines.get(i).trim()).append(' ');
     }
     final String masked = sb.toString().replaceAll("0x[0-9a-fA-F]+|[0-9a-fA-F]{8,}|-?\\d+", "#");
     return masked.length() > 200
@@ -654,7 +660,7 @@ final class HOTStructuralPropertyTest {
     }
 
     static Op parse(final String line) {
-      final String[] fields = line.trim().split("\\s+");
+      final String[] fields = WHITESPACE.splitAsStream(line.trim()).toArray(String[]::new);
       final char type = fields[0].charAt(0);
       return switch (type) {
         case PUT, REMOVE -> new Op(type, Long.parseLong(fields[1]), Long.parseLong(fields[2]),
@@ -669,7 +675,7 @@ final class HOTStructuralPropertyTest {
 
     static List<Op> parseStream(final String stream) {
       final List<Op> ops = new ArrayList<>();
-      for (final String line : stream.split("\n")) {
+      for (final String line : NEWLINE.splitAsStream(stream).toList()) {
         final String trimmed = line.trim();
         if (!trimmed.isEmpty() && trimmed.charAt(0) != '#') {
           ops.add(parse(trimmed));
@@ -680,14 +686,20 @@ final class HOTStructuralPropertyTest {
   }
 
   /** Serialized key bytes with unsigned lexicographic order, the order the trie must present. */
-  private record ByteKey(byte[] bytes) implements Comparable<ByteKey> {
+  private static final class ByteKey implements Comparable<ByteKey> {
+    private final byte[] bytes;
+
+    private ByteKey(final byte[] bytes) {
+      this.bytes = bytes;
+    }
+
     @Override
     public int compareTo(final ByteKey other) {
       return Arrays.compareUnsigned(bytes, other.bytes);
     }
 
     @Override
-    public boolean equals(final Object other) {
+    public boolean equals(final @Nullable Object other) {
       return other instanceof ByteKey key && Arrays.equals(bytes, key.bytes);
     }
 
@@ -1126,7 +1138,9 @@ final class HOTStructuralPropertyTest {
     public final void verifyRevision(final StorageEngineReader reader, final Object snapshot, final boolean exact) {
       final TreeMap<ByteKey, Logical<K>> expected = (TreeMap<ByteKey, Logical<K>>) snapshot;
       final PageReference root = HOTInvariantValidator.resolveRootRef(reader, indexType, indexNumber);
-      noteValidation(HOTInvariantValidator.validate(root, reader));
+      noteValidation(root == null
+          ? new HOTInvariantValidator.Result(List.of(), 0, 0)
+          : HOTInvariantValidator.validate(root, reader));
       compareSlots("reader-slot-walk", liveSlotKeys(reader, root, true), expectedSlots(expected));
       final PostingLookup<K> lookup = readerLookup(reader);
       if (exact) {
@@ -1142,7 +1156,7 @@ final class HOTStructuralPropertyTest {
       }
     }
 
-    private TreeSet<ByteKey> expectedSlots(final TreeMap<ByteKey, Logical<K>> source) {
+    private SortedSet<ByteKey> expectedSlots(final Map<ByteKey, Logical<K>> source) {
       final TreeSet<ByteKey> slots = new TreeSet<>();
       for (final Map.Entry<ByteKey, Logical<K>> entry : source.entrySet()) {
         final byte[] prefix = entry.getKey().bytes;
@@ -1159,7 +1173,7 @@ final class HOTStructuralPropertyTest {
      * The logical iterator must present the reference's keys in order, each with its exact postings.
      */
     private void compareIterator(final Iterator<? extends Map.Entry<K, NodeReferences>> iterator,
-        final TreeMap<ByteKey, Logical<K>> expected) {
+        final Map<ByteKey, Logical<K>> expected) {
       final Iterator<Map.Entry<ByteKey, Logical<K>>> reference = expected.entrySet().iterator();
       int position = 0;
       while (iterator.hasNext()) {
@@ -1189,13 +1203,13 @@ final class HOTStructuralPropertyTest {
     }
 
     /** Every key the reference holds must answer exactly what the reference holds. */
-    private void checkEveryLookup(final PostingLookup<K> lookup, final TreeMap<ByteKey, Logical<K>> expected) {
+    private void checkEveryLookup(final PostingLookup<K> lookup, final Map<ByteKey, Logical<K>> expected) {
       for (final Map.Entry<ByteKey, Logical<K>> entry : expected.entrySet()) {
         checkLookup(lookup, entry.getKey(), entry.getValue().key, expected);
       }
     }
 
-    private void sampleLookups(final PostingLookup<K> lookup, final TreeMap<ByteKey, Logical<K>> expected,
+    private void sampleLookups(final PostingLookup<K> lookup, final Map<ByteKey, Logical<K>> expected,
         final int sample) {
       if (expected.isEmpty()) {
         return;
@@ -1215,7 +1229,7 @@ final class HOTStructuralPropertyTest {
     }
 
     private void checkLookup(final PostingLookup<K> lookup, final ByteKey prefix, final K key,
-        final TreeMap<ByteKey, Logical<K>> expected) {
+        final Map<ByteKey, Logical<K>> expected) {
       final Logical<K> logical = expected.get(prefix);
       final NodeReferences actual = lookup.get(key);
       if (logical == null) {
@@ -1242,7 +1256,7 @@ final class HOTStructuralPropertyTest {
   private static final class SerializedKeyDriver<K extends Comparable<? super K>> extends PostingDriver<K> {
     private final HOTKeySerializer<K> serializer;
     private final Function<Op, K> keyFunction;
-    private HOTIndexWriter<K> hotWriter;
+    private @Nullable HOTIndexWriter<K> hotWriter;
 
     SerializedKeyDriver(final IndexType indexType, final int indexNumber, final HOTKeySerializer<K> serializer,
         final Function<Op, K> keyFunction, final boolean exhaustive) {
@@ -1257,8 +1271,8 @@ final class HOTStructuralPropertyTest {
     }
 
     @Override
-    public AbstractHOTIndexWriter<?> writer() {
-      return hotWriter;
+    public HOTIndexWriter<K> writer() {
+      return Objects.requireNonNull(hotWriter, "posting driver must be opened before use");
     }
 
     @Override
@@ -1278,17 +1292,17 @@ final class HOTStructuralPropertyTest {
 
     @Override
     void writerPut(final K key, final long nodeKey) {
-      hotWriter.indexNodeKey(key, nodeKey);
+      writer().indexNodeKey(key, nodeKey);
     }
 
     @Override
     boolean writerRemove(final K key, final long nodeKey) {
-      return hotWriter.remove(key, nodeKey);
+      return writer().remove(key, nodeKey);
     }
 
     @Override
     PostingLookup<K> writerLookup() {
-      final HOTIndexWriter<K> writer = hotWriter;
+      final HOTIndexWriter<K> writer = writer();
       return new PostingLookup<>() {
         @Override
         public @Nullable NodeReferences get(final K key) {
@@ -1321,7 +1335,7 @@ final class HOTStructuralPropertyTest {
 
   /** PATH: the primitive-long writer. */
   private static final class LongKeyDriver extends PostingDriver<Long> {
-    private HOTLongIndexWriter hotWriter;
+    private @Nullable HOTLongIndexWriter hotWriter;
 
     LongKeyDriver(final int indexNumber, final boolean exhaustive) {
       super(IndexType.PATH, indexNumber, exhaustive);
@@ -1333,8 +1347,8 @@ final class HOTStructuralPropertyTest {
     }
 
     @Override
-    public AbstractHOTIndexWriter<?> writer() {
-      return hotWriter;
+    public HOTLongIndexWriter writer() {
+      return Objects.requireNonNull(hotWriter, "posting driver must be opened before use");
     }
 
     @Override
@@ -1354,17 +1368,17 @@ final class HOTStructuralPropertyTest {
 
     @Override
     void writerPut(final Long key, final long nodeKey) {
-      hotWriter.indexNodeKey(key, nodeKey);
+      writer().indexNodeKey(key, nodeKey);
     }
 
     @Override
     boolean writerRemove(final Long key, final long nodeKey) {
-      return hotWriter.remove(key, nodeKey);
+      return writer().remove(key, nodeKey);
     }
 
     @Override
     PostingLookup<Long> writerLookup() {
-      final HOTLongIndexWriter writer = hotWriter;
+      final HOTLongIndexWriter writer = writer();
       return new PostingLookup<>() {
         @Override
         public @Nullable NodeReferences get(final Long key) {
@@ -1406,7 +1420,7 @@ final class HOTStructuralPropertyTest {
     /** Compare every slot's bytes rather than a rotating sample (the default lane). */
     private final boolean exhaustive;
     private TreeMap<ByteKey, byte[]> model = new TreeMap<>();
-    private ProjectionIndexHOTStorage storage;
+    private @Nullable ProjectionIndexHOTStorage storage;
     private int sampleCursor;
     private int storedKeys;
     private int height;
@@ -1438,12 +1452,13 @@ final class HOTStructuralPropertyTest {
     }
 
     @Override
-    public AbstractHOTIndexWriter<?> writer() {
-      return storage;
+    public ProjectionIndexHOTStorage writer() {
+      return Objects.requireNonNull(storage, "projection driver must be opened before use");
     }
 
     @Override
     public void apply(final Op op) {
+      final ProjectionIndexHOTStorage storage = writer();
       final long slotKey = op.k1;
       if (op.isPut()) {
         final byte[] value = blobBytes(op.k2, (int) op.k3);
@@ -1468,7 +1483,7 @@ final class HOTStructuralPropertyTest {
 
     @Override
     public void verifyWriterSide(final Op lastOp, final boolean full) {
-      checkBlob(slotKeyBytes(lastOp.k1), storage.getBlob(lastOp.k1), model);
+      checkBlob(slotKeyBytes(lastOp.k1), writer().getBlob(lastOp.k1), model);
       if (full) {
         verifyWriterStructure();
       }
@@ -1476,6 +1491,7 @@ final class HOTStructuralPropertyTest {
 
     @Override
     public void verifyWriterStructure() {
+      final ProjectionIndexHOTStorage storage = writer();
       final StorageEngineReader reader = storage.getStorageEngineReader();
       final PageReference root = storage.getRootReference();
       noteValidation(HOTInvariantValidator.validate(root, reader));
@@ -1492,7 +1508,9 @@ final class HOTStructuralPropertyTest {
     public void verifyRevision(final StorageEngineReader reader, final Object snapshot, final boolean exact) {
       final TreeMap<ByteKey, byte[]> expected = (TreeMap<ByteKey, byte[]>) snapshot;
       final PageReference root = HOTInvariantValidator.resolveRootRef(reader, IndexType.PROJECTION, indexNumber);
-      noteValidation(HOTInvariantValidator.validate(root, reader));
+      noteValidation(root == null
+          ? new HOTInvariantValidator.Result(List.of(), 0, 0)
+          : HOTInvariantValidator.validate(root, reader));
       compareSlots("reader-slot-walk", liveSlotKeys(reader, root, false), new TreeSet<>(expected.keySet()));
       final Function<Long, byte @Nullable []> read =
           slot -> ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot);
@@ -1504,14 +1522,14 @@ final class HOTStructuralPropertyTest {
     }
 
     /** Every slot the reference holds must read back exactly the reference's bytes. */
-    private static void checkEveryBlob(final TreeMap<ByteKey, byte[]> expected,
+    private static void checkEveryBlob(final Map<ByteKey, byte[]> expected,
         final Function<Long, byte @Nullable []> read) {
       for (final ByteKey key : expected.keySet()) {
         checkBlob(key, read.apply(slotKeyOf(key)), expected);
       }
     }
 
-    private void sampleBlobs(final TreeMap<ByteKey, byte[]> expected, final Function<Long, byte @Nullable []> read) {
+    private void sampleBlobs(final Map<ByteKey, byte[]> expected, final Function<Long, byte @Nullable []> read) {
       if (expected.isEmpty()) {
         return;
       }
@@ -1527,7 +1545,7 @@ final class HOTStructuralPropertyTest {
     }
 
     private static void checkBlob(final ByteKey key, final byte @Nullable [] actual,
-        final TreeMap<ByteKey, byte[]> expected) {
+        final Map<ByteKey, byte[]> expected) {
       final byte[] wanted = expected.get(key);
       if (wanted == null) {
         if (actual != null) {
@@ -1587,7 +1605,7 @@ final class HOTStructuralPropertyTest {
     return keys;
   }
 
-  private static void compareSlots(final String check, final List<ByteKey> actual, final TreeSet<ByteKey> expected) {
+  private static void compareSlots(final String check, final List<ByteKey> actual, final SortedSet<ByteKey> expected) {
     final Iterator<ByteKey> reference = expected.iterator();
     for (int i = 0; i < actual.size(); i++) {
       final ByteKey key = actual.get(i);
@@ -2049,15 +2067,15 @@ final class HOTStructuralPropertyTest {
     private long blobLength(final Phase phase) {
       final double roll = random.nextDouble();
       if (phase.denseChunk && roll < 0.6) {
-        return 513 + random.nextInt(2_000);
+        return 513L + random.nextInt(2_000);
       }
       if (roll < 0.5) {
-        return 1 + random.nextInt(64);
+        return 1L + random.nextInt(64);
       }
       if (roll < 0.85) {
-        return 200 + random.nextInt(313);
+        return 200L + random.nextInt(313);
       }
-      return 513 + random.nextInt(2_000);
+      return 513L + random.nextInt(2_000);
     }
   }
 }

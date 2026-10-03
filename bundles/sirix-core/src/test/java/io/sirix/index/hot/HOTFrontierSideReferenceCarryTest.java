@@ -15,9 +15,11 @@ import io.sirix.page.PageReference;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -106,7 +108,7 @@ final class HOTFrontierSideReferenceCarryTest {
       grandChildren[31] = fixture.leaf(slot(44, 0));
       grandPartials[31] = 44;
       fixture.install(fixture.node(new int[] {42, 43, 44, 45, 46, 47}, grandPartials, grandChildren));
-      HOTInvariantValidator.validate(fixture.root, fixture.storage).assertOk();
+      HOTInvariantValidator.validate(fixture.root(), fixture.storage).assertOk();
 
       final long routed = AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM.get();
       final long carried = AbstractHOTIndexWriter.FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES.get();
@@ -115,7 +117,7 @@ final class HOTFrontierSideReferenceCarryTest {
       assertDoesNotThrow(() -> fixture.writer.put(key, replacement),
           () -> "handler=" + fixture.writer.lastDispatchHandler);
 
-      HOTInvariantValidator.validate(fixture.root, fixture.storage).assertOk();
+      HOTInvariantValidator.validate(fixture.root(), fixture.storage).assertOk();
       final HOTLeafPage home = fixture.leafOf(key);
       assertArrayEquals(replacement, home.copyStoredValue(home.findEntry(fixture.keyBytes(key))),
           "the key must read its replacement value from the leaf it routes to");
@@ -136,7 +138,7 @@ final class HOTFrontierSideReferenceCarryTest {
     private final AtomicLong pageKeys = new AtomicLong(100);
     private final StorageEngineWriter storage = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
     private final TestWriter writer;
-    private PageReference root;
+    private @Nullable PageReference root;
 
     private Fixture() {
       final RevisionRootPage revisionRoot = mock(RevisionRootPage.class);
@@ -198,10 +200,14 @@ final class HOTFrontierSideReferenceCarryTest {
       writer.rootReference = reference;
     }
 
+    private PageReference root() {
+      return Objects.requireNonNull(root, "fixture root must be installed before use");
+    }
+
     /** The leaf the key routes to, through the installed root. */
     private HOTLeafPage leafOf(final long slotKey) {
       final byte[] key = keyBytes(slotKey);
-      Page current = page(root);
+      Page current = page(root());
       for (int depth = 0; current instanceof HOTIndirectPage node && depth < 32; depth++) {
         current = page(node.getChildReference(node.findChildIndex(key)));
       }

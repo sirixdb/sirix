@@ -23,6 +23,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.VersioningType;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -32,7 +33,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TreeMap;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -76,36 +79,44 @@ final class HOTConstructedShapeIntegrationTest {
         C
         O
         """;
-    HOTStructuralPropertyTest.replay(HOTStructuralPropertyTest.Kind.PATH, VersioningType.DIFFERENTIAL,
-        16, true, path, stream);
+    HOTStructuralPropertyTest.replay(HOTStructuralPropertyTest.Kind.PATH, VersioningType.DIFFERENTIAL, 16, true, path,
+        stream);
     Databases.clearGlobalCaches();
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
         JsonResourceSession session = database.beginResourceSession("hot-structural-property")) {
       assertEquals(3, session.getMostRecentRevisionNumber());
       for (int revision = 1; revision <= 3; revision++) {
         try (JsonNodeReadOnlyTrx transaction = session.beginNodeReadOnlyTrx(revision)) {
-          final HOTLongIndexReader reader = HOTLongIndexReader.create(transaction.getStorageEngineReader(),
-              IndexType.PATH, 0);
+          final HOTLongIndexReader reader =
+              HOTLongIndexReader.create(transaction.getStorageEngineReader(), IndexType.PATH, 0);
           final NodeReferences bulk = reader.get(257, SearchMode.EQUAL);
           assertNotNull(bulk);
-          final int count = revision == 2 ? 2500 : 3000;
+          final int count = revision == 2
+              ? 2500
+              : 3000;
           assertEquals(count, bulk.getNodeKeys().getLongCardinality());
           for (int i = 0; i < 3000; i++) {
             assertEquals(revision != 2 || i >= 500, bulk.getNodeKeys().contains(i * 2L));
           }
-          assertTrue(reader.get(1, SearchMode.EQUAL).getNodeKeys().contains(42));
+          final NodeReferences original = reader.get(1, SearchMode.EQUAL);
+          assertNotNull(original);
+          assertTrue(original.getNodeKeys().contains(42));
           if (revision == 2) {
-            assertTrue(reader.get(513, SearchMode.EQUAL).getNodeKeys().contains(99));
+            final NodeReferences branch = reader.get(513, SearchMode.EQUAL);
+            assertNotNull(branch);
+            assertTrue(branch.getNodeKeys().contains(99));
           } else {
             assertNull(reader.get(513, SearchMode.EQUAL));
           }
           if (revision == 3) {
-            assertTrue(reader.get(769, SearchMode.EQUAL).getNodeKeys().contains(100));
+            final NodeReferences reverted = reader.get(769, SearchMode.EQUAL);
+            assertNotNull(reverted);
+            assertTrue(reverted.getNodeKeys().contains(100));
           } else {
             assertNull(reader.get(769, SearchMode.EQUAL));
           }
-          System.out.println("[hot-live] replay cold revision " + revision + ": bulk posting count="
-              + count + "; every posting bit exact; original posting retained; reverted branch keys exact");
+          System.out.println("[hot-live] replay cold revision " + revision + ": bulk posting count=" + count
+              + "; every posting bit exact; original posting retained; reverted branch keys exact");
         }
       }
     }
@@ -115,8 +126,8 @@ final class HOTConstructedShapeIntegrationTest {
   @EnumSource(VersioningType.class)
   void mergeAcrossAnAncestorNeighbourCommitsInOrder(final VersioningType versioning) {
     try (final Fixture fixture = new Fixture(temporaryDirectory.resolve("merge"), versioning)) {
-      final PageReference below = fixture.node(new int[] {60}, new int[] {0, 1},
-          fixture.leaf(0x37), fixture.leaf(0x3b));
+      final PageReference below =
+          fixture.node(new int[] {60}, new int[] {0, 1}, fixture.leaf(0x37), fixture.leaf(0x3b));
       fixture.install(fixture.node(new int[] {58, 62}, new int[] {0, 2, 3}, fixture.leaf(0x10),
           fixture.leaf(0x25, 0x2d, 0x34), below));
       fixture.commitBaselineAndReopen();
@@ -181,7 +192,11 @@ final class HOTConstructedShapeIntegrationTest {
       final int[] partials = new int[32];
       for (int i = 0; i < 32; i++) {
         partials[i] = i;
-        children[i] = i == 31 ? overflowingRef : fixture.leaf(slot(i < 16 ? 32 : 40, i & 15));
+        children[i] = i == 31
+            ? overflowingRef
+            : fixture.leaf(slot(i < 16
+                ? 32
+                : 40, i & 15));
       }
       final PageReference parent = fixture.node(new int[] {44, 60, 61, 62, 63}, partials, children);
       final PageReference[] grandparents = new PageReference[32];
@@ -227,10 +242,10 @@ final class HOTConstructedShapeIntegrationTest {
     private final VersioningType versioning;
     private final TreeMap<Long, byte[]> expected = new TreeMap<>();
     private final Map<Integer, byte[]> encodedValues = new TreeMap<>();
-    private Map<Long, byte[]> baseline;
-    private Database<JsonResourceSession> database;
-    private JsonResourceSession session;
-    private JsonNodeTrx transaction;
+    private @Nullable Map<Long, byte[]> baseline;
+    private @Nullable Database<JsonResourceSession> database;
+    private @Nullable JsonResourceSession session;
+    private @Nullable JsonNodeTrx transaction;
     private StorageEngineWriter engine;
     private ProjectionIndexHOTStorage storage;
 
@@ -239,14 +254,16 @@ final class HOTConstructedShapeIntegrationTest {
       this.versioning = versioning;
       assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
       database = Databases.openJsonDatabase(databasePath);
-      assertTrue(database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .versioningApproach(versioning).build()));
+      assertTrue(
+          database.createResource(ResourceConfiguration.newBuilder(RESOURCE).versioningApproach(versioning).build()));
       openWriter();
     }
 
     private void openWriter() {
-      session = database.beginResourceSession(RESOURCE);
-      transaction = session.beginNodeTrx();
+      final JsonResourceSession session = Objects.requireNonNull(database).beginResourceSession(RESOURCE);
+      this.session = session;
+      final JsonNodeTrx transaction = session.beginNodeTrx();
+      this.transaction = transaction;
       engine = transaction.getStorageEngineWriter();
       storage = new ProjectionIndexHOTStorage(engine, 0);
     }
@@ -263,7 +280,7 @@ final class HOTConstructedShapeIntegrationTest {
 
     private long nextPageKey() {
       return engine.<ProjectionIndexPage>prepareSecondaryIndexPage(IndexType.PROJECTION)
-          .incrementAndGetMaxHotPageKey(0);
+                   .incrementAndGetMaxHotPageKey(0);
     }
 
     private HOTLeafPage emptyLeaf() {
@@ -297,12 +314,12 @@ final class HOTConstructedShapeIntegrationTest {
           height = Math.max(height, indirect.getHeight() + 1);
         }
       }
-      return register(HOTBulkBuilder.assembleIndirect(bits, partials, children, height,
-          engine.getRevisionNumber(), this::nextPageKey));
+      return register(HOTBulkBuilder.assembleIndirect(bits, partials, children, height, engine.getRevisionNumber(),
+          this::nextPageKey));
     }
 
     private void install(final PageReference assembled) {
-      final Page page = engine.loadHOTPage(assembled);
+      final Page page = Objects.requireNonNull(engine.loadHOTPage(assembled));
       final PageReference root = storage.getRootReference();
       root.setPage(page);
       engine.getLog().put(root, PageContainer.getInstance(page, page));
@@ -314,7 +331,9 @@ final class HOTConstructedShapeIntegrationTest {
       int index = 0;
       for (int partial = 0; partial <= 8; partial++) {
         partials[index] = partial;
-        children[index++] = partial == 8 ? straddling : leaf((long) partial << 24);
+        children[index++] = partial == 8
+            ? straddling
+            : leaf((long) partial << 24);
       }
       for (int partial = 0x30; partial <= 0x36; partial++) {
         partials[index] = partial;
@@ -330,7 +349,9 @@ final class HOTConstructedShapeIntegrationTest {
 
     private void verify(final StorageEngineReader reader, final Map<Long, byte[]> model) {
       final PageReference root = ProjectionIndexHOTStorage.rootReference(reader, 0);
-      final HOTInvariantValidator.Result result = HOTInvariantValidator.validate(root, reader);
+      final HOTInvariantValidator.Result result = root == null
+          ? new HOTInvariantValidator.Result(List.of(), 0, 0)
+          : HOTInvariantValidator.validate(root, reader);
       result.assertOk();
       assertEquals(model.size(), result.storedKeyCount());
       for (final Map.Entry<Long, byte[]> entry : model.entrySet()) {
@@ -347,16 +368,17 @@ final class HOTConstructedShapeIntegrationTest {
     private void commitBaselineAndReopen() {
       verify(engine, expected);
       baseline = new TreeMap<>(expected);
-      transaction.commit();
+      Objects.requireNonNull(transaction).commit();
       close();
       Databases.clearGlobalCaches();
       database = Databases.openJsonDatabase(databasePath);
       openWriter();
-      verify(engine, baseline);
+      verify(engine, Objects.requireNonNull(baseline));
     }
 
     private void commitAndVerifyHistory(final String scenario) {
-      transaction.commit();
+      final Map<Long, byte[]> baseline = Objects.requireNonNull(this.baseline);
+      Objects.requireNonNull(transaction).commit();
       close();
       Databases.clearGlobalCaches();
       try (Database<JsonResourceSession> reopened = Databases.openJsonDatabase(databasePath);
