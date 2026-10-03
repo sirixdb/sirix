@@ -458,7 +458,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         // First, check if we already have a database open for this path
         // by comparing database names (not object identity)
         final Optional<Database<JsonResourceSession>> existingDb =
-            databases.stream().filter(db -> db.getName().equals(name) && db.isOpen()).findFirst();
+            databases.stream().filter(db -> db.isOpen() && db.getName().equals(name)).findFirst();
 
         if (existingDb.isPresent()) {
           // Reuse existing database and its collection
@@ -976,8 +976,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private boolean removeIfExisting(final DatabaseConfiguration dbConfig) {
     if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
       try {
-        final Predicate<Database<JsonResourceSession>> databasePredicate =
-            currDatabase -> currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
+        final Predicate<Database<JsonResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
+            || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
 
         databases.removeIf(databasePredicate);
         collections.keySet().removeIf(databasePredicate);
