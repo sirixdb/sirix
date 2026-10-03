@@ -5,6 +5,7 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.Transaction;
+import io.sirix.exception.SirixThreadedException;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -15,6 +16,7 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
   private final Databases.OpenDatabase<T> owner;
   private final ResourceStore<T> resourceStore;
   private volatile boolean closed;
+  private volatile boolean closing;
 
   DatabaseHandle(final Databases.OpenDatabase<T> owner, final User user) {
     this.owner = owner;
@@ -22,8 +24,8 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
   }
 
   private Database<T> database() {
-    if (closed || !owner.database.isOpen()) {
-      throw new IllegalStateException("Database handle is already closed.");
+    if (closed || closing || !owner.database.isOpen()) {
+      throw new IllegalStateException("Database handle is closing or already closed.");
     }
     return owner.database;
   }
@@ -62,11 +64,30 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
   }
 
   @Override
-  public synchronized void close() {
-    if (!closed) {
+  public void close() {
+    synchronized (this) {
+      while (closing) {
+        try {
+          wait();
+        } catch (final InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new SirixThreadedException(e);
+        }
+      }
+      if (closed) {
+        return;
+      }
+      closing = true;
+    }
+    try {
       resourceStore.close();
       Databases.releaseDatabase(owner, this);
       closed = true;
+    } finally {
+      synchronized (this) {
+        closing = false;
+        notifyAll();
+      }
     }
   }
 
