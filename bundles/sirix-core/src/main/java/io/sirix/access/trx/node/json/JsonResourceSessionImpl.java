@@ -175,7 +175,7 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   @SuppressWarnings("unchecked")
   @Override
   public JsonIndexController getRtxIndexController(final int revision) {
-    return rtxIndexControllers.computeIfAbsent(revision, unused -> {
+    return rtxIndexControllers.computeIfAbsent(revision, _ -> {
       final JsonIndexController controller = createIndexController(revision);
       for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
         if (definition.needsValidTimeRebuild()) {

@@ -102,7 +102,7 @@ backend selector.
 | PATH | `HOTLongIndexWriter` (PATH only, `hot/HOTLongIndexWriter.java:62`, `:95`) | `HOTLongIndexReader` | path class reference (PCR), `long` | posting list of node keys | `idx/path/PathIndexListenerFactory.java:24`, `idx/path/PathIndexBuilderFactory.java:24` |
 | CAS (content-and-structure, "value index") | `HOTIndexWriter<CASValue>` + `CASKeySerializer` | `HOTIndexReader<CASValue>` | (PCR, typed atomic value) | posting list | `idx/cas/CASIndexListenerFactory.java:27`, `idx/cas/CASIndexBuilderFactory.java:27` |
 | NAME | `HOTIndexWriter<QNm>` + `NameKeySerializer` | `HOTIndexReader<QNm>` | qualified name | posting list | `idx/name/NameIndexListenerFactory.java:25`, `idx/name/NameIndexBuilderFactory.java:25` |
-| VALIDTIME | `HOTIndexWriter<ValidTimeKey>` + `ValidTimeKeySerializer` | `HOTIndexReader<ValidTimeKey>` | (store, fork node, endpoint) of an RI-tree | posting list | `idx/interval/ValidTimeIntervalIndexFactory.java:48-53`, `idx/interval/HotOrderedStore.java:66-97` |
+| VALIDTIME | `HOTIndexWriter<ValidTimeKey>` + `ValidTimeKeySerializer` | `HOTIndexReader<ValidTimeKey>` | RI-tree endpoints and companion evidence (§2.3.4) | posting list | `idx/interval/ValidTimeIntervalIndexFactory.java`, `idx/interval/HotOrderedStore.java` |
 | PROJECTION | `ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long>` (`proj/ProjectionIndexHOTStorage.java:100`) | same class, via `HOTTrieReader` | 8-byte slot key | opaque bytes, last writer wins, zero length = tombstone | `proj/ProjectionIndexBuilder.java:942` |
 
 **DeweyIDs are not stored in HOT.** `DeweyIDPage` builds a keyed trie
@@ -140,7 +140,8 @@ RevisionRootPage (one per revision)
   PROJECTION 9, VALIDTIME 10 (`page/RevisionRootPage.java:77-107`). DEWEYID (7) is the keyed trie
   mentioned above.
 - Each occupied slot of `CASPage`/`PathPage`/`NamePage`/`ProjectionIndexPage`/`ValidTimeIndexPage`
-  roots one HOT tree. The container also persists, per index number, the largest HOT page key it has
+  roots one HOT tree. VALIDTIME uses two physical slots per catalog index (§2.3.4).
+  The container also persists, per physical tree id, the largest HOT page key it has
   issued (`Int2LongMap maxHotPageKeys`, `page/CASPage.java:47-70`), serialized as
   `[i32 size][size × (i32 index, i64 max)]` with strictly increasing index `< 1024` and non-negative
   max (`page/PageKind.java:6313-6346`, `:6356-6383`).
@@ -341,12 +342,20 @@ must be rebuilt (`:83-86`).
 
 | Offset | Width | Field |
 |---|---|---|
-| 0 | 1 | store (`STORE_LOWER = 0`, `STORE_UPPER = 1`), raw byte (`:16`, `:51`) |
+| 0 | 1 | store discriminator from `ValidTimeKey`, raw byte |
 | 1 | 8 | `forkNode ^ SIGN_FLIP`, big-endian |
 | 9 | 8 | `endpoint ^ SIGN_FLIP`, big-endian |
 
-`KEY_BYTES = 17` (`:39-40`). Both RI-tree stores share one HOT tree and are separated by the store
-byte (`idx/interval/HotOrderedStore.java:24-30`).
+`KEY_BYTES = 17` (`:39-40`). The RI-tree's lower and upper stores share the HOT root at the catalog
+index id. A companion HOT root holds verification, immediate-parent membership, and conservative
+array-order evidence. `ValidTimeIntervalIndexFactory.metadataIndex` pairs the roots using
+`Constants.INP_REFERENCE_COUNT - 1 - indexNumber` and restricts catalog ids to the lower half of
+that reference space. Each physical root has its own page-key allocator in `ValidTimeIndexPage`;
+both commit through the same transaction intent log.
+
+`ValidTimeKey` owns the store discriminator values and the evidence-key coordinates; all stores
+use this serializer. Query admission and exact fallback semantics are in
+[Valid-time key slices](VALID_TIME_KEY_SLICES.md).
 
 ### 2.4 Order preservation: the invariant and its exceptions
 
@@ -361,7 +370,7 @@ Byte order equals key order within each serializer, except:
 | CAS floats | narrowed through `float` (`:296-304`) | `narrowsNumeric` returns true when `(double)(float)d != d` |
 | CAS keys of different type ids | the type id is not part of `CASValue.compareTo` (`idx/redblacktree/keyvalue/CASValue.java:81-90`) | range scans only use a byte range when `isByteOrderPreserving(type)` (`idx/cas/CASIndex.java:654-675`) |
 | NAME keys with a prefix | length-first order on the prefix (§2.3.2) | none needed: NAME lookups are EQUAL or full scans (`idx/name/NameIndex.java:29-81`) |
-| VALIDTIME store byte | raw byte vs. `Byte.compare` agree only for 0..127 (`idx/interval/ValidTimeKey.java:59-69`); only 0 and 1 are used | none needed |
+| VALIDTIME store byte | raw byte vs. `Byte.compare` agree only for 0..127; all discriminators in `ValidTimeKey` are in that range | none needed |
 
 CAS keys are designed "INJECTIVE first and order-preserving second" (`hot/CASKeySerializer.java:150-151`).
 

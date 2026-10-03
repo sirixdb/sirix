@@ -87,6 +87,7 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   }
 
   @Override
+  @SuppressWarnings("ReferenceEquality") // Identity marks whether the caller's set has been copied.
   public JsonIndexController createIndexListeners(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
     Set<IndexDef> current = indexDefs;
     for (final IndexDef definition : indexDefs) {

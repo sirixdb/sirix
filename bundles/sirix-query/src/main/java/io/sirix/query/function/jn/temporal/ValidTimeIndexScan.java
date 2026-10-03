@@ -335,10 +335,10 @@ public final class ValidTimeIndexScan {
     if (validFrom == null && validTo == null) {
       return false;
     }
-    if (validFrom != null && (validTime.isBefore(validFrom) || strictStart && validTime.equals(validFrom))) {
+    if (validFrom != null && (validTime.isBefore(validFrom) || (strictStart && validTime.equals(validFrom)))) {
       return false;
     }
-    if (validTo != null && (validTime.isAfter(validTo) || strictEnd && validTime.equals(validTo))) {
+    if (validTo != null && (validTime.isAfter(validTo) || (strictEnd && validTime.equals(validTo)))) {
       return false;
     }
     return true;

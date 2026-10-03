@@ -16,6 +16,8 @@ import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBObject;
 import it.unimi.dsi.fastutil.longs.LongArrays;
 
+import org.jspecify.annotations.Nullable;
+
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.function.Predicate;
@@ -26,15 +28,15 @@ final class ValidTimeKeySequence extends AbstractSequence {
   private final ValidTimeConfig config;
   private final boolean strictStart;
   private final boolean strictEnd;
-  private final Predicate<? super JsonDBObject> residual;
+  private final @Nullable Predicate<? super JsonDBObject> residual;
   private final int indexId;
   private final boolean exactPoint;
-  private Evidence evidence;
-  private long[] candidates;
+  private @Nullable Evidence evidence;
+  private long @Nullable [] candidates;
 
   ValidTimeKeySequence(final JsonDBItem document, final Instant instant, final ValidTimeConfig config,
-      final boolean strictStart, final boolean strictEnd, final Predicate<? super JsonDBObject> residual,
-      final int indexId, final Evidence evidence) {
+      final boolean strictStart, final boolean strictEnd, final @Nullable Predicate<? super JsonDBObject> residual,
+      final int indexId, final @Nullable Evidence evidence) {
     this.document = document;
     this.instant = instant;
     this.config = config;
@@ -56,11 +58,13 @@ final class ValidTimeKeySequence extends AbstractSequence {
       if (evidence == null) {
         evidence = ValidTimeIntervalIndex.readEvidence(document, indexId);
       }
-      candidates = ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId, evidence, closed);
+      candidates =
+          ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId, evidence, closed);
     }
     return candidates;
   }
 
+  @SuppressWarnings("NullAway") // Only called for nonempty candidates, after evidence is loaded.
   private boolean needsVerification(final long key) {
     return !exactPoint || evidence.unverified().contains(key);
   }
@@ -103,7 +107,9 @@ final class ValidTimeKeySequence extends AbstractSequence {
         matches[count++] = key;
       }
     }
-    return count == matches.length ? matches : Arrays.copyOf(matches, count);
+    return count == matches.length
+        ? matches
+        : Arrays.copyOf(matches, count);
   }
 
   @Override
@@ -133,12 +139,14 @@ final class ValidTimeKeySequence extends AbstractSequence {
   }
 
   @Override
-  public Item get(final IntNumeric position) {
+  public @Nullable Item get(final IntNumeric position) {
     if (position.cmp(Int32.ONE) < 0) {
       return null;
     }
     final long[] keys = candidates();
-    long remaining = position.cmp(new Int64(keys.length)) > 0 ? (long) keys.length + 1 : position.longValue();
+    long remaining = position.cmp(new Int64(keys.length)) > 0
+        ? (long) keys.length + 1
+        : position.longValue();
     for (final long key : keys) {
       if (needsVerification(key)) {
         final JsonDBObject object = item(key);
@@ -159,7 +167,7 @@ final class ValidTimeKeySequence extends AbstractSequence {
       private boolean closed;
 
       @Override
-      public Item next() {
+      public @Nullable Item next() {
         if (closed) {
           return null;
         }
