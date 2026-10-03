@@ -354,10 +354,18 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
   }
 
-  /** Clear only this page's ownership metadata; never erase a replacement's swizzle or key. */
+  /**
+   * Clear only this page's ownership metadata; never erase a replacement's swizzle or key. Each step
+   * is contained on its own: a failing key forget must not keep the swizzle pointing at a detached
+   * page, and vice versa.
+   */
   private static void clearSwizzleIfSame(PageReference reference, CacheablePage page, RetirementFailures failures) {
     try {
       forgetCacheKeyIfSame(reference, page);
+    } catch (RuntimeException | Error forgetFailure) {
+      failures.retain(forgetFailure);
+    }
+    try {
       if (page instanceof Page swizzledPage) {
         reference.clearPageIfSame(swizzledPage);
       }
@@ -1057,6 +1065,16 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     return page instanceof HOTLeafPage;
   }
 
+  /** Whether any mapping still holds this exact page INSTANCE. The exact answer, by a full scan. */
+  private boolean mapsPageInstance(final CacheablePage page) {
+    for (final var entry : map.entrySet()) {
+      if (entry.getValue() == page) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Remove a page from the cache by reference identity, without closing it.
    *
@@ -1085,6 +1103,10 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
         // A HOT leaf is owned under at most one key. Admission records it before publication and
         // every detach forgets it, so no key means this leaf was never cached or already removed.
         // A stale key, or a page type that does not record keys, still needs the exact scan.
+        // The invariant is checked, not assumed: leaving a mapped page behind here would let the
+        // caller take a still-cached page private and the sweeper free its frame underneath.
+        assert !mapsPageInstance(page) : "HOT leaf " + page.getPageKey()
+            + " records no cache key yet is still mapped — its key was erased by another owner of the same instance";
         return;
       }
       for (final var entry : map.entrySet()) {

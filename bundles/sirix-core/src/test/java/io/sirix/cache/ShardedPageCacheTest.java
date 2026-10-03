@@ -215,6 +215,31 @@ class ShardedPageCacheTest {
   }
 
   @Test
+  @DisplayName("removePage: a mapped HOT leaf whose recorded key was erased fails loudly, never skips silently")
+  void removePageRefusesToTreatAStillMappedHotLeafAsNeverCached() {
+    boolean assertionsEnabled = false;
+    assert assertionsEnabled = true;
+    assertTrue(assertionsEnabled, "the one-owner invariant is enforced by a Java assertion; tests need -ea");
+    try (Arena arena = Arena.ofConfined()) {
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+      final PageReference key = keyFor(70);
+      final HOTLeafPage mapped = hotLeaf(arena, 70, 0);
+      cache.put(key, mapped);
+      final long weight = cache.getCurrentWeightBytes();
+      // A second owner of the same instance (another HOT-leaf cache holding a value-equal key)
+      // erasing the key this cache published is the only way the no-key fast path can be wrong.
+      mapped.setLastCacheKey(null);
+
+      assertThrows(AssertionError.class, () -> cache.removePage(mapped),
+          "a still-mapped page must not be reported as never cached");
+
+      assertSame(mapped, cache.asMap().get(key), "the unremovable mapping must stay visible, not silently retained");
+      assertEquals(weight, cache.getCurrentWeightBytes());
+      cache.clear();
+    }
+  }
+
+  @Test
   @DisplayName("removePage: a page type that never records its key still scans and is removed")
   void removePageStillScansForNonRecordingPages() {
     final ShardedPageCache<KeyValueLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
@@ -222,7 +247,7 @@ class ShardedPageCacheTest {
     when(page.getActualMemorySize()).thenReturn(PAGE_BYTES);
     when(page.acquireGuard()).thenReturn(true);
     cache.put(keyFor(20), page);
-    assertNull(page.lastCacheKey(), "the interface default records nothing");
+    assertSame(page, cache.asMap().get(keyFor(20)), "the mapping must exist for its removal to be observable");
     cache.removePage(page);
     assertNull(cache.asMap().get(keyFor(20)), "the exact scan must still find and remove it");
     assertEquals(0L, cache.getCurrentWeightBytes());
