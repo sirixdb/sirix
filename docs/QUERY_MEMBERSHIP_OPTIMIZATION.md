@@ -34,6 +34,9 @@ stop at a matching key. Subsequent probes use keys already read or resume that s
 a missing key completes the scan. Supported homogeneous domains therefore require at most one
 inner pass per stable binding in the pipeline, including nested outer loops. There is no
 per-row rebuild, and a first-row match against a million-row input still reads one row.
+The original `empty`/`exists` predicate also stops at a match. A later individual probe can read
+more rows than that predicate would read from the start; the guarantee is one inner pass amortized
+over the cursor's probes of a stable binding, not a lower read count for every single probe.
 
 A change of the independent inner binding closes the previous scan and discards its keys. Local
 bindings are read from their actual tuple slots, because `BoundVariable` wraps a sequence in a new
@@ -123,9 +126,40 @@ nearest compilable end-to-end regression. No Brackit classes are patched.
 
 ## Physical operator validation
 
-The cursor operator supersedes the expression-memo implementations measured below. Its final
-suite, work-budget and t100k measurements are recorded separately in the evidence directory;
-historical measurements must not be read as measurements of this implementation.
+The cursor operator supersedes the expression-memo implementations measured below. Measurements
+of implementation commit `cddb195dcea3358dd4eb294085f0061241ba72d6`, based on published commit
+`333ebe1a1fd5266d391e8ef94b577b293ba13e90`, use freshly loaded stores, the kit's natural publication
+batching, and a fresh JVM for each standalone leg. The diagnostic property disables only the
+membership rule on the same compiled classes. Each answer is byte-checked against its independent
+oracle before its duration is reported.
+
+| Tier | Rule disabled Q12 (s) | Physical operator Q12 (s) | Fresh-process repeat (s) |
+|---|---:|---:|---:|
+| t25k | 72.748929 | 3.534460 | — |
+| t50k | 308.052080 | 4.612219 | — |
+| t100k | 1088.563352 | 7.537337 | 6.494075 |
+
+Successive doublings grow by 4.23x and 3.53x with the rule disabled, versus 1.30x and 1.63x with
+the operator. The t100k reduction is 144x (168x on repeat). Concurrent work shares this machine;
+these runs support the order-of-growth conclusion, while the deterministic work counters prove
+the saved inner reads. These measurements precede any subsequent pipeline rebase and do not
+describe a different head. Historical expression-memo timings below describe their named commits.
+
+The full query suite passed 1,808 tests with zero failures/errors and seven skips. Its 16 query
+work-budget tests passed; the unchanged core inputs retained their green 25-test work-budget
+result. A focused 256 MiB run executed all 48 enabled membership tests and all 13 plan serializer
+tests, including actual order/group spills. The disabled declared-FLWOR analyzer case is described
+above. All 45 ClickBench variant plans are identical with the rule on and off; the full query suite
+also passed its ClickBench smoke/acceptance tests. This is plan and correctness evidence, not an
+isolated ClickBench timing campaign.
+
+SH1 is 12/12 oracle-exact at t25k, t50k and t100k on this implementation. The source pins,
+dependency hash, answer/input hashes, standalone pairs/repeat, all-query observations, and
+before/after plans are recorded in
+[`physical-operator-validation.json`](../bundles/sirix-query/bench/bitemporal/evidence/q12-membership-2026-10-01/physical-operator-validation.json).
+The worker relaunch interrupted t25k's all-query JVM after Q9; Q10–Q12 resumed in a fresh JVM on
+the same store and classes. Its standalone Q12 pair was uninterrupted. No physical-operator
+t250k result is claimed; that tier's results below belong to the historical expression design.
 
 ## SH1 evidence (2026-10-01/02, measured on commit `79042b96a`)
 

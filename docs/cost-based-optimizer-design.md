@@ -209,8 +209,9 @@ stage. The javadoc of `JoinKeyPreferenceWalker` owns which equalities qualify, w
 where, and how the move changes which rows a predicate sees.
 
 `SirixOptimizer` also prepends `HashMembershipStage`, which marks single-equality semi/anti-join
-selections before Brackit's pipelining. `SirixPipelineStrategy` compiles those selections to a
-physical `HashMembershipJoin`; each cursor owns its membership table and inner iterator.
+selections before Brackit's join rewriting turns the nested FLWOR into a per-row join.
+`SirixPipelineStrategy` compiles those selections to a physical `HashMembershipJoin`; each cursor
+owns its membership table and inner iterator.
 [QUERY_MEMBERSHIP_OPTIMIZATION.md](QUERY_MEMBERSHIP_OPTIMIZATION.md) owns that rule, its admission
 conditions, its work bounds and its disable property.
 

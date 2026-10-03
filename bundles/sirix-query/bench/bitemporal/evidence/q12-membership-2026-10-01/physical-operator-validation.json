@@ -1,0 +1,481 @@
+{
+  "implementation_commit": "cddb195dcea3358dd4eb294085f0061241ba72d6",
+  "base_published_commit": "333ebe1a1fd5266d391e8ef94b577b293ba13e90",
+  "source_hashes": {
+    "bundles/sirix-query/src/main/java/io/sirix/query/compiler/operator/HashMembershipJoin.java": "f44706ac32aedeb826b281f9fc29b0d3c6ce67a8425099d3113d83a878c109ab",
+    "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/HashMembershipStage.java": "5a127b26f7f463e1fd1b5a8d842dedfece92f6edc6089de965045f9137a7fa54",
+    "bundles/sirix-query/src/main/java/io/sirix/query/compiler/translator/SirixTranslator.java": "1180fbc6078b9c6487c57005590c308faef06e8507951672c6870ac6b430b838",
+    "bundles/sirix-query/src/main/java/io/sirix/query/compiler/translator/SirixPipelineStrategy.java": "8dc7aef9ed7256470d6d2932bc1c90ab0c4b7b3a52d8bea1c4f469c99c851ecd",
+    "bundles/sirix-query/src/main/java/io/sirix/query/compiler/XQExt.java": "4c811f0ab449c4e6dc2b5441f92a908f950145b901d7efc286bf0610a5c536bd"
+  },
+  "full_query": {
+    "query_suite": {
+      "tests": 1808,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 7
+    },
+    "query_budgets": {
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "focused": {
+    "io.sirix.query.compiler.optimizer.HashMembershipStageTest": {
+      "name": "io.sirix.query.compiler.optimizer.HashMembershipStageTest",
+      "tests": "49",
+      "skipped": "1",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-03T09:30:17.880Z",
+      "hostname": "luna",
+      "time": "2.198"
+    },
+    "io.sirix.query.function.sdb.explain.QueryPlanSerializerTest": {
+      "name": "io.sirix.query.function.sdb.explain.QueryPlanSerializerTest",
+      "tests": "13",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-03T09:30:20.080Z",
+      "hostname": "luna",
+      "time": "0.023"
+    }
+  },
+  "core_work_budgets": {
+    "summary": {
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "classes": [
+      "io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest",
+      "io.sirix.budget.JsonDiffArrayPositionWorkBudgetTest",
+      "io.sirix.budget.WorkCaptureTest"
+    ],
+    "gradle_result": "UP-TO-DATE; matching core inputs unchanged"
+  },
+  "brackit_jar_sha256": "7da6e0d4508c0032aac882da2b4a750cf9adf87f96475ae7f011cfa7b92d7508",
+  "benchmark_status": "complete on published-base operator commit; any later pipeline rebase is not included in these measurements",
+  "tiers": {
+    "t25k": {
+      "oracle_exact_queries": 12,
+      "runs": {
+        "before": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "c39ee4da3a067c5705c834f047a019218baedb0e03decc4d6f55c15d0ceae519",
+            "seconds": 72.748929
+          }
+        ],
+        "after": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "c39ee4da3a067c5705c834f047a019218baedb0e03decc4d6f55c15d0ceae519",
+            "seconds": 3.53446
+          }
+        ],
+        "all": [
+          {
+            "query": 1,
+            "rows": 1,
+            "sha256": "06fc08666f2aedf388ef94543817f070237d2833aa93085e8efd45b9ca6c4e61",
+            "seconds": 2.247865
+          },
+          {
+            "query": 2,
+            "rows": 1,
+            "sha256": "e4aefb74f809ae46ab3dff34181945637d468f6605a5d0fbcbd19ae833e85a0b",
+            "seconds": 0.418318
+          },
+          {
+            "query": 3,
+            "rows": 1,
+            "sha256": "2b33db4275bb42f191ca5d8096a3be65536d2dff0d34e5b49cc33a4e553eaefd",
+            "seconds": 0.464708
+          },
+          {
+            "query": 4,
+            "rows": 1384,
+            "sha256": "2e00fed02cfb0b4602c184748de96437f5179cdbddbcfdd5f5e61b034aee837f",
+            "seconds": 1.051271
+          },
+          {
+            "query": 5,
+            "rows": 23,
+            "sha256": "7383cb9030cb08f76c7c48dd3ca6963467341d46ac8ff341bcde70ab1881321b",
+            "seconds": 4.061901
+          },
+          {
+            "query": 6,
+            "rows": 100,
+            "sha256": "428c919d0848af777264e5f76e13a3610bf9139693de39bb38e912422be0999c",
+            "seconds": 3.569938
+          },
+          {
+            "query": 7,
+            "rows": 4,
+            "sha256": "210009e6bb135fc301a525bb748bfff5fabf55b77478a6146efa36c4cbfaa3d6",
+            "seconds": 0.209475
+          },
+          {
+            "query": 8,
+            "rows": 2000,
+            "sha256": "57d1cc3588cdb0284cb36950dbc7a1d3884c8bb49058aa35f1e7d67f010eb0f9",
+            "seconds": 0.189666
+          },
+          {
+            "query": 9,
+            "rows": 32,
+            "sha256": "1d891dfd6e7d94a80f48de073f6d3384f8fe82e11828e57dde781ef58a0ab490",
+            "seconds": 0.255074
+          },
+          {
+            "query": 10,
+            "rows": 16,
+            "sha256": "6625b815ba8c73ebe7831d78c4438d46d461f9354685a79098f807f511322f88",
+            "seconds": 126.967954
+          },
+          {
+            "query": 11,
+            "rows": 240,
+            "sha256": "816cef64ffa8a2f50e4631ff46307482a3d73c86b4e59831661b1890198d4503",
+            "seconds": 14.157857
+          },
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "c39ee4da3a067c5705c834f047a019218baedb0e03decc4d6f55c15d0ceae519",
+            "seconds": 1.28714
+          }
+        ]
+      },
+      "events_sha256": "0d7a24032cf76152e1fbbb00f9972890a608c1a42470db3ab036b35d6f03c597"
+    },
+    "t50k": {
+      "oracle_exact_queries": 12,
+      "runs": {
+        "before": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "1a4023d2073ac9e500594ecaa1902dfa99f542f673edd28f6139ed424a074b0c",
+            "seconds": 308.05208
+          }
+        ],
+        "after": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "1a4023d2073ac9e500594ecaa1902dfa99f542f673edd28f6139ed424a074b0c",
+            "seconds": 4.612219
+          }
+        ],
+        "all": [
+          {
+            "query": 1,
+            "rows": 1,
+            "sha256": "06fc08666f2aedf388ef94543817f070237d2833aa93085e8efd45b9ca6c4e61",
+            "seconds": 2.653009
+          },
+          {
+            "query": 2,
+            "rows": 1,
+            "sha256": "e4aefb74f809ae46ab3dff34181945637d468f6605a5d0fbcbd19ae833e85a0b",
+            "seconds": 0.679769
+          },
+          {
+            "query": 3,
+            "rows": 1,
+            "sha256": "2b33db4275bb42f191ca5d8096a3be65536d2dff0d34e5b49cc33a4e553eaefd",
+            "seconds": 0.864594
+          },
+          {
+            "query": 4,
+            "rows": 2701,
+            "sha256": "9d700c7daa42bb96dff9c0874b87fdca63dc9b6a53802627c1477def7c728f9b",
+            "seconds": 1.604776
+          },
+          {
+            "query": 5,
+            "rows": 23,
+            "sha256": "7383cb9030cb08f76c7c48dd3ca6963467341d46ac8ff341bcde70ab1881321b",
+            "seconds": 6.702609
+          },
+          {
+            "query": 6,
+            "rows": 100,
+            "sha256": "ed6d92f21d472f9f1481216008d5132c13fb662e7b13837d8782e732f7b69881",
+            "seconds": 8.475721
+          },
+          {
+            "query": 7,
+            "rows": 4,
+            "sha256": "a2ce150ba129f83174e957f4d5c7f4306b1c3063a595886df4e033f8e4051a34",
+            "seconds": 0.536072
+          },
+          {
+            "query": 8,
+            "rows": 4000,
+            "sha256": "f197ab323e1fa2f4db89609c0aa3e2481513507b08434481fd568a788cddc37e",
+            "seconds": 0.651412
+          },
+          {
+            "query": 9,
+            "rows": 32,
+            "sha256": "d7b71a6637e1ac5b290b42d87920567763684d9c2f98485f8c01b444d4320026",
+            "seconds": 0.436271
+          },
+          {
+            "query": 10,
+            "rows": 16,
+            "sha256": "43f0621e53e326f5d12927a43aa23db3bae37739c78f49fdbae762ce96777c09",
+            "seconds": 459.382155
+          },
+          {
+            "query": 11,
+            "rows": 240,
+            "sha256": "64fbb39edf9ed6d1575ab217fad7cf033ac7b53846d14c05de33a1d4894ad1b2",
+            "seconds": 17.17579
+          },
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "1a4023d2073ac9e500594ecaa1902dfa99f542f673edd28f6139ed424a074b0c",
+            "seconds": 0.428469
+          }
+        ]
+      },
+      "events_sha256": "81f226ac7e17a44a825adc06352181d8e6b39c3b86fd4ae794094a884dde23eb"
+    },
+    "t100k": {
+      "oracle_exact_queries": 12,
+      "runs": {
+        "before": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+            "seconds": 1088.563352
+          }
+        ],
+        "after": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+            "seconds": 7.537337
+          }
+        ],
+        "all": [
+          {
+            "query": 1,
+            "rows": 1,
+            "sha256": "06fc08666f2aedf388ef94543817f070237d2833aa93085e8efd45b9ca6c4e61",
+            "seconds": 2.699566
+          },
+          {
+            "query": 2,
+            "rows": 1,
+            "sha256": "e4aefb74f809ae46ab3dff34181945637d468f6605a5d0fbcbd19ae833e85a0b",
+            "seconds": 0.82768
+          },
+          {
+            "query": 3,
+            "rows": 1,
+            "sha256": "2b33db4275bb42f191ca5d8096a3be65536d2dff0d34e5b49cc33a4e553eaefd",
+            "seconds": 1.315413
+          },
+          {
+            "query": 4,
+            "rows": 5412,
+            "sha256": "daf9baae89150d4c246f8732bf70a1ab128d343c02b883918849f27a85a6c62b",
+            "seconds": 1.855291
+          },
+          {
+            "query": 5,
+            "rows": 23,
+            "sha256": "7383cb9030cb08f76c7c48dd3ca6963467341d46ac8ff341bcde70ab1881321b",
+            "seconds": 11.851517
+          },
+          {
+            "query": 6,
+            "rows": 100,
+            "sha256": "22f6ba0f15c1583b5100ca6a413781c35f52c9c20cb9b793ab0537cb12ca64b6",
+            "seconds": 14.386305
+          },
+          {
+            "query": 7,
+            "rows": 4,
+            "sha256": "1c8d640043a6891baa382f84f4298f48613fb2f7af76fbf4d6c303da27ed6356",
+            "seconds": 0.695617
+          },
+          {
+            "query": 8,
+            "rows": 8000,
+            "sha256": "92605c80f32c54b37af7d5db857799508961de2b5809df5508ae46bd73168ff9",
+            "seconds": 0.838655
+          },
+          {
+            "query": 9,
+            "rows": 32,
+            "sha256": "71d55ebfe02a35bb0e87ce0825c7adb2d9f0972c48c574a3c7e832fb0a7f232e",
+            "seconds": 0.773279
+          },
+          {
+            "query": 10,
+            "rows": 16,
+            "sha256": "6a224d3bdcecf4d463071429e4dd6f6590c4a404b2f0b72f43ed74dbcac619f1",
+            "seconds": 1986.99338
+          },
+          {
+            "query": 11,
+            "rows": 240,
+            "sha256": "13f1551d4f2fe4aca176df9d65d9c22bff2089ab1d795af391ec6bcc0af2c34a",
+            "seconds": 34.51922
+          },
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+            "seconds": 0.96794
+          }
+        ],
+        "repeat": [
+          {
+            "query": 12,
+            "rows": 4,
+            "sha256": "b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068",
+            "seconds": 6.494075
+          }
+        ]
+      },
+      "events_sha256": "fe3f025b5e143e75a6ec63badef4c2d830c91d1a0067cb41ba824a6e61f42c39"
+    }
+  },
+  "clickbench": {
+    "plans": 45,
+    "identical": true,
+    "plan_hashes": {
+      "q0v0.plan.txt": "e11d0f83e1c88be431ce7d850fee92ca3aaf7fb52039ee568ab28e790b85f087",
+      "q10v0.plan.txt": "c765289825f1a8ada44076cd8ea65cea1d07828e9e7af383ce4c821ff658a8e9",
+      "q11v0.plan.txt": "3eda5fc4a50eb1924fe6532ae9ef013ca48608c85328f4f30bf1b3eaed20b84a",
+      "q12v0.plan.txt": "e5f01377a60ff3deb796736d5551727b6196de6ca5cea834dd98a5943541e2ef",
+      "q13v0.plan.txt": "4a66aaae487b7593823730feca108c630ba1471d16ea75b2603670410d3d12a1",
+      "q14v0.plan.txt": "87f2911e7839fc78548d71793a34f88091be2b39c7bcc9792364152298a4e20b",
+      "q15v0.plan.txt": "b8989ff32fb7d05da90212469ce8200d41418d9a1a28f63ecc6883d322db0893",
+      "q16v0.plan.txt": "c044503746efbbbd270385a166a0461e57bbb7d81f7f0aebf9a8b4e30ba99abd",
+      "q17v0.plan.txt": "8ddad9004c747c10dfba0a84b765d6911a87dce78f71855455833ac2c5be5019",
+      "q18v0.plan.txt": "190b891f8bcad040b0507ea6bed57cf9218e686bdec7a7d37e2a899ac3d53572",
+      "q19v0.plan.txt": "873ba8169ce98c0b045d10651ff7da7ae1ae74004a05037aa52efe47842b9b1e",
+      "q1v0.plan.txt": "13d7157efc6c9d906e3ad4aa1ebdf648eadb1525067aa4bd8df673d33dccd977",
+      "q20v0.plan.txt": "87e48aec97457256e5eef41d57771434c8d24782850aefd9bebaca342d018ec9",
+      "q21v0.plan.txt": "6e1ef2023fbb92cd92248448eb8f1d23bc8d7b771204134f38d3f082c3d016bb",
+      "q22v0.plan.txt": "dcd59fac8c77acc7866a8f6248caedc40eda59219f8e1f73ea1e62c6ad536013",
+      "q23v0.plan.txt": "3059e8582813db529ac2d114e5b3cc943797834e491dc34a60c5478f6b925b8d",
+      "q24v0.plan.txt": "ee7efa45bb8c593196a2c81381ad5d17276ca452323c5c9b3c09e8cbe9660617",
+      "q25v0.plan.txt": "cda68c0b906be6716a52052a9d62b5fbd3fe1616366bde119aa37829795c5a92",
+      "q26v0.plan.txt": "568546a68af8b4e92176de66aa902ad87410e51b3db851925af1f32f6297df98",
+      "q27v0.plan.txt": "2fa61fb515ed1287d0b9be93b270f9d979f8a5a685fd3e4ce0217fec9612a2ef",
+      "q28v0.plan.txt": "7594a917050d4fbe8976a5507ad2bb7afe5875ea325967857b1e09861ec85d08",
+      "q29v0.plan.txt": "fe66365a2d661ea7b2080722bb5142ab01f56e9d851a30317070addb2ea99930",
+      "q29v1.plan.txt": "8ce2f88c3d73b46542f489578707377345eecb58db12c5f241fac073dd1d5f7a",
+      "q2v0.plan.txt": "917607b676d0b8617437aa5452fb9cd863fb8de6f618a6a35f0014e377bd36e6",
+      "q2v1.plan.txt": "b5634a27661ed3af0b1abc4aed7e009c1293bfbac148bc1d7db7c4cec7616d5d",
+      "q30v0.plan.txt": "ea9d77106e869ede4f0158a5a268dbfc4c40e6ac9a69df382e817a51d7c0a55d",
+      "q31v0.plan.txt": "0379a4b477883c7afbc3d7d2e153b36eec10a23b6f187c03a93636cfe70f1e10",
+      "q32v0.plan.txt": "d1de2f972851efaf9071325c059df5b76daa2c38635b3b04ecaa9d5007535398",
+      "q33v0.plan.txt": "35094dc10e2cf58785c0662b349cb7628a260248322ef4cabbeb1d6b7cbd57d3",
+      "q34v0.plan.txt": "9dfb1d488f48ceacf6298939bd4e49d9a57f444050f04ed32fe9c6421807fe9b",
+      "q35v0.plan.txt": "7037ec4b3292db2a8dc42fe7df98e065e45f976444fda897d6b8c13635514f24",
+      "q36v0.plan.txt": "2d4836306452901095b0d1743cdb16d44e763ed816733ff4a47b5fbfeadebfab",
+      "q37v0.plan.txt": "d226a061ad368902c22fd67140c1d007ad97978be5c76a9fecd5dcaf5a2a02e5",
+      "q38v0.plan.txt": "fb8c451ed6ad287d0de8b1649f4ebf3b700186740ab2de4219967029a21639ad",
+      "q39v0.plan.txt": "15ed1c979b996f82ed2b47843400f3bf4fd3dcb6529f0e2e97f4e3855bcdcc0e",
+      "q3v0.plan.txt": "89d0eb8b4a06547dbaca4ae83776a8219f925b38c50373c2bb6e69208e273e61",
+      "q40v0.plan.txt": "54a925b7067995b9f24430f3861b88466234452613ac5f6a679105c469d23f04",
+      "q41v0.plan.txt": "c32ddc77aeeb52c4d10f1c17f78942a4ebf998e6b9ffd3bec8a85599913ed9cd",
+      "q42v0.plan.txt": "648001824721ba84d51a9559ff7d259f84306e1c719c8409cb6cefdf517e80e4",
+      "q4v0.plan.txt": "9f398dd1d01caa71a7bb7a8ccb644869b8cb0e03ac4f0ae4bab0c0e487d3ec2e",
+      "q5v0.plan.txt": "d6427e04a2ad14c8a9b0bcccd4fb25ca6cd9d32cc81e7742fd70fe58be5a2a65",
+      "q6v0.plan.txt": "7df2f2dd978cf9a56c5936392ff4d01f72d9cddee1420ea208d30117a3a4edb0",
+      "q7v0.plan.txt": "9a10d4ddb46c074901512a33dba17166dd3b7dde7e3355350f709fc54fe27cc7",
+      "q8v0.plan.txt": "09bd987299092bca578da12538a5dca555d6d7d580fd1aab20af73b4bdd39e9b",
+      "q9v0.plan.txt": "2e503cb1c8c99a609695505b88d4616888f01355cd2087ea6ccee610988e2ce2"
+    }
+  },
+  "method": "Natural kit batching, one commit per publication; fresh per-tier stores and fresh JVM per standalone leg; same compiled classes, rule disabled/enabled; shared two-slot heavy limiter; all answers byte-checked before timings read.",
+  "all_query_processes": {
+    "t25k": [
+      [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      [
+        10,
+        11,
+        12
+      ]
+    ],
+    "t50k": [
+      [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    ],
+    "t100k": [
+      [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    ]
+  },
+  "interruption": "Worker relaunch interrupted the t25k all-query JVM after Q9; Q10-Q12 resumed in a fresh JVM on the same store and compiled classes. Standalone Q12 pairs and repeat were completed before the interruption.",
+  "runner_source_hashes": {
+    "Q12Probe.java.txt": "9547314a130c8f1d2ede6c2c97cd22b24068a7c476a4e807fc1b42f5feacab87",
+    "BitemporalSchema.java.txt": "8b84f6c7d8491a0736e48bdf49b6571b5b034f81216a1f3df002f2e290e4e0d5"
+  },
+  "harness_class_hashes": {
+    "ClickBenchPlanProbe.class": "89d15c87c4fb9fd03ba1a62591a7a4accba60d566741a7fee09ca356387c91d2",
+    "PlanProbe$1$1.class": "c5f5d9abad95deb5b63b0d99d303bb9bddf77ac77f6da1d7a4619dd83cba9d13",
+    "PlanProbe$1.class": "38b7046b59290b7bf2ca34919d242a522034e301eab0e018bd1ebd1bf068fd2a",
+    "PlanProbe.class": "5fc521230c07d765270b55c126561f35726d2635c5dbf9d40a9fbbb601da2aa0",
+    "Q12Probe.class": "badf590bd38851b3df42781f3fe6efea9947b0ba199330ba210c492086a0220e",
+    "SemanticsProbe.class": "a6f42b0b0c4e58b2468821260efbe5aac862906c46c21dead62f65f7ae29247c",
+    "io/sirix/query/bench/bitemporal/BitemporalSchema$Event.class": "989c0406dabee9a7806347619f530c528f386d90a1bdbb1af241120b761b6d97",
+    "io/sirix/query/bench/bitemporal/BitemporalSchema$Tier.class": "ede3ceaab7d193b63e11debd9cb617c2d344f96d2ae2ed26fcee4954698231be",
+    "io/sirix/query/bench/bitemporal/BitemporalSchema.class": "cd810fd231cb6912868d586b11ac02bd3c205cedc4960b2e9b59ec4fc5368200"
+  }
+}

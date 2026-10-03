@@ -10,7 +10,8 @@ superseded let-bound plan, not the current one.
 
 Later rounds added artifacts that describe **later** states. Each measurement block in
 `measurements.json` names the commit it was taken at in `measured_at_commit` and pins the source
-hashes it was built from — **check that field rather than trusting a block's name.** The latest is
+hashes it was built from — **check that field rather than trusting a block's name.** The latest
+historical expression-memo block is
 `remeasured_t100k_at_73d6e5daf`; `remeasured_t100k_final_head` (taken at `e24c6b854`, despite the
 name) and `remeasured_t100k_after_memo_fix` are earlier re-measurements kept for history and marked
 `superseded_by`. Commits landing after a block was taken are recorded in its
@@ -37,6 +38,14 @@ campaign are listed in the addendum of the implementation note.
   was taken at — `remeasured_t100k_at_73d6e5daf` (latest), `remeasured_t100k_final_head` and
   `remeasured_t100k_after_memo_fix` (both superseded).
 - `validation.json`: complete query-suite and work-budget counts plus the work-counter mutation.
+- `physical-operator-validation.json`: measurements of physical-operator implementation commit
+  `cddb195dcea3358dd4eb294085f0061241ba72d6`, its source and dependency pins, query-suite/work-budget
+  counts, ClickBench plan comparison, and all twelve oracle-exact SH1 answers at t25k/t50k/t100k.
+  These measurements precede any subsequent pipeline rebase. T25k's all-query run resumed Q10–Q12
+  in a fresh JVM after the worker relaunch; its standalone Q12 pair was uninterrupted.
+- `t{25,50,100}k-operator-{before,after}.plan.txt`: the rule-disabled/enabled physical-operator
+  comparison using the same compiled classes. The enabled plan has a `HashMembershipJoin` marker;
+  it has no membership expression memo or synthetic lookup tuple slot.
 
 ## Reproduction
 
