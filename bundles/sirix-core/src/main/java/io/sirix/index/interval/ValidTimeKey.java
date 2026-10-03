@@ -9,11 +9,10 @@ package io.sirix.index.interval;
  * Composite key for the RI-tree stores and their companion evidence tree.
  *
  * <p>
- * The RI-tree drives one logical ordered map {@code (forkNode, endpoint) -> multiset(ref)} per
- * store (a {@code lower} store keyed {@code (fork, lo)} and an {@code upper} store keyed
- * {@code (fork, hi)}). We realise BOTH stores in a single HOT sub-tree by prefixing the key with a
- * one-byte {@link #store} discriminator ({@link #STORE_LOWER} / {@link #STORE_UPPER}). The
- * order-preserving wire encoding is
+ * The RI-tree drives one {@link OrderedStore} per store (a {@code lower} store keyed
+ * {@code (fork, lo)} and an {@code upper} store keyed {@code (fork, hi)}). We realise BOTH stores
+ * in a single HOT sub-tree by prefixing the key with a one-byte {@link #store} discriminator
+ * ({@link #STORE_LOWER} / {@link #STORE_UPPER}). The order-preserving wire encoding is
  * {@code [store:1][signFlippedBE(forkNode):8][signFlippedBE(endpoint):8]} (see
  * {@link ValidTimeKeySerializer}), so a fixed {@code (store, forkNode)} endpoint sub-range is one
  * contiguous HOT range scan — exactly what {@link OrderedStore#scan} needs.
